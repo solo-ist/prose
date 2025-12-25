@@ -5,12 +5,14 @@ interface ChatState {
   messages: ChatMessage[]
   isLoading: boolean
   isPanelOpen: boolean
+  context: string | null
   addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => void
   updateMessage: (id: string, content: string) => void
   clearMessages: () => void
   setLoading: (isLoading: boolean) => void
   togglePanel: () => void
   setPanelOpen: (open: boolean) => void
+  setContext: (context: string | null) => void
 }
 
 function generateId(): string {
@@ -21,6 +23,7 @@ export const useChatStore = create<ChatState>((set) => ({
   messages: [],
   isLoading: false,
   isPanelOpen: true,
+  context: null,
 
   addMessage: (message) =>
     set((state) => ({
@@ -47,5 +50,7 @@ export const useChatStore = create<ChatState>((set) => ({
 
   togglePanel: () => set((state) => ({ isPanelOpen: !state.isPanelOpen })),
 
-  setPanelOpen: (open) => set({ isPanelOpen: open })
+  setPanelOpen: (open) => set({ isPanelOpen: open }),
+
+  setContext: (context) => set({ context })
 }))

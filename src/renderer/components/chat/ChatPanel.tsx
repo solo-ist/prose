@@ -1,3 +1,4 @@
+import { useRef, useEffect } from 'react'
 import { useChat } from '../../hooks/useChat'
 import { ChatMessage } from './ChatMessage'
 import { ChatInput } from './ChatInput'
@@ -7,6 +8,14 @@ import { MessageSquare, Trash2 } from 'lucide-react'
 
 export function ChatPanel() {
   const { messages, isLoading, sendMessage, clearMessages } = useChat()
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  // Auto-scroll to bottom on new messages
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [messages, isLoading])
 
   return (
     <div className="flex h-full flex-col bg-muted/20">
@@ -30,7 +39,7 @@ export function ChatPanel() {
       </div>
 
       {/* Messages */}
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1" ref={scrollRef}>
         {messages.length === 0 ? (
           <div className="flex h-full items-center justify-center p-8">
             <div className="text-center">
@@ -38,8 +47,12 @@ export function ChatPanel() {
               <p className="mt-4 text-sm text-muted-foreground">
                 No messages yet
               </p>
-              <p className="mt-1 text-xs text-muted-foreground/60">
-                Ask questions about your document or get writing help
+              <p className="mt-2 text-xs text-muted-foreground/60">
+                Select text and press{' '}
+                <kbd className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium">
+                  ⌘⇧K
+                </kbd>{' '}
+                to add context
               </p>
             </div>
           </div>

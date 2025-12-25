@@ -1,14 +1,114 @@
-import { useEffect } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
+import { useEditor as useTipTapEditor, EditorContent } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
+import Placeholder from '@tiptap/extension-placeholder'
+import { Markdown } from 'tiptap-markdown'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
+import { useChat } from '../../hooks/useChat'
 
 export function Editor() {
-  const { document, cursorPosition } = useEditor()
-  const { settings } = useSettings()
+  const { document, setContent, openFile, saveFile } = useEditor()
+  const { settings, setDialogOpen } = useSettings()
+  const { setContext, togglePanel, setPanelOpen } = useChat()
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isUpdatingFromStore = useRef(false)
+
+  const editor = useTipTapEditor({
+    extensions: [
+      StarterKit.configure({
+        heading: {
+          levels: [1, 2, 3, 4, 5, 6]
+        }
+      }),
+      Placeholder.configure({
+        placeholder: 'Start writing...'
+      }),
+      Markdown.configure({
+        html: false,
+        transformPastedText: true,
+        transformCopiedText: true
+      })
+    ],
+    content: document.content,
+    editorProps: {
+      attributes: {
+        class: 'outline-none min-h-full'
+      }
+    },
+    onUpdate: ({ editor }) => {
+      if (isUpdatingFromStore.current) return
+
+      // Debounce content updates to store
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current)
+      }
+
+      debounceRef.current = setTimeout(() => {
+        const markdown = editor.storage.markdown.getMarkdown()
+        setContent(markdown)
+      }, 500)
+    }
+  })
+
+  // Sync content from store to editor when document changes externally
+  useEffect(() => {
+    if (!editor) return
+
+    const currentMarkdown = editor.storage.markdown?.getMarkdown() || ''
+    if (document.content !== currentMarkdown) {
+      isUpdatingFromStore.current = true
+      editor.commands.setContent(document.content)
+      isUpdatingFromStore.current = false
+    }
+  }, [editor, document.content])
+
+  // Cleanup debounce on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current)
+      }
+    }
+  }, [])
+
+  // Handle keyboard shortcuts
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    const isMod = e.metaKey || e.ctrlKey
+
+    if (isMod && e.key === 'o' && !e.shiftKey) {
+      e.preventDefault()
+      openFile()
+    } else if (isMod && e.key === 's' && !e.shiftKey) {
+      e.preventDefault()
+      saveFile()
+    } else if (isMod && e.key === ',') {
+      e.preventDefault()
+      setDialogOpen(true)
+    } else if (isMod && e.shiftKey && e.key === 'k') {
+      // Cmd+Shift+K: Add selection as context
+      e.preventDefault()
+      if (editor) {
+        const { from, to } = editor.state.selection
+        if (from !== to) {
+          const selectedText = editor.state.doc.textBetween(from, to, '\n')
+          if (selectedText.trim()) {
+            setContext(selectedText)
+            setPanelOpen(true)
+          }
+        }
+      }
+    } else if (isMod && e.shiftKey && e.key === 'l') {
+      // Cmd+Shift+L: Toggle chat panel
+      e.preventDefault()
+      togglePanel()
+    }
+  }, [openFile, saveFile, setDialogOpen, editor, setContext, setPanelOpen, togglePanel])
 
   useEffect(() => {
-    // Placeholder: TipTap editor will be initialized here
-  }, [])
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [handleKeyDown])
 
   return (
     <div className="h-full flex flex-col">
@@ -20,25 +120,12 @@ export function Editor() {
           fontFamily: settings.editor.fontFamily
         }}
       >
-        <div className="max-w-3xl mx-auto">
-          {/* Placeholder for TipTap editor */}
-          <div className="prose prose-invert max-w-none">
-            {document.content ? (
-              <div className="whitespace-pre-wrap text-foreground/90">
-                {document.content}
-              </div>
-            ) : (
-              <p className="text-muted-foreground italic">
-                Start writing, or open a file...
-              </p>
-            )}
-          </div>
+        <div className="max-w-3xl mx-auto prose-editor">
+          <EditorContent
+            editor={editor}
+            className="min-h-full"
+          />
         </div>
-      </div>
-
-      {/* Debug info - will be removed */}
-      <div className="hidden">
-        Line {cursorPosition.line}, Column {cursorPosition.column}
       </div>
     </div>
   )

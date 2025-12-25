@@ -1,56 +1,46 @@
 import { useCallback } from 'react'
 import { useChatStore } from '../stores/chatStore'
-import { useSettingsStore } from '../stores/settingsStore'
-import { createLLMProvider } from '../lib/llm'
 
 export function useChat() {
   const {
     messages,
     isLoading,
     isPanelOpen,
+    context,
     addMessage,
     updateMessage,
     clearMessages,
     setLoading,
     togglePanel,
-    setPanelOpen
+    setPanelOpen,
+    setContext
   } = useChatStore()
 
-  const { settings } = useSettingsStore()
-
   const sendMessage = useCallback(
-    async (content: string, context?: string) => {
+    async (content: string) => {
       if (!content.trim() || isLoading) return
+
+      // Get context from store and clear it
+      const messageContext = context
+      setContext(null)
 
       // Add user message
       addMessage({
         role: 'user',
         content,
-        context
+        context: messageContext || undefined
       })
 
       setLoading(true)
 
       try {
-        const provider = createLLMProvider(settings.llm)
-        const llmMessages = messages.map((msg) => ({
-          role: msg.role as 'user' | 'assistant',
-          content: msg.context
-            ? `Context:\n${msg.context}\n\nMessage:\n${msg.content}`
-            : msg.content
-        }))
-
-        // Add the new message
-        llmMessages.push({
-          role: 'user',
-          content: context ? `Context:\n${context}\n\nMessage:\n${content}` : content
-        })
-
-        const response = await provider.chat(llmMessages)
+        // TODO: Implement actual LLM calls
+        // For now, echo back the message
+        await new Promise((resolve) => setTimeout(resolve, 500))
 
         addMessage({
           role: 'assistant',
-          content: response.content
+          content: `I received your message: "${content}"${messageContext ? `\n\nWith context: "${messageContext.slice(0, 100)}${messageContext.length > 100 ? '...' : ''}"` : ''}`
         })
       } catch (error) {
         console.error('Failed to send message:', error)
@@ -62,17 +52,19 @@ export function useChat() {
         setLoading(false)
       }
     },
-    [messages, isLoading, settings.llm, addMessage, setLoading]
+    [context, isLoading, addMessage, setLoading, setContext]
   )
 
   return {
     messages,
     isLoading,
     isPanelOpen,
+    context,
     sendMessage,
     updateMessage,
     clearMessages,
     togglePanel,
-    setPanelOpen
+    setPanelOpen,
+    setContext
   }
 }

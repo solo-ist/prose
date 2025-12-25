@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { Button } from '../ui/button'
 import { Textarea } from '../ui/textarea'
-import { Send } from 'lucide-react'
+import { Send, X } from 'lucide-react'
+import { useChat } from '../../hooks/useChat'
 
 interface ChatInputProps {
   onSend: (message: string) => void
@@ -11,6 +12,7 @@ interface ChatInputProps {
 export function ChatInput({ onSend, isLoading }: ChatInputProps) {
   const [message, setMessage] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const { context, setContext } = useChat()
 
   const handleSubmit = () => {
     if (message.trim() && !isLoading) {
@@ -20,21 +22,47 @@ export function ChatInput({ onSend, isLoading }: ChatInputProps) {
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Cmd+Enter or Ctrl+Enter to send
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault()
       handleSubmit()
     }
   }
 
+  // Auto-resize textarea (max 4 lines ~= 96px)
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 96)}px`
     }
   }, [message])
 
   return (
     <div className="border-t border-border p-4">
+      {/* Context block */}
+      {context && (
+        <div className="mb-3 rounded-md bg-muted/50 p-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-muted-foreground mb-1">
+                Context
+              </p>
+              <p className="text-sm text-foreground/80 line-clamp-3 whitespace-pre-wrap">
+                {context}
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 shrink-0"
+              onClick={() => setContext(null)}
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-2">
         <Textarea
           ref={textareaRef}
@@ -42,7 +70,7 @@ export function ChatInput({ onSend, isLoading }: ChatInputProps) {
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Ask about your document..."
-          className="min-h-[40px] max-h-[120px] resize-none"
+          className="min-h-[40px] max-h-[96px] resize-none"
           disabled={isLoading}
         />
         <Button
@@ -55,7 +83,11 @@ export function ChatInput({ onSend, isLoading }: ChatInputProps) {
         </Button>
       </div>
       <p className="mt-2 text-xs text-muted-foreground">
-        Press Enter to send, Shift+Enter for new line
+        Press{' '}
+        <kbd className="rounded bg-muted px-1 py-0.5 text-[10px] font-medium">
+          ⌘↵
+        </kbd>{' '}
+        to send
       </p>
     </div>
   )

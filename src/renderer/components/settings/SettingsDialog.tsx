@@ -17,6 +17,7 @@ import {
 } from '../ui/select'
 import { Button } from '../ui/button'
 import { Separator } from '../ui/separator'
+import { Slider } from '../ui/slider'
 import type { Settings } from '../../types'
 
 export function SettingsDialog() {
@@ -43,10 +44,11 @@ export function SettingsDialog() {
         </DialogHeader>
 
         <Tabs defaultValue="general" className="mt-4">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="editor">Editor</TabsTrigger>
             <TabsTrigger value="llm">LLM</TabsTrigger>
+            <TabsTrigger value="account">Account</TabsTrigger>
           </TabsList>
 
           <TabsContent value="general" className="space-y-4 mt-4">
@@ -68,45 +70,66 @@ export function SettingsDialog() {
             </div>
           </TabsContent>
 
-          <TabsContent value="editor" className="space-y-4 mt-4">
-            <div className="space-y-2">
-              <Label htmlFor="fontSize">Font Size</Label>
-              <Input
-                id="fontSize"
-                type="number"
+          <TabsContent value="editor" className="space-y-6 mt-4">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="fontSize">Font Size</Label>
+                <span className="text-sm text-muted-foreground">
+                  {settings.editor.fontSize}px
+                </span>
+              </div>
+              <Slider
+                value={settings.editor.fontSize}
+                onChange={(value) => setEditorConfig({ fontSize: value })}
                 min={12}
                 max={24}
-                value={settings.editor.fontSize}
-                onChange={(e) =>
-                  setEditorConfig({ fontSize: parseInt(e.target.value) || 16 })
-                }
+                step={1}
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="lineHeight">Line Height</Label>
-              <Input
-                id="lineHeight"
-                type="number"
-                min={1}
-                max={3}
-                step={0.1}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="lineHeight">Line Height</Label>
+                <span className="text-sm text-muted-foreground">
+                  {settings.editor.lineHeight.toFixed(1)}
+                </span>
+              </div>
+              <Slider
                 value={settings.editor.lineHeight}
-                onChange={(e) =>
-                  setEditorConfig({
-                    lineHeight: parseFloat(e.target.value) || 1.6
-                  })
-                }
+                onChange={(value) => setEditorConfig({ lineHeight: value })}
+                min={1}
+                max={2.5}
+                step={0.1}
               />
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="fontFamily">Font Family</Label>
-              <Input
-                id="fontFamily"
+              <Select
                 value={settings.editor.fontFamily}
-                onChange={(e) => setEditorConfig({ fontFamily: e.target.value })}
-              />
+                onValueChange={(value) => setEditorConfig({ fontFamily: value })}
+              >
+                <SelectTrigger id="fontFamily">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace'>
+                    System Mono
+                  </SelectItem>
+                  <SelectItem value='"JetBrains Mono", monospace'>
+                    JetBrains Mono
+                  </SelectItem>
+                  <SelectItem value='"Fira Code", monospace'>
+                    Fira Code
+                  </SelectItem>
+                  <SelectItem value='ui-serif, Georgia, Cambria, "Times New Roman", Times, serif'>
+                    Serif
+                  </SelectItem>
+                  <SelectItem value='ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'>
+                    Sans Serif
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </TabsContent>
 
@@ -168,6 +191,23 @@ export function SettingsDialog() {
                 />
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="account" className="space-y-4 mt-4">
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-sm font-medium mb-2">Google Account</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Connect your Google account to sync documents across devices.
+                </p>
+                <Button variant="outline" disabled>
+                  Connect Google Account
+                </Button>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Coming soon
+                </p>
+              </div>
+            </div>
           </TabsContent>
         </Tabs>
 

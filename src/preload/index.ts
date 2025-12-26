@@ -6,6 +6,24 @@ export interface FileResult {
   content: string
 }
 
+export interface LLMMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface LLMRequest {
+  provider: string
+  model: string
+  apiKey: string
+  baseUrl?: string
+  messages: LLMMessage[]
+  system: string
+}
+
+export interface LLMResponse {
+  content: string
+}
+
 export interface ElectronAPI {
   openFile: () => Promise<FileResult | null>
   saveFile: (path: string, content: string) => Promise<void>
@@ -14,6 +32,7 @@ export interface ElectronAPI {
   loadSettings: () => Promise<Settings>
   saveSettings: (settings: Settings) => Promise<void>
   onMenuAction: (callback: (action: string) => void) => () => void
+  llmChat: (request: LLMRequest) => Promise<LLMResponse>
 }
 
 const api: ElectronAPI = {
@@ -31,7 +50,8 @@ const api: ElectronAPI = {
     return () => {
       ipcRenderer.removeListener('menu:action', handler)
     }
-  }
+  },
+  llmChat: (request: LLMRequest) => ipcRenderer.invoke('llm:chat', request)
 }
 
 contextBridge.exposeInMainWorld('api', api)

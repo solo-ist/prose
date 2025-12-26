@@ -6,17 +6,23 @@ interface ChatState {
   isLoading: boolean
   isPanelOpen: boolean
   context: string | null
-  addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => void
-  updateMessage: (id: string, content: string) => void
+  includeDocument: boolean
+  addMessage: (message: ChatMessage) => void
+  updateMessage: (id: string, updates: Partial<ChatMessage>) => void
   clearMessages: () => void
   setLoading: (isLoading: boolean) => void
   togglePanel: () => void
   setPanelOpen: (open: boolean) => void
   setContext: (context: string | null) => void
+  setIncludeDocument: (include: boolean) => void
 }
 
 function generateId(): string {
   return Math.random().toString(36).substring(2, 15)
+}
+
+export function createMessageId(): string {
+  return generateId()
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -24,23 +30,17 @@ export const useChatStore = create<ChatState>((set) => ({
   isLoading: false,
   isPanelOpen: true,
   context: null,
+  includeDocument: false,
 
   addMessage: (message) =>
     set((state) => ({
-      messages: [
-        ...state.messages,
-        {
-          ...message,
-          id: generateId(),
-          timestamp: new Date()
-        }
-      ]
+      messages: [...state.messages, message]
     })),
 
-  updateMessage: (id, content) =>
+  updateMessage: (id, updates) =>
     set((state) => ({
       messages: state.messages.map((msg) =>
-        msg.id === id ? { ...msg, content } : msg
+        msg.id === id ? { ...msg, ...updates } : msg
       )
     })),
 
@@ -52,5 +52,7 @@ export const useChatStore = create<ChatState>((set) => ({
 
   setPanelOpen: (open) => set({ isPanelOpen: open }),
 
-  setContext: (context) => set({ context })
+  setContext: (context) => set({ context }),
+
+  setIncludeDocument: (include) => set({ includeDocument: include })
 }))

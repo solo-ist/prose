@@ -31,7 +31,7 @@ export function ChatPanel() {
             size="icon"
             className="h-8 w-8"
             onClick={clearMessages}
-            title="Clear chat"
+            aria-label="Clear chat"
           >
             <Trash2 className="h-4 w-4" />
           </Button>

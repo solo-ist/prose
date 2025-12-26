@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react'
 import { useEditor as useTipTapEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
+import Link from '@tiptap/extension-link'
 import { Markdown } from 'tiptap-markdown'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
@@ -24,8 +25,19 @@ export function Editor() {
       Placeholder.configure({
         placeholder: 'Start writing...'
       }),
+      Link.configure({
+        openOnClick: true,
+        autolink: true,
+        linkOnPaste: true,
+        HTMLAttributes: {
+          target: '_blank',
+          rel: 'noopener noreferrer'
+        }
+      }),
       Markdown.configure({
-        html: false,
+        html: true,
+        tightLists: true,
+        bulletListMarker: '-',
         transformPastedText: true,
         transformCopiedText: true
       })

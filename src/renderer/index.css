@@ -237,6 +237,17 @@
   outline-offset: 2px;
 }
 
+/* Focus mode - paragraph dimming */
+.prose-editor .focus-dimmed {
+  opacity: 0.4;
+  transition: opacity 0.15s ease-out;
+}
+
+.prose-editor .focus-active {
+  opacity: 1;
+  transition: opacity 0.15s ease-out;
+}
+
 /* Selection */
 ::selection {
   background: hsl(var(--primary) / 0.2);

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Button } from '../ui/button'
 import { Textarea } from '../ui/textarea'
+import { Checkbox } from '../ui/checkbox'
 import { Send, X } from 'lucide-react'
 import { useChat } from '../../hooks/useChat'
 
@@ -12,7 +13,7 @@ interface ChatInputProps {
 export function ChatInput({ onSend, isLoading }: ChatInputProps) {
   const [message, setMessage] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const { context, setContext } = useChat()
+  const { context, setContext, includeDocument, setIncludeDocument } = useChat()
 
   const handleSubmit = () => {
     if (message.trim() && !isLoading) {
@@ -82,13 +83,22 @@ export function ChatInput({ onSend, isLoading }: ChatInputProps) {
           <Send className="h-4 w-4" />
         </Button>
       </div>
-      <p className="mt-2 text-xs text-muted-foreground">
-        Press{' '}
-        <kbd className="rounded bg-muted px-1 py-0.5 text-[10px] font-medium">
-          ⌘↵
-        </kbd>{' '}
-        to send
-      </p>
+      <div className="mt-2 flex items-center justify-between">
+        <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+          <Checkbox
+            checked={includeDocument}
+            onCheckedChange={(checked) => setIncludeDocument(checked === true)}
+          />
+          Include full document
+        </label>
+        <p className="text-xs text-muted-foreground">
+          Press{' '}
+          <kbd className="rounded bg-muted px-1 py-0.5 text-[10px] font-medium">
+            ⌘↵
+          </kbd>{' '}
+          to send
+        </p>
+      </div>
     </div>
   )
 }

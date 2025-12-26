@@ -15,6 +15,18 @@ export interface LLMProvider {
   stream(messages: LLMMessage[], onChunk: (chunk: string) => void): Promise<void>
 }
 
+export function validateConfig(config: Settings['llm']): string | null {
+  if (!config.model) {
+    return 'No model specified'
+  }
+
+  if (config.provider !== 'ollama' && !config.apiKey) {
+    return `No API key configured for ${config.provider}`
+  }
+
+  return null
+}
+
 // Stub implementation - will be fully implemented later
 export function createLLMProvider(_config: Settings['llm']): LLMProvider {
   return {

@@ -24,7 +24,7 @@ const defaultSettings: Settings = {
   editor: {
     fontSize: 16,
     lineHeight: 1.6,
-    fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace'
+    fontFamily: "'Source Code Pro', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace"
   }
 }
 

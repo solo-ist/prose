@@ -1,5 +1,10 @@
 import { useCallback } from 'react'
-import { useChatStore } from '../stores/chatStore'
+import { useChatStore, createMessageId } from '../stores/chatStore'
+import { useSettingsStore } from '../stores/settingsStore'
+import { useEditorStore } from '../stores/editorStore'
+import { validateConfig } from '../lib/llm'
+import { buildSystemPrompt } from '../lib/prompts'
+import { getApi } from '../lib/browserApi'
 
 export function useChat() {
   const {
@@ -7,52 +12,113 @@ export function useChat() {
     isLoading,
     isPanelOpen,
     context,
+    includeDocument,
     addMessage,
     updateMessage,
     clearMessages,
     setLoading,
     togglePanel,
     setPanelOpen,
-    setContext
+    setContext,
+    setIncludeDocument
   } = useChatStore()
+
+  const { settings } = useSettingsStore()
+  const { document } = useEditorStore()
 
   const sendMessage = useCallback(
     async (content: string) => {
       if (!content.trim() || isLoading) return
 
+      // Validate config first
+      const configError = validateConfig(settings.llm)
+      if (configError) {
+        const errorMsgId = createMessageId()
+        addMessage({
+          id: errorMsgId,
+          role: 'assistant',
+          content: `${configError}. Please configure your API settings (Cmd+,).`,
+          timestamp: new Date()
+        })
+        return
+      }
+
       // Get context from store and clear it
       const messageContext = context
       setContext(null)
 
+      // Build the user message with context if present
+      let fullMessage = content
+      if (messageContext) {
+        fullMessage = `Regarding this text:\n\n> ${messageContext}\n\n${content}`
+      }
+
       // Add user message
+      const userMsgId = createMessageId()
       addMessage({
+        id: userMsgId,
         role: 'user',
         content,
-        context: messageContext || undefined
+        context: messageContext || undefined,
+        timestamp: new Date()
+      })
+
+      // Create assistant message placeholder
+      const assistantMsgId = createMessageId()
+      addMessage({
+        id: assistantMsgId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date()
       })
 
       setLoading(true)
 
       try {
-        // TODO: Implement actual LLM calls
-        // For now, echo back the message
-        await new Promise((resolve) => setTimeout(resolve, 500))
+        // Build messages array for the API
+        const apiMessages = messages.map((m) => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.context
+            ? `Regarding this text:\n\n> ${m.context}\n\n${m.content}`
+            : m.content
+        }))
+        apiMessages.push({ role: 'user' as const, content: fullMessage })
 
-        addMessage({
-          role: 'assistant',
-          content: `I received your message: "${content}"${messageContext ? `\n\nWith context: "${messageContext.slice(0, 100)}${messageContext.length > 100 ? '...' : ''}"` : ''}`
+        // Call LLM (via Electron IPC or browser fallback)
+        const api = getApi()
+        const response = await api.llmChat({
+          provider: settings.llm.provider,
+          model: settings.llm.model,
+          apiKey: settings.llm.apiKey,
+          baseUrl: settings.llm.baseUrl,
+          messages: apiMessages,
+          system: buildSystemPrompt(includeDocument, document.content)
         })
+
+        updateMessage(assistantMsgId, { content: response.content })
       } catch (error) {
-        console.error('Failed to send message:', error)
-        addMessage({
-          role: 'assistant',
-          content: 'Sorry, there was an error processing your request.'
+        console.error('[Chat] Error:', error)
+        const errorMessage =
+          error instanceof Error ? error.message : 'Unknown error'
+        updateMessage(assistantMsgId, {
+          content: `Error: ${errorMessage}. Please check your API key in Settings (Cmd+,).`
         })
       } finally {
         setLoading(false)
       }
     },
-    [context, isLoading, addMessage, setLoading, setContext]
+    [
+      context,
+      isLoading,
+      messages,
+      includeDocument,
+      document.content,
+      settings.llm,
+      addMessage,
+      updateMessage,
+      setLoading,
+      setContext
+    ]
   )
 
   return {
@@ -60,11 +126,13 @@ export function useChat() {
     isLoading,
     isPanelOpen,
     context,
+    includeDocument,
     sendMessage,
     updateMessage,
     clearMessages,
     togglePanel,
     setPanelOpen,
-    setContext
+    setContext,
+    setIncludeDocument
   }
 }

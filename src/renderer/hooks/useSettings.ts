@@ -12,7 +12,8 @@ export function useSettings() {
     setDialogOpen,
     setTheme,
     setLLMConfig,
-    setEditorConfig
+    setEditorConfig,
+    setRecoveryConfig
   } = useSettingsStore()
 
   useEffect(() => {
@@ -30,6 +31,7 @@ export function useSettings() {
     setDialogOpen,
     setTheme,
     setLLMConfig,
-    setEditorConfig
+    setEditorConfig,
+    setRecoveryConfig
   }
 }

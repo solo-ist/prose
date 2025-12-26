@@ -28,6 +28,7 @@ export function SettingsDialog() {
     setTheme,
     setLLMConfig,
     setEditorConfig,
+    setRecoveryConfig,
     saveSettings
   } = useSettings()
 
@@ -67,6 +68,29 @@ export function SettingsDialog() {
                   <SelectItem value="system">System</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="recovery">Draft Recovery</Label>
+              <Select
+                value={settings.recovery?.mode ?? 'silent'}
+                onValueChange={(value) =>
+                  setRecoveryConfig({
+                    mode: value as 'silent' | 'prompt'
+                  })
+                }
+              >
+                <SelectTrigger id="recovery">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="silent">Auto-recover</SelectItem>
+                  <SelectItem value="prompt">Ask before recovering</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Choose how to handle unsaved work when the app restarts
+              </p>
             </div>
           </TabsContent>
 

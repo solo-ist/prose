@@ -25,7 +25,9 @@ export function Editor() {
         placeholder: 'Start writing...'
       }),
       Markdown.configure({
-        html: false,
+        html: true,
+        tightLists: true,
+        bulletListMarker: '-',
         transformPastedText: true,
         transformCopiedText: true
       })

@@ -2,7 +2,12 @@ import { useCallback, useEffect } from 'react'
 import { useEditorStore } from '../stores/editorStore'
 import { useChatStore, setCurrentDocumentId } from '../stores/chatStore'
 import { parseMarkdown, serializeMarkdown } from '../lib/markdown'
-import { generateId, clearDraft } from '../lib/persistence'
+import {
+  generateId,
+  generateIdFromPath,
+  clearDraft,
+  saveConversations
+} from '../lib/persistence'
 
 export function useEditor() {
   const {
@@ -44,7 +49,8 @@ export function useEditor() {
     const result = await window.api.openFile()
     if (result) {
       const parsed = parseMarkdown(result.content)
-      const newDocumentId = generateId()
+      // Use path-based ID for saved files so chat history persists
+      const newDocumentId = await generateIdFromPath(result.path)
 
       setDocument({
         documentId: newDocumentId,
@@ -54,7 +60,7 @@ export function useEditor() {
         isDirty: false
       })
 
-      // Load conversations for the new document
+      // Load conversations for the document
       await loadForDocument(newDocumentId)
 
       // Clear draft since we opened a file
@@ -72,21 +78,51 @@ export function useEditor() {
     } else {
       const path = await window.api.saveFileAs(content)
       if (path) {
-        setPath(path)
+        // Migrate chat history to path-based ID
+        const newDocumentId = await generateIdFromPath(path)
+        const conversations = useChatStore.getState().conversations
+
+        // Save conversations under new path-based ID
+        if (conversations.length > 0) {
+          const migratedConversations = conversations.map((c) => ({
+            ...c,
+            documentId: newDocumentId
+          }))
+          await saveConversations(newDocumentId, migratedConversations)
+          useChatStore.setState({ conversations: migratedConversations })
+        }
+
+        setDocument({ documentId: newDocumentId, path })
         setDirty(false)
+        setCurrentDocumentId(newDocumentId)
       }
     }
-  }, [document, setDirty, setPath])
+  }, [document, setDirty, setDocument])
 
   const saveFileAs = useCallback(async () => {
     if (!window.api) return
     const content = serializeMarkdown(document.content, document.frontmatter)
     const path = await window.api.saveFileAs(content)
     if (path) {
-      setPath(path)
+      // Migrate chat history to path-based ID
+      const newDocumentId = await generateIdFromPath(path)
+      const conversations = useChatStore.getState().conversations
+
+      // Save conversations under new path-based ID
+      if (conversations.length > 0) {
+        const migratedConversations = conversations.map((c) => ({
+          ...c,
+          documentId: newDocumentId
+        }))
+        await saveConversations(newDocumentId, migratedConversations)
+        useChatStore.setState({ conversations: migratedConversations })
+      }
+
+      setDocument({ documentId: newDocumentId, path })
       setDirty(false)
+      setCurrentDocumentId(newDocumentId)
     }
-  }, [document, setPath, setDirty])
+  }, [document, setDocument, setDirty])
 
   const newFile = useCallback(async () => {
     // Save current conversations before switching

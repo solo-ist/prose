@@ -69,6 +69,21 @@ export function generateId(): string {
   return crypto.randomUUID()
 }
 
+/**
+ * Generate a stable document ID from a file path.
+ * For saved files, this ensures chat history persists across sessions.
+ */
+export async function generateIdFromPath(path: string): Promise<string> {
+  // Use SHA-256 hash of the path to generate a stable ID
+  const encoder = new TextEncoder()
+  const data = encoder.encode(path)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  const hashHex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
+  // Return first 36 chars to match UUID length
+  return hashHex.substring(0, 36)
+}
+
 // ============ Draft Operations ============
 
 /**

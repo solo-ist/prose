@@ -55,7 +55,7 @@ export function Toolbar() {
       <div className="flex items-center gap-1 app-region-no-drag">
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" onClick={toggleTheme}>
+            <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label="Toggle theme">
               {settings.theme === 'dark' ? (
                 <Sun className="h-4 w-4" />
               ) : (
@@ -68,7 +68,7 @@ export function Toolbar() {
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" onClick={togglePanel}>
+            <Button variant="ghost" size="icon" onClick={togglePanel} aria-label={isPanelOpen ? 'Hide chat' : 'Show chat'}>
               {isPanelOpen ? (
                 <PanelRightClose className="h-4 w-4" />
               ) : (
@@ -83,7 +83,7 @@ export function Toolbar() {
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon">
+            <Button variant="ghost" size="icon" aria-label="More options">
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>

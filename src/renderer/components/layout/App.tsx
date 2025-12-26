@@ -27,7 +27,7 @@ import type { DraftState } from '../../lib/persistence'
 export function App() {
   const { isPanelOpen, togglePanel } = useChat()
   const { openFile, saveFile, saveFileAs, newFile } = useEditor()
-  const { setDialogOpen, settings } = useSettings()
+  const { setDialogOpen, settings, isLoaded: settingsLoaded } = useSettings()
   const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false)
   const [pendingDraft, setPendingDraft] = useState<DraftState | null>(null)
 
@@ -79,8 +79,10 @@ export function App() {
     setRecoveryDialogOpen(false)
   }, [pendingDraft, discardDraft])
 
-  // Check for draft recovery on app init
+  // Check for draft recovery after settings are loaded
   useEffect(() => {
+    if (!settingsLoaded) return
+
     const checkForDraft = async () => {
       const draft = await loadDraft()
       if (!draft) return
@@ -102,9 +104,9 @@ export function App() {
     }
 
     checkForDraft()
-    // Only run on mount
+    // Only run once when settings are loaded
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [settingsLoaded])
 
   // Handle menu actions from main process
   useEffect(() => {

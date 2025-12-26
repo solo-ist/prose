@@ -163,10 +163,21 @@
 
 .prose-editor li {
   margin-bottom: 0.25em;
+  display: list-item;
 }
 
 .prose-editor li p {
-  margin-bottom: 0.25em;
+  margin-bottom: 0;
+}
+
+.prose-editor li > p:only-child {
+  margin: 0;
+}
+
+/* Tight lists (no p tags or minimal margins) */
+.prose-editor ul.tight li p,
+.prose-editor ol.tight li p {
+  margin: 0;
 }
 
 .prose-editor blockquote {

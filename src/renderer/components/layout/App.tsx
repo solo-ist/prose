@@ -54,20 +54,19 @@ export function App() {
         <Toolbar />
 
         <div className="flex-1 overflow-hidden">
-          <ResizablePanelGroup direction="horizontal">
-            <ResizablePanel defaultSize={70} minSize={40}>
-              <Editor />
-            </ResizablePanel>
-
-            {isPanelOpen && (
-              <>
-                <ResizableHandle />
-                <ResizablePanel defaultSize={30} minSize={20} maxSize={50}>
-                  <ChatPanel />
-                </ResizablePanel>
-              </>
-            )}
-          </ResizablePanelGroup>
+          {isPanelOpen ? (
+            <ResizablePanelGroup direction="horizontal">
+              <ResizablePanel defaultSize={70} minSize={40}>
+                <Editor />
+              </ResizablePanel>
+              <ResizableHandle />
+              <ResizablePanel defaultSize={30} minSize={20} maxSize={50}>
+                <ChatPanel />
+              </ResizablePanel>
+            </ResizablePanelGroup>
+          ) : (
+            <Editor />
+          )}
         </div>
 
         <StatusBar />

@@ -5,12 +5,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm run dev          # Start development (Electron + Vite HMR)
-npm run build        # Build for production
-npm run build:mac    # Build macOS distributable
+npm run dev          # Start development (Electron + Vite HMR, debuggable on port 9222)
+npm run build        # Build for production (unpacked)
+npm run build:mac    # Build macOS distributable (.app + .dmg)
 npm run build:win    # Build Windows distributable
 npm run build:linux  # Build Linux distributable
 ```
+
+## QA Testing
+
+The app supports automated QA testing via Circuit Electron MCP (configured at parent level).
+
+**Dev mode:** Remote debugging enabled on port 9222 when running `npm run dev`. Circuit Electron can connect directly.
+
+**Built app:** After `npm run build:mac`, the app is at:
+```
+dist/mac-arm64/prose.app
+```
+
+**Example prompts for Claude Desktop:**
+- "Launch Prose at /Users/angelmarino/Code/prose/dist/mac-arm64/prose.app and take a screenshot"
+- "Click on the chat panel toggle and verify it opens"
 
 ## Workflow
 

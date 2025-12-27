@@ -9,3 +9,4 @@
 
 - [CLAUDE.md](../CLAUDE.md) - Development guidelines and architecture
 - [MVP.md](../MVP.md) - MVP specification
+

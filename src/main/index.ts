@@ -4,6 +4,11 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { setupIpcHandlers } from './ipc'
 import { createMenu } from './menu'
 
+// Enable remote debugging in dev mode for QA automation (Circuit Electron, Playwright)
+if (is.dev) {
+  app.commandLine.appendSwitch('remote-debugging-port', '9222')
+}
+
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
     width: 1200,

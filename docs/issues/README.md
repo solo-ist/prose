@@ -25,3 +25,4 @@ Create documentation for:
 - Implementation plans spanning multiple PRs
 
 Simple bug fixes and small features don't need dedicated folders.
+

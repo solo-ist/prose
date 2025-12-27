@@ -22,3 +22,4 @@ This document captures QA feedback for the Prose editor.
 ## References
 
 See GitHub issues for detailed tracking: https://github.com/solo-ist/prose/issues
+

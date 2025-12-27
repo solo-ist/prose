@@ -5,10 +5,12 @@ interface SettingsState {
   settings: Settings
   isLoaded: boolean
   isDialogOpen: boolean
+  isShortcutsDialogOpen: boolean
   setSettings: (settings: Partial<Settings>) => void
   loadSettings: () => Promise<void>
   saveSettings: () => Promise<void>
   setDialogOpen: (open: boolean) => void
+  setShortcutsDialogOpen: (open: boolean) => void
   setTheme: (theme: Settings['theme']) => void
   setLLMConfig: (config: Partial<Settings['llm']>) => void
   setEditorConfig: (config: Partial<Settings['editor']>) => void
@@ -36,6 +38,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   settings: defaultSettings,
   isLoaded: false,
   isDialogOpen: false,
+  isShortcutsDialogOpen: false,
 
   setSettings: (newSettings) =>
     set((state) => ({
@@ -76,6 +79,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   setDialogOpen: (open) => set({ isDialogOpen: open }),
+
+  setShortcutsDialogOpen: (open) => set({ isShortcutsDialogOpen: open }),
 
   setTheme: (theme) => {
     set((state) => ({

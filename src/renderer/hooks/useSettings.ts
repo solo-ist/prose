@@ -15,7 +15,10 @@ export function useSettings() {
     setTheme,
     setLLMConfig,
     setEditorConfig,
-    setRecoveryConfig
+    setRecoveryConfig,
+    addRecentFile,
+    clearRecentFiles,
+    getRecentFiles
   } = useSettingsStore()
 
   useEffect(() => {
@@ -36,6 +39,9 @@ export function useSettings() {
     setTheme,
     setLLMConfig,
     setEditorConfig,
-    setRecoveryConfig
+    setRecoveryConfig,
+    addRecentFile,
+    clearRecentFiles,
+    getRecentFiles
   }
 }

@@ -9,6 +9,7 @@ import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
 import { FindBar } from './FindBar'
+import { EmptyState } from '../layout/EmptyState'
 
 export function Editor() {
   const { document, setContent, openFile, saveFile } = useEditor()
@@ -17,6 +18,10 @@ export function Editor() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isUpdatingFromStore = useRef(false)
   const [isFindOpen, setIsFindOpen] = useState(false)
+
+  // Show empty state when: no file path, no content, and we have recent files
+  const recentFiles = settings.recentFiles || []
+  const showEmptyState = !document.path && !document.content.trim() && recentFiles.length > 0
 
   const editor = useTipTapEditor({
     extensions: [
@@ -206,6 +211,14 @@ export function Editor() {
     window.addEventListener('menu:find', handleMenuFind)
     return () => window.removeEventListener('menu:find', handleMenuFind)
   }, [])
+
+  if (showEmptyState) {
+    return (
+      <div className="h-full flex flex-col relative">
+        <EmptyState />
+      </div>
+    )
+  }
 
   return (
     <div className="h-full flex flex-col relative">

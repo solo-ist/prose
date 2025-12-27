@@ -151,6 +151,10 @@ export const browserApi: ElectronAPI = {
     return () => {}
   },
 
+  rebuildMenu: async (): Promise<void> => {
+    // No native menu in browser mode
+  },
+
   llmChat: async (request: LLMRequest): Promise<LLMResponse> => {
     let model
     switch (request.provider) {

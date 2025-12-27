@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from 'react'
 import { useEditorStore } from '../stores/editorStore'
 import { useChatStore, setCurrentDocumentId } from '../stores/chatStore'
+import { useSettingsStore } from '../stores/settingsStore'
 import { parseMarkdown, serializeMarkdown } from '../lib/markdown'
 import {
   generateId,
@@ -60,11 +61,47 @@ export function useEditor() {
         isDirty: false
       })
 
+      // Track in recent files
+      useSettingsStore.getState().addRecentFile(result.path)
+
       // Load conversations for the document
       await loadForDocument(newDocumentId)
 
       // Clear draft since we opened a file
       await clearDraft()
+    }
+  }, [setDocument, document.documentId, saveCurrentConversation, loadForDocument])
+
+  const openRecentFile = useCallback(async (path: string) => {
+    if (!window.api) return
+
+    // Save current conversations before switching
+    await saveCurrentConversation(document.documentId)
+
+    try {
+      const content = await window.api.readFile(path)
+      const parsed = parseMarkdown(content)
+      const newDocumentId = await generateIdFromPath(path)
+
+      setDocument({
+        documentId: newDocumentId,
+        path: path,
+        content: parsed.content,
+        frontmatter: parsed.frontmatter,
+        isDirty: false
+      })
+
+      // Track in recent files (moves to front)
+      useSettingsStore.getState().addRecentFile(path)
+
+      // Load conversations for the document
+      await loadForDocument(newDocumentId)
+
+      // Clear draft since we opened a file
+      await clearDraft()
+    } catch (error) {
+      console.error('Failed to open recent file:', error)
+      // Could show a toast or remove from recent files here
     }
   }, [setDocument, document.documentId, saveCurrentConversation, loadForDocument])
 
@@ -146,6 +183,7 @@ export function useEditor() {
     setFrontmatter,
     setCursorPosition,
     openFile,
+    openRecentFile,
     saveFile,
     saveFileAs,
     newFile

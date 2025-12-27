@@ -1,8 +1,8 @@
-import { ipcMain, dialog } from 'electron'
+import { ipcMain, dialog, BrowserWindow } from 'electron'
 import { readFile, writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 import { homedir } from 'os'
-import type { Settings } from '../renderer/types'
+import type { Settings, RecentFile } from '../renderer/types'
 
 interface LLMMessage {
   role: 'user' | 'assistant'
@@ -20,6 +20,22 @@ interface LLMRequest {
 
 const SETTINGS_DIR = join(homedir(), '.prose')
 const SETTINGS_PATH = join(SETTINGS_DIR, 'settings.json')
+
+// Helper to load settings (exported for menu use)
+export async function loadSettingsFromFile(): Promise<Settings> {
+  try {
+    const content = await readFile(SETTINGS_PATH, 'utf-8')
+    return { ...defaultSettings, ...JSON.parse(content) }
+  } catch {
+    return defaultSettings
+  }
+}
+
+// Helper to get recent files (exported for menu use)
+export async function getRecentFiles(): Promise<RecentFile[]> {
+  const settings = await loadSettingsFromFile()
+  return settings.recentFiles || []
+}
 
 const defaultSettings: Settings = {
   theme: 'dark',
@@ -104,6 +120,12 @@ export function setupIpcHandlers(): void {
       console.error('Failed to save settings:', error)
       throw error
     }
+  })
+
+  // Menu: Rebuild menu (e.g., after recent files change)
+  ipcMain.handle('menu:rebuild', async () => {
+    const { rebuildMenu } = await import('./menu')
+    await rebuildMenu()
   })
 
   // LLM: Chat completion (runs in main process to avoid CORS)

@@ -1,3 +1,9 @@
+export interface RecentFile {
+  path: string
+  name: string
+  openedAt: number
+}
+
 export interface Settings {
   theme: 'light' | 'dark' | 'system'
   llm: {
@@ -18,6 +24,7 @@ export interface Settings {
   recovery?: {
     mode: 'silent' | 'prompt'
   }
+  recentFiles?: RecentFile[]
 }
 
 export interface Document {
@@ -68,6 +75,7 @@ export interface ElectronAPI {
   saveSettings: (settings: Settings) => Promise<void>
   onMenuAction: (callback: (action: string) => void) => () => void
   llmChat: (request: LLMRequest) => Promise<LLMResponse>
+  rebuildMenu: () => Promise<void>
   platform: 'aix' | 'darwin' | 'freebsd' | 'linux' | 'openbsd' | 'sunos' | 'win32' | 'android' | 'cygwin' | 'netbsd' | null
 }
 

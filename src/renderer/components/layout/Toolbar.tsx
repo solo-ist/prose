@@ -8,7 +8,10 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuTrigger
+  DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger
 } from '../ui/dropdown-menu'
 import {
   Tooltip,
@@ -22,13 +25,17 @@ import {
   Settings,
   PanelRightClose,
   PanelRight,
-  MoreHorizontal
+  MoreHorizontal,
+  Clock,
+  Trash2
 } from 'lucide-react'
 
 export function Toolbar() {
-  const { document, openFile, saveFile, newFile } = useEditor()
-  const { settings, setTheme, setDialogOpen } = useSettings()
+  const { document, openFile, openRecentFile, saveFile, newFile } = useEditor()
+  const { settings, setTheme, setDialogOpen, clearRecentFiles } = useSettings()
   const { isPanelOpen, togglePanel } = useChat()
+
+  const recentFiles = settings.recentFiles || []
 
   const fileName = document.path
     ? document.path.split('/').pop()
@@ -98,6 +105,37 @@ export function Toolbar() {
             <DropdownMenuItem onClick={openFile}>
               Open...
             </DropdownMenuItem>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Clock className="mr-2 h-4 w-4" />
+                Open Recent
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {recentFiles.length === 0 ? (
+                  <DropdownMenuItem disabled>
+                    No recent files
+                  </DropdownMenuItem>
+                ) : (
+                  <>
+                    {recentFiles.map((file) => (
+                      <DropdownMenuItem
+                        key={file.path}
+                        onClick={() => openRecentFile(file.path)}
+                      >
+                        <span className="truncate max-w-[200px]" title={file.path}>
+                          {file.name}
+                        </span>
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={clearRecentFiles}>
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Clear Recent
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
             <DropdownMenuItem onClick={saveFile}>
               Save
             </DropdownMenuItem>

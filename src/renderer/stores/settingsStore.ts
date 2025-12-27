@@ -1,5 +1,7 @@
 import { create } from 'zustand'
-import type { Settings } from '../types'
+import type { Settings, RecentFile } from '../types'
+
+const MAX_RECENT_FILES = 10
 
 interface SettingsState {
   settings: Settings
@@ -15,6 +17,9 @@ interface SettingsState {
   setLLMConfig: (config: Partial<Settings['llm']>) => void
   setEditorConfig: (config: Partial<Settings['editor']>) => void
   setRecoveryConfig: (config: Partial<NonNullable<Settings['recovery']>>) => void
+  addRecentFile: (path: string) => void
+  clearRecentFiles: () => void
+  getRecentFiles: () => RecentFile[]
 }
 
 const defaultSettings: Settings = {
@@ -116,5 +121,54 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         ...state.settings,
         recovery: { ...state.settings.recovery, ...config }
       }
+    })),
+
+  addRecentFile: (path: string) => {
+    const name = path.split('/').pop() || path
+    const newRecent: RecentFile = {
+      path,
+      name,
+      openedAt: Date.now()
+    }
+
+    set((state) => {
+      // Remove existing entry for this path if present
+      const existing = state.settings.recentFiles || []
+      const filtered = existing.filter((f) => f.path !== path)
+      // Add to front and limit to MAX_RECENT_FILES
+      const updated = [newRecent, ...filtered].slice(0, MAX_RECENT_FILES)
+      return {
+        settings: {
+          ...state.settings,
+          recentFiles: updated
+        }
+      }
+    })
+
+    // Auto-save and rebuild native menu
+    get().saveSettings().then(() => {
+      if (window.api) {
+        window.api.rebuildMenu()
+      }
+    })
+  },
+
+  clearRecentFiles: () => {
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        recentFiles: []
+      }
     }))
+    // Auto-save and rebuild native menu
+    get().saveSettings().then(() => {
+      if (window.api) {
+        window.api.rebuildMenu()
+      }
+    })
+  },
+
+  getRecentFiles: () => {
+    return get().settings.recentFiles || []
+  }
 }))

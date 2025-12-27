@@ -27,8 +27,8 @@ import type { DraftState } from '../../lib/persistence'
 
 export function App() {
   const { isPanelOpen, togglePanel } = useChat()
-  const { openFile, saveFile, saveFileAs, newFile } = useEditor()
-  const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, settings, isLoaded: settingsLoaded } = useSettings()
+  const { openFile, openRecentFile, saveFile, saveFileAs, newFile } = useEditor()
+  const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, settings, isLoaded: settingsLoaded, clearRecentFiles } = useSettings()
   const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false)
   const [pendingDraft, setPendingDraft] = useState<DraftState | null>(null)
 
@@ -113,6 +113,13 @@ export function App() {
   useEffect(() => {
     if (!window.api) return
     const unsubscribe = window.api.onMenuAction((action) => {
+      // Handle openRecent:path actions
+      if (action.startsWith('openRecent:')) {
+        const path = action.slice('openRecent:'.length)
+        openRecentFile(path)
+        return
+      }
+
       switch (action) {
         case 'new':
           newFile()
@@ -139,11 +146,14 @@ export function App() {
         case 'shortcuts':
           setShortcutsDialogOpen(true)
           break
+        case 'clearRecent':
+          clearRecentFiles()
+          break
       }
     })
 
     return unsubscribe
-  }, [openFile, saveFile, saveFileAs, newFile, setDialogOpen, togglePanel])
+  }, [openFile, openRecentFile, saveFile, saveFileAs, newFile, setDialogOpen, togglePanel, clearRecentFiles])
 
   return (
     <TooltipProvider delayDuration={300}>

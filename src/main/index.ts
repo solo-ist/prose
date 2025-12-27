@@ -45,7 +45,7 @@ function createWindow(): BrowserWindow {
   return mainWindow
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.prose.app')
 
   app.on('browser-window-created', (_, window) => {
@@ -54,7 +54,7 @@ app.whenReady().then(() => {
 
   const mainWindow = createWindow()
   setupIpcHandlers()
-  createMenu(mainWindow)
+  await createMenu(mainWindow)
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

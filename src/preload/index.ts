@@ -33,6 +33,7 @@ export interface ElectronAPI {
   saveSettings: (settings: Settings) => Promise<void>
   onMenuAction: (callback: (action: string) => void) => () => void
   llmChat: (request: LLMRequest) => Promise<LLMResponse>
+  rebuildMenu: () => Promise<void>
   platform: 'aix' | 'darwin' | 'freebsd' | 'linux' | 'openbsd' | 'sunos' | 'win32' | 'android' | 'cygwin' | 'netbsd'
 }
 
@@ -53,6 +54,7 @@ const api: ElectronAPI = {
     }
   },
   llmChat: (request: LLMRequest) => ipcRenderer.invoke('llm:chat', request),
+  rebuildMenu: () => ipcRenderer.invoke('menu:rebuild'),
   platform: process.platform
 }
 

@@ -1,7 +1,19 @@
 import { Menu, BrowserWindow, app } from 'electron'
+import { getRecentFiles } from './ipc'
 
-export function createMenu(mainWindow: BrowserWindow): void {
+let mainWindowRef: BrowserWindow | null = null
+
+// Rebuild menu with updated recent files
+export async function rebuildMenu(): Promise<void> {
+  if (mainWindowRef) {
+    await createMenu(mainWindowRef)
+  }
+}
+
+export async function createMenu(mainWindow: BrowserWindow): Promise<void> {
+  mainWindowRef = mainWindow
   const isMac = process.platform === 'darwin'
+  const recentFiles = await getRecentFiles()
 
   const template: Electron.MenuItemConstructorOptions[] = [
     ...(isMac
@@ -46,6 +58,26 @@ export function createMenu(mainWindow: BrowserWindow): void {
           click: (): void => {
             mainWindow.webContents.send('menu:action', 'open')
           }
+        },
+        {
+          label: 'Open Recent',
+          submenu: recentFiles.length === 0
+            ? [{ label: 'No Recent Files', enabled: false }]
+            : [
+                ...recentFiles.map((file) => ({
+                  label: file.name,
+                  click: (): void => {
+                    mainWindow.webContents.send('menu:action', `openRecent:${file.path}`)
+                  }
+                })),
+                { type: 'separator' as const },
+                {
+                  label: 'Clear Recent',
+                  click: (): void => {
+                    mainWindow.webContents.send('menu:action', 'clearRecent')
+                  }
+                }
+              ]
         },
         { type: 'separator' },
         {

@@ -68,6 +68,7 @@ export interface ElectronAPI {
   saveSettings: (settings: Settings) => Promise<void>
   onMenuAction: (callback: (action: string) => void) => () => void
   llmChat: (request: LLMRequest) => Promise<LLMResponse>
+  platform: 'aix' | 'darwin' | 'freebsd' | 'linux' | 'openbsd' | 'sunos' | 'win32' | 'android' | 'cygwin' | 'netbsd' | null
 }
 
 declare global {

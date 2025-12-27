@@ -15,9 +15,13 @@ export interface Settings {
     lineHeight: number
     fontFamily: string
   }
+  recovery?: {
+    mode: 'silent' | 'prompt'
+  }
 }
 
 export interface Document {
+  documentId: string
   path: string | null
   content: string
   frontmatter: Record<string, unknown>

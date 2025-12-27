@@ -1,58 +1,227 @@
 import { create } from 'zustand'
+import { subscribeWithSelector } from 'zustand/middleware'
 import type { ChatMessage } from '../types'
+import {
+  generateId,
+  saveConversations,
+  loadConversations,
+  generateConversationTitle
+} from '../lib/persistence'
+import type { ChatConversation } from '../lib/persistence'
 
 interface ChatState {
+  // Conversation management
+  conversations: ChatConversation[]
+  activeConversationId: string | null
+
+  // Current conversation state
   messages: ChatMessage[]
   isLoading: boolean
   isPanelOpen: boolean
   context: string | null
   includeDocument: boolean
+
+  // Conversation actions
+  setConversations: (conversations: ChatConversation[]) => void
+  addConversation: (documentId: string) => string
+  selectConversation: (conversationId: string | null) => void
+  deleteConversation: (conversationId: string) => void
+
+  // Message actions
   addMessage: (message: ChatMessage) => void
   updateMessage: (id: string, updates: Partial<ChatMessage>) => void
   clearMessages: () => void
+
+  // UI actions
   setLoading: (isLoading: boolean) => void
   togglePanel: () => void
   setPanelOpen: (open: boolean) => void
   setContext: (context: string | null) => void
   setIncludeDocument: (include: boolean) => void
-}
 
-function generateId(): string {
-  return Math.random().toString(36).substring(2, 15)
+  // Persistence actions
+  loadForDocument: (documentId: string) => Promise<void>
+  saveCurrentConversation: (documentId: string) => Promise<void>
 }
 
 export function createMessageId(): string {
   return generateId()
 }
 
-export const useChatStore = create<ChatState>((set) => ({
-  messages: [],
-  isLoading: false,
-  isPanelOpen: true,
-  context: null,
-  includeDocument: false,
+export const useChatStore = create<ChatState>()(
+  subscribeWithSelector((set, get) => ({
+    conversations: [],
+    activeConversationId: null,
+    messages: [],
+    isLoading: false,
+    isPanelOpen: true,
+    context: null,
+    includeDocument: false,
 
-  addMessage: (message) =>
-    set((state) => ({
-      messages: [...state.messages, message]
-    })),
+    setConversations: (conversations) => set({ conversations }),
 
-  updateMessage: (id, updates) =>
-    set((state) => ({
-      messages: state.messages.map((msg) =>
-        msg.id === id ? { ...msg, ...updates } : msg
+    addConversation: (documentId) => {
+      const newConversation: ChatConversation = {
+        id: generateId(),
+        documentId,
+        messages: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      }
+      set((state) => ({
+        conversations: [newConversation, ...state.conversations],
+        activeConversationId: newConversation.id,
+        messages: []
+      }))
+      return newConversation.id
+    },
+
+    selectConversation: (conversationId) => {
+      const state = get()
+      if (conversationId === null) {
+        set({ activeConversationId: null, messages: [] })
+        return
+      }
+      const conversation = state.conversations.find(
+        (c) => c.id === conversationId
       )
-    })),
+      if (conversation) {
+        set({
+          activeConversationId: conversationId,
+          messages: conversation.messages
+        })
+      }
+    },
 
-  clearMessages: () => set({ messages: [] }),
+    deleteConversation: (conversationId) => {
+      set((state) => {
+        const newConversations = state.conversations.filter(
+          (c) => c.id !== conversationId
+        )
+        const isActive = state.activeConversationId === conversationId
+        return {
+          conversations: newConversations,
+          activeConversationId: isActive
+            ? newConversations[0]?.id ?? null
+            : state.activeConversationId,
+          messages: isActive ? newConversations[0]?.messages ?? [] : state.messages
+        }
+      })
+    },
 
-  setLoading: (isLoading) => set({ isLoading }),
+    addMessage: (message) =>
+      set((state) => {
+        const newMessages = [...state.messages, message]
 
-  togglePanel: () => set((state) => ({ isPanelOpen: !state.isPanelOpen })),
+        // Update the active conversation with new messages
+        if (state.activeConversationId) {
+          const updatedConversations = state.conversations.map((c) =>
+            c.id === state.activeConversationId
+              ? {
+                  ...c,
+                  messages: newMessages,
+                  updatedAt: Date.now(),
+                  title: c.title ?? generateConversationTitle(newMessages)
+                }
+              : c
+          )
+          return { messages: newMessages, conversations: updatedConversations }
+        }
+        return { messages: newMessages }
+      }),
 
-  setPanelOpen: (open) => set({ isPanelOpen: open }),
+    updateMessage: (id, updates) =>
+      set((state) => {
+        const newMessages = state.messages.map((msg) =>
+          msg.id === id ? { ...msg, ...updates } : msg
+        )
 
-  setContext: (context) => set({ context }),
+        // Update the active conversation
+        if (state.activeConversationId) {
+          const updatedConversations = state.conversations.map((c) =>
+            c.id === state.activeConversationId
+              ? { ...c, messages: newMessages, updatedAt: Date.now() }
+              : c
+          )
+          return { messages: newMessages, conversations: updatedConversations }
+        }
+        return { messages: newMessages }
+      }),
 
-  setIncludeDocument: (include) => set({ includeDocument: include })
-}))
+    clearMessages: () =>
+      set((state) => {
+        // Update active conversation to have empty messages
+        if (state.activeConversationId) {
+          const updatedConversations = state.conversations.map((c) =>
+            c.id === state.activeConversationId
+              ? { ...c, messages: [], updatedAt: Date.now() }
+              : c
+          )
+          return { messages: [], conversations: updatedConversations }
+        }
+        return { messages: [] }
+      }),
+
+    setLoading: (isLoading) => set({ isLoading }),
+
+    togglePanel: () => set((state) => ({ isPanelOpen: !state.isPanelOpen })),
+
+    setPanelOpen: (open) => set({ isPanelOpen: open }),
+
+    setContext: (context) => set({ context }),
+
+    setIncludeDocument: (include) => set({ includeDocument: include }),
+
+    loadForDocument: async (documentId) => {
+      const conversations = await loadConversations(documentId)
+      const mostRecent = conversations[0] ?? null
+      set({
+        conversations,
+        activeConversationId: mostRecent?.id ?? null,
+        messages: mostRecent?.messages ?? []
+      })
+    },
+
+    saveCurrentConversation: async (documentId) => {
+      const state = get()
+      if (state.conversations.length > 0) {
+        await saveConversations(documentId, state.conversations)
+      }
+    }
+  }))
+)
+
+// Debounce helper
+function debounce<T extends (...args: unknown[]) => void>(
+  fn: T,
+  delay: number
+): T {
+  let timeoutId: ReturnType<typeof setTimeout>
+  return ((...args: unknown[]) => {
+    clearTimeout(timeoutId)
+    timeoutId = setTimeout(() => fn(...args), delay)
+  }) as T
+}
+
+// Auto-save conversations when they change (debounced)
+let currentDocumentId: string | null = null
+
+export function setCurrentDocumentId(documentId: string | null) {
+  currentDocumentId = documentId
+}
+
+const debouncedSave = debounce(async () => {
+  if (currentDocumentId) {
+    const state = useChatStore.getState()
+    if (state.conversations.length > 0) {
+      await saveConversations(currentDocumentId, state.conversations)
+    }
+  }
+}, 1000)
+
+useChatStore.subscribe(
+  (state) => state.conversations,
+  () => {
+    debouncedSave()
+  }
+)

@@ -4,11 +4,30 @@ import { ChatMessage } from './ChatMessage'
 import { ChatInput } from './ChatInput'
 import { ScrollArea } from '../ui/scroll-area'
 import { Button } from '../ui/button'
-import { MessageSquare, Trash2 } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '../ui/dropdown-menu'
+import { MessageSquare, History, Plus, Trash2 } from 'lucide-react'
+import { useChatStore } from '../../stores/chatStore'
+import { useEditorStore } from '../../stores/editorStore'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 
 export function ChatPanel() {
   const { messages, isLoading, sendMessage, clearMessages } = useChat()
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  const {
+    conversations,
+    activeConversationId,
+    addConversation,
+    selectConversation,
+    deleteConversation
+  } = useChatStore()
+  const documentId = useEditorStore((state) => state.document.documentId)
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -16,6 +35,22 @@ export function ChatPanel() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [messages, isLoading])
+
+  const handleNewChat = () => {
+    addConversation(documentId)
+  }
+
+  const handleSelectConversation = (conversationId: string) => {
+    selectConversation(conversationId)
+  }
+
+  const handleDeleteConversation = (
+    e: React.MouseEvent,
+    conversationId: string
+  ) => {
+    e.stopPropagation()
+    deleteConversation(conversationId)
+  }
 
   return (
     <div className="flex h-full flex-col bg-muted/20">
@@ -25,17 +60,94 @@ export function ChatPanel() {
           <MessageSquare className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-sm font-medium">Chat</h2>
         </div>
-        {messages.length > 0 && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={clearMessages}
-            aria-label="Clear chat"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        )}
+        <div className="flex items-center gap-1">
+          {conversations.length > 0 && (
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      aria-label="Chat history"
+                    >
+                      <History className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>Chat history</TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="end" className="w-64">
+                {conversations.map((conversation) => (
+                  <DropdownMenuItem
+                    key={conversation.id}
+                    className="flex items-center justify-between gap-2 cursor-pointer"
+                    onClick={() => handleSelectConversation(conversation.id)}
+                  >
+                    <span
+                      className={`truncate flex-1 ${
+                        conversation.id === activeConversationId
+                          ? 'font-medium'
+                          : ''
+                      }`}
+                    >
+                      {conversation.title ?? 'New Chat'}
+                    </span>
+                    {conversations.length > 1 && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 shrink-0 opacity-50 hover:opacity-100"
+                        onClick={(e) =>
+                          handleDeleteConversation(e, conversation.id)
+                        }
+                        aria-label="Delete conversation"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleNewChat} className="cursor-pointer">
+                  <Plus className="h-4 w-4 mr-2" />
+                  New Chat
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={handleNewChat}
+                aria-label="New chat"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>New chat</TooltipContent>
+          </Tooltip>
+          {messages.length > 0 && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={clearMessages}
+                  aria-label="Clear chat"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Clear messages</TooltipContent>
+            </Tooltip>
+          )}
+        </div>
       </div>
 
       {/* Messages */}

@@ -12,6 +12,7 @@ interface SettingsState {
   setTheme: (theme: Settings['theme']) => void
   setLLMConfig: (config: Partial<Settings['llm']>) => void
   setEditorConfig: (config: Partial<Settings['editor']>) => void
+  setRecoveryConfig: (config: Partial<NonNullable<Settings['recovery']>>) => void
 }
 
 const defaultSettings: Settings = {
@@ -25,6 +26,9 @@ const defaultSettings: Settings = {
     fontSize: 16,
     lineHeight: 1.6,
     fontFamily: "'Source Code Pro', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace"
+  },
+  recovery: {
+    mode: 'silent'
   }
 }
 
@@ -98,6 +102,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       settings: {
         ...state.settings,
         editor: { ...state.settings.editor, ...config }
+      }
+    })),
+
+  setRecoveryConfig: (config) =>
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        recovery: { ...state.settings.recovery, ...config }
       }
     }))
 }))

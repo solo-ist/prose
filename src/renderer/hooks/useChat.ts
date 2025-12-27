@@ -13,6 +13,8 @@ export function useChat() {
     isPanelOpen,
     context,
     includeDocument,
+    activeConversationId,
+    addConversation,
     addMessage,
     updateMessage,
     clearMessages,
@@ -29,6 +31,11 @@ export function useChat() {
   const sendMessage = useCallback(
     async (content: string) => {
       if (!content.trim() || isLoading) return
+
+      // Auto-create a conversation if there isn't one
+      if (!activeConversationId) {
+        addConversation(document.documentId)
+      }
 
       // Validate config first
       const configError = validateConfig(settings.llm)
@@ -113,7 +120,10 @@ export function useChat() {
       messages,
       includeDocument,
       document.content,
+      document.documentId,
       settings.llm,
+      activeConversationId,
+      addConversation,
       addMessage,
       updateMessage,
       setLoading,

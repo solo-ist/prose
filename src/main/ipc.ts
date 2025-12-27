@@ -32,6 +32,9 @@ const defaultSettings: Settings = {
     fontSize: 16,
     lineHeight: 1.6,
     fontFamily: "'Source Code Pro', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace"
+  },
+  recovery: {
+    mode: 'silent'
   }
 }
 

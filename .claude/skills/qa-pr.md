@@ -91,16 +91,54 @@ editor.dispatchEvent(new Event('input', { bubbles: true }));
 document.dispatchEvent(new KeyboardEvent('keydown', { key: ',', metaKey: true, bubbles: true }));
 ```
 
-### 5. Handle Non-Automatable Tests
+### 5. Collaborative Manual Testing
 
 Some things cannot be automated:
 - Native file dialogs (Cmd+O, Cmd+S, Cmd+Shift+S)
+- Menu keyboard shortcuts (Cmd+N, Cmd+W)
 - System-level interactions
 
-For these, generate **manual testing instructions** with:
-- Clear numbered steps
-- Checkboxes for verification points
-- Explanation of why automation isn't possible
+For these, use a **collaborative workflow**:
+
+#### Pattern: Setup → Handoff → Verify
+
+1. **Setup** (Claude does this):
+   - Launch app via Circuit Electron
+   - Create test state (content, settings, etc.)
+   - Announce timestamp/content for later verification
+
+2. **Handoff** (User does this):
+   - Clear instruction: "Press Cmd+O and open CLAUDE.md"
+   - Wait for user confirmation: "Let me know when done"
+
+3. **Verify** (Claude does this):
+   - Use `text_content` to check result
+   - Compare against expected state
+   - Report pass/fail
+
+#### Example Handoff Message
+
+```
+**Your turn - Manual Step:**
+
+The app should show:
+- Title: "Untitled *"
+- Content: "Test content" with timestamp `2025-12-27T17:23:13.351Z`
+
+**Do this now:**
+1. Press **Cmd+O**
+2. Select **CLAUDE.md** from the project root
+
+Let me know when done.
+```
+
+#### Closing/Reopening for Persistence Tests
+
+When testing app restart persistence:
+- Close session: `mcp__circuit-electron__close`
+- Ask user to close app if needed: "Close the app with Cmd+Q"
+- Relaunch: `mcp__circuit-electron__app_launch`
+- Or ask user: "Reopen for me" (Claude relaunches)
 
 ### 6. Post Results to PR
 

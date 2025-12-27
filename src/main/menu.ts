@@ -85,7 +85,15 @@ export function createMenu(mainWindow: BrowserWindow): void {
               { role: 'delete' as const },
               { type: 'separator' as const },
               { role: 'selectAll' as const }
-            ])
+            ]),
+        { type: 'separator' },
+        {
+          label: 'Find',
+          accelerator: 'CmdOrCtrl+F',
+          click: (): void => {
+            mainWindow.webContents.send('menu:action', 'find')
+          }
+        }
       ]
     },
     {

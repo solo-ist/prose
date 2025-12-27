@@ -5,6 +5,7 @@ import { Editor } from '../editor/Editor'
 import { ChatPanel } from '../chat/ChatPanel'
 import { SettingsDialog } from '../settings/SettingsDialog'
 import { RecoveryDialog } from './RecoveryDialog'
+import { KeyboardShortcutsDialog } from '../settings/KeyboardShortcutsDialog'
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -27,7 +28,7 @@ import type { DraftState } from '../../lib/persistence'
 export function App() {
   const { isPanelOpen, togglePanel } = useChat()
   const { openFile, saveFile, saveFileAs, newFile } = useEditor()
-  const { setDialogOpen, settings, isLoaded: settingsLoaded } = useSettings()
+  const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, settings, isLoaded: settingsLoaded } = useSettings()
   const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false)
   const [pendingDraft, setPendingDraft] = useState<DraftState | null>(null)
 
@@ -131,6 +132,10 @@ export function App() {
         case 'toggleChat':
           togglePanel()
           break
+        case 'find':
+          // Dispatch custom event for Editor to handle
+          window.dispatchEvent(new CustomEvent('menu:find'))
+          break
       }
     })
 
@@ -164,6 +169,10 @@ export function App() {
           open={recoveryDialogOpen}
           onRecover={handleRecover}
           onDiscard={handleDiscard}
+        />
+        <KeyboardShortcutsDialog
+          open={isShortcutsDialogOpen}
+          onOpenChange={setShortcutsDialogOpen}
         />
       </div>
     </TooltipProvider>

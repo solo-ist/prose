@@ -14,6 +14,7 @@ import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { FindBar } from './FindBar'
 import { SelectionPopover } from './SelectionPopover'
 import { AddCommentDialog } from './AddCommentDialog'
+import { EmptyState } from '../layout/EmptyState'
 
 export function Editor() {
   const { document, setContent, openFile, saveFile } = useEditor()
@@ -250,6 +251,9 @@ export function Editor() {
     return () => window.removeEventListener('menu:find', handleMenuFind)
   }, [])
 
+  // Show empty state when document is empty and untitled
+  const showEmptyState = !document.path && !document.content && !document.isDirty
+
   return (
     <div className="h-full flex flex-col relative">
       <FindBar
@@ -257,21 +261,25 @@ export function Editor() {
         isOpen={isFindOpen}
         onClose={() => setIsFindOpen(false)}
       />
-      <div
-        className="flex-1 overflow-auto p-8 md:p-12 lg:p-16"
-        style={{
-          fontSize: `${settings.editor.fontSize}px`,
-          lineHeight: settings.editor.lineHeight,
-          fontFamily: settings.editor.fontFamily
-        }}
-      >
-        <div className="max-w-3xl mx-auto prose-editor">
-          <EditorContent
-            editor={editor}
-            className="min-h-full"
-          />
+      {showEmptyState ? (
+        <EmptyState />
+      ) : (
+        <div
+          className="flex-1 overflow-auto p-8 md:p-12 lg:p-16"
+          style={{
+            fontSize: `${settings.editor.fontSize}px`,
+            lineHeight: settings.editor.lineHeight,
+            fontFamily: settings.editor.fontFamily
+          }}
+        >
+          <div className="max-w-3xl mx-auto prose-editor">
+            <EditorContent
+              editor={editor}
+              className="min-h-full"
+            />
+          </div>
         </div>
-      </div>
+      )}
       <SelectionPopover
         editor={editor}
         onAddComment={openAddCommentDialog}

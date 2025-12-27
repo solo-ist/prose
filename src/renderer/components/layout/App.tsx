@@ -6,6 +6,7 @@ import { ChatPanel } from '../chat/ChatPanel'
 import { SettingsDialog } from '../settings/SettingsDialog'
 import { RecoveryDialog } from './RecoveryDialog'
 import { KeyboardShortcutsDialog } from '../settings/KeyboardShortcutsDialog'
+import { AboutDialog } from '../settings/AboutDialog'
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -28,11 +29,20 @@ import type { DraftState } from '../../lib/persistence'
 export function App() {
   const { isPanelOpen, togglePanel, sendMessage } = useChat()
   const { openFile, openFileFromPath, saveFile, saveFileAs, newFile } = useEditor()
-  const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, settings, isLoaded: settingsLoaded } = useSettings()
+  const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, isAboutDialogOpen, setAboutDialogOpen, settings, isLoaded: settingsLoaded } = useSettings()
   const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false)
   const [pendingDraft, setPendingDraft] = useState<DraftState | null>(null)
 
   const hydrateFromDraft = useEditorStore((state) => state.hydrateFromDraft)
+  const documentPath = useEditorStore((state) => state.document.path)
+  const isDirty = useEditorStore((state) => state.document.isDirty)
+
+  // Update window title based on document state
+  useEffect(() => {
+    const fileName = documentPath ? documentPath.split('/').pop() : 'Untitled'
+    const dirtyIndicator = isDirty ? ' *' : ''
+    document.title = `${fileName}${dirtyIndicator} — Prose`
+  }, [documentPath, isDirty])
 
   // Recover draft and associated conversations
   const recoverDraft = useCallback(
@@ -155,11 +165,14 @@ export function App() {
         case 'shortcuts':
           setShortcutsDialogOpen(true)
           break
+        case 'about':
+          setAboutDialogOpen(true)
+          break
       }
     })
 
     return unsubscribe
-  }, [openFile, saveFile, saveFileAs, newFile, setDialogOpen, togglePanel, sendMessage])
+  }, [openFile, saveFile, saveFileAs, newFile, setDialogOpen, togglePanel, setShortcutsDialogOpen, setAboutDialogOpen, sendMessage])
 
   // Handle file open from OS (double-click .md file)
   useEffect(() => {
@@ -203,6 +216,10 @@ export function App() {
         <KeyboardShortcutsDialog
           open={isShortcutsDialogOpen}
           onOpenChange={setShortcutsDialogOpen}
+        />
+        <AboutDialog
+          open={isAboutDialogOpen}
+          onOpenChange={setAboutDialogOpen}
         />
       </div>
     </TooltipProvider>

@@ -9,7 +9,12 @@ export function createMenu(mainWindow: BrowserWindow): void {
           {
             label: app.name,
             submenu: [
-              { role: 'about' as const },
+              {
+                label: 'About Prose',
+                click: (): void => {
+                  mainWindow.webContents.send('menu:action', 'about')
+                }
+              },
               { type: 'separator' as const },
               {
                 label: 'Settings...',
@@ -148,9 +153,20 @@ export function createMenu(mainWindow: BrowserWindow): void {
           label: 'Learn More',
           click: async (): Promise<void> => {
             const { shell } = await import('electron')
-            await shell.openExternal('https://github.com/prose-editor/prose')
+            await shell.openExternal('https://github.com/solo-ist/prose')
           }
-        }
+        },
+        ...(!isMac
+          ? [
+              { type: 'separator' as const },
+              {
+                label: 'About Prose',
+                click: (): void => {
+                  mainWindow.webContents.send('menu:action', 'about')
+                }
+              }
+            ]
+          : [])
       ]
     }
   ]

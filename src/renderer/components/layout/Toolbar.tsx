@@ -1,6 +1,7 @@
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
+import { isMacOS } from '../../lib/browserApi'
 import { Button } from '../ui/button'
 import {
   DropdownMenu,
@@ -37,8 +38,11 @@ export function Toolbar() {
     setTheme(settings.theme === 'dark' ? 'light' : 'dark')
   }
 
+  // Add left padding on macOS to clear traffic lights
+  const leftPadding = isMacOS() ? 'pl-20' : 'pl-4'
+
   return (
-    <div className="flex h-12 items-center justify-between border-b border-border bg-background px-4 app-region-drag">
+    <div className={`flex h-12 items-center justify-between border-b border-border bg-background pr-4 ${leftPadding} app-region-drag`}>
       {/* Left: File info */}
       <div className="flex items-center gap-2 app-region-no-drag">
         <FileText className="h-4 w-4 text-muted-foreground" />

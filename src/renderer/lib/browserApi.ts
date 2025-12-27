@@ -223,7 +223,9 @@ export const browserApi: ElectronAPI = {
       }
       throw error
     }
-  }
+  },
+
+  platform: null
 }
 
 /**
@@ -241,4 +243,11 @@ export function getApi(): ElectronAPI {
  */
 export function isElectron(): boolean {
   return typeof window !== 'undefined' && !!window.api
+}
+
+/**
+ * Check if running in Electron on macOS
+ */
+export function isMacOS(): boolean {
+  return isElectron() && getApi().platform === 'darwin'
 }

@@ -1,6 +1,6 @@
 # QA Pull Request
 
-Automated QA testing for Prose PRs using Circuit Electron.
+Automated QA testing for Prose PRs using Circuit Electron (desktop) and Claude in Chrome (web).
 
 ## Usage
 
@@ -209,3 +209,95 @@ mcp__github__add_issue_comment (owner: "solo-ist", repo: "prose", issue_number: 
 - Always wait for content to save before closing (brief pause or verify via evaluate)
 - Radix UI dropdowns need actual clicks, not just setting values
 - Recovery dialogs appear on app restart if there's unsaved content
+
+---
+
+## Web Browser Testing (Claude in Chrome)
+
+For testing the web/browser version of the app (not Electron), use **Claude in Chrome** MCP.
+
+### When to Use
+
+- Testing browser-specific behavior (e.g., `window.api` being undefined)
+- Testing platform detection fallbacks
+- Testing features that behave differently in browser vs Electron
+- Cross-platform UI verification
+
+### Setup
+
+1. Start the Vite dev server (runs alongside Electron but accessible at localhost):
+   ```bash
+   npm run dev
+   ```
+   The web app will be available at `http://localhost:5173/`
+
+2. Get tab context:
+   ```
+   mcp__claude-in-chrome__tabs_context_mcp (createIfEmpty: true)
+   ```
+
+3. Navigate to the app:
+   ```
+   mcp__claude-in-chrome__navigate (url: "http://localhost:5173", tabId: <tabId>)
+   ```
+
+### Testing Commands
+
+**Take screenshot:**
+```
+mcp__claude-in-chrome__computer (action: "screenshot", tabId: <tabId>)
+```
+
+**Execute JavaScript to verify state:**
+```
+mcp__claude-in-chrome__javascript_tool (action: "javascript_exec", tabId: <tabId>, text: "...")
+```
+
+**Read page content:**
+```
+mcp__claude-in-chrome__get_page_text (tabId: <tabId>)
+```
+
+**Find elements:**
+```
+mcp__claude-in-chrome__find (query: "search bar", tabId: <tabId>)
+```
+
+### Common Verification Patterns
+
+**Check if running in browser (not Electron):**
+```javascript
+({
+  windowApiExists: typeof window.api !== 'undefined',
+  platform: window.api?.platform ?? 'undefined (browser mode)'
+})
+```
+
+**Check computed styles:**
+```javascript
+const element = document.querySelector('.my-element');
+const style = getComputedStyle(element);
+({ paddingLeft: style.paddingLeft, display: style.display })
+```
+
+**Check CSS classes:**
+```javascript
+const element = document.querySelector('.toolbar');
+({
+  hasClass: element?.classList.contains('pl-4'),
+  allClasses: element?.className
+})
+```
+
+### Example: Platform-Specific UI Test
+
+```javascript
+// Verify browser shows standard padding (not macOS traffic light padding)
+const toolbar = document.querySelector('.app-region-drag');
+const style = toolbar ? getComputedStyle(toolbar) : null;
+({
+  hasPl4: toolbar?.classList.contains('pl-4'),      // Should be true in browser
+  hasPl20: toolbar?.classList.contains('pl-20'),    // Should be false in browser
+  paddingLeft: style?.paddingLeft                    // Should be "16px" in browser
+})
+```

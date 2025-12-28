@@ -67,11 +67,13 @@ export function hasEditBlocks(content: string): boolean {
 }
 
 /**
- * Remove edit blocks from content, leaving only the prose.
- * Useful for displaying the message without the raw block syntax.
+ * Replace edit blocks with just the replacement text for inline display.
+ * Shows what the new text will be in the flow of the message.
  */
 export function stripEditBlocks(content: string): string {
-  return content.replace(EDIT_BLOCK_REGEX, '').trim()
+  return content.replace(EDIT_BLOCK_REGEX, (_match, _search, replace) => {
+    return replace.trim()
+  }).trim()
 }
 
 /**

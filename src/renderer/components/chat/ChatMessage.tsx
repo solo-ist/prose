@@ -1,7 +1,10 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { cn } from '../../lib/utils'
 import type { ChatMessage as ChatMessageType } from '../../types'
-import { User, Bot } from 'lucide-react'
+import { User, Bot, Wand2, Check, AlertCircle } from 'lucide-react'
+import { parseEditBlocks, hasEditBlocks, stripEditBlocks, countEditBlocks } from '../../lib/editBlocks'
+import { applyEditsAsDiffs, type ApplyResult } from '../../lib/applyEdit'
+import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 
 interface ChatMessageProps {
   message: ChatMessageType
@@ -79,7 +82,26 @@ function renderMarkdown(content: string): React.ReactNode {
 
 export function ChatMessage({ message }: ChatMessageProps) {
   const [showTimestamp, setShowTimestamp] = useState(false)
+  const [applyState, setApplyState] = useState<'idle' | 'applied' | 'error'>('idle')
+  const [applyResults, setApplyResults] = useState<ApplyResult[]>([])
+  const editor = useEditorInstanceStore((state) => state.editor)
   const isUser = message.role === 'user'
+  const containsEdits = !isUser && hasEditBlocks(message.content)
+  const editCount = containsEdits ? countEditBlocks(message.content) : 0
+
+  const handleApplyEdits = useCallback(() => {
+    if (!editor || !containsEdits) return
+
+    const editBlocks = parseEditBlocks(message.content)
+    const results = applyEditsAsDiffs(editor, editBlocks)
+    setApplyResults(results)
+
+    const allSucceeded = results.every((r) => r.success)
+    setApplyState(allSucceeded ? 'applied' : 'error')
+  }, [editor, message.content, containsEdits])
+
+  // For assistant messages with edit blocks, strip them from display
+  const displayContent = containsEdits ? stripEditBlocks(message.content) : message.content
 
   return (
     <div
@@ -113,9 +135,51 @@ export function ChatMessage({ message }: ChatMessageProps) {
           {isUser ? (
             <p className="whitespace-pre-wrap">{message.content}</p>
           ) : (
-            <div className="prose-chat">{renderMarkdown(message.content)}</div>
+            <div className="prose-chat">{renderMarkdown(displayContent)}</div>
           )}
         </div>
+        {containsEdits && (
+          <div className="flex items-center gap-2">
+            {applyState === 'idle' && (
+              <button
+                onClick={handleApplyEdits}
+                disabled={!editor}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
+                  editor
+                    ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                    : 'bg-muted text-muted-foreground cursor-not-allowed'
+                )}
+              >
+                <Wand2 className="h-3 w-3" />
+                Apply {editCount} Edit{editCount !== 1 ? 's' : ''}
+              </button>
+            )}
+            {applyState === 'applied' && (
+              <span className="inline-flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
+                <Check className="h-3 w-3" />
+                Applied to document
+              </span>
+            )}
+            {applyState === 'error' && (
+              <div className="space-y-1">
+                <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                  <AlertCircle className="h-3 w-3" />
+                  Some edits failed
+                </span>
+                <ul className="text-xs text-muted-foreground">
+                  {applyResults
+                    .filter((r) => !r.success)
+                    .map((r, i) => (
+                      <li key={i} className="truncate">
+                        {r.error}
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
         <p
           className={cn(
             'text-xs text-muted-foreground transition-opacity duration-200',

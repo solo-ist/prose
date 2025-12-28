@@ -12,6 +12,14 @@ npm run build:win    # Build Windows distributable
 npm run build:linux  # Build Linux distributable
 ```
 
+## Before Implementation
+
+Before writing any code, complete this checklist:
+
+1. **Branch**: Create or switch to issue branch: `git checkout -b issue-<number>-<description>`
+2. **Docs**: For complex issues, create `docs/issues/<number>/plan.md`
+3. **Verify**: Run `git branch --show-current` to confirm you're not on `main`
+
 ## QA Testing
 
 The app supports automated QA testing via Circuit Electron MCP (configured at parent level).

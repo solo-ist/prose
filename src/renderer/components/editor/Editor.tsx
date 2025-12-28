@@ -5,15 +5,18 @@ import Placeholder from '@tiptap/extension-placeholder'
 import Link from '@tiptap/extension-link'
 import { Markdown } from 'tiptap-markdown'
 import { FocusMode } from '../../lib/focusMode'
+import { DiffSuggestion } from '../../extensions/diff-suggestions'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
+import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { FindBar } from './FindBar'
 
 export function Editor() {
   const { document, setContent, openFile, saveFile } = useEditor()
   const { settings, setDialogOpen, setShortcutsDialogOpen } = useSettings()
   const { setContext, togglePanel, setPanelOpen } = useChat()
+  const setEditorInstance = useEditorInstanceStore((state) => state.setEditor)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isUpdatingFromStore = useRef(false)
   const [isFindOpen, setIsFindOpen] = useState(false)
@@ -44,7 +47,15 @@ export function Editor() {
         transformPastedText: true,
         transformCopiedText: true
       }),
-      FocusMode
+      FocusMode,
+      DiffSuggestion.configure({
+        className: 'diff-suggestion',
+        showButtons: true,
+        buttons: {
+          accept: '✓',
+          reject: '✗',
+        },
+      }),
     ],
     content: document.content,
     editorProps: {
@@ -78,6 +89,12 @@ export function Editor() {
       isUpdatingFromStore.current = false
     }
   }, [editor, document.content])
+
+  // Register editor instance in store for cross-component access
+  useEffect(() => {
+    setEditorInstance(editor)
+    return () => setEditorInstance(null)
+  }, [editor, setEditorInstance])
 
   // Cleanup debounce on unmount
   useEffect(() => {

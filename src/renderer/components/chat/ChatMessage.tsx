@@ -134,6 +134,12 @@ export function ChatMessage({ message }: ChatMessageProps) {
         <div className="text-sm leading-relaxed">
           {isUser ? (
             <p className="whitespace-pre-wrap">{message.content}</p>
+          ) : displayContent.trim() ? (
+            <div className="prose-chat">{renderMarkdown(displayContent)}</div>
+          ) : containsEdits ? (
+            <p className="text-muted-foreground italic">
+              Suggested {editCount} edit{editCount !== 1 ? 's' : ''} to the document.
+            </p>
           ) : (
             <div className="prose-chat">{renderMarkdown(displayContent)}</div>
           )}

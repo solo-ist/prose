@@ -18,9 +18,10 @@ export interface EditBlock {
 /**
  * Regex to match SEARCH/REPLACE blocks.
  * Captures the search text (group 1) and replace text (group 2).
+ * Handles optional markdown code block wrappers (```).
  */
 const EDIT_BLOCK_REGEX =
-  /<<<<<<< SEARCH\n([\s\S]*?)\n=======\n([\s\S]*?)\n>>>>>>> REPLACE/g
+  /(?:```\n?)?<<<<<<< SEARCH\n([\s\S]*?)\n=======\n([\s\S]*?)\n>>>>>>> REPLACE(?:\n?```)?/g
 
 /**
  * Generate a unique ID for an edit block.

@@ -13,14 +13,13 @@ Keep your responses concise and focused.
 When the user asks you to edit, revise, or change text in the document, use SEARCH/REPLACE blocks.
 This allows the user to preview and apply your changes directly to the document.
 
-Format:
-\`\`\`
+Format (do NOT wrap in code blocks):
+
 <<<<<<< SEARCH
 exact text to find
 =======
 replacement text
 >>>>>>> REPLACE
-\`\`\`
 
 Rules for SEARCH/REPLACE blocks:
 1. The SEARCH section must match the document text EXACTLY (including whitespace)

@@ -1,7 +1,10 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { cn } from '../../lib/utils'
 import type { ChatMessage as ChatMessageType } from '../../types'
-import { User, Bot } from 'lucide-react'
+import { User, Bot, Wand2, Check, AlertCircle, ArrowRight } from 'lucide-react'
+import { parseEditBlocks, hasEditBlocks, stripEditBlocks, type EditBlock } from '../../lib/editBlocks'
+import { applyEditsAsDiffs, type ApplyResult } from '../../lib/applyEdit'
+import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 
 interface ChatMessageProps {
   message: ChatMessageType
@@ -77,9 +80,57 @@ function renderMarkdown(content: string): React.ReactNode {
   return elements
 }
 
+// Component to preview edit blocks with old/new text
+function EditBlockPreview({ blocks }: { blocks: EditBlock[] }) {
+  return (
+    <div className="space-y-2">
+      {blocks.map((block) => (
+        <div
+          key={block.id}
+          className="rounded-md border border-border bg-muted/30 p-3 text-xs"
+        >
+          <div className="flex items-start gap-2">
+            <div className="flex-1 min-w-0">
+              <div className="text-muted-foreground line-through whitespace-pre-wrap break-words">
+                {block.search}
+              </div>
+            </div>
+            <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <div className="text-green-600 dark:text-green-400 whitespace-pre-wrap break-words">
+                {block.replace}
+              </div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+
 export function ChatMessage({ message }: ChatMessageProps) {
   const [showTimestamp, setShowTimestamp] = useState(false)
+  const [applyState, setApplyState] = useState<'idle' | 'applied' | 'error'>('idle')
+  const [applyResults, setApplyResults] = useState<ApplyResult[]>([])
+  const editor = useEditorInstanceStore((state) => state.editor)
   const isUser = message.role === 'user'
+  const containsEdits = !isUser && hasEditBlocks(message.content)
+  const editBlocks = containsEdits ? parseEditBlocks(message.content) : []
+  const editCount = editBlocks.length
+
+  const handleApplyEdits = useCallback(() => {
+    if (!editor || !containsEdits) return
+
+    const results = applyEditsAsDiffs(editor, editBlocks)
+    setApplyResults(results)
+
+    const allSucceeded = results.every((r) => r.success)
+    setApplyState(allSucceeded ? 'applied' : 'error')
+  }, [editor, editBlocks, containsEdits])
+
+  // For assistant messages with edit blocks, strip them from display
+  const displayContent = containsEdits ? stripEditBlocks(message.content) : message.content
 
   return (
     <div
@@ -112,10 +163,61 @@ export function ChatMessage({ message }: ChatMessageProps) {
         <div className="text-sm leading-relaxed">
           {isUser ? (
             <p className="whitespace-pre-wrap">{message.content}</p>
+          ) : displayContent.trim() ? (
+            <div className="prose-chat">{renderMarkdown(displayContent)}</div>
+          ) : containsEdits ? (
+            <p className="text-muted-foreground italic">
+              Suggested {editCount} edit{editCount !== 1 ? 's' : ''} to the document.
+            </p>
           ) : (
-            <div className="prose-chat">{renderMarkdown(message.content)}</div>
+            <div className="prose-chat">{renderMarkdown(displayContent)}</div>
           )}
         </div>
+        {containsEdits && editBlocks.length > 0 && (
+          <EditBlockPreview blocks={editBlocks} />
+        )}
+        {containsEdits && (
+          <div className="flex items-center gap-2">
+            {applyState === 'idle' && (
+              <button
+                onClick={handleApplyEdits}
+                disabled={!editor}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
+                  editor
+                    ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                    : 'bg-muted text-muted-foreground cursor-not-allowed'
+                )}
+              >
+                <Wand2 className="h-3 w-3" />
+                Apply {editCount} Edit{editCount !== 1 ? 's' : ''}
+              </button>
+            )}
+            {applyState === 'applied' && (
+              <span className="inline-flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
+                <Check className="h-3 w-3" />
+                Applied to document
+              </span>
+            )}
+            {applyState === 'error' && (
+              <div className="space-y-1">
+                <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                  <AlertCircle className="h-3 w-3" />
+                  Some edits failed
+                </span>
+                <ul className="text-xs text-muted-foreground">
+                  {applyResults
+                    .filter((r) => !r.success)
+                    .map((r, i) => (
+                      <li key={i} className="truncate">
+                        {r.error}
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
         <p
           className={cn(
             'text-xs text-muted-foreground transition-opacity duration-200',

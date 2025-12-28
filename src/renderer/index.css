@@ -252,3 +252,82 @@
 ::selection {
   background: hsl(var(--primary) / 0.2);
 }
+
+/* Diff Suggestions */
+.prose-editor .diff-suggestion {
+  display: inline;
+  border-radius: 0.25em;
+  padding: 0 0.25em;
+  border: 1px solid hsl(210 100% 50% / 0.3);
+  background: hsl(210 100% 50% / 0.1);
+}
+
+.dark .prose-editor .diff-suggestion {
+  border-color: hsl(210 100% 60% / 0.3);
+  background: hsl(210 100% 30% / 0.2);
+}
+
+.prose-editor .diff-suggestion [data-diff-suggestion-old] {
+  text-decoration: line-through;
+  color: hsl(0 70% 50%);
+  background: hsl(0 70% 50% / 0.15);
+  padding: 0 0.1em;
+  border-radius: 0.125em;
+}
+
+.dark .prose-editor .diff-suggestion [data-diff-suggestion-old] {
+  color: hsl(0 70% 65%);
+  background: hsl(0 70% 40% / 0.25);
+}
+
+.prose-editor .diff-suggestion [data-diff-suggestion-new] {
+  color: hsl(140 60% 35%);
+  background: hsl(140 60% 40% / 0.15);
+  padding: 0 0.1em;
+  border-radius: 0.125em;
+  margin-left: 0.25em;
+}
+
+.dark .prose-editor .diff-suggestion [data-diff-suggestion-new] {
+  color: hsl(140 60% 60%);
+  background: hsl(140 60% 30% / 0.25);
+}
+
+.prose-editor .diff-suggestion-content {
+  display: inline;
+}
+
+.prose-editor .diff-suggestion-action-container {
+  display: inline-flex;
+  gap: 0.25em;
+  margin-left: 0.5em;
+  vertical-align: middle;
+}
+
+.prose-editor .diff-suggestion-action-container button {
+  padding: 0.125em 0.375em;
+  font-size: 0.75em;
+  border-radius: 0.25em;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.prose-editor .diff-accept-btn {
+  background: hsl(140 60% 45%);
+  color: white;
+}
+
+.prose-editor .diff-accept-btn:hover {
+  background: hsl(140 60% 40%);
+}
+
+.prose-editor .diff-reject-btn {
+  background: hsl(0 65% 50%);
+  color: white;
+}
+
+.prose-editor .diff-reject-btn:hover {
+  background: hsl(0 65% 45%);
+}

@@ -12,6 +12,8 @@ npm run build:win    # Build Windows distributable
 npm run build:linux  # Build Linux distributable
 ```
 
+**Note**: Always run these commands for the user rather than asking them to run manually. Start dev servers in the background so work can continue.
+
 ## Before Implementation
 
 Before writing any code, complete this checklist:

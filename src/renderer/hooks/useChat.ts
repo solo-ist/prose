@@ -70,15 +70,6 @@ export function useChat() {
         timestamp: new Date()
       })
 
-      // Create assistant message placeholder
-      const assistantMsgId = createMessageId()
-      addMessage({
-        id: assistantMsgId,
-        role: 'assistant',
-        content: '',
-        timestamp: new Date()
-      })
-
       setLoading(true)
 
       try {
@@ -102,13 +93,25 @@ export function useChat() {
           system: buildSystemPrompt(includeDocument, document.content)
         })
 
-        updateMessage(assistantMsgId, { content: response.content })
+        // Add assistant message with the response
+        const assistantMsgId = createMessageId()
+        addMessage({
+          id: assistantMsgId,
+          role: 'assistant',
+          content: response.content,
+          timestamp: new Date()
+        })
       } catch (error) {
         console.error('[Chat] Error:', error)
         const errorMessage =
           error instanceof Error ? error.message : 'Unknown error'
-        updateMessage(assistantMsgId, {
-          content: `Error: ${errorMessage}. Please check your API key in Settings (Cmd+,).`
+        // Add error message as assistant response
+        const errorMsgId = createMessageId()
+        addMessage({
+          id: errorMsgId,
+          role: 'assistant',
+          content: `Error: ${errorMessage}. Please check your API key in Settings (Cmd+,).`,
+          timestamp: new Date()
         })
       } finally {
         setLoading(false)
@@ -125,7 +128,6 @@ export function useChat() {
       activeConversationId,
       addConversation,
       addMessage,
-      updateMessage,
       setLoading,
       setContext
     ]

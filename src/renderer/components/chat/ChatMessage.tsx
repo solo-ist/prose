@@ -1,8 +1,8 @@
 import { useState, useCallback } from 'react'
 import { cn } from '../../lib/utils'
 import type { ChatMessage as ChatMessageType } from '../../types'
-import { User, Bot, Wand2, Check, AlertCircle } from 'lucide-react'
-import { parseEditBlocks, hasEditBlocks, stripEditBlocks, countEditBlocks } from '../../lib/editBlocks'
+import { User, Bot, Wand2, Check, AlertCircle, ArrowRight } from 'lucide-react'
+import { parseEditBlocks, hasEditBlocks, stripEditBlocks, type EditBlock } from '../../lib/editBlocks'
 import { applyEditsAsDiffs, type ApplyResult } from '../../lib/applyEdit'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 
@@ -80,6 +80,35 @@ function renderMarkdown(content: string): React.ReactNode {
   return elements
 }
 
+// Component to preview edit blocks with old/new text
+function EditBlockPreview({ blocks }: { blocks: EditBlock[] }) {
+  return (
+    <div className="space-y-2">
+      {blocks.map((block) => (
+        <div
+          key={block.id}
+          className="rounded-md border border-border bg-muted/30 p-3 text-xs"
+        >
+          <div className="flex items-start gap-2">
+            <div className="flex-1 min-w-0">
+              <div className="text-muted-foreground line-through whitespace-pre-wrap break-words">
+                {block.search}
+              </div>
+            </div>
+            <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <div className="text-green-600 dark:text-green-400 whitespace-pre-wrap break-words">
+                {block.replace}
+              </div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+
 export function ChatMessage({ message }: ChatMessageProps) {
   const [showTimestamp, setShowTimestamp] = useState(false)
   const [applyState, setApplyState] = useState<'idle' | 'applied' | 'error'>('idle')
@@ -87,18 +116,18 @@ export function ChatMessage({ message }: ChatMessageProps) {
   const editor = useEditorInstanceStore((state) => state.editor)
   const isUser = message.role === 'user'
   const containsEdits = !isUser && hasEditBlocks(message.content)
-  const editCount = containsEdits ? countEditBlocks(message.content) : 0
+  const editBlocks = containsEdits ? parseEditBlocks(message.content) : []
+  const editCount = editBlocks.length
 
   const handleApplyEdits = useCallback(() => {
     if (!editor || !containsEdits) return
 
-    const editBlocks = parseEditBlocks(message.content)
     const results = applyEditsAsDiffs(editor, editBlocks)
     setApplyResults(results)
 
     const allSucceeded = results.every((r) => r.success)
     setApplyState(allSucceeded ? 'applied' : 'error')
-  }, [editor, message.content, containsEdits])
+  }, [editor, editBlocks, containsEdits])
 
   // For assistant messages with edit blocks, strip them from display
   const displayContent = containsEdits ? stripEditBlocks(message.content) : message.content
@@ -144,6 +173,9 @@ export function ChatMessage({ message }: ChatMessageProps) {
             <div className="prose-chat">{renderMarkdown(displayContent)}</div>
           )}
         </div>
+        {containsEdits && editBlocks.length > 0 && (
+          <EditBlockPreview blocks={editBlocks} />
+        )}
         {containsEdits && (
           <div className="flex items-center gap-2">
             {applyState === 'idle' && (

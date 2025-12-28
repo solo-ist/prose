@@ -26,16 +26,28 @@ Before writing any code, complete this checklist:
 
 The app supports automated QA testing via Circuit Electron MCP (configured at parent level).
 
-**Dev mode:** Remote debugging enabled on port 9222 when running `npm run dev`. Circuit Electron can connect directly.
+### Workflow
 
-**Built app:** After `npm run build:mac`, the app is at:
+Circuit Electron launches its own Electron instance, which bypasses electron-vite's dev server. For reliable testing:
+
+1. **Build first**: Run `npm run build` to create fresh `out/` files
+2. **Launch with Circuit Electron**: Use development mode to launch from project directory
+3. **Test the feature**: Interact with the app using Circuit Electron tools
+
+### Safe Process Cleanup
+
+```bash
+pkill -f "Electron.app"     # Kill Electron only
+pkill -f "electron-vite"    # Kill Vite dev server
+# NEVER: pkill -f node      # This kills Circuit Electron MCP!
+```
+
+### Built App Location
+
+After `npm run build:mac`, the app is at:
 ```
 dist/mac-arm64/prose.app
 ```
-
-**Example prompts for Claude Desktop:**
-- "Launch Prose at /Users/angelmarino/Code/prose/dist/mac-arm64/prose.app and take a screenshot"
-- "Click on the chat panel toggle and verify it opens"
 
 ## Workflow
 

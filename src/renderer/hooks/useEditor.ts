@@ -40,8 +40,8 @@ export function useEditor() {
     setActiveChatId(activeConversationId)
   }, [activeConversationId, setActiveChatId])
 
-  const openFileFromPath = useCallback(async (filePath: string) => {
-    if (!window.api) return
+  const openFileFromPath = useCallback(async (filePath: string): Promise<boolean> => {
+    if (!window.api) return false
 
     // Save current conversations before switching
     await saveCurrentConversation(document.documentId)
@@ -64,13 +64,18 @@ export function useEditor() {
 
       // Clear draft since we opened a file
       await clearDraft()
+
+      // Return true if document has content but no chat history (for auto-prompt)
+      const conversations = useChatStore.getState().conversations
+      return parsed.content.trim().length > 0 && conversations.length === 0
     } catch (error) {
       console.error('Failed to open file:', error)
+      return false
     }
   }, [setDocument, document.documentId, saveCurrentConversation, loadForDocument])
 
-  const openFile = useCallback(async () => {
-    if (!window.api) return
+  const openFile = useCallback(async (): Promise<boolean> => {
+    if (!window.api) return false
 
     // Save current conversations before switching
     await saveCurrentConversation(document.documentId)
@@ -94,7 +99,12 @@ export function useEditor() {
 
       // Clear draft since we opened a file
       await clearDraft()
+
+      // Return true if document has content but no chat history (for auto-prompt)
+      const conversations = useChatStore.getState().conversations
+      return parsed.content.trim().length > 0 && conversations.length === 0
     }
+    return false
   }, [setDocument, document.documentId, saveCurrentConversation, loadForDocument])
 
   const saveFile = useCallback(async () => {

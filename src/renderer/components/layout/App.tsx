@@ -26,7 +26,7 @@ import {
 import type { DraftState } from '../../lib/persistence'
 
 export function App() {
-  const { isPanelOpen, togglePanel } = useChat()
+  const { isPanelOpen, togglePanel, sendMessage } = useChat()
   const { openFile, openFileFromPath, saveFile, saveFileAs, newFile } = useEditor()
   const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, settings, isLoaded: settingsLoaded } = useSettings()
   const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false)
@@ -132,7 +132,9 @@ export function App() {
           newFile()
           break
         case 'open':
-          openFile()
+          openFile().then((shouldAutoPrompt) => {
+            if (shouldAutoPrompt) sendMessage('What is this?')
+          })
           break
         case 'save':
           saveFile()
@@ -157,16 +159,18 @@ export function App() {
     })
 
     return unsubscribe
-  }, [openFile, saveFile, saveFileAs, newFile, setDialogOpen, togglePanel])
+  }, [openFile, saveFile, saveFileAs, newFile, setDialogOpen, togglePanel, sendMessage])
 
   // Handle file open from OS (double-click .md file)
   useEffect(() => {
     if (!window.api) return
     const unsubscribe = window.api.onFileOpenExternal((path) => {
-      openFileFromPath(path)
+      openFileFromPath(path).then((shouldAutoPrompt) => {
+        if (shouldAutoPrompt) sendMessage('What is this?')
+      })
     })
     return unsubscribe
-  }, [openFileFromPath])
+  }, [openFileFromPath, sendMessage])
 
   return (
     <TooltipProvider delayDuration={300}>

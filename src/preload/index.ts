@@ -32,6 +32,7 @@ export interface ElectronAPI {
   loadSettings: () => Promise<Settings>
   saveSettings: (settings: Settings) => Promise<void>
   onMenuAction: (callback: (action: string) => void) => () => void
+  onFileOpenExternal: (callback: (path: string) => void) => () => void
   llmChat: (request: LLMRequest) => Promise<LLMResponse>
   platform: 'aix' | 'darwin' | 'freebsd' | 'linux' | 'openbsd' | 'sunos' | 'win32' | 'android' | 'cygwin' | 'netbsd'
 }
@@ -50,6 +51,15 @@ const api: ElectronAPI = {
     ipcRenderer.on('menu:action', handler)
     return () => {
       ipcRenderer.removeListener('menu:action', handler)
+    }
+  },
+  onFileOpenExternal: (callback: (path: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, path: string): void => {
+      callback(path)
+    }
+    ipcRenderer.on('file:openExternal', handler)
+    return () => {
+      ipcRenderer.removeListener('file:openExternal', handler)
     }
   },
   llmChat: (request: LLMRequest) => ipcRenderer.invoke('llm:chat', request),

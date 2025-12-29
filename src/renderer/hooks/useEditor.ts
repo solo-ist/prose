@@ -40,6 +40,35 @@ export function useEditor() {
     setActiveChatId(activeConversationId)
   }, [activeConversationId, setActiveChatId])
 
+  const openFileFromPath = useCallback(async (filePath: string) => {
+    if (!window.api) return
+
+    // Save current conversations before switching
+    await saveCurrentConversation(document.documentId)
+
+    try {
+      const content = await window.api.readFile(filePath)
+      const parsed = parseMarkdown(content)
+      const newDocumentId = await generateIdFromPath(filePath)
+
+      setDocument({
+        documentId: newDocumentId,
+        path: filePath,
+        content: parsed.content,
+        frontmatter: parsed.frontmatter,
+        isDirty: false
+      })
+
+      // Load conversations for the document
+      await loadForDocument(newDocumentId)
+
+      // Clear draft since we opened a file
+      await clearDraft()
+    } catch (error) {
+      console.error('Failed to open file:', error)
+    }
+  }, [setDocument, document.documentId, saveCurrentConversation, loadForDocument])
+
   const openFile = useCallback(async () => {
     if (!window.api) return
 
@@ -146,6 +175,7 @@ export function useEditor() {
     setFrontmatter,
     setCursorPosition,
     openFile,
+    openFileFromPath,
     saveFile,
     saveFileAs,
     newFile

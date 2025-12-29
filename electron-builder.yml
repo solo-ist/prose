@@ -1,0 +1,30 @@
+appId: com.prose.app
+productName: Prose
+directories:
+  buildResources: build
+  output: dist
+
+files:
+  - out/**/*
+
+fileAssociations:
+  - ext: md
+    name: Markdown
+    description: Markdown document
+    role: Editor
+
+mac:
+  category: public.app-category.productivity
+  target:
+    - dmg
+    - dir
+  entitlementsInherit: build/entitlements.mac.plist
+
+win:
+  target:
+    - nsis
+
+linux:
+  target:
+    - AppImage
+  category: Office

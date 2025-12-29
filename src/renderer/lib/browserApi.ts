@@ -151,6 +151,11 @@ export const browserApi: ElectronAPI = {
     return () => {}
   },
 
+  onFileOpenExternal: (_callback: (path: string) => void) => {
+    // No external file open in browser mode
+    return () => {}
+  },
+
   llmChat: async (request: LLMRequest): Promise<LLMResponse> => {
     let model
     switch (request.provider) {

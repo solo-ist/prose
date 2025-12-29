@@ -27,7 +27,7 @@ import type { DraftState } from '../../lib/persistence'
 
 export function App() {
   const { isPanelOpen, togglePanel } = useChat()
-  const { openFile, saveFile, saveFileAs, newFile } = useEditor()
+  const { openFile, openFileFromPath, saveFile, saveFileAs, newFile } = useEditor()
   const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, settings, isLoaded: settingsLoaded } = useSettings()
   const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false)
   const [pendingDraft, setPendingDraft] = useState<DraftState | null>(null)
@@ -144,6 +144,15 @@ export function App() {
 
     return unsubscribe
   }, [openFile, saveFile, saveFileAs, newFile, setDialogOpen, togglePanel])
+
+  // Handle file open from OS (double-click .md file)
+  useEffect(() => {
+    if (!window.api) return
+    const unsubscribe = window.api.onFileOpenExternal((path) => {
+      openFileFromPath(path)
+    })
+    return unsubscribe
+  }, [openFileFromPath])
 
   return (
     <TooltipProvider delayDuration={300}>

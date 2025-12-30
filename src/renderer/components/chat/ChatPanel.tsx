@@ -29,12 +29,15 @@ export function ChatPanel() {
   } = useChatStore()
   const documentId = useEditorStore((state) => state.document.documentId)
 
-  // Auto-scroll to bottom on new messages or streaming
+  // Get the last message content to trigger scroll during streaming
+  const lastMessageContent = messages[messages.length - 1]?.content
+
+  // Auto-scroll to bottom on new messages or streaming content updates
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [messages, isLoading, isStreaming])
+  }, [messages, isLoading, isStreaming, lastMessageContent])
 
   const handleNewChat = () => {
     addConversation(documentId)
@@ -151,7 +154,7 @@ export function ChatPanel() {
       </div>
 
       {/* Messages */}
-      <ScrollArea className="flex-1" ref={scrollRef}>
+      <ScrollArea className="flex-1" viewportRef={scrollRef}>
         {messages.length === 0 ? (
           <div className="flex h-full items-center justify-center p-8">
             <div className="text-center">

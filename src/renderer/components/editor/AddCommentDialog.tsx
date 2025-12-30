@@ -13,24 +13,13 @@ import { Textarea } from '../ui/textarea'
 interface AddCommentDialogProps {
   editor: Editor | null
   isOpen: boolean
+  selection: { from: number; to: number; text: string } | null
   onClose: () => void
 }
 
-export function AddCommentDialog({ editor, isOpen, onClose }: AddCommentDialogProps) {
+export function AddCommentDialog({ editor, isOpen, selection, onClose }: AddCommentDialogProps) {
   const [comment, setComment] = useState('')
-  const [selectedText, setSelectedText] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-
-  // Capture the selected text when dialog opens
-  useEffect(() => {
-    if (isOpen && editor) {
-      const { from, to } = editor.state.selection
-      if (from !== to) {
-        const text = editor.state.doc.textBetween(from, to, ' ')
-        setSelectedText(text)
-      }
-    }
-  }, [isOpen, editor])
 
   // Focus textarea when dialog opens
   useEffect(() => {
@@ -42,29 +31,24 @@ export function AddCommentDialog({ editor, isOpen, onClose }: AddCommentDialogPr
   }, [isOpen])
 
   const handleSubmit = () => {
-    if (!editor || !comment.trim()) return
-
-    const { from, to } = editor.state.selection
-    if (from === to) {
-      onClose()
-      return
-    }
+    if (!editor || !comment.trim() || !selection) return
 
     // Generate a unique ID for this comment
     const id = `comment-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
 
-    // Add the comment mark to the selection
-    editor.commands.setComment({ id, comment: comment.trim() })
+    // Set the selection and add the comment mark
+    editor.chain()
+      .setTextSelection({ from: selection.from, to: selection.to })
+      .setComment({ id, comment: comment.trim() })
+      .run()
 
     // Reset and close
     setComment('')
-    setSelectedText('')
     onClose()
   }
 
   const handleClose = () => {
     setComment('')
-    setSelectedText('')
     onClose()
   }
 
@@ -82,11 +66,11 @@ export function AddCommentDialog({ editor, isOpen, onClose }: AddCommentDialogPr
           <DialogTitle>Add Comment</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
-          {selectedText && (
+          {selection?.text && (
             <div className="text-sm">
               <span className="text-muted-foreground">Selected text: </span>
               <span className="italic">
-                "{selectedText.length > 100 ? selectedText.slice(0, 100) + '...' : selectedText}"
+                "{selection.text.length > 100 ? selection.text.slice(0, 100) + '...' : selection.text}"
               </span>
             </div>
           )}

@@ -24,6 +24,11 @@ export function Editor() {
   const isUpdatingFromStore = useRef(false)
   const [isFindOpen, setIsFindOpen] = useState(false)
   const [isAddCommentOpen, setIsAddCommentOpen] = useState(false)
+  const [pendingCommentSelection, setPendingCommentSelection] = useState<{
+    from: number
+    to: number
+    text: string
+  } | null>(null)
 
   const editor = useTipTapEditor({
     extensions: [
@@ -83,6 +88,16 @@ export function Editor() {
     }
   })
 
+  // Helper to open comment dialog with current selection
+  const openAddCommentDialog = useCallback(() => {
+    if (!editor) return
+    const { from, to } = editor.state.selection
+    if (from === to) return // No selection
+    const text = editor.state.doc.textBetween(from, to, ' ')
+    setPendingCommentSelection({ from, to, text })
+    setIsAddCommentOpen(true)
+  }, [editor])
+
   // Sync content from store to editor when document changes externally
   useEffect(() => {
     if (!editor) return
@@ -139,12 +154,7 @@ export function Editor() {
     } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'c') {
       // Cmd+Shift+C: Add comment to selection
       e.preventDefault()
-      if (editor) {
-        const { from, to } = editor.state.selection
-        if (from !== to) {
-          setIsAddCommentOpen(true)
-        }
-      }
+      openAddCommentDialog()
     } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'l') {
       // Cmd+Shift+L: Toggle chat panel
       e.preventDefault()
@@ -224,7 +234,7 @@ export function Editor() {
       e.preventDefault()
       setShortcutsDialogOpen(true)
     }
-  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, editor, setContext, setPanelOpen, togglePanel, isFindOpen, isAddCommentOpen])
+  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, editor, setContext, setPanelOpen, togglePanel, isFindOpen, openAddCommentDialog])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
@@ -262,12 +272,16 @@ export function Editor() {
       </div>
       <SelectionPopover
         editor={editor}
-        onAddComment={() => setIsAddCommentOpen(true)}
+        onAddComment={openAddCommentDialog}
       />
       <AddCommentDialog
         editor={editor}
         isOpen={isAddCommentOpen}
-        onClose={() => setIsAddCommentOpen(false)}
+        selection={pendingCommentSelection}
+        onClose={() => {
+          setIsAddCommentOpen(false)
+          setPendingCommentSelection(null)
+        }}
       />
     </div>
   )

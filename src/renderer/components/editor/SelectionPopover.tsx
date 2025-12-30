@@ -83,7 +83,8 @@ export function SelectionPopover({ editor, onAddComment }: SelectionPopoverProps
         size="sm"
         variant="secondary"
         className="h-8 px-2 shadow-md border"
-        onClick={(e) => {
+        onMouseDown={(e) => {
+          // Prevent blur so selection is preserved when dialog opens
           e.preventDefault()
           e.stopPropagation()
           onAddComment()

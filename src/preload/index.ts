@@ -24,6 +24,25 @@ export interface LLMResponse {
   content: string
 }
 
+export interface LLMStreamRequest extends LLMRequest {
+  streamId: string
+}
+
+export interface LLMStreamChunk {
+  streamId: string
+  delta: string
+}
+
+export interface LLMStreamComplete {
+  streamId: string
+  content: string
+}
+
+export interface LLMStreamError {
+  streamId: string
+  error: string
+}
+
 export interface ElectronAPI {
   openFile: () => Promise<FileResult | null>
   saveFile: (path: string, content: string) => Promise<void>
@@ -35,6 +54,12 @@ export interface ElectronAPI {
   onFileOpenExternal: (callback: (path: string) => void) => () => void
   llmChat: (request: LLMRequest) => Promise<LLMResponse>
   platform: 'aix' | 'darwin' | 'freebsd' | 'linux' | 'openbsd' | 'sunos' | 'win32' | 'android' | 'cygwin' | 'netbsd'
+  // Streaming LLM
+  llmChatStream: (request: LLMStreamRequest) => Promise<{ success: boolean }>
+  llmAbortStream: (streamId: string) => Promise<{ success: boolean }>
+  onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => () => void
+  onLLMStreamComplete: (callback: (complete: LLMStreamComplete) => void) => () => void
+  onLLMStreamError: (callback: (error: LLMStreamError) => void) => () => void
 }
 
 const api: ElectronAPI = {
@@ -63,7 +88,37 @@ const api: ElectronAPI = {
     }
   },
   llmChat: (request: LLMRequest) => ipcRenderer.invoke('llm:chat', request),
-  platform: process.platform
+  platform: process.platform,
+  // Streaming LLM
+  llmChatStream: (request: LLMStreamRequest) => ipcRenderer.invoke('llm:stream', request),
+  llmAbortStream: (streamId: string) => ipcRenderer.invoke('llm:stream:abort', streamId),
+  onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, chunk: LLMStreamChunk): void => {
+      callback(chunk)
+    }
+    ipcRenderer.on('llm:stream:chunk', handler)
+    return () => {
+      ipcRenderer.removeListener('llm:stream:chunk', handler)
+    }
+  },
+  onLLMStreamComplete: (callback: (complete: LLMStreamComplete) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, complete: LLMStreamComplete): void => {
+      callback(complete)
+    }
+    ipcRenderer.on('llm:stream:complete', handler)
+    return () => {
+      ipcRenderer.removeListener('llm:stream:complete', handler)
+    }
+  },
+  onLLMStreamError: (callback: (error: LLMStreamError) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, error: LLMStreamError): void => {
+      callback(error)
+    }
+    ipcRenderer.on('llm:stream:error', handler)
+    return () => {
+      ipcRenderer.removeListener('llm:stream:error', handler)
+    }
+  }
 }
 
 contextBridge.exposeInMainWorld('api', api)

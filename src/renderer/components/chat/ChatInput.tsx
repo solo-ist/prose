@@ -2,15 +2,17 @@ import { useState, useRef, useEffect } from 'react'
 import { Button } from '../ui/button'
 import { Textarea } from '../ui/textarea'
 import { Checkbox } from '../ui/checkbox'
-import { Send, X } from 'lucide-react'
+import { Send, Square, X } from 'lucide-react'
 import { useChat } from '../../hooks/useChat'
 
 interface ChatInputProps {
   onSend: (message: string) => void
   isLoading: boolean
+  isStreaming?: boolean
+  onStop?: () => void
 }
 
-export function ChatInput({ onSend, isLoading }: ChatInputProps) {
+export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputProps) {
   const [message, setMessage] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const { context, setContext, includeDocument, setIncludeDocument } = useChat()
@@ -75,15 +77,27 @@ export function ChatInput({ onSend, isLoading }: ChatInputProps) {
           className="min-h-[40px] max-h-[96px] resize-none"
           disabled={isLoading}
         />
-        <Button
-          size="icon"
-          onClick={handleSubmit}
-          disabled={!message.trim() || isLoading}
-          className="shrink-0"
-          aria-label="Send message"
-        >
-          <Send className="h-4 w-4" />
-        </Button>
+        {isStreaming ? (
+          <Button
+            size="icon"
+            variant="destructive"
+            onClick={onStop}
+            className="shrink-0"
+            aria-label="Stop generation"
+          >
+            <Square className="h-4 w-4" />
+          </Button>
+        ) : (
+          <Button
+            size="icon"
+            onClick={handleSubmit}
+            disabled={!message.trim() || isLoading}
+            className="shrink-0"
+            aria-label="Send message"
+          >
+            <Send className="h-4 w-4" />
+          </Button>
+        )}
       </div>
       <div className="mt-2 flex items-center justify-between">
         <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">

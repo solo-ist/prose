@@ -21,6 +21,11 @@ interface ChatState {
   context: string | null
   includeDocument: boolean
 
+  // Streaming state
+  isStreaming: boolean
+  currentStreamId: string | null
+  streamingMessageId: string | null
+
   // Conversation actions
   setConversations: (conversations: ChatConversation[]) => void
   addConversation: (documentId: string) => string
@@ -38,6 +43,11 @@ interface ChatState {
   setPanelOpen: (open: boolean) => void
   setContext: (context: string | null) => void
   setIncludeDocument: (include: boolean) => void
+
+  // Streaming actions
+  startStreaming: (messageId: string, streamId: string) => void
+  appendStreamChunk: (delta: string) => void
+  completeStreaming: () => void
 
   // Persistence actions
   loadForDocument: (documentId: string) => Promise<void>
@@ -57,6 +67,9 @@ export const useChatStore = create<ChatState>()(
     isPanelOpen: true,
     context: null,
     includeDocument: false,
+    isStreaming: false,
+    currentStreamId: null,
+    streamingMessageId: null,
 
     setConversations: (conversations) => set({ conversations }),
 
@@ -171,6 +184,45 @@ export const useChatStore = create<ChatState>()(
     setContext: (context) => set({ context }),
 
     setIncludeDocument: (include) => set({ includeDocument: include }),
+
+    // Streaming actions
+    startStreaming: (messageId, streamId) =>
+      set({
+        isStreaming: true,
+        currentStreamId: streamId,
+        streamingMessageId: messageId
+      }),
+
+    appendStreamChunk: (delta) =>
+      set((state) => {
+        if (!state.streamingMessageId) return state
+
+        const newMessages = state.messages.map((msg) =>
+          msg.id === state.streamingMessageId
+            ? { ...msg, content: msg.content + delta }
+            : msg
+        )
+
+        // Also update the active conversation
+        if (state.activeConversationId) {
+          const updatedConversations = state.conversations.map((c) =>
+            c.id === state.activeConversationId
+              ? { ...c, messages: newMessages, updatedAt: Date.now() }
+              : c
+          )
+          return { messages: newMessages, conversations: updatedConversations }
+        }
+
+        return { messages: newMessages }
+      }),
+
+    completeStreaming: () =>
+      set({
+        isStreaming: false,
+        currentStreamId: null,
+        streamingMessageId: null,
+        isLoading: false
+      }),
 
     loadForDocument: async (documentId) => {
       const conversations = await loadConversations(documentId)

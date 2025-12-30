@@ -13,6 +13,10 @@ import type {
   FileResult,
   LLMRequest,
   LLMResponse,
+  LLMStreamRequest,
+  LLMStreamChunk,
+  LLMStreamComplete,
+  LLMStreamError,
   ElectronAPI
 } from '../types'
 
@@ -228,6 +232,121 @@ export const browserApi: ElectronAPI = {
       }
       throw error
     }
+  },
+
+  // Streaming LLM (limited browser support due to CORS)
+  llmChatStream: async (request: LLMStreamRequest): Promise<{ success: boolean }> => {
+    const { streamId } = request
+
+    let model
+    switch (request.provider) {
+      case 'anthropic': {
+        const anthropic = createAnthropic({
+          apiKey: request.apiKey,
+          baseURL: 'https://api.anthropic.com/v1'
+        })
+        model = anthropic(request.model)
+        break
+      }
+      case 'openai': {
+        const openai = createOpenAI({ apiKey: request.apiKey })
+        model = openai(request.model)
+        break
+      }
+      case 'openrouter': {
+        const openrouter = createOpenRouter({ apiKey: request.apiKey })
+        model = openrouter(request.model)
+        break
+      }
+      case 'ollama': {
+        const ollama = createOllama({
+          baseURL: request.baseUrl || 'http://localhost:11434/api'
+        })
+        model = ollama(request.model)
+        break
+      }
+      default:
+        throw new Error(`Unknown provider: ${request.provider}`)
+    }
+
+    try {
+      const result = streamText({
+        model,
+        system: request.system,
+        messages: request.messages
+      })
+
+      let fullContent = ''
+      for await (const part of result.fullStream) {
+        if (part.type === 'text-delta') {
+          const delta =
+            (part as { text?: string; textDelta?: string }).text ??
+            (part as { text?: string; textDelta?: string }).textDelta ??
+            ''
+          fullContent += delta
+
+          // Dispatch chunk event
+          window.dispatchEvent(
+            new CustomEvent('llm:stream:chunk', {
+              detail: { streamId, delta }
+            })
+          )
+        } else if (part.type === 'error') {
+          throw part.error
+        }
+      }
+
+      // Dispatch complete event
+      window.dispatchEvent(
+        new CustomEvent('llm:stream:complete', {
+          detail: { streamId, content: fullContent }
+        })
+      )
+
+      return { success: true }
+    } catch (error) {
+      // Provide helpful error for CORS issues
+      let errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      if (
+        error instanceof Error &&
+        (error.message.includes('CORS') || error.message.includes('Failed to fetch'))
+      ) {
+        const provider = request.provider
+        if (provider === 'anthropic' || provider === 'openai') {
+          errorMessage = `${provider} blocks browser requests. Please use the Electron app, or switch to OpenRouter or Ollama.`
+        }
+      }
+
+      window.dispatchEvent(
+        new CustomEvent('llm:stream:error', {
+          detail: { streamId, error: errorMessage }
+        })
+      )
+      return { success: false }
+    }
+  },
+
+  llmAbortStream: async (_streamId: string): Promise<{ success: boolean }> => {
+    // Browser mode doesn't support abort (would need AbortController tracking)
+    return { success: false }
+  },
+
+  onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => {
+    const handler = (e: Event) => callback((e as CustomEvent).detail)
+    window.addEventListener('llm:stream:chunk', handler)
+    return () => window.removeEventListener('llm:stream:chunk', handler)
+  },
+
+  onLLMStreamComplete: (callback: (complete: LLMStreamComplete) => void) => {
+    const handler = (e: Event) => callback((e as CustomEvent).detail)
+    window.addEventListener('llm:stream:complete', handler)
+    return () => window.removeEventListener('llm:stream:complete', handler)
+  },
+
+  onLLMStreamError: (callback: (error: LLMStreamError) => void) => {
+    const handler = (e: Event) => callback((e as CustomEvent).detail)
+    window.addEventListener('llm:stream:error', handler)
+    return () => window.removeEventListener('llm:stream:error', handler)
   },
 
   platform: null

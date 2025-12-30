@@ -15,7 +15,7 @@ interface ChatInputProps {
 export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputProps) {
   const [message, setMessage] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const { context, setContext, includeDocument, setIncludeDocument } = useChat()
+  const { context, setContext, includeDocument, setIncludeDocument, agentMode, setAgentMode } = useChat()
 
   const handleSubmit = () => {
     if (message.trim() && !isLoading) {
@@ -100,19 +100,26 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
         )}
       </div>
       <div className="mt-2 flex items-center justify-between">
-        <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
-          <Checkbox
-            checked={includeDocument}
-            onCheckedChange={(checked) => setIncludeDocument(checked === true)}
-          />
-          Include full document
-        </label>
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+            <Checkbox
+              checked={includeDocument}
+              onCheckedChange={(checked) => setIncludeDocument(checked === true)}
+            />
+            Include document
+          </label>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+            <Checkbox
+              checked={agentMode}
+              onCheckedChange={(checked) => setAgentMode(checked === true)}
+            />
+            Agent mode
+          </label>
+        </div>
         <p className="text-xs text-muted-foreground">
-          Press{' '}
           <kbd className="rounded bg-muted px-1 py-0.5 text-[10px] font-medium">
             ⌘↵
-          </kbd>{' '}
-          to send
+          </kbd>
         </p>
       </div>
     </div>

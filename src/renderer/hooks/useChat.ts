@@ -16,6 +16,7 @@ export function useChat() {
     isPanelOpen,
     context,
     includeDocument,
+    agentMode,
     activeConversationId,
     isStreaming,
     currentStreamId,
@@ -28,6 +29,7 @@ export function useChat() {
     setPanelOpen,
     setContext,
     setIncludeDocument,
+    setAgentMode,
     startStreaming,
     appendStreamChunk,
     completeStreaming
@@ -207,6 +209,7 @@ export function useChat() {
     isPanelOpen,
     context,
     includeDocument,
+    agentMode,
     sendMessage,
     stopGeneration,
     updateMessage,
@@ -214,6 +217,7 @@ export function useChat() {
     togglePanel,
     setPanelOpen,
     setContext,
-    setIncludeDocument
+    setIncludeDocument,
+    setAgentMode
   }
 }

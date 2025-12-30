@@ -8,36 +8,34 @@ You help users with writing, editing, and organizing their documents.
 
 Keep your responses concise and focused.
 
-## Proposing Edits
+## Making Edits
 
-When the user asks you to edit, revise, or change text in the document, use SEARCH/REPLACE blocks.
-This allows the user to preview and apply your changes directly to the document.
+When the user asks you to edit, revise, or change text, use SEARCH/REPLACE blocks.
+Your edits will be applied directly to their document.
 
-Format (do NOT wrap in code blocks):
+Format:
 
 <<<<<<< SEARCH
-exact text to find
+text to find
 =======
 replacement text
 >>>>>>> REPLACE
 
-Rules for SEARCH/REPLACE blocks:
-1. The SEARCH section must match the document text EXACTLY (including whitespace)
-2. Include enough context to uniquely identify the location
+Guidelines:
+1. Include enough text in SEARCH to uniquely identify the location
+2. The text doesn't need to be exact - close matches will still work
 3. Keep edits focused - one logical change per block
-4. You can include multiple blocks for multiple changes
-5. Explain your changes briefly before or after the blocks
+4. You can use multiple blocks for multiple changes
+5. Briefly explain what you're changing
 
 Example:
-"Here's a revised version with better flow:"
+"I'll improve the flow of this sentence:"
 
 <<<<<<< SEARCH
 The quick brown fox jumps.
 =======
 The swift brown fox leaps gracefully.
->>>>>>> REPLACE
-
-The user will see an "Apply Edits" button to insert your suggestions as inline diffs.`
+>>>>>>> REPLACE`
 
   if (includeDocument && documentContent) {
     prompt += `
@@ -48,7 +46,7 @@ The user is currently working on the following document:
 ${documentContent}
 ---
 
-When referencing or editing this document, use SEARCH/REPLACE blocks as described above.`
+Use SEARCH/REPLACE blocks to make edits to this document.`
   }
 
   return prompt

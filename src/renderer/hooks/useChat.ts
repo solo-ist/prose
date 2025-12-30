@@ -2,9 +2,11 @@ import { useCallback, useEffect } from 'react'
 import { useChatStore, createMessageId } from '../stores/chatStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useEditorStore } from '../stores/editorStore'
+import { useEditorInstanceStore } from '../stores/editorInstanceStore'
 import { validateConfig } from '../lib/llm'
-import { buildSystemPrompt } from '../lib/prompts'
+import { buildSystemPrompt, buildCommentsPrompt } from '../lib/prompts'
 import { getApi } from '../lib/browserApi'
+import { getComments } from '../extensions/comments'
 
 // Module-level flag to ensure stream listeners are only registered once globally
 let streamListenersInitialized = false
@@ -202,6 +204,31 @@ export function useChat() {
     completeStreaming()
   }, [completeStreaming])
 
+  const processComments = useCallback(async () => {
+    const editor = useEditorInstanceStore.getState().editor
+    if (!editor) return
+
+    const comments = getComments(editor)
+    if (comments.length === 0) return
+
+    // Build the prompt from comments
+    const commentsPrompt = buildCommentsPrompt(comments)
+
+    // Send the message (this will trigger agent mode to apply edits)
+    await sendMessage(commentsPrompt)
+
+    // Remove all comments after sending (they'll be processed by AI)
+    // We do this immediately since the user triggered "Process Comments"
+    editor.commands.unsetAllComments()
+  }, [sendMessage])
+
+  // Helper to get current comment count
+  const getCommentCount = useCallback(() => {
+    const editor = useEditorInstanceStore.getState().editor
+    if (!editor) return 0
+    return getComments(editor).length
+  }, [])
+
   return {
     messages,
     isLoading,
@@ -212,6 +239,8 @@ export function useChat() {
     agentMode,
     sendMessage,
     stopGeneration,
+    processComments,
+    getCommentCount,
     updateMessage,
     clearMessages,
     togglePanel,

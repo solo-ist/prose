@@ -2,6 +2,8 @@
  * System prompts for LLM interactions
  */
 
+import type { CommentData } from '../extensions/comments/types'
+
 export function buildSystemPrompt(includeDocument: boolean, documentContent?: string): string {
   let prompt = `You are a helpful writing assistant integrated into a markdown editor called Prose.
 You help users with writing, editing, and organizing their documents.
@@ -48,6 +50,24 @@ ${documentContent}
 
 Use SEARCH/REPLACE blocks to make edits to this document.`
   }
+
+  return prompt
+}
+
+/**
+ * Build a prompt for processing comments
+ */
+export function buildCommentsPrompt(comments: CommentData[]): string {
+  if (comments.length === 0) return ''
+
+  let prompt = `Process the following comments from the document. Each comment is an instruction for how to edit the marked text.\n\n`
+
+  comments.forEach((comment, index) => {
+    prompt += `${index + 1}. Text: "${comment.markedText}"\n`
+    prompt += `   Instruction: ${comment.comment}\n\n`
+  })
+
+  prompt += `Apply the requested changes using SEARCH/REPLACE blocks. Address each comment in order.`
 
   return prompt
 }

@@ -6,11 +6,14 @@ import Link from '@tiptap/extension-link'
 import { Markdown } from 'tiptap-markdown'
 import { FocusMode } from '../../lib/focusMode'
 import { DiffSuggestion } from '../../extensions/diff-suggestions'
+import { Comment } from '../../extensions/comments'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { FindBar } from './FindBar'
+import { SelectionPopover } from './SelectionPopover'
+import { AddCommentDialog } from './AddCommentDialog'
 
 export function Editor() {
   const { document, setContent, openFile, saveFile } = useEditor()
@@ -20,6 +23,7 @@ export function Editor() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isUpdatingFromStore = useRef(false)
   const [isFindOpen, setIsFindOpen] = useState(false)
+  const [isAddCommentOpen, setIsAddCommentOpen] = useState(false)
 
   const editor = useTipTapEditor({
     extensions: [
@@ -56,6 +60,7 @@ export function Editor() {
           reject: '✗',
         },
       }),
+      Comment,
     ],
     content: document.content,
     editorProps: {
@@ -118,7 +123,7 @@ export function Editor() {
     } else if (isMod && e.key === ',') {
       e.preventDefault()
       setDialogOpen(true)
-    } else if (isMod && e.shiftKey && e.key === 'k') {
+    } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'k') {
       // Cmd+Shift+K: Add selection as context
       e.preventDefault()
       if (editor) {
@@ -131,7 +136,16 @@ export function Editor() {
           }
         }
       }
-    } else if (isMod && e.shiftKey && e.key === 'l') {
+    } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'c') {
+      // Cmd+Shift+C: Add comment to selection
+      e.preventDefault()
+      if (editor) {
+        const { from, to } = editor.state.selection
+        if (from !== to) {
+          setIsAddCommentOpen(true)
+        }
+      }
+    } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'l') {
       // Cmd+Shift+L: Toggle chat panel
       e.preventDefault()
       togglePanel()
@@ -210,7 +224,7 @@ export function Editor() {
       e.preventDefault()
       setShortcutsDialogOpen(true)
     }
-  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, editor, setContext, setPanelOpen, togglePanel, isFindOpen])
+  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, editor, setContext, setPanelOpen, togglePanel, isFindOpen, isAddCommentOpen])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
@@ -246,6 +260,15 @@ export function Editor() {
           />
         </div>
       </div>
+      <SelectionPopover
+        editor={editor}
+        onAddComment={() => setIsAddCommentOpen(true)}
+      />
+      <AddCommentDialog
+        editor={editor}
+        isOpen={isAddCommentOpen}
+        onClose={() => setIsAddCommentOpen(false)}
+      />
     </div>
   )
 }

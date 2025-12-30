@@ -17,7 +17,7 @@ import { useEditorStore } from '../../stores/editorStore'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 
 export function ChatPanel() {
-  const { messages, isLoading, sendMessage, clearMessages } = useChat()
+  const { messages, isLoading, isStreaming, sendMessage, stopGeneration, clearMessages } = useChat()
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const {
@@ -29,12 +29,12 @@ export function ChatPanel() {
   } = useChatStore()
   const documentId = useEditorStore((state) => state.document.documentId)
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll to bottom on new messages or streaming
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [messages, isLoading])
+  }, [messages, isLoading, isStreaming])
 
   const handleNewChat = () => {
     addConversation(documentId)
@@ -170,10 +170,19 @@ export function ChatPanel() {
           </div>
         ) : (
           <div className="divide-y divide-border/50">
-            {messages.map((message) => (
-              <ChatMessage key={message.id} message={message} />
+            {messages.map((message, index) => (
+              <ChatMessage
+                key={message.id}
+                message={message}
+                isStreaming={
+                  isStreaming &&
+                  index === messages.length - 1 &&
+                  message.role === 'assistant'
+                }
+              />
             ))}
-            {isLoading && (
+            {/* Show "Thinking..." only when loading but not yet streaming */}
+            {isLoading && !isStreaming && (
               <div className="flex gap-3 p-4 bg-muted/30">
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/20">
                   <div className="h-4 w-4 animate-pulse rounded-full bg-primary/50" />
@@ -190,7 +199,12 @@ export function ChatPanel() {
       </ScrollArea>
 
       {/* Input */}
-      <ChatInput onSend={sendMessage} isLoading={isLoading} />
+      <ChatInput
+        onSend={sendMessage}
+        isLoading={isLoading}
+        isStreaming={isStreaming}
+        onStop={stopGeneration}
+      />
     </div>
   )
 }

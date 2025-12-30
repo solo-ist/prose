@@ -8,6 +8,7 @@ import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 
 interface ChatMessageProps {
   message: ChatMessageType
+  isStreaming?: boolean
 }
 
 // Simple markdown renderer for assistant messages
@@ -109,7 +110,7 @@ function EditBlockPreview({ blocks }: { blocks: EditBlock[] }) {
 }
 
 
-export function ChatMessage({ message }: ChatMessageProps) {
+export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
   const [showTimestamp, setShowTimestamp] = useState(false)
   const [applyState, setApplyState] = useState<'idle' | 'applied' | 'error'>('idle')
   const [applyResults, setApplyResults] = useState<ApplyResult[]>([])
@@ -164,11 +165,18 @@ export function ChatMessage({ message }: ChatMessageProps) {
           {isUser ? (
             <p className="whitespace-pre-wrap">{message.content}</p>
           ) : displayContent.trim() ? (
-            <div className="prose-chat">{renderMarkdown(displayContent)}</div>
+            <div className="prose-chat">
+              {renderMarkdown(displayContent)}
+              {isStreaming && (
+                <span className="inline-block w-2 h-4 bg-primary/50 animate-pulse ml-0.5 align-middle" />
+              )}
+            </div>
           ) : containsEdits ? (
             <p className="text-muted-foreground italic">
               Suggested {editCount} edit{editCount !== 1 ? 's' : ''} to the document.
             </p>
+          ) : isStreaming ? (
+            <span className="inline-block w-2 h-4 bg-primary/50 animate-pulse" />
           ) : (
             <div className="prose-chat">{renderMarkdown(displayContent)}</div>
           )}

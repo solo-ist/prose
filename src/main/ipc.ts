@@ -18,6 +18,13 @@ interface LLMRequest {
   system: string
 }
 
+interface LLMStreamRequest extends LLMRequest {
+  streamId: string
+}
+
+// Track active streams for abort support
+const activeStreams = new Map<string, AbortController>()
+
 const SETTINGS_DIR = join(homedir(), '.prose')
 const SETTINGS_PATH = join(SETTINGS_DIR, 'settings.json')
 
@@ -170,5 +177,114 @@ export function setupIpcHandlers(): void {
       console.error('[LLM] Error:', error)
       throw error
     }
+  })
+
+  // LLM: Streaming chat completion
+  ipcMain.handle('llm:stream', async (event, request: LLMStreamRequest) => {
+    const { streamId } = request
+    const abortController = new AbortController()
+    activeStreams.set(streamId, abortController)
+
+    const { createAnthropic } = await import('@ai-sdk/anthropic')
+    const { createOpenAI } = await import('@ai-sdk/openai')
+    const { createOpenRouter } = await import('@openrouter/ai-sdk-provider')
+    const { createOllama } = await import('ollama-ai-provider')
+    const { streamText } = await import('ai')
+
+    let model
+    switch (request.provider) {
+      case 'anthropic': {
+        const anthropic = createAnthropic({
+          apiKey: request.apiKey,
+          baseURL: 'https://api.anthropic.com/v1'
+        })
+        model = anthropic(request.model)
+        break
+      }
+      case 'openai': {
+        const openai = createOpenAI({ apiKey: request.apiKey })
+        model = openai(request.model)
+        break
+      }
+      case 'openrouter': {
+        const openrouter = createOpenRouter({ apiKey: request.apiKey })
+        model = openrouter(request.model)
+        break
+      }
+      case 'ollama': {
+        const ollama = createOllama({
+          baseURL: request.baseUrl || 'http://localhost:11434/api'
+        })
+        model = ollama(request.model)
+        break
+      }
+      default:
+        throw new Error(`Unknown provider: ${request.provider}`)
+    }
+
+    try {
+      const result = streamText({
+        model,
+        system: request.system,
+        messages: request.messages,
+        abortSignal: abortController.signal
+      })
+
+      let fullContent = ''
+      for await (const part of result.fullStream) {
+        // Check if aborted
+        if (abortController.signal.aborted) {
+          break
+        }
+
+        if (part.type === 'text-delta') {
+          const delta = (part as { text?: string; textDelta?: string }).text ??
+                        (part as { text?: string; textDelta?: string }).textDelta ?? ''
+          fullContent += delta
+
+          // Send chunk to renderer
+          event.sender.send('llm:stream:chunk', {
+            streamId,
+            delta
+          })
+        } else if (part.type === 'error') {
+          throw (part as { error: unknown }).error
+        }
+      }
+
+      // Send completion
+      event.sender.send('llm:stream:complete', {
+        streamId,
+        content: fullContent
+      })
+
+      return { success: true }
+    } catch (error) {
+      if (abortController.signal.aborted) {
+        // Graceful abort - send completion with accumulated content
+        event.sender.send('llm:stream:complete', {
+          streamId,
+          content: ''
+        })
+      } else {
+        event.sender.send('llm:stream:error', {
+          streamId,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        })
+      }
+      return { success: false }
+    } finally {
+      activeStreams.delete(streamId)
+    }
+  })
+
+  // LLM: Abort streaming request
+  ipcMain.handle('llm:stream:abort', async (_event, streamId: string) => {
+    const controller = activeStreams.get(streamId)
+    if (controller) {
+      controller.abort()
+      return { success: true }
+    }
+    return { success: false }
   })
 }

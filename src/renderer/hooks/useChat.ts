@@ -1,10 +1,13 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import { useChatStore, createMessageId } from '../stores/chatStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useEditorStore } from '../stores/editorStore'
 import { validateConfig } from '../lib/llm'
 import { buildSystemPrompt } from '../lib/prompts'
 import { getApi } from '../lib/browserApi'
+
+// Module-level flag to ensure stream listeners are only registered once globally
+let streamListenersInitialized = false
 
 export function useChat() {
   const {
@@ -14,6 +17,8 @@ export function useChat() {
     context,
     includeDocument,
     activeConversationId,
+    isStreaming,
+    currentStreamId,
     addConversation,
     addMessage,
     updateMessage,
@@ -22,11 +27,61 @@ export function useChat() {
     togglePanel,
     setPanelOpen,
     setContext,
-    setIncludeDocument
+    setIncludeDocument,
+    startStreaming,
+    appendStreamChunk,
+    completeStreaming
   } = useChatStore()
 
   const { settings } = useSettingsStore()
   const { document } = useEditorStore()
+
+  // Set up stream event listeners (only once globally across all hook instances)
+  useEffect(() => {
+    if (streamListenersInitialized) return
+
+    streamListenersInitialized = true
+    const api = getApi()
+
+    const unsubChunk = api.onLLMStreamChunk((chunk) => {
+      const state = useChatStore.getState()
+      if (chunk.streamId === state.currentStreamId) {
+        state.appendStreamChunk(chunk.delta)
+      }
+    })
+
+    const unsubComplete = api.onLLMStreamComplete((complete) => {
+      const state = useChatStore.getState()
+      if (complete.streamId === state.currentStreamId) {
+        state.completeStreaming()
+      }
+    })
+
+    const unsubError = api.onLLMStreamError((error) => {
+      const state = useChatStore.getState()
+      if (error.streamId === state.currentStreamId) {
+        // Append error to the streaming message
+        if (state.streamingMessageId) {
+          const currentMsg = state.messages.find(
+            (m) => m.id === state.streamingMessageId
+          )
+          state.updateMessage(state.streamingMessageId, {
+            content: (currentMsg?.content || '') + `\n\n*Error: ${error.error}*`
+          })
+        }
+        state.completeStreaming()
+      }
+    })
+
+    // No cleanup - listeners persist for app lifetime
+    // This is intentional since we use module-level guard
+    return () => {
+      unsubChunk()
+      unsubComplete()
+      unsubError()
+      streamListenersInitialized = false
+    }
+  }, [])
 
   const sendMessage = useCallback(
     async (content: string) => {
@@ -72,49 +127,49 @@ export function useChat() {
 
       setLoading(true)
 
-      try {
-        // Build messages array for the API
-        const apiMessages = messages.map((m) => ({
-          role: m.role as 'user' | 'assistant',
-          content: m.context
-            ? `Regarding this text:\n\n> ${m.context}\n\n${m.content}`
-            : m.content
-        }))
-        apiMessages.push({ role: 'user' as const, content: fullMessage })
+      // Build messages array for the API
+      const apiMessages = messages.map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.context
+          ? `Regarding this text:\n\n> ${m.context}\n\n${m.content}`
+          : m.content
+      }))
+      apiMessages.push({ role: 'user' as const, content: fullMessage })
 
-        // Call LLM (via Electron IPC or browser fallback)
+      // Create assistant message placeholder for streaming
+      const assistantMsgId = createMessageId()
+      const streamId = createMessageId()
+
+      addMessage({
+        id: assistantMsgId,
+        role: 'assistant',
+        content: '', // Start empty, will be filled by stream chunks
+        timestamp: new Date()
+      })
+
+      startStreaming(assistantMsgId, streamId)
+
+      try {
+        // Call streaming LLM (via Electron IPC or browser fallback)
         const api = getApi()
-        const response = await api.llmChat({
+        await api.llmChatStream({
           provider: settings.llm.provider,
           model: settings.llm.model,
           apiKey: settings.llm.apiKey,
           baseUrl: settings.llm.baseUrl,
           messages: apiMessages,
-          system: buildSystemPrompt(includeDocument, document.content)
-        })
-
-        // Add assistant message with the response
-        const assistantMsgId = createMessageId()
-        addMessage({
-          id: assistantMsgId,
-          role: 'assistant',
-          content: response.content,
-          timestamp: new Date()
+          system: buildSystemPrompt(includeDocument, document.content),
+          streamId
         })
       } catch (error) {
         console.error('[Chat] Error:', error)
         const errorMessage =
           error instanceof Error ? error.message : 'Unknown error'
-        // Add error message as assistant response
-        const errorMsgId = createMessageId()
-        addMessage({
-          id: errorMsgId,
-          role: 'assistant',
-          content: `Error: ${errorMessage}. Please check your API key in Settings (Cmd+,).`,
-          timestamp: new Date()
+        // Update the assistant message with error
+        updateMessage(assistantMsgId, {
+          content: `Error: ${errorMessage}. Please check your API key in Settings (Cmd+,).`
         })
-      } finally {
-        setLoading(false)
+        completeStreaming()
       }
     },
     [
@@ -128,18 +183,32 @@ export function useChat() {
       activeConversationId,
       addConversation,
       addMessage,
+      updateMessage,
       setLoading,
-      setContext
+      setContext,
+      startStreaming,
+      completeStreaming
     ]
   )
+
+  const stopGeneration = useCallback(() => {
+    const state = useChatStore.getState()
+    if (state.currentStreamId) {
+      const api = getApi()
+      api.llmAbortStream(state.currentStreamId)
+    }
+    completeStreaming()
+  }, [completeStreaming])
 
   return {
     messages,
     isLoading,
+    isStreaming,
     isPanelOpen,
     context,
     includeDocument,
     sendMessage,
+    stopGeneration,
     updateMessage,
     clearMessages,
     togglePanel,

@@ -59,6 +59,26 @@ export interface LLMResponse {
   content: string
 }
 
+// Streaming types
+export interface LLMStreamRequest extends LLMRequest {
+  streamId: string
+}
+
+export interface LLMStreamChunk {
+  streamId: string
+  delta: string
+}
+
+export interface LLMStreamComplete {
+  streamId: string
+  content: string
+}
+
+export interface LLMStreamError {
+  streamId: string
+  error: string
+}
+
 export interface ElectronAPI {
   openFile: () => Promise<FileResult | null>
   saveFile: (path: string, content: string) => Promise<void>
@@ -70,6 +90,12 @@ export interface ElectronAPI {
   onFileOpenExternal: (callback: (path: string) => void) => () => void
   llmChat: (request: LLMRequest) => Promise<LLMResponse>
   platform: 'aix' | 'darwin' | 'freebsd' | 'linux' | 'openbsd' | 'sunos' | 'win32' | 'android' | 'cygwin' | 'netbsd' | null
+  // Streaming LLM
+  llmChatStream: (request: LLMStreamRequest) => Promise<{ success: boolean }>
+  llmAbortStream: (streamId: string) => Promise<{ success: boolean }>
+  onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => () => void
+  onLLMStreamComplete: (callback: (complete: LLMStreamComplete) => void) => () => void
+  onLLMStreamError: (callback: (error: LLMStreamError) => void) => () => void
 }
 
 declare global {

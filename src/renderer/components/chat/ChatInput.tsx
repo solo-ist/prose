@@ -17,8 +17,11 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
   const [message, setMessage] = useState('')
   const [commentCount, setCommentCount] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const { context, setContext, includeDocument, setIncludeDocument, agentMode, setAgentMode, processComments, getCommentCount } = useChat()
+  const { context, setContext, includeDocument, setIncludeDocument, agentMode, setAgentMode, processComments, getCommentCount, isInitializing } = useChat()
   const editor = useEditorInstanceStore((state) => state.editor)
+
+  // Disable input while app is initializing (loading draft/conversations) or while loading
+  const isDisabled = isLoading || isInitializing
 
   // Track comment count changes
   const updateCommentCount = useCallback(() => {
@@ -48,7 +51,7 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
   }
 
   const handleSubmit = () => {
-    if (message.trim() && !isLoading) {
+    if (message.trim() && !isDisabled) {
       onSend(message.trim())
       setMessage('')
     }
@@ -117,9 +120,9 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask about your document..."
+          placeholder={isInitializing ? "Loading..." : "Ask about your document..."}
           className="min-h-[40px] max-h-[96px] resize-none"
-          disabled={isLoading}
+          disabled={isDisabled}
         />
         {isStreaming ? (
           <Button
@@ -135,7 +138,7 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
           <Button
             size="icon"
             onClick={handleSubmit}
-            disabled={!message.trim() || isLoading}
+            disabled={!message.trim() || isDisabled}
             className="shrink-0"
             aria-label="Send message"
           >

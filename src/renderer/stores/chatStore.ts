@@ -22,6 +22,9 @@ interface ChatState {
   includeDocument: boolean
   agentMode: boolean
 
+  // Initialization state - prevents race conditions during app startup
+  isInitializing: boolean
+
   // Streaming state
   isStreaming: boolean
   currentStreamId: string | null
@@ -51,6 +54,9 @@ interface ChatState {
   appendStreamChunk: (delta: string) => void
   completeStreaming: () => void
 
+  // Initialization actions
+  setInitializing: (isInitializing: boolean) => void
+
   // Persistence actions
   loadForDocument: (documentId: string) => Promise<void>
   saveCurrentConversation: (documentId: string) => Promise<void>
@@ -70,6 +76,7 @@ export const useChatStore = create<ChatState>()(
     context: null,
     includeDocument: false,
     agentMode: true,
+    isInitializing: true, // Start as true, will be set to false after app init
     isStreaming: false,
     currentStreamId: null,
     streamingMessageId: null,
@@ -228,6 +235,8 @@ export const useChatStore = create<ChatState>()(
         streamingMessageId: null,
         isLoading: false
       }),
+
+    setInitializing: (isInitializing) => set({ isInitializing }),
 
     loadForDocument: async (documentId) => {
       const conversations = await loadConversations(documentId)

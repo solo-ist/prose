@@ -11,6 +11,7 @@ import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
+import { useEditorStore } from '../../stores/editorStore'
 import { FindBar } from './FindBar'
 import { SelectionPopover } from './SelectionPopover'
 import { AddCommentDialog } from './AddCommentDialog'
@@ -18,6 +19,7 @@ import { EmptyState } from '../layout/EmptyState'
 
 export function Editor() {
   const { document, setContent, openFile, saveFile } = useEditor()
+  const isEditing = useEditorStore((state) => state.isEditing)
   const { settings, setDialogOpen, setShortcutsDialogOpen } = useSettings()
   const { setContext, togglePanel, setPanelOpen, sendMessage } = useChat()
   const setEditorInstance = useEditorInstanceStore((state) => state.setEditor)
@@ -251,8 +253,8 @@ export function Editor() {
     return () => window.removeEventListener('menu:find', handleMenuFind)
   }, [])
 
-  // Show empty state when document is empty and untitled
-  const showEmptyState = !document.path && !document.content && !document.isDirty
+  // Show empty state when document is empty, untitled, and user hasn't started editing
+  const showEmptyState = !isEditing && !document.path && !document.content && !document.isDirty
 
   return (
     <div className="h-full flex flex-col relative">

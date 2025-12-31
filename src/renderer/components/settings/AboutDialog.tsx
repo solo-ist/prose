@@ -25,7 +25,9 @@ export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
           </div>
 
           <div className="text-center space-y-1">
-            <p className="text-sm text-muted-foreground">Version 1.0.0</p>
+            <p className="text-sm text-muted-foreground">
+              Version 1.0.0 <span className="text-muted-foreground/60">({__GIT_HASH__})</span>
+            </p>
             <p className="text-sm text-muted-foreground">
               A minimal markdown editor with AI chat
             </p>

@@ -6,6 +6,10 @@ import {
 } from '../ui/dialog'
 import { Separator } from '../ui/separator'
 
+// Git hash is injected at build time via electron-vite.config.ts
+declare const __GIT_HASH__: string | undefined
+const gitHash = typeof __GIT_HASH__ !== 'undefined' ? __GIT_HASH__ : 'dev'
+
 interface AboutDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -26,7 +30,7 @@ export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
 
           <div className="text-center space-y-1">
             <p className="text-sm text-muted-foreground">
-              Version 1.0.0 <span className="text-muted-foreground/60">({__GIT_HASH__})</span>
+              Version 1.0.0 <span className="text-muted-foreground/60">({gitHash})</span>
             </p>
             <p className="text-sm text-muted-foreground">
               A minimal markdown editor with AI chat

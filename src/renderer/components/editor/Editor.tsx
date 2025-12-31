@@ -6,11 +6,14 @@ import Link from '@tiptap/extension-link'
 import { Markdown } from 'tiptap-markdown'
 import { FocusMode } from '../../lib/focusMode'
 import { DiffSuggestion } from '../../extensions/diff-suggestions'
+import { Comment } from '../../extensions/comments'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { FindBar } from './FindBar'
+import { SelectionPopover } from './SelectionPopover'
+import { AddCommentDialog } from './AddCommentDialog'
 
 export function Editor() {
   const { document, setContent, openFile, saveFile } = useEditor()
@@ -20,6 +23,12 @@ export function Editor() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isUpdatingFromStore = useRef(false)
   const [isFindOpen, setIsFindOpen] = useState(false)
+  const [isAddCommentOpen, setIsAddCommentOpen] = useState(false)
+  const [pendingCommentSelection, setPendingCommentSelection] = useState<{
+    from: number
+    to: number
+    text: string
+  } | null>(null)
 
   const editor = useTipTapEditor({
     extensions: [
@@ -56,6 +65,7 @@ export function Editor() {
           reject: '✗',
         },
       }),
+      Comment,
     ],
     content: document.content,
     editorProps: {
@@ -77,6 +87,16 @@ export function Editor() {
       }, 500)
     }
   })
+
+  // Helper to open comment dialog with current selection
+  const openAddCommentDialog = useCallback(() => {
+    if (!editor) return
+    const { from, to } = editor.state.selection
+    if (from === to) return // No selection
+    const text = editor.state.doc.textBetween(from, to, ' ')
+    setPendingCommentSelection({ from, to, text })
+    setIsAddCommentOpen(true)
+  }, [editor])
 
   // Sync content from store to editor when document changes externally
   useEffect(() => {
@@ -118,7 +138,7 @@ export function Editor() {
     } else if (isMod && e.key === ',') {
       e.preventDefault()
       setDialogOpen(true)
-    } else if (isMod && e.shiftKey && e.key === 'k') {
+    } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'k') {
       // Cmd+Shift+K: Add selection as context
       e.preventDefault()
       if (editor) {
@@ -131,7 +151,11 @@ export function Editor() {
           }
         }
       }
-    } else if (isMod && e.shiftKey && e.key === 'l') {
+    } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'c') {
+      // Cmd+Shift+C: Add comment to selection
+      e.preventDefault()
+      openAddCommentDialog()
+    } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'l') {
       // Cmd+Shift+L: Toggle chat panel
       e.preventDefault()
       togglePanel()
@@ -210,7 +234,7 @@ export function Editor() {
       e.preventDefault()
       setShortcutsDialogOpen(true)
     }
-  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, editor, setContext, setPanelOpen, togglePanel, isFindOpen])
+  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, editor, setContext, setPanelOpen, togglePanel, isFindOpen, openAddCommentDialog])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
@@ -246,6 +270,19 @@ export function Editor() {
           />
         </div>
       </div>
+      <SelectionPopover
+        editor={editor}
+        onAddComment={openAddCommentDialog}
+      />
+      <AddCommentDialog
+        editor={editor}
+        isOpen={isAddCommentOpen}
+        selection={pendingCommentSelection}
+        onClose={() => {
+          setIsAddCommentOpen(false)
+          setPendingCommentSelection(null)
+        }}
+      />
     </div>
   )
 }

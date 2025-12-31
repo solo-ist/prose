@@ -20,6 +20,7 @@ interface ChatState {
   isPanelOpen: boolean
   context: string | null
   includeDocument: boolean
+  agentMode: boolean
 
   // Streaming state
   isStreaming: boolean
@@ -43,6 +44,7 @@ interface ChatState {
   setPanelOpen: (open: boolean) => void
   setContext: (context: string | null) => void
   setIncludeDocument: (include: boolean) => void
+  setAgentMode: (enabled: boolean) => void
 
   // Streaming actions
   startStreaming: (messageId: string, streamId: string) => void
@@ -67,6 +69,7 @@ export const useChatStore = create<ChatState>()(
     isPanelOpen: true,
     context: null,
     includeDocument: false,
+    agentMode: true,
     isStreaming: false,
     currentStreamId: null,
     streamingMessageId: null,
@@ -184,6 +187,8 @@ export const useChatStore = create<ChatState>()(
     setContext: (context) => set({ context }),
 
     setIncludeDocument: (include) => set({ includeDocument: include }),
+
+    setAgentMode: (enabled) => set({ agentMode: enabled }),
 
     // Streaming actions
     startStreaming: (messageId, streamId) =>

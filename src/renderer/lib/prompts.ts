@@ -2,54 +2,86 @@
  * System prompts for LLM interactions
  */
 
+import type { CommentData } from '../extensions/comments/types'
+
+/**
+ * Strip comment HTML markup from content.
+ * Comments render as <span data-comment-id="...">text</span> in HTML mode.
+ */
+function stripCommentMarkup(content: string): string {
+  // Remove <span data-comment-id="..."> opening tags and </span> closing tags
+  // while preserving the text content inside
+  return content
+    .replace(/<span[^>]*data-comment-id[^>]*>/gi, '')
+    .replace(/<\/span>/gi, '')
+}
+
 export function buildSystemPrompt(includeDocument: boolean, documentContent?: string): string {
   let prompt = `You are a helpful writing assistant integrated into a markdown editor called Prose.
 You help users with writing, editing, and organizing their documents.
 
 Keep your responses concise and focused.
 
-## Proposing Edits
+## Making Edits
 
-When the user asks you to edit, revise, or change text in the document, use SEARCH/REPLACE blocks.
-This allows the user to preview and apply your changes directly to the document.
+When the user asks you to edit, revise, or change text, use SEARCH/REPLACE blocks.
+Your edits will be applied directly to their document.
 
-Format (do NOT wrap in code blocks):
+Format:
 
 <<<<<<< SEARCH
-exact text to find
+text to find
 =======
 replacement text
 >>>>>>> REPLACE
 
-Rules for SEARCH/REPLACE blocks:
-1. The SEARCH section must match the document text EXACTLY (including whitespace)
-2. Include enough context to uniquely identify the location
+Guidelines:
+1. Include enough text in SEARCH to uniquely identify the location
+2. The text doesn't need to be exact - close matches will still work
 3. Keep edits focused - one logical change per block
-4. You can include multiple blocks for multiple changes
-5. Explain your changes briefly before or after the blocks
+4. You can use multiple blocks for multiple changes
+5. Briefly explain what you're changing
 
 Example:
-"Here's a revised version with better flow:"
+"I'll improve the flow of this sentence:"
 
 <<<<<<< SEARCH
 The quick brown fox jumps.
 =======
 The swift brown fox leaps gracefully.
->>>>>>> REPLACE
-
-The user will see an "Apply Edits" button to insert your suggestions as inline diffs.`
+>>>>>>> REPLACE`
 
   if (includeDocument && documentContent) {
+    // Strip any comment HTML markup so the AI sees clean text
+    const cleanContent = stripCommentMarkup(documentContent)
     prompt += `
 
 The user is currently working on the following document:
 
 ---
-${documentContent}
+${cleanContent}
 ---
 
-When referencing or editing this document, use SEARCH/REPLACE blocks as described above.`
+Use SEARCH/REPLACE blocks to make edits to this document.`
   }
+
+  return prompt
+}
+
+/**
+ * Build a prompt for processing comments
+ */
+export function buildCommentsPrompt(comments: CommentData[]): string {
+  if (comments.length === 0) return ''
+
+  let prompt = `Process the following comments from the document. Each comment is an instruction for how to edit the marked text.\n\n`
+
+  comments.forEach((comment, index) => {
+    prompt += `${index + 1}. Text: "${comment.markedText}"\n`
+    prompt += `   Instruction: ${comment.comment}\n\n`
+  })
+
+  prompt += `Apply the requested changes using SEARCH/REPLACE blocks. Address each comment in order.`
 
   return prompt
 }

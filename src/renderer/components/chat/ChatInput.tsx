@@ -1,9 +1,10 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Button } from '../ui/button'
 import { Textarea } from '../ui/textarea'
 import { Checkbox } from '../ui/checkbox'
-import { Send, Square, X } from 'lucide-react'
+import { Send, Square, X, MessageSquare } from 'lucide-react'
 import { useChat } from '../../hooks/useChat'
+import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 
 interface ChatInputProps {
   onSend: (message: string) => void
@@ -14,8 +15,37 @@ interface ChatInputProps {
 
 export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputProps) {
   const [message, setMessage] = useState('')
+  const [commentCount, setCommentCount] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const { context, setContext, includeDocument, setIncludeDocument } = useChat()
+  const { context, setContext, includeDocument, setIncludeDocument, agentMode, setAgentMode, processComments, getCommentCount } = useChat()
+  const editor = useEditorInstanceStore((state) => state.editor)
+
+  // Track comment count changes
+  const updateCommentCount = useCallback(() => {
+    setCommentCount(getCommentCount())
+  }, [getCommentCount])
+
+  // Check for comments when editor changes or on mount
+  useEffect(() => {
+    if (!editor) return
+
+    updateCommentCount()
+
+    // Listen for editor updates
+    const handleUpdate = () => updateCommentCount()
+    editor.on('update', handleUpdate)
+    editor.on('selectionUpdate', handleUpdate)
+
+    return () => {
+      editor.off('update', handleUpdate)
+      editor.off('selectionUpdate', handleUpdate)
+    }
+  }, [editor, updateCommentCount])
+
+  const handleProcessComments = () => {
+    processComments()
+    setCommentCount(0) // Optimistically clear count
+  }
 
   const handleSubmit = () => {
     if (message.trim() && !isLoading) {
@@ -67,6 +97,20 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
         </div>
       )}
 
+      {/* Process Comments button */}
+      {commentCount > 0 && (
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={handleProcessComments}
+          disabled={isLoading}
+          className="mb-2 w-full justify-start gap-2"
+        >
+          <MessageSquare className="h-4 w-4" />
+          Process {commentCount} comment{commentCount !== 1 ? 's' : ''}
+        </Button>
+      )}
+
       <div className="flex gap-2">
         <Textarea
           ref={textareaRef}
@@ -100,19 +144,26 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
         )}
       </div>
       <div className="mt-2 flex items-center justify-between">
-        <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
-          <Checkbox
-            checked={includeDocument}
-            onCheckedChange={(checked) => setIncludeDocument(checked === true)}
-          />
-          Include full document
-        </label>
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+            <Checkbox
+              checked={includeDocument}
+              onCheckedChange={(checked) => setIncludeDocument(checked === true)}
+            />
+            Include document
+          </label>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+            <Checkbox
+              checked={agentMode}
+              onCheckedChange={(checked) => setAgentMode(checked === true)}
+            />
+            Agent mode
+          </label>
+        </div>
         <p className="text-xs text-muted-foreground">
-          Press{' '}
           <kbd className="rounded bg-muted px-1 py-0.5 text-[10px] font-medium">
             ⌘↵
-          </kbd>{' '}
-          to send
+          </kbd>
         </p>
       </div>
     </div>

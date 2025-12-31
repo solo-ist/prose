@@ -1,10 +1,11 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { cn } from '../../lib/utils'
 import type { ChatMessage as ChatMessageType } from '../../types'
 import { User, Bot, Wand2, Check, AlertCircle, ArrowRight } from 'lucide-react'
 import { parseEditBlocks, hasEditBlocks, stripEditBlocks, type EditBlock } from '../../lib/editBlocks'
-import { applyEditsAsDiffs, type ApplyResult } from '../../lib/applyEdit'
+import { applyEditsAsDiffs, applyEditsDirect, type ApplyResult } from '../../lib/applyEdit'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
+import { useChatStore } from '../../stores/chatStore'
 
 interface ChatMessageProps {
   message: ChatMessageType
@@ -114,21 +115,44 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
   const [showTimestamp, setShowTimestamp] = useState(false)
   const [applyState, setApplyState] = useState<'idle' | 'applied' | 'error'>('idle')
   const [applyResults, setApplyResults] = useState<ApplyResult[]>([])
+  const appliedRef = useRef(false)
   const editor = useEditorInstanceStore((state) => state.editor)
+  const agentMode = useChatStore((state) => state.agentMode)
   const isUser = message.role === 'user'
   const containsEdits = !isUser && hasEditBlocks(message.content)
   const editBlocks = containsEdits ? parseEditBlocks(message.content) : []
   const editCount = editBlocks.length
 
+  // Auto-apply edits in agent mode when streaming completes
+  useEffect(() => {
+    if (
+      agentMode &&
+      containsEdits &&
+      editBlocks.length > 0 &&
+      editor &&
+      !isStreaming &&
+      !appliedRef.current &&
+      applyState === 'idle'
+    ) {
+      appliedRef.current = true
+      const results = applyEditsDirect(editor, editBlocks)
+      setApplyResults(results)
+      const allSucceeded = results.every((r) => r.success)
+      setApplyState(allSucceeded ? 'applied' : 'error')
+    }
+  }, [agentMode, containsEdits, editBlocks, editor, isStreaming, applyState])
+
   const handleApplyEdits = useCallback(() => {
     if (!editor || !containsEdits) return
 
-    const results = applyEditsAsDiffs(editor, editBlocks)
+    const results = agentMode
+      ? applyEditsDirect(editor, editBlocks)
+      : applyEditsAsDiffs(editor, editBlocks)
     setApplyResults(results)
 
     const allSucceeded = results.every((r) => r.success)
     setApplyState(allSucceeded ? 'applied' : 'error')
-  }, [editor, editBlocks, containsEdits])
+  }, [editor, editBlocks, containsEdits, agentMode])
 
   // For assistant messages with edit blocks, strip them from display
   const displayContent = containsEdits ? stripEditBlocks(message.content) : message.content
@@ -181,12 +205,14 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
             <div className="prose-chat">{renderMarkdown(displayContent)}</div>
           )}
         </div>
-        {containsEdits && editBlocks.length > 0 && (
+        {/* Show preview only in non-agent mode */}
+        {containsEdits && editBlocks.length > 0 && !agentMode && (
           <EditBlockPreview blocks={editBlocks} />
         )}
         {containsEdits && (
           <div className="flex items-center gap-2">
-            {applyState === 'idle' && (
+            {/* Show apply button only in non-agent mode */}
+            {applyState === 'idle' && !agentMode && (
               <button
                 onClick={handleApplyEdits}
                 disabled={!editor}
@@ -204,7 +230,7 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
             {applyState === 'applied' && (
               <span className="inline-flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
                 <Check className="h-3 w-3" />
-                Applied to document
+                {agentMode ? `Applied ${editCount} edit${editCount !== 1 ? 's' : ''}` : 'Applied to document'}
               </span>
             )}
             {applyState === 'error' && (

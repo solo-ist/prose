@@ -15,10 +15,179 @@ export interface ApplyResult {
 export interface TextMatch {
   from: number
   to: number
+  similarity?: number
 }
 
 /**
- * Find all occurrences of a search string in the document.
+ * Normalize text for comparison: collapse whitespace, trim.
+ */
+function normalizeText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * Calculate similarity ratio between two strings (0-1).
+ * Uses longest common subsequence approach.
+ */
+function similarity(a: string, b: string): number {
+  if (a === b) return 1
+  if (!a || !b) return 0
+
+  const longer = a.length > b.length ? a : b
+  const shorter = a.length > b.length ? b : a
+
+  // Quick check: if lengths differ too much, low similarity
+  if (longer.length === 0) return 1
+  const lengthRatio = shorter.length / longer.length
+  if (lengthRatio < 0.5) return lengthRatio * 0.5
+
+  // Calculate Levenshtein distance
+  const costs: number[] = []
+  for (let i = 0; i <= shorter.length; i++) {
+    let lastValue = i
+    for (let j = 0; j <= longer.length; j++) {
+      if (i === 0) {
+        costs[j] = j
+      } else if (j > 0) {
+        let newValue = costs[j - 1]
+        if (shorter.charAt(i - 1) !== longer.charAt(j - 1)) {
+          newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1
+        }
+        costs[j - 1] = lastValue
+        lastValue = newValue
+      }
+    }
+    if (i > 0) costs[longer.length] = lastValue
+  }
+
+  return (longer.length - costs[longer.length]) / longer.length
+}
+
+/**
+ * Build a mapping from text positions to document positions.
+ * Uses a separator between block nodes to preserve structure.
+ */
+function buildPositionMap(doc: import('@tiptap/pm/model').Node): {
+  text: string
+  toDocPos: (textPos: number) => number
+} {
+  const segments: Array<{ text: string; docStart: number }> = []
+  let currentText = ''
+
+  doc.descendants((node, pos) => {
+    if (node.isText && node.text) {
+      segments.push({ text: node.text, docStart: pos })
+      currentText += node.text
+    } else if (node.isBlock && currentText.length > 0 && !currentText.endsWith('\n')) {
+      // Add newline separator between blocks for proper matching
+      currentText += '\n'
+    }
+  })
+
+  // Build cumulative text position map
+  let textPos = 0
+  const textToDoc: Array<{ textStart: number; textEnd: number; docStart: number }> = []
+
+  for (const seg of segments) {
+    textToDoc.push({
+      textStart: textPos,
+      textEnd: textPos + seg.text.length,
+      docStart: seg.docStart,
+    })
+    textPos += seg.text.length
+  }
+
+  return {
+    text: segments.map(s => s.text).join(''),
+    toDocPos: (pos: number) => {
+      for (const mapping of textToDoc) {
+        if (pos >= mapping.textStart && pos < mapping.textEnd) {
+          return mapping.docStart + (pos - mapping.textStart)
+        }
+        // Handle position at exact end of a segment
+        if (pos === mapping.textEnd) {
+          return mapping.docStart + (pos - mapping.textStart)
+        }
+      }
+      // If past end, return end of last segment
+      if (textToDoc.length > 0) {
+        const last = textToDoc[textToDoc.length - 1]
+        return last.docStart + (last.textEnd - last.textStart)
+      }
+      return 0
+    },
+  }
+}
+
+/**
+ * Find best fuzzy match for search text in the document.
+ * Returns the match with highest similarity score.
+ */
+export function findFuzzyMatch(editor: Editor, search: string, minSimilarity = 0.7): TextMatch | null {
+  const doc = editor.state.doc
+  const normalizedSearch = normalizeText(search)
+  const searchLen = normalizedSearch.length
+
+  // Build position-mapped text from document
+  const { text: fullText, toDocPos } = buildPositionMap(doc)
+  const normalizedFull = normalizeText(fullText)
+
+  if (normalizedFull.length < searchLen * 0.5) return null
+
+  // Build mapping from normalized text positions to original text positions
+  const normToOrig: number[] = []
+  let normIdx = 0
+  for (let i = 0; i < fullText.length; i++) {
+    const char = fullText[i]
+    const prevChar = i > 0 ? fullText[i - 1] : ''
+    // Count non-whitespace, or first space after non-whitespace
+    if (!/\s/.test(char) || (!/\s/.test(prevChar) && prevChar !== '')) {
+      normToOrig[normIdx] = i
+      normIdx++
+    }
+  }
+  // Add final position for end-of-string
+  normToOrig[normIdx] = fullText.length
+
+  let bestMatch: TextMatch | null = null
+  let bestSimilarity = minSimilarity
+
+  // Sliding window search
+  const windowSize = Math.floor(searchLen * 1.5)
+  const step = Math.max(1, Math.floor(searchLen / 4))
+
+  for (let i = 0; i <= normalizedFull.length - searchLen * 0.5; i += step) {
+    // Try different window sizes around search length
+    for (const winSize of [searchLen, windowSize, Math.floor(searchLen * 0.8)]) {
+      const end = Math.min(i + winSize, normalizedFull.length)
+      const candidate = normalizedFull.slice(i, end)
+      const sim = similarity(normalizedSearch, candidate)
+
+      if (sim > bestSimilarity) {
+        bestSimilarity = sim
+
+        // Map normalized positions back to original text positions
+        const origStart = normToOrig[i] ?? 0
+        const origEnd = normToOrig[end] ?? fullText.length
+
+        // Convert original text positions to document positions
+        const docFrom = toDocPos(origStart)
+        const docTo = toDocPos(origEnd)
+
+        bestMatch = {
+          from: docFrom,
+          to: docTo,
+          similarity: sim,
+        }
+      }
+    }
+  }
+
+  return bestMatch
+}
+
+/**
+ * Find all occurrences of a search string in the document (exact match).
  * Returns positions suitable for TipTap text selection.
  */
 export function findTextInDocument(editor: Editor, search: string): TextMatch[] {
@@ -44,6 +213,76 @@ export function findTextInDocument(editor: Editor, search: string): TextMatch[] 
 }
 
 /**
+ * Find the best match for search text, trying exact match first, then fuzzy.
+ */
+function findBestMatch(editor: Editor, search: string): TextMatch | null {
+  // Try exact match first
+  const exactMatches = findTextInDocument(editor, search)
+  if (exactMatches.length > 0) {
+    return { ...exactMatches[0], similarity: 1 }
+  }
+
+  // Fall back to fuzzy matching
+  return findFuzzyMatch(editor, search)
+}
+
+/**
+ * Apply a single edit directly to the document (agent mode).
+ * Replaces the matched text with the replacement text immediately.
+ */
+export function applyEditDirect(
+  editor: Editor,
+  editBlock: EditBlock
+): ApplyResult {
+  const { search, replace } = editBlock
+
+  if (!search) {
+    return { success: false, error: 'Search text is empty' }
+  }
+
+  const match = findBestMatch(editor, search)
+
+  if (!match) {
+    return {
+      success: false,
+      error: `Text not found: "${search.slice(0, 50)}${search.length > 50 ? '...' : ''}"`,
+      matchCount: 0,
+    }
+  }
+
+  // Replace directly
+  editor
+    .chain()
+    .focus()
+    .setTextSelection(match)
+    .insertContent(replace)
+    .run()
+
+  return {
+    success: true,
+    matchCount: 1,
+  }
+}
+
+/**
+ * Apply multiple edits directly (agent mode).
+ */
+export function applyEditsDirect(
+  editor: Editor,
+  editBlocks: EditBlock[]
+): ApplyResult[] {
+  const results: ApplyResult[] = []
+
+  // Apply in reverse order to preserve positions
+  for (let i = editBlocks.length - 1; i >= 0; i--) {
+    const result = applyEditDirect(editor, editBlocks[i])
+    results.unshift(result)
+  }
+
+  return results
+}
+
+/**
  * Apply a single edit as an inline diff suggestion.
  * The edit will appear in the document with accept/reject buttons.
  */
@@ -62,19 +301,16 @@ export function applyEditAsDiff(
     }
   }
 
-  // Find the search text in the document
-  const matches = findTextInDocument(editor, search)
+  // Find the best match (exact or fuzzy)
+  const match = findBestMatch(editor, search)
 
-  if (matches.length === 0) {
+  if (!match) {
     return {
       success: false,
       error: `Text not found: "${search.slice(0, 50)}${search.length > 50 ? '...' : ''}"`,
       matchCount: 0,
     }
   }
-
-  // Use the first match
-  const match = matches[0]
 
   // Insert the diff suggestion node
   editor
@@ -94,7 +330,7 @@ export function applyEditAsDiff(
 
   return {
     success: true,
-    matchCount: matches.length,
+    matchCount: 1,
     diffId: id,
   }
 }

@@ -331,3 +331,54 @@
 .prose-editor .diff-reject-btn:hover {
   background: hsl(0 65% 45%);
 }
+
+/* Comment Marks */
+.prose-editor .comment-mark {
+  background: hsl(45 100% 70% / 0.4);
+  border-bottom: 2px solid hsl(45 100% 50%);
+  padding: 0 0.1em;
+  border-radius: 0.125em;
+  cursor: pointer;
+  position: relative;
+}
+
+.dark .prose-editor .comment-mark {
+  background: hsl(45 100% 40% / 0.3);
+  border-bottom-color: hsl(45 100% 60%);
+}
+
+.prose-editor .comment-mark:hover {
+  background: hsl(45 100% 70% / 0.6);
+}
+
+.dark .prose-editor .comment-mark:hover {
+  background: hsl(45 100% 40% / 0.5);
+}
+
+/* Comment tooltip on hover */
+.prose-editor .comment-mark::after {
+  content: attr(data-comment);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  padding: 0.5em 0.75em;
+  border-radius: 0.375em;
+  font-size: 0.875em;
+  white-space: nowrap;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 2px 8px hsl(var(--foreground) / 0.15);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease-out;
+  z-index: 50;
+  margin-bottom: 0.5em;
+}
+
+.prose-editor .comment-mark:hover::after {
+  opacity: 1;
+}

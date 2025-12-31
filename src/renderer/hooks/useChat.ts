@@ -89,7 +89,7 @@ export function useChat() {
   }, [])
 
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, options?: { hidden?: boolean }) => {
       if (!content.trim() || isLoading) return
 
       // Auto-create a conversation if there isn't one
@@ -127,7 +127,8 @@ export function useChat() {
         role: 'user',
         content,
         context: messageContext || undefined,
-        timestamp: new Date()
+        timestamp: new Date(),
+        hidden: options?.hidden
       })
 
       setLoading(true)
@@ -163,7 +164,7 @@ export function useChat() {
           apiKey: settings.llm.apiKey,
           baseUrl: settings.llm.baseUrl,
           messages: apiMessages,
-          system: buildSystemPrompt(includeDocument, document.content),
+          system: buildSystemPrompt(includeDocument, useEditorStore.getState().document.content),
           streamId
         })
       } catch (error) {
@@ -182,7 +183,6 @@ export function useChat() {
       isLoading,
       messages,
       includeDocument,
-      document.content,
       document.documentId,
       settings.llm,
       activeConversationId,

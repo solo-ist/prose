@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { Button } from '../ui/button'
 import { Textarea } from '../ui/textarea'
 import { Checkbox } from '../ui/checkbox'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { Send, Square, X, MessageSquare } from 'lucide-react'
 import { useChat } from '../../hooks/useChat'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
@@ -148,13 +149,20 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
       </div>
       <div className="mt-2 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
-            <Checkbox
-              checked={includeDocument}
-              onCheckedChange={(checked) => setIncludeDocument(checked === true)}
-            />
-            Include document
-          </label>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                <Checkbox
+                  checked={includeDocument}
+                  onCheckedChange={(checked) => setIncludeDocument(checked === true)}
+                />
+                Full context
+              </label>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Provide entire document as context</p>
+            </TooltipContent>
+          </Tooltip>
           <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
             <Checkbox
               checked={agentMode}

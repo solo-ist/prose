@@ -74,7 +74,7 @@ export const useChatStore = create<ChatState>()(
     isLoading: false,
     isPanelOpen: true,
     context: null,
-    includeDocument: false,
+    includeDocument: true,
     agentMode: true,
     isInitializing: true, // Start as true, will be set to false after app init
     isStreaming: false,

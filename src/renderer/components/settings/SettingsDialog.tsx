@@ -137,14 +137,23 @@ export function SettingsDialog() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value='"IBM Plex Mono", monospace'>
+                    IBM Plex Mono
+                  </SelectItem>
+                  <SelectItem value='"IBM Plex Sans", sans-serif'>
+                    IBM Plex Sans
+                  </SelectItem>
+                  <SelectItem value='"Fira Mono", monospace'>
+                    Fira Mono
+                  </SelectItem>
+                  <SelectItem value='"Cutive Mono", monospace'>
+                    Cutive Mono
+                  </SelectItem>
+                  <SelectItem value='"Source Code Pro", monospace'>
+                    Source Code Pro
+                  </SelectItem>
                   <SelectItem value='ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace'>
                     System Mono
-                  </SelectItem>
-                  <SelectItem value='"JetBrains Mono", monospace'>
-                    JetBrains Mono
-                  </SelectItem>
-                  <SelectItem value='"Fira Code", monospace'>
-                    Fira Code
                   </SelectItem>
                   <SelectItem value='ui-serif, Georgia, Cambria, "Times New Roman", Times, serif'>
                     Serif

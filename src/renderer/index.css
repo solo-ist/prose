@@ -63,7 +63,7 @@
 
   body {
     @apply bg-background text-foreground;
-    font-family: 'Source Code Pro', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 }
@@ -239,8 +239,12 @@
 
 /* Focus mode - paragraph dimming */
 .prose-editor .focus-dimmed {
-  opacity: 0.4;
+  opacity: 0.55;
   transition: opacity 0.15s ease-out;
+}
+
+.dark .prose-editor .focus-dimmed {
+  opacity: 0.65;
 }
 
 .prose-editor .focus-active {
@@ -381,4 +385,25 @@
 
 .prose-editor .comment-mark:hover::after {
   opacity: 1;
+}
+
+/* Spell-check styling - more prominent squiggles */
+.prose-editor ::spelling-error {
+  text-decoration: wavy underline hsl(0 75% 55%);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+.dark .prose-editor ::spelling-error {
+  text-decoration-color: hsl(0 80% 60%);
+}
+
+.prose-editor ::grammar-error {
+  text-decoration: wavy underline hsl(45 80% 50%);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+.dark .prose-editor ::grammar-error {
+  text-decoration-color: hsl(45 85% 55%);
 }

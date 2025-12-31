@@ -87,9 +87,14 @@ export function useChat() {
     async (content: string) => {
       if (!content.trim() || isLoading) return
 
+      // Get current state directly from stores to avoid stale closure issues
+      // (e.g., when called immediately after file open before React re-renders)
+      const currentDocumentId = useEditorStore.getState().document.documentId
+      const currentActiveConversationId = useChatStore.getState().activeConversationId
+
       // Auto-create a conversation if there isn't one
-      if (!activeConversationId) {
-        addConversation(document.documentId)
+      if (!currentActiveConversationId) {
+        addConversation(currentDocumentId)
       }
 
       // Validate config first
@@ -128,7 +133,9 @@ export function useChat() {
       setLoading(true)
 
       // Build messages array for the API
-      const apiMessages = messages.map((m) => ({
+      // Use current state to avoid stale closure issues with messages array
+      const currentMessages = useChatStore.getState().messages
+      const apiMessages = currentMessages.map((m) => ({
         role: m.role as 'user' | 'assistant',
         content: m.context
           ? `Regarding this text:\n\n> ${m.context}\n\n${m.content}`
@@ -152,13 +159,15 @@ export function useChat() {
       try {
         // Call streaming LLM (via Electron IPC or browser fallback)
         const api = getApi()
+        // Use current document content from store to avoid stale closure
+        const currentDocContent = useEditorStore.getState().document.content
         await api.llmChatStream({
           provider: settings.llm.provider,
           model: settings.llm.model,
           apiKey: settings.llm.apiKey,
           baseUrl: settings.llm.baseUrl,
           messages: apiMessages,
-          system: buildSystemPrompt(includeDocument, document.content),
+          system: buildSystemPrompt(includeDocument, currentDocContent),
           streamId
         })
       } catch (error) {
@@ -175,12 +184,8 @@ export function useChat() {
     [
       context,
       isLoading,
-      messages,
       includeDocument,
-      document.content,
-      document.documentId,
       settings.llm,
-      activeConversationId,
       addConversation,
       addMessage,
       updateMessage,

@@ -6,7 +6,19 @@
  */
 
 import { Mark, mergeAttributes } from '@tiptap/core'
+import type { MarkSerializerSpec } from 'prosemirror-markdown'
 import type { CommentOptions, CommentData } from './types'
+
+/**
+ * Markdown serializer for comment marks - outputs just the text content
+ * so comments don't appear as HTML in markdown output
+ */
+export const commentMarkdownSerializer: MarkSerializerSpec = {
+  open: '',
+  close: '',
+  mixable: true,
+  expelEnclosingWhitespace: true,
+}
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {

@@ -4,6 +4,18 @@
 
 import type { CommentData } from '../extensions/comments/types'
 
+/**
+ * Strip comment HTML markup from content.
+ * Comments render as <span data-comment-id="...">text</span> in HTML mode.
+ */
+function stripCommentMarkup(content: string): string {
+  // Remove <span data-comment-id="..."> opening tags and </span> closing tags
+  // while preserving the text content inside
+  return content
+    .replace(/<span[^>]*data-comment-id[^>]*>/gi, '')
+    .replace(/<\/span>/gi, '')
+}
+
 export function buildSystemPrompt(includeDocument: boolean, documentContent?: string): string {
   let prompt = `You are a helpful writing assistant integrated into a markdown editor called Prose.
 You help users with writing, editing, and organizing their documents.
@@ -40,12 +52,14 @@ The swift brown fox leaps gracefully.
 >>>>>>> REPLACE`
 
   if (includeDocument && documentContent) {
+    // Strip any comment HTML markup so the AI sees clean text
+    const cleanContent = stripCommentMarkup(documentContent)
     prompt += `
 
 The user is currently working on the following document:
 
 ---
-${documentContent}
+${cleanContent}
 ---
 
 Use SEARCH/REPLACE blocks to make edits to this document.`

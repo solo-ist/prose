@@ -20,6 +20,7 @@ export function useEditor() {
     setFrontmatter,
     setCursorPosition,
     setActiveChatId,
+    setEditing,
     resetDocument
   } = useEditorStore()
 
@@ -65,6 +66,9 @@ export function useEditor() {
       // Clear draft since we opened a file
       await clearDraft()
 
+      // Mark as editing so empty state doesn't show
+      setEditing(true)
+
       // Return true if document has content but no chat history (for auto-prompt)
       const conversations = useChatStore.getState().conversations
       return parsed.content.trim().length > 0 && conversations.length === 0
@@ -72,7 +76,7 @@ export function useEditor() {
       console.error('Failed to open file:', error)
       return false
     }
-  }, [setDocument, document.documentId, saveCurrentConversation, loadForDocument])
+  }, [setDocument, document.documentId, saveCurrentConversation, loadForDocument, setEditing])
 
   const openFile = useCallback(async (): Promise<boolean> => {
     if (!window.api) return false
@@ -100,12 +104,15 @@ export function useEditor() {
       // Clear draft since we opened a file
       await clearDraft()
 
+      // Mark as editing so empty state doesn't show
+      setEditing(true)
+
       // Return true if document has content but no chat history (for auto-prompt)
       const conversations = useChatStore.getState().conversations
       return parsed.content.trim().length > 0 && conversations.length === 0
     }
     return false
-  }, [setDocument, document.documentId, saveCurrentConversation, loadForDocument])
+  }, [setDocument, document.documentId, saveCurrentConversation, loadForDocument, setEditing])
 
   const saveFile = useCallback(async () => {
     if (!window.api) return

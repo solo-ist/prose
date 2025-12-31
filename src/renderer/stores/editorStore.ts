@@ -8,6 +8,7 @@ interface EditorState {
   document: Document
   cursorPosition: { line: number; column: number }
   activeChatId: string | null
+  isEditing: boolean // True after user creates new doc or opens file
   setDocument: (doc: Partial<Document>) => void
   setContent: (content: string) => void
   setPath: (path: string | null) => void
@@ -15,6 +16,7 @@ interface EditorState {
   setFrontmatter: (frontmatter: Record<string, unknown>) => void
   setCursorPosition: (line: number, column: number) => void
   setActiveChatId: (id: string | null) => void
+  setEditing: (isEditing: boolean) => void
   resetDocument: () => void
   hydrateFromDraft: (draft: DraftState) => void
 }
@@ -34,6 +36,7 @@ export const useEditorStore = create<EditorState>()(
     document: createInitialDocument(),
     cursorPosition: { line: 1, column: 1 },
     activeChatId: null,
+    isEditing: false,
 
     setDocument: (doc) =>
       set((state) => ({
@@ -65,18 +68,22 @@ export const useEditorStore = create<EditorState>()(
 
     setActiveChatId: (id) => set({ activeChatId: id }),
 
+    setEditing: (isEditing) => set({ isEditing }),
+
     resetDocument: () =>
       set({
         document: createInitialDocument(),
         cursorPosition: { line: 1, column: 1 },
-        activeChatId: null
+        activeChatId: null,
+        isEditing: true // User explicitly created new document
       }),
 
     hydrateFromDraft: (draft) =>
       set({
         document: draft.document,
         cursorPosition: draft.cursorPosition ?? { line: 1, column: 1 },
-        activeChatId: draft.activeChatId
+        activeChatId: draft.activeChatId,
+        isEditing: true // Recovered from draft means user was editing
       })
   }))
 )

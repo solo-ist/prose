@@ -11,12 +11,15 @@ import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
+import { useEditorStore } from '../../stores/editorStore'
 import { FindBar } from './FindBar'
 import { SelectionPopover } from './SelectionPopover'
 import { AddCommentDialog } from './AddCommentDialog'
+import { EmptyState } from '../layout/EmptyState'
 
 export function Editor() {
   const { document, setContent, openFile, saveFile } = useEditor()
+  const isEditing = useEditorStore((state) => state.isEditing)
   const { settings, setDialogOpen, setShortcutsDialogOpen } = useSettings()
   const { setContext, togglePanel, setPanelOpen, sendMessage } = useChat()
   const setEditorInstance = useEditorInstanceStore((state) => state.setEditor)
@@ -250,6 +253,9 @@ export function Editor() {
     return () => window.removeEventListener('menu:find', handleMenuFind)
   }, [])
 
+  // Show empty state when document is empty, untitled, and user hasn't started editing
+  const showEmptyState = !isEditing && !document.path && !document.content && !document.isDirty
+
   return (
     <div className="h-full flex flex-col relative">
       <FindBar
@@ -257,21 +263,25 @@ export function Editor() {
         isOpen={isFindOpen}
         onClose={() => setIsFindOpen(false)}
       />
-      <div
-        className="flex-1 overflow-auto p-8 md:p-12 lg:p-16"
-        style={{
-          fontSize: `${settings.editor.fontSize}px`,
-          lineHeight: settings.editor.lineHeight,
-          fontFamily: settings.editor.fontFamily
-        }}
-      >
-        <div className="max-w-3xl mx-auto prose-editor">
-          <EditorContent
-            editor={editor}
-            className="min-h-full"
-          />
+      {showEmptyState ? (
+        <EmptyState />
+      ) : (
+        <div
+          className="flex-1 overflow-auto p-8 md:p-12 lg:p-16"
+          style={{
+            fontSize: `${settings.editor.fontSize}px`,
+            lineHeight: settings.editor.lineHeight,
+            fontFamily: settings.editor.fontFamily
+          }}
+        >
+          <div className="max-w-3xl mx-auto prose-editor">
+            <EditorContent
+              editor={editor}
+              className="min-h-full"
+            />
+          </div>
         </div>
-      </div>
+      )}
       <SelectionPopover
         editor={editor}
         onAddComment={openAddCommentDialog}

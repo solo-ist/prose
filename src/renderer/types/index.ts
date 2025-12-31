@@ -34,6 +34,7 @@ export interface ChatMessage {
   content: string
   context?: string
   timestamp: Date
+  hidden?: boolean
 }
 
 export interface FileResult {

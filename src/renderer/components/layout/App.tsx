@@ -133,7 +133,7 @@ export function App() {
           break
         case 'open':
           openFile().then((shouldAutoPrompt) => {
-            if (shouldAutoPrompt) sendMessage('What is this?')
+            if (shouldAutoPrompt) sendMessage('What is this?', { hidden: true })
           })
           break
         case 'save':
@@ -166,7 +166,7 @@ export function App() {
     if (!window.api) return
     const unsubscribe = window.api.onFileOpenExternal((path) => {
       openFileFromPath(path).then((shouldAutoPrompt) => {
-        if (shouldAutoPrompt) sendMessage('What is this?')
+        if (shouldAutoPrompt) sendMessage('What is this?', { hidden: true })
       })
     })
     return unsubscribe

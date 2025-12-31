@@ -28,7 +28,7 @@ import {
 export function Toolbar() {
   const { document, openFile, saveFile, newFile } = useEditor()
   const { settings, setTheme, setDialogOpen } = useSettings()
-  const { isPanelOpen, togglePanel } = useChat()
+  const { isPanelOpen, togglePanel, sendMessage } = useChat()
 
   const fileName = document.path
     ? document.path.split('/').pop()
@@ -95,7 +95,9 @@ export function Toolbar() {
             <DropdownMenuItem onClick={newFile}>
               New Document
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={openFile}>
+            <DropdownMenuItem onClick={() => openFile().then((shouldAutoPrompt) => {
+              if (shouldAutoPrompt) sendMessage('What is this?', { hidden: true })
+            })}>
               Open...
             </DropdownMenuItem>
             <DropdownMenuItem onClick={saveFile}>

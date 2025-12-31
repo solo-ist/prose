@@ -29,6 +29,9 @@ export function ChatPanel() {
   } = useChatStore()
   const documentId = useEditorStore((state) => state.document.documentId)
 
+  // Filter out hidden messages for display
+  const visibleMessages = messages.filter((m) => !m.hidden)
+
   // Get the last message content to trigger scroll during streaming
   const lastMessageContent = messages[messages.length - 1]?.content
 
@@ -134,7 +137,7 @@ export function ChatPanel() {
             </TooltipTrigger>
             <TooltipContent>New chat</TooltipContent>
           </Tooltip>
-          {messages.length > 0 && (
+          {visibleMessages.length > 0 && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -155,7 +158,7 @@ export function ChatPanel() {
 
       {/* Messages */}
       <ScrollArea className="flex-1" viewportRef={scrollRef}>
-        {messages.length === 0 ? (
+        {visibleMessages.length === 0 ? (
           <div className="flex h-full items-center justify-center p-8">
             <div className="text-center">
               <MessageSquare className="mx-auto h-12 w-12 text-muted-foreground/30" />
@@ -173,13 +176,13 @@ export function ChatPanel() {
           </div>
         ) : (
           <div className="divide-y divide-border/50">
-            {messages.map((message, index) => (
+            {visibleMessages.map((message, index) => (
               <ChatMessage
                 key={message.id}
                 message={message}
                 isStreaming={
                   isStreaming &&
-                  index === messages.length - 1 &&
+                  index === visibleMessages.length - 1 &&
                   message.role === 'assistant'
                 }
               />

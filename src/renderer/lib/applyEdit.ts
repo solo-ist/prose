@@ -64,6 +64,62 @@ function similarity(a: string, b: string): number {
 }
 
 /**
+ * Build a mapping from text positions to document positions.
+ * Uses a separator between block nodes to preserve structure.
+ */
+function buildPositionMap(doc: import('@tiptap/pm/model').Node): {
+  text: string
+  toDocPos: (textPos: number) => number
+} {
+  const segments: Array<{ text: string; docStart: number }> = []
+  let currentText = ''
+
+  doc.descendants((node, pos) => {
+    if (node.isText && node.text) {
+      segments.push({ text: node.text, docStart: pos })
+      currentText += node.text
+    } else if (node.isBlock && currentText.length > 0 && !currentText.endsWith('\n')) {
+      // Add newline separator between blocks for proper matching
+      currentText += '\n'
+    }
+  })
+
+  // Build cumulative text position map
+  let textPos = 0
+  const textToDoc: Array<{ textStart: number; textEnd: number; docStart: number }> = []
+
+  for (const seg of segments) {
+    textToDoc.push({
+      textStart: textPos,
+      textEnd: textPos + seg.text.length,
+      docStart: seg.docStart,
+    })
+    textPos += seg.text.length
+  }
+
+  return {
+    text: segments.map(s => s.text).join(''),
+    toDocPos: (pos: number) => {
+      for (const mapping of textToDoc) {
+        if (pos >= mapping.textStart && pos < mapping.textEnd) {
+          return mapping.docStart + (pos - mapping.textStart)
+        }
+        // Handle position at exact end of a segment
+        if (pos === mapping.textEnd) {
+          return mapping.docStart + (pos - mapping.textStart)
+        }
+      }
+      // If past end, return end of last segment
+      if (textToDoc.length > 0) {
+        const last = textToDoc[textToDoc.length - 1]
+        return last.docStart + (last.textEnd - last.textStart)
+      }
+      return 0
+    },
+  }
+}
+
+/**
  * Find best fuzzy match for search text in the document.
  * Returns the match with highest similarity score.
  */
@@ -72,19 +128,26 @@ export function findFuzzyMatch(editor: Editor, search: string, minSimilarity = 0
   const normalizedSearch = normalizeText(search)
   const searchLen = normalizedSearch.length
 
-  // Extract all document text with positions
-  const textChunks: Array<{ text: string; pos: number }> = []
-  doc.descendants((node, pos) => {
-    if (node.isText && node.text) {
-      textChunks.push({ text: node.text, pos })
-    }
-  })
-
-  // Combine into full text for searching
-  const fullText = textChunks.map(c => c.text).join('')
+  // Build position-mapped text from document
+  const { text: fullText, toDocPos } = buildPositionMap(doc)
   const normalizedFull = normalizeText(fullText)
 
   if (normalizedFull.length < searchLen * 0.5) return null
+
+  // Build mapping from normalized text positions to original text positions
+  const normToOrig: number[] = []
+  let normIdx = 0
+  for (let i = 0; i < fullText.length; i++) {
+    const char = fullText[i]
+    const prevChar = i > 0 ? fullText[i - 1] : ''
+    // Count non-whitespace, or first space after non-whitespace
+    if (!/\s/.test(char) || (!/\s/.test(prevChar) && prevChar !== '')) {
+      normToOrig[normIdx] = i
+      normIdx++
+    }
+  }
+  // Add final position for end-of-string
+  normToOrig[normIdx] = fullText.length
 
   let bestMatch: TextMatch | null = null
   let bestSimilarity = minSimilarity
@@ -103,44 +166,18 @@ export function findFuzzyMatch(editor: Editor, search: string, minSimilarity = 0
       if (sim > bestSimilarity) {
         bestSimilarity = sim
 
-        // Map back to original positions
-        // Find the corresponding position in original text
-        let origStart = 0
-        let normIdx = 0
-        for (let j = 0; j < fullText.length && normIdx < i; j++) {
-          if (!/\s/.test(fullText[j]) || (j > 0 && !/\s/.test(fullText[j - 1]))) {
-            normIdx++
-          }
-          origStart = j + 1
-        }
+        // Map normalized positions back to original text positions
+        const origStart = normToOrig[i] ?? 0
+        const origEnd = normToOrig[end] ?? fullText.length
 
-        let origEnd = origStart
-        normIdx = 0
-        const targetLen = end - i
-        for (let j = origStart; j < fullText.length && normIdx < targetLen; j++) {
-          if (!/\s/.test(fullText[j]) || (j > 0 && !/\s/.test(fullText[j - 1]))) {
-            normIdx++
-          }
-          origEnd = j + 1
-        }
+        // Convert original text positions to document positions
+        const docFrom = toDocPos(origStart)
+        const docTo = toDocPos(origEnd)
 
-        // Convert to document positions
-        let docPos = 0
-        let textPos = 0
-        for (const chunk of textChunks) {
-          if (textPos + chunk.text.length > origStart) {
-            const startOffset = Math.max(0, origStart - textPos)
-            const endOffset = Math.min(chunk.text.length, origEnd - textPos)
-
-            bestMatch = {
-              from: chunk.pos + startOffset,
-              to: chunk.pos + endOffset,
-              similarity: sim,
-            }
-            break
-          }
-          textPos += chunk.text.length
-          docPos = chunk.pos + chunk.text.length
+        bestMatch = {
+          from: docFrom,
+          to: docTo,
+          similarity: sim,
         }
       }
     }

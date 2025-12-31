@@ -70,6 +70,7 @@ export function App() {
       setPendingDraft(null)
     }
     setRecoveryDialogOpen(false)
+    useChatStore.getState().setInitializing(false)
   }, [pendingDraft, recoverDraft])
 
   const handleDiscard = useCallback(async () => {
@@ -78,6 +79,7 @@ export function App() {
       setPendingDraft(null)
     }
     setRecoveryDialogOpen(false)
+    useChatStore.getState().setInitializing(false)
   }, [pendingDraft, discardDraft])
 
   // Check for draft recovery after settings are loaded
@@ -85,22 +87,34 @@ export function App() {
     if (!settingsLoaded) return
 
     const checkForDraft = async () => {
-      const draft = await loadDraft()
-      if (!draft) return
+      try {
+        const draft = await loadDraft()
+        if (!draft) {
+          // No draft to recover - initialization complete
+          useChatStore.getState().setInitializing(false)
+          return
+        }
 
-      // Only recover if there's actual content
-      if (!draft.document.content && !draft.document.isDirty) {
-        await clearDraft()
-        return
-      }
+        // Only recover if there's actual content
+        if (!draft.document.content && !draft.document.isDirty) {
+          await clearDraft()
+          useChatStore.getState().setInitializing(false)
+          return
+        }
 
-      const recoveryMode = settings?.recovery?.mode ?? 'silent'
+        const recoveryMode = settings?.recovery?.mode ?? 'silent'
 
-      if (recoveryMode === 'silent') {
-        await recoverDraft(draft)
-      } else {
-        setPendingDraft(draft)
-        setRecoveryDialogOpen(true)
+        if (recoveryMode === 'silent') {
+          await recoverDraft(draft)
+          useChatStore.getState().setInitializing(false)
+        } else {
+          // For 'ask' mode, keep initializing until user decides
+          setPendingDraft(draft)
+          setRecoveryDialogOpen(true)
+        }
+      } catch (error) {
+        console.error('Failed to check for draft:', error)
+        useChatStore.getState().setInitializing(false)
       }
     }
 

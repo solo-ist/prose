@@ -267,14 +267,14 @@ export function Editor() {
         <EmptyState />
       ) : (
         <div
-          className="flex-1 overflow-auto p-8 md:p-12 lg:p-16"
+          className="flex-1 overflow-auto px-8 py-6"
           style={{
             fontSize: `${settings.editor.fontSize}px`,
             lineHeight: settings.editor.lineHeight,
             fontFamily: settings.editor.fontFamily
           }}
         >
-          <div className="max-w-3xl mx-auto prose-editor">
+          <div className="max-w-3xl prose-editor">
             <EditorContent
               editor={editor}
               className="min-h-full"

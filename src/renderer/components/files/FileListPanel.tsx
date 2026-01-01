@@ -6,7 +6,8 @@ import { FileTree } from './FileTree'
 import { ScrollArea } from '../ui/scroll-area'
 import { Button } from '../ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
-import { FolderOpen, RefreshCw, Loader2, Cloud } from 'lucide-react'
+import { FolderOpen, RefreshCw, Loader2, Cloud, Plus } from 'lucide-react'
+import { useSettings } from '../../hooks/useSettings'
 
 export function FileListPanel() {
   const {
@@ -21,7 +22,8 @@ export function FileListPanel() {
   } = useFileList()
 
   const { openFileFromPath } = useEditor()
-  const { isSyncing, lastSyncedAt, sync } = useRemarkableSync()
+  const { isSyncing, sync } = useRemarkableSync()
+  const { setDialogOpen } = useSettings()
   const remarkableEnabled = useSettingsStore((state) => state.settings.remarkable?.enabled)
 
   const handleFileClick = async (path: string) => {
@@ -65,11 +67,7 @@ export function FileListPanel() {
                   )}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>
-                {lastSyncedAt
-                  ? `Sync from reMarkable (last: ${new Date(lastSyncedAt).toLocaleTimeString()})`
-                  : 'Sync from reMarkable'}
-              </TooltipContent>
+              <TooltipContent>Cloud Sync</TooltipContent>
             </Tooltip>
           )}
           <Tooltip>
@@ -97,8 +95,17 @@ export function FileListPanel() {
       {/* File Tree */}
       <ScrollArea className="flex-1">
         {!rootPath ? (
-          <div className="p-4 text-sm text-muted-foreground">
-            No folder configured. Set up in Settings → Integrations.
+          <div className="flex h-full flex-col justify-between p-4">
+            <p className="text-sm text-muted-foreground">
+              No folder configured. Set up in Settings → Integrations.
+            </p>
+            <Button
+              variant="ghost"
+              className="w-full border border-dashed border-muted-foreground/30 text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground"
+              onClick={() => setDialogOpen(true)}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
           </div>
         ) : files.length === 0 && !isLoading ? (
           <div className="p-4 text-sm text-muted-foreground">

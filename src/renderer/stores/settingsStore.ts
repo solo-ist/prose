@@ -18,6 +18,7 @@ interface SettingsState {
   setEditorConfig: (config: Partial<Settings['editor']>) => void
   setRecoveryConfig: (config: Partial<NonNullable<Settings['recovery']>>) => void
   setDefaultSaveDirectory: (path: string) => void
+  setRemarkableConfig: (config: Partial<NonNullable<Settings['remarkable']>>) => void
 }
 
 const defaultSettings: Settings = {
@@ -127,5 +128,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setDefaultSaveDirectory: (path) =>
     set((state) => ({
       settings: { ...state.settings, defaultSaveDirectory: path }
+    })),
+
+  setRemarkableConfig: (config) =>
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        remarkable: { ...state.settings.remarkable, ...config } as Settings['remarkable']
+      }
     }))
 }))

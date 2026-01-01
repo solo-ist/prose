@@ -68,6 +68,33 @@ export interface ElectronAPI {
   showInFolder: (path: string) => Promise<void>
   renameFile: (oldPath: string, newPath: string) => Promise<void>
   deleteFile: (path: string) => Promise<void>
+  listDirectory: (path: string) => Promise<FileItem[]>
+  remarkableSync: (request: RemarkableSyncRequest) => Promise<RemarkableSyncResponse>
+}
+
+export interface FileItem {
+  name: string
+  path: string
+  isDirectory: boolean
+  modifiedAt: string
+  children?: FileItem[]
+}
+
+export interface RemarkableSyncRequest {
+  lambdaUrl: string
+  apiKey: string
+  syncDirectory: string
+}
+
+export interface RemarkableSyncFile {
+  path: string
+  content: string
+  pages: number
+}
+
+export interface RemarkableSyncResponse {
+  syncedAt: string
+  files: RemarkableSyncFile[]
 }
 
 const api: ElectronAPI = {
@@ -109,6 +136,8 @@ const api: ElectronAPI = {
   showInFolder: (path: string) => ipcRenderer.invoke('file:showInFolder', path),
   renameFile: (oldPath: string, newPath: string) => ipcRenderer.invoke('file:rename', oldPath, newPath),
   deleteFile: (path: string) => ipcRenderer.invoke('file:delete', path),
+  listDirectory: (path: string) => ipcRenderer.invoke('file:listDirectory', path),
+  remarkableSync: (request: RemarkableSyncRequest) => ipcRenderer.invoke('remarkable:sync', request),
   onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, chunk: LLMStreamChunk): void => {
       callback(chunk)

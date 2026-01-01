@@ -19,6 +19,14 @@ export interface Settings {
     mode: 'silent' | 'prompt'
   }
   defaultSaveDirectory?: string
+  remarkable?: {
+    enabled: boolean
+    lambdaUrl: string
+    apiKey: string
+    syncDirectory: string
+    pollIntervalMinutes: number
+    lastSyncedAt?: string
+  }
 }
 
 export interface Document {
@@ -41,6 +49,31 @@ export interface ChatMessage {
 export interface FileResult {
   path: string
   content: string
+}
+
+export interface FileItem {
+  name: string
+  path: string
+  isDirectory: boolean
+  modifiedAt: string
+  children?: FileItem[]
+}
+
+export interface RemarkableSyncFile {
+  path: string
+  content: string
+  pages: number
+}
+
+export interface RemarkableSyncResponse {
+  syncedAt: string
+  files: RemarkableSyncFile[]
+}
+
+export interface RemarkableSyncRequest {
+  lambdaUrl: string
+  apiKey: string
+  syncDirectory: string
 }
 
 export interface LLMMessage {
@@ -108,6 +141,10 @@ export interface ElectronAPI {
   // File rename/delete
   renameFile: (oldPath: string, newPath: string) => Promise<void>
   deleteFile: (path: string) => Promise<void>
+  // Directory listing
+  listDirectory: (path: string) => Promise<FileItem[]>
+  // reMarkable sync
+  remarkableSync: (request: RemarkableSyncRequest) => Promise<RemarkableSyncResponse>
 }
 
 declare global {

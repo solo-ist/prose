@@ -115,6 +115,13 @@ export function createMenu(mainWindow: BrowserWindow): void {
         { role: 'togglefullscreen' },
         { type: 'separator' },
         {
+          label: 'Toggle File List',
+          accelerator: 'Shift+CmdOrCtrl+H',
+          click: (): void => {
+            mainWindow.webContents.send('menu:action', 'toggleFileList')
+          }
+        },
+        {
           label: 'Toggle Chat Panel',
           accelerator: 'CmdOrCtrl+\\',
           click: (): void => {

@@ -18,7 +18,8 @@ export function useSettings() {
     setLLMConfig,
     setEditorConfig,
     setRecoveryConfig,
-    setDefaultSaveDirectory
+    setDefaultSaveDirectory,
+    setRemarkableConfig
   } = useSettingsStore()
 
   useEffect(() => {
@@ -42,6 +43,7 @@ export function useSettings() {
     setLLMConfig,
     setEditorConfig,
     setRecoveryConfig,
-    setDefaultSaveDirectory
+    setDefaultSaveDirectory,
+    setRemarkableConfig
   }
 }

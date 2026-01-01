@@ -1,5 +1,5 @@
 import { ipcMain, dialog, app, shell } from 'electron'
-import { readFile, writeFile, mkdir, access, rename, unlink } from 'fs/promises'
+import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat } from 'fs/promises'
 import { join } from 'path'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
@@ -145,6 +145,60 @@ export function setupIpcHandlers(): void {
   // File: Delete file
   ipcMain.handle('file:delete', async (_event, path: string) => {
     await unlink(path)
+  })
+
+  // File: List directory contents
+  ipcMain.handle('file:listDirectory', async (_event, dirPath: string) => {
+    interface FileItem {
+      name: string
+      path: string
+      isDirectory: boolean
+      modifiedAt: string
+      children?: FileItem[]
+    }
+
+    async function listDir(dir: string): Promise<FileItem[]> {
+      try {
+        const entries = await readdir(dir, { withFileTypes: true })
+        const items: FileItem[] = []
+
+        for (const entry of entries) {
+          // Skip hidden files
+          if (entry.name.startsWith('.')) continue
+
+          const fullPath = join(dir, entry.name)
+          const stats = await stat(fullPath)
+
+          if (entry.isDirectory()) {
+            const children = await listDir(fullPath)
+            items.push({
+              name: entry.name,
+              path: fullPath,
+              isDirectory: true,
+              modifiedAt: stats.mtime.toISOString(),
+              children
+            })
+          } else if (entry.name.endsWith('.md') || entry.name.endsWith('.markdown') || entry.name.endsWith('.txt')) {
+            items.push({
+              name: entry.name,
+              path: fullPath,
+              isDirectory: false,
+              modifiedAt: stats.mtime.toISOString()
+            })
+          }
+        }
+
+        // Sort: directories first, then by name
+        return items.sort((a, b) => {
+          if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
+          return a.name.localeCompare(b.name)
+        })
+      } catch {
+        return []
+      }
+    }
+
+    return listDir(dirPath)
   })
 
   // Settings: Load from ~/.prose/settings.json
@@ -342,4 +396,51 @@ export function setupIpcHandlers(): void {
     }
     return { success: false }
   })
+
+  // reMarkable: Sync notebooks from Lambda
+  ipcMain.handle(
+    'remarkable:sync',
+    async (
+      _event,
+      request: { lambdaUrl: string; apiKey: string; syncDirectory: string }
+    ) => {
+      const { lambdaUrl, apiKey, syncDirectory } = request
+
+      // Call Lambda function
+      const response = await fetch(lambdaUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey
+        },
+        body: JSON.stringify({ action: 'sync' })
+      })
+
+      if (!response.ok) {
+        throw new Error(`Lambda request failed: ${response.status} ${response.statusText}`)
+      }
+
+      const data = (await response.json()) as {
+        syncedAt: string
+        files: Array<{ path: string; content: string; pages: number }>
+      }
+
+      // Ensure sync directory exists
+      await mkdir(syncDirectory, { recursive: true })
+
+      // Write each file to the sync directory
+      for (const file of data.files) {
+        const filePath = join(syncDirectory, file.path)
+        const fileDir = join(filePath, '..')
+
+        // Ensure parent directory exists
+        await mkdir(fileDir, { recursive: true })
+
+        // Write file content
+        await writeFile(filePath, file.content, 'utf-8')
+      }
+
+      return data
+    }
+  )
 }

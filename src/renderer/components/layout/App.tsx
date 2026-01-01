@@ -3,6 +3,7 @@ import { Toolbar } from './Toolbar'
 import { StatusBar } from './StatusBar'
 import { Editor } from '../editor/Editor'
 import { ChatPanel } from '../chat/ChatPanel'
+import { FileListPanel } from '../files/FileListPanel'
 import { SettingsDialog } from '../settings/SettingsDialog'
 import { RecoveryDialog } from './RecoveryDialog'
 import { KeyboardShortcutsDialog } from '../settings/KeyboardShortcutsDialog'
@@ -15,6 +16,7 @@ import {
 import { TooltipProvider } from '../ui/tooltip'
 import { useChat } from '../../hooks/useChat'
 import { useEditor } from '../../hooks/useEditor'
+import { useFileList } from '../../hooks/useFileList'
 import { useSettings } from '../../hooks/useSettings'
 import { useEditorStore } from '../../stores/editorStore'
 import { useChatStore, setCurrentDocumentId } from '../../stores/chatStore'
@@ -27,7 +29,8 @@ import {
 import type { DraftState } from '../../lib/persistence'
 
 export function App() {
-  const { isPanelOpen, togglePanel, sendMessage } = useChat()
+  const { isPanelOpen: isChatOpen, togglePanel: toggleChatPanel, sendMessage } = useChat()
+  const { isPanelOpen: isFileListOpen, togglePanel: toggleFileListPanel } = useFileList()
   const { openFile, openFileFromPath, saveFile, saveFileAs, newFile } = useEditor()
   const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, isAboutDialogOpen, setAboutDialogOpen, settings, isLoaded: settingsLoaded } = useSettings()
   const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false)
@@ -156,7 +159,10 @@ export function App() {
           setDialogOpen(true)
           break
         case 'toggleChat':
-          togglePanel()
+          toggleChatPanel()
+          break
+        case 'toggleFileList':
+          toggleFileListPanel()
           break
         case 'find':
           // Dispatch custom event for Editor to handle
@@ -172,7 +178,7 @@ export function App() {
     })
 
     return unsubscribe
-  }, [openFile, saveFile, saveFileAs, newFile, setDialogOpen, togglePanel, setShortcutsDialogOpen, setAboutDialogOpen, sendMessage])
+  }, [openFile, saveFile, saveFileAs, newFile, setDialogOpen, toggleChatPanel, toggleFileListPanel, setShortcutsDialogOpen, setAboutDialogOpen, sendMessage])
 
   // Handle file open from OS (double-click .md file)
   useEffect(() => {
@@ -191,15 +197,27 @@ export function App() {
         <Toolbar />
 
         <div className="flex-1 overflow-hidden">
-          {isPanelOpen ? (
+          {isFileListOpen || isChatOpen ? (
             <ResizablePanelGroup direction="horizontal">
-              <ResizablePanel defaultSize={70} minSize={40}>
+              {isFileListOpen && (
+                <>
+                  <ResizablePanel defaultSize={15} minSize={10} maxSize={25}>
+                    <FileListPanel />
+                  </ResizablePanel>
+                  <ResizableHandle />
+                </>
+              )}
+              <ResizablePanel defaultSize={isFileListOpen && isChatOpen ? 55 : isFileListOpen ? 85 : 70} minSize={40}>
                 <Editor />
               </ResizablePanel>
-              <ResizableHandle />
-              <ResizablePanel defaultSize={30} minSize={20} maxSize={50}>
-                <ChatPanel />
-              </ResizablePanel>
+              {isChatOpen && (
+                <>
+                  <ResizableHandle />
+                  <ResizablePanel defaultSize={30} minSize={20} maxSize={50}>
+                    <ChatPanel />
+                  </ResizablePanel>
+                </>
+              )}
             </ResizablePanelGroup>
           ) : (
             <Editor />

@@ -198,22 +198,29 @@ export function App() {
 
         <div className="flex-1 overflow-hidden">
           {isFileListOpen || isChatOpen ? (
-            <ResizablePanelGroup direction="horizontal">
+            <ResizablePanelGroup
+              direction="horizontal"
+              key={`panels-${isFileListOpen ? 'f' : ''}-${isChatOpen ? 'c' : ''}`}
+            >
               {isFileListOpen && (
                 <>
-                  <ResizablePanel defaultSize={15} minSize={10} maxSize={25}>
+                  <ResizablePanel id="file-list" defaultSize={15} minSize={10} maxSize={25}>
                     <FileListPanel />
                   </ResizablePanel>
                   <ResizableHandle />
                 </>
               )}
-              <ResizablePanel defaultSize={isFileListOpen && isChatOpen ? 55 : isFileListOpen ? 85 : 70} minSize={40}>
+              <ResizablePanel
+                id="editor"
+                defaultSize={isFileListOpen && isChatOpen ? 55 : isFileListOpen ? 85 : 70}
+                minSize={30}
+              >
                 <Editor />
               </ResizablePanel>
               {isChatOpen && (
                 <>
                   <ResizableHandle />
-                  <ResizablePanel defaultSize={30} minSize={20} maxSize={50}>
+                  <ResizablePanel id="chat" defaultSize={30} minSize={20} maxSize={50}>
                     <ChatPanel />
                   </ResizablePanel>
                 </>

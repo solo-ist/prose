@@ -18,6 +18,7 @@ export interface Settings {
   recovery?: {
     mode: 'silent' | 'prompt'
   }
+  defaultSaveDirectory?: string
 }
 
 export interface Document {
@@ -97,6 +98,16 @@ export interface ElectronAPI {
   onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => () => void
   onLLMStreamComplete: (callback: (complete: LLMStreamComplete) => void) => () => void
   onLLMStreamError: (callback: (error: LLMStreamError) => void) => () => void
+  // Folder operations for quick save
+  selectFolder: () => Promise<string | null>
+  saveToFolder: (folder: string, filename: string, content: string) => Promise<string>
+  getDocumentsPath: () => Promise<string>
+  fileExists: (path: string) => Promise<boolean>
+  // File reveal
+  showInFolder: (path: string) => Promise<void>
+  // File rename/delete
+  renameFile: (oldPath: string, newPath: string) => Promise<void>
+  deleteFile: (path: string) => Promise<void>
 }
 
 declare global {

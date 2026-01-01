@@ -17,7 +17,8 @@ export function useSettings() {
     setTheme,
     setLLMConfig,
     setEditorConfig,
-    setRecoveryConfig
+    setRecoveryConfig,
+    setDefaultSaveDirectory
   } = useSettingsStore()
 
   useEffect(() => {
@@ -40,6 +41,7 @@ export function useSettings() {
     setTheme,
     setLLMConfig,
     setEditorConfig,
-    setRecoveryConfig
+    setRecoveryConfig,
+    setDefaultSaveDirectory
   }
 }

@@ -331,6 +331,42 @@ export const browserApi: ElectronAPI = {
     return { success: false }
   },
 
+  // Folder operations - limited in browser mode
+  selectFolder: async (): Promise<string | null> => {
+    // Not supported in browser
+    return null
+  },
+
+  saveToFolder: async (_folder: string, filename: string, content: string): Promise<string> => {
+    // Fall back to download
+    await browserApi.saveFile(filename, content)
+    return filename
+  },
+
+  getDocumentsPath: async (): Promise<string> => {
+    // Return placeholder - browser can't access filesystem
+    return '~/Documents'
+  },
+
+  fileExists: async (_path: string): Promise<boolean> => {
+    // Can't check in browser mode
+    return false
+  },
+
+  showInFolder: async (_path: string): Promise<void> => {
+    // Can't reveal in folder in browser mode
+  },
+
+  renameFile: async (_oldPath: string, _newPath: string): Promise<void> => {
+    // Can't rename files in browser mode
+    throw new Error('Cannot rename files in browser mode')
+  },
+
+  deleteFile: async (_path: string): Promise<void> => {
+    // Can't delete files in browser mode
+    throw new Error('Cannot delete files in browser mode')
+  },
+
   onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => {
     const handler = (e: Event) => callback((e as CustomEvent).detail)
     window.addEventListener('llm:stream:chunk', handler)

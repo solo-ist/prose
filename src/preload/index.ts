@@ -60,6 +60,14 @@ export interface ElectronAPI {
   onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => () => void
   onLLMStreamComplete: (callback: (complete: LLMStreamComplete) => void) => () => void
   onLLMStreamError: (callback: (error: LLMStreamError) => void) => () => void
+  // Folder operations for quick save
+  selectFolder: () => Promise<string | null>
+  saveToFolder: (folder: string, filename: string, content: string) => Promise<string>
+  getDocumentsPath: () => Promise<string>
+  fileExists: (path: string) => Promise<boolean>
+  showInFolder: (path: string) => Promise<void>
+  renameFile: (oldPath: string, newPath: string) => Promise<void>
+  deleteFile: (path: string) => Promise<void>
 }
 
 const api: ElectronAPI = {
@@ -92,6 +100,15 @@ const api: ElectronAPI = {
   // Streaming LLM
   llmChatStream: (request: LLMStreamRequest) => ipcRenderer.invoke('llm:stream', request),
   llmAbortStream: (streamId: string) => ipcRenderer.invoke('llm:stream:abort', streamId),
+  // Folder operations for quick save
+  selectFolder: () => ipcRenderer.invoke('file:selectFolder'),
+  saveToFolder: (folder: string, filename: string, content: string) =>
+    ipcRenderer.invoke('file:saveToFolder', folder, filename, content),
+  getDocumentsPath: () => ipcRenderer.invoke('file:documentsPath'),
+  fileExists: (path: string) => ipcRenderer.invoke('file:exists', path),
+  showInFolder: (path: string) => ipcRenderer.invoke('file:showInFolder', path),
+  renameFile: (oldPath: string, newPath: string) => ipcRenderer.invoke('file:rename', oldPath, newPath),
+  deleteFile: (path: string) => ipcRenderer.invoke('file:delete', path),
   onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, chunk: LLMStreamChunk): void => {
       callback(chunk)

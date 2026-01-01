@@ -1,8 +1,10 @@
+import { useState, useRef, useEffect, type KeyboardEvent } from 'react'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
 import { isMacOS } from '../../lib/browserApi'
 import { Button } from '../ui/button'
+import { Input } from '../ui/input'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,16 +28,64 @@ import {
 } from 'lucide-react'
 
 export function Toolbar() {
-  const { document, openFile, saveFile, newFile } = useEditor()
+  const { document, openFile, saveFile, newFile, quickSaveWithTitle } = useEditor()
   const { settings, setTheme, setDialogOpen } = useSettings()
   const { isPanelOpen, togglePanel, sendMessage } = useChat()
 
-  const fileName = document.path
-    ? document.path.split('/').pop()
-    : 'Untitled'
+  const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const [editedTitle, setEditedTitle] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Extract filename and extension
+  const fullFileName = document.path?.split('/').pop() || ''
+  const hasExtension = fullFileName.includes('.')
+  const fileName = hasExtension
+    ? fullFileName.substring(0, fullFileName.lastIndexOf('.'))
+    : fullFileName || 'Untitled'
+  const fileExtension = hasExtension
+    ? fullFileName.substring(fullFileName.lastIndexOf('.'))
+    : '.md'
+
+  const handleIconClick = () => {
+    if (document.path && window.api) {
+      window.api.showInFolder(document.path)
+    }
+  }
 
   const toggleTheme = () => {
     setTheme(settings.theme === 'dark' ? 'light' : 'dark')
+  }
+
+  const handleTitleDoubleClick = () => {
+    setEditedTitle(fileName)
+    setIsEditingTitle(true)
+  }
+
+  useEffect(() => {
+    if (isEditingTitle && inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [isEditingTitle])
+
+  const handleTitleKeyDown = async (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      if (editedTitle.trim()) {
+        const success = await quickSaveWithTitle(editedTitle.trim())
+        if (success) {
+          setIsEditingTitle(false)
+        }
+      } else {
+        setIsEditingTitle(false)
+      }
+    } else if (e.key === 'Escape') {
+      setIsEditingTitle(false)
+    }
+  }
+
+  const handleTitleBlur = () => {
+    setIsEditingTitle(false)
   }
 
   // Add left padding on macOS to clear traffic lights
@@ -45,11 +95,45 @@ export function Toolbar() {
     <div className={`flex h-12 items-center justify-between border-b border-border bg-background pr-4 ${leftPadding} app-region-drag`}>
       {/* Left: File info */}
       <div className="flex items-center gap-2 app-region-no-drag">
-        <FileText className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm font-medium">
-          {fileName}
-          {document.isDirty && <span className="text-muted-foreground"> *</span>}
-        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={handleIconClick}
+              disabled={!document.path}
+              className={`p-0.5 rounded ${document.path ? 'cursor-pointer hover:bg-accent' : 'cursor-default'}`}
+              aria-label={document.path ? 'Reveal in Finder' : 'File not saved'}
+            >
+              <FileText className="h-4 w-4 text-muted-foreground" />
+            </button>
+          </TooltipTrigger>
+          {document.path && <TooltipContent>Reveal in Finder</TooltipContent>}
+        </Tooltip>
+        <div className="flex items-center">
+          {isEditingTitle ? (
+            <>
+              <Input
+                ref={inputRef}
+                type="text"
+                value={editedTitle}
+                onChange={(e) => setEditedTitle(e.target.value)}
+                onKeyDown={handleTitleKeyDown}
+                onBlur={handleTitleBlur}
+                className="h-7 w-40 text-sm font-medium"
+              />
+              <span className="text-sm text-muted-foreground">{fileExtension}</span>
+            </>
+          ) : (
+            <span
+              className="text-sm font-medium cursor-pointer hover:text-primary transition-colors"
+              onDoubleClick={handleTitleDoubleClick}
+              title="Double-click to rename and save"
+            >
+              {fileName}
+              <span className="text-muted-foreground">{fileExtension}</span>
+              {document.isDirty && <span className="text-muted-foreground"> *</span>}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Center: Spacer for draggable area */}

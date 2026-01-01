@@ -1,5 +1,5 @@
-import { ipcMain, dialog } from 'electron'
-import { readFile, writeFile, mkdir } from 'fs/promises'
+import { ipcMain, dialog, app, shell } from 'electron'
+import { readFile, writeFile, mkdir, access, rename, unlink } from 'fs/promises'
 import { join } from 'path'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
@@ -90,6 +90,61 @@ export function setupIpcHandlers(): void {
 
     await writeFile(result.filePath, content, 'utf-8')
     return result.filePath
+  })
+
+  // File: Select folder dialog
+  ipcMain.handle('file:selectFolder', async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory']
+    })
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return null
+    }
+
+    return result.filePaths[0]
+  })
+
+  // File: Save to folder with filename
+  ipcMain.handle(
+    'file:saveToFolder',
+    async (_event, folder: string, filename: string, content: string) => {
+      // Ensure .md extension
+      const finalFilename = filename.endsWith('.md') ? filename : `${filename}.md`
+      const fullPath = join(folder, finalFilename)
+      await writeFile(fullPath, content, 'utf-8')
+      return fullPath
+    }
+  )
+
+  // File: Get Documents path
+  ipcMain.handle('file:documentsPath', async () => {
+    return app.getPath('documents')
+  })
+
+  // File: Check if file exists
+  ipcMain.handle('file:exists', async (_event, path: string) => {
+    try {
+      await access(path)
+      return true
+    } catch {
+      return false
+    }
+  })
+
+  // File: Show in folder (Finder on macOS)
+  ipcMain.handle('file:showInFolder', async (_event, path: string) => {
+    shell.showItemInFolder(path)
+  })
+
+  // File: Rename file
+  ipcMain.handle('file:rename', async (_event, oldPath: string, newPath: string) => {
+    await rename(oldPath, newPath)
+  })
+
+  // File: Delete file
+  ipcMain.handle('file:delete', async (_event, path: string) => {
+    await unlink(path)
   })
 
   // Settings: Load from ~/.prose/settings.json

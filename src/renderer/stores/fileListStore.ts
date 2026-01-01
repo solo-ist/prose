@@ -2,10 +2,13 @@ import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import type { FileItem } from '../types'
 
+type ViewMode = 'recent' | 'folder'
+
 interface FileListState {
   // Panel state
   isPanelOpen: boolean
   isLoading: boolean
+  viewMode: ViewMode
 
   // File tree state
   files: FileItem[]
@@ -16,6 +19,7 @@ interface FileListState {
   // Actions
   togglePanel: () => void
   setPanelOpen: (open: boolean) => void
+  setViewMode: (mode: ViewMode) => void
   setRootPath: (path: string | null) => void
   loadFiles: () => Promise<void>
   selectFile: (path: string | null) => void
@@ -27,6 +31,7 @@ export const useFileListStore = create<FileListState>()(
   subscribeWithSelector((set, get) => ({
     isPanelOpen: false,
     isLoading: false,
+    viewMode: 'recent' as ViewMode,
     files: [],
     rootPath: null,
     expandedFolders: new Set<string>(),
@@ -35,6 +40,8 @@ export const useFileListStore = create<FileListState>()(
     togglePanel: () => set((state) => ({ isPanelOpen: !state.isPanelOpen })),
 
     setPanelOpen: (open) => set({ isPanelOpen: open }),
+
+    setViewMode: (mode) => set({ viewMode: mode }),
 
     setRootPath: (path) => {
       set({ rootPath: path, files: [], expandedFolders: new Set() })

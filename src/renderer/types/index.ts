@@ -27,6 +27,7 @@ export interface Settings {
     pollIntervalMinutes: number
     lastSyncedAt?: string
   }
+  recentFiles?: string[]
 }
 
 export interface Document {

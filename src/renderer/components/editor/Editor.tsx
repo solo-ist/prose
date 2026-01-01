@@ -21,7 +21,7 @@ export function Editor() {
   const { document, setContent, openFile, saveFile } = useEditor()
   const isEditing = useEditorStore((state) => state.isEditing)
   const { settings, setDialogOpen, setShortcutsDialogOpen } = useSettings()
-  const { setContext, togglePanel, setPanelOpen, sendMessage } = useChat()
+  const { setContext, togglePanel, setPanelOpen, sendMessage, agentMode, setAgentMode, includeDocument, setIncludeDocument } = useChat()
   const setEditorInstance = useEditorInstanceStore((state) => state.setEditor)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isUpdatingFromStore = useRef(false)
@@ -238,8 +238,16 @@ export function Editor() {
       // F1: Show keyboard shortcuts
       e.preventDefault()
       setShortcutsDialogOpen(true)
+    } else if (e.shiftKey && e.key === 'Tab' && !isMod) {
+      // Shift+Tab: Toggle agent mode
+      e.preventDefault()
+      setAgentMode(!agentMode)
+    } else if (isMod && e.key === 'k' && !e.shiftKey) {
+      // Cmd+K: Toggle full context
+      e.preventDefault()
+      setIncludeDocument(!includeDocument)
     }
-  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, editor, setContext, setPanelOpen, togglePanel, isFindOpen, openAddCommentDialog, sendMessage])
+  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, editor, setContext, setPanelOpen, togglePanel, isFindOpen, openAddCommentDialog, sendMessage, agentMode, setAgentMode, includeDocument, setIncludeDocument])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
@@ -255,6 +263,16 @@ export function Editor() {
 
   // Show empty state when document is empty, untitled, and user hasn't started editing
   const showEmptyState = !isEditing && !document.path && !document.content && !document.isDirty
+
+  // Focus editor when transitioning from empty state to editing
+  useEffect(() => {
+    if (!showEmptyState && editor) {
+      // Small delay to ensure editor is mounted and ready
+      requestAnimationFrame(() => {
+        editor.commands.focus()
+      })
+    }
+  }, [showEmptyState, editor])
 
   return (
     <div className="h-full flex flex-col relative">

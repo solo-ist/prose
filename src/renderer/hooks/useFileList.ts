@@ -6,12 +6,14 @@ export function useFileList() {
   const {
     isPanelOpen,
     isLoading,
+    viewMode,
     files,
     rootPath,
     expandedFolders,
     selectedPath,
     togglePanel,
     setPanelOpen,
+    setViewMode,
     setRootPath,
     loadFiles,
     selectFile,
@@ -20,6 +22,7 @@ export function useFileList() {
   } = useFileListStore()
 
   const { settings } = useSettingsStore()
+  const recentFiles = settings.recentFiles || []
 
   // Initialize root path from settings when remarkable is enabled
   useEffect(() => {
@@ -33,12 +36,15 @@ export function useFileList() {
   return {
     isPanelOpen,
     isLoading,
+    viewMode,
     files,
     rootPath,
     expandedFolders,
     selectedPath,
+    recentFiles,
     togglePanel,
     setPanelOpen,
+    setViewMode,
     setRootPath,
     loadFiles,
     selectFile,

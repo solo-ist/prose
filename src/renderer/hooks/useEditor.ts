@@ -75,6 +75,9 @@ export function useEditor() {
       // Mark as editing so empty state doesn't show
       setEditing(true)
 
+      // Add to recent files
+      useSettingsStore.getState().addRecentFile(filePath)
+
       // Return true if document has content but no chat history (for auto-prompt)
       const conversations = useChatStore.getState().conversations
       return parsed.content.trim().length > 0 && conversations.length === 0
@@ -112,6 +115,9 @@ export function useEditor() {
 
       // Mark as editing so empty state doesn't show
       setEditing(true)
+
+      // Add to recent files
+      useSettingsStore.getState().addRecentFile(result.path)
 
       // Return true if document has content but no chat history (for auto-prompt)
       const conversations = useChatStore.getState().conversations
@@ -189,7 +195,10 @@ export function useEditor() {
       activeConversationId: null,
       messages: []
     })
-  }, [resetDocument, document.documentId, saveCurrentConversation])
+
+    // Mark as editing so empty state hides and editor shows
+    setEditing(true)
+  }, [resetDocument, document.documentId, saveCurrentConversation, setEditing])
 
   const quickSaveWithTitle = useCallback(async (title: string): Promise<boolean> => {
     if (!window.api) return false

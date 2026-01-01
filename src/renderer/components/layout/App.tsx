@@ -204,7 +204,7 @@ export function App() {
             >
               {isFileListOpen && (
                 <>
-                  <ResizablePanel id="file-list" defaultSize={15} minSize={10} maxSize={25}>
+                  <ResizablePanel id="file-list" defaultSize={20} minSize={15} maxSize={35}>
                     <FileListPanel />
                   </ResizablePanel>
                   <ResizableHandle />
@@ -212,7 +212,7 @@ export function App() {
               )}
               <ResizablePanel
                 id="editor"
-                defaultSize={isFileListOpen && isChatOpen ? 55 : isFileListOpen ? 85 : 70}
+                defaultSize={isFileListOpen && isChatOpen ? 50 : isFileListOpen ? 80 : 70}
                 minSize={30}
               >
                 <Editor />

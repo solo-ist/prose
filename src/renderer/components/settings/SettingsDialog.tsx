@@ -25,7 +25,9 @@ export function SettingsDialog() {
   const {
     settings,
     isDialogOpen,
+    dialogTab,
     setDialogOpen,
+    setDialogTab,
     setTheme,
     setLLMConfig,
     setEditorConfig,
@@ -47,7 +49,7 @@ export function SettingsDialog() {
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
 
-        <Tabs defaultValue="general" className="mt-4">
+        <Tabs value={dialogTab} onValueChange={(value) => setDialogTab(value as typeof dialogTab)} className="mt-4">
           <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="editor">Editor</TabsTrigger>

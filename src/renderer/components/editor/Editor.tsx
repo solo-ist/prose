@@ -21,7 +21,7 @@ export function Editor() {
   const { document, setContent, openFile, saveFile } = useEditor()
   const isEditing = useEditorStore((state) => state.isEditing)
   const { settings, setDialogOpen, setShortcutsDialogOpen } = useSettings()
-  const { setContext, togglePanel, setPanelOpen, sendMessage, agentMode, setAgentMode, includeDocument, setIncludeDocument } = useChat()
+  const { setContext, togglePanel, setPanelOpen, agentMode, setAgentMode, includeDocument, setIncludeDocument } = useChat()
   const setEditorInstance = useEditorInstanceStore((state) => state.setEditor)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isUpdatingFromStore = useRef(false)
@@ -134,9 +134,7 @@ export function Editor() {
 
     if (isMod && e.key === 'o' && !e.shiftKey) {
       e.preventDefault()
-      openFile().then((shouldAutoPrompt) => {
-        if (shouldAutoPrompt) sendMessage('What is this?', { hidden: true })
-      })
+      openFile()
     } else if (isMod && e.key === 's' && !e.shiftKey) {
       e.preventDefault()
       saveFile()
@@ -247,7 +245,7 @@ export function Editor() {
       e.preventDefault()
       setIncludeDocument(!includeDocument)
     }
-  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, editor, setContext, setPanelOpen, togglePanel, isFindOpen, openAddCommentDialog, sendMessage, agentMode, setAgentMode, includeDocument, setIncludeDocument])
+  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, editor, setContext, setPanelOpen, togglePanel, isFindOpen, openAddCommentDialog, agentMode, setAgentMode, includeDocument, setIncludeDocument])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)

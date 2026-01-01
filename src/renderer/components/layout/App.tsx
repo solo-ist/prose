@@ -29,7 +29,7 @@ import {
 import type { DraftState } from '../../lib/persistence'
 
 export function App() {
-  const { isPanelOpen: isChatOpen, togglePanel: toggleChatPanel, sendMessage } = useChat()
+  const { isPanelOpen: isChatOpen, togglePanel: toggleChatPanel } = useChat()
   const { isPanelOpen: isFileListOpen, togglePanel: toggleFileListPanel } = useFileList()
   const { openFile, openFileFromPath, saveFile, saveFileAs, newFile } = useEditor()
   const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, isAboutDialogOpen, setAboutDialogOpen, settings, isLoaded: settingsLoaded } = useSettings()
@@ -145,9 +145,7 @@ export function App() {
           newFile()
           break
         case 'open':
-          openFile().then((shouldAutoPrompt) => {
-            if (shouldAutoPrompt) sendMessage('What is this?', { hidden: true })
-          })
+          openFile()
           break
         case 'save':
           saveFile()
@@ -178,18 +176,16 @@ export function App() {
     })
 
     return unsubscribe
-  }, [openFile, saveFile, saveFileAs, newFile, setDialogOpen, toggleChatPanel, toggleFileListPanel, setShortcutsDialogOpen, setAboutDialogOpen, sendMessage])
+  }, [openFile, saveFile, saveFileAs, newFile, setDialogOpen, toggleChatPanel, toggleFileListPanel, setShortcutsDialogOpen, setAboutDialogOpen])
 
   // Handle file open from OS (double-click .md file)
   useEffect(() => {
     if (!window.api) return
     const unsubscribe = window.api.onFileOpenExternal((path) => {
-      openFileFromPath(path).then((shouldAutoPrompt) => {
-        if (shouldAutoPrompt) sendMessage('What is this?', { hidden: true })
-      })
+      openFileFromPath(path)
     })
     return unsubscribe
-  }, [openFileFromPath, sendMessage])
+  }, [openFileFromPath])
 
   return (
     <TooltipProvider delayDuration={300}>

@@ -30,7 +30,7 @@ import {
 export function Toolbar() {
   const { document, openFile, saveFile, newFile, quickSaveWithTitle } = useEditor()
   const { settings, isLoaded, setTheme, setDialogOpen } = useSettings()
-  const { isPanelOpen, togglePanel, sendMessage } = useChat()
+  const { isPanelOpen, togglePanel } = useChat()
 
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editedTitle, setEditedTitle] = useState('')
@@ -183,9 +183,7 @@ export function Toolbar() {
             <DropdownMenuItem onClick={newFile}>
               New Document
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => openFile().then((shouldAutoPrompt) => {
-              if (shouldAutoPrompt) sendMessage('What is this?', { hidden: true })
-            })}>
+            <DropdownMenuItem onClick={() => openFile()}>
               Open...
             </DropdownMenuItem>
             <DropdownMenuItem onClick={saveFile}>

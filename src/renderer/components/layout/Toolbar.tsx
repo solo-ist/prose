@@ -29,7 +29,7 @@ import {
 
 export function Toolbar() {
   const { document, openFile, saveFile, newFile, quickSaveWithTitle } = useEditor()
-  const { settings, setTheme, setDialogOpen } = useSettings()
+  const { settings, isLoaded, setTheme, setDialogOpen } = useSettings()
   const { isPanelOpen, togglePanel, sendMessage } = useChat()
 
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -53,7 +53,11 @@ export function Toolbar() {
   }
 
   const toggleTheme = () => {
-    setTheme(settings.theme === 'dark' ? 'light' : 'dark')
+    // If theme is 'system', check what it actually resolved to
+    const effectiveTheme = settings.theme === 'system'
+      ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+      : settings.theme
+    setTheme(effectiveTheme === 'dark' ? 'light' : 'dark')
   }
 
   const handleTitleDoubleClick = () => {
@@ -143,7 +147,7 @@ export function Toolbar() {
       <div className="flex items-center gap-1 app-region-no-drag">
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label="Toggle theme">
+            <Button variant="ghost" size="icon" onClick={toggleTheme} disabled={!isLoaded} aria-label="Toggle theme">
               {settings.theme === 'dark' ? (
                 <Sun className="h-4 w-4" />
               ) : (

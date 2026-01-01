@@ -67,4 +67,9 @@ export interface DiffSuggestionAttributes {
   comment?: string
   originalText: string
   suggestedText: string
+  // AI provenance data for annotation creation on accept
+  provenanceModel?: string
+  provenanceConversationId?: string
+  provenanceMessageId?: string
+  documentId?: string
 }

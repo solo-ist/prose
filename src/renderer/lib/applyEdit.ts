@@ -4,12 +4,25 @@
 
 import type { Editor } from '@tiptap/core'
 import type { EditBlock } from './editBlocks'
+import type { AnnotationType } from '../types/annotations'
+import { useAnnotationStore } from '../extensions/ai-annotations/store'
 
 export interface ApplyResult {
   success: boolean
   error?: string
   matchCount?: number
   diffId?: string
+  /** Position info for annotation creation */
+  annotationRange?: { from: number; to: number }
+}
+
+/**
+ * Provenance info passed when applying edits for annotation tracking
+ */
+export interface EditProvenance {
+  model: string
+  conversationId: string
+  messageId: string
 }
 
 export interface TextMatch {
@@ -229,10 +242,13 @@ function findBestMatch(editor: Editor, search: string): TextMatch | null {
 /**
  * Apply a single edit directly to the document (agent mode).
  * Replaces the matched text with the replacement text immediately.
+ * Optionally creates an AI annotation for provenance tracking.
  */
 export function applyEditDirect(
   editor: Editor,
-  editBlock: EditBlock
+  editBlock: EditBlock,
+  provenance?: EditProvenance,
+  documentId?: string
 ): ApplyResult {
   const { search, replace } = editBlock
 
@@ -250,6 +266,10 @@ export function applyEditDirect(
     }
   }
 
+  // Calculate the position where the new text will be
+  const insertFrom = match.from
+  const insertTo = match.from + replace.length
+
   // Replace directly
   editor
     .chain()
@@ -258,24 +278,46 @@ export function applyEditDirect(
     .insertContent(replace)
     .run()
 
+  // Create annotation for AI provenance tracking
+  if (provenance && documentId && replace.length > 0) {
+    const annotationType: AnnotationType = search.trim() === '' ? 'insertion' : 'replacement'
+
+    useAnnotationStore.getState().addAnnotation({
+      documentId,
+      type: annotationType,
+      from: insertFrom,
+      to: insertTo,
+      content: replace,
+      provenance: {
+        model: provenance.model,
+        conversationId: provenance.conversationId,
+        messageId: provenance.messageId,
+      },
+    })
+  }
+
   return {
     success: true,
     matchCount: 1,
+    annotationRange: { from: insertFrom, to: insertTo },
   }
 }
 
 /**
  * Apply multiple edits directly (agent mode).
+ * Optionally creates AI annotations for provenance tracking.
  */
 export function applyEditsDirect(
   editor: Editor,
-  editBlocks: EditBlock[]
+  editBlocks: EditBlock[],
+  provenance?: EditProvenance,
+  documentId?: string
 ): ApplyResult[] {
   const results: ApplyResult[] = []
 
   // Apply in reverse order to preserve positions
   for (let i = editBlocks.length - 1; i >= 0; i--) {
-    const result = applyEditDirect(editor, editBlocks[i])
+    const result = applyEditDirect(editor, editBlocks[i], provenance, documentId)
     results.unshift(result)
   }
 
@@ -285,11 +327,14 @@ export function applyEditsDirect(
 /**
  * Apply a single edit as an inline diff suggestion.
  * The edit will appear in the document with accept/reject buttons.
+ * Provenance data is stored in the suggestion for annotation creation on accept.
  */
 export function applyEditAsDiff(
   editor: Editor,
   editBlock: EditBlock,
-  comment?: string
+  comment?: string,
+  provenance?: EditProvenance,
+  documentId?: string
 ): ApplyResult {
   const { id, search, replace } = editBlock
 
@@ -312,7 +357,7 @@ export function applyEditAsDiff(
     }
   }
 
-  // Insert the diff suggestion node
+  // Insert the diff suggestion node with provenance data for later annotation
   editor
     .chain()
     .focus()
@@ -324,6 +369,11 @@ export function applyEditAsDiff(
         comment: comment || '',
         originalText: search,
         suggestedText: replace,
+        // Store provenance for annotation creation on accept
+        provenanceModel: provenance?.model || '',
+        provenanceConversationId: provenance?.conversationId || '',
+        provenanceMessageId: provenance?.messageId || '',
+        documentId: documentId || '',
       },
     })
     .run()
@@ -338,17 +388,20 @@ export function applyEditAsDiff(
 /**
  * Apply multiple edits as inline diff suggestions.
  * Applies in reverse order to preserve positions.
+ * Provenance data is stored for annotation creation on accept.
  */
 export function applyEditsAsDiffs(
   editor: Editor,
   editBlocks: EditBlock[],
-  comment?: string
+  comment?: string,
+  provenance?: EditProvenance,
+  documentId?: string
 ): ApplyResult[] {
   const results: ApplyResult[] = []
 
   // Apply in reverse order to preserve positions
   for (let i = editBlocks.length - 1; i >= 0; i--) {
-    const result = applyEditAsDiff(editor, editBlocks[i], comment)
+    const result = applyEditAsDiff(editor, editBlocks[i], comment, provenance, documentId)
     results.unshift(result) // Add to front to maintain original order
   }
 

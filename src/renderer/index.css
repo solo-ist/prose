@@ -407,3 +407,145 @@
 .dark .prose-editor ::grammar-error {
   text-decoration-color: hsl(45 85% 55%);
 }
+
+/* AI Annotations - Time-fading gradient visuals */
+.prose-editor .ai-annotation {
+  --annotation-opacity: 1;
+  position: relative;
+  border-radius: 0.125em;
+  transition: background 0.2s ease-out, border-color 0.2s ease-out;
+}
+
+/* Insertion type - green-tinted gradient */
+.prose-editor .ai-annotation-insertion {
+  background: linear-gradient(
+    135deg,
+    hsl(140 60% 50% / calc(var(--annotation-opacity) * 0.15)) 0%,
+    hsl(160 50% 45% / calc(var(--annotation-opacity) * 0.08)) 100%
+  );
+  border-bottom: 2px solid hsl(140 60% 50% / calc(var(--annotation-opacity) * 0.4));
+}
+
+.dark .prose-editor .ai-annotation-insertion {
+  background: linear-gradient(
+    135deg,
+    hsl(140 50% 40% / calc(var(--annotation-opacity) * 0.2)) 0%,
+    hsl(160 40% 35% / calc(var(--annotation-opacity) * 0.1)) 100%
+  );
+  border-bottom-color: hsl(140 50% 50% / calc(var(--annotation-opacity) * 0.5));
+}
+
+/* Replacement type - blue-tinted gradient */
+.prose-editor .ai-annotation-replacement {
+  background: linear-gradient(
+    135deg,
+    hsl(210 70% 55% / calc(var(--annotation-opacity) * 0.12)) 0%,
+    hsl(230 60% 50% / calc(var(--annotation-opacity) * 0.06)) 100%
+  );
+  border-bottom: 2px solid hsl(210 70% 55% / calc(var(--annotation-opacity) * 0.35));
+}
+
+.dark .prose-editor .ai-annotation-replacement {
+  background: linear-gradient(
+    135deg,
+    hsl(210 60% 45% / calc(var(--annotation-opacity) * 0.18)) 0%,
+    hsl(230 50% 40% / calc(var(--annotation-opacity) * 0.1)) 100%
+  );
+  border-bottom-color: hsl(210 60% 55% / calc(var(--annotation-opacity) * 0.45));
+}
+
+/* Hover state - slightly more visible */
+.prose-editor .ai-annotation:hover {
+  --hover-boost: 1.3;
+}
+
+.prose-editor .ai-annotation-insertion:hover {
+  background: linear-gradient(
+    135deg,
+    hsl(140 60% 50% / calc(var(--annotation-opacity) * 0.15 * var(--hover-boost))) 0%,
+    hsl(160 50% 45% / calc(var(--annotation-opacity) * 0.08 * var(--hover-boost))) 100%
+  );
+}
+
+.prose-editor .ai-annotation-replacement:hover {
+  background: linear-gradient(
+    135deg,
+    hsl(210 70% 55% / calc(var(--annotation-opacity) * 0.12 * var(--hover-boost))) 0%,
+    hsl(230 60% 50% / calc(var(--annotation-opacity) * 0.06 * var(--hover-boost))) 100%
+  );
+}
+
+/* Annotation tooltip */
+.ai-annotation-tooltip {
+  position: fixed;
+  z-index: 9999;
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5em;
+  padding: 0.5em 0.75em;
+  font-size: 0.75rem;
+  box-shadow: 0 4px 12px hsl(var(--foreground) / 0.15);
+  pointer-events: none;
+  animation: annotation-tooltip-fade-in 0.15s ease-out;
+}
+
+@keyframes annotation-tooltip-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ai-annotation-tooltip-header {
+  font-weight: 600;
+  margin-bottom: 0.25em;
+  color: hsl(var(--foreground));
+}
+
+.ai-annotation-tooltip-model {
+  color: hsl(var(--muted-foreground));
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.7rem;
+}
+
+.ai-annotation-tooltip-time {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.65rem;
+  margin-top: 0.25em;
+}
+
+/* Pending suggestion state - thin colored underline */
+.prose-editor .ai-annotation-pending {
+  background: transparent;
+  border-bottom: 1px dashed hsl(45 80% 50% / 0.6);
+}
+
+.dark .prose-editor .ai-annotation-pending {
+  border-bottom-color: hsl(45 70% 55% / 0.5);
+}
+
+/* Word-level diff highlighting within suggestions */
+.prose-editor .diff-word-removed {
+  background: hsl(0 75% 50% / 0.25);
+  border-radius: 0.125em;
+  padding: 0 0.1em;
+}
+
+.dark .prose-editor .diff-word-removed {
+  background: hsl(0 70% 45% / 0.35);
+}
+
+.prose-editor .diff-word-added {
+  background: hsl(140 65% 45% / 0.25);
+  border-radius: 0.125em;
+  padding: 0 0.1em;
+}
+
+.dark .prose-editor .diff-word-added {
+  background: hsl(140 60% 40% / 0.35);
+}

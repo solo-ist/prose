@@ -7,6 +7,7 @@ import { Markdown } from 'tiptap-markdown'
 import { FocusMode } from '../../lib/focusMode'
 import { DiffSuggestion } from '../../extensions/diff-suggestions'
 import { Comment } from '../../extensions/comments'
+import { AIAnnotations, useAnnotationStore } from '../../extensions/ai-annotations'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
@@ -69,6 +70,9 @@ export function Editor() {
         },
       }),
       Comment,
+      AIAnnotations.configure({
+        showTooltip: true,
+      }),
     ],
     content: document.content,
     editorProps: {
@@ -118,6 +122,15 @@ export function Editor() {
     setEditorInstance(editor)
     return () => setEditorInstance(null)
   }, [editor, setEditorInstance])
+
+  // Load annotations when document changes
+  useEffect(() => {
+    const annotationStore = useAnnotationStore.getState()
+    if (document.documentId) {
+      annotationStore.setDocumentId(document.documentId)
+      annotationStore.loadAnnotations(document.documentId)
+    }
+  }, [document.documentId])
 
   // Cleanup debounce on unmount
   useEffect(() => {

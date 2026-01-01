@@ -77,6 +77,39 @@ export const DiffSuggestion = Node.create<DiffSuggestionOptions>({
           return {}
         },
       },
+      // AI provenance attributes for annotation creation on accept
+      provenanceModel: {
+        default: '',
+        parseHTML: (element) => element.getAttribute('data-provenance-model') || '',
+        renderHTML: (attributes) => {
+          if (!attributes.provenanceModel) return {}
+          return { 'data-provenance-model': attributes.provenanceModel }
+        },
+      },
+      provenanceConversationId: {
+        default: '',
+        parseHTML: (element) => element.getAttribute('data-provenance-conversation-id') || '',
+        renderHTML: (attributes) => {
+          if (!attributes.provenanceConversationId) return {}
+          return { 'data-provenance-conversation-id': attributes.provenanceConversationId }
+        },
+      },
+      provenanceMessageId: {
+        default: '',
+        parseHTML: (element) => element.getAttribute('data-provenance-message-id') || '',
+        renderHTML: (attributes) => {
+          if (!attributes.provenanceMessageId) return {}
+          return { 'data-provenance-message-id': attributes.provenanceMessageId }
+        },
+      },
+      documentId: {
+        default: '',
+        parseHTML: (element) => element.getAttribute('data-document-id') || '',
+        renderHTML: (attributes) => {
+          if (!attributes.documentId) return {}
+          return { 'data-document-id': attributes.documentId }
+        },
+      },
     }
   },
 

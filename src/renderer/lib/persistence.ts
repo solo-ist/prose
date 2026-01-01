@@ -1,4 +1,5 @@
 import type { Document, ChatMessage } from '../types'
+import type { AIAnnotation } from '../types/annotations'
 
 // Types for persistence
 export interface ChatConversation {
@@ -19,10 +20,11 @@ export interface DraftState {
 
 // Database constants
 const DB_NAME = 'prose-db'
-const DB_VERSION = 1
+const DB_VERSION = 2 // Bumped for annotations store
 const STORES = {
   DRAFTS: 'drafts',
-  CONVERSATIONS: 'conversations'
+  CONVERSATIONS: 'conversations',
+  ANNOTATIONS: 'annotations'
 } as const
 
 // Singleton database connection
@@ -55,6 +57,9 @@ function getDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORES.CONVERSATIONS)) {
         db.createObjectStore(STORES.CONVERSATIONS)
+      }
+      if (!db.objectStoreNames.contains(STORES.ANNOTATIONS)) {
+        db.createObjectStore(STORES.ANNOTATIONS)
       }
     }
   })
@@ -220,4 +225,69 @@ export function generateConversationTitle(messages: ChatMessage[]): string {
   if (content.length <= 40) return content
 
   return content.substring(0, 37) + '...'
+}
+
+// ============ Annotation Operations ============
+
+/**
+ * Save annotations for a document
+ */
+export async function saveAnnotations(
+  documentId: string,
+  annotations: AIAnnotation[]
+): Promise<void> {
+  try {
+    const db = await getDB()
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORES.ANNOTATIONS, 'readwrite')
+      const store = transaction.objectStore(STORES.ANNOTATIONS)
+      const request = store.put(annotations, documentId)
+
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve()
+    })
+  } catch (error) {
+    console.error('Failed to save annotations:', error)
+  }
+}
+
+/**
+ * Load annotations for a document
+ */
+export async function loadAnnotations(
+  documentId: string
+): Promise<AIAnnotation[]> {
+  try {
+    const db = await getDB()
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORES.ANNOTATIONS, 'readonly')
+      const store = transaction.objectStore(STORES.ANNOTATIONS)
+      const request = store.get(documentId)
+
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve(request.result ?? [])
+    })
+  } catch (error) {
+    console.error('Failed to load annotations:', error)
+    return []
+  }
+}
+
+/**
+ * Delete annotations for a document
+ */
+export async function deleteAnnotations(documentId: string): Promise<void> {
+  try {
+    const db = await getDB()
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORES.ANNOTATIONS, 'readwrite')
+      const store = transaction.objectStore(STORES.ANNOTATIONS)
+      const request = store.delete(documentId)
+
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve()
+    })
+  } catch (error) {
+    console.error('Failed to delete annotations:', error)
+  }
 }

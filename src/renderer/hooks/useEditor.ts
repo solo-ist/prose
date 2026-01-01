@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from 'react'
 import { useEditorStore } from '../stores/editorStore'
 import { useChatStore, setCurrentDocumentId } from '../stores/chatStore'
+import { useSettingsStore } from '../stores/settingsStore'
 import { parseMarkdown, serializeMarkdown } from '../lib/markdown'
 import {
   generateId,
@@ -8,6 +9,11 @@ import {
   clearDraft,
   saveConversations
 } from '../lib/persistence'
+
+// Sanitize filename by removing invalid characters
+function sanitizeFilename(name: string): string {
+  return name.replace(/[/\\:*?"<>|]/g, '-').trim()
+}
 
 export function useEditor() {
   const {
@@ -185,6 +191,93 @@ export function useEditor() {
     })
   }, [resetDocument, document.documentId, saveCurrentConversation])
 
+  const quickSaveWithTitle = useCallback(async (title: string): Promise<boolean> => {
+    if (!window.api) return false
+
+    const sanitizedTitle = sanitizeFilename(title)
+    if (!sanitizedTitle) return false
+
+    const content = serializeMarkdown(document.content, document.frontmatter)
+    const settings = useSettingsStore.getState().settings
+    const filename = sanitizedTitle.endsWith('.md') ? sanitizedTitle : `${sanitizedTitle}.md`
+
+    let targetFolder: string
+    let newPath: string
+    let isRename = false
+    const oldPath = document.path
+
+    if (oldPath) {
+      // Existing file: check if we're renaming or just saving
+      const lastSlash = oldPath.lastIndexOf('/')
+      targetFolder = oldPath.substring(0, lastSlash)
+      newPath = `${targetFolder}/${filename}`
+
+      // Check if the name is actually changing
+      isRename = oldPath !== newPath
+    } else {
+      // New file: use default save directory or Documents
+      targetFolder = settings.defaultSaveDirectory || await window.api.getDocumentsPath()
+      newPath = `${targetFolder}/${filename}`
+    }
+
+    // For new files or renames to a different name, check for duplicates
+    // Skip duplicate check if we're just saving to the same path
+    let finalPath = newPath
+    if (!oldPath || isRename) {
+      let counter = 1
+      while (await window.api.fileExists(finalPath)) {
+        // If renaming to a path that already exists (and it's not the current file)
+        if (isRename && finalPath === oldPath) {
+          // We're "renaming" to the same name, just save in place
+          break
+        }
+        const baseName = sanitizedTitle.replace(/\.md$/, '')
+        finalPath = `${targetFolder}/${baseName} (${counter}).md`
+        counter++
+        if (counter > 100) {
+          console.error('Too many duplicate files')
+          return false
+        }
+      }
+    }
+
+    try {
+      if (isRename && oldPath) {
+        // Rename the file: save new content to new path, then delete old file
+        await window.api.saveFile(finalPath, content)
+        await window.api.deleteFile(oldPath)
+      } else {
+        // New file or same name: just save
+        await window.api.saveFile(finalPath, content)
+      }
+
+      // Migrate chat history to path-based ID
+      const newDocumentId = await generateIdFromPath(finalPath)
+      const conversations = useChatStore.getState().conversations
+
+      if (conversations.length > 0) {
+        const migratedConversations = conversations.map((c) => ({
+          ...c,
+          documentId: newDocumentId
+        }))
+        await saveConversations(newDocumentId, migratedConversations)
+        useChatStore.setState({ conversations: migratedConversations })
+      }
+
+      setDocument({ documentId: newDocumentId, path: finalPath })
+      setDirty(false)
+      setCurrentDocumentId(newDocumentId)
+
+      // Clear draft since we saved
+      await clearDraft()
+
+      return true
+    } catch (error) {
+      console.error('Failed to quick save:', error)
+      return false
+    }
+  }, [document, setDocument, setDirty])
+
   return {
     document,
     cursorPosition,
@@ -195,6 +288,7 @@ export function useEditor() {
     openFileFromPath,
     saveFile,
     saveFileAs,
-    newFile
+    newFile,
+    quickSaveWithTitle
   }
 }

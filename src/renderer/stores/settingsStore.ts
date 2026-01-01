@@ -17,6 +17,7 @@ interface SettingsState {
   setLLMConfig: (config: Partial<Settings['llm']>) => void
   setEditorConfig: (config: Partial<Settings['editor']>) => void
   setRecoveryConfig: (config: Partial<NonNullable<Settings['recovery']>>) => void
+  setDefaultSaveDirectory: (path: string) => void
 }
 
 const defaultSettings: Settings = {
@@ -121,5 +122,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         ...state.settings,
         recovery: { ...state.settings.recovery, ...config }
       }
+    })),
+
+  setDefaultSaveDirectory: (path) =>
+    set((state) => ({
+      settings: { ...state.settings, defaultSaveDirectory: path }
     }))
 }))

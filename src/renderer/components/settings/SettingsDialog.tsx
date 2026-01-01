@@ -29,6 +29,7 @@ export function SettingsDialog() {
     setLLMConfig,
     setEditorConfig,
     setRecoveryConfig,
+    setDefaultSaveDirectory,
     saveSettings
   } = useSettings()
 
@@ -90,6 +91,33 @@ export function SettingsDialog() {
               </Select>
               <p className="text-xs text-muted-foreground">
                 Choose how to handle unsaved work when the app restarts
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="defaultSaveDirectory">Default Save Location</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="defaultSaveDirectory"
+                  value={settings.defaultSaveDirectory || ''}
+                  onChange={(e) => setDefaultSaveDirectory(e.target.value)}
+                  placeholder="~/Documents"
+                  className="flex-1"
+                />
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    const folder = await window.api?.selectFolder()
+                    if (folder) {
+                      setDefaultSaveDirectory(folder)
+                    }
+                  }}
+                >
+                  Browse...
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Where new documents are saved when you quick-save from the title bar
               </p>
             </div>
           </TabsContent>

@@ -95,13 +95,13 @@ export function FileListPanel() {
       {/* File Tree */}
       <ScrollArea className="flex-1">
         {!rootPath ? (
-          <div className="flex h-full flex-col justify-between p-4">
+          <div className="flex h-full flex-col p-4">
             <p className="text-sm text-muted-foreground">
               No folder configured. Set up in Settings → Integrations.
             </p>
             <Button
               variant="ghost"
-              className="w-full border border-dashed border-muted-foreground/30 text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground"
+              className="mt-6 w-full border border-dashed border-muted-foreground/30 text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground"
               onClick={() => setDialogOpen(true)}
             >
               <Plus className="h-4 w-4" />

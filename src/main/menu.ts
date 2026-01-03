@@ -74,8 +74,20 @@ export function createMenu(mainWindow: BrowserWindow): void {
     {
       label: 'Edit',
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
+        {
+          label: 'Undo',
+          accelerator: 'CmdOrCtrl+Z',
+          click: (): void => {
+            mainWindow.webContents.send('menu:action', 'undo')
+          }
+        },
+        {
+          label: 'Redo',
+          accelerator: isMac ? 'Cmd+Shift+Z' : 'Ctrl+Y',
+          click: (): void => {
+            mainWindow.webContents.send('menu:action', 'redo')
+          }
+        },
         { type: 'separator' },
         { role: 'cut' },
         { role: 'copy' },

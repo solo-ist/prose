@@ -176,30 +176,41 @@ export const Comment = Mark.create<CommentOptions>({
  * Extract all comments from the editor
  */
 export function getComments(editor: { state: { doc: { descendants: (fn: (node: { marks: Array<{ type: { name: string }; attrs: { id: string; comment: string; createdAt: number } }>; nodeSize: number; textContent: string }, pos: number) => void) => void } } }): CommentData[] {
-  const comments: CommentData[] = []
+  // Collect all nodes for each comment ID to handle marks spanning multiple nodes
+  const commentMap = new Map<string, {
+    id: string
+    markedText: string
+    comment: string
+    createdAt: number
+    from: number
+    to: number
+  }>()
 
   editor.state.doc.descendants((node, pos) => {
     node.marks.forEach((mark) => {
       if (mark.type.name === 'comment' && mark.attrs.id) {
-        comments.push({
-          id: mark.attrs.id,
-          markedText: node.textContent,
-          comment: mark.attrs.comment || '',
-          createdAt: mark.attrs.createdAt || Date.now(),
-          from: pos,
-          to: pos + node.nodeSize,
-        })
+        const existing = commentMap.get(mark.attrs.id)
+        if (existing) {
+          // Append text and extend the range
+          existing.markedText += node.textContent
+          existing.to = pos + node.nodeSize
+        } else {
+          // First occurrence of this comment ID
+          commentMap.set(mark.attrs.id, {
+            id: mark.attrs.id,
+            markedText: node.textContent,
+            comment: mark.attrs.comment || '',
+            createdAt: mark.attrs.createdAt || Date.now(),
+            from: pos,
+            to: pos + node.nodeSize,
+          })
+        }
       }
     })
   })
 
-  // Dedupe by ID (marks can span multiple text nodes)
-  const seen = new Set<string>()
-  return comments.filter((c) => {
-    if (seen.has(c.id)) return false
-    seen.add(c.id)
-    return true
-  })
+  // Convert map to array, preserving document order by sorting by position
+  return Array.from(commentMap.values()).sort((a, b) => a.from - b.from)
 }
 
 export default Comment

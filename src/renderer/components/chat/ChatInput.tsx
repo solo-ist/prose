@@ -59,8 +59,8 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Cmd+Enter or Ctrl+Enter to send
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    // Enter to send, Shift+Enter for new line
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSubmit()
     }
@@ -173,7 +173,7 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
         </div>
         <p className="text-xs text-muted-foreground">
           <kbd className="rounded bg-muted px-1 py-0.5 text-[10px] font-medium">
-            ⌘↵
+            ↵
           </kbd>
         </p>
       </div>

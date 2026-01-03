@@ -193,11 +193,11 @@ export function App() {
         <div className="flex-1 overflow-hidden">
           {isPanelOpen ? (
             <ResizablePanelGroup direction="horizontal">
-              <ResizablePanel defaultSize={70} minSize={40}>
+              <ResizablePanel defaultSize={70} minSize={40} maxSize={75}>
                 <Editor />
               </ResizablePanel>
               <ResizableHandle />
-              <ResizablePanel defaultSize={30} minSize={20} maxSize={50}>
+              <ResizablePanel defaultSize={30} minSize={25} maxSize={50}>
                 <ChatPanel />
               </ResizablePanel>
             </ResizablePanelGroup>

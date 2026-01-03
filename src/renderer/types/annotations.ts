@@ -78,8 +78,15 @@ export interface AnnotationActions {
   addAnnotation: (annotation: Omit<AIAnnotation, 'id' | 'createdAt'>) => string
   /** Remove an annotation by ID */
   removeAnnotation: (id: string) => void
+  /** Remove all annotations overlapping a range */
+  removeAnnotationsInRange: (from: number, to: number) => void
   /** Update annotation positions after document edits */
   updatePositions: (mapping: (from: number, to: number) => { from: number; to: number } | null) => void
+  /** Update positions with splitting for insertions inside annotations */
+  updatePositionsWithSplitting: (
+    mapPos: (pos: number, bias: number) => number,
+    insertions: Array<{ pos: number; length: number }>
+  ) => void
   /** Toggle visibility of annotations */
   toggleVisibility: () => void
   /** Set visibility of annotations */

@@ -8,6 +8,7 @@
 
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
+import { ReplaceStep } from '@tiptap/pm/transform'
 import type { Transaction } from '@tiptap/pm/state'
 import type { AIAnnotation, AIAnnotationOptions } from '../../types/annotations'
 import { calculateOpacity, formatAge, ANNOTATION_CONSTANTS } from '../../types/annotations'
@@ -71,15 +72,10 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
     onAnnotationClick: options.onAnnotationClick ?? (() => {}),
   }
 
-  // Subscribe to annotation store changes
+  // Track annotation state - subscription happens lazily in view()
   let currentAnnotations: AIAnnotation[] = []
   let isVisible = true
-
-  // Setup store subscription outside of plugin to avoid issues
-  const unsubscribe = useAnnotationStore.subscribe((state) => {
-    currentAnnotations = state.annotations
-    isVisible = state.isVisible
-  })
+  let unsubscribe: (() => void) | null = null
 
   return new Plugin({
     key: aiAnnotationsPluginKey,
@@ -144,21 +140,45 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
 
           // Also update annotation positions in store
           if (storeAnnotations.length > 0) {
-            useAnnotationStore.getState().updatePositions((from, to) => {
-              try {
-                const mappedFrom = tr.mapping.map(from, 1) // 1 = bias forward
-                const mappedTo = tr.mapping.map(to, -1) // -1 = bias backward
+            // Collect insertions (typing inside annotations should split them)
+            const insertions: Array<{ pos: number; length: number }> = []
 
-                // If the range was deleted or inverted, remove the annotation
-                if (mappedFrom >= mappedTo) {
+            for (const step of tr.steps) {
+              if (step instanceof ReplaceStep) {
+                const replaceStep = step as ReplaceStep
+                // Pure insertion: from === to with content
+                if (replaceStep.from === replaceStep.to && replaceStep.slice.content.size > 0) {
+                  insertions.push({
+                    pos: replaceStep.from,
+                    length: replaceStep.slice.content.size,
+                  })
+                }
+              }
+            }
+
+            // Use splitting-aware position update if there are insertions
+            if (insertions.length > 0) {
+              useAnnotationStore.getState().updatePositionsWithSplitting(
+                (pos, bias) => tr.mapping.map(pos, bias),
+                insertions
+              )
+            } else {
+              // No insertions, use simple position mapping
+              useAnnotationStore.getState().updatePositions((from, to) => {
+                try {
+                  const mappedFrom = tr.mapping.map(from, 1)
+                  const mappedTo = tr.mapping.map(to, -1)
+
+                  if (mappedFrom >= mappedTo) {
+                    return null
+                  }
+
+                  return { from: mappedFrom, to: mappedTo }
+                } catch {
                   return null
                 }
-
-                return { from: mappedFrom, to: mappedTo }
-              } catch {
-                return null
-              }
-            })
+              })
+            }
           }
         }
 
@@ -262,10 +282,16 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
     },
 
     view() {
+      // Subscribe when plugin view is created (after DB init)
+      unsubscribe = useAnnotationStore.subscribe((state) => {
+        currentAnnotations = state.annotations
+        isVisible = state.isVisible
+      })
+
       return {
         destroy() {
           removeTooltip()
-          unsubscribe()
+          unsubscribe?.()
         },
       }
     },

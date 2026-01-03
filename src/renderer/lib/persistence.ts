@@ -31,7 +31,9 @@ const STORES = {
 let dbPromise: Promise<IDBDatabase> | null = null
 
 /**
- * Initialize and return the IndexedDB database connection
+ * Initialize and return the IndexedDB database connection.
+ * Handles upgrade blocking and version change events to ensure
+ * the database schema is properly migrated.
  */
 function getDB(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise
@@ -41,11 +43,27 @@ function getDB(): Promise<IDBDatabase> {
 
     request.onerror = () => {
       console.error('Failed to open IndexedDB:', request.error)
+      dbPromise = null // Reset so retry is possible
       reject(request.error)
     }
 
+    request.onblocked = () => {
+      // This fires when an older version of the DB is open in another tab/window
+      // The upgrade will proceed once those connections close
+      console.warn('IndexedDB upgrade blocked - waiting for other connections to close')
+    }
+
     request.onsuccess = () => {
-      resolve(request.result)
+      const db = request.result
+
+      // Handle version change requests from other tabs/windows
+      db.onversionchange = () => {
+        db.close()
+        dbPromise = null
+        console.log('IndexedDB closed due to version change in another tab')
+      }
+
+      resolve(db)
     }
 
     request.onupgradeneeded = (event) => {
@@ -65,6 +83,15 @@ function getDB(): Promise<IDBDatabase> {
   })
 
   return dbPromise
+}
+
+/**
+ * Initialize the database connection early to ensure schema
+ * migrations complete before any other DB operations.
+ * Call this before rendering the app.
+ */
+export async function initDB(): Promise<void> {
+  await getDB()
 }
 
 /**

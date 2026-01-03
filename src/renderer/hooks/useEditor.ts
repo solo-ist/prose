@@ -7,8 +7,10 @@ import {
   generateId,
   generateIdFromPath,
   clearDraft,
-  saveConversations
+  saveConversations,
+  saveAnnotations
 } from '../lib/persistence'
+import { useAnnotationStore } from '../extensions/ai-annotations'
 
 // Sanitize filename by removing invalid characters
 function sanitizeFilename(name: string): string {
@@ -69,6 +71,9 @@ export function useEditor() {
       // Load conversations for the document
       await loadForDocument(newDocumentId)
 
+      // Load annotations for the document
+      await useAnnotationStore.getState().loadAnnotations(newDocumentId)
+
       // Clear draft since we opened a file
       await clearDraft()
 
@@ -107,6 +112,9 @@ export function useEditor() {
       // Load conversations for the document
       await loadForDocument(newDocumentId)
 
+      // Load annotations for the document
+      await useAnnotationStore.getState().loadAnnotations(newDocumentId)
+
       // Clear draft since we opened a file
       await clearDraft()
 
@@ -144,6 +152,19 @@ export function useEditor() {
           useChatStore.setState({ conversations: migratedConversations })
         }
 
+        // Migrate annotations to path-based ID
+        const annotations = useAnnotationStore.getState().annotations
+        if (annotations.length > 0) {
+          const migratedAnnotations = annotations.map((a) => ({
+            ...a,
+            documentId: newDocumentId
+          }))
+          await saveAnnotations(newDocumentId, migratedAnnotations)
+          useAnnotationStore.setState({ annotations: migratedAnnotations, documentId: newDocumentId })
+        } else {
+          useAnnotationStore.getState().setDocumentId(newDocumentId)
+        }
+
         setDocument({ documentId: newDocumentId, path })
         setDirty(false)
         setCurrentDocumentId(newDocumentId)
@@ -170,6 +191,19 @@ export function useEditor() {
         useChatStore.setState({ conversations: migratedConversations })
       }
 
+      // Migrate annotations to path-based ID
+      const annotations = useAnnotationStore.getState().annotations
+      if (annotations.length > 0) {
+        const migratedAnnotations = annotations.map((a) => ({
+          ...a,
+          documentId: newDocumentId
+        }))
+        await saveAnnotations(newDocumentId, migratedAnnotations)
+        useAnnotationStore.setState({ annotations: migratedAnnotations, documentId: newDocumentId })
+      } else {
+        useAnnotationStore.getState().setDocumentId(newDocumentId)
+      }
+
       setDocument({ documentId: newDocumentId, path })
       setDirty(false)
       setCurrentDocumentId(newDocumentId)
@@ -183,12 +217,16 @@ export function useEditor() {
     // Reset creates a new documentId
     resetDocument()
 
-    // Clear conversations for the new document
+    // Clear conversations and context for the new document
     useChatStore.setState({
       conversations: [],
       activeConversationId: null,
-      messages: []
+      messages: [],
+      context: null
     })
+
+    // Clear annotations for the new document
+    useAnnotationStore.getState().clearAnnotations()
   }, [resetDocument, document.documentId, saveCurrentConversation])
 
   const quickSaveWithTitle = useCallback(async (title: string): Promise<boolean> => {
@@ -262,6 +300,19 @@ export function useEditor() {
         }))
         await saveConversations(newDocumentId, migratedConversations)
         useChatStore.setState({ conversations: migratedConversations })
+      }
+
+      // Migrate annotations to path-based ID
+      const annotations = useAnnotationStore.getState().annotations
+      if (annotations.length > 0) {
+        const migratedAnnotations = annotations.map((a) => ({
+          ...a,
+          documentId: newDocumentId
+        }))
+        await saveAnnotations(newDocumentId, migratedAnnotations)
+        useAnnotationStore.setState({ annotations: migratedAnnotations, documentId: newDocumentId })
+      } else {
+        useAnnotationStore.getState().setDocumentId(newDocumentId)
       }
 
       setDocument({ documentId: newDocumentId, path: finalPath })

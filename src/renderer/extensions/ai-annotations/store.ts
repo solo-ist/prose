@@ -44,6 +44,17 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
     get().saveAnnotations()
   },
 
+  // Remove all annotations overlapping a range
+  removeAnnotationsInRange: (from, to) => {
+    set((state) => ({
+      annotations: state.annotations.filter(
+        (a) => a.to <= from || a.from >= to // Keep if no overlap
+      ),
+    }))
+
+    get().saveAnnotations()
+  },
+
   // Update positions after document edits using ProseMirror position mapping
   updatePositions: (mapping) => {
     set((state) => {
@@ -61,6 +72,69 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
           })
         }
         // If mapping returns null, the annotation was deleted
+      }
+
+      return { annotations: updatedAnnotations }
+    })
+  },
+
+  // Update positions with proper handling of insertions inside annotations
+  // Insertions inside annotations cause them to split, preserving only the AI-authored parts
+  updatePositionsWithSplitting: (
+    mapPos: (pos: number, bias: number) => number,
+    insertions: Array<{ pos: number; length: number }>
+  ) => {
+    set((state) => {
+      const updatedAnnotations: AIAnnotation[] = []
+
+      for (const annotation of state.annotations) {
+        // Check if any insertion was strictly inside this annotation
+        const insertionInside = insertions.find(
+          (ins) => ins.pos > annotation.from && ins.pos < annotation.to
+        )
+
+        if (insertionInside) {
+          // Split the annotation around the insertion point
+          // Before part: [from, insertionPos) - mapped
+          const beforeFrom = mapPos(annotation.from, 1)
+          const beforeTo = mapPos(insertionInside.pos, -1)
+
+          if (beforeFrom < beforeTo) {
+            updatedAnnotations.push({
+              ...annotation,
+              id: generateId(),
+              from: beforeFrom,
+              to: beforeTo,
+              content: annotation.content.slice(0, insertionInside.pos - annotation.from),
+            })
+          }
+
+          // After part: (insertionPos + length, to] - mapped
+          const afterFrom = mapPos(insertionInside.pos, 1) // After the insertion
+          const afterTo = mapPos(annotation.to, -1)
+
+          if (afterFrom < afterTo) {
+            updatedAnnotations.push({
+              ...annotation,
+              id: generateId(),
+              from: afterFrom,
+              to: afterTo,
+              content: annotation.content.slice(insertionInside.pos - annotation.from),
+            })
+          }
+        } else {
+          // No insertion inside, just map positions normally
+          const mappedFrom = mapPos(annotation.from, 1)
+          const mappedTo = mapPos(annotation.to, -1)
+
+          if (mappedFrom < mappedTo) {
+            updatedAnnotations.push({
+              ...annotation,
+              from: mappedFrom,
+              to: mappedTo,
+            })
+          }
+        }
       }
 
       return { annotations: updatedAnnotations }

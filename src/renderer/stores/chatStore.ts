@@ -244,7 +244,8 @@ export const useChatStore = create<ChatState>()(
       set({
         conversations,
         activeConversationId: mostRecent?.id ?? null,
-        messages: mostRecent?.messages ?? []
+        messages: mostRecent?.messages ?? [],
+        context: null // Clear context when switching documents
       })
     },
 

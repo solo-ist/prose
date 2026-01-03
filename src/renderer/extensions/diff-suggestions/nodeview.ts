@@ -16,6 +16,57 @@ import type {
   DiffSuggestionOptions,
   DiffSuggestionActionMeta,
 } from './types'
+import { useAnnotationStore } from '../ai-annotations/store'
+import type { AnnotationType } from '../../types/annotations'
+
+/**
+ * Compute word-level diff between two strings
+ * Returns arrays of segments with change types
+ */
+interface DiffSegment {
+  text: string
+  type: 'unchanged' | 'removed' | 'added'
+}
+
+function computeWordDiff(original: string, suggested: string): { old: DiffSegment[]; new: DiffSegment[] } {
+  const oldWords = original.split(/(\s+)/)
+  const newWords = suggested.split(/(\s+)/)
+
+  // Simple LCS-based diff for word-level changes
+  const oldSegments: DiffSegment[] = []
+  const newSegments: DiffSegment[] = []
+
+  // Build a set of words in new text for quick lookup
+  const newWordSet = new Set(newWords.filter(w => w.trim()))
+  const oldWordSet = new Set(oldWords.filter(w => w.trim()))
+
+  // Mark words in old text
+  for (const word of oldWords) {
+    if (!word) continue
+    if (word.trim() === '') {
+      // Whitespace - keep as unchanged
+      oldSegments.push({ text: word, type: 'unchanged' })
+    } else if (newWordSet.has(word)) {
+      oldSegments.push({ text: word, type: 'unchanged' })
+    } else {
+      oldSegments.push({ text: word, type: 'removed' })
+    }
+  }
+
+  // Mark words in new text
+  for (const word of newWords) {
+    if (!word) continue
+    if (word.trim() === '') {
+      newSegments.push({ text: word, type: 'unchanged' })
+    } else if (oldWordSet.has(word)) {
+      newSegments.push({ text: word, type: 'unchanged' })
+    } else {
+      newSegments.push({ text: word, type: 'added' })
+    }
+  }
+
+  return { old: oldSegments, new: newSegments }
+}
 
 export class DiffSuggestionNodeView implements NodeView {
   dom: HTMLElement
@@ -54,13 +105,36 @@ export class DiffSuggestionNodeView implements NodeView {
     const contentWrapper = document.createElement('span')
     contentWrapper.className = 'diff-suggestion-content'
 
+    // Compute word-level diff for enhanced visualization
+    const diff = computeWordDiff(originalText || '', suggestedText || '')
+
+    // Render old text with word-level highlighting
     const oldSpan = document.createElement('span')
     oldSpan.setAttribute('data-diff-suggestion-old', '')
-    oldSpan.textContent = originalText || ''
+    for (const segment of diff.old) {
+      if (segment.type === 'removed') {
+        const highlight = document.createElement('span')
+        highlight.className = 'diff-word-removed'
+        highlight.textContent = segment.text
+        oldSpan.appendChild(highlight)
+      } else {
+        oldSpan.appendChild(document.createTextNode(segment.text))
+      }
+    }
 
+    // Render new text with word-level highlighting
     const newSpan = document.createElement('span')
     newSpan.setAttribute('data-diff-suggestion-new', '')
-    newSpan.textContent = suggestedText || ''
+    for (const segment of diff.new) {
+      if (segment.type === 'added') {
+        const highlight = document.createElement('span')
+        highlight.className = 'diff-word-added'
+        highlight.textContent = segment.text
+        newSpan.appendChild(highlight)
+      } else {
+        newSpan.appendChild(document.createTextNode(segment.text))
+      }
+    }
 
     contentWrapper.appendChild(oldSpan)
     contentWrapper.appendChild(newSpan)
@@ -168,12 +242,41 @@ export class DiffSuggestionNodeView implements NodeView {
     const pos = this.getPos()
     if (pos === undefined) return
 
+    const suggestedText = this.node.attrs.suggestedText || ''
+    const originalText = this.node.attrs.originalText || ''
+
     const transaction = this.view.state.tr.replaceWith(
       pos,
       pos + this.node.nodeSize,
-      this.view.state.schema.text(this.node.attrs.suggestedText || '')
+      this.view.state.schema.text(suggestedText)
     )
     this.view.dispatch(transaction)
+
+    // Create AI annotation for provenance tracking if provenance data exists
+    const {
+      provenanceModel,
+      provenanceConversationId,
+      provenanceMessageId,
+      documentId,
+    } = this.node.attrs
+
+    if (provenanceModel && documentId && suggestedText.length > 0) {
+      const annotationType: AnnotationType = originalText.trim() === '' ? 'insertion' : 'replacement'
+
+      useAnnotationStore.getState().addAnnotation({
+        documentId,
+        type: annotationType,
+        from: pos,
+        to: pos + suggestedText.length,
+        content: suggestedText,
+        provenance: {
+          model: provenanceModel,
+          conversationId: provenanceConversationId || '',
+          messageId: provenanceMessageId || '',
+        },
+      })
+    }
+
     this.options.onAccept?.(meta)
   }
 

@@ -1,11 +1,13 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { cn } from '../../lib/utils'
 import type { ChatMessage as ChatMessageType } from '../../types'
 import { User, Bot, Wand2, Check, AlertCircle, ArrowRight } from 'lucide-react'
 import { parseEditBlocks, hasEditBlocks, stripEditBlocks, type EditBlock } from '../../lib/editBlocks'
-import { applyEditsAsDiffs, applyEditsDirect, type ApplyResult } from '../../lib/applyEdit'
+import { applyEditsAsDiffs, applyEditsDirect, type ApplyResult, type EditProvenance } from '../../lib/applyEdit'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useChatStore } from '../../stores/chatStore'
+import { useEditorStore } from '../../stores/editorStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 
 interface ChatMessageProps {
   message: ChatMessageType
@@ -118,10 +120,23 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
   const appliedRef = useRef(false)
   const editor = useEditorInstanceStore((state) => state.editor)
   const agentMode = useChatStore((state) => state.agentMode)
+  const activeConversationId = useChatStore((state) => state.activeConversationId)
+  const documentId = useEditorStore((state) => state.document.documentId)
+  const llmModel = useSettingsStore((state) => state.settings.llm.model)
   const isUser = message.role === 'user'
   const containsEdits = !isUser && hasEditBlocks(message.content)
   const editBlocks = containsEdits ? parseEditBlocks(message.content) : []
   const editCount = editBlocks.length
+
+  // Create provenance data for AI annotation tracking
+  const provenance = useMemo<EditProvenance | undefined>(() => {
+    if (!llmModel || !activeConversationId) return undefined
+    return {
+      model: llmModel,
+      conversationId: activeConversationId,
+      messageId: message.id,
+    }
+  }, [llmModel, activeConversationId, message.id])
 
   // Auto-apply edits in agent mode when streaming completes
   useEffect(() => {
@@ -135,24 +150,24 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
       applyState === 'idle'
     ) {
       appliedRef.current = true
-      const results = applyEditsDirect(editor, editBlocks)
+      const results = applyEditsDirect(editor, editBlocks, provenance, documentId)
       setApplyResults(results)
       const allSucceeded = results.every((r) => r.success)
       setApplyState(allSucceeded ? 'applied' : 'error')
     }
-  }, [agentMode, containsEdits, editBlocks, editor, isStreaming, applyState])
+  }, [agentMode, containsEdits, editBlocks, editor, isStreaming, applyState, provenance, documentId])
 
   const handleApplyEdits = useCallback(() => {
     if (!editor || !containsEdits) return
 
     const results = agentMode
-      ? applyEditsDirect(editor, editBlocks)
-      : applyEditsAsDiffs(editor, editBlocks)
+      ? applyEditsDirect(editor, editBlocks, provenance, documentId)
+      : applyEditsAsDiffs(editor, editBlocks, undefined, provenance, documentId)
     setApplyResults(results)
 
     const allSucceeded = results.every((r) => r.success)
     setApplyState(allSucceeded ? 'applied' : 'error')
-  }, [editor, editBlocks, containsEdits, agentMode])
+  }, [editor, editBlocks, containsEdits, agentMode, provenance, documentId])
 
   // For assistant messages with edit blocks, strip them from display
   const displayContent = containsEdits ? stripEditBlocks(message.content) : message.content

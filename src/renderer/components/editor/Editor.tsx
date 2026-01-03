@@ -7,6 +7,7 @@ import { Markdown } from 'tiptap-markdown'
 import { FocusMode } from '../../lib/focusMode'
 import { DiffSuggestion } from '../../extensions/diff-suggestions'
 import { Comment } from '../../extensions/comments'
+import { AIAnnotations, useAnnotationStore } from '../../extensions/ai-annotations'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
@@ -69,6 +70,9 @@ export function Editor() {
         },
       }),
       Comment,
+      AIAnnotations.configure({
+        showTooltip: true,
+      }),
     ],
     content: document.content,
     editorProps: {
@@ -118,6 +122,43 @@ export function Editor() {
     setEditorInstance(editor)
     return () => setEditorInstance(null)
   }, [editor, setEditorInstance])
+
+  // Load annotations when document changes and force decoration refresh
+  useEffect(() => {
+    const annotationStore = useAnnotationStore.getState()
+    if (document.documentId) {
+      annotationStore.setDocumentId(document.documentId)
+      annotationStore.loadAnnotations(document.documentId).then(() => {
+        // Force the editor to rebuild decorations after annotations load
+        if (editor) {
+          // Dispatch an empty transaction to trigger decoration rebuild
+          editor.view.dispatch(editor.state.tr)
+        }
+      })
+    }
+  }, [document.documentId, editor])
+
+  // Auto-focus editor once when document loads (not on every content change)
+  const hasFocusedRef = useRef(false)
+  useEffect(() => {
+    // Reset focus tracking when document changes
+    hasFocusedRef.current = false
+  }, [document.documentId])
+
+  useEffect(() => {
+    // Only focus once per document load
+    if (hasFocusedRef.current) return
+
+    const shouldShowEmptyState = !isEditing && !document.path && !document.content && !document.isDirty
+    if (editor && !shouldShowEmptyState) {
+      hasFocusedRef.current = true
+      // Small delay to ensure DOM is ready
+      const timer = setTimeout(() => {
+        editor.commands.focus('end')
+      }, 50)
+      return () => clearTimeout(timer)
+    }
+  }, [editor, isEditing, document.path, document.content, document.isDirty])
 
   // Cleanup debounce on unmount
   useEffect(() => {

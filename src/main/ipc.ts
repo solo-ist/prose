@@ -1,4 +1,4 @@
-import { ipcMain, dialog, app, shell } from 'electron'
+import { ipcMain, dialog, app, shell, BrowserWindow } from 'electron'
 import { readFile, writeFile, mkdir, access, rename, unlink } from 'fs/promises'
 import { join } from 'path'
 import { homedir } from 'os'
@@ -341,5 +341,17 @@ export function setupIpcHandlers(): void {
       return { success: true }
     }
     return { success: false }
+  })
+
+  // Window: Close window (macOS) or quit app (Windows/Linux)
+  ipcMain.handle('window:close', (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (window) {
+      if (process.platform === 'darwin') {
+        window.close()
+      } else {
+        app.quit()
+      }
+    }
   })
 }

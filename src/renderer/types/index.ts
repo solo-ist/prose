@@ -108,6 +108,8 @@ export interface ElectronAPI {
   // File rename/delete
   renameFile: (oldPath: string, newPath: string) => Promise<void>
   deleteFile: (path: string) => Promise<void>
+  // Window operations
+  closeWindow: () => Promise<void>
 }
 
 declare global {

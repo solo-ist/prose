@@ -68,6 +68,8 @@ export interface ElectronAPI {
   showInFolder: (path: string) => Promise<void>
   renameFile: (oldPath: string, newPath: string) => Promise<void>
   deleteFile: (path: string) => Promise<void>
+  // Window operations
+  closeWindow: () => Promise<void>
 }
 
 const api: ElectronAPI = {
@@ -109,6 +111,7 @@ const api: ElectronAPI = {
   showInFolder: (path: string) => ipcRenderer.invoke('file:showInFolder', path),
   renameFile: (oldPath: string, newPath: string) => ipcRenderer.invoke('file:rename', oldPath, newPath),
   deleteFile: (path: string) => ipcRenderer.invoke('file:delete', path),
+  closeWindow: () => ipcRenderer.invoke('window:close'),
   onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, chunk: LLMStreamChunk): void => {
       callback(chunk)

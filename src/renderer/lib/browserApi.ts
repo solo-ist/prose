@@ -367,6 +367,11 @@ export const browserApi: ElectronAPI = {
     throw new Error('Cannot delete files in browser mode')
   },
 
+  closeWindow: async (): Promise<void> => {
+    // Try to close the window/tab in browser mode
+    window.close()
+  },
+
   onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => {
     const handler = (e: Event) => callback((e as CustomEvent).detail)
     window.addEventListener('llm:stream:chunk', handler)

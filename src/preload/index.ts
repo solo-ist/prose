@@ -69,7 +69,10 @@ export interface ElectronAPI {
   renameFile: (oldPath: string, newPath: string) => Promise<void>
   deleteFile: (path: string) => Promise<void>
   listDirectory: (path: string) => Promise<FileItem[]>
-  remarkableSync: (request: RemarkableSyncRequest) => Promise<RemarkableSyncResponse>
+  remarkableRegister: (code: string) => Promise<RemarkableRegisterResponse>
+  remarkableValidate: (deviceToken: string) => Promise<boolean>
+  remarkableSync: (deviceToken: string, syncDirectory: string) => Promise<RemarkableSyncResult>
+  remarkableDisconnect: () => Promise<void>
 }
 
 export interface FileItem {
@@ -80,21 +83,15 @@ export interface FileItem {
   children?: FileItem[]
 }
 
-export interface RemarkableSyncRequest {
-  lambdaUrl: string
-  apiKey: string
-  syncDirectory: string
+export interface RemarkableRegisterResponse {
+  deviceToken: string
 }
 
-export interface RemarkableSyncFile {
-  path: string
-  content: string
-  pages: number
-}
-
-export interface RemarkableSyncResponse {
+export interface RemarkableSyncResult {
   syncedAt: string
-  files: RemarkableSyncFile[]
+  synced: number
+  skipped: number
+  errors: string[]
 }
 
 const api: ElectronAPI = {
@@ -137,7 +134,11 @@ const api: ElectronAPI = {
   renameFile: (oldPath: string, newPath: string) => ipcRenderer.invoke('file:rename', oldPath, newPath),
   deleteFile: (path: string) => ipcRenderer.invoke('file:delete', path),
   listDirectory: (path: string) => ipcRenderer.invoke('file:listDirectory', path),
-  remarkableSync: (request: RemarkableSyncRequest) => ipcRenderer.invoke('remarkable:sync', request),
+  remarkableRegister: (code: string) => ipcRenderer.invoke('remarkable:register', code),
+  remarkableValidate: (deviceToken: string) => ipcRenderer.invoke('remarkable:validate', deviceToken),
+  remarkableSync: (deviceToken: string, syncDirectory: string) =>
+    ipcRenderer.invoke('remarkable:sync', deviceToken, syncDirectory),
+  remarkableDisconnect: () => ipcRenderer.invoke('remarkable:disconnect'),
   onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, chunk: LLMStreamChunk): void => {
       callback(chunk)

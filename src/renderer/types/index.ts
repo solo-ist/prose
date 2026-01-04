@@ -21,10 +21,8 @@ export interface Settings {
   defaultSaveDirectory?: string
   remarkable?: {
     enabled: boolean
-    lambdaUrl: string
-    apiKey: string
+    deviceToken?: string
     syncDirectory: string
-    pollIntervalMinutes: number
     lastSyncedAt?: string
   }
   recentFiles?: string[]
@@ -60,21 +58,20 @@ export interface FileItem {
   children?: FileItem[]
 }
 
-export interface RemarkableSyncFile {
-  path: string
-  content: string
-  pages: number
+export interface RemarkableRegisterResponse {
+  deviceToken: string
 }
 
-export interface RemarkableSyncResponse {
+export interface RemarkableStatusResponse {
+  connected: boolean
+  lastSyncedAt?: string
+}
+
+export interface RemarkableSyncResult {
   syncedAt: string
-  files: RemarkableSyncFile[]
-}
-
-export interface RemarkableSyncRequest {
-  lambdaUrl: string
-  apiKey: string
-  syncDirectory: string
+  synced: number
+  skipped: number
+  errors: string[]
 }
 
 export interface LLMMessage {
@@ -145,7 +142,10 @@ export interface ElectronAPI {
   // Directory listing
   listDirectory: (path: string) => Promise<FileItem[]>
   // reMarkable sync
-  remarkableSync: (request: RemarkableSyncRequest) => Promise<RemarkableSyncResponse>
+  remarkableRegister: (code: string) => Promise<RemarkableRegisterResponse>
+  remarkableValidate: (deviceToken: string) => Promise<boolean>
+  remarkableSync: (deviceToken: string, syncDirectory: string) => Promise<RemarkableSyncResult>
+  remarkableDisconnect: () => Promise<void>
 }
 
 declare global {

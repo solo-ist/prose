@@ -18,7 +18,7 @@ import {
 import { Button } from '../ui/button'
 import { Separator } from '../ui/separator'
 import { Slider } from '../ui/slider'
-import { Switch } from '../ui/switch'
+import { RemarkableIntegration } from './RemarkableIntegration'
 import type { Settings } from '../../types'
 
 export function SettingsDialog() {
@@ -260,111 +260,10 @@ export function SettingsDialog() {
           </TabsContent>
 
           <TabsContent value="integrations" className="space-y-4 mt-4">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="remarkable-enabled">reMarkable Sync</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Sync notebooks from your reMarkable tablet
-                  </p>
-                </div>
-                <Switch
-                  id="remarkable-enabled"
-                  checked={settings.remarkable?.enabled ?? false}
-                  onCheckedChange={(checked) =>
-                    setRemarkableConfig({ enabled: checked })
-                  }
-                />
-              </div>
-
-              {settings.remarkable?.enabled && (
-                <>
-                  <Separator />
-
-                  <div className="space-y-2">
-                    <Label htmlFor="remarkable-url">Lambda URL</Label>
-                    <Input
-                      id="remarkable-url"
-                      value={settings.remarkable?.lambdaUrl || ''}
-                      onChange={(e) =>
-                        setRemarkableConfig({ lambdaUrl: e.target.value })
-                      }
-                      placeholder="https://your-lambda-url.lambda-url.region.on.aws"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Your reMarkable sync Lambda function URL
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="remarkable-apikey">API Key</Label>
-                    <Input
-                      id="remarkable-apikey"
-                      type="password"
-                      value={settings.remarkable?.apiKey || ''}
-                      onChange={(e) =>
-                        setRemarkableConfig({ apiKey: e.target.value })
-                      }
-                      placeholder="Enter your API key"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="remarkable-syncdir">Sync Directory</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="remarkable-syncdir"
-                        value={settings.remarkable?.syncDirectory || ''}
-                        onChange={(e) =>
-                          setRemarkableConfig({ syncDirectory: e.target.value })
-                        }
-                        placeholder="~/Documents/Remarkable"
-                        className="flex-1"
-                      />
-                      <Button
-                        variant="outline"
-                        onClick={async () => {
-                          const folder = await window.api?.selectFolder()
-                          if (folder) {
-                            setRemarkableConfig({ syncDirectory: folder })
-                          }
-                        }}
-                      >
-                        Browse...
-                      </Button>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Where synced notebooks will be saved
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="remarkable-poll">Poll Interval (minutes)</Label>
-                    <Input
-                      id="remarkable-poll"
-                      type="number"
-                      min={5}
-                      max={120}
-                      value={settings.remarkable?.pollIntervalMinutes || 30}
-                      onChange={(e) =>
-                        setRemarkableConfig({
-                          pollIntervalMinutes: parseInt(e.target.value, 10) || 30
-                        })
-                      }
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      How often to check for new notebooks (5-120 minutes)
-                    </p>
-                  </div>
-
-                  {settings.remarkable?.lastSyncedAt && (
-                    <p className="text-xs text-muted-foreground">
-                      Last synced: {new Date(settings.remarkable.lastSyncedAt).toLocaleString()}
-                    </p>
-                  )}
-                </>
-              )}
-            </div>
+            <RemarkableIntegration
+              settings={settings}
+              setRemarkableConfig={setRemarkableConfig}
+            />
           </TabsContent>
 
           <TabsContent value="account" className="space-y-4 mt-4">

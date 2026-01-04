@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFileListStore } from '../stores/fileListStore'
 
@@ -6,13 +6,14 @@ export interface UseRemarkableSyncReturn {
   isSyncing: boolean
   lastSyncedAt: string | null
   error: string | null
+  syncResult: { synced: number; skipped: number } | null
   sync: () => Promise<void>
 }
 
 export function useRemarkableSync(): UseRemarkableSyncReturn {
   const [isSyncing, setIsSyncing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const [syncResult, setSyncResult] = useState<{ synced: number; skipped: number } | null>(null)
 
   const settings = useSettingsStore((state) => state.settings)
   const setSettings = useSettingsStore((state) => state.setSettings)
@@ -33,29 +34,42 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
       return
     }
 
-    if (!remarkableSettings.lambdaUrl || !remarkableSettings.apiKey || !remarkableSettings.syncDirectory) {
-      setError('Please configure all reMarkable settings')
+    if (!remarkableSettings.deviceToken) {
+      setError('Please connect your reMarkable device in Settings')
+      return
+    }
+
+    if (!remarkableSettings.syncDirectory) {
+      setError('Please set a sync directory in Settings')
       return
     }
 
     setIsSyncing(true)
     setError(null)
+    setSyncResult(null)
 
     try {
-      const response = await window.api.remarkableSync({
-        lambdaUrl: remarkableSettings.lambdaUrl,
-        apiKey: remarkableSettings.apiKey,
-        syncDirectory: remarkableSettings.syncDirectory
-      })
+      const result = await window.api.remarkableSync(
+        remarkableSettings.deviceToken,
+        remarkableSettings.syncDirectory
+      )
+
+      // Check for sync errors
+      if (result.errors.length > 0) {
+        console.error('reMarkable sync errors:', result.errors)
+        setError(result.errors[0])
+      }
 
       // Update lastSyncedAt in settings
       setSettings({
         remarkable: {
           ...remarkableSettings,
-          lastSyncedAt: response.syncedAt
+          lastSyncedAt: result.syncedAt
         }
       })
       await saveSettings()
+
+      setSyncResult({ synced: result.synced, skipped: result.skipped })
 
       // Refresh the file list
       await loadFiles()
@@ -67,60 +81,11 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
     }
   }, [remarkableSettings, setSettings, saveSettings, loadFiles])
 
-  // Setup polling
-  useEffect(() => {
-    if (!remarkableSettings?.enabled || !remarkableSettings.pollIntervalMinutes) {
-      // Clear existing interval if settings changed
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current)
-        pollIntervalRef.current = null
-      }
-      return
-    }
-
-    const pollIntervalMs = remarkableSettings.pollIntervalMinutes * 60 * 1000
-
-    // Check if we should sync on mount (if last sync was more than pollInterval ago)
-    if (remarkableSettings.lambdaUrl && remarkableSettings.apiKey && remarkableSettings.syncDirectory) {
-      const lastSync = remarkableSettings.lastSyncedAt
-        ? new Date(remarkableSettings.lastSyncedAt).getTime()
-        : 0
-      const now = Date.now()
-
-      if (now - lastSync > pollIntervalMs) {
-        // Sync is due
-        sync()
-      }
-    }
-
-    // Setup polling interval
-    pollIntervalRef.current = setInterval(() => {
-      if (!isSyncing) {
-        sync()
-      }
-    }, pollIntervalMs)
-
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current)
-        pollIntervalRef.current = null
-      }
-    }
-  }, [
-    remarkableSettings?.enabled,
-    remarkableSettings?.pollIntervalMinutes,
-    remarkableSettings?.lambdaUrl,
-    remarkableSettings?.apiKey,
-    remarkableSettings?.syncDirectory,
-    remarkableSettings?.lastSyncedAt,
-    sync,
-    isSyncing
-  ])
-
   return {
     isSyncing,
     lastSyncedAt,
     error,
+    syncResult,
     sync
   }
 }

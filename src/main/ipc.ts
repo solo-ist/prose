@@ -397,50 +397,31 @@ export function setupIpcHandlers(): void {
     return { success: false }
   })
 
-  // reMarkable: Sync notebooks from Lambda
+  // reMarkable: Register device with one-time code
+  ipcMain.handle('remarkable:register', async (_event, code: string) => {
+    const { registerDevice } = await import('./remarkable/client')
+    const deviceToken = await registerDevice(code)
+    return { deviceToken }
+  })
+
+  // reMarkable: Validate existing device token
+  ipcMain.handle('remarkable:validate', async (_event, deviceToken: string) => {
+    const { validateToken } = await import('./remarkable/client')
+    return await validateToken(deviceToken)
+  })
+
+  // reMarkable: Sync notebooks to local directory
   ipcMain.handle(
     'remarkable:sync',
-    async (
-      _event,
-      request: { lambdaUrl: string; apiKey: string; syncDirectory: string }
-    ) => {
-      const { lambdaUrl, apiKey, syncDirectory } = request
-
-      // Call Lambda function
-      const response = await fetch(lambdaUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey
-        },
-        body: JSON.stringify({ action: 'sync' })
-      })
-
-      if (!response.ok) {
-        throw new Error(`Lambda request failed: ${response.status} ${response.statusText}`)
-      }
-
-      const data = (await response.json()) as {
-        syncedAt: string
-        files: Array<{ path: string; content: string; pages: number }>
-      }
-
-      // Ensure sync directory exists
-      await mkdir(syncDirectory, { recursive: true })
-
-      // Write each file to the sync directory
-      for (const file of data.files) {
-        const filePath = join(syncDirectory, file.path)
-        const fileDir = join(filePath, '..')
-
-        // Ensure parent directory exists
-        await mkdir(fileDir, { recursive: true })
-
-        // Write file content
-        await writeFile(filePath, file.content, 'utf-8')
-      }
-
-      return data
+    async (_event, deviceToken: string, syncDirectory: string) => {
+      const { syncAll } = await import('./remarkable/sync')
+      return await syncAll(deviceToken, syncDirectory)
     }
   )
+
+  // reMarkable: Disconnect (clear cached connection)
+  ipcMain.handle('remarkable:disconnect', async () => {
+    const { disconnect } = await import('./remarkable/client')
+    disconnect()
+  })
 }

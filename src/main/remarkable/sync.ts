@@ -1,7 +1,7 @@
 /**
  * reMarkable sync logic - downloads notebooks to local filesystem
  */
-import { mkdir, writeFile, readFile, readdir } from 'fs/promises'
+import { mkdir, writeFile, readFile, readdir, access } from 'fs/promises'
 import { join, dirname, resolve, sep } from 'path'
 import { homedir } from 'os'
 import { connect, type RemarkableNotebook } from './client'
@@ -323,9 +323,20 @@ export async function syncAll(
 
         // Check if we need to download (hash changed or doesn't exist)
         const existingEntry = existingMeta?.notebooks[doc.id]
-        const needsDownload = !existingEntry || existingEntry.hash !== doc.hash
+        const notebookDir = join(hiddenDir, doc.hash)
+
+        // Check if local files actually exist
+        let localFilesExist = false
+        try {
+          await access(notebookDir)
+          localFilesExist = true
+        } catch {
+          localFilesExist = false
+        }
+
+        const needsDownload = !existingEntry || existingEntry.hash !== doc.hash || !localFilesExist
         const needsOCR = doc.fileType === 'notebook' && isOCRConfigured() && !existingEntry?.markdownPath
-        console.log(`[reMarkable] ${doc.name}: needsDownload=${needsDownload}, needsOCR=${needsOCR}, existingMarkdown=${existingEntry?.markdownPath}`)
+        console.log(`[reMarkable] ${doc.name}: needsDownload=${needsDownload}, needsOCR=${needsOCR}, localFilesExist=${localFilesExist}, existingMarkdown=${existingEntry?.markdownPath}`)
 
         if (!needsDownload && !needsOCR) {
           result.skipped++
@@ -333,10 +344,9 @@ export async function syncAll(
           continue
         }
 
-        // If hash matches but OCR is needed, use existing files
+        // If hash matches and local files exist but OCR is needed, use existing files
         if (!needsDownload && needsOCR) {
           onProgress?.(`Processing OCR for existing notebook: ${doc.name}`)
-          const notebookDir = join(hiddenDir, doc.hash)
 
           let markdownPath: string | undefined
           const markdown = await processNotebookWithOCR(notebookDir, doc.name, onProgress)
@@ -370,7 +380,6 @@ export async function syncAll(
 
         // Extract the zip contents to hidden directory
         const zip = await JSZip.loadAsync(zipData)
-        const notebookDir = join(hiddenDir, doc.hash)
         await mkdir(notebookDir, { recursive: true })
 
         // Extract all files from the zip (with path traversal protection)

@@ -173,7 +173,10 @@ export function setupIpcHandlers(): void {
       children?: FileItem[]
     }
 
-    async function listDir(dir: string): Promise<FileItem[]> {
+    // Limit recursion depth to prevent scanning entire filesystem
+    const MAX_DEPTH = 5
+
+    async function listDir(dir: string, depth: number = 0): Promise<FileItem[]> {
       try {
         const entries = await readdir(dir, { withFileTypes: true })
         const items: FileItem[] = []
@@ -183,10 +186,17 @@ export function setupIpcHandlers(): void {
           if (entry.name.startsWith('.')) continue
 
           const fullPath = join(dir, entry.name)
-          const stats = await stat(fullPath)
+          let stats
+          try {
+            stats = await stat(fullPath)
+          } catch {
+            // Skip files we can't stat (permissions, broken symlinks, etc.)
+            continue
+          }
 
           if (entry.isDirectory()) {
-            const children = await listDir(fullPath)
+            // Only recurse if within depth limit
+            const children = depth < MAX_DEPTH ? await listDir(fullPath, depth + 1) : []
             items.push({
               name: entry.name,
               path: fullPath,
@@ -216,7 +226,7 @@ export function setupIpcHandlers(): void {
 
     // Expand ~ to home directory
     const expandedPath = expandPath(dirPath)
-    return listDir(expandedPath)
+    return listDir(expandedPath, 0)
   })
 
   // Settings: Load from ~/.prose/settings.json

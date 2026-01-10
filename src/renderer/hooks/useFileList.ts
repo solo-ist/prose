@@ -64,7 +64,7 @@ export function useFileList() {
   // Sync file selection across views - when document path changes or switching to folder view,
   // reveal and select the file if it's within the current rootPath
   useEffect(() => {
-    if (viewMode === 'folder' && documentPath && rootPath && documentPath.startsWith(rootPath)) {
+    if (viewMode === 'folder' && documentPath && rootPath) {
       revealAndSelectPath(documentPath)
     }
   }, [viewMode, documentPath, rootPath, revealAndSelectPath])

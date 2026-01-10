@@ -188,22 +188,57 @@ export const useFileListStore = create<FileListState>()(
     },
 
     revealAndSelectPath: (path: string) => {
-      const { rootPath, expandedFolders } = get()
-      if (!rootPath || !path.startsWith(rootPath)) return
+      const { rootPath, expandedFolders, files } = get()
+      if (!rootPath) return
 
-      // Get all parent directories between rootPath and the file
-      const relativePath = path.slice(rootPath.length + 1)
+      // Helper to get relative suffix (strip ~ or /Users/xxx prefix)
+      const getRelativeSuffix = (p: string) => {
+        if (p.startsWith('~/')) return p.slice(2)
+        const match = p.match(/^\/Users\/[^/]+\/(.*)$/)
+        return match ? match[1] : p
+      }
+
+      const pathSuffix = getRelativeSuffix(path)
+      const rootSuffix = getRelativeSuffix(rootPath)
+
+      // Check if path is within rootPath
+      if (!pathSuffix.startsWith(rootSuffix)) return
+
+      // Find the actual file path in the tree (which uses expanded paths)
+      const findActualPath = (items: typeof files, targetSuffix: string): string | null => {
+        for (const item of items) {
+          const itemSuffix = getRelativeSuffix(item.path)
+          if (itemSuffix === targetSuffix) return item.path
+          if (item.children) {
+            const found = findActualPath(item.children, targetSuffix)
+            if (found) return found
+          }
+        }
+        return null
+      }
+
+      const actualPath = findActualPath(files, pathSuffix)
+      const targetPath = actualPath || path
+
+      // Get relative path from root
+      const relativePath = pathSuffix.slice(rootSuffix.length + 1)
+      if (!relativePath) return
+
       const parts = relativePath.split('/')
       const newExpanded = new Set(expandedFolders)
 
-      // Expand all parent folders
-      let currentPath = rootPath
+      // Expand all parent folders - use the file tree's path format
+      let currentSuffix = rootSuffix
       for (let i = 0; i < parts.length - 1; i++) {
-        currentPath = `${currentPath}/${parts[i]}`
-        newExpanded.add(currentPath)
+        currentSuffix = `${currentSuffix}/${parts[i]}`
+        // Find the actual folder path in the tree
+        const folderPath = findActualPath(files, currentSuffix)
+        if (folderPath) {
+          newExpanded.add(folderPath)
+        }
       }
 
-      set({ expandedFolders: newExpanded, selectedPath: path })
+      set({ expandedFolders: newExpanded, selectedPath: targetPath })
     }
   }))
 )

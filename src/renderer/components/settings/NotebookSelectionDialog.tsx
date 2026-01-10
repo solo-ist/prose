@@ -34,7 +34,7 @@ export function NotebookSelectionDialog({
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Load notebooks from cloud when dialog opens
+  // Load notebooks from cloud and existing sync state when dialog opens
   useEffect(() => {
     if (!open || !window.api) return
 
@@ -42,15 +42,20 @@ export function NotebookSelectionDialog({
       setIsLoading(true)
       setError(null)
       try {
-        const cloudNotebooks = await window.api.remarkableListCloudNotebooks(deviceToken)
+        // Load cloud notebooks and existing sync state in parallel
+        const [cloudNotebooks, existingSyncState] = await Promise.all([
+          window.api.remarkableListCloudNotebooks(deviceToken),
+          window.api.remarkableGetSyncState(syncDirectory)
+        ])
         setNotebooks(cloudNotebooks)
-        // Pre-select all notebooks by default
-        const allIds = new Set(
-          cloudNotebooks
-            .filter(n => n.type === 'notebook')
-            .map(n => n.id)
-        )
-        setSelectedIds(allIds)
+
+        // Use existing selection if available, otherwise select none (first time)
+        if (existingSyncState?.selectedNotebooks) {
+          setSelectedIds(new Set(existingSyncState.selectedNotebooks))
+        } else {
+          // First time - start with nothing selected so user explicitly chooses
+          setSelectedIds(new Set())
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load notebooks')
       } finally {
@@ -59,7 +64,7 @@ export function NotebookSelectionDialog({
     }
 
     loadNotebooks()
-  }, [open, deviceToken])
+  }, [open, deviceToken, syncDirectory])
 
   const handleToggle = (id: string) => {
     setSelectedIds(prev => {
@@ -102,22 +107,59 @@ export function NotebookSelectionDialog({
     }
   }
 
-  // Organize notebooks into folders
-  const folders = notebooks.filter(n => n.type === 'folder')
-  const notebooksOnly = notebooks.filter(n => n.type === 'notebook')
-
-  // Group notebooks by parent
-  const notebooksByParent = new Map<string | null, RemarkableCloudNotebook[]>()
-  for (const notebook of notebooksOnly) {
-    const parent = notebook.parent
-    if (!notebooksByParent.has(parent)) {
-      notebooksByParent.set(parent, [])
+  // Organize notebooks and folders by parent for hierarchical display
+  const itemsByParent = new Map<string | null, RemarkableCloudNotebook[]>()
+  for (const item of notebooks) {
+    const parent = item.parent
+    if (!itemsByParent.has(parent)) {
+      itemsByParent.set(parent, [])
     }
-    notebooksByParent.get(parent)!.push(notebook)
+    itemsByParent.get(parent)!.push(item)
   }
 
+  const notebooksOnly = notebooks.filter(n => n.type === 'notebook')
   const selectedCount = selectedIds.size
   const totalCount = notebooksOnly.length
+
+  // Recursive function to render folder tree
+  const renderItems = (parentId: string | null, depth: number = 0): React.ReactNode => {
+    const children = itemsByParent.get(parentId) || []
+    if (children.length === 0) return null
+
+    // Sort: folders first, then alphabetically
+    const sorted = [...children].sort((a, b) => {
+      if (a.type !== b.type) return a.type === 'folder' ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
+
+    return sorted.map(item => {
+      if (item.type === 'folder') {
+        // Recursively check if this folder has any descendants
+        const hasDescendants = itemsByParent.has(item.id)
+        if (!hasDescendants) return null
+
+        return (
+          <div key={item.id} className="space-y-1" style={{ paddingLeft: depth > 0 ? '1.5rem' : 0 }}>
+            <div className="flex items-center gap-2 py-1 text-muted-foreground">
+              <Folder className="h-4 w-4" />
+              <span className="text-sm font-medium">{item.name}</span>
+            </div>
+            {renderItems(item.id, depth + 1)}
+          </div>
+        )
+      } else {
+        return (
+          <div key={item.id} style={{ paddingLeft: depth > 0 ? '1.5rem' : 0 }}>
+            <NotebookItem
+              notebook={item}
+              isSelected={selectedIds.has(item.id)}
+              onToggle={() => handleToggle(item.id)}
+            />
+          </div>
+        )
+      }
+    })
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -151,40 +193,7 @@ export function NotebookSelectionDialog({
 
             <ScrollArea className="h-[300px] rounded-md border">
               <div className="p-4 space-y-1">
-                {/* Root notebooks (no parent) */}
-                {notebooksByParent.get(null)?.map(notebook => (
-                  <NotebookItem
-                    key={notebook.id}
-                    notebook={notebook}
-                    isSelected={selectedIds.has(notebook.id)}
-                    onToggle={() => handleToggle(notebook.id)}
-                  />
-                ))}
-
-                {/* Folders with their contents */}
-                {folders.map(folder => {
-                  const children = notebooksByParent.get(folder.id) || []
-                  if (children.length === 0) return null
-
-                  return (
-                    <div key={folder.id} className="space-y-1">
-                      <div className="flex items-center gap-2 py-1 text-muted-foreground">
-                        <Folder className="h-4 w-4" />
-                        <span className="text-sm font-medium">{folder.name}</span>
-                      </div>
-                      <div className="pl-6 space-y-1">
-                        {children.map(notebook => (
-                          <NotebookItem
-                            key={notebook.id}
-                            notebook={notebook}
-                            isSelected={selectedIds.has(notebook.id)}
-                            onToggle={() => handleToggle(notebook.id)}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )
-                })}
+                {renderItems(null)}
               </div>
             </ScrollArea>
           </>

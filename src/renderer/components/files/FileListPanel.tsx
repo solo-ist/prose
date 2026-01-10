@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
+import type { ReactNode } from 'react'
 import { useFileList } from '../../hooks/useFileList'
 import { useEditor } from '../../hooks/useEditor'
 import { useRemarkableSync } from '../../hooks/useRemarkableSync'
@@ -61,11 +62,11 @@ export function FileListPanel() {
   // Get filename from path for recent files display
   const getFileName = (path: string) => path.split('/').pop() || path
 
-  // Organize cloud notebooks into a hierarchical structure with sync status
   // Extend type to include id for metadata notebooks
   type NotebookWithId = (RemarkableCloudNotebook | RemarkableNotebookMetadata) & { id: string }
 
-  const organizedNotebooks = useMemo(() => {
+  // Organize cloud notebooks by parent for hierarchical display
+  const { itemsByParent, allNotebooks } = useMemo(() => {
     // If we have cloud notebooks, use those (they represent all notebooks)
     // Otherwise fall back to local metadata, adding the ID from the record key
     const sourceNotebooks: NotebookWithId[] = cloudNotebooks.length > 0
@@ -74,22 +75,22 @@ export function FileListPanel() {
         ? Object.entries(notebookMetadata.notebooks).map(([id, notebook]) => ({ ...notebook, id }))
         : []
 
-    const folders: NotebookWithId[] = []
-    const items: NotebookWithId[] = []
+    const byParent = new Map<string | null, NotebookWithId[]>()
+    const notebooks: NotebookWithId[] = []
 
     for (const item of sourceNotebooks) {
-      if (item.type === 'folder') {
-        folders.push(item)
-      } else {
-        items.push(item)
+      const parent = item.parent
+      if (!byParent.has(parent)) {
+        byParent.set(parent, [])
+      }
+      byParent.get(parent)!.push(item)
+
+      if (item.type === 'notebook') {
+        notebooks.push(item)
       }
     }
 
-    // Sort alphabetically
-    folders.sort((a, b) => a.name.localeCompare(b.name))
-    items.sort((a, b) => a.name.localeCompare(b.name))
-
-    return { folders, notebooks: items }
+    return { itemsByParent: byParent, allNotebooks: notebooks }
   }, [cloudNotebooks, notebookMetadata])
 
   // Check if a notebook is synced
@@ -110,14 +111,28 @@ export function FileListPanel() {
     }
   }
 
-  // Check if a folder has any synced notebooks inside it
+  // Check if a folder has any synced notebooks inside it (recursively)
   const isFolderSynced = (folderId: string): boolean => {
     if (!syncState) return true // Legacy behavior
-    // Check if any notebook with this folder as parent is synced
-    return organizedNotebooks.notebooks.some(notebook => {
-      if (notebook.parent !== folderId) return false
-      return syncState.selectedNotebooks.includes(notebook.id)
-    })
+
+    // Recursively check all descendants
+    const checkDescendants = (parentId: string): boolean => {
+      const children = itemsByParent.get(parentId) || []
+      for (const child of children) {
+        if (child.type === 'notebook') {
+          if (syncState.selectedNotebooks.includes(child.id)) {
+            return true
+          }
+        } else if (child.type === 'folder') {
+          if (checkDescendants(child.id)) {
+            return true
+          }
+        }
+      }
+      return false
+    }
+
+    return checkDescendants(folderId)
   }
 
   const handleNotebookClick = async (notebook: RemarkableNotebookMetadata) => {
@@ -127,6 +142,113 @@ export function FileListPanel() {
       selectFile(fullPath)
       await openFileFromPath(fullPath)
     }
+  }
+
+  // Recursive function to render notebook tree
+  const renderNotebookItems = (parentId: string | null, depth: number): ReactNode => {
+    const children = itemsByParent.get(parentId) || []
+    if (children.length === 0) return null
+
+    // Sort: folders first, then alphabetically
+    const sorted = [...children].sort((a, b) => {
+      if (a.type !== b.type) return a.type === 'folder' ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
+
+    return sorted.map(item => {
+      if (item.type === 'folder') {
+        const folderId = getNotebookId(item)
+        const hasSyncedContent = isFolderSynced(folderId)
+        const hasDescendants = itemsByParent.has(item.id)
+        if (!hasDescendants) return null
+
+        return (
+          <div key={folderId} className="space-y-0.5" style={{ paddingLeft: depth > 0 ? '1rem' : 0 }}>
+            <div
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                hasSyncedContent ? "text-foreground" : "text-muted-foreground opacity-50"
+              )}
+              title={hasSyncedContent ? item.name : `${item.name} (no synced notebooks)`}
+            >
+              {hasSyncedContent ? (
+                <Folder className="h-4 w-4 shrink-0 text-blue-500" />
+              ) : (
+                <Folder className="h-4 w-4 shrink-0" />
+              )}
+              <span className="truncate">{item.name}</span>
+            </div>
+            {renderNotebookItems(item.id, depth + 1)}
+          </div>
+        )
+      } else {
+        const notebookId = getNotebookId(item)
+        const isSynced = isNotebookSynced(notebookId)
+        const localMeta = notebookMetadata?.notebooks?.[notebookId] ?? null
+        const hasMarkdown = !!localMeta?.markdownPath
+        const fullMarkdownPath = (localMeta?.markdownPath && syncDirectory)
+          ? `${syncDirectory}/${localMeta.markdownPath}`
+          : null
+
+        return (
+          <div key={notebookId} style={{ paddingLeft: depth > 0 ? '1rem' : 0 }}>
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <button
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50",
+                    fullMarkdownPath && selectedPath === fullMarkdownPath && "bg-muted",
+                    !isSynced && "opacity-50"
+                  )}
+                  onClick={() => {
+                    if (localMeta && hasMarkdown) {
+                      handleNotebookClick(localMeta)
+                    }
+                  }}
+                  title={
+                    !isSynced
+                      ? `${item.name} (not synced - right-click to sync)`
+                      : hasMarkdown
+                        ? `${item.name} (converted to markdown)`
+                        : `${item.name} (synced, not converted)`
+                  }
+                  disabled={!isSynced || !hasMarkdown}
+                >
+                  {isSynced ? (
+                    hasMarkdown ? (
+                      <Check className="h-4 w-4 shrink-0 text-green-500" />
+                    ) : (
+                      <Cloud className="h-4 w-4 shrink-0 text-blue-500" />
+                    )
+                  ) : (
+                    <CloudOff className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  )}
+                  <span className="truncate flex-1">{item.name}</span>
+                  {item.fileType && (
+                    <span className="text-xs text-muted-foreground">
+                      {item.fileType}
+                    </span>
+                  )}
+                </button>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                {isSynced ? (
+                  <ContextMenuItem onClick={() => handleToggleSync(notebookId)}>
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Remove from sync
+                  </ContextMenuItem>
+                ) : (
+                  <ContextMenuItem onClick={() => handleToggleSync(notebookId)}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Add to sync
+                  </ContextMenuItem>
+                )}
+              </ContextMenuContent>
+            </ContextMenu>
+          </div>
+        )
+      }
+    })
   }
 
   const handleNotebookRefresh = () => {
@@ -284,102 +406,13 @@ export function FileListPanel() {
                 <span className="text-red-500">{syncError}</span>
               ) : 'No notebooks synced yet. Click sync to download.'}
             </div>
-          ) : organizedNotebooks.notebooks.length === 0 && organizedNotebooks.folders.length === 0 ? (
+          ) : allNotebooks.length === 0 && itemsByParent.size === 0 ? (
             <div className="p-4 text-sm text-muted-foreground">
               No notebooks found.
             </div>
           ) : (
             <div className="p-2">
-              {/* Folders first */}
-              {organizedNotebooks.folders.map((folder) => {
-                const folderId = getNotebookId(folder)
-                const hasSyncedContent = isFolderSynced(folderId)
-                return (
-                  <div
-                    key={folderId}
-                    className={cn(
-                      "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-                      hasSyncedContent ? "text-foreground" : "text-muted-foreground opacity-50"
-                    )}
-                    title={hasSyncedContent ? folder.name : `${folder.name} (no synced notebooks)`}
-                  >
-                    {hasSyncedContent ? (
-                      <Folder className="h-4 w-4 shrink-0 text-blue-500" />
-                    ) : (
-                      <Folder className="h-4 w-4 shrink-0" />
-                    )}
-                    <span className="truncate">{folder.name}</span>
-                  </div>
-                )
-              })}
-              {/* Notebooks with sync status */}
-              {organizedNotebooks.notebooks.map((notebook) => {
-                const notebookId = getNotebookId(notebook)
-                const isSynced = isNotebookSynced(notebookId)
-                // Match by ID - local metadata is keyed by notebook ID
-                const localMeta = notebookMetadata?.notebooks?.[notebookId] ?? null
-                const hasMarkdown = !!localMeta?.markdownPath
-                // Compute full path for selection matching and click handling
-                const fullMarkdownPath = (localMeta?.markdownPath && syncDirectory)
-                  ? `${syncDirectory}/${localMeta.markdownPath}`
-                  : null
-
-                return (
-                  <ContextMenu key={notebookId}>
-                    <ContextMenuTrigger asChild>
-                      <button
-                        className={cn(
-                          "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50",
-                          fullMarkdownPath && selectedPath === fullMarkdownPath && "bg-muted",
-                          !isSynced && "opacity-50"
-                        )}
-                        onClick={() => {
-                          if (localMeta && hasMarkdown) {
-                            handleNotebookClick(localMeta)
-                          }
-                        }}
-                        title={
-                          !isSynced
-                            ? `${notebook.name} (not synced - right-click to sync)`
-                            : hasMarkdown
-                              ? `${notebook.name} (converted to markdown)`
-                              : `${notebook.name} (synced, not converted)`
-                        }
-                        disabled={!isSynced || !hasMarkdown}
-                      >
-                        {isSynced ? (
-                          hasMarkdown ? (
-                            <Check className="h-4 w-4 shrink-0 text-green-500" />
-                          ) : (
-                            <Cloud className="h-4 w-4 shrink-0 text-blue-500" />
-                          )
-                        ) : (
-                          <CloudOff className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        )}
-                        <span className="truncate flex-1">{notebook.name}</span>
-                        {notebook.fileType && (
-                          <span className="text-xs text-muted-foreground">
-                            {notebook.fileType}
-                          </span>
-                        )}
-                      </button>
-                    </ContextMenuTrigger>
-                    <ContextMenuContent>
-                      {isSynced ? (
-                        <ContextMenuItem onClick={() => handleToggleSync(notebookId)}>
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Remove from sync
-                        </ContextMenuItem>
-                      ) : (
-                        <ContextMenuItem onClick={() => handleToggleSync(notebookId)}>
-                          <Download className="h-4 w-4 mr-2" />
-                          Add to sync
-                        </ContextMenuItem>
-                      )}
-                    </ContextMenuContent>
-                  </ContextMenu>
-                )
-              })}
+              {renderNotebookItems(null, 0)}
             </div>
           )
         ) : (

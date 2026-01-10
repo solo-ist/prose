@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useFileListStore } from '../stores/fileListStore'
 import { useSettingsStore } from '../stores/settingsStore'
+import { useEditorStore } from '../stores/editorStore'
 
 export function useFileList() {
   const {
@@ -33,6 +34,7 @@ export function useFileList() {
   const { settings } = useSettingsStore()
   const recentFiles = settings.recentFiles || []
   const syncDirectory = settings.remarkable?.syncDirectory
+  const documentPath = useEditorStore((state) => state.document.path)
 
   // Initialize default path on first launch only
   useEffect(() => {
@@ -58,6 +60,14 @@ export function useFileList() {
       }
     }
   }, [viewMode, settings.remarkable?.enabled, settings.remarkable?.deviceToken, syncDirectory, loadNotebooks, loadCloudNotebooks])
+
+  // Sync file selection across views - when document path changes or switching to folder view,
+  // reveal and select the file if it's within the current rootPath
+  useEffect(() => {
+    if (viewMode === 'folder' && documentPath && rootPath && documentPath.startsWith(rootPath)) {
+      revealAndSelectPath(documentPath)
+    }
+  }, [viewMode, documentPath, rootPath, revealAndSelectPath])
 
   return {
     isPanelOpen,

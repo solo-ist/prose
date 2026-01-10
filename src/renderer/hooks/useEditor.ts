@@ -2,6 +2,7 @@ import { useCallback, useEffect } from 'react'
 import { useEditorStore } from '../stores/editorStore'
 import { useChatStore, setCurrentDocumentId } from '../stores/chatStore'
 import { useSettingsStore } from '../stores/settingsStore'
+import { useFileListStore } from '../stores/fileListStore'
 import { parseMarkdown, serializeMarkdown } from '../lib/markdown'
 import {
   generateId,
@@ -78,6 +79,9 @@ export function useEditor() {
       // Add to recent files
       useSettingsStore.getState().addRecentFile(filePath)
 
+      // Highlight file in sidebar
+      useFileListStore.getState().revealAndSelectPath(filePath)
+
       // Return true if document has content but no chat history (for auto-prompt)
       const conversations = useChatStore.getState().conversations
       return parsed.content.trim().length > 0 && conversations.length === 0
@@ -118,6 +122,9 @@ export function useEditor() {
 
       // Add to recent files
       useSettingsStore.getState().addRecentFile(result.path)
+
+      // Highlight file in sidebar
+      useFileListStore.getState().revealAndSelectPath(result.path)
 
       // Return true if document has content but no chat history (for auto-prompt)
       const conversations = useChatStore.getState().conversations

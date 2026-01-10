@@ -2,7 +2,8 @@ import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import type { Document } from '../types'
 import { generateId, saveDraft, clearDraft } from '../lib/persistence'
-import type { DraftState } from '../lib/persistence'
+import type { DraftState, FileListState } from '../lib/persistence'
+import { useFileListStore } from './fileListStore'
 
 interface EditorState {
   document: Document
@@ -100,6 +101,17 @@ function debounce<T extends (...args: unknown[]) => void>(
   }) as T
 }
 
+// Helper to get serializable file list state
+function getFileListState(): FileListState {
+  const { viewMode, rootPath, expandedFolders, selectedPath } = useFileListStore.getState()
+  return {
+    viewMode,
+    rootPath,
+    expandedFolders: Array.from(expandedFolders), // Convert Set to Array for serialization
+    selectedPath
+  }
+}
+
 // Subscribe to changes and persist draft (debounced)
 const debouncedSaveDraft = debounce(async (state: EditorState) => {
   // Only save if there's content or the document is dirty
@@ -108,7 +120,8 @@ const debouncedSaveDraft = debounce(async (state: EditorState) => {
       document: state.document,
       cursorPosition: state.cursorPosition,
       activeChatId: state.activeChatId,
-      savedAt: Date.now()
+      savedAt: Date.now(),
+      fileList: getFileListState()
     })
   } else {
     // Clear draft if document is empty and clean

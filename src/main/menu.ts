@@ -123,7 +123,7 @@ export function createMenu(mainWindow: BrowserWindow): void {
         },
         {
           label: 'Toggle Chat Panel',
-          accelerator: 'CmdOrCtrl+\\',
+          accelerator: 'Shift+CmdOrCtrl+L',
           click: (): void => {
             mainWindow.webContents.send('menu:action', 'toggleChat')
           }

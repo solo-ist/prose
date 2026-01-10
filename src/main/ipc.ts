@@ -424,4 +424,31 @@ export function setupIpcHandlers(): void {
     const { disconnect } = await import('./remarkable/client')
     disconnect()
   })
+
+  // reMarkable: Get sync metadata (notebook list with status)
+  ipcMain.handle('remarkable:getMetadata', async (_event, syncDirectory: string) => {
+    const { getSyncStatus } = await import('./remarkable/sync')
+    return await getSyncStatus(syncDirectory)
+  })
+
+  // reMarkable: List cloud notebooks (for selection UI)
+  ipcMain.handle('remarkable:listCloudNotebooks', async (_event, deviceToken: string) => {
+    const { listCloudNotebooks } = await import('./remarkable/sync')
+    return await listCloudNotebooks(deviceToken)
+  })
+
+  // reMarkable: Get sync state (which notebooks are selected)
+  ipcMain.handle('remarkable:getSyncState', async (_event, syncDirectory: string) => {
+    const { getSyncState } = await import('./remarkable/sync')
+    return await getSyncState(syncDirectory)
+  })
+
+  // reMarkable: Update sync selection
+  ipcMain.handle(
+    'remarkable:updateSyncSelection',
+    async (_event, syncDirectory: string, selectedNotebooks: string[]) => {
+      const { updateSyncSelection } = await import('./remarkable/sync')
+      await updateSyncSelection(syncDirectory, selectedNotebooks)
+    }
+  )
 }

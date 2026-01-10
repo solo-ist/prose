@@ -11,27 +11,52 @@ export function useFileList() {
     rootPath,
     expandedFolders,
     selectedPath,
+    notebookMetadata,
+    cloudNotebooks,
+    syncState,
     togglePanel,
     setPanelOpen,
     setViewMode,
     setRootPath,
+    initializeDefaultPath,
+    navigateToParent,
     loadFiles,
+    loadNotebooks,
+    loadCloudNotebooks,
+    toggleNotebookSync,
     selectFile,
     toggleFolder,
-    setExpanded
+    setExpanded,
+    revealAndSelectPath
   } = useFileListStore()
 
   const { settings } = useSettingsStore()
   const recentFiles = settings.recentFiles || []
+  const syncDirectory = settings.remarkable?.syncDirectory
 
-  // Initialize root path from settings when remarkable is enabled
+  // Initialize default path to ~/Documents on first launch
   useEffect(() => {
-    if (settings.remarkable?.enabled && settings.remarkable?.syncDirectory) {
-      if (rootPath !== settings.remarkable.syncDirectory) {
-        setRootPath(settings.remarkable.syncDirectory)
+    // If remarkable is enabled and has a sync directory, use that
+    if (settings.remarkable?.enabled && syncDirectory) {
+      if (rootPath !== syncDirectory) {
+        setRootPath(syncDirectory)
+      }
+    } else {
+      // Otherwise, initialize to ~/Documents
+      initializeDefaultPath()
+    }
+  }, [settings.remarkable?.enabled, syncDirectory, rootPath, setRootPath, initializeDefaultPath])
+
+  // Load notebook metadata and cloud notebooks when in notebooks view
+  useEffect(() => {
+    if (viewMode === 'notebooks' && settings.remarkable?.enabled && syncDirectory) {
+      loadNotebooks(syncDirectory)
+      // Also load cloud notebooks if we have a device token
+      if (settings.remarkable.deviceToken) {
+        loadCloudNotebooks(settings.remarkable.deviceToken, syncDirectory)
       }
     }
-  }, [settings.remarkable?.enabled, settings.remarkable?.syncDirectory, rootPath, setRootPath])
+  }, [viewMode, settings.remarkable?.enabled, settings.remarkable?.deviceToken, syncDirectory, loadNotebooks, loadCloudNotebooks])
 
   return {
     isPanelOpen,
@@ -41,14 +66,24 @@ export function useFileList() {
     rootPath,
     expandedFolders,
     selectedPath,
+    notebookMetadata,
+    cloudNotebooks,
+    syncState,
     recentFiles,
+    syncDirectory,
+    deviceToken: settings.remarkable?.deviceToken,
     togglePanel,
     setPanelOpen,
     setViewMode,
     setRootPath,
+    navigateToParent,
     loadFiles,
+    loadNotebooks,
+    loadCloudNotebooks,
+    toggleNotebookSync,
     selectFile,
     toggleFolder,
-    setExpanded
+    setExpanded,
+    revealAndSelectPath
   }
 }

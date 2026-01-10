@@ -11,3 +11,4 @@
 - [CLAUDE.md](../CLAUDE.md) - Development guidelines and architecture
 - [MVP.md](../MVP.md) - Original MVP specification (todo-focused, superseded by current direction)
 
+

@@ -73,6 +73,10 @@ export interface ElectronAPI {
   remarkableValidate: (deviceToken: string) => Promise<boolean>
   remarkableSync: (deviceToken: string, syncDirectory: string) => Promise<RemarkableSyncResult>
   remarkableDisconnect: () => Promise<void>
+  remarkableGetMetadata: (syncDirectory: string) => Promise<RemarkableSyncMetadata | null>
+  remarkableListCloudNotebooks: (deviceToken: string) => Promise<RemarkableCloudNotebook[]>
+  remarkableGetSyncState: (syncDirectory: string) => Promise<RemarkableSyncState | null>
+  remarkableUpdateSyncSelection: (syncDirectory: string, selectedNotebooks: string[]) => Promise<void>
 }
 
 export interface FileItem {
@@ -92,6 +96,35 @@ export interface RemarkableSyncResult {
   synced: number
   skipped: number
   errors: string[]
+}
+
+export interface RemarkableNotebookMetadata {
+  name: string
+  parent: string | null
+  type: 'folder' | 'notebook'
+  fileType?: 'epub' | 'pdf' | 'notebook'
+  lastModified: string
+  hash: string
+  localPath: string
+  markdownPath?: string
+}
+
+export interface RemarkableSyncMetadata {
+  lastSyncedAt: string
+  notebooks: Record<string, RemarkableNotebookMetadata>
+}
+
+export interface RemarkableCloudNotebook {
+  id: string
+  name: string
+  type: 'folder' | 'notebook'
+  parent: string | null
+  fileType?: string
+}
+
+export interface RemarkableSyncState {
+  selectedNotebooks: string[]
+  lastUpdated: string
 }
 
 const api: ElectronAPI = {
@@ -139,6 +172,13 @@ const api: ElectronAPI = {
   remarkableSync: (deviceToken: string, syncDirectory: string) =>
     ipcRenderer.invoke('remarkable:sync', deviceToken, syncDirectory),
   remarkableDisconnect: () => ipcRenderer.invoke('remarkable:disconnect'),
+  remarkableGetMetadata: (syncDirectory: string) => ipcRenderer.invoke('remarkable:getMetadata', syncDirectory),
+  remarkableListCloudNotebooks: (deviceToken: string) =>
+    ipcRenderer.invoke('remarkable:listCloudNotebooks', deviceToken),
+  remarkableGetSyncState: (syncDirectory: string) =>
+    ipcRenderer.invoke('remarkable:getSyncState', syncDirectory),
+  remarkableUpdateSyncSelection: (syncDirectory: string, selectedNotebooks: string[]) =>
+    ipcRenderer.invoke('remarkable:updateSyncSelection', syncDirectory, selectedNotebooks),
   onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, chunk: LLMStreamChunk): void => {
       callback(chunk)

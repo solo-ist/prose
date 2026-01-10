@@ -19,6 +19,7 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
   const setSettings = useSettingsStore((state) => state.setSettings)
   const saveSettings = useSettingsStore((state) => state.saveSettings)
   const loadFiles = useFileListStore((state) => state.loadFiles)
+  const loadNotebooks = useFileListStore((state) => state.loadNotebooks)
 
   const remarkableSettings = settings.remarkable
   const lastSyncedAt = remarkableSettings?.lastSyncedAt ?? null
@@ -71,15 +72,16 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
 
       setSyncResult({ synced: result.synced, skipped: result.skipped })
 
-      // Refresh the file list
+      // Refresh the file list and notebooks
       await loadFiles()
+      await loadNotebooks(remarkableSettings.syncDirectory)
     } catch (err) {
       console.error('reMarkable sync failed:', err)
       setError(err instanceof Error ? err.message : 'Sync failed')
     } finally {
       setIsSyncing(false)
     }
-  }, [remarkableSettings, setSettings, saveSettings, loadFiles])
+  }, [remarkableSettings, setSettings, saveSettings, loadFiles, loadNotebooks])
 
   return {
     isSyncing,

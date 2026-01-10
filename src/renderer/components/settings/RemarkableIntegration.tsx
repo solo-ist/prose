@@ -4,7 +4,8 @@ import { Input } from '../ui/input'
 import { Button } from '../ui/button'
 import { Separator } from '../ui/separator'
 import { Switch } from '../ui/switch'
-import { Loader2, ExternalLink, CheckCircle, XCircle, RefreshCw } from 'lucide-react'
+import { Loader2, ExternalLink, CheckCircle, XCircle, RefreshCw, Settings2 } from 'lucide-react'
+import { NotebookSelectionDialog } from './NotebookSelectionDialog'
 import type { Settings } from '../../types'
 
 interface Props {
@@ -20,6 +21,8 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [syncStatus, setSyncStatus] = useState<string | null>(null)
+  const [showSelectionDialog, setShowSelectionDialog] = useState(false)
+  const [hasSyncState, setHasSyncState] = useState<boolean | null>(null)
 
   const remarkableSettings = settings.remarkable
 
@@ -47,6 +50,24 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
     }
   }, [remarkableSettings?.enabled, remarkableSettings?.deviceToken])
 
+  // Check if sync state exists
+  useEffect(() => {
+    async function checkSyncState() {
+      if (!remarkableSettings?.syncDirectory || !window.api) return
+
+      try {
+        const state = await window.api.remarkableGetSyncState(remarkableSettings.syncDirectory)
+        setHasSyncState(state !== null)
+      } catch {
+        setHasSyncState(false)
+      }
+    }
+
+    if (remarkableSettings?.enabled && isConnected) {
+      checkSyncState()
+    }
+  }, [remarkableSettings?.enabled, remarkableSettings?.syncDirectory, isConnected])
+
   const handleRegister = async () => {
     if (!window.api || !code.trim()) return
 
@@ -55,7 +76,14 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
 
     try {
       const response = await window.api.remarkableRegister(code.trim())
-      setRemarkableConfig({ deviceToken: response.deviceToken })
+      // Set device token and default sync directory on successful registration
+      const config: Partial<NonNullable<Settings['remarkable']>> = {
+        deviceToken: response.deviceToken
+      }
+      if (!remarkableSettings?.syncDirectory) {
+        config.syncDirectory = '~/Documents/Remarkable'
+      }
+      setRemarkableConfig(config)
       setIsConnected(true)
       setCode('')
     } catch (err) {
@@ -84,6 +112,18 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
 
     const syncDir = remarkableSettings.syncDirectory || '~/Documents/Remarkable'
 
+    // If no sync state exists, show selection dialog first
+    if (!hasSyncState) {
+      setShowSelectionDialog(true)
+      return
+    }
+
+    await performSync(syncDir)
+  }
+
+  const performSync = async (syncDir: string) => {
+    if (!window.api || !remarkableSettings?.deviceToken) return
+
     setIsSyncing(true)
     setError(null)
     setSyncStatus('Starting sync...')
@@ -97,12 +137,18 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
 
       setSyncStatus(`Synced ${result.synced} notebooks, ${result.skipped} unchanged`)
       setRemarkableConfig({ lastSyncedAt: result.syncedAt })
+      setHasSyncState(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sync failed')
       setSyncStatus(null)
     } finally {
       setIsSyncing(false)
     }
+  }
+
+  const handleSelectionComplete = async () => {
+    const syncDir = remarkableSettings?.syncDirectory || '~/Documents/Remarkable'
+    await performSync(syncDir)
   }
 
   const isEnabled = remarkableSettings?.enabled ?? false
@@ -248,7 +294,7 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
 
           {/* Action buttons (when connected) */}
           {hasToken && (
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Button
                 onClick={handleSync}
                 disabled={isSyncing}
@@ -265,6 +311,16 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
                   </>
                 )}
               </Button>
+              {hasSyncState && (
+                <Button
+                  variant="outline"
+                  onClick={() => setShowSelectionDialog(true)}
+                  disabled={isSyncing}
+                >
+                  <Settings2 className="h-4 w-4 mr-2" />
+                  Manage Notebooks
+                </Button>
+              )}
               <Button
                 variant="outline"
                 onClick={handleDisconnect}
@@ -275,6 +331,17 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
             </div>
           )}
         </>
+      )}
+
+      {/* Notebook selection dialog */}
+      {remarkableSettings?.deviceToken && (
+        <NotebookSelectionDialog
+          open={showSelectionDialog}
+          onOpenChange={setShowSelectionDialog}
+          deviceToken={remarkableSettings.deviceToken}
+          syncDirectory={remarkableSettings.syncDirectory || '~/Documents/Remarkable'}
+          onComplete={handleSelectionComplete}
+        />
       )}
     </div>
   )

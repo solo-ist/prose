@@ -20,6 +20,7 @@ import { useFileList } from '../../hooks/useFileList'
 import { useSettings } from '../../hooks/useSettings'
 import { useEditorStore } from '../../stores/editorStore'
 import { useChatStore, setCurrentDocumentId } from '../../stores/chatStore'
+import { useFileListStore } from '../../stores/fileListStore'
 import {
   loadDraft,
   clearDraft,
@@ -29,8 +30,11 @@ import {
 import type { DraftState } from '../../lib/persistence'
 
 export function App() {
-  const { isPanelOpen: isChatOpen, togglePanel: toggleChatPanel } = useChat()
-  const { isPanelOpen: isFileListOpen, togglePanel: toggleFileListPanel } = useFileList()
+  const { isPanelOpen: isChatOpen, togglePanel: toggleChatPanel, setPanelOpen: setChatPanelOpen } = useChat()
+  const { isPanelOpen: isFileListOpen, togglePanel: toggleFileListPanel, setPanelOpen: setFileListPanelOpen } = useFileList()
+
+  // Minimum window width before we auto-close the other panel
+  const MIN_WIDTH_FOR_BOTH_PANELS = 3000
   const { openFile, openFileFromPath, saveFile, saveFileAs, newFile } = useEditor()
   const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, isAboutDialogOpen, setAboutDialogOpen, settings, isLoaded: settingsLoaded } = useSettings()
   const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false)
@@ -52,6 +56,20 @@ export function App() {
     async (draft: DraftState) => {
       hydrateFromDraft(draft)
       setCurrentDocumentId(draft.document.documentId)
+
+      // Restore file list state if present
+      if (draft.fileList) {
+        useFileListStore.setState({
+          viewMode: draft.fileList.viewMode,
+          rootPath: draft.fileList.rootPath,
+          expandedFolders: new Set(draft.fileList.expandedFolders),
+          selectedPath: draft.fileList.selectedPath
+        })
+        // Reload files if we have a rootPath
+        if (draft.fileList.rootPath) {
+          useFileListStore.getState().loadFiles()
+        }
+      }
 
       // Load conversations for the recovered document
       const conversations = await loadConversations(draft.document.documentId)
@@ -157,9 +175,17 @@ export function App() {
           setDialogOpen(true)
           break
         case 'toggleChat':
+          // If opening chat and window is narrow and file list is open, close file list
+          if (!isChatOpen && isFileListOpen && window.innerWidth < MIN_WIDTH_FOR_BOTH_PANELS) {
+            setFileListPanelOpen(false)
+          }
           toggleChatPanel()
           break
         case 'toggleFileList':
+          // If opening file list and window is narrow and chat is open, close chat
+          if (!isFileListOpen && isChatOpen && window.innerWidth < MIN_WIDTH_FOR_BOTH_PANELS) {
+            setChatPanelOpen(false)
+          }
           toggleFileListPanel()
           break
         case 'find':
@@ -176,7 +202,7 @@ export function App() {
     })
 
     return unsubscribe
-  }, [openFile, saveFile, saveFileAs, newFile, setDialogOpen, toggleChatPanel, toggleFileListPanel, setShortcutsDialogOpen, setAboutDialogOpen])
+  }, [openFile, saveFile, saveFileAs, newFile, setDialogOpen, toggleChatPanel, toggleFileListPanel, setShortcutsDialogOpen, setAboutDialogOpen, isFileListOpen, isChatOpen, setChatPanelOpen, setFileListPanelOpen, MIN_WIDTH_FOR_BOTH_PANELS])
 
   // Handle file open from OS (double-click .md file)
   useEffect(() => {
@@ -200,7 +226,7 @@ export function App() {
             >
               {isFileListOpen && (
                 <>
-                  <ResizablePanel id="file-list" defaultSize={20} minSize={15} maxSize={35}>
+                  <ResizablePanel id="file-list" defaultSize={20} minSize={15} maxSize={35} className="min-w-[16.25rem]">
                     <FileListPanel />
                   </ResizablePanel>
                   <ResizableHandle />
@@ -208,7 +234,7 @@ export function App() {
               )}
               <ResizablePanel
                 id="editor"
-                defaultSize={isFileListOpen && isChatOpen ? 50 : isFileListOpen ? 80 : 70}
+                defaultSize={isFileListOpen && isChatOpen ? 40 : isFileListOpen ? 80 : 50}
                 minSize={30}
               >
                 <Editor />
@@ -216,7 +242,7 @@ export function App() {
               {isChatOpen && (
                 <>
                   <ResizableHandle />
-                  <ResizablePanel id="chat" defaultSize={30} minSize={20} maxSize={50}>
+                  <ResizablePanel id="chat" defaultSize={isFileListOpen ? 40 : 50} minSize={20} maxSize={60}>
                     <ChatPanel />
                   </ResizablePanel>
                 </>

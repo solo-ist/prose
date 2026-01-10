@@ -50,24 +50,21 @@ export function useFileList() {
     }
   }, [settings.remarkable?.enabled, syncDirectory, rootPath, setRootPath, initializeDefaultPath])
 
-  // Load notebook metadata and cloud notebooks when in notebooks view
+  // Load local notebook metadata when in notebooks view (no cloud API calls)
   useEffect(() => {
     if (viewMode === 'notebooks' && settings.remarkable?.enabled && syncDirectory) {
       loadNotebooks(syncDirectory)
-      // Also load cloud notebooks if we have a device token
-      if (settings.remarkable.deviceToken) {
-        loadCloudNotebooks(settings.remarkable.deviceToken, syncDirectory)
-      }
     }
-  }, [viewMode, settings.remarkable?.enabled, settings.remarkable?.deviceToken, syncDirectory, loadNotebooks, loadCloudNotebooks])
+  }, [viewMode, settings.remarkable?.enabled, syncDirectory, loadNotebooks])
 
   // Sync file selection across views - when document path changes or switching to folder view,
   // reveal and select the file if it's within the current rootPath
+  // Wait for files to be loaded before trying to reveal
   useEffect(() => {
-    if (viewMode === 'folder' && documentPath && rootPath) {
+    if (viewMode === 'folder' && documentPath && rootPath && files.length > 0) {
       revealAndSelectPath(documentPath)
     }
-  }, [viewMode, documentPath, rootPath, revealAndSelectPath])
+  }, [viewMode, documentPath, rootPath, files.length, revealAndSelectPath])
 
   return {
     isPanelOpen,

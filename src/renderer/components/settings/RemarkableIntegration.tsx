@@ -4,7 +4,7 @@ import { Input } from '../ui/input'
 import { Button } from '../ui/button'
 import { Separator } from '../ui/separator'
 import { Switch } from '../ui/switch'
-import { Loader2, ExternalLink, CheckCircle, XCircle } from 'lucide-react'
+import { Loader2, ExternalLink, CheckCircle, XCircle, RefreshCw } from 'lucide-react'
 import type { Settings } from '../../types'
 
 interface Props {
@@ -16,8 +16,10 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
   const [code, setCode] = useState('')
   const [isRegistering, setIsRegistering] = useState(false)
   const [isValidating, setIsValidating] = useState(false)
+  const [isSyncing, setIsSyncing] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [syncStatus, setSyncStatus] = useState<string | null>(null)
 
   const remarkableSettings = settings.remarkable
 
@@ -77,6 +79,32 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
     setError(null)
   }
 
+  const handleSync = async () => {
+    if (!window.api || !remarkableSettings?.deviceToken) return
+
+    const syncDir = remarkableSettings.syncDirectory || '~/Documents/Remarkable'
+
+    setIsSyncing(true)
+    setError(null)
+    setSyncStatus('Starting sync...')
+
+    try {
+      const result = await window.api.remarkableSync(remarkableSettings.deviceToken, syncDir)
+
+      if (result.errors.length > 0) {
+        setError(result.errors.join('; '))
+      }
+
+      setSyncStatus(`Synced ${result.synced} notebooks, ${result.skipped} unchanged`)
+      setRemarkableConfig({ lastSyncedAt: result.syncedAt })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Sync failed')
+      setSyncStatus(null)
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
   const isEnabled = remarkableSettings?.enabled ?? false
   const hasToken = !!remarkableSettings?.deviceToken
 
@@ -92,7 +120,14 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
         <Switch
           id="remarkable-enabled"
           checked={isEnabled}
-          onCheckedChange={(checked) => setRemarkableConfig({ enabled: checked })}
+          onCheckedChange={(checked) => {
+            const config: Partial<NonNullable<Settings['remarkable']>> = { enabled: checked }
+            // Set default sync directory when enabling for the first time
+            if (checked && !remarkableSettings?.syncDirectory) {
+              config.syncDirectory = '~/Documents/Remarkable'
+            }
+            setRemarkableConfig(config)
+          }}
         />
       </div>
 
@@ -144,10 +179,10 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
               <div className="flex gap-2">
                 <Input
                   value={code}
-                  onChange={(e) => setCode(e.target.value.toUpperCase())}
-                  placeholder="ABCDEFGH"
+                  onChange={(e) => setCode(e.target.value.toLowerCase())}
+                  placeholder="abcdefgh"
                   maxLength={8}
-                  className="flex-1 font-mono uppercase tracking-widest"
+                  className="flex-1 font-mono tracking-widest"
                   disabled={isRegistering}
                 />
                 <Button
@@ -177,7 +212,7 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
             <div className="flex gap-2">
               <Input
                 id="remarkable-syncdir"
-                value={remarkableSettings?.syncDirectory || ''}
+                value={remarkableSettings?.syncDirectory || '~/Documents/Remarkable'}
                 onChange={(e) => setRemarkableConfig({ syncDirectory: e.target.value })}
                 placeholder="~/Documents/Remarkable"
                 className="flex-1"
@@ -199,22 +234,45 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
             </p>
           </div>
 
+          {/* Sync status */}
+          {syncStatus && (
+            <p className="text-xs text-muted-foreground">{syncStatus}</p>
+          )}
+
           {/* Last synced timestamp */}
-          {remarkableSettings?.lastSyncedAt && (
+          {remarkableSettings?.lastSyncedAt && !syncStatus && (
             <p className="text-xs text-muted-foreground">
               Last synced: {new Date(remarkableSettings.lastSyncedAt).toLocaleString()}
             </p>
           )}
 
-          {/* Disconnect button (when connected) */}
+          {/* Action buttons (when connected) */}
           {hasToken && (
-            <Button
-              variant="outline"
-              onClick={handleDisconnect}
-              className="text-destructive hover:text-destructive"
-            >
-              Disconnect
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={handleSync}
+                disabled={isSyncing}
+              >
+                {isSyncing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Syncing...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Sync Now
+                  </>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleDisconnect}
+                className="text-destructive hover:text-destructive"
+              >
+                Disconnect
+              </Button>
+            </div>
           )}
         </>
       )}

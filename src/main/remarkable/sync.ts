@@ -2,9 +2,44 @@
  * reMarkable sync logic - downloads notebooks to local filesystem
  */
 import { mkdir, writeFile, readFile } from 'fs/promises'
-import { join, dirname } from 'path'
+import { join, dirname, resolve, sep } from 'path'
+import { homedir } from 'os'
 import { connect, type RemarkableNotebook } from './client'
 import JSZip from 'jszip'
+
+/**
+ * Expand ~ to home directory
+ */
+function expandPath(path: string): string {
+  if (path.startsWith('~/')) {
+    return join(homedir(), path.slice(2))
+  }
+  if (path === '~') {
+    return homedir()
+  }
+  return path
+}
+
+/**
+ * Sanitize a filename to prevent path traversal attacks
+ * Removes path separators, null bytes, and traversal sequences
+ */
+function sanitizeName(name: string): string {
+  return name
+    .replace(/\0/g, '') // Remove null bytes
+    .replace(/\.\./g, '_') // Replace traversal sequences
+    .replace(/[\/\\]/g, '_') // Replace path separators
+    .trim() || 'unnamed'
+}
+
+/**
+ * Verify a resolved path is within the expected base directory
+ */
+function isWithinDirectory(baseDir: string, targetPath: string): boolean {
+  const resolvedBase = resolve(baseDir)
+  const resolvedTarget = resolve(targetPath)
+  return resolvedTarget === resolvedBase || resolvedTarget.startsWith(resolvedBase + sep)
+}
 
 export interface SyncMetadata {
   lastSyncedAt: string
@@ -53,28 +88,32 @@ async function saveMetadata(syncDirectory: string, metadata: SyncMetadata): Prom
 
 /**
  * Build the folder path for a notebook based on its parent hierarchy
+ * Names are sanitized to prevent path traversal attacks
  */
 function buildPath(
   notebook: RemarkableNotebook,
   notebooks: RemarkableNotebook[],
   visited: Set<string> = new Set()
 ): string {
+  // Sanitize the notebook name to prevent path traversal
+  const safeName = sanitizeName(notebook.name)
+
   // Prevent infinite loops from circular references
   if (visited.has(notebook.id)) {
-    return notebook.name
+    return safeName
   }
   visited.add(notebook.id)
 
   if (!notebook.parent) {
-    return notebook.name
+    return safeName
   }
 
   const parent = notebooks.find(n => n.id === notebook.parent)
   if (!parent) {
-    return notebook.name
+    return safeName
   }
 
-  return join(buildPath(parent, notebooks, visited), notebook.name)
+  return join(buildPath(parent, notebooks, visited), safeName)
 }
 
 /**
@@ -85,6 +124,9 @@ export async function syncAll(
   syncDirectory: string,
   onProgress?: (message: string) => void
 ): Promise<SyncResult> {
+  // Expand ~ to home directory
+  const resolvedDir = expandPath(syncDirectory)
+
   const result: SyncResult = {
     syncedAt: new Date().toISOString(),
     synced: 0,
@@ -100,20 +142,20 @@ export async function syncAll(
     const notebooks = await client.listNotebooks()
 
     // Load existing metadata to check what's changed
-    const existingMeta = await loadMetadata(syncDirectory)
+    const existingMeta = await loadMetadata(resolvedDir)
     const newMeta: SyncMetadata = {
       lastSyncedAt: result.syncedAt,
       notebooks: {}
     }
 
     // Ensure sync directory exists
-    await mkdir(syncDirectory, { recursive: true })
+    await mkdir(resolvedDir, { recursive: true })
 
     // First, create all folders
     const folders = notebooks.filter(n => n.type === 'folder')
     for (const folder of folders) {
       const folderPath = buildPath(folder, notebooks)
-      const fullPath = join(syncDirectory, folderPath)
+      const fullPath = join(resolvedDir, folderPath)
       await mkdir(fullPath, { recursive: true })
 
       newMeta.notebooks[folder.id] = {
@@ -135,7 +177,7 @@ export async function syncAll(
 
       try {
         const docPath = buildPath(doc, notebooks)
-        const fullPath = join(syncDirectory, docPath)
+        const fullPath = join(resolvedDir, docPath)
 
         // Check if we need to download (hash changed or doesn't exist)
         const existingEntry = existingMeta?.notebooks[doc.id]
@@ -151,43 +193,37 @@ export async function syncAll(
         // Download the notebook
         const zipData = await client.downloadNotebook(doc.id, doc.hash)
 
-        // Save the raw zip file for now
-        // Future: extract and convert to markdown
-        const zipPath = `${fullPath}.zip`
-        await writeFile(zipPath, zipData)
-
-        // Also extract metadata for display
+        // Extract the zip contents
         const zip = await JSZip.loadAsync(zipData)
-        const metadataFile = zip.file(`${doc.id}.metadata`)
-        const contentFile = zip.file(`${doc.id}.content`)
-
         const notebookDir = fullPath
         await mkdir(notebookDir, { recursive: true })
 
-        // Save metadata.json
-        if (metadataFile) {
-          const metadata = await metadataFile.async('string')
-          await writeFile(join(notebookDir, 'metadata.json'), metadata, 'utf-8')
-        }
+        // Extract all files from the zip (with path traversal protection)
+        const files = Object.keys(zip.files)
+        for (const filename of files) {
+          const file = zip.files[filename]
+          const targetPath = join(notebookDir, filename)
 
-        // Save content.json
-        if (contentFile) {
-          const content = await contentFile.async('string')
-          await writeFile(join(notebookDir, 'content.json'), content, 'utf-8')
+          // Defense-in-depth: verify path stays within notebook directory
+          if (!isWithinDirectory(notebookDir, targetPath)) {
+            console.warn(`[reMarkable] Skipping suspicious path in zip: ${filename}`)
+            continue
+          }
 
-          // Try to extract page count for info
-          try {
-            const contentData = JSON.parse(content)
-            const pageCount = contentData.pageCount || 0
-            await writeFile(
-              join(notebookDir, 'info.txt'),
-              `Name: ${doc.name}\nPages: ${pageCount}\nType: ${doc.fileType}\nLast Modified: ${doc.lastModified}\n`,
-              'utf-8'
-            )
-          } catch {
-            // Ignore content parsing errors
+          if (file.dir) {
+            // Create directory
+            await mkdir(targetPath, { recursive: true })
+          } else {
+            // Extract file
+            const content = await file.async('nodebuffer')
+            await mkdir(dirname(targetPath), { recursive: true })
+            await writeFile(targetPath, content)
           }
         }
+
+        // Also save the raw zip for backup
+        const zipPath = `${fullPath}.zip`
+        await writeFile(zipPath, zipData)
 
         newMeta.notebooks[doc.id] = {
           name: doc.name,
@@ -207,7 +243,7 @@ export async function syncAll(
     }
 
     // Save updated metadata
-    await saveMetadata(syncDirectory, newMeta)
+    await saveMetadata(resolvedDir, newMeta)
 
     onProgress?.(`Sync complete: ${result.synced} synced, ${result.skipped} unchanged`)
   } catch (error) {

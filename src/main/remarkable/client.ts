@@ -31,22 +31,38 @@ let cachedToken: string | null = null
  * @returns The device token for future authentication
  */
 export async function registerDevice(code: string): Promise<string> {
-  const normalizedCode = code.toUpperCase().replace(/[^A-Z]/g, '')
+  // reMarkable API requires lowercase codes
+  const normalizedCode = code.toLowerCase().replace(/[^a-z]/g, '')
 
   if (normalizedCode.length !== 8) {
     throw new Error('Invalid code format. Please enter the 8-letter code from my.remarkable.com')
   }
 
   try {
+    console.log('[reMarkable] Attempting registration with code:', normalizedCode.substring(0, 2) + '...')
     const deviceToken = await rmapiRegister(normalizedCode, {
       deviceDesc: 'desktop-macos'
     })
+    console.log('[reMarkable] Registration successful')
     return deviceToken
   } catch (error) {
-    if (error instanceof Error) {
-      if (error.message.includes('400') || error.message.includes('Bad Request')) {
+    console.error('[reMarkable] Registration error:', error)
+
+    // rmapi-js throws ResponseError with status info
+    const responseError = error as { status?: number; statusText?: string; message?: string }
+    if (responseError.status) {
+      console.error('[reMarkable] HTTP Status:', responseError.status, responseError.statusText)
+
+      if (responseError.status === 400) {
         throw new Error('Invalid or expired code. Please get a new code from my.remarkable.com')
       }
+      if (responseError.status === 429) {
+        throw new Error('Too many registration attempts. Please wait a few minutes and try again.')
+      }
+      throw new Error(`Registration failed (HTTP ${responseError.status}): ${responseError.statusText}`)
+    }
+
+    if (error instanceof Error) {
       throw new Error(`Registration failed: ${error.message}`)
     }
     throw error

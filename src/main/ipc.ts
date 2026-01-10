@@ -28,6 +28,19 @@ const activeStreams = new Map<string, AbortController>()
 const SETTINGS_DIR = join(homedir(), '.prose')
 const SETTINGS_PATH = join(SETTINGS_DIR, 'settings.json')
 
+/**
+ * Expand ~ to home directory
+ */
+function expandPath(path: string): string {
+  if (path.startsWith('~/')) {
+    return join(homedir(), path.slice(2))
+  }
+  if (path === '~') {
+    return homedir()
+  }
+  return path
+}
+
 const defaultSettings: Settings = {
   theme: 'dark',
   llm: {
@@ -72,7 +85,8 @@ export function setupIpcHandlers(): void {
 
   // File: Read file at path
   ipcMain.handle('file:read', async (_event, path: string) => {
-    return await readFile(path, 'utf-8')
+    const expandedPath = expandPath(path)
+    return await readFile(expandedPath, 'utf-8')
   })
 
   // File: Save As dialog
@@ -125,7 +139,8 @@ export function setupIpcHandlers(): void {
   // File: Check if file exists
   ipcMain.handle('file:exists', async (_event, path: string) => {
     try {
-      await access(path)
+      const expandedPath = expandPath(path)
+      await access(expandedPath)
       return true
     } catch {
       return false
@@ -198,7 +213,9 @@ export function setupIpcHandlers(): void {
       }
     }
 
-    return listDir(dirPath)
+    // Expand ~ to home directory
+    const expandedPath = expandPath(dirPath)
+    return listDir(expandedPath)
   })
 
   // Settings: Load from ~/.prose/settings.json

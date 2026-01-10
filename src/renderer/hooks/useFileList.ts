@@ -34,16 +34,17 @@ export function useFileList() {
   const recentFiles = settings.recentFiles || []
   const syncDirectory = settings.remarkable?.syncDirectory
 
-  // Initialize default path to ~/Documents on first launch
+  // Initialize default path on first launch only
   useEffect(() => {
-    // If remarkable is enabled and has a sync directory, use that
-    if (settings.remarkable?.enabled && syncDirectory) {
-      if (rootPath !== syncDirectory) {
+    // Only initialize if no rootPath is set yet
+    if (!rootPath) {
+      if (settings.remarkable?.enabled && syncDirectory) {
+        // If remarkable is enabled, start at sync directory
         setRootPath(syncDirectory)
+      } else {
+        // Otherwise, initialize to ~/Documents
+        initializeDefaultPath()
       }
-    } else {
-      // Otherwise, initialize to ~/Documents
-      initializeDefaultPath()
     }
   }, [settings.remarkable?.enabled, syncDirectory, rootPath, setRootPath, initializeDefaultPath])
 

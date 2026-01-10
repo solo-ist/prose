@@ -62,17 +62,20 @@ export function FileListPanel() {
   const getFileName = (path: string) => path.split('/').pop() || path
 
   // Organize cloud notebooks into a hierarchical structure with sync status
+  // Extend type to include id for metadata notebooks
+  type NotebookWithId = (RemarkableCloudNotebook | RemarkableNotebookMetadata) & { id: string }
+
   const organizedNotebooks = useMemo(() => {
     // If we have cloud notebooks, use those (they represent all notebooks)
-    // Otherwise fall back to local metadata
-    const sourceNotebooks = cloudNotebooks.length > 0
+    // Otherwise fall back to local metadata, adding the ID from the record key
+    const sourceNotebooks: NotebookWithId[] = cloudNotebooks.length > 0
       ? cloudNotebooks
       : notebookMetadata?.notebooks
-        ? Object.values(notebookMetadata.notebooks)
+        ? Object.entries(notebookMetadata.notebooks).map(([id, notebook]) => ({ ...notebook, id }))
         : []
 
-    const folders: (RemarkableCloudNotebook | RemarkableNotebookMetadata)[] = []
-    const items: (RemarkableCloudNotebook | RemarkableNotebookMetadata)[] = []
+    const folders: NotebookWithId[] = []
+    const items: NotebookWithId[] = []
 
     for (const item of sourceNotebooks) {
       if (item.type === 'folder') {
@@ -95,9 +98,9 @@ export function FileListPanel() {
     return syncState.selectedNotebooks.includes(notebookId)
   }
 
-  // Get notebook ID from either cloud notebook or metadata
-  const getNotebookId = (notebook: RemarkableCloudNotebook | RemarkableNotebookMetadata): string => {
-    return 'id' in notebook ? notebook.id : notebook.hash
+  // Get notebook ID - all notebooks now have id included
+  const getNotebookId = (notebook: NotebookWithId): string => {
+    return notebook.id
   }
 
   // Handle right-click sync toggle
@@ -107,12 +110,22 @@ export function FileListPanel() {
     }
   }
 
+  // Check if a folder has any synced notebooks inside it
+  const isFolderSynced = (folderId: string): boolean => {
+    if (!syncState) return true // Legacy behavior
+    // Check if any notebook with this folder as parent is synced
+    return organizedNotebooks.notebooks.some(notebook => {
+      if (notebook.parent !== folderId) return false
+      return syncState.selectedNotebooks.includes(notebook.id)
+    })
+  }
+
   const handleNotebookClick = async (notebook: RemarkableNotebookMetadata) => {
-    // If markdown is available, open it; otherwise show the raw file
-    const pathToOpen = notebook.markdownPath || notebook.localPath
-    if (pathToOpen) {
-      selectFile(pathToOpen)
-      await openFileFromPath(pathToOpen)
+    // If markdown is available, open it
+    if (notebook.markdownPath && syncDirectory) {
+      const fullPath = `${syncDirectory}/${notebook.markdownPath}`
+      selectFile(fullPath)
+      await openFileFromPath(fullPath)
     }
   }
 
@@ -280,12 +293,21 @@ export function FileListPanel() {
               {/* Folders first */}
               {organizedNotebooks.folders.map((folder) => {
                 const folderId = getNotebookId(folder)
+                const hasSyncedContent = isFolderSynced(folderId)
                 return (
                   <div
                     key={folderId}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground"
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                      hasSyncedContent ? "text-foreground" : "text-muted-foreground opacity-50"
+                    )}
+                    title={hasSyncedContent ? folder.name : `${folder.name} (no synced notebooks)`}
                   >
-                    <Folder className="h-4 w-4 shrink-0" />
+                    {hasSyncedContent ? (
+                      <Folder className="h-4 w-4 shrink-0 text-blue-500" />
+                    ) : (
+                      <Folder className="h-4 w-4 shrink-0" />
+                    )}
                     <span className="truncate">{folder.name}</span>
                   </div>
                 )
@@ -294,13 +316,13 @@ export function FileListPanel() {
               {organizedNotebooks.notebooks.map((notebook) => {
                 const notebookId = getNotebookId(notebook)
                 const isSynced = isNotebookSynced(notebookId)
-                const localMeta = notebookMetadata?.notebooks
-                  ? Object.values(notebookMetadata.notebooks).find(
-                      n => n.hash === ('hash' in notebook ? notebook.hash : notebookId)
-                    )
-                  : null
+                // Match by ID - local metadata is keyed by notebook ID
+                const localMeta = notebookMetadata?.notebooks?.[notebookId] ?? null
                 const hasMarkdown = !!localMeta?.markdownPath
-                const pathToUse = localMeta?.markdownPath || localMeta?.localPath
+                // Compute full path for selection matching and click handling
+                const fullMarkdownPath = (localMeta?.markdownPath && syncDirectory)
+                  ? `${syncDirectory}/${localMeta.markdownPath}`
+                  : null
 
                 return (
                   <ContextMenu key={notebookId}>
@@ -308,7 +330,7 @@ export function FileListPanel() {
                       <button
                         className={cn(
                           "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50",
-                          selectedPath === pathToUse && "bg-muted",
+                          fullMarkdownPath && selectedPath === fullMarkdownPath && "bg-muted",
                           !isSynced && "opacity-50"
                         )}
                         onClick={() => {

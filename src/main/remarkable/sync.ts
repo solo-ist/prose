@@ -174,14 +174,10 @@ async function processNotebookWithOCR(
 
   try {
     // Find all .rm files in the notebook directory
-    console.log(`[OCR] Reading directory: ${notebookDir}`)
     const files = await readdir(notebookDir, { recursive: true })
-    console.log(`[OCR] Found ${files.length} files, types:`, files.slice(0, 5).map(f => typeof f))
-    console.log(`[OCR] Sample files:`, files.slice(0, 5))
     const rmFiles = files
       .filter(f => typeof f === 'string' && f.endsWith('.rm'))
       .sort() // Sort to ensure consistent page order
-    console.log(`[OCR] Found ${rmFiles.length} .rm files`)
 
     if (rmFiles.length === 0) {
       onProgress?.(`No .rm files found in "${notebookName}"`)
@@ -339,10 +335,8 @@ export async function syncAll(
 
         // If hash matches but OCR is needed, use existing files
         if (!needsDownload && needsOCR) {
-          console.log(`[reMarkable] Entering OCR branch for: ${doc.name}`)
           onProgress?.(`Processing OCR for existing notebook: ${doc.name}`)
           const notebookDir = join(hiddenDir, doc.hash)
-          console.log(`[reMarkable] Notebook dir: ${notebookDir}`)
 
           let markdownPath: string | undefined
           const markdown = await processNotebookWithOCR(notebookDir, doc.name, onProgress)

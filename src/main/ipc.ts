@@ -149,7 +149,8 @@ export function setupIpcHandlers(): void {
 
   // File: Show in folder (Finder on macOS)
   ipcMain.handle('file:showInFolder', async (_event, path: string) => {
-    shell.showItemInFolder(path)
+    const expandedPath = expandPath(path)
+    shell.showItemInFolder(expandedPath)
   })
 
   // File: Rename file

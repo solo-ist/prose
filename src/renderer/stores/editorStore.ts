@@ -139,3 +139,20 @@ useEditorStore.subscribe(
     debouncedSaveDraft(useEditorStore.getState())
   }
 )
+
+// Also subscribe to file list state changes to persist selectedPath
+useFileListStore.subscribe(
+  (state) => ({
+    viewMode: state.viewMode,
+    rootPath: state.rootPath,
+    expandedFolders: state.expandedFolders,
+    selectedPath: state.selectedPath
+  }),
+  () => {
+    // Only save if there's editor content (otherwise draft saving is disabled)
+    const editorState = useEditorStore.getState()
+    if (editorState.document.content || editorState.document.isDirty) {
+      debouncedSaveDraft(editorState)
+    }
+  }
+)

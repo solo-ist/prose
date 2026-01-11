@@ -1,5 +1,5 @@
 import { ipcMain, dialog, app, shell } from 'electron'
-import { readFile, writeFile, mkdir, access, rename, unlink } from 'fs/promises'
+import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat } from 'fs/promises'
 import { join } from 'path'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
@@ -27,6 +27,19 @@ const activeStreams = new Map<string, AbortController>()
 
 const SETTINGS_DIR = join(homedir(), '.prose')
 const SETTINGS_PATH = join(SETTINGS_DIR, 'settings.json')
+
+/**
+ * Expand ~ to home directory
+ */
+function expandPath(path: string): string {
+  if (path.startsWith('~/')) {
+    return join(homedir(), path.slice(2))
+  }
+  if (path === '~') {
+    return homedir()
+  }
+  return path
+}
 
 const defaultSettings: Settings = {
   theme: 'dark',
@@ -72,7 +85,8 @@ export function setupIpcHandlers(): void {
 
   // File: Read file at path
   ipcMain.handle('file:read', async (_event, path: string) => {
-    return await readFile(path, 'utf-8')
+    const expandedPath = expandPath(path)
+    return await readFile(expandedPath, 'utf-8')
   })
 
   // File: Save As dialog
@@ -125,7 +139,8 @@ export function setupIpcHandlers(): void {
   // File: Check if file exists
   ipcMain.handle('file:exists', async (_event, path: string) => {
     try {
-      await access(path)
+      const expandedPath = expandPath(path)
+      await access(expandedPath)
       return true
     } catch {
       return false
@@ -134,7 +149,8 @@ export function setupIpcHandlers(): void {
 
   // File: Show in folder (Finder on macOS)
   ipcMain.handle('file:showInFolder', async (_event, path: string) => {
-    shell.showItemInFolder(path)
+    const expandedPath = expandPath(path)
+    shell.showItemInFolder(expandedPath)
   })
 
   // File: Rename file
@@ -145,6 +161,92 @@ export function setupIpcHandlers(): void {
   // File: Delete file
   ipcMain.handle('file:delete', async (_event, path: string) => {
     await unlink(path)
+  })
+
+  // File: List directory contents (with lazy loading support)
+  ipcMain.handle('file:listDirectory', async (_event, dirPath: string, maxDepth: number = 1) => {
+    interface FileItem {
+      name: string
+      path: string
+      isDirectory: boolean
+      modifiedAt: string
+      children?: FileItem[]
+      hasChildren?: boolean // For lazy loading - indicates folder has content without loading it
+    }
+
+    async function listDir(dir: string, depth: number = 0): Promise<FileItem[]> {
+      try {
+        const entries = await readdir(dir, { withFileTypes: true })
+        const items: FileItem[] = []
+
+        for (const entry of entries) {
+          // Skip hidden files
+          if (entry.name.startsWith('.')) continue
+
+          const fullPath = join(dir, entry.name)
+          let stats
+          try {
+            stats = await stat(fullPath)
+          } catch {
+            // Skip files we can't stat (permissions, broken symlinks, etc.)
+            continue
+          }
+
+          if (entry.isDirectory()) {
+            if (depth < maxDepth) {
+              // Recurse if within depth limit
+              const children = await listDir(fullPath, depth + 1)
+              items.push({
+                name: entry.name,
+                path: fullPath,
+                isDirectory: true,
+                modifiedAt: stats.mtime.toISOString(),
+                children,
+                hasChildren: children.length > 0
+              })
+            } else {
+              // Beyond depth limit - just check if folder has any relevant content
+              let hasChildren = false
+              try {
+                const subEntries = await readdir(fullPath, { withFileTypes: true })
+                hasChildren = subEntries.some(e =>
+                  !e.name.startsWith('.') &&
+                  (e.isDirectory() || e.name.endsWith('.md') || e.name.endsWith('.markdown') || e.name.endsWith('.txt'))
+                )
+              } catch {
+                // Can't read folder, assume no children
+              }
+              items.push({
+                name: entry.name,
+                path: fullPath,
+                isDirectory: true,
+                modifiedAt: stats.mtime.toISOString(),
+                hasChildren
+              })
+            }
+          } else if (entry.name.endsWith('.md') || entry.name.endsWith('.markdown') || entry.name.endsWith('.txt')) {
+            items.push({
+              name: entry.name,
+              path: fullPath,
+              isDirectory: false,
+              modifiedAt: stats.mtime.toISOString()
+            })
+          }
+        }
+
+        // Sort: directories first, then by name
+        return items.sort((a, b) => {
+          if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
+          return a.name.localeCompare(b.name)
+        })
+      } catch {
+        return []
+      }
+    }
+
+    // Expand ~ to home directory
+    const expandedPath = expandPath(dirPath)
+    return listDir(expandedPath, 0)
   })
 
   // Settings: Load from ~/.prose/settings.json
@@ -342,4 +444,59 @@ export function setupIpcHandlers(): void {
     }
     return { success: false }
   })
+
+  // reMarkable: Register device with one-time code
+  ipcMain.handle('remarkable:register', async (_event, code: string) => {
+    const { registerDevice } = await import('./remarkable/client')
+    const deviceToken = await registerDevice(code)
+    return { deviceToken }
+  })
+
+  // reMarkable: Validate existing device token
+  ipcMain.handle('remarkable:validate', async (_event, deviceToken: string) => {
+    const { validateToken } = await import('./remarkable/client')
+    return await validateToken(deviceToken)
+  })
+
+  // reMarkable: Sync notebooks to local directory
+  ipcMain.handle(
+    'remarkable:sync',
+    async (_event, deviceToken: string, syncDirectory: string) => {
+      const { syncAll } = await import('./remarkable/sync')
+      return await syncAll(deviceToken, syncDirectory)
+    }
+  )
+
+  // reMarkable: Disconnect (clear cached connection)
+  ipcMain.handle('remarkable:disconnect', async () => {
+    const { disconnect } = await import('./remarkable/client')
+    disconnect()
+  })
+
+  // reMarkable: Get sync metadata (notebook list with status)
+  ipcMain.handle('remarkable:getMetadata', async (_event, syncDirectory: string) => {
+    const { getSyncStatus } = await import('./remarkable/sync')
+    return await getSyncStatus(syncDirectory)
+  })
+
+  // reMarkable: List cloud notebooks (for selection UI)
+  ipcMain.handle('remarkable:listCloudNotebooks', async (_event, deviceToken: string) => {
+    const { listCloudNotebooks } = await import('./remarkable/sync')
+    return await listCloudNotebooks(deviceToken)
+  })
+
+  // reMarkable: Get sync state (which notebooks are selected)
+  ipcMain.handle('remarkable:getSyncState', async (_event, syncDirectory: string) => {
+    const { getSyncState } = await import('./remarkable/sync')
+    return await getSyncState(syncDirectory)
+  })
+
+  // reMarkable: Update sync selection
+  ipcMain.handle(
+    'remarkable:updateSyncSelection',
+    async (_event, syncDirectory: string, selectedNotebooks: string[]) => {
+      const { updateSyncSelection } = await import('./remarkable/sync')
+      await updateSyncSelection(syncDirectory, selectedNotebooks)
+    }
+  )
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect } from 'react'
 import { useEditorStore } from '../stores/editorStore'
 import { useChatStore, setCurrentDocumentId } from '../stores/chatStore'
 import { useSettingsStore } from '../stores/settingsStore'
+import { useFileListStore } from '../stores/fileListStore'
 import { parseMarkdown, serializeMarkdown } from '../lib/markdown'
 import {
   generateId,
@@ -80,6 +81,12 @@ export function useEditor() {
       // Mark as editing so empty state doesn't show
       setEditing(true)
 
+      // Add to recent files
+      useSettingsStore.getState().addRecentFile(filePath)
+
+      // Highlight file in sidebar
+      useFileListStore.getState().revealAndSelectPath(filePath)
+
       // Return true if document has content but no chat history (for auto-prompt)
       const conversations = useChatStore.getState().conversations
       return parsed.content.trim().length > 0 && conversations.length === 0
@@ -120,6 +127,12 @@ export function useEditor() {
 
       // Mark as editing so empty state doesn't show
       setEditing(true)
+
+      // Add to recent files
+      useSettingsStore.getState().addRecentFile(result.path)
+
+      // Highlight file in sidebar
+      useFileListStore.getState().revealAndSelectPath(result.path)
 
       // Return true if document has content but no chat history (for auto-prompt)
       const conversations = useChatStore.getState().conversations
@@ -227,7 +240,10 @@ export function useEditor() {
 
     // Clear annotations for the new document
     useAnnotationStore.getState().clearAnnotations()
-  }, [resetDocument, document.documentId, saveCurrentConversation])
+
+    // Mark as editing so empty state hides and editor shows
+    setEditing(true)
+  }, [resetDocument, document.documentId, saveCurrentConversation, setEditing])
 
   const quickSaveWithTitle = useCallback(async (title: string): Promise<boolean> => {
     if (!window.api) return false

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from 'react'
+import { useEffect, useRef, useCallback, useState, useMemo } from 'react'
 import { useEditor as useTipTapEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
@@ -17,15 +17,17 @@ import { FindBar } from './FindBar'
 import { SelectionPopover } from './SelectionPopover'
 import { AddCommentDialog } from './AddCommentDialog'
 import { EmptyState } from '../layout/EmptyState'
+import { FrontmatterDisplay, hasFrontmatter, getContentWithoutFrontmatter, getFrontmatterRaw } from './FrontmatterDisplay'
 
 export function Editor() {
   const { document, setContent, openFile, saveFile } = useEditor()
   const isEditing = useEditorStore((state) => state.isEditing)
   const { settings, setDialogOpen, setShortcutsDialogOpen } = useSettings()
-  const { setContext, togglePanel, setPanelOpen, sendMessage } = useChat()
+  const { setContext, togglePanel, setPanelOpen, agentMode, setAgentMode, includeDocument, setIncludeDocument } = useChat()
   const setEditorInstance = useEditorInstanceStore((state) => state.setEditor)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isUpdatingFromStore = useRef(false)
+  const frontmatterRef = useRef<string>('')
   const [isFindOpen, setIsFindOpen] = useState(false)
   const [isAddCommentOpen, setIsAddCommentOpen] = useState(false)
   const [pendingCommentSelection, setPendingCommentSelection] = useState<{
@@ -33,6 +35,12 @@ export function Editor() {
     to: number
     text: string
   } | null>(null)
+
+  // Extract and store frontmatter on initial load
+  const initialContent = useMemo(() => {
+    frontmatterRef.current = getFrontmatterRaw(document.content)
+    return getContentWithoutFrontmatter(document.content)
+  }, []) // Only run once on mount
 
   const editor = useTipTapEditor({
     extensions: [
@@ -74,7 +82,7 @@ export function Editor() {
         showTooltip: true,
       }),
     ],
-    content: document.content,
+    content: initialContent,
     editorProps: {
       attributes: {
         class: 'outline-none min-h-full'
@@ -90,7 +98,9 @@ export function Editor() {
 
       debounceRef.current = setTimeout(() => {
         const markdown = editor.storage.markdown.getMarkdown()
-        setContent(markdown)
+        // Prepend frontmatter if present
+        const fullContent = frontmatterRef.current + markdown
+        setContent(fullContent)
       }, 500)
     }
   })
@@ -109,11 +119,22 @@ export function Editor() {
   useEffect(() => {
     if (!editor) return
 
+    // Extract frontmatter and body from the new content
+    const newFrontmatter = getFrontmatterRaw(document.content)
+    const newBody = getContentWithoutFrontmatter(document.content)
+
+    // Get current editor content (without frontmatter since we strip it)
     const currentMarkdown = editor.storage.markdown?.getMarkdown() || ''
-    if (document.content !== currentMarkdown) {
+
+    // Check if body content differs (comparing without frontmatter)
+    if (newBody !== currentMarkdown) {
       isUpdatingFromStore.current = true
-      editor.commands.setContent(document.content)
+      frontmatterRef.current = newFrontmatter
+      editor.commands.setContent(newBody)
       isUpdatingFromStore.current = false
+    } else if (newFrontmatter !== frontmatterRef.current) {
+      // Just update frontmatter ref if only frontmatter changed
+      frontmatterRef.current = newFrontmatter
     }
   }, [editor, document.content])
 
@@ -175,9 +196,7 @@ export function Editor() {
 
     if (isMod && e.key === 'o' && !e.shiftKey) {
       e.preventDefault()
-      openFile().then((shouldAutoPrompt) => {
-        if (shouldAutoPrompt) sendMessage('What is this?', { hidden: true })
-      })
+      openFile()
     } else if (isMod && e.key === 's' && !e.shiftKey) {
       e.preventDefault()
       saveFile()
@@ -279,8 +298,16 @@ export function Editor() {
       // F1: Show keyboard shortcuts
       e.preventDefault()
       setShortcutsDialogOpen(true)
+    } else if (e.shiftKey && e.key === 'Tab' && !isMod) {
+      // Shift+Tab: Toggle agent mode
+      e.preventDefault()
+      setAgentMode(!agentMode)
+    } else if (isMod && e.key === 'k' && !e.shiftKey) {
+      // Cmd+K: Toggle full context
+      e.preventDefault()
+      setIncludeDocument(!includeDocument)
     }
-  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, editor, setContext, setPanelOpen, togglePanel, isFindOpen, openAddCommentDialog, sendMessage])
+  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, editor, setContext, setPanelOpen, togglePanel, isFindOpen, openAddCommentDialog, agentMode, setAgentMode, includeDocument, setIncludeDocument])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
@@ -297,6 +324,19 @@ export function Editor() {
   // Show empty state when document is empty, untitled, and user hasn't started editing
   const showEmptyState = !isEditing && !document.path && !document.content && !document.isDirty
 
+  // Check if document has frontmatter to display
+  const showFrontmatter = useMemo(() => hasFrontmatter(document.content), [document.content])
+
+  // Focus editor when transitioning from empty state to editing
+  useEffect(() => {
+    if (!showEmptyState && editor) {
+      // Small delay to ensure editor is mounted and ready
+      requestAnimationFrame(() => {
+        editor.commands.focus()
+      })
+    }
+  }, [showEmptyState, editor])
+
   return (
     <div className="h-full flex flex-col relative">
       <FindBar
@@ -308,14 +348,17 @@ export function Editor() {
         <EmptyState />
       ) : (
         <div
-          className="flex-1 overflow-auto p-8 md:p-12 lg:p-16"
+          className="flex-1 overflow-auto px-8 py-6"
           style={{
             fontSize: `${settings.editor.fontSize}px`,
             lineHeight: settings.editor.lineHeight,
             fontFamily: settings.editor.fontFamily
           }}
         >
-          <div className="max-w-3xl mx-auto prose-editor">
+          <div className="max-w-3xl prose-editor">
+            {showFrontmatter && (
+              <FrontmatterDisplay content={document.content} />
+            )}
             <EditorContent
               editor={editor}
               className="min-h-full"

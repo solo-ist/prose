@@ -8,17 +8,20 @@ export function useSettings() {
     isDialogOpen,
     isShortcutsDialogOpen,
     isAboutDialogOpen,
+    dialogTab,
     setSettings,
     loadSettings,
     saveSettings,
     setDialogOpen,
+    setDialogTab,
     setShortcutsDialogOpen,
     setAboutDialogOpen,
     setTheme,
     setLLMConfig,
     setEditorConfig,
     setRecoveryConfig,
-    setDefaultSaveDirectory
+    setDefaultSaveDirectory,
+    setRemarkableConfig
   } = useSettingsStore()
 
   useEffect(() => {
@@ -33,15 +36,18 @@ export function useSettings() {
     isDialogOpen,
     isShortcutsDialogOpen,
     isAboutDialogOpen,
+    dialogTab,
     setSettings,
     saveSettings,
     setDialogOpen,
+    setDialogTab,
     setShortcutsDialogOpen,
     setAboutDialogOpen,
     setTheme,
     setLLMConfig,
     setEditorConfig,
     setRecoveryConfig,
-    setDefaultSaveDirectory
+    setDefaultSaveDirectory,
+    setRemarkableConfig
   }
 }

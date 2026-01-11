@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, type KeyboardEvent } from 'react'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
+import { useFileList } from '../../hooks/useFileList'
 import { isMacOS } from '../../lib/browserApi'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
@@ -22,6 +23,8 @@ import {
   Moon,
   Sun,
   Settings,
+  PanelLeftClose,
+  PanelLeft,
   PanelRightClose,
   PanelRight,
   MoreHorizontal
@@ -30,7 +33,8 @@ import {
 export function Toolbar() {
   const { document, openFile, saveFile, newFile, quickSaveWithTitle } = useEditor()
   const { settings, isLoaded, setTheme, setDialogOpen } = useSettings()
-  const { isPanelOpen, togglePanel, sendMessage } = useChat()
+  const { isPanelOpen: isChatOpen, togglePanel: toggleChatPanel } = useChat()
+  const { isPanelOpen: isFileListOpen, togglePanel: toggleFileListPanel } = useFileList()
 
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editedTitle, setEditedTitle] = useState('')
@@ -97,8 +101,23 @@ export function Toolbar() {
 
   return (
     <div className={`flex h-12 items-center justify-between border-b border-border bg-background pr-4 ${leftPadding} app-region-drag`}>
-      {/* Left: File info */}
+      {/* Left: File explorer toggle and file info */}
       <div className="flex items-center gap-2 app-region-no-drag">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" onClick={toggleFileListPanel} aria-label={isFileListOpen ? 'Hide files' : 'Show files'}>
+              {isFileListOpen ? (
+                <PanelLeftClose className="h-4 w-4" />
+              ) : (
+                <PanelLeft className="h-4 w-4" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {isFileListOpen ? 'Hide files' : 'Show files'}
+          </TooltipContent>
+        </Tooltip>
+
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -160,8 +179,8 @@ export function Toolbar() {
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" onClick={togglePanel} aria-label={isPanelOpen ? 'Hide chat' : 'Show chat'}>
-              {isPanelOpen ? (
+            <Button variant="ghost" size="icon" onClick={toggleChatPanel} aria-label={isChatOpen ? 'Hide chat' : 'Show chat'}>
+              {isChatOpen ? (
                 <PanelRightClose className="h-4 w-4" />
               ) : (
                 <PanelRight className="h-4 w-4" />
@@ -169,7 +188,7 @@ export function Toolbar() {
             </Button>
           </TooltipTrigger>
           <TooltipContent>
-            {isPanelOpen ? 'Hide chat' : 'Show chat'}
+            {isChatOpen ? 'Hide chat' : 'Show chat'}
           </TooltipContent>
         </Tooltip>
 
@@ -183,9 +202,7 @@ export function Toolbar() {
             <DropdownMenuItem onClick={newFile}>
               New Document
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => openFile().then((shouldAutoPrompt) => {
-              if (shouldAutoPrompt) sendMessage('What is this?', { hidden: true })
-            })}>
+            <DropdownMenuItem onClick={() => openFile()}>
               Open...
             </DropdownMenuItem>
             <DropdownMenuItem onClick={saveFile}>

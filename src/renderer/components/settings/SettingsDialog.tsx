@@ -18,18 +18,22 @@ import {
 import { Button } from '../ui/button'
 import { Separator } from '../ui/separator'
 import { Slider } from '../ui/slider'
+import { RemarkableIntegration } from './RemarkableIntegration'
 import type { Settings } from '../../types'
 
 export function SettingsDialog() {
   const {
     settings,
     isDialogOpen,
+    dialogTab,
     setDialogOpen,
+    setDialogTab,
     setTheme,
     setLLMConfig,
     setEditorConfig,
     setRecoveryConfig,
     setDefaultSaveDirectory,
+    setRemarkableConfig,
     saveSettings
   } = useSettings()
 
@@ -45,11 +49,12 @@ export function SettingsDialog() {
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
 
-        <Tabs defaultValue="general" className="mt-4">
-          <TabsList className="grid w-full grid-cols-4">
+        <Tabs value={dialogTab} onValueChange={(value) => setDialogTab(value as typeof dialogTab)} className="mt-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="editor">Editor</TabsTrigger>
             <TabsTrigger value="llm">LLM</TabsTrigger>
+            <TabsTrigger value="integrations">Integrations</TabsTrigger>
             <TabsTrigger value="account">Account</TabsTrigger>
           </TabsList>
 
@@ -252,6 +257,13 @@ export function SettingsDialog() {
                 />
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="integrations" className="space-y-4 mt-4">
+            <RemarkableIntegration
+              settings={settings}
+              setRemarkableConfig={setRemarkableConfig}
+            />
           </TabsContent>
 
           <TabsContent value="account" className="space-y-4 mt-4">

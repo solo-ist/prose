@@ -11,11 +11,19 @@ export interface ChatConversation {
   title?: string
 }
 
+export interface FileListState {
+  viewMode: 'recent' | 'folder' | 'notebooks'
+  rootPath: string | null
+  expandedFolders: string[] // Serialized from Set<string>
+  selectedPath: string | null
+}
+
 export interface DraftState {
   document: Document
   cursorPosition?: { line: number; column: number }
   activeChatId: string | null
   savedAt: number
+  fileList?: FileListState
 }
 
 // Database constants

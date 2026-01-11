@@ -29,11 +29,19 @@ export function EmptyState() {
         </div>
 
         <div className="mt-8 text-xs text-muted-foreground">
-          <p className="mb-1">Keyboard shortcuts:</p>
-          <p>
-            <kbd className="rounded bg-muted px-1.5 py-0.5">Cmd+N</kbd> New &nbsp;
-            <kbd className="rounded bg-muted px-1.5 py-0.5">Cmd+O</kbd> Open
-          </p>
+          <p className="mb-2 font-medium">Keyboard shortcuts:</p>
+          <div className="space-y-1">
+            <p>
+              <kbd className="rounded bg-muted px-1.5 py-0.5">⌘N</kbd> New &nbsp;
+              <kbd className="rounded bg-muted px-1.5 py-0.5">⌘O</kbd> Open &nbsp;
+              <kbd className="rounded bg-muted px-1.5 py-0.5">⌘S</kbd> Save
+            </p>
+            <p>
+              <kbd className="rounded bg-muted px-1.5 py-0.5">⌘\</kbd> Chat &nbsp;
+              <kbd className="rounded bg-muted px-1.5 py-0.5">⇧⌘H</kbd> Files &nbsp;
+              <kbd className="rounded bg-muted px-1.5 py-0.5">F1</kbd> All shortcuts
+            </p>
+          </div>
         </div>
       </div>
     </div>

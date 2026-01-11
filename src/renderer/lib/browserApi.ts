@@ -367,6 +367,18 @@ export const browserApi: ElectronAPI = {
     throw new Error('Cannot delete files in browser mode')
   },
 
+  listDirectory: async (_path: string): Promise<import('../types').FileItem[]> => {
+    // Can't list directories in browser mode
+    return []
+  },
+
+  remarkableSync: async (
+    _request: import('../types').RemarkableSyncRequest
+  ): Promise<import('../types').RemarkableSyncResponse> => {
+    // Can't sync in browser mode - need Electron to write files
+    throw new Error('reMarkable sync is not available in browser mode')
+  },
+
   onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => {
     const handler = (e: Event) => callback((e as CustomEvent).detail)
     window.addEventListener('llm:stream:chunk', handler)

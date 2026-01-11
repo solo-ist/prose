@@ -26,3 +26,4 @@ Create documentation for:
 
 Simple bug fixes and small features don't need dedicated folders.
 
+

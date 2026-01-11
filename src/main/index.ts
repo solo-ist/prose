@@ -1,8 +1,15 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { config } from 'dotenv'
 import { join } from 'path'
+
+// Load environment variables from .env file
+config()
+
+import { app, shell, BrowserWindow } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { setupIpcHandlers } from './ipc'
 import { createMenu } from './menu'
+
+console.log('[Main] Environment loaded. OCR URL:', process.env.REMARKABLE_OCR_URL ? 'set' : 'not set')
 
 // Enable remote debugging in dev mode for QA automation (Circuit Electron, Playwright)
 if (is.dev) {

@@ -68,6 +68,64 @@ export interface ElectronAPI {
   showInFolder: (path: string) => Promise<void>
   renameFile: (oldPath: string, newPath: string) => Promise<void>
   deleteFile: (path: string) => Promise<void>
+  listDirectory: (path: string, maxDepth?: number) => Promise<FileItem[]>
+  remarkableRegister: (code: string) => Promise<RemarkableRegisterResponse>
+  remarkableValidate: (deviceToken: string) => Promise<boolean>
+  remarkableSync: (deviceToken: string, syncDirectory: string) => Promise<RemarkableSyncResult>
+  remarkableDisconnect: () => Promise<void>
+  remarkableGetMetadata: (syncDirectory: string) => Promise<RemarkableSyncMetadata | null>
+  remarkableListCloudNotebooks: (deviceToken: string) => Promise<RemarkableCloudNotebook[]>
+  remarkableGetSyncState: (syncDirectory: string) => Promise<RemarkableSyncState | null>
+  remarkableUpdateSyncSelection: (syncDirectory: string, selectedNotebooks: string[]) => Promise<void>
+}
+
+export interface FileItem {
+  name: string
+  path: string
+  isDirectory: boolean
+  modifiedAt: string
+  children?: FileItem[]
+  hasChildren?: boolean // For lazy loading - indicates folder has content without loading it
+}
+
+export interface RemarkableRegisterResponse {
+  deviceToken: string
+}
+
+export interface RemarkableSyncResult {
+  syncedAt: string
+  synced: number
+  skipped: number
+  errors: string[]
+}
+
+export interface RemarkableNotebookMetadata {
+  name: string
+  parent: string | null
+  type: 'folder' | 'notebook'
+  fileType?: 'epub' | 'pdf' | 'notebook'
+  lastModified: string
+  hash: string
+  localPath: string
+  markdownPath?: string
+}
+
+export interface RemarkableSyncMetadata {
+  lastSyncedAt: string
+  notebooks: Record<string, RemarkableNotebookMetadata>
+}
+
+export interface RemarkableCloudNotebook {
+  id: string
+  name: string
+  type: 'folder' | 'notebook'
+  parent: string | null
+  fileType?: string
+}
+
+export interface RemarkableSyncState {
+  selectedNotebooks: string[]
+  lastUpdated: string
 }
 
 const api: ElectronAPI = {
@@ -109,6 +167,19 @@ const api: ElectronAPI = {
   showInFolder: (path: string) => ipcRenderer.invoke('file:showInFolder', path),
   renameFile: (oldPath: string, newPath: string) => ipcRenderer.invoke('file:rename', oldPath, newPath),
   deleteFile: (path: string) => ipcRenderer.invoke('file:delete', path),
+  listDirectory: (path: string, maxDepth?: number) => ipcRenderer.invoke('file:listDirectory', path, maxDepth),
+  remarkableRegister: (code: string) => ipcRenderer.invoke('remarkable:register', code),
+  remarkableValidate: (deviceToken: string) => ipcRenderer.invoke('remarkable:validate', deviceToken),
+  remarkableSync: (deviceToken: string, syncDirectory: string) =>
+    ipcRenderer.invoke('remarkable:sync', deviceToken, syncDirectory),
+  remarkableDisconnect: () => ipcRenderer.invoke('remarkable:disconnect'),
+  remarkableGetMetadata: (syncDirectory: string) => ipcRenderer.invoke('remarkable:getMetadata', syncDirectory),
+  remarkableListCloudNotebooks: (deviceToken: string) =>
+    ipcRenderer.invoke('remarkable:listCloudNotebooks', deviceToken),
+  remarkableGetSyncState: (syncDirectory: string) =>
+    ipcRenderer.invoke('remarkable:getSyncState', syncDirectory),
+  remarkableUpdateSyncSelection: (syncDirectory: string, selectedNotebooks: string[]) =>
+    ipcRenderer.invoke('remarkable:updateSyncSelection', syncDirectory, selectedNotebooks),
   onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, chunk: LLMStreamChunk): void => {
       callback(chunk)

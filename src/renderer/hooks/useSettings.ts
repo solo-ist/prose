@@ -21,7 +21,8 @@ export function useSettings() {
     setEditorConfig,
     setRecoveryConfig,
     setDefaultSaveDirectory,
-    setRemarkableConfig
+    setRemarkableConfig,
+    setCustomCSS
   } = useSettingsStore()
 
   useEffect(() => {
@@ -48,6 +49,7 @@ export function useSettings() {
     setEditorConfig,
     setRecoveryConfig,
     setDefaultSaveDirectory,
-    setRemarkableConfig
+    setRemarkableConfig,
+    setCustomCSS
   }
 }

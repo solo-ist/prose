@@ -3,7 +3,7 @@ import type { Settings } from '../types'
 
 const MAX_RECENT_FILES = 15
 
-type SettingsTab = 'general' | 'editor' | 'llm' | 'integrations' | 'account'
+type SettingsTab = 'general' | 'editor' | 'appearance' | 'llm' | 'integrations' | 'account'
 
 interface SettingsState {
   settings: Settings
@@ -26,6 +26,32 @@ interface SettingsState {
   setDefaultSaveDirectory: (path: string) => void
   setRemarkableConfig: (config: Partial<NonNullable<Settings['remarkable']>>) => void
   addRecentFile: (path: string) => void
+  setCustomCSS: (css: string) => void
+}
+
+const CUSTOM_CSS_STYLE_ID = 'prose-custom-css'
+
+/**
+ * Inject or update custom CSS in the document
+ */
+function injectCustomCSS(css: string | undefined): void {
+  let styleEl = document.getElementById(CUSTOM_CSS_STYLE_ID) as HTMLStyleElement | null
+
+  if (!css) {
+    // Remove the style element if CSS is empty
+    if (styleEl) {
+      styleEl.remove()
+    }
+    return
+  }
+
+  if (!styleEl) {
+    styleEl = document.createElement('style')
+    styleEl.id = CUSTOM_CSS_STYLE_ID
+    document.head.appendChild(styleEl)
+  }
+
+  styleEl.textContent = css
 }
 
 const defaultSettings: Settings = {
@@ -76,6 +102,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       } else {
         document.documentElement.classList.remove('dark')
       }
+
+      // Apply custom CSS on load
+      injectCustomCSS(settings.customCSS)
     } catch (error) {
       console.error('Failed to load settings:', error)
       set({ isLoaded: true })
@@ -163,5 +192,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     })
     // Auto-save after adding recent file
     get().saveSettings()
+  },
+
+  setCustomCSS: (css) => {
+    set((state) => ({
+      settings: { ...state.settings, customCSS: css }
+    }))
+    // Apply custom CSS immediately
+    injectCustomCSS(css)
   }
 }))

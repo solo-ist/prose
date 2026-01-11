@@ -18,6 +18,7 @@ import {
 import { Button } from '../ui/button'
 import { Separator } from '../ui/separator'
 import { Slider } from '../ui/slider'
+import { Textarea } from '../ui/textarea'
 import { RemarkableIntegration } from './RemarkableIntegration'
 import type { Settings } from '../../types'
 
@@ -34,6 +35,7 @@ export function SettingsDialog() {
     setRecoveryConfig,
     setDefaultSaveDirectory,
     setRemarkableConfig,
+    setCustomCSS,
     saveSettings
   } = useSettings()
 
@@ -50,9 +52,10 @@ export function SettingsDialog() {
         </DialogHeader>
 
         <Tabs value={dialogTab} onValueChange={(value) => setDialogTab(value as typeof dialogTab)} className="mt-4">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="editor">Editor</TabsTrigger>
+            <TabsTrigger value="appearance">Appearance</TabsTrigger>
             <TabsTrigger value="llm">LLM</TabsTrigger>
             <TabsTrigger value="integrations">Integrations</TabsTrigger>
             <TabsTrigger value="account">Account</TabsTrigger>
@@ -196,6 +199,27 @@ export function SettingsDialog() {
                   </SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="appearance" className="space-y-4 mt-4">
+            <div className="space-y-2">
+              <Label htmlFor="customCSS">Custom CSS</Label>
+              <Textarea
+                id="customCSS"
+                value={settings.customCSS || ''}
+                onChange={(e) => setCustomCSS(e.target.value)}
+                placeholder={`/* Add your custom CSS here */
+.prose-editor {
+  /* Example: change editor background */
+  background: hsl(var(--background));
+}`}
+                className="min-h-[200px] font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Add custom CSS to personalize the app&apos;s appearance. Changes are applied immediately.
+                You can use CSS variables like <code className="bg-muted px-1 rounded">hsl(var(--primary))</code> for theme-aware styling.
+              </p>
             </div>
           </TabsContent>
 

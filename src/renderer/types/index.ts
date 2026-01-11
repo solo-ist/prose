@@ -26,6 +26,7 @@ export interface Settings {
     lastSyncedAt?: string
   }
   recentFiles?: string[]
+  customCSS?: string
 }
 
 export interface Document {

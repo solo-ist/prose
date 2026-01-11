@@ -1,6 +1,14 @@
 import { Menu, BrowserWindow, app } from 'electron'
 
-export function createMenu(mainWindow: BrowserWindow): void {
+// Helper to safely send menu actions to the focused window
+function sendMenuAction(action: string): void {
+  const win = BrowserWindow.getFocusedWindow()
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('menu:action', action)
+  }
+}
+
+export function createMenu(_mainWindow: BrowserWindow): void {
   const isMac = process.platform === 'darwin'
 
   const template: Electron.MenuItemConstructorOptions[] = [
@@ -12,7 +20,7 @@ export function createMenu(mainWindow: BrowserWindow): void {
               {
                 label: 'About Prose',
                 click: (): void => {
-                  mainWindow.webContents.send('menu:action', 'about')
+                  sendMenuAction('about')
                 }
               },
               { type: 'separator' as const },
@@ -20,7 +28,7 @@ export function createMenu(mainWindow: BrowserWindow): void {
                 label: 'Settings...',
                 accelerator: 'Cmd+,',
                 click: (): void => {
-                  mainWindow.webContents.send('menu:action', 'settings')
+                  sendMenuAction('settings')
                 }
               },
               { type: 'separator' as const },
@@ -42,14 +50,14 @@ export function createMenu(mainWindow: BrowserWindow): void {
           label: 'New',
           accelerator: 'CmdOrCtrl+N',
           click: (): void => {
-            mainWindow.webContents.send('menu:action', 'new')
+            sendMenuAction('new')
           }
         },
         {
           label: 'Open...',
           accelerator: 'CmdOrCtrl+O',
           click: (): void => {
-            mainWindow.webContents.send('menu:action', 'open')
+            sendMenuAction('open')
           }
         },
         { type: 'separator' },
@@ -57,14 +65,14 @@ export function createMenu(mainWindow: BrowserWindow): void {
           label: 'Save',
           accelerator: 'CmdOrCtrl+S',
           click: (): void => {
-            mainWindow.webContents.send('menu:action', 'save')
+            sendMenuAction('save')
           }
         },
         {
           label: 'Save As...',
           accelerator: 'CmdOrCtrl+Shift+S',
           click: (): void => {
-            mainWindow.webContents.send('menu:action', 'saveAs')
+            sendMenuAction('saveAs')
           }
         },
         { type: 'separator' },
@@ -74,8 +82,20 @@ export function createMenu(mainWindow: BrowserWindow): void {
     {
       label: 'Edit',
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
+        {
+          label: 'Undo',
+          accelerator: 'CmdOrCtrl+Z',
+          click: (): void => {
+            sendMenuAction('undo')
+          }
+        },
+        {
+          label: 'Redo',
+          accelerator: isMac ? 'Cmd+Shift+Z' : 'Ctrl+Y',
+          click: (): void => {
+            sendMenuAction('redo')
+          }
+        },
         { type: 'separator' },
         { role: 'cut' },
         { role: 'copy' },
@@ -96,7 +116,7 @@ export function createMenu(mainWindow: BrowserWindow): void {
           label: 'Find',
           accelerator: 'CmdOrCtrl+F',
           click: (): void => {
-            mainWindow.webContents.send('menu:action', 'find')
+            sendMenuAction('find')
           }
         }
       ]
@@ -125,7 +145,7 @@ export function createMenu(mainWindow: BrowserWindow): void {
           label: 'Toggle Chat Panel',
           accelerator: 'Shift+CmdOrCtrl+L',
           click: (): void => {
-            mainWindow.webContents.send('menu:action', 'toggleChat')
+            sendMenuAction('toggleChat')
           }
         }
       ]
@@ -152,7 +172,7 @@ export function createMenu(mainWindow: BrowserWindow): void {
           label: 'Keyboard Shortcuts',
           accelerator: 'F1',
           click: (): void => {
-            mainWindow.webContents.send('menu:action', 'shortcuts')
+            sendMenuAction('shortcuts')
           }
         },
         { type: 'separator' },
@@ -169,7 +189,7 @@ export function createMenu(mainWindow: BrowserWindow): void {
               {
                 label: 'About Prose',
                 click: (): void => {
-                  mainWindow.webContents.send('menu:action', 'about')
+                  sendMenuAction('about')
                 }
               }
             ]

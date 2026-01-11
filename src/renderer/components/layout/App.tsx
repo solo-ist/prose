@@ -19,6 +19,7 @@ import { useEditor } from '../../hooks/useEditor'
 import { useFileList } from '../../hooks/useFileList'
 import { useSettings } from '../../hooks/useSettings'
 import { useEditorStore } from '../../stores/editorStore'
+import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useChatStore, setCurrentDocumentId } from '../../stores/chatStore'
 import { useFileListStore } from '../../stores/fileListStore'
 import {
@@ -43,6 +44,7 @@ export function App() {
   const hydrateFromDraft = useEditorStore((state) => state.hydrateFromDraft)
   const documentPath = useEditorStore((state) => state.document.path)
   const isDirty = useEditorStore((state) => state.document.isDirty)
+  const editor = useEditorInstanceStore((state) => state.editor)
 
   // Update window title based on document state
   useEffect(() => {
@@ -198,11 +200,17 @@ export function App() {
         case 'about':
           setAboutDialogOpen(true)
           break
+        case 'undo':
+          editor?.commands.undo()
+          break
+        case 'redo':
+          editor?.commands.redo()
+          break
       }
     })
 
     return unsubscribe
-  }, [openFile, saveFile, saveFileAs, newFile, setDialogOpen, toggleChatPanel, toggleFileListPanel, setShortcutsDialogOpen, setAboutDialogOpen, isFileListOpen, isChatOpen, setChatPanelOpen, setFileListPanelOpen, MIN_WIDTH_FOR_BOTH_PANELS])
+  }, [openFile, saveFile, saveFileAs, newFile, setDialogOpen, toggleChatPanel, toggleFileListPanel, setShortcutsDialogOpen, setAboutDialogOpen, isFileListOpen, isChatOpen, setChatPanelOpen, setFileListPanelOpen, editor])
 
   // Handle file open from OS (double-click .md file)
   useEffect(() => {

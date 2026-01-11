@@ -14,6 +14,8 @@ npm run build:linux  # Build Linux distributable
 
 **Note**: Always run these commands for the user rather than asking them to run manually. Start dev servers in the background so work can continue.
 
+**No tests**: This project has no test suite. QA is done via Circuit Electron (see below).
+
 ## Before Implementation
 
 Before writing any code, complete this checklist:
@@ -81,16 +83,19 @@ When running as Electron:
 ### IPC Channels
 
 Defined in `src/main/ipc.ts`:
-- `file:open`, `file:save`, `file:saveAs`, `file:read` - File operations
-- `settings:load`, `settings:save` - Settings persistence
-- `llm:chat` - LLM API calls (Vercel AI SDK)
+- `file:*` - File operations (open, save, saveAs, read, rename, delete)
+- `settings:load`, `settings:save` - Settings persistence (`~/.prose/settings.json`)
+- `llm:chat`, `llm:chatStream`, `llm:abortStream` - LLM API calls (Vercel AI SDK)
+- `remarkable:*` - reMarkable tablet sync (register, validate, sync, etc.)
 
 ### State Management
 
 Zustand stores in `src/renderer/stores/`:
 - `editorStore` - Document content, path, dirty state
+- `editorInstanceStore` - TipTap editor instance reference
 - `chatStore` - Chat messages, loading state, panel visibility
 - `settingsStore` - App settings (theme, LLM config, editor preferences)
+- `fileListStore` - File explorer state and directory listing
 
 ### LLM Integration
 
@@ -105,6 +110,21 @@ Settings stored at `~/.prose/settings.json`. Default settings defined in `src/ma
 ### Theme
 
 Dark mode by default. Theme controlled via `dark` class on `<html>` element.
+
+### Editor
+
+The editor uses TipTap (ProseMirror-based) with markdown support via `tiptap-markdown`. Key files:
+- `src/renderer/components/editor/Editor.tsx` - Main editor component
+- `src/renderer/components/editor/extensions/` - Custom TipTap extensions
+
+### reMarkable Integration
+
+Syncs handwritten notebooks from reMarkable tablets. Located in `src/main/remarkable/`:
+- `client.ts` - reMarkable cloud API client (uses `rmapi-js`)
+- `sync.ts` - Notebook sync logic, downloads to `~/.prose/remarkable/`
+- `ocr.ts` - Handwriting recognition via external OCR service
+
+OCR requires an Anthropic API key. If using Anthropic as the LLM provider, that key is reused; otherwise users can configure a separate key in Settings → Integrations.
 
 ## UI Conventions
 

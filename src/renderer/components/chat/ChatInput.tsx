@@ -3,9 +3,16 @@ import { Button } from '../ui/button'
 import { Textarea } from '../ui/textarea'
 import { Checkbox } from '../ui/checkbox'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
-import { Send, Square, X, MessageSquare } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '../ui/dropdown-menu'
+import { Send, Square, X, MessageSquare, Wand2, Pencil, FileText, ChevronDown } from 'lucide-react'
 import { useChat } from '../../hooks/useChat'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
+import type { ToolMode } from '../../stores/chatStore'
 
 interface ChatInputProps {
   onSend: (message: string) => void
@@ -18,8 +25,30 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
   const [message, setMessage] = useState('')
   const [commentCount, setCommentCount] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const { context, setContext, includeDocument, setIncludeDocument, agentMode, setAgentMode, processComments, getCommentCount, isInitializing } = useChat()
+  const { context, setContext, includeDocument, setIncludeDocument, toolMode, setToolMode, processComments, getCommentCount, isInitializing } = useChat()
   const editor = useEditorInstanceStore((state) => state.editor)
+
+  // Mode configuration
+  const modeConfig: Record<ToolMode, { label: string; icon: typeof Wand2; description: string }> = {
+    suggestions: {
+      label: 'Suggestions',
+      icon: FileText,
+      description: 'Read-only + suggestions'
+    },
+    full: {
+      label: 'Full',
+      icon: Pencil,
+      description: 'Direct edits enabled'
+    },
+    plan: {
+      label: 'Plan',
+      icon: Wand2,
+      description: 'Review changes before applying'
+    }
+  }
+
+  const currentMode = modeConfig[toolMode]
+  const ModeIcon = currentMode.icon
 
   // Disable input while app is initializing (loading draft/conversations) or while loading
   const isDisabled = isLoading || isInitializing
@@ -163,13 +192,51 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
               <p>Provide entire document as context</p>
             </TooltipContent>
           </Tooltip>
-          <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
-            <Checkbox
-              checked={agentMode}
-              onCheckedChange={(checked) => setAgentMode(checked === true)}
-            />
-            Agent mode
-          </label>
+
+          {/* Tool Mode Selector */}
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    <ModeIcon className="h-3 w-3" />
+                    {currentMode.label}
+                    <ChevronDown className="h-3 w-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{currentMode.description}</p>
+              </TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="start">
+              {(Object.entries(modeConfig) as [ToolMode, typeof currentMode][]).map(
+                ([mode, config]) => {
+                  const Icon = config.icon
+                  return (
+                    <DropdownMenuItem
+                      key={mode}
+                      onClick={() => setToolMode(mode)}
+                      className="cursor-pointer"
+                    >
+                      <Icon className="h-4 w-4 mr-2" />
+                      <div>
+                        <p className="font-medium">{config.label}</p>
+                        <p className="text-xs text-muted-foreground">{config.description}</p>
+                      </div>
+                      {mode === toolMode && (
+                        <span className="ml-auto text-primary">✓</span>
+                      )}
+                    </DropdownMenuItem>
+                  )
+                }
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         <p className="text-xs text-muted-foreground">
           <kbd className="rounded bg-muted px-1 py-0.5 text-[10px] font-medium">

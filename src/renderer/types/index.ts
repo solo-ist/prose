@@ -24,6 +24,8 @@ export interface Settings {
     deviceToken?: string
     syncDirectory: string
     lastSyncedAt?: string
+    /** Whether user has set an Anthropic API key (not the key itself - stored securely) */
+    hasAnthropicKey?: boolean
   }
   recentFiles?: string[]
 }
@@ -104,9 +106,37 @@ export interface RemarkableSyncState {
   lastUpdated: string
 }
 
-export interface LLMMessage {
-  role: 'user' | 'assistant'
+// Content block types for Anthropic API tool use
+export interface LLMTextBlock {
+  type: 'text'
+  text: string
+}
+
+export interface LLMToolUseBlock {
+  type: 'tool_use'
+  id: string
+  name: string
+  input: unknown
+}
+
+export interface LLMToolResultBlock {
+  type: 'tool_result'
+  tool_use_id: string
   content: string
+}
+
+export type LLMContentBlock = LLMTextBlock | LLMToolUseBlock | LLMToolResultBlock
+
+export interface LLMMessage {
+  role: 'user' | 'assistant' | 'tool'
+  content: string | LLMContentBlock[]
+  tool_call_id?: string
+}
+
+export interface LLMToolDefinition {
+  name: string
+  description: string
+  input_schema: Record<string, unknown>
 }
 
 export interface LLMRequest {
@@ -125,6 +155,8 @@ export interface LLMResponse {
 // Streaming types
 export interface LLMStreamRequest extends LLMRequest {
   streamId: string
+  tools?: LLMToolDefinition[]
+  maxToolRoundtrips?: number
 }
 
 export interface LLMStreamChunk {
@@ -132,9 +164,23 @@ export interface LLMStreamChunk {
   delta: string
 }
 
+export interface LLMStreamToolCall {
+  streamId: string
+  toolCall: {
+    id: string
+    name: string
+    args: unknown
+  }
+}
+
 export interface LLMStreamComplete {
   streamId: string
   content: string
+  toolCalls?: Array<{
+    id: string
+    name: string
+    args: unknown
+  }>
 }
 
 export interface LLMStreamError {
@@ -157,6 +203,7 @@ export interface ElectronAPI {
   llmChatStream: (request: LLMStreamRequest) => Promise<{ success: boolean }>
   llmAbortStream: (streamId: string) => Promise<{ success: boolean }>
   onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => () => void
+  onLLMStreamToolCall: (callback: (toolCall: LLMStreamToolCall) => void) => () => void
   onLLMStreamComplete: (callback: (complete: LLMStreamComplete) => void) => () => void
   onLLMStreamError: (callback: (error: LLMStreamError) => void) => () => void
   // Folder operations for quick save
@@ -180,6 +227,10 @@ export interface ElectronAPI {
   remarkableListCloudNotebooks: (deviceToken: string) => Promise<RemarkableCloudNotebook[]>
   remarkableGetSyncState: (syncDirectory: string) => Promise<RemarkableSyncState | null>
   remarkableUpdateSyncSelection: (syncDirectory: string, selectedNotebooks: string[]) => Promise<void>
+  // Secure API key storage for reMarkable OCR
+  remarkableStoreApiKey: (apiKey: string) => Promise<void>
+  remarkableGetApiKey: () => Promise<string | null>
+  remarkableClearApiKey: () => Promise<void>
 }
 
 declare global {

@@ -7,8 +7,15 @@ export interface FileResult {
 }
 
 export interface LLMMessage {
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'tool'
   content: string
+  tool_call_id?: string
+}
+
+export interface LLMToolDefinition {
+  name: string
+  description: string
+  input_schema: Record<string, unknown>
 }
 
 export interface LLMRequest {
@@ -26,6 +33,8 @@ export interface LLMResponse {
 
 export interface LLMStreamRequest extends LLMRequest {
   streamId: string
+  tools?: LLMToolDefinition[]
+  maxToolRoundtrips?: number
 }
 
 export interface LLMStreamChunk {
@@ -33,9 +42,23 @@ export interface LLMStreamChunk {
   delta: string
 }
 
+export interface LLMStreamToolCall {
+  streamId: string
+  toolCall: {
+    id: string
+    name: string
+    args: unknown
+  }
+}
+
 export interface LLMStreamComplete {
   streamId: string
   content: string
+  toolCalls?: Array<{
+    id: string
+    name: string
+    args: unknown
+  }>
 }
 
 export interface LLMStreamError {
@@ -58,6 +81,7 @@ export interface ElectronAPI {
   llmChatStream: (request: LLMStreamRequest) => Promise<{ success: boolean }>
   llmAbortStream: (streamId: string) => Promise<{ success: boolean }>
   onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => () => void
+  onLLMStreamToolCall: (callback: (toolCall: LLMStreamToolCall) => void) => () => void
   onLLMStreamComplete: (callback: (complete: LLMStreamComplete) => void) => () => void
   onLLMStreamError: (callback: (error: LLMStreamError) => void) => () => void
   // Folder operations for quick save
@@ -77,6 +101,10 @@ export interface ElectronAPI {
   remarkableListCloudNotebooks: (deviceToken: string) => Promise<RemarkableCloudNotebook[]>
   remarkableGetSyncState: (syncDirectory: string) => Promise<RemarkableSyncState | null>
   remarkableUpdateSyncSelection: (syncDirectory: string, selectedNotebooks: string[]) => Promise<void>
+  // Secure API key storage for reMarkable OCR
+  remarkableStoreApiKey: (apiKey: string) => Promise<void>
+  remarkableGetApiKey: () => Promise<string | null>
+  remarkableClearApiKey: () => Promise<void>
 }
 
 export interface FileItem {
@@ -180,6 +208,10 @@ const api: ElectronAPI = {
     ipcRenderer.invoke('remarkable:getSyncState', syncDirectory),
   remarkableUpdateSyncSelection: (syncDirectory: string, selectedNotebooks: string[]) =>
     ipcRenderer.invoke('remarkable:updateSyncSelection', syncDirectory, selectedNotebooks),
+  // Secure API key storage for reMarkable OCR
+  remarkableStoreApiKey: (apiKey: string) => ipcRenderer.invoke('remarkable:storeApiKey', apiKey),
+  remarkableGetApiKey: () => ipcRenderer.invoke('remarkable:getApiKey'),
+  remarkableClearApiKey: () => ipcRenderer.invoke('remarkable:clearApiKey'),
   onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, chunk: LLMStreamChunk): void => {
       callback(chunk)
@@ -187,6 +219,15 @@ const api: ElectronAPI = {
     ipcRenderer.on('llm:stream:chunk', handler)
     return () => {
       ipcRenderer.removeListener('llm:stream:chunk', handler)
+    }
+  },
+  onLLMStreamToolCall: (callback: (toolCall: LLMStreamToolCall) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, toolCall: LLMStreamToolCall): void => {
+      callback(toolCall)
+    }
+    ipcRenderer.on('llm:stream:tool-call', handler)
+    return () => {
+      ipcRenderer.removeListener('llm:stream:tool-call', handler)
     }
   },
   onLLMStreamComplete: (callback: (complete: LLMStreamComplete) => void) => {

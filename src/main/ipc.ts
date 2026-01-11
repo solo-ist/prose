@@ -1,4 +1,4 @@
-import { ipcMain, dialog, app, shell } from 'electron'
+import { ipcMain, dialog, app, shell, safeStorage } from 'electron'
 import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat } from 'fs/promises'
 import { join } from 'path'
 import { homedir } from 'os'
@@ -27,6 +27,7 @@ const activeStreams = new Map<string, AbortController>()
 
 const SETTINGS_DIR = join(homedir(), '.prose')
 const SETTINGS_PATH = join(SETTINGS_DIR, 'settings.json')
+const ANTHROPIC_KEY_PATH = join(SETTINGS_DIR, '.remarkable-anthropic-key')
 
 /**
  * Expand ~ to home directory
@@ -463,7 +464,31 @@ export function setupIpcHandlers(): void {
     'remarkable:sync',
     async (_event, deviceToken: string, syncDirectory: string) => {
       const { syncAll } = await import('./remarkable/sync')
-      return await syncAll(deviceToken, syncDirectory)
+
+      // Get Anthropic API key - first from LLM settings if using Anthropic provider,
+      // then fall back to separate secure storage
+      let anthropicApiKey: string | undefined
+      try {
+        const content = await readFile(SETTINGS_PATH, 'utf-8')
+        const settings = JSON.parse(content) as Settings
+        if (settings.llm?.provider === 'anthropic' && settings.llm?.apiKey) {
+          anthropicApiKey = settings.llm.apiKey
+        }
+      } catch {
+        // Settings not found or invalid
+      }
+
+      // If no key from LLM settings, try separate secure storage
+      if (!anthropicApiKey && safeStorage.isEncryptionAvailable()) {
+        try {
+          const encryptedKey = await readFile(ANTHROPIC_KEY_PATH)
+          anthropicApiKey = safeStorage.decryptString(encryptedKey)
+        } catch {
+          // File doesn't exist or can't be read
+        }
+      }
+
+      return await syncAll(deviceToken, syncDirectory, anthropicApiKey)
     }
   )
 
@@ -499,4 +524,38 @@ export function setupIpcHandlers(): void {
       await updateSyncSelection(syncDirectory, selectedNotebooks)
     }
   )
+
+  // reMarkable: Store Anthropic API key securely
+  ipcMain.handle('remarkable:storeApiKey', async (_event, apiKey: string) => {
+    if (!safeStorage.isEncryptionAvailable()) {
+      throw new Error('Secure storage is not available on this system')
+    }
+
+    await mkdir(SETTINGS_DIR, { recursive: true })
+    const encryptedKey = safeStorage.encryptString(apiKey)
+    await writeFile(ANTHROPIC_KEY_PATH, encryptedKey)
+  })
+
+  ipcMain.handle('remarkable:getApiKey', async () => {
+    if (!safeStorage.isEncryptionAvailable()) {
+      console.warn('[reMarkable] Secure storage not available')
+      return null
+    }
+
+    try {
+      const encryptedKey = await readFile(ANTHROPIC_KEY_PATH)
+      return safeStorage.decryptString(encryptedKey)
+    } catch {
+      // File doesn't exist or can't be read
+      return null
+    }
+  })
+
+  ipcMain.handle('remarkable:clearApiKey', async () => {
+    try {
+      await unlink(ANTHROPIC_KEY_PATH)
+    } catch {
+      // File doesn't exist, ignore
+    }
+  })
 }

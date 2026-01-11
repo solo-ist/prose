@@ -138,7 +138,7 @@ export function createMenu(_mainWindow: BrowserWindow): void {
           label: 'Toggle File List',
           accelerator: 'Shift+CmdOrCtrl+H',
           click: (): void => {
-            mainWindow.webContents.send('menu:action', 'toggleFileList')
+            sendMenuAction('toggleFileList')
           }
         },
         {

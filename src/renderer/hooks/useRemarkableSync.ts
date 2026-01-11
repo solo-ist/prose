@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFileListStore } from '../stores/fileListStore'
 
@@ -15,6 +15,9 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
   const [error, setError] = useState<string | null>(null)
   const [syncResult, setSyncResult] = useState<{ synced: number; skipped: number } | null>(null)
 
+  // Use a ref to prevent concurrent syncs (avoids stale closure issues)
+  const syncLockRef = useRef(false)
+
   const settings = useSettingsStore((state) => state.settings)
   const setSettings = useSettingsStore((state) => state.setSettings)
   const saveSettings = useSettingsStore((state) => state.saveSettings)
@@ -25,22 +28,33 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
   const lastSyncedAt = remarkableSettings?.lastSyncedAt ?? null
 
   const sync = useCallback(async () => {
+    // Check ref-based lock to prevent concurrent syncs
+    if (syncLockRef.current) {
+      console.log('[reMarkable] Sync already in progress, skipping')
+      return
+    }
+    syncLockRef.current = true
+
     if (!window.api) {
+      syncLockRef.current = false
       setError('reMarkable sync is only available in the desktop app')
       return
     }
 
     if (!remarkableSettings?.enabled) {
+      syncLockRef.current = false
       setError('reMarkable sync is not enabled')
       return
     }
 
     if (!remarkableSettings.deviceToken) {
+      syncLockRef.current = false
       setError('Please connect your reMarkable device in Settings')
       return
     }
 
     if (!remarkableSettings.syncDirectory) {
+      syncLockRef.current = false
       setError('Please set a sync directory in Settings')
       return
     }
@@ -80,6 +94,7 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
       setError(err instanceof Error ? err.message : 'Sync failed')
     } finally {
       setIsSyncing(false)
+      syncLockRef.current = false
     }
   }, [remarkableSettings, setSettings, saveSettings, loadFiles, loadNotebooks])
 

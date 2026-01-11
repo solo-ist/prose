@@ -51,7 +51,9 @@ export function FileListPanel() {
   // Auto-sync when switching to notebooks view
   useEffect(() => {
     if (viewMode === 'notebooks' && remarkableEnabled && !isSyncing) {
-      sync()
+      sync().catch((err) => {
+        console.error('[FileListPanel] Auto-sync failed:', err)
+      })
     }
   }, [viewMode, remarkableEnabled]) // Intentionally exclude sync and isSyncing to only trigger on view change
 
@@ -308,8 +310,11 @@ export function FileListPanel() {
                   size="icon"
                   className={cn("h-8 w-8", viewMode === 'notebooks' && "bg-muted")}
                   onClick={() => {
+                    console.log('[FileListPanel] notebooks button clicked, current viewMode:', viewMode)
                     if (viewMode === 'notebooks') {
-                      sync()
+                      sync().catch((err) => {
+                        console.error('[FileListPanel] Manual sync failed:', err)
+                      })
                     } else {
                       setViewMode('notebooks')
                     }

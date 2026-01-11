@@ -4,7 +4,7 @@
 import { mkdir, writeFile, readFile, readdir, access } from 'fs/promises'
 import { join, dirname, resolve, sep } from 'path'
 import { homedir } from 'os'
-import { connect, type RemarkableNotebook } from './client'
+import { connect, disconnect, type RemarkableNotebook } from './client'
 import { isOCRConfigured, extractTextBatched } from './ocr'
 import JSZip from 'jszip'
 
@@ -165,48 +165,71 @@ function buildPath(
 async function processNotebookWithOCR(
   notebookDir: string,
   notebookName: string,
+  anthropicApiKey: string | null | undefined,
   onProgress?: (message: string) => void
 ): Promise<string | null> {
+  console.log(`[OCR] processNotebookWithOCR called for "${notebookName}" at ${notebookDir}`)
+
   if (!isOCRConfigured()) {
+    console.log(`[OCR] Skipping - not configured`)
     onProgress?.(`Skipping OCR for "${notebookName}" - OCR service not configured`)
+    return null
+  }
+
+  if (!anthropicApiKey) {
+    console.log(`[OCR] Skipping - no Anthropic API key`)
+    onProgress?.(`Skipping OCR for "${notebookName}" - please add Anthropic API key in Settings`)
     return null
   }
 
   try {
     // Find all .rm files in the notebook directory
     const files = await readdir(notebookDir, { recursive: true })
+    console.log(`[OCR] Found ${files.length} files in directory:`, files.slice(0, 10))
+
     const rmFiles = files
       .filter(f => typeof f === 'string' && f.endsWith('.rm'))
       .sort() // Sort to ensure consistent page order
 
+    console.log(`[OCR] Found ${rmFiles.length} .rm files:`, rmFiles)
+
     if (rmFiles.length === 0) {
+      console.log(`[OCR] No .rm files found`)
       onProgress?.(`No .rm files found in "${notebookName}"`)
       return null
     }
 
     onProgress?.(`Processing ${rmFiles.length} pages from "${notebookName}"...`)
+    console.log(`[OCR] Processing ${rmFiles.length} pages...`)
 
     // Read all .rm files
     const pages: Array<{ id: string; data: Buffer }> = []
     for (const rmFile of rmFiles) {
       const filePath = join(notebookDir, rmFile)
+      console.log(`[OCR] Reading file: ${filePath}`)
       const data = await readFile(filePath)
+      console.log(`[OCR] Read ${data.length} bytes from ${rmFile}`)
       // Use the filename without extension as the page ID
       const pageId = rmFile.replace('.rm', '').replace(/\//g, '_')
       pages.push({ id: pageId, data })
     }
 
+    console.log(`[OCR] Calling extractTextBatched with ${pages.length} pages`)
     // Process with OCR
-    const result = await extractTextBatched(pages, (processed, total) => {
+    const result = await extractTextBatched(pages, anthropicApiKey, (processed, total) => {
+      console.log(`[OCR] Progress: ${processed}/${total}`)
       onProgress?.(`OCR progress: ${processed}/${total} pages`)
     })
+    console.log(`[OCR] extractTextBatched returned: pages=${result.pages.length}, failed=${result.failedPages.length}`)
 
     if (result.failedPages.length > 0) {
+      console.log(`[OCR] Failed pages:`, result.failedPages)
       onProgress?.(`Warning: ${result.failedPages.length} pages failed OCR`)
     }
 
     // Sort results by page ID to maintain order
     const sortedPages = result.pages.sort((a, b) => a.id.localeCompare(b.id))
+    console.log(`[OCR] Sorted ${sortedPages.length} pages`)
 
     // Combine all markdown with page separators
     const markdownParts = sortedPages.map((page, index) => {
@@ -215,6 +238,7 @@ async function processNotebookWithOCR(
     })
 
     const combinedMarkdown = markdownParts.join('\n\n---\n\n')
+    console.log(`[OCR] Combined markdown length: ${combinedMarkdown.length}`)
 
     // Add metadata header
     const header = `---
@@ -229,6 +253,7 @@ extracted: ${new Date().toISOString()}
     return header + combinedMarkdown
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
+    console.error(`[OCR] Error processing "${notebookName}":`, error)
     onProgress?.(`OCR failed for "${notebookName}": ${message}`)
     return null
   }
@@ -249,11 +274,16 @@ extracted: ${new Date().toISOString()}
 export async function syncAll(
   deviceToken: string,
   syncDirectory: string,
+  anthropicApiKey?: string,
   onProgress?: (message: string) => void
 ): Promise<SyncResult> {
   console.log('[reMarkable] Starting sync...')
   console.log('[reMarkable] syncDirectory:', syncDirectory)
   console.log('[reMarkable] OCR configured:', isOCRConfigured())
+  console.log('[reMarkable] Anthropic API key:', anthropicApiKey ? 'provided' : 'not provided')
+
+  // Clear cached API connection to ensure fresh data from cloud
+  disconnect()
 
   // Expand ~ to home directory - syncDirectory is where markdown files go
   const baseDir = expandPath(syncDirectory)
@@ -271,11 +301,15 @@ export async function syncAll(
   }
 
   try {
+    console.log('[reMarkable] Connecting to cloud...')
     onProgress?.('Connecting to reMarkable cloud...')
     const client = await connect(deviceToken)
+    console.log('[reMarkable] Connected successfully')
 
+    console.log('[reMarkable] Fetching notebook list...')
     onProgress?.('Fetching notebook list...')
     const notebooks = await client.listNotebooks()
+    console.log(`[reMarkable] Found ${notebooks.length} notebooks`)
 
     // Load existing metadata to check what's changed
     const existingMeta = await loadMetadata(baseDir)
@@ -325,6 +359,11 @@ export async function syncAll(
         const existingEntry = existingMeta?.notebooks[doc.id]
         const notebookDir = join(hiddenDir, doc.hash)
 
+        // Debug: log hash comparison
+        console.log(`[reMarkable] ${doc.name} hash comparison:`)
+        console.log(`[reMarkable]   cloud hash: ${doc.hash}`)
+        console.log(`[reMarkable]   local hash: ${existingEntry?.hash || 'none'}`)
+
         // Check if local files actually exist
         let localFilesExist = false
         try {
@@ -346,10 +385,13 @@ export async function syncAll(
 
         // If hash matches and local files exist but OCR is needed, use existing files
         if (!needsDownload && needsOCR) {
+          console.log(`[reMarkable] OCR-only path for ${doc.name}`)
           onProgress?.(`Processing OCR for existing notebook: ${doc.name}`)
 
           let markdownPath: string | undefined
-          const markdown = await processNotebookWithOCR(notebookDir, doc.name, onProgress)
+          console.log(`[reMarkable] Running OCR for ${doc.name} from ${notebookDir}`)
+          const markdown = await processNotebookWithOCR(notebookDir, doc.name, anthropicApiKey, onProgress)
+          console.log(`[reMarkable] OCR result for ${doc.name}: ${markdown ? 'got markdown' : 'null'}`)
           if (markdown) {
             const docRelPath = buildPath(doc, notebooks)
             const mdFileName = `${sanitizeName(doc.name)}.md`
@@ -406,7 +448,9 @@ export async function syncAll(
         // Process with OCR for handwritten notebooks
         let markdownPath: string | undefined
         if (doc.fileType === 'notebook') {
-          const markdown = await processNotebookWithOCR(notebookDir, doc.name, onProgress)
+          console.log(`[reMarkable] Running OCR for ${doc.name} from ${notebookDir}`)
+          const markdown = await processNotebookWithOCR(notebookDir, doc.name, anthropicApiKey, onProgress)
+          console.log(`[reMarkable] OCR result for ${doc.name}: ${markdown ? 'got markdown' : 'null'}`)
           if (markdown) {
             // Build the path preserving folder hierarchy from reMarkable
             const docRelPath = buildPath(doc, notebooks)
@@ -472,10 +516,12 @@ export async function syncAll(
 
     onProgress?.(`Sync complete: ${result.synced} synced, ${result.skipped} unchanged`)
   } catch (error) {
+    console.error('[reMarkable] Sync error:', error)
     const message = error instanceof Error ? error.message : 'Unknown error'
     result.errors.push(`Sync failed: ${message}`)
   }
 
+  console.log('[reMarkable] Sync finished. Result:', JSON.stringify(result, null, 2))
   return result
 }
 
@@ -517,6 +563,8 @@ export async function updateSyncSelection(
 export async function listCloudNotebooks(
   deviceToken: string
 ): Promise<{ id: string; name: string; type: 'folder' | 'notebook'; parent: string | null; fileType?: string }[]> {
+  // Clear cache to get fresh data
+  disconnect()
   const client = await connect(deviceToken)
   const notebooks = await client.listNotebooks()
 

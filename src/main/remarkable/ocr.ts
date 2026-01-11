@@ -63,10 +63,12 @@ function getOCRConfig(): { url: string; apiKey: string } {
  * Extract text from multiple .rm file pages using OCR
  *
  * @param pages - Array of pages to process, each with id and raw bytes
+ * @param anthropicApiKey - User's Anthropic API key for the OCR service
  * @returns OCR results with markdown text and confidence scores
  */
 export async function extractTextFromPages(
-  pages: Array<{ id: string; data: Buffer }>
+  pages: Array<{ id: string; data: Buffer }>,
+  anthropicApiKey: string
 ): Promise<OCRResult> {
   if (pages.length === 0) {
     return { pages: [], failedPages: [] }
@@ -74,6 +76,10 @@ export async function extractTextFromPages(
 
   if (pages.length > 20) {
     throw new Error('Maximum 20 pages per OCR request')
+  }
+
+  if (!anthropicApiKey) {
+    throw new Error('Anthropic API key is required for OCR. Please add your key in Settings → Integrations.')
   }
 
   const { url, apiKey } = getOCRConfig()
@@ -89,7 +95,8 @@ export async function extractTextFromPages(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': apiKey
+      'x-api-key': apiKey,
+      'x-anthropic-key': anthropicApiKey
     },
     body: JSON.stringify(requestBody)
   })
@@ -120,13 +127,15 @@ export async function extractTextFromPages(
  *
  * @param pageId - Unique identifier for the page
  * @param rmBytes - Raw bytes of the .rm file
+ * @param anthropicApiKey - User's Anthropic API key for the OCR service
  * @returns Markdown text and confidence score
  */
 export async function extractTextFromRM(
   pageId: string,
-  rmBytes: Buffer
+  rmBytes: Buffer,
+  anthropicApiKey: string
 ): Promise<{ markdown: string; confidence: number }> {
-  const result = await extractTextFromPages([{ id: pageId, data: rmBytes }])
+  const result = await extractTextFromPages([{ id: pageId, data: rmBytes }], anthropicApiKey)
 
   if (result.failedPages.includes(pageId)) {
     throw new Error(`OCR failed for page ${pageId}`)
@@ -147,11 +156,13 @@ export async function extractTextFromRM(
  * Process multiple pages in batches (max 20 per request)
  *
  * @param pages - Array of pages to process
+ * @param anthropicApiKey - User's Anthropic API key for the OCR service
  * @param onProgress - Optional progress callback
  * @returns Combined OCR results
  */
 export async function extractTextBatched(
   pages: Array<{ id: string; data: Buffer }>,
+  anthropicApiKey: string,
   onProgress?: (processed: number, total: number) => void
 ): Promise<OCRResult> {
   const BATCH_SIZE = 20
@@ -160,7 +171,7 @@ export async function extractTextBatched(
 
   for (let i = 0; i < pages.length; i += BATCH_SIZE) {
     const batch = pages.slice(i, i + BATCH_SIZE)
-    const result = await extractTextFromPages(batch)
+    const result = await extractTextFromPages(batch, anthropicApiKey)
 
     allResults.push(...result.pages)
     allFailed.push(...result.failedPages)

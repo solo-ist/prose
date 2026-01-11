@@ -68,7 +68,7 @@ export interface ElectronAPI {
   showInFolder: (path: string) => Promise<void>
   renameFile: (oldPath: string, newPath: string) => Promise<void>
   deleteFile: (path: string) => Promise<void>
-  listDirectory: (path: string) => Promise<FileItem[]>
+  listDirectory: (path: string, maxDepth?: number) => Promise<FileItem[]>
   remarkableRegister: (code: string) => Promise<RemarkableRegisterResponse>
   remarkableValidate: (deviceToken: string) => Promise<boolean>
   remarkableSync: (deviceToken: string, syncDirectory: string) => Promise<RemarkableSyncResult>
@@ -85,6 +85,7 @@ export interface FileItem {
   isDirectory: boolean
   modifiedAt: string
   children?: FileItem[]
+  hasChildren?: boolean // For lazy loading - indicates folder has content without loading it
 }
 
 export interface RemarkableRegisterResponse {
@@ -166,7 +167,7 @@ const api: ElectronAPI = {
   showInFolder: (path: string) => ipcRenderer.invoke('file:showInFolder', path),
   renameFile: (oldPath: string, newPath: string) => ipcRenderer.invoke('file:rename', oldPath, newPath),
   deleteFile: (path: string) => ipcRenderer.invoke('file:delete', path),
-  listDirectory: (path: string) => ipcRenderer.invoke('file:listDirectory', path),
+  listDirectory: (path: string, maxDepth?: number) => ipcRenderer.invoke('file:listDirectory', path, maxDepth),
   remarkableRegister: (code: string) => ipcRenderer.invoke('remarkable:register', code),
   remarkableValidate: (deviceToken: string) => ipcRenderer.invoke('remarkable:validate', deviceToken),
   remarkableSync: (deviceToken: string, syncDirectory: string) =>

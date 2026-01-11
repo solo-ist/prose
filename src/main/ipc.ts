@@ -163,18 +163,16 @@ export function setupIpcHandlers(): void {
     await unlink(path)
   })
 
-  // File: List directory contents
-  ipcMain.handle('file:listDirectory', async (_event, dirPath: string) => {
+  // File: List directory contents (with lazy loading support)
+  ipcMain.handle('file:listDirectory', async (_event, dirPath: string, maxDepth: number = 1) => {
     interface FileItem {
       name: string
       path: string
       isDirectory: boolean
       modifiedAt: string
       children?: FileItem[]
+      hasChildren?: boolean // For lazy loading - indicates folder has content without loading it
     }
-
-    // Limit recursion depth to prevent scanning entire filesystem
-    const MAX_DEPTH = 5
 
     async function listDir(dir: string, depth: number = 0): Promise<FileItem[]> {
       try {
@@ -195,15 +193,37 @@ export function setupIpcHandlers(): void {
           }
 
           if (entry.isDirectory()) {
-            // Only recurse if within depth limit
-            const children = depth < MAX_DEPTH ? await listDir(fullPath, depth + 1) : []
-            items.push({
-              name: entry.name,
-              path: fullPath,
-              isDirectory: true,
-              modifiedAt: stats.mtime.toISOString(),
-              children
-            })
+            if (depth < maxDepth) {
+              // Recurse if within depth limit
+              const children = await listDir(fullPath, depth + 1)
+              items.push({
+                name: entry.name,
+                path: fullPath,
+                isDirectory: true,
+                modifiedAt: stats.mtime.toISOString(),
+                children,
+                hasChildren: children.length > 0
+              })
+            } else {
+              // Beyond depth limit - just check if folder has any relevant content
+              let hasChildren = false
+              try {
+                const subEntries = await readdir(fullPath, { withFileTypes: true })
+                hasChildren = subEntries.some(e =>
+                  !e.name.startsWith('.') &&
+                  (e.isDirectory() || e.name.endsWith('.md') || e.name.endsWith('.markdown') || e.name.endsWith('.txt'))
+                )
+              } catch {
+                // Can't read folder, assume no children
+              }
+              items.push({
+                name: entry.name,
+                path: fullPath,
+                isDirectory: true,
+                modifiedAt: stats.mtime.toISOString(),
+                hasChildren
+              })
+            }
           } else if (entry.name.endsWith('.md') || entry.name.endsWith('.markdown') || entry.name.endsWith('.txt')) {
             items.push({
               name: entry.name,

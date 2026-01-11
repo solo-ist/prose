@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import type { ReactNode } from 'react'
 import { useFileList } from '../../hooks/useFileList'
 import { useEditor } from '../../hooks/useEditor'
@@ -14,7 +14,7 @@ import {
   ContextMenuItem,
   ContextMenuTrigger
 } from '../ui/context-menu'
-import { History, RefreshCw, Loader2, Cloud, Plus, FileText, BookOpen, Check, CloudOff, ChevronUp, Folder, Download, Trash2 } from 'lucide-react'
+import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, Folder, FolderOpen, Download, Trash2 } from 'lucide-react'
 import { useSettings } from '../../hooks/useSettings'
 import { cn } from '../../lib/utils'
 import type { RemarkableNotebookMetadata, RemarkableCloudNotebook } from '../../types'
@@ -27,17 +27,18 @@ export function FileListPanel() {
     viewMode,
     expandedFolders,
     selectedPath,
+    loadingFolders,
     recentFiles,
     notebookMetadata,
     cloudNotebooks,
     syncState,
-    loadFiles,
-    loadNotebooks,
     selectFile,
     toggleFolder,
     setViewMode,
+    setRootPath,
     navigateToParent,
     toggleNotebookSync,
+    loadFiles,
     syncDirectory,
     deviceToken
   } = useFileList()
@@ -47,13 +48,16 @@ export function FileListPanel() {
   const { setDialogOpen } = useSettings()
   const remarkableEnabled = useSettingsStore((state) => state.settings.remarkable?.enabled)
 
+  // Auto-sync when switching to notebooks view
+  useEffect(() => {
+    if (viewMode === 'notebooks' && remarkableEnabled && !isSyncing) {
+      sync()
+    }
+  }, [viewMode, remarkableEnabled]) // Intentionally exclude sync and isSyncing to only trigger on view change
+
   const handleFileClick = async (path: string) => {
     selectFile(path)
     await openFileFromPath(path)
-  }
-
-  const handleRefresh = () => {
-    loadFiles()
   }
 
   // Get folder name from path for display
@@ -167,14 +171,14 @@ export function FileListPanel() {
             <div
               className={cn(
                 "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-                hasSyncedContent ? "text-foreground" : "text-muted-foreground opacity-50"
+                hasSyncedContent ? "text-foreground" : "text-muted-foreground opacity-30"
               )}
               title={hasSyncedContent ? item.name : `${item.name} (no synced notebooks)`}
             >
               {hasSyncedContent ? (
-                <Folder className="h-4 w-4 shrink-0 text-blue-500" />
+                <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
               ) : (
-                <Folder className="h-4 w-4 shrink-0" />
+                <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
               )}
               <span className="truncate">{item.name}</span>
             </div>
@@ -198,7 +202,7 @@ export function FileListPanel() {
                   className={cn(
                     "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50",
                     fullMarkdownPath && selectedPath === fullMarkdownPath && "bg-muted",
-                    !isSynced && "opacity-50"
+                    !isSynced && "opacity-30"
                   )}
                   onClick={() => {
                     if (localMeta && hasMarkdown) {
@@ -216,9 +220,9 @@ export function FileListPanel() {
                 >
                   {isSynced ? (
                     hasMarkdown ? (
-                      <Check className="h-4 w-4 shrink-0 text-green-500" />
+                      <Cloud className="h-4 w-4 shrink-0 text-foreground" />
                     ) : (
-                      <Cloud className="h-4 w-4 shrink-0 text-blue-500" />
+                      <Cloud className="h-4 w-4 shrink-0 text-muted-foreground" />
                     )
                   ) : (
                     <CloudOff className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -249,12 +253,6 @@ export function FileListPanel() {
         )
       }
     })
-  }
-
-  const handleNotebookRefresh = () => {
-    if (syncDirectory) {
-      loadNotebooks(syncDirectory)
-    }
   }
 
   return (
@@ -288,7 +286,13 @@ export function FileListPanel() {
                 variant="ghost"
                 size="icon"
                 className={cn("h-8 w-8", viewMode === 'folder' && "bg-muted")}
-                onClick={() => setViewMode('folder')}
+                onClick={() => {
+                  if (viewMode === 'folder') {
+                    loadFiles()
+                  } else {
+                    setViewMode('folder')
+                  }
+                }}
                 aria-label="Files"
               >
                 <Folder className="h-4 w-4" />
@@ -303,7 +307,13 @@ export function FileListPanel() {
                   variant="ghost"
                   size="icon"
                   className={cn("h-8 w-8", viewMode === 'notebooks' && "bg-muted")}
-                  onClick={() => setViewMode('notebooks')}
+                  onClick={() => {
+                    if (viewMode === 'notebooks') {
+                      sync()
+                    } else {
+                      setViewMode('notebooks')
+                    }
+                  }}
                   aria-label="reMarkable notebooks"
                 >
                   <BookOpen className="h-4 w-4" />
@@ -312,52 +322,15 @@ export function FileListPanel() {
               <TooltipContent>reMarkable notebooks</TooltipContent>
             </Tooltip>
           )}
-
-          {/* View-specific actions */}
-          {viewMode === 'folder' && rootPath && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={remarkableEnabled ? sync : handleRefresh}
-                  disabled={isLoading || isSyncing}
-                  aria-label={remarkableEnabled ? "Sync" : "Refresh"}
-                >
-                  {isLoading || isSyncing ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-4 w-4" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{remarkableEnabled ? "Sync" : "Refresh"}</TooltipContent>
-            </Tooltip>
-          )}
-          {viewMode === 'notebooks' && remarkableEnabled && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={sync}
-                  disabled={isLoading || isSyncing}
-                  aria-label="Sync from reMarkable"
-                >
-                  {isLoading || isSyncing ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-4 w-4" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Sync from reMarkable</TooltipContent>
-            </Tooltip>
-          )}
         </div>
       </div>
+
+      {/* Loading bar */}
+      {(isLoading || isSyncing) && (
+        <div className="h-0.5 w-full overflow-hidden bg-muted/50">
+          <div className="h-full w-1/3 animate-loading-bar bg-gradient-to-r from-violet-500 via-fuchsia-500 to-violet-500" />
+        </div>
+      )}
 
       {/* Content */}
       <ScrollArea className="flex-1">
@@ -450,8 +423,10 @@ export function FileListPanel() {
                   items={files}
                   expandedFolders={expandedFolders}
                   selectedPath={selectedPath}
+                  loadingFolders={loadingFolders}
                   onFileClick={handleFileClick}
                   onFolderToggle={toggleFolder}
+                  onFolderDoubleClick={setRootPath}
                 />
               )}
             </div>

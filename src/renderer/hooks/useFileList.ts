@@ -12,6 +12,7 @@ export function useFileList() {
     rootPath,
     expandedFolders,
     selectedPath,
+    loadingFolders,
     notebookMetadata,
     cloudNotebooks,
     syncState,
@@ -57,6 +58,13 @@ export function useFileList() {
     }
   }, [viewMode, settings.remarkable?.enabled, syncDirectory, loadNotebooks])
 
+  // Auto-refresh files when switching to folder view
+  useEffect(() => {
+    if (viewMode === 'folder' && rootPath) {
+      loadFiles()
+    }
+  }, [viewMode, rootPath, loadFiles])
+
   // Sync file selection across views - when document path changes or switching to folder view,
   // reveal and select the file if it's within the current rootPath
   // Wait for files to be loaded before trying to reveal
@@ -74,6 +82,7 @@ export function useFileList() {
     rootPath,
     expandedFolders,
     selectedPath,
+    loadingFolders,
     notebookMetadata,
     cloudNotebooks,
     syncState,

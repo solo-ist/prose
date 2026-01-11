@@ -56,6 +56,7 @@ export interface FileItem {
   isDirectory: boolean
   modifiedAt: string
   children?: FileItem[]
+  hasChildren?: boolean // For lazy loading - indicates folder has content without loading it
 }
 
 export interface RemarkableRegisterResponse {
@@ -168,8 +169,8 @@ export interface ElectronAPI {
   // File rename/delete
   renameFile: (oldPath: string, newPath: string) => Promise<void>
   deleteFile: (path: string) => Promise<void>
-  // Directory listing
-  listDirectory: (path: string) => Promise<FileItem[]>
+  // Directory listing (with lazy loading support via maxDepth parameter)
+  listDirectory: (path: string, maxDepth?: number) => Promise<FileItem[]>
   // reMarkable sync
   remarkableRegister: (code: string) => Promise<RemarkableRegisterResponse>
   remarkableValidate: (deviceToken: string) => Promise<boolean>

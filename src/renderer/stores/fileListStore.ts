@@ -16,6 +16,7 @@ interface FileListState {
   rootPath: string | null
   expandedFolders: Set<string>
   selectedPath: string | null
+  loadingFolders: Set<string> // Track which folders are currently loading children
 
   // Notebook metadata
   notebookMetadata: RemarkableSyncMetadata | null
@@ -30,6 +31,7 @@ interface FileListState {
   initializeDefaultPath: () => Promise<void>
   navigateToParent: () => void
   loadFiles: () => Promise<void>
+  loadFolderChildren: (folderPath: string) => Promise<void>
   loadNotebooks: (syncDirectory: string) => Promise<void>
   loadCloudNotebooks: (deviceToken: string, syncDirectory: string) => Promise<void>
   toggleNotebookSync: (notebookId: string, syncDirectory: string) => Promise<void>
@@ -49,6 +51,7 @@ export const useFileListStore = create<FileListState>()(
     rootPath: null,
     expandedFolders: new Set<string>(),
     selectedPath: null,
+    loadingFolders: new Set<string>(),
     notebookMetadata: null,
     cloudNotebooks: [],
     syncState: null,
@@ -102,11 +105,53 @@ export const useFileListStore = create<FileListState>()(
 
       set({ isLoading: true })
       try {
-        const files = await window.api.listDirectory(rootPath)
+        // Use depth 1 for fast initial load - children loaded on demand
+        const files = await window.api.listDirectory(rootPath, 1)
         set({ files, isLoading: false })
       } catch (error) {
         console.error('Failed to load files:', error)
         set({ files: [], isLoading: false })
+      }
+    },
+
+    loadFolderChildren: async (folderPath: string) => {
+      if (!window.api) return
+
+      const { loadingFolders } = get()
+      if (loadingFolders.has(folderPath)) return // Already loading
+
+      // Mark as loading
+      const newLoading = new Set(loadingFolders)
+      newLoading.add(folderPath)
+      set({ loadingFolders: newLoading })
+
+      try {
+        // Load just this folder's children (depth 1)
+        const children = await window.api.listDirectory(folderPath, 1)
+
+        // Update the tree by finding and updating the folder
+        const { files } = get()
+        const updateFolder = (items: FileItem[]): FileItem[] => {
+          return items.map(item => {
+            if (item.path === folderPath) {
+              return { ...item, children, hasChildren: children.length > 0 }
+            }
+            if (item.children) {
+              return { ...item, children: updateFolder(item.children) }
+            }
+            return item
+          })
+        }
+
+        set({ files: updateFolder(files) })
+      } catch (error) {
+        console.error('Failed to load folder children:', error)
+      } finally {
+        // Remove from loading set
+        const { loadingFolders: currentLoading } = get()
+        const updatedLoading = new Set(currentLoading)
+        updatedLoading.delete(folderPath)
+        set({ loadingFolders: updatedLoading })
       }
     },
 
@@ -115,11 +160,15 @@ export const useFileListStore = create<FileListState>()(
 
       set({ isLoading: true })
       try {
-        const metadata = await window.api.remarkableGetMetadata(syncDirectory)
-        set({ notebookMetadata: metadata, isLoading: false })
+        // Load both metadata and sync state
+        const [metadata, syncState] = await Promise.all([
+          window.api.remarkableGetMetadata(syncDirectory),
+          window.api.remarkableGetSyncState(syncDirectory)
+        ])
+        set({ notebookMetadata: metadata, syncState, isLoading: false })
       } catch (error) {
         console.error('Failed to load notebook metadata:', error)
-        set({ notebookMetadata: null, isLoading: false })
+        set({ notebookMetadata: null, syncState: null, isLoading: false })
       }
     },
 
@@ -166,13 +215,34 @@ export const useFileListStore = create<FileListState>()(
     selectFile: (path) => set({ selectedPath: path }),
 
     toggleFolder: (path) => {
-      const { expandedFolders } = get()
+      const { expandedFolders, files, loadFolderChildren } = get()
       const newExpanded = new Set(expandedFolders)
-      if (newExpanded.has(path)) {
-        newExpanded.delete(path)
-      } else {
+      const isExpanding = !newExpanded.has(path)
+
+      if (isExpanding) {
         newExpanded.add(path)
+
+        // Check if this folder needs children loaded
+        const findFolder = (items: FileItem[]): FileItem | null => {
+          for (const item of items) {
+            if (item.path === path) return item
+            if (item.children) {
+              const found = findFolder(item.children)
+              if (found) return found
+            }
+          }
+          return null
+        }
+
+        const folder = findFolder(files)
+        if (folder && folder.hasChildren && !folder.children) {
+          // Load children on demand
+          loadFolderChildren(path)
+        }
+      } else {
+        newExpanded.delete(path)
       }
+
       set({ expandedFolders: newExpanded })
     },
 

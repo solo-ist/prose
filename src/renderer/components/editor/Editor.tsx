@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from 'react'
+import { useEffect, useRef, useCallback, useState, useMemo } from 'react'
 import { useEditor as useTipTapEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
@@ -16,6 +16,7 @@ import { FindBar } from './FindBar'
 import { SelectionPopover } from './SelectionPopover'
 import { AddCommentDialog } from './AddCommentDialog'
 import { EmptyState } from '../layout/EmptyState'
+import { FrontmatterDisplay, hasFrontmatter, getContentWithoutFrontmatter, getFrontmatterRaw } from './FrontmatterDisplay'
 
 export function Editor() {
   const { document, setContent, openFile, saveFile } = useEditor()
@@ -25,6 +26,7 @@ export function Editor() {
   const setEditorInstance = useEditorInstanceStore((state) => state.setEditor)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isUpdatingFromStore = useRef(false)
+  const frontmatterRef = useRef<string>('')
   const [isFindOpen, setIsFindOpen] = useState(false)
   const [isAddCommentOpen, setIsAddCommentOpen] = useState(false)
   const [pendingCommentSelection, setPendingCommentSelection] = useState<{
@@ -32,6 +34,12 @@ export function Editor() {
     to: number
     text: string
   } | null>(null)
+
+  // Extract and store frontmatter on initial load
+  const initialContent = useMemo(() => {
+    frontmatterRef.current = getFrontmatterRaw(document.content)
+    return getContentWithoutFrontmatter(document.content)
+  }, []) // Only run once on mount
 
   const editor = useTipTapEditor({
     extensions: [
@@ -70,7 +78,7 @@ export function Editor() {
       }),
       Comment,
     ],
-    content: document.content,
+    content: initialContent,
     editorProps: {
       attributes: {
         class: 'outline-none min-h-full'
@@ -86,7 +94,9 @@ export function Editor() {
 
       debounceRef.current = setTimeout(() => {
         const markdown = editor.storage.markdown.getMarkdown()
-        setContent(markdown)
+        // Prepend frontmatter if present
+        const fullContent = frontmatterRef.current + markdown
+        setContent(fullContent)
       }, 500)
     }
   })
@@ -105,11 +115,22 @@ export function Editor() {
   useEffect(() => {
     if (!editor) return
 
+    // Extract frontmatter and body from the new content
+    const newFrontmatter = getFrontmatterRaw(document.content)
+    const newBody = getContentWithoutFrontmatter(document.content)
+
+    // Get current editor content (without frontmatter since we strip it)
     const currentMarkdown = editor.storage.markdown?.getMarkdown() || ''
-    if (document.content !== currentMarkdown) {
+
+    // Check if body content differs (comparing without frontmatter)
+    if (newBody !== currentMarkdown) {
       isUpdatingFromStore.current = true
-      editor.commands.setContent(document.content)
+      frontmatterRef.current = newFrontmatter
+      editor.commands.setContent(newBody)
       isUpdatingFromStore.current = false
+    } else if (newFrontmatter !== frontmatterRef.current) {
+      // Just update frontmatter ref if only frontmatter changed
+      frontmatterRef.current = newFrontmatter
     }
   }, [editor, document.content])
 
@@ -262,6 +283,9 @@ export function Editor() {
   // Show empty state when document is empty, untitled, and user hasn't started editing
   const showEmptyState = !isEditing && !document.path && !document.content && !document.isDirty
 
+  // Check if document has frontmatter to display
+  const showFrontmatter = useMemo(() => hasFrontmatter(document.content), [document.content])
+
   // Focus editor when transitioning from empty state to editing
   useEffect(() => {
     if (!showEmptyState && editor) {
@@ -291,6 +315,9 @@ export function Editor() {
           }}
         >
           <div className="max-w-3xl prose-editor">
+            {showFrontmatter && (
+              <FrontmatterDisplay content={document.content} />
+            )}
             <EditorContent
               editor={editor}
               className="min-h-full"

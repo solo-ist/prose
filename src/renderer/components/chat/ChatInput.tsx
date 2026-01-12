@@ -1,18 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Button } from '../ui/button'
-import { Textarea } from '../ui/textarea'
-import { Checkbox } from '../ui/checkbox'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from '../ui/dropdown-menu'
-import { Send, Square, X, MessageSquare, Wand2, Pencil, FileText, ChevronDown } from 'lucide-react'
+import { Square, MessageSquare, ChevronRight } from 'lucide-react'
 import { useChat } from '../../hooks/useChat'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
-import type { ToolMode } from '../../stores/chatStore'
+import { useChatStore, createMessageId } from '../../stores/chatStore'
+import { executeTool, getAvailableTools } from '../../lib/tools'
 
 interface ChatInputProps {
   onSend: (message: string) => void
@@ -25,30 +17,8 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
   const [message, setMessage] = useState('')
   const [commentCount, setCommentCount] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const { context, setContext, includeDocument, setIncludeDocument, toolMode, setToolMode, processComments, getCommentCount, isInitializing } = useChat()
+  const { context, setContext, toolMode, processComments, getCommentCount, isInitializing } = useChat()
   const editor = useEditorInstanceStore((state) => state.editor)
-
-  // Mode configuration
-  const modeConfig: Record<ToolMode, { label: string; icon: typeof Wand2; description: string }> = {
-    suggestions: {
-      label: 'Suggestions',
-      icon: FileText,
-      description: 'Read-only + suggestions'
-    },
-    full: {
-      label: 'Full',
-      icon: Pencil,
-      description: 'Direct edits enabled'
-    },
-    plan: {
-      label: 'Plan',
-      icon: Wand2,
-      description: 'Review changes before applying'
-    }
-  }
-
-  const currentMode = modeConfig[toolMode]
-  const ModeIcon = currentMode.icon
 
   // Disable input while app is initializing (loading draft/conversations) or while loading
   const isDisabled = isLoading || isInitializing
@@ -80,11 +50,124 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
     setCommentCount(0) // Optimistically clear count
   }
 
-  const handleSubmit = () => {
-    if (message.trim() && !isDisabled) {
-      onSend(message.trim())
-      setMessage('')
+  // Parse slash commands: /tool_name arg1 arg2 or /tool_name {"json": "args"}
+  const parseSlashCommand = (input: string): { toolName: string; args: unknown } | null => {
+    if (!input.startsWith('/')) return null
+
+    const trimmed = input.slice(1).trim()
+    const spaceIndex = trimmed.indexOf(' ')
+
+    if (spaceIndex === -1) {
+      // Just the command, no args
+      return { toolName: trimmed, args: {} }
     }
+
+    const toolName = trimmed.slice(0, spaceIndex)
+    const argsStr = trimmed.slice(spaceIndex + 1).trim()
+
+    // Try to parse as JSON first
+    if (argsStr.startsWith('{')) {
+      try {
+        return { toolName, args: JSON.parse(argsStr) }
+      } catch {
+        // Fall through to simple parsing
+      }
+    }
+
+    // Simple arg parsing for common tools
+    // /list_files ~/Documents -> { path: "~/Documents" }
+    // /open_file ~/Documents/file.md -> { path: "~/Documents/file.md" }
+    // /read_file ~/path -> { path: "~/path" }
+    if (['list_files', 'open_file', 'read_file', 'save_file'].includes(toolName)) {
+      return { toolName, args: { path: argsStr } }
+    }
+
+    // /search_document query text -> { query: "query text" }
+    if (toolName === 'search_document') {
+      return { toolName, args: { query: argsStr } }
+    }
+
+    // /new_file content -> { content: "content" }
+    if (toolName === 'new_file') {
+      return { toolName, args: { content: argsStr } }
+    }
+
+    // Default: try to use first arg as path or return empty
+    return { toolName, args: argsStr ? { path: argsStr } : {} }
+  }
+
+  const handleSlashCommand = async (command: { toolName: string; args: unknown }) => {
+    const { addMessage, toolMode } = useChatStore.getState()
+
+    // Add user message showing the command
+    const userMsgId = createMessageId()
+    addMessage({
+      id: userMsgId,
+      role: 'user',
+      content: message.trim(),
+      timestamp: new Date()
+    })
+
+    // Add assistant message with tool execution
+    const assistantMsgId = createMessageId()
+    addMessage({
+      id: assistantMsgId,
+      role: 'assistant',
+      content: `<tool-executing name="${command.toolName}">Executing...</tool-executing>`,
+      timestamp: new Date()
+    })
+
+    // Execute the tool
+    const result = await executeTool(command.toolName, command.args, toolMode)
+
+    // Update the message with result
+    const resultText = result.success
+      ? (typeof result.data === 'string'
+          ? result.data
+          : '```json\n' + JSON.stringify(result.data, null, 2) + '\n```')
+      : `Error: ${result.error}`
+
+    useChatStore.getState().updateMessage(assistantMsgId, {
+      content: `<tool-result name="${command.toolName}" success="${result.success}">${resultText}</tool-result>`
+    })
+  }
+
+  const handleSubmit = async () => {
+    if (!message.trim() || isDisabled) return
+
+    // Check for slash command
+    const command = parseSlashCommand(message.trim())
+    if (command) {
+      const availableTools = getAvailableTools()
+      if (availableTools.includes(command.toolName)) {
+        setMessage('')
+        await handleSlashCommand(command)
+        return
+      }
+      // If tool not found, show help or fall through to normal message
+      if (command.toolName === 'help' || command.toolName === '?') {
+        const { addMessage } = useChatStore.getState()
+        addMessage({
+          id: createMessageId(),
+          role: 'user',
+          content: '/help',
+          timestamp: new Date()
+        })
+        const toolList = availableTools.map(t => '• /' + t).join('\n')
+        addMessage({
+          id: createMessageId(),
+          role: 'assistant',
+          content: '**Available commands:**\n\n' + toolList + '\n\n**Examples:**\n• `/list_files ~/Documents`\n• `/read_document`\n• `/search_document keyword`',
+          timestamp: new Date()
+        })
+        setMessage('')
+        return
+      }
+    }
+
+    // Normal message
+    onSend(message.trim())
+    setMessage('')
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -144,105 +227,30 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
         </Button>
       )}
 
-      <div className="flex gap-2">
-        <Textarea
+      {/* Terminal-style input - no border, blends in */}
+      <div className="flex items-start gap-2 px-3 py-2">
+        <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+        <textarea
           ref={textareaRef}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={isInitializing ? "Loading..." : "Ask about your document..."}
-          className="min-h-[40px] max-h-[96px] resize-none"
+          className="flex-1 min-h-[24px] max-h-[96px] resize-none bg-transparent font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50"
           disabled={isDisabled}
+          rows={1}
         />
-        {isStreaming ? (
+        {isStreaming && (
           <Button
             size="icon"
-            variant="destructive"
+            variant="ghost"
             onClick={onStop}
-            className="shrink-0"
+            className="shrink-0 h-6 w-6 text-destructive hover:text-destructive hover:bg-transparent"
             aria-label="Stop generation"
           >
-            <Square className="h-4 w-4" />
-          </Button>
-        ) : (
-          <Button
-            size="icon"
-            onClick={handleSubmit}
-            disabled={!message.trim() || isDisabled}
-            className="shrink-0"
-            aria-label="Send message"
-          >
-            <Send className="h-4 w-4" />
+            <Square className="h-3.5 w-3.5" />
           </Button>
         )}
-      </div>
-      <div className="mt-2 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
-                <Checkbox
-                  checked={includeDocument}
-                  onCheckedChange={(checked) => setIncludeDocument(checked === true)}
-                />
-                Full context
-              </label>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Provide entire document as context</p>
-            </TooltipContent>
-          </Tooltip>
-
-          {/* Tool Mode Selector */}
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-                  >
-                    <ModeIcon className="h-3 w-3" />
-                    {currentMode.label}
-                    <ChevronDown className="h-3 w-3" />
-                  </Button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>{currentMode.description}</p>
-              </TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="start">
-              {(Object.entries(modeConfig) as [ToolMode, typeof currentMode][]).map(
-                ([mode, config]) => {
-                  const Icon = config.icon
-                  return (
-                    <DropdownMenuItem
-                      key={mode}
-                      onClick={() => setToolMode(mode)}
-                      className="cursor-pointer"
-                    >
-                      <Icon className="h-4 w-4 mr-2" />
-                      <div>
-                        <p className="font-medium">{config.label}</p>
-                        <p className="text-xs text-muted-foreground">{config.description}</p>
-                      </div>
-                      {mode === toolMode && (
-                        <span className="ml-auto text-primary">✓</span>
-                      )}
-                    </DropdownMenuItem>
-                  )
-                }
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          <kbd className="rounded bg-muted px-1 py-0.5 text-[10px] font-medium">
-            ⌘↵
-          </kbd>
-        </p>
       </div>
     </div>
   )

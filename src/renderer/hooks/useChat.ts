@@ -404,6 +404,23 @@ export function useChat() {
     return getComments(editor).length
   }, [])
 
+  // Auto-describe document on open (hidden message triggers AI summary)
+  const describeDocument = useCallback(async () => {
+    // Only describe if there's content and tools are available
+    const content = useEditorStore.getState().document.content
+    if (!content || content.trim().length === 0) return
+
+    // Open chat panel to show the description
+    setPanelOpen(true)
+
+    // Send a hidden prompt that triggers declarative description
+    // The prompt encourages confident, direct language without hedging
+    await sendMessage(
+      'Briefly describe this document in 1-2 sentences. Be direct and declarative - state what it is, not what it "appears to be". Focus on the content and purpose.',
+      { hidden: true }
+    )
+  }, [sendMessage, setPanelOpen])
+
   return {
     messages,
     isLoading,
@@ -418,6 +435,7 @@ export function useChat() {
     stopGeneration,
     processComments,
     getCommentCount,
+    describeDocument,
     updateMessage,
     clearMessages,
     togglePanel,

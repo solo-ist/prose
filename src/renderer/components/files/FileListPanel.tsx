@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react'
 import type { ReactNode } from 'react'
 import { useFileList } from '../../hooks/useFileList'
 import { useEditor } from '../../hooks/useEditor'
+import { useChat } from '../../hooks/useChat'
 import { useRemarkableSync } from '../../hooks/useRemarkableSync'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { FileTree } from './FileTree'
@@ -44,6 +45,7 @@ export function FileListPanel() {
   } = useFileList()
 
   const { openFileFromPath } = useEditor()
+  const { describeDocument } = useChat()
   const { isSyncing, sync, error: syncError } = useRemarkableSync()
   const { setDialogOpen } = useSettings()
   const remarkableEnabled = useSettingsStore((state) => state.settings.remarkable?.enabled)
@@ -59,7 +61,10 @@ export function FileListPanel() {
 
   const handleFileClick = async (path: string) => {
     selectFile(path)
-    await openFileFromPath(path)
+    const shouldDescribe = await openFileFromPath(path)
+    if (shouldDescribe) {
+      describeDocument()
+    }
   }
 
   // Get folder name from path for display
@@ -146,7 +151,10 @@ export function FileListPanel() {
     if (notebook.markdownPath && syncDirectory) {
       const fullPath = `${syncDirectory}/${notebook.markdownPath}`
       selectFile(fullPath)
-      await openFileFromPath(fullPath)
+      const shouldDescribe = await openFileFromPath(fullPath)
+      if (shouldDescribe) {
+        describeDocument()
+      }
     }
   }
 

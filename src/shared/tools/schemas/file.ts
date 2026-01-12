@@ -10,12 +10,12 @@ import type { ToolConfig } from '../types'
 // ============================================================================
 
 export const openFileSchema = z.object({
-  path: z.string().describe('Absolute path to the file to open')
+  path: z.string().describe('Path to the file to open. Use ~ for home directory (e.g., ~/Documents/file.md)')
 })
 
 export const openFileConfig: ToolConfig<typeof openFileSchema> = {
   name: 'open_file',
-  description: 'Open a file by path in the editor. Switches the current document.',
+  description: 'Open a file by path in the editor. Switches the current document. Use ~/Documents for user documents.',
   schema: openFileSchema,
   category: 'file',
   requiresMode: null, // Available in all modes
@@ -68,17 +68,22 @@ export const saveFileConfig: ToolConfig<typeof saveFileSchema> = {
 // ============================================================================
 
 export const listFilesSchema = z.object({
-  path: z.string().describe('Directory path to list'),
+  path: z.string().describe('Directory path to list. Use ~ for home directory (e.g., ~/Documents)'),
   maxDepth: z
     .number()
     .optional()
     .default(1)
-    .describe('Maximum depth to recurse (1 = immediate children only)')
+    .describe('Maximum depth to recurse (1 = immediate children only, max 3)'),
+  maxFiles: z
+    .number()
+    .optional()
+    .default(100)
+    .describe('Maximum number of files to return (default 100, max 500)')
 })
 
 export const listFilesConfig: ToolConfig<typeof listFilesSchema> = {
   name: 'list_files',
-  description: 'List files and directories at the specified path',
+  description: 'List files and directories at the specified path. Use ~/Documents for user documents, ~/Desktop for desktop, etc.',
   schema: listFilesSchema,
   category: 'file',
   requiresMode: null,
@@ -90,13 +95,13 @@ export const listFilesConfig: ToolConfig<typeof listFilesSchema> = {
 // ============================================================================
 
 export const readFileSchema = z.object({
-  path: z.string().describe('Absolute path to the file to read')
+  path: z.string().describe('Path to the file to read. Use ~ for home directory (e.g., ~/Documents/file.md)')
 })
 
 export const readFileConfig: ToolConfig<typeof readFileSchema> = {
   name: 'read_file',
   description:
-    'Read file contents without opening it in the editor. Useful for referencing other files.',
+    'Read file contents without opening it in the editor. Useful for referencing other files. Use ~/Documents for user documents.',
   schema: readFileSchema,
   category: 'file',
   requiresMode: null,

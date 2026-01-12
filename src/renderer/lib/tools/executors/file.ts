@@ -209,19 +209,49 @@ export async function executeSaveFile(args: {
 }
 
 /**
+ * Flatten a file tree and count total files.
+ */
+function flattenFiles(files: FileItem[], result: FileItem[] = []): FileItem[] {
+  for (const file of files) {
+    result.push(file)
+    if (file.children) {
+      flattenFiles(file.children, result)
+    }
+  }
+  return result
+}
+
+/**
+ * Truncate file tree to maxFiles limit.
+ */
+function truncateFiles(files: FileItem[], maxFiles: number): { files: FileItem[]; truncated: boolean } {
+  const flat = flattenFiles(files)
+  if (flat.length <= maxFiles) {
+    return { files, truncated: false }
+  }
+  // Return only top-level with a note about truncation
+  const truncatedFiles = files.slice(0, maxFiles)
+  return { files: truncatedFiles, truncated: true }
+}
+
+/**
  * list_files - List files and directories at the specified path.
  */
 export async function executeListFiles(args: {
   path: string
   maxDepth?: number
-}): Promise<ToolResult<{ files: FileItem[] }>> {
+  maxFiles?: number
+}): Promise<ToolResult<{ files: FileItem[]; truncated?: boolean; totalFound?: number }>> {
   const api = getApi()
 
   if (!api) {
     return toolError('File API not available', 'API_NOT_AVAILABLE')
   }
 
-  const { path, maxDepth = 1 } = args
+  // Enforce limits
+  const { path, maxDepth: requestedDepth = 1, maxFiles: requestedMax = 100 } = args
+  const maxDepth = Math.min(requestedDepth, 3) // Cap at 3 levels
+  const maxFiles = Math.min(requestedMax, 500) // Cap at 500 files
 
   if (!path) {
     return toolError('Path is required', 'INVALID_INPUT')
@@ -229,6 +259,18 @@ export async function executeListFiles(args: {
 
   try {
     const files = await api.listDirectory(path, maxDepth)
+    const flat = flattenFiles(files)
+
+    if (flat.length > maxFiles) {
+      // Truncate to prevent token overflow
+      const { files: truncatedFiles, truncated } = truncateFiles(files, maxFiles)
+      return toolSuccess({
+        files: truncatedFiles,
+        truncated: true,
+        totalFound: flat.length
+      })
+    }
+
     return toolSuccess({ files })
   } catch (e) {
     return toolError(`Failed to list directory: ${e}`, 'LIST_FAILED')

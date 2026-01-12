@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { cn } from '../../lib/utils'
 import type { ChatMessage as ChatMessageType } from '../../types'
-import { User, Bot, Wand2, Check, AlertCircle, ArrowRight } from 'lucide-react'
+import { User, Bot, Wand2, Check, AlertCircle, ArrowRight, Sparkles, CheckCircle2, XCircle } from 'lucide-react'
 import { parseEditBlocks, hasEditBlocks, stripEditBlocks, type EditBlock } from '../../lib/editBlocks'
 import { applyEditsAsDiffs, applyEditsDirect, type ApplyResult, type EditProvenance } from '../../lib/applyEdit'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
@@ -9,9 +9,187 @@ import { useChatStore } from '../../stores/chatStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 
+// Tool call indicator component with AI sparkle styling
+function ToolCallIndicator({ name, status, children }: { name: string; status: 'executing' | 'success' | 'error'; children?: React.ReactNode }) {
+  return (
+    <div className="my-2 rounded-md border border-border bg-muted/20 overflow-hidden">
+      <div className={cn(
+        "flex items-center gap-2 px-3 py-2 text-xs font-medium",
+        status === 'executing' && "text-violet-600 dark:text-violet-400 bg-violet-500/5",
+        status === 'success' && "text-emerald-600 dark:text-emerald-400 bg-emerald-500/5",
+        status === 'error' && "text-red-600 dark:text-red-400 bg-red-500/5"
+      )}>
+        {status === 'executing' ? (
+          <>
+            <Sparkles className="h-3.5 w-3.5 animate-pulse" />
+            <span className="animate-pulse">{name}...</span>
+          </>
+        ) : status === 'success' ? (
+          <>
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            <span>{name}</span>
+          </>
+        ) : (
+          <>
+            <XCircle className="h-3.5 w-3.5" />
+            <span>{name}</span>
+          </>
+        )}
+      </div>
+      {children && (
+        <div className="px-3 py-2 text-xs font-mono text-muted-foreground border-t border-border bg-muted/10 max-h-48 overflow-auto">
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Parse tool tags from content
+function parseToolTags(content: string): { type: 'text' | 'tool-executing' | 'tool-result' | 'tool-inline'; name?: string; success?: boolean; content: string }[] {
+  const parts: { type: 'text' | 'tool-executing' | 'tool-result' | 'tool-inline'; name?: string; success?: boolean; content: string }[] = []
+
+  // Match tool-executing tags
+  const executingRegex = /<tool-executing name="([^"]+)">([^<]*)<\/tool-executing>/g
+  // Match tool-result tags
+  const resultRegex = /<tool-result name="([^"]+)" success="([^"]+)">([^]*?)<\/tool-result>/g
+  // Match inline tool results from streaming: *[Tool: name] result*
+  const inlineRegex = /\*\[Tool: ([^\]]+)\] ([^*]+)\*/g
+
+  let lastIndex = 0
+  let remaining = content
+
+  // First pass: extract tool-executing
+  remaining = remaining.replace(executingRegex, (match, name, text, offset) => {
+    return `\x00TOOL_EXEC:${name}:${text}\x00`
+  })
+
+  // Second pass: extract tool-result
+  remaining = remaining.replace(resultRegex, (match, name, success, text) => {
+    return `\x00TOOL_RESULT:${name}:${success}:${text}\x00`
+  })
+
+  // Third pass: extract inline tool results
+  remaining = remaining.replace(inlineRegex, (match, name, result) => {
+    return `\x00TOOL_INLINE:${name}:${result}\x00`
+  })
+
+  // Split and process
+  const segments = remaining.split('\x00').filter(Boolean)
+  for (const segment of segments) {
+    if (segment.startsWith('TOOL_EXEC:')) {
+      const [, name, text] = segment.match(/TOOL_EXEC:([^:]+):(.*)/) || []
+      parts.push({ type: 'tool-executing', name, content: text || '' })
+    } else if (segment.startsWith('TOOL_RESULT:')) {
+      const match = segment.match(/TOOL_RESULT:([^:]+):([^:]+):(.*)/)
+      if (match) {
+        const [, name, success, text] = match
+        parts.push({ type: 'tool-result', name, success: success === 'true', content: text })
+      }
+    } else if (segment.startsWith('TOOL_INLINE:')) {
+      const [, name, result] = segment.match(/TOOL_INLINE:([^:]+):(.*)/) || []
+      parts.push({ type: 'tool-inline', name, success: !result?.toLowerCase().includes('error'), content: result || '' })
+    } else {
+      parts.push({ type: 'text', content: segment })
+    }
+  }
+
+  return parts.length > 0 ? parts : [{ type: 'text', content }]
+}
+
 interface ChatMessageProps {
   message: ChatMessageType
   isStreaming?: boolean
+}
+
+// Process inline formatting for a line
+function processInlineFormatting(text: string, keyPrefix: string): React.ReactNode {
+  // Order matters: bold (**) before italic (*) to avoid conflicts
+  const parts: React.ReactNode[] = []
+  let remaining = text
+  let key = 0
+
+  // Process bold first
+  const boldRegex = /\*\*(.+?)\*\*/g
+  let lastIndex = 0
+  let match
+
+  while ((match = boldRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index))
+    }
+    parts.push(<strong key={`${keyPrefix}-b-${key++}`}>{match[1]}</strong>)
+    lastIndex = match.index + match[0].length
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex))
+  }
+
+  if (parts.length === 0) {
+    parts.push(text)
+  }
+
+  // Now process italic on the text parts (not already processed bold)
+  const processItalic = (node: React.ReactNode, idx: number): React.ReactNode => {
+    if (typeof node !== 'string') return node
+
+    const italicRegex = /\*([^*]+)\*/g
+    const italicParts: React.ReactNode[] = []
+    let italicLastIndex = 0
+    let italicMatch
+
+    while ((italicMatch = italicRegex.exec(node)) !== null) {
+      if (italicMatch.index > italicLastIndex) {
+        italicParts.push(node.slice(italicLastIndex, italicMatch.index))
+      }
+      italicParts.push(<em key={`${keyPrefix}-i-${idx}-${italicParts.length}`}>{italicMatch[1]}</em>)
+      italicLastIndex = italicMatch.index + italicMatch[0].length
+    }
+
+    if (italicLastIndex < node.length) {
+      italicParts.push(node.slice(italicLastIndex))
+    }
+
+    return italicParts.length > 0 ? italicParts : node
+  }
+
+  // Process inline code on all remaining string parts
+  const processCode = (node: React.ReactNode, idx: number): React.ReactNode => {
+    if (typeof node !== 'string') return node
+
+    const codeRegex = /`([^`]+)`/g
+    const codeParts: React.ReactNode[] = []
+    let codeLastIndex = 0
+    let codeMatch
+
+    while ((codeMatch = codeRegex.exec(node)) !== null) {
+      if (codeMatch.index > codeLastIndex) {
+        codeParts.push(node.slice(codeLastIndex, codeMatch.index))
+      }
+      codeParts.push(
+        <code key={`${keyPrefix}-c-${idx}-${codeParts.length}`} className="rounded bg-muted px-1 py-0.5 text-xs font-mono">
+          {codeMatch[1]}
+        </code>
+      )
+      codeLastIndex = codeMatch.index + codeMatch[0].length
+    }
+
+    if (codeLastIndex < node.length) {
+      codeParts.push(node.slice(codeLastIndex))
+    }
+
+    return codeParts.length > 0 ? codeParts : node
+  }
+
+  // Apply transformations
+  return parts.flatMap((part, idx) => {
+    const withItalic = processItalic(part, idx)
+    if (Array.isArray(withItalic)) {
+      return withItalic.flatMap((p, i) => processCode(p, idx * 100 + i))
+    }
+    return processCode(withItalic, idx)
+  })
 }
 
 // Simple markdown renderer for assistant messages
@@ -28,7 +206,7 @@ function renderMarkdown(content: string): React.ReactNode {
         // End code block
         elements.push(
           <pre key={`code-${i}`} className="my-2 rounded bg-muted p-3 overflow-x-auto">
-            <code className="text-xs">{codeContent.join('\n')}</code>
+            <code className="text-xs font-mono">{codeContent.join('\n')}</code>
           </pre>
         )
         codeContent = []
@@ -45,29 +223,7 @@ function renderMarkdown(content: string): React.ReactNode {
     }
 
     // Process inline formatting
-    let processed: React.ReactNode = line
-
-    // Bold
-    if (line.includes('**')) {
-      const parts = line.split(/\*\*(.+?)\*\*/g)
-      processed = parts.map((part, j) =>
-        j % 2 === 1 ? <strong key={j}>{part}</strong> : part
-      )
-    }
-
-    // Inline code
-    if (typeof processed === 'string' && processed.includes('`')) {
-      const parts = processed.split(/`(.+?)`/g)
-      processed = parts.map((part, j) =>
-        j % 2 === 1 ? (
-          <code key={j} className="rounded bg-muted px-1 py-0.5 text-xs">
-            {part}
-          </code>
-        ) : (
-          part
-        )
-      )
-    }
+    const processed = processInlineFormatting(line, `line-${i}`)
 
     if (line === '') {
       elements.push(<br key={i} />)
@@ -202,23 +358,70 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
         )}
         <div className="text-sm leading-relaxed">
           {isUser ? (
-            <p className="whitespace-pre-wrap">{message.content}</p>
-          ) : displayContent.trim() ? (
-            <div className="prose-chat">
-              {renderMarkdown(displayContent)}
-              {isStreaming && (
-                <span className="inline-block w-2 h-4 bg-primary/50 animate-pulse ml-0.5 align-middle" />
-              )}
-            </div>
-          ) : containsEdits ? (
-            <p className="text-muted-foreground italic">
-              Suggested {editCount} edit{editCount !== 1 ? 's' : ''} to the document.
-            </p>
-          ) : isStreaming ? (
-            <span className="inline-block w-2 h-4 bg-primary/50 animate-pulse" />
-          ) : (
-            <div className="prose-chat">{renderMarkdown(displayContent)}</div>
-          )}
+            <p className="whitespace-pre-wrap font-mono">{message.content}</p>
+          ) : (() => {
+            // Parse tool tags for assistant messages
+            const toolParts = parseToolTags(displayContent)
+            const hasToolParts = toolParts.some(p => p.type !== 'text')
+
+            if (hasToolParts) {
+              return (
+                <div className="prose-chat space-y-2">
+                  {toolParts.map((part, idx) => {
+                    if (part.type === 'tool-executing') {
+                      return (
+                        <ToolCallIndicator key={idx} name={part.name || 'tool'} status="executing" />
+                      )
+                    }
+                    if (part.type === 'tool-result' || part.type === 'tool-inline') {
+                      return (
+                        <ToolCallIndicator
+                          key={idx}
+                          name={part.name || 'tool'}
+                          status={part.success ? 'success' : 'error'}
+                        >
+                          {part.content && renderMarkdown(part.content)}
+                        </ToolCallIndicator>
+                      )
+                    }
+                    // Regular text
+                    return part.content.trim() ? (
+                      <div key={idx}>{renderMarkdown(part.content)}</div>
+                    ) : null
+                  })}
+                  {isStreaming && (
+                    <span className="inline-block w-2 h-4 bg-primary/50 animate-pulse ml-0.5 align-middle" />
+                  )}
+                </div>
+              )
+            }
+
+            // No tool parts - render normally
+            if (displayContent.trim()) {
+              return (
+                <div className="prose-chat">
+                  {renderMarkdown(displayContent)}
+                  {isStreaming && (
+                    <span className="inline-block w-2 h-4 bg-primary/50 animate-pulse ml-0.5 align-middle" />
+                  )}
+                </div>
+              )
+            }
+
+            if (containsEdits) {
+              return (
+                <p className="text-muted-foreground italic">
+                  Suggested {editCount} edit{editCount !== 1 ? 's' : ''} to the document.
+                </p>
+              )
+            }
+
+            if (isStreaming) {
+              return <span className="inline-block w-2 h-4 bg-primary/50 animate-pulse" />
+            }
+
+            return <div className="prose-chat">{renderMarkdown(displayContent)}</div>
+          })()}
         </div>
         {/* Show preview only in non-agent mode */}
         {containsEdits && editBlocks.length > 0 && !agentMode && (

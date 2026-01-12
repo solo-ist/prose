@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Button } from '../ui/button'
-import { Square, MessageSquare, ChevronRight } from 'lucide-react'
+import { Square, MessageSquare, ChevronRight, X } from 'lucide-react'
 import { useChat } from '../../hooks/useChat'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useChatStore, createMessageId } from '../../stores/chatStore'
@@ -141,6 +141,7 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
       const availableTools = getAvailableTools()
       if (availableTools.includes(command.toolName)) {
         setMessage('')
+        textareaRef.current?.focus()
         await handleSlashCommand(command)
         return
       }
@@ -161,6 +162,7 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
           timestamp: new Date()
         })
         setMessage('')
+        textareaRef.current?.focus()
         return
       }
     }
@@ -168,11 +170,12 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
     // Normal message
     onSend(message.trim())
     setMessage('')
+    textareaRef.current?.focus()
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Cmd+Enter or Ctrl+Enter to send
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    // Enter to send, Shift+Enter for newline
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSubmit()
     }
@@ -229,7 +232,7 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
 
       {/* Terminal-style input - no border, blends in */}
       <div className="flex items-start gap-2 px-3 py-2">
-        <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+        <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" />
         <textarea
           ref={textareaRef}
           value={message}

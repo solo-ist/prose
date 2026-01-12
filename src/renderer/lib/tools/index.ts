@@ -94,6 +94,8 @@ export async function executeTool(
         return executeAcceptDiff(validatedArgs)
       case 'reject_diff':
         return executeRejectDiff(validatedArgs)
+      case 'list_diffs':
+        return executeListDiffs()
 
       // File tools (async)
       case 'open_file':

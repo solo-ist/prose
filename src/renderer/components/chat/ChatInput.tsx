@@ -1,10 +1,32 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { Button } from '../ui/button'
 import { Square, MessageSquare, ChevronRight, X } from 'lucide-react'
 import { useChat } from '../../hooks/useChat'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useChatStore, createMessageId } from '../../stores/chatStore'
 import { executeTool, getAvailableTools } from '../../lib/tools'
+import { cn } from '../../lib/utils'
+
+// Tool descriptions for autocomplete
+const toolDescriptions: Record<string, string> = {
+  read_document: 'Read current document content',
+  read_selection: 'Read selected text',
+  get_metadata: 'Get document metadata',
+  search_document: 'Search in document',
+  get_outline: 'Get document outline/headings',
+  edit: 'Replace text in document',
+  insert: 'Insert text at position',
+  suggest_edit: 'Suggest an edit (plan mode)',
+  accept_diff: 'Accept a suggested diff',
+  reject_diff: 'Reject a suggested diff',
+  list_diffs: 'List pending diffs',
+  open_file: 'Open a file',
+  new_file: 'Create new file',
+  save_file: 'Save to file',
+  list_files: 'List files in directory',
+  read_file: 'Read file contents',
+  help: 'Show available commands'
+}
 
 interface ChatInputProps {
   onSend: (message: string) => void
@@ -16,12 +38,34 @@ interface ChatInputProps {
 export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputProps) {
   const [message, setMessage] = useState('')
   const [commentCount, setCommentCount] = useState(0)
+  const [selectedCommandIndex, setSelectedCommandIndex] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const { context, setContext, toolMode, processComments, getCommentCount, isInitializing } = useChat()
   const editor = useEditorInstanceStore((state) => state.editor)
 
   // Disable input while app is initializing (loading draft/conversations) or while loading
   const isDisabled = isLoading || isInitializing
+
+  // Slash command autocomplete
+  const filteredCommands = useMemo(() => {
+    if (!message.startsWith('/')) return []
+    const query = message.slice(1).split(' ')[0].toLowerCase()
+    const allCommands = [...getAvailableTools(), 'help']
+    if (!query) return allCommands
+    return allCommands.filter(cmd => cmd.toLowerCase().includes(query))
+  }, [message])
+
+  const showAutocomplete = message.startsWith('/') && !message.includes(' ') && filteredCommands.length > 0
+
+  // Reset selection when filtered list changes
+  useEffect(() => {
+    setSelectedCommandIndex(0)
+  }, [filteredCommands.length])
+
+  const selectCommand = (command: string) => {
+    setMessage('/' + command + ' ')
+    textareaRef.current?.focus()
+  }
 
   // Track comment count changes
   const updateCommentCount = useCallback(() => {
@@ -174,6 +218,30 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Handle autocomplete navigation
+    if (showAutocomplete) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSelectedCommandIndex(i => Math.min(i + 1, filteredCommands.length - 1))
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSelectedCommandIndex(i => Math.max(i - 1, 0))
+        return
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault()
+        selectCommand(filteredCommands[selectedCommandIndex])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setMessage('')
+        return
+      }
+    }
+
     // Enter to send, Shift+Enter for newline
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -231,9 +299,32 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
       )}
 
       {/* Terminal-style input - no border, blends in */}
-      <div className="flex items-start gap-2 px-3 py-2">
-        <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" />
-        <textarea
+      <div className="relative">
+        {/* Autocomplete dropdown */}
+        {showAutocomplete && (
+          <div className="absolute bottom-full left-0 right-0 mb-1 max-h-48 overflow-y-auto rounded-md border border-border bg-popover shadow-md">
+            {filteredCommands.map((cmd, index) => (
+              <button
+                key={cmd}
+                className={cn(
+                  "flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted/50",
+                  index === selectedCommandIndex && "bg-muted"
+                )}
+                onClick={() => selectCommand(cmd)}
+                onMouseEnter={() => setSelectedCommandIndex(index)}
+              >
+                <span className="font-mono text-foreground">/{cmd}</span>
+                <span className="text-xs text-muted-foreground truncate ml-4">
+                  {toolDescriptions[cmd] || ''}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-start gap-2 px-3 py-2">
+          <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" />
+          <textarea
           ref={textareaRef}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
@@ -243,17 +334,18 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
           disabled={isDisabled}
           rows={1}
         />
-        {isStreaming && (
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={onStop}
-            className="shrink-0 h-6 w-6 text-destructive hover:text-destructive hover:bg-transparent"
-            aria-label="Stop generation"
-          >
-            <Square className="h-3.5 w-3.5" />
-          </Button>
-        )}
+          {isStreaming && (
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={onStop}
+              className="shrink-0 h-6 w-6 text-destructive hover:text-destructive hover:bg-transparent"
+              aria-label="Stop generation"
+            >
+              <Square className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   )

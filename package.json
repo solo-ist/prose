@@ -10,7 +10,8 @@
     "postinstall": "electron-builder install-app-deps",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:win": "electron-vite build && electron-builder --win",
-    "build:linux": "electron-vite build && electron-builder --linux"
+    "build:linux": "electron-vite build && electron-builder --linux",
+    "github:issue": "node scripts/github-issue.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.1",
@@ -59,6 +60,7 @@
     "electron": "^33.2.1",
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
+    "octokit": "^5.0.5",
     "postcss": "^8.4.49",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

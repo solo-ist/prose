@@ -16,6 +16,17 @@ npm run build:linux  # Build Linux distributable
 
 **No tests**: This project has no test suite. QA is done via Circuit Electron (see below).
 
+### GitHub Issue Lookup
+
+When the `gh` CLI is unavailable (e.g., cloud environments), use the built-in script:
+
+```bash
+npm run github:issue solo-ist prose 72   # Fetch issue #72
+node scripts/github-issue.mjs solo-ist prose 72  # Same thing
+```
+
+For private repos, set `GITHUB_TOKEN` environment variable.
+
 ## Before Implementation
 
 Before writing any code, complete this checklist:

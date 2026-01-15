@@ -105,6 +105,12 @@ export interface ElectronAPI {
   remarkableStoreApiKey: (apiKey: string) => Promise<void>
   remarkableGetApiKey: () => Promise<string | null>
   remarkableClearApiKey: () => Promise<void>
+  // reMarkable read-only/editable version paths
+  remarkableGetOCRPath: (notebookId: string, syncDirectory: string) => Promise<string | null>
+  remarkableGetEditablePath: (notebookId: string, syncDirectory: string) => Promise<string | null>
+  remarkableCreateEditableVersion: (notebookId: string, syncDirectory: string) => Promise<string | null>
+  remarkableFindNotebookByFilePath: (filePath: string, syncDirectory: string) => Promise<string | null>
+  remarkableClearNotebookMarkdownPath: (notebookId: string, syncDirectory: string) => Promise<boolean>
 }
 
 export interface FileItem {
@@ -212,6 +218,17 @@ const api: ElectronAPI = {
   remarkableStoreApiKey: (apiKey: string) => ipcRenderer.invoke('remarkable:storeApiKey', apiKey),
   remarkableGetApiKey: () => ipcRenderer.invoke('remarkable:getApiKey'),
   remarkableClearApiKey: () => ipcRenderer.invoke('remarkable:clearApiKey'),
+  // reMarkable read-only/editable version paths
+  remarkableGetOCRPath: (notebookId: string, syncDirectory: string) =>
+    ipcRenderer.invoke('remarkable:getOCRPath', notebookId, syncDirectory),
+  remarkableGetEditablePath: (notebookId: string, syncDirectory: string) =>
+    ipcRenderer.invoke('remarkable:getEditablePath', notebookId, syncDirectory),
+  remarkableCreateEditableVersion: (notebookId: string, syncDirectory: string) =>
+    ipcRenderer.invoke('remarkable:createEditableVersion', notebookId, syncDirectory),
+  remarkableFindNotebookByFilePath: (filePath: string, syncDirectory: string) =>
+    ipcRenderer.invoke('remarkable:findNotebookByFilePath', filePath, syncDirectory),
+  remarkableClearNotebookMarkdownPath: (notebookId: string, syncDirectory: string) =>
+    ipcRenderer.invoke('remarkable:clearNotebookMarkdownPath', notebookId, syncDirectory),
   onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, chunk: LLMStreamChunk): void => {
       callback(chunk)

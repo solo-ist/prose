@@ -55,7 +55,9 @@ export interface NotebookMetadata {
   lastModified: string
   hash: string
   localPath: string
-  /** Path to converted markdown file, if available */
+  /** Path to read-only OCR output in hidden folder (relative to hidden dir) */
+  ocrPath?: string
+  /** Path to user's editable markdown in visible folder (relative to sync dir, created on demand) */
   markdownPath?: string
 }
 
@@ -374,8 +376,8 @@ export async function syncAll(
         }
 
         const needsDownload = !existingEntry || existingEntry.hash !== doc.hash || !localFilesExist
-        const needsOCR = doc.fileType === 'notebook' && isOCRConfigured() && !existingEntry?.markdownPath
-        console.log(`[reMarkable] ${doc.name}: needsDownload=${needsDownload}, needsOCR=${needsOCR}, localFilesExist=${localFilesExist}, existingMarkdown=${existingEntry?.markdownPath}`)
+        const needsOCR = doc.fileType === 'notebook' && isOCRConfigured() && !existingEntry?.ocrPath
+        console.log(`[reMarkable] ${doc.name}: needsDownload=${needsDownload}, needsOCR=${needsOCR}, localFilesExist=${localFilesExist}, existingOCR=${existingEntry?.ocrPath}`)
 
         if (!needsDownload && !needsOCR) {
           result.skipped++
@@ -388,26 +390,27 @@ export async function syncAll(
           console.log(`[reMarkable] OCR-only path for ${doc.name}`)
           onProgress?.(`Processing OCR for existing notebook: ${doc.name}`)
 
-          let markdownPath: string | undefined
+          let ocrPath: string | undefined
           console.log(`[reMarkable] Running OCR for ${doc.name} from ${notebookDir}`)
           const markdown = await processNotebookWithOCR(notebookDir, doc.name, anthropicApiKey, onProgress)
           console.log(`[reMarkable] OCR result for ${doc.name}: ${markdown ? 'got markdown' : 'null'}`)
           if (markdown) {
-            const docRelPath = buildPath(doc, notebooks)
-            const mdFileName = `${sanitizeName(doc.name)}.md`
-            const parentPath = dirname(docRelPath)
-            const mdRelPath = parentPath === '.' ? mdFileName : join(parentPath, mdFileName)
-            const mdPath = join(visibleDir, mdRelPath)
+            // Save OCR output to hidden folder (read-only source of truth)
+            const ocrFileName = 'ocr.md'
+            const ocrDir = join(hiddenDir, doc.id)
+            const ocrFullPath = join(ocrDir, ocrFileName)
 
-            await mkdir(dirname(mdPath), { recursive: true })
-            await writeFile(mdPath, markdown, 'utf-8')
-            markdownPath = mdRelPath
-            onProgress?.(`Saved markdown: ${mdRelPath}`)
+            await mkdir(ocrDir, { recursive: true })
+            await writeFile(ocrFullPath, markdown, 'utf-8')
+            ocrPath = join(doc.id, ocrFileName)
+            onProgress?.(`Saved OCR: ${ocrPath}`)
           }
 
           newMeta.notebooks[doc.id] = {
             ...existingEntry!,
-            markdownPath
+            ocrPath,
+            // Preserve existing markdownPath if user has already created editable version
+            markdownPath: existingEntry?.markdownPath
           }
           result.synced++
           continue
@@ -446,27 +449,21 @@ export async function syncAll(
         }
 
         // Process with OCR for handwritten notebooks
-        let markdownPath: string | undefined
+        let ocrPath: string | undefined
         if (doc.fileType === 'notebook') {
           console.log(`[reMarkable] Running OCR for ${doc.name} from ${notebookDir}`)
           const markdown = await processNotebookWithOCR(notebookDir, doc.name, anthropicApiKey, onProgress)
           console.log(`[reMarkable] OCR result for ${doc.name}: ${markdown ? 'got markdown' : 'null'}`)
           if (markdown) {
-            // Build the path preserving folder hierarchy from reMarkable
-            const docRelPath = buildPath(doc, notebooks)
-            const mdFileName = `${sanitizeName(doc.name)}.md`
-            // docRelPath already includes the notebook name, so use dirname to get parent folders
-            const parentPath = dirname(docRelPath)
-            const mdRelPath = parentPath === '.' ? mdFileName : join(parentPath, mdFileName)
-            const mdPath = join(visibleDir, mdRelPath)
+            // Save OCR output to hidden folder (read-only source of truth)
+            const ocrFileName = 'ocr.md'
+            const ocrDir = join(hiddenDir, doc.id)
+            const ocrFullPath = join(ocrDir, ocrFileName)
 
-            // Ensure parent directory exists
-            await mkdir(dirname(mdPath), { recursive: true })
-            await writeFile(mdPath, markdown, 'utf-8')
-
-            // Store relative path from sync directory
-            markdownPath = mdRelPath
-            onProgress?.(`Saved markdown: ${mdRelPath}`)
+            await mkdir(ocrDir, { recursive: true })
+            await writeFile(ocrFullPath, markdown, 'utf-8')
+            ocrPath = join(doc.id, ocrFileName)
+            onProgress?.(`Saved OCR: ${ocrPath}`)
           }
         }
 
@@ -478,7 +475,8 @@ export async function syncAll(
           lastModified: doc.lastModified,
           hash: doc.hash,
           localPath: join(HIDDEN_DIR, doc.hash),
-          markdownPath
+          ocrPath
+          // markdownPath is not set yet - created on demand when user transforms to edit mode
         }
 
         result.synced++
@@ -575,4 +573,212 @@ export async function listCloudNotebooks(
     parent: n.parent,
     fileType: n.fileType
   }))
+}
+
+/**
+ * Create an editable copy of a reMarkable notebook's OCR output.
+ * Called when user triggers "transform to edit mode".
+ *
+ * @param notebookId - The notebook ID
+ * @param syncDirectory - Base sync directory
+ * @returns Path to the editable markdown file, or null if failed
+ */
+export async function createEditableVersion(
+  notebookId: string,
+  syncDirectory: string
+): Promise<string | null> {
+  const baseDir = expandPath(syncDirectory)
+  const hiddenDir = join(baseDir, HIDDEN_DIR)
+
+  // Load metadata to get notebook info
+  const metadata = await loadMetadata(baseDir)
+  if (!metadata) {
+    console.error('[reMarkable] No metadata found')
+    return null
+  }
+
+  const notebook = metadata.notebooks[notebookId]
+  if (!notebook) {
+    console.error(`[reMarkable] Notebook ${notebookId} not found in metadata`)
+    return null
+  }
+
+  if (!notebook.ocrPath) {
+    console.error(`[reMarkable] No OCR path for notebook ${notebookId}`)
+    return null
+  }
+
+  // If editable version already exists, return its path
+  if (notebook.markdownPath) {
+    const existingPath = join(baseDir, notebook.markdownPath)
+    try {
+      await access(existingPath)
+      return existingPath
+    } catch {
+      // File doesn't exist, continue to create it
+    }
+  }
+
+  // Read OCR content from hidden folder
+  const ocrFullPath = join(hiddenDir, notebook.ocrPath)
+  let ocrContent: string
+  try {
+    ocrContent = await readFile(ocrFullPath, 'utf-8')
+  } catch (error) {
+    console.error(`[reMarkable] Failed to read OCR file: ${ocrFullPath}`, error)
+    return null
+  }
+
+  // Build path for editable version using folder hierarchy
+  // We need to reconstruct the path from metadata
+  const mdFileName = `${sanitizeName(notebook.name)}.md`
+  let mdRelPath: string
+
+  // Build folder path from parent chain
+  const parentPath = buildPathFromMetadata(notebookId, metadata)
+  if (parentPath) {
+    mdRelPath = join(parentPath, mdFileName)
+  } else {
+    mdRelPath = mdFileName
+  }
+
+  const mdFullPath = join(baseDir, mdRelPath)
+
+  // Create parent directories and write file
+  try {
+    await mkdir(dirname(mdFullPath), { recursive: true })
+    await writeFile(mdFullPath, ocrContent, 'utf-8')
+    console.log(`[reMarkable] Created editable version: ${mdFullPath}`)
+
+    // Update metadata with markdownPath
+    notebook.markdownPath = mdRelPath
+    await saveMetadata(baseDir, metadata)
+
+    return mdFullPath
+  } catch (error) {
+    console.error(`[reMarkable] Failed to create editable version`, error)
+    return null
+  }
+}
+
+/**
+ * Build folder path from notebook metadata using parent chain
+ */
+function buildPathFromMetadata(notebookId: string, metadata: SyncMetadata, visited: Set<string> = new Set()): string {
+  const notebook = metadata.notebooks[notebookId]
+  if (!notebook || visited.has(notebookId)) return ''
+  visited.add(notebookId)
+
+  if (!notebook.parent) return ''
+
+  const parent = metadata.notebooks[notebook.parent]
+  if (!parent || parent.type !== 'folder') return ''
+
+  const parentPath = buildPathFromMetadata(notebook.parent, metadata, visited)
+  const safeName = sanitizeName(parent.name)
+
+  return parentPath ? join(parentPath, safeName) : safeName
+}
+
+/**
+ * Get the full path to a notebook's OCR file (read-only)
+ */
+export async function getOCRPath(
+  notebookId: string,
+  syncDirectory: string
+): Promise<string | null> {
+  const baseDir = expandPath(syncDirectory)
+  const hiddenDir = join(baseDir, HIDDEN_DIR)
+
+  const metadata = await loadMetadata(baseDir)
+  if (!metadata) return null
+
+  const notebook = metadata.notebooks[notebookId]
+  if (!notebook?.ocrPath) return null
+
+  return join(hiddenDir, notebook.ocrPath)
+}
+
+/**
+ * Get the full path to a notebook's editable markdown file (if it exists)
+ */
+export async function getEditablePath(
+  notebookId: string,
+  syncDirectory: string
+): Promise<string | null> {
+  const baseDir = expandPath(syncDirectory)
+
+  const metadata = await loadMetadata(baseDir)
+  if (!metadata) return null
+
+  const notebook = metadata.notebooks[notebookId]
+  if (!notebook?.markdownPath) return null
+
+  const fullPath = join(baseDir, notebook.markdownPath)
+
+  // Verify file exists
+  try {
+    await access(fullPath)
+    return fullPath
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Find a notebook ID by its markdown file path (absolute path)
+ * Returns the notebook ID if found, null otherwise
+ */
+export async function findNotebookByFilePath(
+  filePath: string,
+  syncDirectory: string
+): Promise<string | null> {
+  const baseDir = expandPath(syncDirectory)
+  const metadata = await loadMetadata(baseDir)
+  if (!metadata) return null
+
+  // Normalize paths for comparison
+  const normalizedFilePath = filePath.replace(/\\/g, '/')
+
+  // Check if file is within sync directory
+  const normalizedBaseDir = baseDir.replace(/\\/g, '/')
+  if (!normalizedFilePath.startsWith(normalizedBaseDir)) {
+    return null
+  }
+
+  // Get relative path from sync directory
+  const relativePath = normalizedFilePath.slice(normalizedBaseDir.length + 1)
+
+  // Search for notebook with matching markdownPath
+  for (const [notebookId, notebook] of Object.entries(metadata.notebooks)) {
+    if (notebook.markdownPath === relativePath) {
+      return notebookId
+    }
+  }
+
+  return null
+}
+
+/**
+ * Clear the markdownPath from a notebook's metadata (unsync the editable version)
+ * Called when the user deletes the local markdown file
+ */
+export async function clearNotebookMarkdownPath(
+  notebookId: string,
+  syncDirectory: string
+): Promise<boolean> {
+  const baseDir = expandPath(syncDirectory)
+  const metadata = await loadMetadata(baseDir)
+  if (!metadata) return false
+
+  const notebook = metadata.notebooks[notebookId]
+  if (!notebook) return false
+
+  // Clear the markdown path
+  delete notebook.markdownPath
+
+  // Save updated metadata
+  await saveMetadata(baseDir, metadata)
+  console.log(`[reMarkable] Cleared markdownPath for notebook ${notebookId}`)
+  return true
 }

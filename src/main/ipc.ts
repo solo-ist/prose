@@ -689,4 +689,49 @@ export function setupIpcHandlers(): void {
       // File doesn't exist, ignore
     }
   })
+
+  // reMarkable: Get OCR path (read-only source)
+  ipcMain.handle(
+    'remarkable:getOCRPath',
+    async (_event, notebookId: string, syncDirectory: string) => {
+      const { getOCRPath } = await import('./remarkable/sync')
+      return await getOCRPath(notebookId, syncDirectory)
+    }
+  )
+
+  // reMarkable: Get editable path (if exists)
+  ipcMain.handle(
+    'remarkable:getEditablePath',
+    async (_event, notebookId: string, syncDirectory: string) => {
+      const { getEditablePath } = await import('./remarkable/sync')
+      return await getEditablePath(notebookId, syncDirectory)
+    }
+  )
+
+  // reMarkable: Create editable version from OCR
+  ipcMain.handle(
+    'remarkable:createEditableVersion',
+    async (_event, notebookId: string, syncDirectory: string) => {
+      const { createEditableVersion } = await import('./remarkable/sync')
+      return await createEditableVersion(notebookId, syncDirectory)
+    }
+  )
+
+  // reMarkable: Find notebook by its markdown file path
+  ipcMain.handle(
+    'remarkable:findNotebookByFilePath',
+    async (_event, filePath: string, syncDirectory: string) => {
+      const { findNotebookByFilePath } = await import('./remarkable/sync')
+      return await findNotebookByFilePath(filePath, syncDirectory)
+    }
+  )
+
+  // reMarkable: Clear notebook markdown path (unsync editable version)
+  ipcMain.handle(
+    'remarkable:clearNotebookMarkdownPath',
+    async (_event, notebookId: string, syncDirectory: string) => {
+      const { clearNotebookMarkdownPath } = await import('./remarkable/sync')
+      return await clearNotebookMarkdownPath(notebookId, syncDirectory)
+    }
+  )
 }

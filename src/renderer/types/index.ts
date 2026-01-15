@@ -85,6 +85,9 @@ export interface RemarkableNotebookMetadata {
   lastModified: string
   hash: string
   localPath: string
+  /** Path to read-only OCR output in hidden folder */
+  ocrPath?: string
+  /** Path to user's editable markdown in visible folder */
   markdownPath?: string
 }
 
@@ -231,6 +234,12 @@ export interface ElectronAPI {
   remarkableStoreApiKey: (apiKey: string) => Promise<void>
   remarkableGetApiKey: () => Promise<string | null>
   remarkableClearApiKey: () => Promise<void>
+  // reMarkable read-only/editable version paths
+  remarkableGetOCRPath: (notebookId: string, syncDirectory: string) => Promise<string | null>
+  remarkableGetEditablePath: (notebookId: string, syncDirectory: string) => Promise<string | null>
+  remarkableCreateEditableVersion: (notebookId: string, syncDirectory: string) => Promise<string | null>
+  remarkableFindNotebookByFilePath: (filePath: string, syncDirectory: string) => Promise<string | null>
+  remarkableClearNotebookMarkdownPath: (notebookId: string, syncDirectory: string) => Promise<boolean>
 }
 
 declare global {

@@ -10,6 +10,9 @@ interface EditorState {
   cursorPosition: { line: number; column: number }
   activeChatId: string | null
   isEditing: boolean // True after user creates new doc or opens file
+  // reMarkable read-only mode state
+  isRemarkableReadOnly: boolean // True when viewing OCR output before transforming to editable
+  remarkableNotebookId: string | null // Notebook ID for creating editable version
   setDocument: (doc: Partial<Document>) => void
   setContent: (content: string) => void
   setPath: (path: string | null) => void
@@ -18,6 +21,7 @@ interface EditorState {
   setCursorPosition: (line: number, column: number) => void
   setActiveChatId: (id: string | null) => void
   setEditing: (isEditing: boolean) => void
+  setRemarkableReadOnly: (isReadOnly: boolean, notebookId?: string | null) => void
   resetDocument: () => void
   hydrateFromDraft: (draft: DraftState) => void
 }
@@ -38,6 +42,8 @@ export const useEditorStore = create<EditorState>()(
     cursorPosition: { line: 1, column: 1 },
     activeChatId: null,
     isEditing: false,
+    isRemarkableReadOnly: false,
+    remarkableNotebookId: null,
 
     setDocument: (doc) =>
       set((state) => ({
@@ -71,12 +77,20 @@ export const useEditorStore = create<EditorState>()(
 
     setEditing: (isEditing) => set({ isEditing }),
 
+    setRemarkableReadOnly: (isReadOnly, notebookId = null) =>
+      set({
+        isRemarkableReadOnly: isReadOnly,
+        remarkableNotebookId: notebookId
+      }),
+
     resetDocument: () =>
       set({
         document: createInitialDocument(),
         cursorPosition: { line: 1, column: 1 },
         activeChatId: null,
-        isEditing: true // User explicitly created new document
+        isEditing: true, // User explicitly created new document
+        isRemarkableReadOnly: false,
+        remarkableNotebookId: null
       }),
 
     hydrateFromDraft: (draft) =>

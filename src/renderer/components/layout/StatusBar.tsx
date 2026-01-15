@@ -1,6 +1,7 @@
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
+import { useEditorStore } from '../../stores/editorStore'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import {
   DropdownMenu,
@@ -15,6 +16,7 @@ export function StatusBar() {
   const { document, cursorPosition } = useEditor()
   const { settings } = useSettings()
   const { toolMode, setToolMode, includeDocument, setIncludeDocument } = useChat()
+  const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
 
   const wordCount = document.content
     .split(/\s+/)
@@ -42,7 +44,7 @@ export function StatusBar() {
       </div>
 
       <div className="flex items-center gap-1">
-        {document.isDirty && (
+        {document.isDirty && !isRemarkableReadOnly && (
           <>
             <span className="text-yellow-500">unsaved</span>
             <span className="text-muted-foreground/40 mx-1">|</span>

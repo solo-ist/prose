@@ -38,33 +38,62 @@ interface ChatInputProps {
 export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputProps) {
   const [message, setMessage] = useState('')
   const [commentCount, setCommentCount] = useState(0)
-  const [selectedCommandIndex, setSelectedCommandIndex] = useState(0)
+  const [selectedIndex, setSelectedIndex] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map())
   const { context, setContext, toolMode, processComments, getCommentCount, isInitializing } = useChat()
   const editor = useEditorInstanceStore((state) => state.editor)
 
   // Disable input while app is initializing (loading draft/conversations) or while loading
   const isDisabled = isLoading || isInitializing
 
+  // All available commands
+  const allCommands = useMemo(() => [...getAvailableTools(), 'help'], [])
+
   // Slash command autocomplete
   const filteredCommands = useMemo(() => {
     if (!message.startsWith('/')) return []
-    const query = message.slice(1).split(' ')[0].toLowerCase()
-    const allCommands = [...getAvailableTools(), 'help']
+    if (message.includes(' ')) return []
+    const query = message.slice(1).toLowerCase()
     if (!query) return allCommands
     return allCommands.filter(cmd => cmd.toLowerCase().includes(query))
-  }, [message])
+  }, [message, allCommands])
 
-  const showAutocomplete = message.startsWith('/') && !message.includes(' ') && filteredCommands.length > 0
+  const showAutocomplete = filteredCommands.length > 0
 
   // Reset selection when filtered list changes
   useEffect(() => {
-    setSelectedCommandIndex(0)
+    setSelectedIndex(0)
   }, [filteredCommands.length])
+
+  // Scroll selected item into view (manual calculation for precise control)
+  useEffect(() => {
+    if (!showAutocomplete) return
+    const item = itemRefs.current.get(selectedIndex)
+    if (!item) return
+
+    const container = item.parentElement
+    if (!container) return
+
+    const itemTop = item.offsetTop
+    const itemBottom = itemTop + item.offsetHeight
+    const containerTop = container.scrollTop
+    const containerBottom = containerTop + container.clientHeight
+
+    // Scroll down: item bottom is below visible area
+    if (itemBottom > containerBottom) {
+      container.scrollTop = itemBottom - container.clientHeight
+    }
+    // Scroll up: item top is above visible area
+    else if (itemTop < containerTop) {
+      container.scrollTop = itemTop
+    }
+  }, [selectedIndex, showAutocomplete])
 
   const selectCommand = (command: string) => {
     setMessage('/' + command + ' ')
-    textareaRef.current?.focus()
+    // Focus after state update
+    setTimeout(() => textareaRef.current?.focus(), 0)
   }
 
   // Track comment count changes
@@ -119,31 +148,24 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
     }
 
     // Simple arg parsing for common tools
-    // /list_files ~/Documents -> { path: "~/Documents" }
-    // /open_file ~/Documents/file.md -> { path: "~/Documents/file.md" }
-    // /read_file ~/path -> { path: "~/path" }
     if (['list_files', 'open_file', 'read_file', 'save_file'].includes(toolName)) {
       return { toolName, args: { path: argsStr } }
     }
 
-    // /search_document query text -> { query: "query text" }
     if (toolName === 'search_document') {
       return { toolName, args: { query: argsStr } }
     }
 
-    // /new_file content -> { content: "content" }
     if (toolName === 'new_file') {
       return { toolName, args: { content: argsStr } }
     }
 
-    // Default: try to use first arg as path or return empty
     return { toolName, args: argsStr ? { path: argsStr } : {} }
   }
 
   const handleSlashCommand = async (command: { toolName: string; args: unknown }) => {
     const { addMessage, toolMode } = useChatStore.getState()
 
-    // Add user message showing the command
     const userMsgId = createMessageId()
     addMessage({
       id: userMsgId,
@@ -152,7 +174,6 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
       timestamp: new Date()
     })
 
-    // Add assistant message with tool execution
     const assistantMsgId = createMessageId()
     addMessage({
       id: assistantMsgId,
@@ -161,10 +182,8 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
       timestamp: new Date()
     })
 
-    // Execute the tool
     const result = await executeTool(command.toolName, command.args, toolMode)
 
-    // Update the message with result
     const resultText = result.success
       ? (typeof result.data === 'string'
           ? result.data
@@ -179,17 +198,15 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
   const handleSubmit = async () => {
     if (!message.trim() || isDisabled) return
 
-    // Check for slash command
     const command = parseSlashCommand(message.trim())
     if (command) {
       const availableTools = getAvailableTools()
       if (availableTools.includes(command.toolName)) {
         setMessage('')
-        textareaRef.current?.focus()
+        setTimeout(() => textareaRef.current?.focus(), 0)
         await handleSlashCommand(command)
         return
       }
-      // If tool not found, show help or fall through to normal message
       if (command.toolName === 'help' || command.toolName === '?') {
         const { addMessage } = useChatStore.getState()
         addMessage({
@@ -206,56 +223,71 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
           timestamp: new Date()
         })
         setMessage('')
-        textareaRef.current?.focus()
+        setTimeout(() => textareaRef.current?.focus(), 0)
         return
       }
     }
 
-    // Normal message
     onSend(message.trim())
     setMessage('')
-    textareaRef.current?.focus()
+    // Focus after state update
+    setTimeout(() => textareaRef.current?.focus(), 0)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Handle autocomplete navigation
     if (showAutocomplete) {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
-        setSelectedCommandIndex(i => Math.min(i + 1, filteredCommands.length - 1))
+        setSelectedIndex(i => (i + 1) % filteredCommands.length)
         return
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault()
-        setSelectedCommandIndex(i => Math.max(i - 1, 0))
+        setSelectedIndex(i => (i - 1 + filteredCommands.length) % filteredCommands.length)
         return
       }
       if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
         e.preventDefault()
-        selectCommand(filteredCommands[selectedCommandIndex])
+        selectCommand(filteredCommands[selectedIndex])
         return
       }
       if (e.key === 'Escape') {
         e.preventDefault()
+        e.stopPropagation() // Prevent closing the chat panel
         setMessage('')
         return
       }
     }
 
-    // Enter to send, Shift+Enter for newline
+    // Down arrow with empty input opens slash command menu
+    if (e.key === 'ArrowDown' && !message) {
+      e.preventDefault()
+      setMessage('/')
+      return
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSubmit()
     }
   }
 
-  // Auto-resize textarea (max 4 lines ~= 96px)
+  // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 96)}px`
     }
   }, [message])
+
+  // Focus input when streaming completes
+  const wasStreaming = useRef(false)
+  useEffect(() => {
+    if (wasStreaming.current && !isStreaming) {
+      textareaRef.current?.focus()
+    }
+    wasStreaming.current = isStreaming ?? false
+  }, [isStreaming])
 
   return (
     <div className="border-t border-border p-4">
@@ -298,26 +330,35 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
         </Button>
       )}
 
-      {/* Terminal-style input - no border, blends in */}
+      {/* Terminal-style input */}
       <div className="relative">
         {/* Autocomplete dropdown */}
         {showAutocomplete && (
-          <div className="absolute bottom-full left-0 right-0 mb-1 max-h-48 overflow-y-auto rounded-md border border-border bg-popover shadow-md">
+          <div
+            role="listbox"
+            className="absolute bottom-full left-0 right-0 mb-1 max-h-48 overflow-y-auto overscroll-contain rounded-md border border-border bg-popover shadow-md"
+          >
             {filteredCommands.map((cmd, index) => (
-              <button
+              <div
                 key={cmd}
+                ref={(el) => {
+                  if (el) itemRefs.current.set(index, el)
+                  else itemRefs.current.delete(index)
+                }}
+                role="option"
+                aria-selected={index === selectedIndex}
                 className={cn(
-                  "flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted/50",
-                  index === selectedCommandIndex && "bg-muted"
+                  "flex items-center justify-between px-3 py-2 text-sm cursor-pointer",
+                  index === selectedIndex ? "bg-accent text-accent-foreground" : "hover:bg-muted/50"
                 )}
                 onClick={() => selectCommand(cmd)}
-                onMouseEnter={() => setSelectedCommandIndex(index)}
+                onMouseEnter={() => setSelectedIndex(index)}
               >
-                <span className="font-mono text-foreground">/{cmd}</span>
+                <span className="font-mono">/{cmd}</span>
                 <span className="text-xs text-muted-foreground truncate ml-4">
                   {toolDescriptions[cmd] || ''}
                 </span>
-              </button>
+              </div>
             ))}
           </div>
         )}
@@ -325,15 +366,15 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
         <div className="flex items-start gap-2 px-3 py-2">
           <ChevronRight className="h-5 w-5 text-muted-foreground shrink-0" />
           <textarea
-          ref={textareaRef}
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={isInitializing ? "Loading..." : "Ask about your document..."}
-          className="flex-1 min-h-[24px] max-h-[96px] resize-none bg-transparent font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50"
-          disabled={isDisabled}
-          rows={1}
-        />
+            ref={textareaRef}
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={isInitializing ? "Loading..." : "Ask about your document..."}
+            className="flex-1 min-h-[24px] max-h-[96px] resize-none bg-transparent font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50"
+            disabled={isDisabled}
+            rows={1}
+          />
           {isStreaming && (
             <Button
               size="icon"

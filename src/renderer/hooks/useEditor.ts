@@ -50,7 +50,7 @@ export function useEditor() {
     setActiveChatId(activeConversationId)
   }, [activeConversationId, setActiveChatId])
 
-  const openFileFromPath = useCallback(async (filePath: string): Promise<boolean> => {
+  const openFileFromPath = useCallback(async (filePath: string, isRemarkableOCR = false): Promise<boolean> => {
     if (!window.api) return false
 
     // Save current conversations before switching
@@ -68,6 +68,12 @@ export function useEditor() {
         frontmatter: parsed.frontmatter,
         isDirty: false
       })
+
+      // Clear reMarkable read-only state if this is a regular file open
+      // (reMarkable OCR files set this separately via setRemarkableReadOnly)
+      if (!isRemarkableOCR) {
+        useEditorStore.getState().setRemarkableReadOnly(false, null)
+      }
 
       // Load conversations for the document
       await loadForDocument(newDocumentId)
@@ -115,6 +121,9 @@ export function useEditor() {
         frontmatter: parsed.frontmatter,
         isDirty: false
       })
+
+      // Clear reMarkable read-only state when opening via file dialog
+      useEditorStore.getState().setRemarkableReadOnly(false, null)
 
       // Load conversations for the document
       await loadForDocument(newDocumentId)

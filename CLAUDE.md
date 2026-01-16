@@ -24,6 +24,16 @@ Before writing any code, complete this checklist:
 2. **Docs**: For complex issues, create `docs/issues/<number>/plan.md`
 3. **Verify**: Run `git branch --show-current` to confirm you're not on `main`
 
+## Before Presenting Work for Review
+
+Before presenting completed work for user review, ensure a clean environment:
+
+1. **Kill stale processes**: Run `pkill -f "Electron.app" && pkill -f "electron-vite"` to terminate any orphaned instances
+2. **Start fresh dev server**: Run `npm run dev` in the background
+3. **Verify no errors**: Check dev server output for compilation errors before announcing completion
+
+This prevents LevelDB lock conflicts and ensures the user sees the latest changes.
+
 ## QA Testing
 
 The app supports automated QA testing via Circuit Electron MCP (configured at parent level).

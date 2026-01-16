@@ -1,6 +1,12 @@
 import type { FileItem } from '../../types'
-import { ChevronRight, ChevronDown, FileText, Folder, Loader2 } from 'lucide-react'
+import { ChevronRight, ChevronDown, FileText, Folder, Loader2, Trash2 } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger
+} from '../ui/context-menu'
 
 interface FileTreeProps {
   items: FileItem[]
@@ -10,6 +16,7 @@ interface FileTreeProps {
   onFileClick: (path: string) => void
   onFolderToggle: (path: string) => void
   onFolderDoubleClick?: (path: string) => void
+  onFileDelete?: (path: string) => void
   depth?: number
 }
 
@@ -21,6 +28,7 @@ export function FileTree({
   onFileClick,
   onFolderToggle,
   onFolderDoubleClick,
+  onFileDelete,
   depth = 0
 }: FileTreeProps) {
   return (
@@ -35,6 +43,7 @@ export function FileTree({
           onFileClick={onFileClick}
           onFolderToggle={onFolderToggle}
           onFolderDoubleClick={onFolderDoubleClick}
+          onFileDelete={onFileDelete}
           depth={depth}
         />
       ))}
@@ -50,6 +59,7 @@ interface FileTreeItemProps {
   onFileClick: (path: string) => void
   onFolderToggle: (path: string) => void
   onFolderDoubleClick?: (path: string) => void
+  onFileDelete?: (path: string) => void
   depth: number
 }
 
@@ -61,6 +71,7 @@ function FileTreeItem({
   onFileClick,
   onFolderToggle,
   onFolderDoubleClick,
+  onFileDelete,
   depth
 }: FileTreeItemProps) {
   const isExpanded = expandedFolders.has(item.path)
@@ -89,42 +100,63 @@ function FileTreeItem({
   // Show chevron only if folder has or may have children
   const showChevron = item.isDirectory && (item.children?.length || item.hasChildren)
 
+  const buttonElement = (
+    <button
+      onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
+      className={cn(
+        'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm text-left transition-colors',
+        'hover:bg-accent hover:text-accent-foreground',
+        isSelected && !item.isDirectory && 'bg-accent text-accent-foreground'
+      )}
+      style={{ paddingLeft: `${depth * 12 + 8}px` }}
+      title={item.path}
+    >
+      {item.isDirectory ? (
+        <>
+          {isLoading ? (
+            <Loader2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground animate-spin" />
+          ) : showChevron ? (
+            isExpanded ? (
+              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            )
+          ) : (
+            <span className="w-3.5" /> // Empty folder spacer
+          )}
+          <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+        </>
+      ) : (
+        <>
+          <span className="w-3.5" /> {/* Spacer for alignment */}
+          <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+        </>
+      )}
+      <span className="truncate">{displayName}</span>
+    </button>
+  )
+
   return (
     <div>
-      <button
-        onClick={handleClick}
-        onDoubleClick={handleDoubleClick}
-        className={cn(
-          'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm text-left transition-colors',
-          'hover:bg-accent hover:text-accent-foreground',
-          isSelected && !item.isDirectory && 'bg-accent text-accent-foreground'
-        )}
-        style={{ paddingLeft: `${depth * 12 + 8}px` }}
-        title={item.path}
-      >
-        {item.isDirectory ? (
-          <>
-            {isLoading ? (
-              <Loader2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground animate-spin" />
-            ) : showChevron ? (
-              isExpanded ? (
-                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              ) : (
-                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              )
-            ) : (
-              <span className="w-3.5" /> // Empty folder spacer
-            )}
-            <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
-          </>
-        ) : (
-          <>
-            <span className="w-3.5" /> {/* Spacer for alignment */}
-            <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-          </>
-        )}
-        <span className="truncate">{displayName}</span>
-      </button>
+      {item.isDirectory ? (
+        buttonElement
+      ) : (
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            {buttonElement}
+          </ContextMenuTrigger>
+          <ContextMenuContent>
+            <ContextMenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={() => onFileDelete?.(item.path)}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+      )}
 
       {item.isDirectory && isExpanded && item.children && (
         <FileTree
@@ -135,6 +167,7 @@ function FileTreeItem({
           onFileClick={onFileClick}
           onFolderToggle={onFolderToggle}
           onFolderDoubleClick={onFolderDoubleClick}
+          onFileDelete={onFileDelete}
           depth={depth + 1}
         />
       )}

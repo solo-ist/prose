@@ -202,6 +202,7 @@
   border-radius: 0.5em;
   margin-bottom: 1em;
   overflow-x: auto;
+  white-space: pre;
 }
 
 .prose-editor pre code {
@@ -209,6 +210,8 @@
   padding: 0;
   border-radius: 0;
   font-size: 0.9em;
+  white-space: pre;
+  font-family: inherit;
 }
 
 .prose-editor hr {

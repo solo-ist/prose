@@ -478,7 +478,10 @@ export function FileListPanel() {
               No notebooks found.
             </div>
           ) : (
-            <div className="p-2">
+            <div className={cn(
+              "p-2",
+              isSyncing && "opacity-50 pointer-events-none"
+            )}>
               {renderNotebookItems(null, 0)}
             </div>
           )

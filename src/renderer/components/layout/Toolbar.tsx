@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, type KeyboardEvent } from 'react'
 import { useEditor } from '../../hooks/useEditor'
+import { useEditorStore } from '../../stores/editorStore'
+import { useFileListStore } from '../../stores/fileListStore'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
 import { useFileList } from '../../hooks/useFileList'
@@ -27,7 +29,9 @@ import {
   PanelLeft,
   PanelRightClose,
   PanelRight,
-  MoreHorizontal
+  MoreHorizontal,
+  Copy,
+  Check
 } from 'lucide-react'
 
 export function Toolbar() {
@@ -38,14 +42,27 @@ export function Toolbar() {
 
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editedTitle, setEditedTitle] = useState('')
+  const [hasCopied, setHasCopied] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Extract filename and extension
+  const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
+  const remarkableNotebookId = useEditorStore((state) => state.remarkableNotebookId)
+  const notebookMetadata = useFileListStore((state) => state.notebookMetadata)
+
   const fullFileName = document.path?.split('/').pop() || ''
   const hasExtension = fullFileName.includes('.')
-  const fileName = hasExtension
-    ? fullFileName.substring(0, fullFileName.lastIndexOf('.'))
-    : fullFileName || 'Untitled'
+
+  // For reMarkable read-only mode, use the notebook name from metadata
+  let fileName: string
+  if (isRemarkableReadOnly && remarkableNotebookId && notebookMetadata?.notebooks?.[remarkableNotebookId]) {
+    fileName = notebookMetadata.notebooks[remarkableNotebookId].name
+  } else {
+    fileName = hasExtension
+      ? fullFileName.substring(0, fullFileName.lastIndexOf('.'))
+      : fullFileName || 'Untitled'
+  }
+
   const fileExtension = hasExtension
     ? fullFileName.substring(fullFileName.lastIndexOf('.'))
     : '.md'
@@ -62,6 +79,17 @@ export function Toolbar() {
       ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
       : settings.theme
     setTheme(effectiveTheme === 'dark' ? 'light' : 'dark')
+  }
+
+  const handleCopy = async () => {
+    if (!document.content) return
+    try {
+      await navigator.clipboard.writeText(document.content)
+      setHasCopied(true)
+      setTimeout(() => setHasCopied(false), 2000)
+    } catch (err) {
+      console.error('Failed to copy:', err)
+    }
   }
 
   const handleTitleDoubleClick = () => {
@@ -164,6 +192,25 @@ export function Toolbar() {
 
       {/* Right: Actions */}
       <div className="flex items-center gap-1 app-region-no-drag">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleCopy}
+              disabled={!document.content}
+              aria-label="Copy document"
+            >
+              {hasCopied ? (
+                <Check className="h-4 w-4 text-green-500" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{hasCopied ? 'Copied!' : 'Copy document'}</TooltipContent>
+        </Tooltip>
+
         <Tooltip>
           <TooltipTrigger asChild>
             <Button variant="ghost" size="icon" onClick={toggleTheme} disabled={!isLoaded} aria-label="Toggle theme">

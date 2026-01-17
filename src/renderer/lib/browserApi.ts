@@ -404,7 +404,16 @@ export const browserApi: ElectronAPI = {
     return () => window.removeEventListener('llm:stream:error', handler)
   },
 
-  platform: null
+  platform: null,
+
+  // MCP tool execution - not available in browser mode
+  onMcpToolInvoke: (_callback: (requestId: string, toolName: string, args: unknown) => void) => {
+    // No MCP in browser mode
+    return () => {}
+  },
+  sendMcpToolResult: (_requestId: string, _result: import('../../shared/tools/types').ToolResult) => {
+    // No MCP in browser mode
+  }
 }
 
 /**

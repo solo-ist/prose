@@ -29,6 +29,7 @@ import {
   deleteConversations
 } from '../../lib/persistence'
 import type { DraftState } from '../../lib/persistence'
+import { executeTool } from '../../lib/tools'
 
 export function App() {
   const { isPanelOpen: isChatOpen, togglePanel: toggleChatPanel, setPanelOpen: setChatPanelOpen, describeDocument } = useChat()
@@ -223,6 +224,24 @@ export function App() {
     })
     return unsubscribe
   }, [openFileFromPath, describeDocument])
+
+  // Handle MCP tool invocations (only active in MCP server mode)
+  useEffect(() => {
+    if (!window.api?.onMcpToolInvoke) return
+    const unsubscribe = window.api.onMcpToolInvoke(async (requestId, toolName, args) => {
+      try {
+        const result = await executeTool(toolName, args, 'full')
+        window.api.sendMcpToolResult(requestId, result)
+      } catch (error) {
+        window.api.sendMcpToolResult(requestId, {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+          code: 'EXECUTION_ERROR'
+        })
+      }
+    })
+    return unsubscribe
+  }, [])
 
   return (
     <TooltipProvider delayDuration={300}>

@@ -81,17 +81,25 @@ export function getToolsForClaudeAPI(mode: ToolMode = 'full'): Array<{
 }
 
 /**
+ * Tools exposed via MCP server.
+ * Focused subset for Claude Desktop integration.
+ */
+const mcpToolNames = ['read_document', 'get_outline', 'open_file', 'suggest_edit'] as const
+
+/**
  * Get tools formatted for MCP server.
- * Returns array of tool definitions with JSON schema.
+ * Returns a focused subset of tools for Claude Desktop integration.
  */
 export function getToolsForMCP(): Array<{
   name: string
   description: string
   inputSchema: Record<string, unknown>
 }> {
-  return allTools.map((tool) => ({
-    name: tool.name,
-    description: tool.description,
-    inputSchema: zodToJsonSchema(tool.schema)
-  }))
+  return allTools
+    .filter((tool) => (mcpToolNames as readonly string[]).includes(tool.name))
+    .map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: zodToJsonSchema(tool.schema)
+    }))
 }

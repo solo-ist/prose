@@ -1,3 +1,5 @@
+import type { ToolResult } from '../../shared/tools/types'
+
 export interface Settings {
   theme: 'light' | 'dark' | 'system'
   llm: {
@@ -240,6 +242,11 @@ export interface ElectronAPI {
   remarkableCreateEditableVersion: (notebookId: string, syncDirectory: string) => Promise<string | null>
   remarkableFindNotebookByFilePath: (filePath: string, syncDirectory: string) => Promise<string | null>
   remarkableClearNotebookMarkdownPath: (notebookId: string, syncDirectory: string) => Promise<boolean>
+  // MCP tool execution (only used in MCP server mode)
+  onMcpToolInvoke: (
+    callback: (requestId: string, toolName: string, args: unknown) => void
+  ) => () => void
+  sendMcpToolResult: (requestId: string, result: ToolResult) => void
 }
 
 declare global {

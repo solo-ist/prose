@@ -8,6 +8,7 @@ import { app, shell, BrowserWindow } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { setupIpcHandlers } from './ipc'
 import { createMenu } from './menu'
+import { getMcpHttpServer, getMcpBridge } from './mcp'
 
 console.log('[Main] Environment loaded. OCR URL:', process.env.REMARKABLE_OCR_URL ? 'set' : 'not set')
 
@@ -79,8 +80,16 @@ function createWindow(): BrowserWindow {
   return mainWindow
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.prose.app')
+
+  // Start HTTP/SSE server for MCP communication (Claude Desktop connects here)
+  const mcpServer = getMcpHttpServer()
+  try {
+    await mcpServer.start()
+  } catch (err) {
+    console.error('[Main] Failed to start MCP HTTP server:', err)
+  }
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
@@ -94,6 +103,15 @@ app.whenReady().then(() => {
   const mainWindow = createWindow()
   setupIpcHandlers()
   createMenu(mainWindow)
+
+  // Set up MCP bridge with main window for tool execution
+  const bridge = getMcpBridge()
+  bridge.setWindow(mainWindow)
+
+  // Connect HTTP MCP server to bridge for tool execution
+  mcpServer.setToolInvokeHandler(async (name, args) => {
+    return bridge.executeTool(name, args)
+  })
 
   // Send file to renderer once loaded
   if (fileToOpen) {

@@ -81,13 +81,15 @@ function parseToolTags(content: string): { type: 'text' | 'tool-executing' | 'to
       const [, name, text] = segment.match(/TOOL_EXEC:([^:]+):(.*)/) || []
       parts.push({ type: 'tool-executing', name, content: text || '' })
     } else if (segment.startsWith('TOOL_RESULT:')) {
-      const match = segment.match(/TOOL_RESULT:([^:]+):([^:]+):(.*)/)
+      // Use [\s\S]* instead of .* to match multiline content (JSON with newlines)
+      const match = segment.match(/TOOL_RESULT:([^:]+):([^:]+):([\s\S]*)/)
       if (match) {
         const [, name, success, text] = match
         parts.push({ type: 'tool-result', name, success: success === 'true', content: text })
       }
     } else if (segment.startsWith('TOOL_INLINE:')) {
-      const [, name, result] = segment.match(/TOOL_INLINE:([^:]+):(.*)/) || []
+      // Use [\s\S]* for multiline content consistency
+      const [, name, result] = segment.match(/TOOL_INLINE:([^:]+):([\s\S]*)/) || []
       parts.push({ type: 'tool-inline', name, success: !result?.toLowerCase().includes('error'), content: result || '' })
     } else {
       parts.push({ type: 'text', content: segment })

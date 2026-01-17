@@ -152,6 +152,25 @@ export function Editor() {
     return () => setEditorInstance(null)
   }, [editor, setEditorInstance])
 
+  // Cache selection on selectionUpdate for read_selection fallback
+  // This preserves the selection when chat input steals focus
+  useEffect(() => {
+    if (!editor) return
+
+    const handleSelectionUpdate = () => {
+      const { from, to, empty } = editor.state.selection
+      if (!empty) {
+        const text = editor.state.doc.textBetween(from, to)
+        useEditorStore.getState().setLastSelection({ text, from, to })
+      }
+    }
+
+    editor.on('selectionUpdate', handleSelectionUpdate)
+    return () => {
+      editor.off('selectionUpdate', handleSelectionUpdate)
+    }
+  }, [editor])
+
   // Update editor editability when reMarkable read-only mode changes
   useEffect(() => {
     if (!editor) return

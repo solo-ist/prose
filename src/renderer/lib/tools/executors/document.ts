@@ -18,14 +18,28 @@ function getEditor(): Editor | null {
 
 /**
  * read_document - Get the full markdown content of the current document.
+ * Uses caching to avoid redundant reads when document hasn't changed.
  */
 export function executeReadDocument(): ToolResult<{ content: string }> {
-  const { document } = useEditorStore.getState()
-  return toolSuccess({ content: document.content })
+  const store = useEditorStore.getState()
+
+  // Check cache first
+  const cached = store.getCachedRead()
+  if (cached !== null) {
+    return toolSuccess({ content: cached })
+  }
+
+  // Read fresh and update cache
+  const content = store.document.content
+  store.updateReadCache(content)
+
+  return toolSuccess({ content })
 }
 
 /**
  * read_selection - Get the currently selected text and its position.
+ * Falls back to cached selection if the live selection is empty
+ * (e.g., when chat input has stolen focus).
  */
 export function executeReadSelection(): ToolResult<{
   text: string
@@ -41,22 +55,34 @@ export function executeReadSelection(): ToolResult<{
 
   const { from, to, empty } = editor.state.selection
 
-  if (empty) {
+  // Try live selection first
+  if (!empty) {
+    const text = editor.state.doc.textBetween(from, to)
     return toolSuccess({
-      text: '',
+      text,
       from,
       to,
-      isEmpty: true
+      isEmpty: false
     })
   }
 
-  const text = editor.state.doc.textBetween(from, to)
+  // Fall back to cached selection (preserved when editor loses focus)
+  const cached = useEditorStore.getState().getLastSelection()
+  if (cached && cached.text) {
+    return toolSuccess({
+      text: cached.text,
+      from: cached.from,
+      to: cached.to,
+      isEmpty: false
+    })
+  }
 
+  // No selection available
   return toolSuccess({
-    text,
+    text: '',
     from,
     to,
-    isEmpty: false
+    isEmpty: true
   })
 }
 

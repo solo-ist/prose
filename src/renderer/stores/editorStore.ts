@@ -5,6 +5,17 @@ import { generateId, saveDraft, clearDraft } from '../lib/persistence'
 import type { DraftState, FileListState } from '../lib/persistence'
 import { useFileListStore } from './fileListStore'
 
+interface ReadCache {
+  content: string | null
+  documentId: string | null
+}
+
+interface SelectionCache {
+  text: string
+  from: number
+  to: number
+}
+
 interface EditorState {
   document: Document
   cursorPosition: { line: number; column: number }
@@ -13,6 +24,10 @@ interface EditorState {
   // reMarkable read-only mode state
   isRemarkableReadOnly: boolean // True when viewing OCR output before transforming to editable
   remarkableNotebookId: string | null // Notebook ID for creating editable version
+  // Read cache for avoiding redundant read_document calls
+  readCache: ReadCache
+  // Selection cache for read_selection when editor loses focus
+  lastSelection: SelectionCache | null
   setDocument: (doc: Partial<Document>) => void
   setContent: (content: string) => void
   setPath: (path: string | null) => void
@@ -24,6 +39,13 @@ interface EditorState {
   setRemarkableReadOnly: (isReadOnly: boolean, notebookId?: string | null) => void
   resetDocument: () => void
   hydrateFromDraft: (draft: DraftState) => void
+  // Read cache methods
+  getCachedRead: () => string | null
+  updateReadCache: (content: string) => void
+  invalidateReadCache: () => void
+  // Selection cache methods
+  setLastSelection: (sel: SelectionCache | null) => void
+  getLastSelection: () => SelectionCache | null
 }
 
 function createInitialDocument(): Document {
@@ -37,22 +59,28 @@ function createInitialDocument(): Document {
 }
 
 export const useEditorStore = create<EditorState>()(
-  subscribeWithSelector((set) => ({
+  subscribeWithSelector((set, get) => ({
     document: createInitialDocument(),
     cursorPosition: { line: 1, column: 1 },
     activeChatId: null,
     isEditing: false,
     isRemarkableReadOnly: false,
     remarkableNotebookId: null,
+    readCache: { content: null, documentId: null },
+    lastSelection: null,
 
     setDocument: (doc) =>
       set((state) => ({
-        document: { ...state.document, ...doc }
+        document: { ...state.document, ...doc },
+        // Invalidate cache when document changes
+        readCache: { content: null, documentId: null }
       })),
 
     setContent: (content) =>
       set((state) => ({
-        document: { ...state.document, content, isDirty: true }
+        document: { ...state.document, content, isDirty: true },
+        // Invalidate cache when content changes
+        readCache: { content: null, documentId: null }
       })),
 
     setPath: (path) =>
@@ -62,7 +90,9 @@ export const useEditorStore = create<EditorState>()(
 
     setDirty: (isDirty) =>
       set((state) => ({
-        document: { ...state.document, isDirty }
+        document: { ...state.document, isDirty },
+        // Invalidate cache when dirty flag is set to true
+        readCache: isDirty ? { content: null, documentId: null } : state.readCache
       })),
 
     setFrontmatter: (frontmatter) =>
@@ -90,7 +120,9 @@ export const useEditorStore = create<EditorState>()(
         activeChatId: null,
         isEditing: true, // User explicitly created new document
         isRemarkableReadOnly: false,
-        remarkableNotebookId: null
+        remarkableNotebookId: null,
+        readCache: { content: null, documentId: null },
+        lastSelection: null
       }),
 
     hydrateFromDraft: (draft) =>
@@ -98,8 +130,46 @@ export const useEditorStore = create<EditorState>()(
         document: draft.document,
         cursorPosition: draft.cursorPosition ?? { line: 1, column: 1 },
         activeChatId: draft.activeChatId,
-        isEditing: true // Recovered from draft means user was editing
+        isEditing: true, // Recovered from draft means user was editing
+        readCache: { content: null, documentId: null },
+        lastSelection: null
+      }),
+
+    // Read cache methods
+    getCachedRead: () => {
+      const state = get()
+      const { readCache, document } = state
+      // Return cached content only if:
+      // 1. Cache exists
+      // 2. Document ID matches
+      // 3. Document is not dirty
+      if (
+        readCache.content !== null &&
+        readCache.documentId === document.documentId &&
+        !document.isDirty
+      ) {
+        return readCache.content
+      }
+      return null
+    },
+
+    updateReadCache: (content: string) => {
+      const { document } = get()
+      set({
+        readCache: {
+          content,
+          documentId: document.documentId
+        }
       })
+    },
+
+    invalidateReadCache: () =>
+      set({ readCache: { content: null, documentId: null } }),
+
+    // Selection cache methods
+    setLastSelection: (sel) => set({ lastSelection: sel }),
+
+    getLastSelection: () => get().lastSelection
   }))
 )
 

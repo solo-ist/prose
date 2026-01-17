@@ -173,10 +173,16 @@ function getPendingDiffs(editor: Editor): DiffSuggestion[] {
 
 /**
  * accept_diff - Accept a pending diff suggestion.
+ * If no ID provided and multiple diffs exist, accepts ALL diffs.
+ *
+ * Note: The acceptDiffSuggestion(id) command ignores the ID and relies on
+ * cursor position, so we use acceptAllDiffSuggestions() which correctly
+ * iterates through the document. For specific diff acceptance, we filter
+ * and apply manually.
  */
 export function executeAcceptDiff(args: {
   id?: string
-}): ToolResult<{ accepted: boolean; diffId: string }> {
+}): ToolResult<{ accepted: boolean; diffId?: string; count?: number }> {
   const editor = getEditor()
 
   if (!editor) {
@@ -190,32 +196,64 @@ export function executeAcceptDiff(args: {
     return toolError('No pending diff suggestions', 'NO_DIFFS')
   }
 
-  // Find the diff to accept
-  const targetDiff = id ? diffs.find((d) => d.id === id) : diffs[0]
+  // If ID provided, accept specific diff by manually applying the change
+  if (id) {
+    const targetDiff = diffs.find((d) => d.id === id)
+    if (!targetDiff) {
+      return toolError(`Diff with id "${id}" not found`, 'DIFF_NOT_FOUND')
+    }
 
-  if (!targetDiff) {
-    return toolError(`Diff with id "${id}" not found`, 'DIFF_NOT_FOUND')
+    // Find the diff node in the document and replace it
+    let found = false
+    editor.state.doc.descendants((node, pos) => {
+      if (found) return false
+      if (node.type.name === 'diffSuggestion' && node.attrs.id === id) {
+        const suggestedText = node.attrs.suggestedText || ''
+        editor.chain()
+          .focus()
+          .setTextSelection({ from: pos, to: pos + node.nodeSize })
+          .insertContent(suggestedText)
+          .run()
+        found = true
+        return false
+      }
+    })
+
+    if (found) {
+      return toolSuccess({
+        accepted: true,
+        diffId: id
+      })
+    } else {
+      return toolError('Failed to accept diff', 'ACCEPT_FAILED')
+    }
   }
 
-  // Use the editor command to accept the diff
-  const success = editor.commands.acceptDiffSuggestion(targetDiff.id)
+  // No ID provided - accept ALL diffs using the built-in command
+  const success = editor.commands.acceptAllDiffSuggestions()
 
   if (success) {
     return toolSuccess({
       accepted: true,
-      diffId: targetDiff.id
+      count: diffs.length
     })
   } else {
-    return toolError('Failed to accept diff', 'ACCEPT_FAILED')
+    return toolError('Failed to accept diffs', 'ACCEPT_FAILED')
   }
 }
 
 /**
  * reject_diff - Reject a pending diff suggestion.
+ * If no ID provided and multiple diffs exist, rejects ALL diffs.
+ *
+ * Note: The rejectDiffSuggestion(id) command ignores the ID and relies on
+ * cursor position, so we use rejectAllDiffSuggestions() which correctly
+ * iterates through the document. For specific diff rejection, we filter
+ * and apply manually.
  */
 export function executeRejectDiff(args: {
   id?: string
-}): ToolResult<{ rejected: boolean; diffId: string }> {
+}): ToolResult<{ rejected: boolean; diffId?: string; count?: number }> {
   const editor = getEditor()
 
   if (!editor) {
@@ -229,23 +267,49 @@ export function executeRejectDiff(args: {
     return toolError('No pending diff suggestions', 'NO_DIFFS')
   }
 
-  // Find the diff to reject
-  const targetDiff = id ? diffs.find((d) => d.id === id) : diffs[0]
+  // If ID provided, reject specific diff by manually applying the change
+  if (id) {
+    const targetDiff = diffs.find((d) => d.id === id)
+    if (!targetDiff) {
+      return toolError(`Diff with id "${id}" not found`, 'DIFF_NOT_FOUND')
+    }
 
-  if (!targetDiff) {
-    return toolError(`Diff with id "${id}" not found`, 'DIFF_NOT_FOUND')
+    // Find the diff node in the document and replace it with original text
+    let found = false
+    editor.state.doc.descendants((node, pos) => {
+      if (found) return false
+      if (node.type.name === 'diffSuggestion' && node.attrs.id === id) {
+        const originalText = node.attrs.originalText || ''
+        editor.chain()
+          .focus()
+          .setTextSelection({ from: pos, to: pos + node.nodeSize })
+          .insertContent(originalText)
+          .run()
+        found = true
+        return false
+      }
+    })
+
+    if (found) {
+      return toolSuccess({
+        rejected: true,
+        diffId: id
+      })
+    } else {
+      return toolError('Failed to reject diff', 'REJECT_FAILED')
+    }
   }
 
-  // Use the editor command to reject the diff
-  const success = editor.commands.rejectDiffSuggestion(targetDiff.id)
+  // No ID provided - reject ALL diffs using the built-in command
+  const success = editor.commands.rejectAllDiffSuggestions()
 
   if (success) {
     return toolSuccess({
       rejected: true,
-      diffId: targetDiff.id
+      count: diffs.length
     })
   } else {
-    return toolError('Failed to reject diff', 'REJECT_FAILED')
+    return toolError('Failed to reject diffs', 'REJECT_FAILED')
   }
 }
 

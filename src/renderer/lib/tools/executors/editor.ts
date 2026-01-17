@@ -7,6 +7,7 @@ import type { ToolResult, DiffSuggestion } from '../../../../shared/tools/types'
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useEditorStore } from '../../../stores/editorStore'
 import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
+import { useAnnotationStore } from '../../../extensions/ai-annotations'
 import {
   findTextInDocument,
   findFuzzyMatch,
@@ -174,11 +175,7 @@ function getPendingDiffs(editor: Editor): DiffSuggestion[] {
 /**
  * accept_diff - Accept a pending diff suggestion.
  * If no ID provided and multiple diffs exist, accepts ALL diffs.
- *
- * Note: The acceptDiffSuggestion(id) command ignores the ID and relies on
- * cursor position, so we use acceptAllDiffSuggestions() which correctly
- * iterates through the document. For specific diff acceptance, we filter
- * and apply manually.
+ * Creates AI annotations for accepted text to track provenance.
  */
 export function executeAcceptDiff(args: {
   id?: string
@@ -190,52 +187,88 @@ export function executeAcceptDiff(args: {
   }
 
   const { id } = args
-  const diffs = getPendingDiffs(editor)
+  const documentId = useEditorStore.getState().document.documentId
 
-  if (diffs.length === 0) {
+  // Collect all diff nodes with their data before modifying
+  const diffNodes: Array<{
+    id: string
+    pos: number
+    nodeSize: number
+    suggestedText: string
+    provenanceModel: string
+    provenanceConversationId: string
+    provenanceMessageId: string
+    documentId: string
+  }> = []
+
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name === 'diffSuggestion') {
+      // If ID specified, only collect that one
+      if (id && node.attrs.id !== id) return
+
+      diffNodes.push({
+        id: node.attrs.id,
+        pos,
+        nodeSize: node.nodeSize,
+        suggestedText: node.attrs.suggestedText || '',
+        provenanceModel: node.attrs.provenanceModel || '',
+        provenanceConversationId: node.attrs.provenanceConversationId || '',
+        provenanceMessageId: node.attrs.provenanceMessageId || '',
+        documentId: node.attrs.documentId || documentId
+      })
+    }
+  })
+
+  if (diffNodes.length === 0) {
+    if (id) {
+      return toolError(`Diff with id "${id}" not found`, 'DIFF_NOT_FOUND')
+    }
     return toolError('No pending diff suggestions', 'NO_DIFFS')
   }
 
-  // If ID provided, accept specific diff by manually applying the change
-  if (id) {
-    const targetDiff = diffs.find((d) => d.id === id)
-    if (!targetDiff) {
-      return toolError(`Diff with id "${id}" not found`, 'DIFF_NOT_FOUND')
-    }
+  // Sort by position descending so we can apply in reverse order (preserves positions)
+  diffNodes.sort((a, b) => b.pos - a.pos)
 
-    // Find the diff node in the document and replace it
-    let found = false
-    editor.state.doc.descendants((node, pos) => {
-      if (found) return false
-      if (node.type.name === 'diffSuggestion' && node.attrs.id === id) {
-        const suggestedText = node.attrs.suggestedText || ''
-        editor.chain()
-          .focus()
-          .setTextSelection({ from: pos, to: pos + node.nodeSize })
-          .insertContent(suggestedText)
-          .run()
-        found = true
-        return false
-      }
-    })
+  let acceptedCount = 0
 
-    if (found) {
-      return toolSuccess({
-        accepted: true,
-        diffId: id
+  // Accept each diff and create annotation
+  for (const diff of diffNodes) {
+    const { pos, nodeSize, suggestedText, provenanceModel, provenanceConversationId, provenanceMessageId } = diff
+
+    // Replace diff node with suggested text
+    editor.chain()
+      .focus()
+      .setTextSelection({ from: pos, to: pos + nodeSize })
+      .insertContent(suggestedText)
+      .run()
+
+    acceptedCount++
+
+    // Create AI annotation if we have provenance data
+    if (provenanceModel && suggestedText && diff.documentId) {
+      const newFrom = pos
+      const newTo = pos + suggestedText.length
+
+      useAnnotationStore.getState().addAnnotation({
+        documentId: diff.documentId,
+        type: 'replacement',
+        from: newFrom,
+        to: newTo,
+        content: suggestedText,
+        provenance: {
+          model: provenanceModel,
+          conversationId: provenanceConversationId,
+          messageId: provenanceMessageId
+        }
       })
-    } else {
-      return toolError('Failed to accept diff', 'ACCEPT_FAILED')
     }
   }
 
-  // No ID provided - accept ALL diffs using the built-in command
-  const success = editor.commands.acceptAllDiffSuggestions()
-
-  if (success) {
+  if (acceptedCount > 0) {
     return toolSuccess({
       accepted: true,
-      count: diffs.length
+      diffId: id,
+      count: acceptedCount
     })
   } else {
     return toolError('Failed to accept diffs', 'ACCEPT_FAILED')

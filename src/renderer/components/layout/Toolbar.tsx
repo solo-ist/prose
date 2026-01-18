@@ -39,6 +39,7 @@ export function Toolbar() {
   const { settings, isLoaded, setTheme, setDialogOpen } = useSettings()
   const { isPanelOpen: isChatOpen, togglePanel: toggleChatPanel } = useChat()
   const { isPanelOpen: isFileListOpen, togglePanel: toggleFileListPanel } = useFileList()
+  const isEditing = useEditorStore((state) => state.isEditing)
 
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editedTitle, setEditedTitle] = useState('')
@@ -122,6 +123,17 @@ export function Toolbar() {
 
   const handleTitleBlur = () => {
     setIsEditingTitle(false)
+  }
+
+  const handleClose = () => {
+    // If a document is open (has content or path), close the document
+    // Otherwise, close the window/app
+    const hasDocument = document.content.trim() || document.path || isEditing
+    if (hasDocument) {
+      newFile()
+    } else {
+      getApi().closeWindow()
+    }
   }
 
   // Add left padding on macOS to clear traffic lights
@@ -264,7 +276,7 @@ export function Toolbar() {
               Settings
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => getApi().closeWindow()}>
+            <DropdownMenuItem onClick={handleClose}>
               Close
             </DropdownMenuItem>
           </DropdownMenuContent>

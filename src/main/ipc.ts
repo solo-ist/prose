@@ -1,12 +1,34 @@
 import { ipcMain, dialog, app, shell, safeStorage } from 'electron'
 import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat } from 'fs/promises'
-import { join } from 'path'
+import { join, normalize, isAbsolute } from 'path'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
 
+// Content block types for Anthropic API tool use
+interface LLMTextBlock {
+  type: 'text'
+  text: string
+}
+
+interface LLMToolUseBlock {
+  type: 'tool_use'
+  id: string
+  name: string
+  input: unknown
+}
+
+type LLMContentBlock = LLMTextBlock | LLMToolUseBlock
+
 interface LLMMessage {
-  role: 'user' | 'assistant'
-  content: string
+  role: 'user' | 'assistant' | 'tool'
+  content: string | LLMContentBlock[]
+  tool_call_id?: string
+}
+
+interface LLMToolDefinition {
+  name: string
+  description: string
+  input_schema: Record<string, unknown>
 }
 
 interface LLMRequest {
@@ -20,6 +42,8 @@ interface LLMRequest {
 
 interface LLMStreamRequest extends LLMRequest {
   streamId: string
+  tools?: LLMToolDefinition[]
+  maxToolRoundtrips?: number
 }
 
 // Track active streams for abort support
@@ -40,6 +64,23 @@ function expandPath(path: string): string {
     return homedir()
   }
   return path
+}
+
+/**
+ * Validate and sanitize a file path to prevent path traversal attacks.
+ * Expands ~ paths and normalizes, then blocks any path containing traversal sequences.
+ */
+function validatePath(inputPath: string): string {
+  const expanded = expandPath(inputPath)
+  const normalized = normalize(expanded)
+
+  // Block traversal sequences after normalization
+  // On Windows, normalize() resolves .. but we check anyway for safety
+  if (normalized.includes('..')) {
+    throw new Error('Path traversal not allowed')
+  }
+
+  return normalized
 }
 
 const defaultSettings: Settings = {
@@ -81,13 +122,14 @@ export function setupIpcHandlers(): void {
 
   // File: Save content to path
   ipcMain.handle('file:save', async (_event, path: string, content: string) => {
-    await writeFile(path, content, 'utf-8')
+    const safePath = validatePath(path)
+    await writeFile(safePath, content, 'utf-8')
   })
 
   // File: Read file at path
   ipcMain.handle('file:read', async (_event, path: string) => {
-    const expandedPath = expandPath(path)
-    return await readFile(expandedPath, 'utf-8')
+    const safePath = validatePath(path)
+    return await readFile(safePath, 'utf-8')
   })
 
   // File: Save As dialog
@@ -140,8 +182,8 @@ export function setupIpcHandlers(): void {
   // File: Check if file exists
   ipcMain.handle('file:exists', async (_event, path: string) => {
     try {
-      const expandedPath = expandPath(path)
-      await access(expandedPath)
+      const safePath = validatePath(path)
+      await access(safePath)
       return true
     } catch {
       return false
@@ -150,18 +192,21 @@ export function setupIpcHandlers(): void {
 
   // File: Show in folder (Finder on macOS)
   ipcMain.handle('file:showInFolder', async (_event, path: string) => {
-    const expandedPath = expandPath(path)
-    shell.showItemInFolder(expandedPath)
+    const safePath = validatePath(path)
+    shell.showItemInFolder(safePath)
   })
 
   // File: Rename file
   ipcMain.handle('file:rename', async (_event, oldPath: string, newPath: string) => {
-    await rename(oldPath, newPath)
+    const safeOldPath = validatePath(oldPath)
+    const safeNewPath = validatePath(newPath)
+    await rename(safeOldPath, safeNewPath)
   })
 
   // File: Delete file
   ipcMain.handle('file:delete', async (_event, path: string) => {
-    await unlink(path)
+    const safePath = validatePath(path)
+    await unlink(safePath)
   })
 
   // File: List directory contents (with lazy loading support)
@@ -245,9 +290,9 @@ export function setupIpcHandlers(): void {
       }
     }
 
-    // Expand ~ to home directory
-    const expandedPath = expandPath(dirPath)
-    return listDir(expandedPath, 0)
+    // Validate and expand path
+    const safePath = validatePath(dirPath)
+    return listDir(safePath, 0)
   })
 
   // Settings: Load from ~/.prose/settings.json
@@ -337,12 +382,129 @@ export function setupIpcHandlers(): void {
     }
   })
 
-  // LLM: Streaming chat completion
+  // LLM: Streaming chat completion (with optional tool support)
   ipcMain.handle('llm:stream', async (event, request: LLMStreamRequest) => {
-    const { streamId } = request
+    console.log('[LLM:stream] ========== HANDLER CALLED ==========')
+    const { streamId, tools: toolDefinitions } = request
+    console.log('[LLM:stream] Starting stream:', streamId, 'tools:', toolDefinitions?.length || 0)
     const abortController = new AbortController()
     activeStreams.set(streamId, abortController)
 
+    // For Anthropic with tools, use the Anthropic SDK directly to avoid AI SDK tool format issues
+    if (request.provider === 'anthropic' && toolDefinitions && toolDefinitions.length > 0) {
+      console.log('[LLM:stream] Using direct Anthropic SDK for tool support')
+      try {
+        const Anthropic = (await import('@anthropic-ai/sdk')).default
+        const client = new Anthropic({ apiKey: request.apiKey })
+
+        // Convert tool definitions to Anthropic's native format
+        const anthropicTools = toolDefinitions.map(toolDef => ({
+          name: toolDef.name,
+          description: toolDef.description,
+          input_schema: toolDef.input_schema as Anthropic.Tool['input_schema']
+        }))
+
+        // Convert messages to Anthropic format
+        const anthropicMessages = request.messages.map(msg => {
+          if (msg.role === 'tool') {
+            // Tool result messages become user messages with tool_result content block
+            return {
+              role: 'user' as const,
+              content: [{
+                type: 'tool_result' as const,
+                tool_use_id: msg.tool_call_id || '',
+                content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+              }]
+            }
+          }
+          // For user/assistant messages, pass content through as-is
+          // Content can be a string or array of content blocks (for tool_use)
+          return {
+            role: msg.role as 'user' | 'assistant',
+            content: msg.content
+          }
+        })
+
+        console.log('[LLM:stream] Creating Anthropic stream with tools:', anthropicTools.map(t => t.name))
+
+        const stream = client.messages.stream({
+          model: request.model,
+          max_tokens: 4096,
+          system: request.system,
+          messages: anthropicMessages,
+          tools: anthropicTools
+        })
+
+        let fullContent = ''
+        const toolCalls: Array<{ id: string; name: string; args: unknown }> = []
+
+        stream.on('text', (text) => {
+          if (abortController.signal.aborted) return
+          console.log('[LLM:stream] Text chunk:', text.substring(0, 50))
+          fullContent += text
+          event.sender.send('llm:stream:chunk', { streamId, delta: text })
+        })
+
+        stream.on('contentBlockStart', (block) => {
+          if (abortController.signal.aborted) return
+          console.log('[LLM:stream] Content block start:', block.content_block.type)
+          if (block.content_block.type === 'tool_use') {
+            console.log('[LLM:stream] Tool use started:', block.content_block.name)
+          }
+        })
+
+        stream.on('contentBlockStop', (block) => {
+          if (abortController.signal.aborted) return
+          console.log('[LLM:stream] Content block stop')
+        })
+
+        stream.on('error', (err) => {
+          console.error('[LLM:stream] Stream error event:', err)
+        })
+
+        stream.on('end', () => {
+          console.log('[LLM:stream] Stream ended')
+        })
+
+        // Wait for the stream to complete
+        console.log('[LLM:stream] Waiting for finalMessage...')
+        const finalMessage = await stream.finalMessage()
+        console.log('[LLM:stream] Got finalMessage, stop_reason:', finalMessage.stop_reason)
+
+        // Extract tool calls from the final message
+        for (const block of finalMessage.content) {
+          if (block.type === 'tool_use') {
+            const toolCall = {
+              id: block.id,
+              name: block.name,
+              args: block.input
+            }
+            toolCalls.push(toolCall)
+            event.sender.send('llm:stream:tool-call', { streamId, toolCall })
+          }
+        }
+
+        console.log('[LLM:stream] Sending complete:', fullContent.length, 'chars, toolCalls:', toolCalls.length)
+        event.sender.send('llm:stream:complete', {
+          streamId,
+          content: fullContent,
+          toolCalls: toolCalls.length > 0 ? toolCalls : undefined
+        })
+
+        return { success: true }
+      } catch (error) {
+        console.error('[LLM:stream] Anthropic direct error:', error)
+        event.sender.send('llm:stream:error', {
+          streamId,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        })
+        return { success: false }
+      } finally {
+        activeStreams.delete(streamId)
+      }
+    }
+
+    // For other providers or no tools, use AI SDK
     const { createAnthropic } = await import('@ai-sdk/anthropic')
     const { createOpenAI } = await import('@ai-sdk/openai')
     const { createOpenRouter } = await import('@openrouter/ai-sdk-provider')
@@ -381,6 +543,7 @@ export function setupIpcHandlers(): void {
     }
 
     try {
+      console.log('[LLM:stream] Calling streamText with model:', request.model)
       const result = streamText({
         model,
         system: request.system,
@@ -389,8 +552,8 @@ export function setupIpcHandlers(): void {
       })
 
       let fullContent = ''
+
       for await (const part of result.fullStream) {
-        // Check if aborted
         if (abortController.signal.aborted) {
           break
         }
@@ -399,31 +562,20 @@ export function setupIpcHandlers(): void {
           const delta = (part as { text?: string; textDelta?: string }).text ??
                         (part as { text?: string; textDelta?: string }).textDelta ?? ''
           fullContent += delta
-
-          // Send chunk to renderer
-          event.sender.send('llm:stream:chunk', {
-            streamId,
-            delta
-          })
+          event.sender.send('llm:stream:chunk', { streamId, delta })
         } else if (part.type === 'error') {
           throw (part as { error: unknown }).error
         }
       }
 
-      // Send completion
-      event.sender.send('llm:stream:complete', {
-        streamId,
-        content: fullContent
-      })
+      console.log('[LLM:stream] Sending complete:', fullContent.length, 'chars')
+      event.sender.send('llm:stream:complete', { streamId, content: fullContent })
 
       return { success: true }
     } catch (error) {
+      console.error('[LLM:stream] Error:', error)
       if (abortController.signal.aborted) {
-        // Graceful abort - send completion with accumulated content
-        event.sender.send('llm:stream:complete', {
-          streamId,
-          content: ''
-        })
+        event.sender.send('llm:stream:complete', { streamId, content: '' })
       } else {
         event.sender.send('llm:stream:error', {
           streamId,
@@ -558,4 +710,49 @@ export function setupIpcHandlers(): void {
       // File doesn't exist, ignore
     }
   })
+
+  // reMarkable: Get OCR path (read-only source)
+  ipcMain.handle(
+    'remarkable:getOCRPath',
+    async (_event, notebookId: string, syncDirectory: string) => {
+      const { getOCRPath } = await import('./remarkable/sync')
+      return await getOCRPath(notebookId, syncDirectory)
+    }
+  )
+
+  // reMarkable: Get editable path (if exists)
+  ipcMain.handle(
+    'remarkable:getEditablePath',
+    async (_event, notebookId: string, syncDirectory: string) => {
+      const { getEditablePath } = await import('./remarkable/sync')
+      return await getEditablePath(notebookId, syncDirectory)
+    }
+  )
+
+  // reMarkable: Create editable version from OCR
+  ipcMain.handle(
+    'remarkable:createEditableVersion',
+    async (_event, notebookId: string, syncDirectory: string) => {
+      const { createEditableVersion } = await import('./remarkable/sync')
+      return await createEditableVersion(notebookId, syncDirectory)
+    }
+  )
+
+  // reMarkable: Find notebook by its markdown file path
+  ipcMain.handle(
+    'remarkable:findNotebookByFilePath',
+    async (_event, filePath: string, syncDirectory: string) => {
+      const { findNotebookByFilePath } = await import('./remarkable/sync')
+      return await findNotebookByFilePath(filePath, syncDirectory)
+    }
+  )
+
+  // reMarkable: Clear notebook markdown path (unsync editable version)
+  ipcMain.handle(
+    'remarkable:clearNotebookMarkdownPath',
+    async (_event, notebookId: string, syncDirectory: string) => {
+      const { clearNotebookMarkdownPath } = await import('./remarkable/sync')
+      return await clearNotebookMarkdownPath(notebookId, syncDirectory)
+    }
+  )
 }

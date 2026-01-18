@@ -15,6 +15,7 @@ import type {
   LLMResponse,
   LLMStreamRequest,
   LLMStreamChunk,
+  LLMStreamToolCall,
   LLMStreamComplete,
   LLMStreamError,
   ElectronAPI
@@ -385,6 +386,12 @@ export const browserApi: ElectronAPI = {
     return () => window.removeEventListener('llm:stream:chunk', handler)
   },
 
+  onLLMStreamToolCall: (callback: (toolCall: LLMStreamToolCall) => void) => {
+    const handler = (e: Event) => callback((e as CustomEvent).detail)
+    window.addEventListener('llm:stream:tool-call', handler)
+    return () => window.removeEventListener('llm:stream:tool-call', handler)
+  },
+
   onLLMStreamComplete: (callback: (complete: LLMStreamComplete) => void) => {
     const handler = (e: Event) => callback((e as CustomEvent).detail)
     window.addEventListener('llm:stream:complete', handler)
@@ -397,7 +404,20 @@ export const browserApi: ElectronAPI = {
     return () => window.removeEventListener('llm:stream:error', handler)
   },
 
-  platform: null
+  platform: null,
+
+  // MCP tool execution - not available in browser mode
+  onMcpToolInvoke: (_callback: (requestId: string, toolName: string, args: unknown) => void) => {
+    // No MCP in browser mode
+    return () => {}
+  },
+  sendMcpToolResult: (_requestId: string, _result: import('../../shared/tools/types').ToolResult) => {
+    // No MCP in browser mode
+  },
+  onMcpStatus: (_callback: (status: { connected: boolean; port: number; error?: string }) => void) => {
+    // No MCP in browser mode - immediately report not connected
+    return () => {}
+  }
 }
 
 /**

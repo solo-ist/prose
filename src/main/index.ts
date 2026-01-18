@@ -8,6 +8,7 @@ import { app, shell, BrowserWindow } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { setupIpcHandlers } from './ipc'
 import { createMenu } from './menu'
+import { getMcpHttpServer, getMcpBridge } from './mcp'
 
 console.log('[Main] Environment loaded. OCR URL:', process.env.REMARKABLE_OCR_URL ? 'set' : 'not set')
 
@@ -79,8 +80,21 @@ function createWindow(): BrowserWindow {
   return mainWindow
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.prose.app')
+
+  // Start HTTP/SSE server for MCP communication (Claude Desktop connects here)
+  const mcpServer = getMcpHttpServer()
+  const MCP_PORT = 9877
+  let mcpStarted = false
+  try {
+    await mcpServer.start()
+    mcpStarted = true
+    console.log(`[Main] MCP HTTP server started on port ${MCP_PORT}`)
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+    console.warn(`[Main] MCP server unavailable (port ${MCP_PORT} may be in use): ${errorMessage}`)
+  }
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
@@ -95,12 +109,29 @@ app.whenReady().then(() => {
   setupIpcHandlers()
   createMenu(mainWindow)
 
-  // Send file to renderer once loaded
-  if (fileToOpen) {
-    mainWindow.webContents.once('did-finish-load', () => {
-      mainWindow.webContents.send('file:openExternal', fileToOpen)
+  // Set up MCP bridge with main window for tool execution
+  const bridge = getMcpBridge()
+  bridge.setWindow(mainWindow)
+
+  // Connect HTTP MCP server to bridge for tool execution
+  mcpServer.setToolInvokeHandler(async (name, args) => {
+    return bridge.executeTool(name, args)
+  })
+
+  // Send MCP status and file to renderer once loaded
+  mainWindow.webContents.once('did-finish-load', () => {
+    // Send MCP server status to renderer
+    mainWindow.webContents.send('mcp:status', {
+      connected: mcpStarted,
+      port: MCP_PORT,
+      error: mcpStarted ? undefined : 'Port may be in use'
     })
-  }
+
+    // Send file if one was specified
+    if (fileToOpen) {
+      mainWindow.webContents.send('file:openExternal', fileToOpen)
+    }
+  })
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

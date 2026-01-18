@@ -1,9 +1,11 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useFileList } from '../../hooks/useFileList'
 import { useEditor } from '../../hooks/useEditor'
+import { useChat } from '../../hooks/useChat'
 import { useRemarkableSync } from '../../hooks/useRemarkableSync'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useEditorStore } from '../../stores/editorStore'
 import { FileTree } from './FileTree'
 import { ScrollArea } from '../ui/scroll-area'
 import { Button } from '../ui/button'
@@ -14,6 +16,14 @@ import {
   ContextMenuItem,
   ContextMenuTrigger
 } from '../ui/context-menu'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog'
 import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, Folder, FolderOpen, Download, Trash2 } from 'lucide-react'
 import { useSettings } from '../../hooks/useSettings'
 import { cn } from '../../lib/utils'
@@ -44,9 +54,66 @@ export function FileListPanel() {
   } = useFileList()
 
   const { openFileFromPath } = useEditor()
+  const { describeDocument } = useChat()
   const { isSyncing, sync, error: syncError } = useRemarkableSync()
   const { setDialogOpen } = useSettings()
   const remarkableEnabled = useSettingsStore((state) => state.settings.remarkable?.enabled)
+
+  // Delete confirmation state
+  const [deleteTarget, setDeleteTarget] = useState<{
+    path: string
+    fileName: string
+    linkedNotebookId: string | null
+  } | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  // Handle file delete request (opens confirmation dialog)
+  const handleFileDeleteRequest = async (path: string) => {
+    const fileName = path.split('/').pop() || path
+
+    // Check if file is linked to a reMarkable notebook
+    let linkedNotebookId: string | null = null
+    if (syncDirectory && window.api?.remarkableFindNotebookByFilePath) {
+      linkedNotebookId = await window.api.remarkableFindNotebookByFilePath(path, syncDirectory)
+    }
+
+    setDeleteTarget({ path, fileName, linkedNotebookId })
+  }
+
+  // Confirm and execute file deletion
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget || !window.api) return
+
+    setIsDeleting(true)
+    try {
+      // If linked to a notebook, clear the markdown path first
+      if (deleteTarget.linkedNotebookId && syncDirectory) {
+        await window.api.remarkableClearNotebookMarkdownPath(
+          deleteTarget.linkedNotebookId,
+          syncDirectory
+        )
+      }
+
+      // Delete the file
+      await window.api.deleteFile(deleteTarget.path)
+
+      // If the deleted file was currently open, clear the editor
+      const currentPath = useEditorStore.getState().document.path
+      if (currentPath === deleteTarget.path) {
+        useEditorStore.getState().resetDocument()
+      }
+
+      // Refresh file list
+      await loadFiles()
+
+      // Close dialog
+      setDeleteTarget(null)
+    } catch (error) {
+      console.error('Failed to delete file:', error)
+    } finally {
+      setIsDeleting(false)
+    }
+  }
 
   // Auto-sync when switching to notebooks view
   useEffect(() => {
@@ -59,7 +126,10 @@ export function FileListPanel() {
 
   const handleFileClick = async (path: string) => {
     selectFile(path)
-    await openFileFromPath(path)
+    const shouldDescribe = await openFileFromPath(path)
+    if (shouldDescribe) {
+      describeDocument()
+    }
   }
 
   // Get folder name from path for display
@@ -141,12 +211,24 @@ export function FileListPanel() {
     return checkDescendants(folderId)
   }
 
-  const handleNotebookClick = async (notebook: RemarkableNotebookMetadata) => {
-    // If markdown is available, open it
-    if (notebook.markdownPath && syncDirectory) {
-      const fullPath = `${syncDirectory}/${notebook.markdownPath}`
-      selectFile(fullPath)
-      await openFileFromPath(fullPath)
+  const handleNotebookClick = async (notebook: RemarkableNotebookMetadata, notebookId: string) => {
+    if (!syncDirectory || !window.api) return
+
+    // ALWAYS open OCR in read-only mode from Notebooks panel
+    // Even if editable version exists, show the cloud state here
+    // The File Explorer is where users edit their files
+    if (notebook.ocrPath) {
+      const ocrFullPath = await window.api.remarkableGetOCRPath(notebookId, syncDirectory)
+      if (ocrFullPath) {
+        selectFile(ocrFullPath)
+        // Set read-only mode with notebook ID for later transform
+        useEditorStore.getState().setRemarkableReadOnly(true, notebookId)
+        // Pass true for isRemarkableOCR so openFileFromPath doesn't clear read-only state
+        const shouldDescribe = await openFileFromPath(ocrFullPath, true)
+        if (shouldDescribe) {
+          describeDocument()
+        }
+      }
     }
   }
 
@@ -191,8 +273,11 @@ export function FileListPanel() {
         const notebookId = getNotebookId(item)
         const isSynced = isNotebookSynced(notebookId)
         const localMeta = notebookMetadata?.notebooks?.[notebookId] ?? null
-        const hasMarkdown = !!localMeta?.markdownPath
-        const fullMarkdownPath = (localMeta?.markdownPath && syncDirectory)
+        const hasOCR = !!localMeta?.ocrPath
+        const hasEditable = !!localMeta?.markdownPath
+        const isClickable = hasOCR || hasEditable
+        // For selection highlighting, check both editable path and OCR path
+        const fullEditablePath = (localMeta?.markdownPath && syncDirectory)
           ? `${syncDirectory}/${localMeta.markdownPath}`
           : null
 
@@ -203,28 +288,32 @@ export function FileListPanel() {
                 <button
                   className={cn(
                     "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50",
-                    fullMarkdownPath && selectedPath === fullMarkdownPath && "bg-muted",
+                    fullEditablePath && selectedPath === fullEditablePath && "bg-muted",
                     !isSynced && "opacity-30"
                   )}
                   onClick={() => {
-                    if (localMeta && hasMarkdown) {
-                      handleNotebookClick(localMeta)
+                    if (localMeta && isClickable) {
+                      handleNotebookClick(localMeta, notebookId)
                     }
                   }}
                   title={
                     !isSynced
                       ? `${item.name} (not synced - right-click to sync)`
-                      : hasMarkdown
-                        ? `${item.name} (converted to markdown)`
-                        : `${item.name} (synced, not converted)`
+                      : hasEditable
+                        ? `${item.name} (editable)`
+                        : hasOCR
+                          ? `${item.name} (read-only OCR - click to view)`
+                          : `${item.name} (synced, processing OCR...)`
                   }
-                  disabled={!isSynced || !hasMarkdown}
+                  disabled={!isSynced || !isClickable}
                 >
                   {isSynced ? (
-                    hasMarkdown ? (
+                    hasEditable ? (
                       <Cloud className="h-4 w-4 shrink-0 text-foreground" />
-                    ) : (
+                    ) : hasOCR ? (
                       <Cloud className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <Cloud className="h-4 w-4 shrink-0 text-muted-foreground/50" />
                     )
                   ) : (
                     <CloudOff className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -389,7 +478,10 @@ export function FileListPanel() {
               No notebooks found.
             </div>
           ) : (
-            <div className="p-2">
+            <div className={cn(
+              "p-2",
+              isSyncing && "opacity-50 pointer-events-none"
+            )}>
               {renderNotebookItems(null, 0)}
             </div>
           )
@@ -432,12 +524,51 @@ export function FileListPanel() {
                   onFileClick={handleFileClick}
                   onFolderToggle={toggleFolder}
                   onFolderDoubleClick={setRootPath}
+                  onFileDelete={handleFileDeleteRequest}
                 />
               )}
             </div>
           )
         )}
       </ScrollArea>
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete file?</DialogTitle>
+            <DialogDescription>
+              {deleteTarget?.linkedNotebookId ? (
+                <>
+                  This will delete <strong>{deleteTarget?.fileName}</strong> and unlink it from its reMarkable notebook.
+                  The original OCR content will be preserved and you can re-create an editable version later.
+                </>
+              ) : (
+                <>
+                  Are you sure you want to delete <strong>{deleteTarget?.fileName}</strong>?
+                  This action cannot be undone.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setDeleteTarget(null)}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmDelete}
+              disabled={isDeleting}
+            >
+              {isDeleting ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

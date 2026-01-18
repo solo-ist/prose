@@ -7,6 +7,10 @@ directories:
 files:
   - out/**/*
 
+extraResources:
+  - from: out/mcp-stdio.js
+    to: mcp-stdio.js
+
 fileAssociations:
   - ext: md
     name: Markdown

@@ -13,15 +13,19 @@ import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useEditorStore } from '../../stores/editorStore'
+import { useSettingsStore } from '../../stores/settingsStore'
+import { useFileListStore } from '../../stores/fileListStore'
 import { FindBar } from './FindBar'
 import { SelectionPopover } from './SelectionPopover'
 import { AddCommentDialog } from './AddCommentDialog'
 import { EmptyState } from '../layout/EmptyState'
 import { FrontmatterDisplay, hasFrontmatter, getContentWithoutFrontmatter, getFrontmatterRaw } from './FrontmatterDisplay'
+import { TransformAnimation, useTransformAnimation } from './TransformAnimation'
 
 export function Editor() {
   const { document, setContent, openFile, saveFile } = useEditor()
   const isEditing = useEditorStore((state) => state.isEditing)
+  const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
   const { settings, setDialogOpen, setShortcutsDialogOpen } = useSettings()
   const { setContext, togglePanel, setPanelOpen, agentMode, setAgentMode, includeDocument, setIncludeDocument } = useChat()
   const setEditorInstance = useEditorInstanceStore((state) => state.setEditor)
@@ -35,6 +39,10 @@ export function Editor() {
     to: number
     text: string
   } | null>(null)
+  const { isTransforming, startTransform, completeTransform } = useTransformAnimation()
+
+  // Track if current file is linked to a reMarkable notebook (for showing "View Original" button)
+  const [linkedNotebookId, setLinkedNotebookId] = useState<string | null>(null)
 
   // Extract and store frontmatter on initial load
   const initialContent = useMemo(() => {
@@ -143,6 +151,53 @@ export function Editor() {
     setEditorInstance(editor)
     return () => setEditorInstance(null)
   }, [editor, setEditorInstance])
+
+  // Cache selection on selectionUpdate for read_selection fallback
+  // This preserves the selection when chat input steals focus
+  useEffect(() => {
+    if (!editor) return
+
+    const handleSelectionUpdate = () => {
+      const { from, to, empty } = editor.state.selection
+      if (!empty) {
+        const text = editor.state.doc.textBetween(from, to)
+        useEditorStore.getState().setLastSelection({ text, from, to })
+      }
+    }
+
+    editor.on('selectionUpdate', handleSelectionUpdate)
+    return () => {
+      editor.off('selectionUpdate', handleSelectionUpdate)
+    }
+  }, [editor])
+
+  // Update editor editability when reMarkable read-only mode changes
+  useEffect(() => {
+    if (!editor) return
+    editor.setEditable(!isRemarkableReadOnly)
+  }, [editor, isRemarkableReadOnly])
+
+  // Check if current file is linked to a reMarkable notebook
+  useEffect(() => {
+    const checkLinkedNotebook = async () => {
+      const syncDir = useSettingsStore.getState().settings.remarkable?.syncDirectory
+      if (!document.path || !syncDir || !window.api?.remarkableFindNotebookByFilePath) {
+        setLinkedNotebookId(null)
+        return
+      }
+
+      // Only check files in the sync directory (not hidden OCR files)
+      if (!document.path.includes(syncDir.replace('~', ''))) {
+        setLinkedNotebookId(null)
+        return
+      }
+
+      const notebookId = await window.api.remarkableFindNotebookByFilePath(document.path, syncDir)
+      setLinkedNotebookId(notebookId)
+    }
+
+    checkLinkedNotebook()
+  }, [document.path])
 
   // Load annotations when document changes and force decoration refresh
   useEffect(() => {
@@ -355,15 +410,120 @@ export function Editor() {
             fontFamily: settings.editor.fontFamily
           }}
         >
-          <div className="max-w-3xl prose-editor">
-            {showFrontmatter && (
-              <FrontmatterDisplay content={document.content} />
-            )}
-            <EditorContent
-              editor={editor}
-              className="min-h-full"
-            />
-          </div>
+          {/* reMarkable read-only indicator */}
+          {isRemarkableReadOnly && !isTransforming && (
+            <div className="max-w-3xl mx-auto mb-4 px-4 py-2 rounded-md bg-muted/50 border border-border text-sm text-muted-foreground flex items-center justify-between">
+              <span>Viewing reMarkable OCR (read-only)</span>
+              <button
+                className="text-xs px-2 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                onClick={async () => {
+                  // Start the animation
+                  startTransform()
+
+                  // Transform to editable version
+                  const { remarkableNotebookId, setRemarkableReadOnly } = useEditorStore.getState()
+                  const syncDir = useSettingsStore.getState().settings.remarkable?.syncDirectory
+                  if (remarkableNotebookId && syncDir && window.api) {
+                    const editablePath = await window.api.remarkableCreateEditableVersion(remarkableNotebookId, syncDir)
+                    if (editablePath) {
+                      // Clear read-only state first
+                      setRemarkableReadOnly(false, null)
+
+                      // Switch to File Explorer mode - notebooks panel is for reading cloud state,
+                      // File Explorer is for editing
+                      const { setViewMode, setRootPath, selectFile } = useFileListStore.getState()
+                      setViewMode('folder')
+                      setRootPath(syncDir)
+                      selectFile(editablePath)
+
+                      // Open the new editable file
+                      const content = await window.api.readFile(editablePath)
+                      if (content) {
+                        const { parseMarkdown } = await import('../../lib/markdown')
+                        const { generateIdFromPath } = await import('../../lib/persistence')
+                        const parsed = parseMarkdown(content)
+                        const newDocumentId = await generateIdFromPath(editablePath)
+                        useEditorStore.getState().setDocument({
+                          documentId: newDocumentId,
+                          path: editablePath,
+                          content: parsed.content,
+                          frontmatter: parsed.frontmatter,
+                          isDirty: false
+                        })
+                        useEditorStore.getState().setEditing(true)
+
+                        // Set linkedNotebookId immediately to prevent CLS from async lookup
+                        setLinkedNotebookId(remarkableNotebookId)
+                      }
+                    }
+                  }
+                }}
+              >
+                Edit
+              </button>
+            </div>
+          )}
+          {/* reMarkable editable indicator - show when editing a file linked to a notebook */}
+          {!isRemarkableReadOnly && linkedNotebookId && !isTransforming && (
+            <div className="max-w-3xl mx-auto mb-4 px-4 py-2 rounded-md bg-muted/50 border border-border text-sm text-muted-foreground flex items-center justify-between">
+              <span>Editing reMarkable notebook</span>
+              <button
+                className="text-xs px-2 py-1 rounded bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
+                onClick={async () => {
+                  // Start the animation
+                  startTransform()
+
+                  // Clear linkedNotebookId immediately to prevent CLS
+                  const notebookIdToUse = linkedNotebookId
+                  setLinkedNotebookId(null)
+
+                  // Switch back to viewing OCR in Notebooks panel
+                  const syncDir = useSettingsStore.getState().settings.remarkable?.syncDirectory
+                  if (notebookIdToUse && syncDir && window.api) {
+                    const ocrPath = await window.api.remarkableGetOCRPath(notebookIdToUse, syncDir)
+                    if (ocrPath) {
+                      // Switch to Notebooks panel
+                      const { setViewMode, selectFile } = useFileListStore.getState()
+                      setViewMode('notebooks')
+                      selectFile(ocrPath)
+
+                      // Set read-only mode
+                      useEditorStore.getState().setRemarkableReadOnly(true, notebookIdToUse)
+
+                      // Open the OCR file
+                      const content = await window.api.readFile(ocrPath)
+                      if (content) {
+                        const { parseMarkdown } = await import('../../lib/markdown')
+                        const { generateIdFromPath } = await import('../../lib/persistence')
+                        const parsed = parseMarkdown(content)
+                        const newDocumentId = await generateIdFromPath(ocrPath)
+                        useEditorStore.getState().setDocument({
+                          documentId: newDocumentId,
+                          path: ocrPath,
+                          content: parsed.content,
+                          frontmatter: parsed.frontmatter,
+                          isDirty: false
+                        })
+                      }
+                    }
+                  }
+                }}
+              >
+                View Original
+              </button>
+            </div>
+          )}
+          <TransformAnimation isTransforming={isTransforming} onComplete={completeTransform}>
+            <div className={`max-w-3xl prose-editor ${isRemarkableReadOnly && !isTransforming ? 'opacity-80 select-none' : ''}`}>
+              {showFrontmatter && (
+                <FrontmatterDisplay content={document.content} />
+              )}
+              <EditorContent
+                editor={editor}
+                className="min-h-full"
+              />
+            </div>
+          </TransformAnimation>
         </div>
       )}
       <SelectionPopover

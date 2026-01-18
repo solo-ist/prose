@@ -28,20 +28,61 @@ export interface DraftState {
 
 // Database constants
 const DB_NAME = 'prose-db'
-const DB_VERSION = 2 // Bumped for annotations store
+const DB_VERSION = 3
 const STORES = {
   DRAFTS: 'drafts',
   CONVERSATIONS: 'conversations',
-  ANNOTATIONS: 'annotations'
+  ANNOTATIONS: 'annotations',
+  COMMAND_HISTORY: 'command_history'
 } as const
+
+/**
+ * IndexedDB Version History
+ * -------------------------
+ * v1: Initial schema (drafts, conversations)
+ * v2: Added annotations store
+ * v3: Added command_history store
+ *
+ * When bumping version:
+ * 1. Update DB_VERSION above
+ * 2. Add store creation in onupgradeneeded (idempotent check)
+ * 3. Document the change here
+ * 4. Test with existing data before committing
+ */
 
 // Singleton database connection
 let dbPromise: Promise<IDBDatabase> | null = null
+let recoveryAttempted = false
+
+/**
+ * Delete the database and reset state for fresh creation.
+ */
+function deleteDatabase(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(DB_NAME)
+    request.onsuccess = () => {
+      console.log('IndexedDB deleted successfully for recovery')
+      resolve()
+    }
+    request.onerror = () => {
+      console.error('Failed to delete IndexedDB:', request.error)
+      reject(request.error)
+    }
+    request.onblocked = () => {
+      console.warn('IndexedDB deletion blocked - other connections open')
+      // Resolve anyway, next open attempt will retry
+      resolve()
+    }
+  })
+}
 
 /**
  * Initialize and return the IndexedDB database connection.
  * Handles upgrade blocking and version change events to ensure
  * the database schema is properly migrated.
+ *
+ * If opening fails (e.g., corrupted database), attempts recovery
+ * by deleting and recreating the database once.
  */
 function getDB(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise
@@ -49,10 +90,26 @@ function getDB(): Promise<IDBDatabase> {
   dbPromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION)
 
-    request.onerror = () => {
+    request.onerror = async () => {
       console.error('Failed to open IndexedDB:', request.error)
-      dbPromise = null // Reset so retry is possible
-      reject(request.error)
+      dbPromise = null
+
+      // Attempt recovery once by deleting and recreating
+      if (!recoveryAttempted) {
+        recoveryAttempted = true
+        console.log('Attempting IndexedDB recovery...')
+        try {
+          await deleteDatabase()
+          // Retry opening
+          const retryDb = await getDB()
+          resolve(retryDb)
+        } catch (retryError) {
+          console.error('IndexedDB recovery failed:', retryError)
+          reject(request.error)
+        }
+      } else {
+        reject(request.error)
+      }
     }
 
     request.onblocked = () => {
@@ -77,7 +134,7 @@ function getDB(): Promise<IDBDatabase> {
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result
 
-      // Create object stores if they don't exist
+      // Create object stores if they don't exist (idempotent)
       if (!db.objectStoreNames.contains(STORES.DRAFTS)) {
         db.createObjectStore(STORES.DRAFTS)
       }
@@ -86,6 +143,9 @@ function getDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORES.ANNOTATIONS)) {
         db.createObjectStore(STORES.ANNOTATIONS)
+      }
+      if (!db.objectStoreNames.contains(STORES.COMMAND_HISTORY)) {
+        db.createObjectStore(STORES.COMMAND_HISTORY)
       }
     }
   })
@@ -324,5 +384,48 @@ export async function deleteAnnotations(documentId: string): Promise<void> {
     })
   } catch (error) {
     console.error('Failed to delete annotations:', error)
+  }
+}
+
+// ============ Command History Operations ============
+
+/**
+ * Save command history
+ */
+export async function saveCommandHistory(
+  history: Record<string, string[]>
+): Promise<void> {
+  try {
+    const db = await getDB()
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORES.COMMAND_HISTORY, 'readwrite')
+      const store = transaction.objectStore(STORES.COMMAND_HISTORY)
+      const request = store.put(history, 'history')
+
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve()
+    })
+  } catch (error) {
+    console.error('Failed to save command history:', error)
+  }
+}
+
+/**
+ * Load command history
+ */
+export async function loadCommandHistory(): Promise<Record<string, string[]>> {
+  try {
+    const db = await getDB()
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORES.COMMAND_HISTORY, 'readonly')
+      const store = transaction.objectStore(STORES.COMMAND_HISTORY)
+      const request = store.get('history')
+
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve(request.result ?? {})
+    })
+  } catch (error) {
+    console.error('Failed to load command history:', error)
+    return {}
   }
 }

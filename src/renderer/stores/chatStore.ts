@@ -9,6 +9,14 @@ import {
 } from '../lib/persistence'
 import type { ChatConversation } from '../lib/persistence'
 
+/**
+ * Tool modes control which tools are available to the AI.
+ * - suggestions: Read-only + suggest_edit (safe default)
+ * - full: All tools available (direct edits)
+ * - plan: Proposes changes, user must approve
+ */
+export type ToolMode = 'suggestions' | 'full' | 'plan'
+
 interface ChatState {
   // Conversation management
   conversations: ChatConversation[]
@@ -20,7 +28,8 @@ interface ChatState {
   isPanelOpen: boolean
   context: string | null
   includeDocument: boolean
-  agentMode: boolean
+  agentMode: boolean // Legacy - kept for backwards compatibility
+  toolMode: ToolMode // New mode system
 
   // Initialization state - prevents race conditions during app startup
   isInitializing: boolean
@@ -48,6 +57,7 @@ interface ChatState {
   setContext: (context: string | null) => void
   setIncludeDocument: (include: boolean) => void
   setAgentMode: (enabled: boolean) => void
+  setToolMode: (mode: ToolMode) => void
 
   // Streaming actions
   startStreaming: (messageId: string, streamId: string) => void
@@ -75,7 +85,8 @@ export const useChatStore = create<ChatState>()(
     isPanelOpen: true,
     context: null,
     includeDocument: true,
-    agentMode: true,
+    agentMode: true, // Legacy - maps to toolMode
+    toolMode: 'full', // Default to full for backwards compatibility with agentMode: true
     isInitializing: true, // Start as true, will be set to false after app init
     isStreaming: false,
     currentStreamId: null,
@@ -195,7 +206,17 @@ export const useChatStore = create<ChatState>()(
 
     setIncludeDocument: (include) => set({ includeDocument: include }),
 
-    setAgentMode: (enabled) => set({ agentMode: enabled }),
+    setAgentMode: (enabled) => set({
+      agentMode: enabled,
+      // Sync toolMode with agentMode for backwards compatibility
+      toolMode: enabled ? 'full' : 'suggestions'
+    }),
+
+    setToolMode: (mode) => set({
+      toolMode: mode,
+      // Sync agentMode with toolMode for backwards compatibility
+      agentMode: mode === 'full'
+    }),
 
     // Streaming actions
     startStreaming: (messageId, streamId) =>

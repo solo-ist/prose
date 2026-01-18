@@ -20,7 +20,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 const autoPromptedDocs = new Set<string>()
 
 export function ChatPanel() {
-  const { messages, isLoading, isStreaming, sendMessage, stopGeneration, clearMessages } = useChat()
+  const { messages, isLoading, isStreaming, isInitializing, sendMessage, stopGeneration, clearMessages } = useChat()
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const {
@@ -51,12 +51,13 @@ export function ChatPanel() {
     const hasContent = document.content.trim().length > 0
     const hasNoHistory = conversations.length === 0
     const notYetPrompted = !autoPromptedDocs.has(documentId)
+    const appReady = !isInitializing
 
-    if (hasContent && hasNoHistory && notYetPrompted) {
+    if (hasContent && hasNoHistory && notYetPrompted && appReady) {
       autoPromptedDocs.add(documentId)
       sendMessage('What is this?', { hidden: true })
     }
-  }, [documentId, document.content, conversations.length, sendMessage])
+  }, [documentId, document.content, conversations.length, isInitializing, sendMessage])
 
   const handleNewChat = () => {
     addConversation(documentId)

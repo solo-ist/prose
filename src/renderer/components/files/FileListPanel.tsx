@@ -24,9 +24,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog'
-import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, Folder, FolderOpen, Download, Trash2 } from 'lucide-react'
+import { Input } from '../ui/input'
+import { Label } from '../ui/label'
+import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, Folder, FolderOpen, Download, Trash2, FilePlus } from 'lucide-react'
 import { useSettings } from '../../hooks/useSettings'
 import { cn } from '../../lib/utils'
+import { getApi } from '../../lib/browserApi'
 import type { RemarkableNotebookMetadata, RemarkableCloudNotebook } from '../../types'
 
 export function FileListPanel() {
@@ -66,6 +69,20 @@ export function FileListPanel() {
     linkedNotebookId: string | null
   } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+
+  // New file dialog state
+  const [newFileDialogOpen, setNewFileDialogOpen] = useState(false)
+  const [newFileName, setNewFileName] = useState('')
+
+  // Rename dialog state
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false)
+  const [renameFilePath, setRenameFilePath] = useState<string | null>(null)
+  const [renameFileName, setRenameFileName] = useState('')
+
+  // Error state for user feedback
+  const [operationError, setOperationError] = useState<string | null>(null)
+
+  const api = getApi()
 
   // Handle file delete request (opens confirmation dialog)
   const handleFileDeleteRequest = async (path: string) => {
@@ -110,8 +127,103 @@ export function FileListPanel() {
       setDeleteTarget(null)
     } catch (error) {
       console.error('Failed to delete file:', error)
+      setOperationError('Failed to delete file. Please try again.')
     } finally {
       setIsDeleting(false)
+    }
+  }
+
+  // New file handlers
+  const handleNewFile = () => {
+    setNewFileName('')
+    setOperationError(null)
+    setNewFileDialogOpen(true)
+  }
+
+  const handleCreateNewFile = async () => {
+    if (!newFileName.trim() || !rootPath) return
+
+    setOperationError(null)
+    try {
+      const fileName = newFileName.endsWith('.md') ? newFileName : `${newFileName}.md`
+      const fullPath = `${rootPath}/${fileName}`
+
+      // Check if file already exists
+      const exists = await api.fileExists(fullPath)
+      if (exists) {
+        setOperationError(`A file named "${fileName}" already exists.`)
+        return
+      }
+
+      const savedPath = await api.saveToFolder(rootPath, fileName, '')
+      setNewFileDialogOpen(false)
+      setNewFileName('')
+
+      // Refresh file list and open the new file
+      await loadFiles()
+      selectFile(savedPath)
+      await openFileFromPath(savedPath)
+    } catch (error) {
+      console.error('Error creating file:', error)
+      setOperationError('Failed to create file. Please try again.')
+    }
+  }
+
+  // Rename handlers
+  const handleFileRename = (path: string) => {
+    const fileName = path.split('/').pop() || ''
+    const nameWithoutExt = fileName.replace(/\.(md|markdown|txt)$/, '')
+    setRenameFilePath(path)
+    setRenameFileName(nameWithoutExt)
+    setOperationError(null)
+    setRenameDialogOpen(true)
+  }
+
+  const handleConfirmRename = async () => {
+    if (!renameFilePath || !renameFileName.trim()) return
+
+    setOperationError(null)
+    try {
+      const dir = renameFilePath.substring(0, renameFilePath.lastIndexOf('/'))
+      const oldExt = renameFilePath.match(/\.(md|markdown|txt)$/)?.[0] || '.md'
+      const newName = renameFileName.endsWith(oldExt) ? renameFileName : `${renameFileName}${oldExt}`
+      const newPath = `${dir}/${newName}`
+
+      // Check if target file already exists (and it's not the same file)
+      if (newPath !== renameFilePath) {
+        const exists = await api.fileExists(newPath)
+        if (exists) {
+          setOperationError(`A file named "${newName}" already exists.`)
+          return
+        }
+      }
+
+      await api.renameFile(renameFilePath, newPath)
+      setRenameDialogOpen(false)
+      setRenameFilePath(null)
+      setRenameFileName('')
+
+      // Refresh file list and select the renamed file
+      await loadFiles()
+      selectFile(newPath)
+
+      // If the renamed file was open in the editor, update the path
+      const currentPath = useEditorStore.getState().document.path
+      if (currentPath === renameFilePath) {
+        await openFileFromPath(newPath)
+      }
+    } catch (error) {
+      console.error('Error renaming file:', error)
+      setOperationError('Failed to rename file. Please try again.')
+    }
+  }
+
+  // Show in folder handler
+  const handleFileShowInFolder = async (path: string) => {
+    try {
+      await api.showInFolder(path)
+    } catch (error) {
+      console.error('Error showing file in folder:', error)
     }
   }
 
@@ -501,33 +613,45 @@ export function FileListPanel() {
               </Button>
             </div>
           ) : (
-            <div className="p-2">
-              {/* Parent directory navigation */}
-              <button
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50 text-muted-foreground mb-1"
-                onClick={navigateToParent}
-                title="Go to parent folder"
-              >
-                <ChevronUp className="h-4 w-4 shrink-0" />
-                <span className="truncate">..</span>
-              </button>
-              {files.length === 0 && !isLoading ? (
-                <div className="px-2 py-4 text-sm text-muted-foreground">
-                  No markdown files found.
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <div className="p-2 min-h-full">
+                  {/* Parent directory navigation */}
+                  <button
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50 text-muted-foreground mb-1"
+                    onClick={navigateToParent}
+                    title="Go to parent folder"
+                  >
+                    <ChevronUp className="h-4 w-4 shrink-0" />
+                    <span className="truncate">..</span>
+                  </button>
+                  {files.length === 0 && !isLoading ? (
+                    <div className="px-2 py-4 text-sm text-muted-foreground">
+                      No markdown files found.
+                    </div>
+                  ) : (
+                    <FileTree
+                      items={files}
+                      expandedFolders={expandedFolders}
+                      selectedPath={selectedPath}
+                      loadingFolders={loadingFolders}
+                      onFileClick={handleFileClick}
+                      onFolderToggle={toggleFolder}
+                      onFolderDoubleClick={setRootPath}
+                      onFileDelete={handleFileDeleteRequest}
+                      onFileRename={handleFileRename}
+                      onFileShowInFolder={handleFileShowInFolder}
+                    />
+                  )}
                 </div>
-              ) : (
-                <FileTree
-                  items={files}
-                  expandedFolders={expandedFolders}
-                  selectedPath={selectedPath}
-                  loadingFolders={loadingFolders}
-                  onFileClick={handleFileClick}
-                  onFolderToggle={toggleFolder}
-                  onFolderDoubleClick={setRootPath}
-                  onFileDelete={handleFileDeleteRequest}
-                />
-              )}
-            </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem onClick={handleNewFile}>
+                  <FilePlus className="h-4 w-4 mr-2" />
+                  New file
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
           )
         )}
       </ScrollArea>
@@ -565,6 +689,101 @@ export function FileListPanel() {
               disabled={isDeleting}
             >
               {isDeleting ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* New File Dialog */}
+      <Dialog open={newFileDialogOpen} onOpenChange={(open) => {
+        if (!open) {
+          setNewFileDialogOpen(false)
+          setOperationError(null)
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New File</DialogTitle>
+            <DialogDescription>
+              Create a new markdown file in the current folder.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="new-filename">File name</Label>
+              <Input
+                id="new-filename"
+                placeholder="untitled.md"
+                value={newFileName}
+                onChange={(e) => {
+                  setNewFileName(e.target.value)
+                  setOperationError(null)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleCreateNewFile()
+                  }
+                }}
+                autoFocus
+              />
+              {operationError && (
+                <p className="text-sm text-destructive">{operationError}</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setNewFileDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateNewFile} disabled={!newFileName.trim()}>
+              Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rename File Dialog */}
+      <Dialog open={renameDialogOpen} onOpenChange={(open) => {
+        if (!open) {
+          setRenameDialogOpen(false)
+          setOperationError(null)
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename File</DialogTitle>
+            <DialogDescription>
+              Enter a new name for the file.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="rename-filename">File name</Label>
+              <Input
+                id="rename-filename"
+                value={renameFileName}
+                onChange={(e) => {
+                  setRenameFileName(e.target.value)
+                  setOperationError(null)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleConfirmRename()
+                  }
+                }}
+                autoFocus
+              />
+              {operationError && (
+                <p className="text-sm text-destructive">{operationError}</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRenameDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmRename} disabled={!renameFileName.trim()}>
+              Rename
             </Button>
           </DialogFooter>
         </DialogContent>

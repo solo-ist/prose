@@ -1,6 +1,12 @@
 import type { FileItem } from '../../types'
-import { ChevronRight, ChevronDown, FileText, Folder, Loader2 } from 'lucide-react'
+import { ChevronRight, ChevronDown, FileText, Folder, Loader2, Trash2, Edit3, ExternalLink } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger
+} from '../ui/context-menu'
 
 interface FileTreeProps {
   items: FileItem[]
@@ -10,6 +16,9 @@ interface FileTreeProps {
   onFileClick: (path: string) => void
   onFolderToggle: (path: string) => void
   onFolderDoubleClick?: (path: string) => void
+  onFileDelete?: (path: string) => void
+  onFileRename?: (path: string) => void
+  onFileShowInFolder?: (path: string) => void
   depth?: number
 }
 
@@ -21,6 +30,9 @@ export function FileTree({
   onFileClick,
   onFolderToggle,
   onFolderDoubleClick,
+  onFileDelete,
+  onFileRename,
+  onFileShowInFolder,
   depth = 0
 }: FileTreeProps) {
   return (
@@ -35,6 +47,9 @@ export function FileTree({
           onFileClick={onFileClick}
           onFolderToggle={onFolderToggle}
           onFolderDoubleClick={onFolderDoubleClick}
+          onFileDelete={onFileDelete}
+          onFileRename={onFileRename}
+          onFileShowInFolder={onFileShowInFolder}
           depth={depth}
         />
       ))}
@@ -50,6 +65,9 @@ interface FileTreeItemProps {
   onFileClick: (path: string) => void
   onFolderToggle: (path: string) => void
   onFolderDoubleClick?: (path: string) => void
+  onFileDelete?: (path: string) => void
+  onFileRename?: (path: string) => void
+  onFileShowInFolder?: (path: string) => void
   depth: number
 }
 
@@ -61,6 +79,9 @@ function FileTreeItem({
   onFileClick,
   onFolderToggle,
   onFolderDoubleClick,
+  onFileDelete,
+  onFileRename,
+  onFileShowInFolder,
   depth
 }: FileTreeItemProps) {
   const isExpanded = expandedFolders.has(item.path)
@@ -91,40 +112,68 @@ function FileTreeItem({
 
   return (
     <div>
-      <button
-        onClick={handleClick}
-        onDoubleClick={handleDoubleClick}
-        className={cn(
-          'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm text-left transition-colors',
-          'hover:bg-accent hover:text-accent-foreground',
-          isSelected && !item.isDirectory && 'bg-accent text-accent-foreground'
-        )}
-        style={{ paddingLeft: `${depth * 12 + 8}px` }}
-        title={item.path}
-      >
-        {item.isDirectory ? (
-          <>
-            {isLoading ? (
-              <Loader2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground animate-spin" />
-            ) : showChevron ? (
-              isExpanded ? (
-                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              ) : (
-                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              )
-            ) : (
-              <span className="w-3.5" /> // Empty folder spacer
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <button
+            onClick={handleClick}
+            onDoubleClick={handleDoubleClick}
+            className={cn(
+              'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm text-left transition-colors',
+              'hover:bg-accent hover:text-accent-foreground',
+              isSelected && !item.isDirectory && 'bg-accent text-accent-foreground'
             )}
-            <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
-          </>
-        ) : (
-          <>
-            <span className="w-3.5" /> {/* Spacer for alignment */}
-            <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-          </>
-        )}
-        <span className="truncate">{displayName}</span>
-      </button>
+            style={{ paddingLeft: `${depth * 12 + 8}px` }}
+            title={item.path}
+          >
+            {item.isDirectory ? (
+              <>
+                {isLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground animate-spin" />
+                ) : showChevron ? (
+                  isExpanded ? (
+                    <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  )
+                ) : (
+                  <span className="w-3.5" /> // Empty folder spacer
+                )}
+                <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+              </>
+            ) : (
+              <>
+                <span className="w-3.5" /> {/* Spacer for alignment */}
+                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+              </>
+            )}
+            <span className="truncate">{displayName}</span>
+          </button>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          {!item.isDirectory && (
+            <>
+              {onFileRename && (
+                <ContextMenuItem onClick={() => onFileRename(item.path)}>
+                  <Edit3 className="h-4 w-4 mr-2" />
+                  Rename
+                </ContextMenuItem>
+              )}
+              {onFileShowInFolder && (
+                <ContextMenuItem onClick={() => onFileShowInFolder(item.path)}>
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  Show in Folder
+                </ContextMenuItem>
+              )}
+              {onFileDelete && (
+                <ContextMenuItem onClick={() => onFileDelete(item.path)}>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </ContextMenuItem>
+              )}
+            </>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
 
       {item.isDirectory && isExpanded && item.children && (
         <FileTree
@@ -135,6 +184,9 @@ function FileTreeItem({
           onFileClick={onFileClick}
           onFolderToggle={onFolderToggle}
           onFolderDoubleClick={onFolderDoubleClick}
+          onFileDelete={onFileDelete}
+          onFileRename={onFileRename}
+          onFileShowInFolder={onFileShowInFolder}
           depth={depth + 1}
         />
       )}

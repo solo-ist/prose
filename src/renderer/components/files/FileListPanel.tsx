@@ -26,7 +26,7 @@ import {
 } from '../ui/dialog'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
-import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, Folder, FolderOpen, Download, Trash2, FilePlus } from 'lucide-react'
+import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, Folder, FolderOpen, Download, Trash2, FilePlus, ExternalLink, X } from 'lucide-react'
 import { useSettings } from '../../hooks/useSettings'
 import { cn } from '../../lib/utils'
 import { getApi } from '../../lib/browserApi'
@@ -53,7 +53,8 @@ export function FileListPanel() {
     toggleNotebookSync,
     loadFiles,
     syncDirectory,
-    deviceToken
+    deviceToken,
+    removeRecentFile
   } = useFileList()
 
   const { openFileFromPath } = useEditor()
@@ -549,18 +550,31 @@ export function FileListPanel() {
           ) : (
             <div className="p-2">
               {recentFiles.map((path) => (
-                <button
-                  key={path}
-                  className={cn(
-                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50",
-                    selectedPath === path && "bg-muted"
-                  )}
-                  onClick={() => handleFileClick(path)}
-                  title={path}
-                >
-                  <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="truncate">{getFileName(path)}</span>
-                </button>
+                <ContextMenu key={path}>
+                  <ContextMenuTrigger asChild>
+                    <button
+                      className={cn(
+                        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50",
+                        selectedPath === path && "bg-muted"
+                      )}
+                      onClick={() => handleFileClick(path)}
+                      title={path}
+                    >
+                      <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{getFileName(path)}</span>
+                    </button>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent>
+                    <ContextMenuItem onClick={() => removeRecentFile(path)}>
+                      <X className="h-4 w-4 mr-2" />
+                      Clear
+                    </ContextMenuItem>
+                    <ContextMenuItem onClick={() => handleFileShowInFolder(path)}>
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      Open in Finder
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
               ))}
             </div>
           )

@@ -47,8 +47,8 @@ export function createMenu(_mainWindow: BrowserWindow): void {
       label: 'File',
       submenu: [
         {
-          label: 'New',
-          accelerator: 'CmdOrCtrl+N',
+          label: 'New Tab',
+          accelerator: 'CmdOrCtrl+T',
           click: (): void => {
             sendMenuAction('new')
           }
@@ -58,6 +58,14 @@ export function createMenu(_mainWindow: BrowserWindow): void {
           accelerator: 'CmdOrCtrl+O',
           click: (): void => {
             sendMenuAction('open')
+          }
+        },
+        { type: 'separator' },
+        {
+          label: 'Close Tab',
+          accelerator: 'CmdOrCtrl+W',
+          click: (): void => {
+            sendMenuAction('closeTab')
           }
         },
         { type: 'separator' },
@@ -75,8 +83,9 @@ export function createMenu(_mainWindow: BrowserWindow): void {
             sendMenuAction('saveAs')
           }
         },
-        { type: 'separator' },
-        isMac ? { role: 'close' } : { role: 'quit' }
+        ...(isMac
+          ? []
+          : [{ type: 'separator' as const }, { role: 'quit' as const }])
       ]
     },
     {

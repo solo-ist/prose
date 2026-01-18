@@ -26,6 +26,26 @@ export interface DraftState {
   fileList?: FileListState
 }
 
+// Tab state for session persistence
+export interface TabDraft {
+  tabId: string
+  documentId: string
+  path: string | null
+  title: string
+  content: string
+  isDirty: boolean
+  cursorPosition?: { line: number; column: number }
+  activeChatId: string | null
+}
+
+// Session state for multi-tab persistence
+export interface SessionState {
+  tabs: TabDraft[]
+  activeTabId: string | null
+  fileList?: FileListState
+  savedAt: number
+}
+
 // Database constants
 const DB_NAME = 'prose-db'
 const DB_VERSION = 3
@@ -477,6 +497,66 @@ export async function clearDraft(): Promise<void> {
     })
   } catch (error) {
     console.error('Failed to clear draft:', error)
+  }
+}
+
+// ============ Session State Operations (Multi-Tab) ============
+
+/**
+ * Save the entire session state (all tabs)
+ */
+export async function saveSession(state: SessionState): Promise<void> {
+  try {
+    const db = await getDB()
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORES.DRAFTS, 'readwrite')
+      const store = transaction.objectStore(STORES.DRAFTS)
+      const request = store.put(state, 'session')
+
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve()
+    })
+  } catch (error) {
+    console.error('Failed to save session:', error)
+  }
+}
+
+/**
+ * Load the saved session state
+ */
+export async function loadSession(): Promise<SessionState | null> {
+  try {
+    const db = await getDB()
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORES.DRAFTS, 'readonly')
+      const store = transaction.objectStore(STORES.DRAFTS)
+      const request = store.get('session')
+
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve(request.result ?? null)
+    })
+  } catch (error) {
+    console.error('Failed to load session:', error)
+    return null
+  }
+}
+
+/**
+ * Clear the saved session state
+ */
+export async function clearSession(): Promise<void> {
+  try {
+    const db = await getDB()
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORES.DRAFTS, 'readwrite')
+      const store = transaction.objectStore(STORES.DRAFTS)
+      const request = store.delete('session')
+
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve()
+    })
+  } catch (error) {
+    console.error('Failed to clear session:', error)
   }
 }
 

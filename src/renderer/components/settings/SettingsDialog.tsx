@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { useSettings } from '../../hooks/useSettings'
 import {
   Dialog,
@@ -36,6 +37,19 @@ export function SettingsDialog() {
     setRemarkableConfig,
     saveSettings
   } = useSettings()
+
+  const [isDefaultHandler, setIsDefaultHandler] = useState(false)
+  const [checkingDefault, setCheckingDefault] = useState(false)
+
+  // Check if we're the default handler when dialog opens
+  useEffect(() => {
+    if (isDialogOpen && window.api?.fileAssociationIsDefault) {
+      setCheckingDefault(true)
+      window.api.fileAssociationIsDefault()
+        .then(setIsDefaultHandler)
+        .finally(() => setCheckingDefault(false))
+    }
+  }, [isDialogOpen])
 
   const handleSave = async () => {
     await saveSettings()
@@ -123,6 +137,38 @@ export function SettingsDialog() {
               </div>
               <p className="text-xs text-muted-foreground">
                 Where new documents are saved when you quick-save from the title bar
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Default Markdown Editor</Label>
+              <div className="flex items-center gap-4">
+                <Button
+                  variant="outline"
+                  disabled={checkingDefault || isDefaultHandler}
+                  onClick={async () => {
+                    if (window.api?.fileAssociationSetDefault) {
+                      const success = await window.api.fileAssociationSetDefault()
+                      if (success) {
+                        setIsDefaultHandler(true)
+                      }
+                    }
+                  }}
+                >
+                  {checkingDefault
+                    ? 'Checking...'
+                    : isDefaultHandler
+                      ? 'Already Default'
+                      : 'Set as Default'}
+                </Button>
+                {isDefaultHandler && (
+                  <span className="text-sm text-green-600 dark:text-green-400">
+                    Prose is your default markdown editor
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Set Prose as the default app for opening .md files
               </p>
             </div>
           </TabsContent>

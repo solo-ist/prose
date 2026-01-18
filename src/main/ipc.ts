@@ -767,4 +767,67 @@ export function setupIpcHandlers(): void {
       }
     }
   })
+
+  // File Association: Check if app is default handler for markdown files
+  ipcMain.handle('fileAssociation:isDefault', async () => {
+    if (process.platform === 'darwin') {
+      // On macOS, check if we're the default handler for .md files
+      try {
+        const { execSync } = await import('child_process')
+        const bundleId = app.getName().toLowerCase() === 'prose' ? 'com.prose.app' : app.getName()
+        const result = execSync(
+          `defaults read com.apple.LaunchServices/com.apple.launchservices.secure LSHandlers 2>/dev/null | grep -A2 'LSHandlerContentTag = md' | grep LSHandlerRoleAll || echo ""`
+        ).toString().trim()
+        return result.includes(bundleId)
+      } catch {
+        return false
+      }
+    } else if (process.platform === 'win32') {
+      // On Windows, check registry
+      try {
+        const { execSync } = await import('child_process')
+        const result = execSync('reg query HKCU\\Software\\Classes\\.md /ve 2>nul').toString()
+        return result.includes('prose')
+      } catch {
+        return false
+      }
+    }
+    return false
+  })
+
+  // File Association: Set app as default handler for markdown files
+  ipcMain.handle('fileAssociation:setDefault', async () => {
+    if (process.platform === 'darwin') {
+      // On macOS, use duti (if available) or guide user to System Preferences
+      try {
+        const { execSync } = await import('child_process')
+        const bundleId = 'com.prose.app'
+
+        // Try to use duti if available
+        try {
+          execSync(`which duti`)
+          execSync(`duti -s ${bundleId} .md all`)
+          execSync(`duti -s ${bundleId} .markdown all`)
+          execSync(`duti -s ${bundleId} public.plain-text all`)
+          return true
+        } catch {
+          // duti not available, use open command to trigger "Open With" dialog
+          // This prompts macOS to update the default app
+          shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders')
+          return false
+        }
+      } catch {
+        return false
+      }
+    } else if (process.platform === 'win32') {
+      // On Windows, open default apps settings
+      try {
+        shell.openExternal('ms-settings:defaultapps')
+        return false // User needs to manually complete
+      } catch {
+        return false
+      }
+    }
+    return false
+  })
 }

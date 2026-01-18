@@ -84,6 +84,8 @@ export interface ElectronAPI {
   onFileOpenExternal: (callback: (path: string) => void) => () => void
   llmChat: (request: LLMRequest) => Promise<LLMResponse>
   platform: 'aix' | 'darwin' | 'freebsd' | 'linux' | 'openbsd' | 'sunos' | 'win32' | 'android' | 'cygwin' | 'netbsd'
+  // Renderer ready signal
+  signalRendererReady: () => Promise<{ success: boolean }>
   // Streaming LLM
   llmChatStream: (request: LLMStreamRequest) => Promise<{ success: boolean }>
   llmAbortStream: (streamId: string) => Promise<{ success: boolean }>
@@ -127,6 +129,9 @@ export interface ElectronAPI {
   sendMcpToolResult: (requestId: string, result: ToolResult) => void
   // MCP server status
   onMcpStatus: (callback: (status: McpStatus) => void) => () => void
+  // File association (default markdown editor)
+  fileAssociationIsDefault: () => Promise<boolean>
+  fileAssociationSetDefault: () => Promise<boolean>
 }
 
 export interface FileItem {
@@ -205,6 +210,8 @@ const api: ElectronAPI = {
   },
   llmChat: (request: LLMRequest) => ipcRenderer.invoke('llm:chat', request),
   platform: process.platform,
+  // Renderer ready signal
+  signalRendererReady: () => ipcRenderer.invoke('renderer:ready'),
   // Streaming LLM
   llmChatStream: (request: LLMStreamRequest) => ipcRenderer.invoke('llm:stream', request),
   llmAbortStream: (streamId: string) => ipcRenderer.invoke('llm:stream:abort', streamId),
@@ -308,7 +315,10 @@ const api: ElectronAPI = {
     return () => {
       ipcRenderer.removeListener('llm:stream:error', handler)
     }
-  }
+  },
+  // File association
+  fileAssociationIsDefault: () => ipcRenderer.invoke('fileAssociation:isDefault'),
+  fileAssociationSetDefault: () => ipcRenderer.invoke('fileAssociation:setDefault')
 }
 
 contextBridge.exposeInMainWorld('api', api)

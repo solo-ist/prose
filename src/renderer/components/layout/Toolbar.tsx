@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, type KeyboardEvent } from 'react'
 import { useEditor } from '../../hooks/useEditor'
+import { useTabs } from '../../hooks/useTabs'
 import { useEditorStore } from '../../stores/editorStore'
+import { useTabStore } from '../../stores/tabStore'
 import { useFileListStore } from '../../stores/fileListStore'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
@@ -21,7 +23,17 @@ import {
   TooltipTrigger
 } from '../ui/tooltip'
 import {
-  FileText,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '../ui/alert-dialog'
+import { TabBar } from './TabBar'
+import {
   Moon,
   Sun,
   Settings,
@@ -36,43 +48,28 @@ import {
 
 export function Toolbar() {
   const { document, openFile, saveFile, saveFileAs, newFile, quickSaveWithTitle } = useEditor()
+  const {
+    tabs,
+    activeTabId,
+    createNewTab,
+    switchToTab,
+    closeTab,
+    forceCloseTab,
+    closeOtherTabs,
+    closeAllTabs
+  } = useTabs()
   const { settings, isLoaded, setTheme, setDialogOpen } = useSettings()
   const { isPanelOpen: isChatOpen, togglePanel: toggleChatPanel } = useChat()
   const { isPanelOpen: isFileListOpen, togglePanel: toggleFileListPanel } = useFileList()
   const isEditing = useEditorStore((state) => state.isEditing)
 
-  const [isEditingTitle, setIsEditingTitle] = useState(false)
-  const [editedTitle, setEditedTitle] = useState('')
   const [hasCopied, setHasCopied] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
 
-  // Extract filename and extension
-  const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
-  const remarkableNotebookId = useEditorStore((state) => state.remarkableNotebookId)
-  const notebookMetadata = useFileListStore((state) => state.notebookMetadata)
-
-  const fullFileName = document.path?.split('/').pop() || ''
-  const hasExtension = fullFileName.includes('.')
-
-  // For reMarkable read-only mode, use the notebook name from metadata
-  let fileName: string
-  if (isRemarkableReadOnly && remarkableNotebookId && notebookMetadata?.notebooks?.[remarkableNotebookId]) {
-    fileName = notebookMetadata.notebooks[remarkableNotebookId].name
-  } else {
-    fileName = hasExtension
-      ? fullFileName.substring(0, fullFileName.lastIndexOf('.'))
-      : fullFileName || 'Untitled'
-  }
-
-  const fileExtension = hasExtension
-    ? fullFileName.substring(fullFileName.lastIndexOf('.'))
-    : '.md'
-
-  const handleIconClick = () => {
-    if (document.path && window.api) {
-      window.api.showInFolder(document.path)
-    }
-  }
+  // Tab close confirmation state
+  const [pendingCloseTabId, setPendingCloseTabId] = useState<string | null>(null)
+  const pendingCloseTab = pendingCloseTabId
+    ? useTabStore.getState().getTabById(pendingCloseTabId)
+    : null
 
   const toggleTheme = () => {
     // If theme is 'system', check what it actually resolved to
@@ -93,195 +90,216 @@ export function Toolbar() {
     }
   }
 
-  const handleTitleDoubleClick = () => {
-    setEditedTitle(fileName)
-    setIsEditingTitle(true)
-  }
-
-  useEffect(() => {
-    if (isEditingTitle && inputRef.current) {
-      inputRef.current.focus()
-      inputRef.current.select()
-    }
-  }, [isEditingTitle])
-
-  const handleTitleKeyDown = async (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      if (editedTitle.trim()) {
-        const success = await quickSaveWithTitle(editedTitle.trim())
-        if (success) {
-          setIsEditingTitle(false)
-        }
-      } else {
-        setIsEditingTitle(false)
-      }
-    } else if (e.key === 'Escape') {
-      setIsEditingTitle(false)
+  const handleTabClick = (tabId: string) => {
+    if (tabId !== activeTabId) {
+      switchToTab(tabId)
     }
   }
 
-  const handleTitleBlur = () => {
-    setIsEditingTitle(false)
-  }
+  const handleTabClose = async (tabId: string) => {
+    const tab = useTabStore.getState().getTabById(tabId)
+    if (!tab) return
 
-  const handleClose = () => {
-    // If a document is open (has content or path), close the document
-    // Otherwise, close the window/app
-    const hasDocument = document.content.trim() || document.path || isEditing
-    if (hasDocument) {
-      newFile()
+    if (tab.isDirty) {
+      // Show confirmation dialog
+      setPendingCloseTabId(tabId)
     } else {
+      await closeTab(tabId)
+    }
+  }
+
+  const handleSaveAndClose = async () => {
+    if (!pendingCloseTabId) return
+
+    // Save the file first
+    await saveFile()
+
+    // Then close the tab
+    await forceCloseTab(pendingCloseTabId)
+    setPendingCloseTabId(null)
+  }
+
+  const handleDiscardAndClose = async () => {
+    if (!pendingCloseTabId) return
+
+    await forceCloseTab(pendingCloseTabId)
+    setPendingCloseTabId(null)
+  }
+
+  const handleCancelClose = () => {
+    setPendingCloseTabId(null)
+  }
+
+  const handleCloseOthers = async (tabId: string) => {
+    // Check for dirty tabs
+    const dirtyTabs = tabs.filter(t => t.id !== tabId && t.isDirty)
+    if (dirtyTabs.length > 0) {
+      // For now, just close non-dirty tabs
+      // TODO: Could show a multi-save dialog
+    }
+    await closeOtherTabs(tabId)
+  }
+
+  const handleCloseAll = async () => {
+    // Check for dirty tabs
+    const dirtyTabs = tabs.filter(t => t.isDirty)
+    if (dirtyTabs.length > 0) {
+      // For now, just close non-dirty tabs
+      // TODO: Could show a multi-save dialog
+    }
+    await closeAllTabs()
+  }
+
+  const handleClose = async () => {
+    // Close the active tab if there is one
+    if (activeTabId) {
+      await handleTabClose(activeTabId)
+    } else if (tabs.length === 0) {
+      // No tabs, close the window
       getApi().closeWindow()
     }
+  }
+
+  const handleNewFile = async () => {
+    await createNewTab()
   }
 
   // Add left padding on macOS to clear traffic lights
   const leftPadding = isMacOS() ? 'pl-20' : 'pl-4'
 
   return (
-    <div className={`flex h-12 items-center justify-between border-b border-border bg-background pr-4 ${leftPadding} app-region-drag`}>
-      {/* Left: File explorer toggle and file info */}
-      <div className="flex items-center gap-2 app-region-no-drag">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" onClick={toggleFileListPanel} aria-label={isFileListOpen ? 'Hide files' : 'Show files'}>
-              {isFileListOpen ? (
-                <PanelLeftClose className="h-4 w-4" />
-              ) : (
-                <PanelLeft className="h-4 w-4" />
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            {isFileListOpen ? 'Hide files' : 'Show files'}
-          </TooltipContent>
-        </Tooltip>
+    <>
+      <div className={`flex h-12 items-center justify-between border-b border-border bg-background pr-4 ${leftPadding} app-region-drag`}>
+        {/* Left: File explorer toggle */}
+        <div className="flex items-center gap-2 app-region-no-drag">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" onClick={toggleFileListPanel} aria-label={isFileListOpen ? 'Hide files' : 'Show files'}>
+                {isFileListOpen ? (
+                  <PanelLeftClose className="h-4 w-4" />
+                ) : (
+                  <PanelLeft className="h-4 w-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {isFileListOpen ? 'Hide files' : 'Show files'}
+            </TooltipContent>
+          </Tooltip>
+        </div>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={handleIconClick}
-              disabled={!document.path}
-              className={`p-0.5 rounded ${document.path ? 'cursor-pointer hover:bg-accent' : 'cursor-default'}`}
-              aria-label={document.path ? 'Reveal in Finder' : 'File not saved'}
-            >
-              <FileText className="h-4 w-4 text-muted-foreground" />
-            </button>
-          </TooltipTrigger>
-          {document.path && <TooltipContent>Reveal in Finder</TooltipContent>}
-        </Tooltip>
-        <div className="flex items-center">
-          {isEditingTitle ? (
-            <>
-              <Input
-                ref={inputRef}
-                type="text"
-                value={editedTitle}
-                onChange={(e) => setEditedTitle(e.target.value)}
-                onKeyDown={handleTitleKeyDown}
-                onBlur={handleTitleBlur}
-                className="h-7 w-40 text-sm font-medium"
-              />
-              <span className="text-sm text-muted-foreground">{fileExtension}</span>
-            </>
-          ) : (
-            <span
-              className="text-sm font-medium cursor-pointer hover:text-primary transition-colors"
-              onDoubleClick={handleTitleDoubleClick}
-              title="Double-click to rename and save"
-            >
-              {fileName}
-              <span className="text-muted-foreground">{fileExtension}</span>
-              {document.isDirty && <span className="text-muted-foreground"> *</span>}
-            </span>
-          )}
+        {/* Center: Tab bar */}
+        <div className="flex-1 flex items-center justify-start ml-2 app-region-no-drag overflow-hidden">
+          <TabBar
+            onTabClick={handleTabClick}
+            onTabClose={handleTabClose}
+            onTabCloseOthers={handleCloseOthers}
+            onTabCloseAll={handleCloseAll}
+          />
+        </div>
+
+        {/* Right: Actions */}
+        <div className="flex items-center gap-1 app-region-no-drag">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleCopy}
+                disabled={!document.content}
+                aria-label="Copy document"
+              >
+                {hasCopied ? (
+                  <Check className="h-4 w-4 text-green-500" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{hasCopied ? 'Copied!' : 'Copy document'}</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" onClick={toggleTheme} disabled={!isLoaded} aria-label="Toggle theme">
+                {settings.theme === 'dark' ? (
+                  <Sun className="h-4 w-4" />
+                ) : (
+                  <Moon className="h-4 w-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Toggle theme</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" onClick={toggleChatPanel} aria-label={isChatOpen ? 'Hide chat' : 'Show chat'}>
+                {isChatOpen ? (
+                  <PanelRightClose className="h-4 w-4" />
+                ) : (
+                  <PanelRight className="h-4 w-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {isChatOpen ? 'Hide chat' : 'Show chat'}
+            </TooltipContent>
+          </Tooltip>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label="More options">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={handleNewFile}>
+                New Document
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openFile()}>
+                Open...
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={saveFile}>
+                Save
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={saveFileAs}>
+                Save as...
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setDialogOpen(true)}>
+                <Settings className="mr-2 h-4 w-4" />
+                Settings
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleClose}>
+                Close
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
-      {/* Center: Spacer for draggable area */}
-      <div className="flex-1" />
-
-      {/* Right: Actions */}
-      <div className="flex items-center gap-1 app-region-no-drag">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleCopy}
-              disabled={!document.content}
-              aria-label="Copy document"
-            >
-              {hasCopied ? (
-                <Check className="h-4 w-4 text-green-500" />
-              ) : (
-                <Copy className="h-4 w-4" />
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{hasCopied ? 'Copied!' : 'Copy document'}</TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" onClick={toggleTheme} disabled={!isLoaded} aria-label="Toggle theme">
-              {settings.theme === 'dark' ? (
-                <Sun className="h-4 w-4" />
-              ) : (
-                <Moon className="h-4 w-4" />
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Toggle theme</TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" onClick={toggleChatPanel} aria-label={isChatOpen ? 'Hide chat' : 'Show chat'}>
-              {isChatOpen ? (
-                <PanelRightClose className="h-4 w-4" />
-              ) : (
-                <PanelRight className="h-4 w-4" />
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            {isChatOpen ? 'Hide chat' : 'Show chat'}
-          </TooltipContent>
-        </Tooltip>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="More options">
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={newFile}>
-              New Document
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => openFile()}>
-              Open...
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={saveFile}>
+      {/* Save confirmation dialog */}
+      <AlertDialog open={pendingCloseTabId !== null} onOpenChange={(open) => !open && handleCancelClose()}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Save changes?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingCloseTab?.title || 'This document'} has unsaved changes. Do you want to save before closing?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleCancelClose}>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={handleDiscardAndClose}>
+              Discard
+            </AlertDialogAction>
+            <AlertDialogAction onClick={handleSaveAndClose}>
               Save
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={saveFileAs}>
-              Save as...
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => setDialogOpen(true)}>
-              <Settings className="mr-2 h-4 w-4" />
-              Settings
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleClose}>
-              Close
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    </div>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }

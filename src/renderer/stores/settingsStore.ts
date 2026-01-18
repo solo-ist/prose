@@ -26,6 +26,7 @@ interface SettingsState {
   setDefaultSaveDirectory: (path: string) => void
   setRemarkableConfig: (config: Partial<NonNullable<Settings['remarkable']>>) => void
   addRecentFile: (path: string) => void
+  removeRecentFile: (path: string) => void
 }
 
 const defaultSettings: Settings = {
@@ -162,6 +163,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       }
     })
     // Auto-save after adding recent file
+    get().saveSettings()
+  },
+
+  removeRecentFile: (path) => {
+    set((state) => {
+      const current = state.settings.recentFiles || []
+      const filtered = current.filter((p) => p !== path)
+      return {
+        settings: { ...state.settings, recentFiles: filtered }
+      }
+    })
     get().saveSettings()
   }
 }))

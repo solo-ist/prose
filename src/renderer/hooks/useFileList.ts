@@ -32,7 +32,7 @@ export function useFileList() {
     revealAndSelectPath
   } = useFileListStore()
 
-  const { settings } = useSettingsStore()
+  const { settings, removeRecentFile } = useSettingsStore()
   const recentFiles = settings.recentFiles || []
   const syncDirectory = settings.remarkable?.syncDirectory
   const documentPath = useEditorStore((state) => state.document.path)
@@ -101,6 +101,7 @@ export function useFileList() {
     selectFile,
     toggleFolder,
     setExpanded,
-    revealAndSelectPath
+    revealAndSelectPath,
+    removeRecentFile
   }
 }

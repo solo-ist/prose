@@ -32,7 +32,6 @@ export interface Settings {
   recentFiles?: string[]
   fileAssociation?: {
     hasBeenPrompted: boolean
-    setAsDefault: boolean | null
   }
 }
 
@@ -264,8 +263,8 @@ export interface ElectronAPI {
   // MCP server status
   onMcpStatus: (callback: (status: McpStatus) => void) => () => void
   // File association (default markdown editor)
-  fileAssociationIsDefault: () => Promise<boolean>
-  fileAssociationSetDefault: () => Promise<boolean>
+  // Returns: true (is default), false (not default), null (can't detect)
+  fileAssociationIsDefault: () => Promise<boolean | null>
 }
 
 declare global {

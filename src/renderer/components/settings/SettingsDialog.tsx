@@ -38,7 +38,8 @@ export function SettingsDialog() {
     saveSettings
   } = useSettings()
 
-  const [isDefaultHandler, setIsDefaultHandler] = useState(false)
+  // null = unknown/can't detect, true = is default, false = not default
+  const [isDefaultHandler, setIsDefaultHandler] = useState<boolean | null>(null)
   const [checkingDefault, setCheckingDefault] = useState(false)
 
   // Check if we're the default handler when dialog opens
@@ -46,7 +47,7 @@ export function SettingsDialog() {
     if (isDialogOpen && window.api?.fileAssociationIsDefault) {
       setCheckingDefault(true)
       window.api.fileAssociationIsDefault()
-        .then(setIsDefaultHandler)
+        .then((result) => setIsDefaultHandler(result))
         .finally(() => setCheckingDefault(false))
     }
   }, [isDialogOpen])
@@ -142,34 +143,23 @@ export function SettingsDialog() {
 
             <div className="space-y-2">
               <Label>Default Markdown Editor</Label>
-              <div className="flex items-center gap-4">
-                <Button
-                  variant="outline"
-                  disabled={checkingDefault || isDefaultHandler}
-                  onClick={async () => {
-                    if (window.api?.fileAssociationSetDefault) {
-                      const success = await window.api.fileAssociationSetDefault()
-                      if (success) {
-                        setIsDefaultHandler(true)
-                      }
-                    }
-                  }}
-                >
-                  {checkingDefault
-                    ? 'Checking...'
-                    : isDefaultHandler
-                      ? 'Already Default'
-                      : 'Set as Default'}
-                </Button>
-                {isDefaultHandler && (
-                  <span className="text-sm text-green-600 dark:text-green-400">
-                    Prose is your default markdown editor
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Set Prose as the default app for opening .md files
-              </p>
+              {checkingDefault ? (
+                <p className="text-sm text-muted-foreground">Checking...</p>
+              ) : isDefaultHandler === true ? (
+                <p className="text-sm text-green-600 dark:text-green-400">
+                  ✓ Prose is your default markdown editor
+                </p>
+              ) : (
+                <div className="p-3 bg-muted rounded-md space-y-2">
+                  <p className="text-sm">To set Prose as your default markdown editor:</p>
+                  <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground">
+                    <li>Right-click any .md file in Finder</li>
+                    <li>Select "Get Info" (or press ⌘I)</li>
+                    <li>Under "Open with:", select Prose</li>
+                    <li>Click "Change All..."</li>
+                  </ol>
+                </div>
+              )}
             </div>
           </TabsContent>
 

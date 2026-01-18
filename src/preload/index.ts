@@ -130,8 +130,7 @@ export interface ElectronAPI {
   // MCP server status
   onMcpStatus: (callback: (status: McpStatus) => void) => () => void
   // File association (default markdown editor)
-  fileAssociationIsDefault: () => Promise<boolean>
-  fileAssociationSetDefault: () => Promise<boolean>
+  fileAssociationIsDefault: () => Promise<boolean | null>
 }
 
 export interface FileItem {
@@ -317,8 +316,7 @@ const api: ElectronAPI = {
     }
   },
   // File association
-  fileAssociationIsDefault: () => ipcRenderer.invoke('fileAssociation:isDefault'),
-  fileAssociationSetDefault: () => ipcRenderer.invoke('fileAssociation:setDefault')
+  fileAssociationIsDefault: () => ipcRenderer.invoke('fileAssociation:isDefault')
 }
 
 contextBridge.exposeInMainWorld('api', api)

@@ -36,6 +36,24 @@ const STORES = {
   COMMAND_HISTORY: 'command_history'
 } as const
 
+// Recovery types
+export interface RecoveryResult {
+  recovered: boolean
+  timestamp: number
+  error?: string
+  recoveredStores: string[]
+  lostStores: string[]
+  backupPath?: string
+}
+
+export interface DatabaseBackup {
+  version: number
+  timestamp: number
+  stores: {
+    [storeName: string]: Array<{ key: IDBValidKey; value: any }>
+  }
+}
+
 /**
  * IndexedDB Version History
  * -------------------------
@@ -53,6 +71,151 @@ const STORES = {
 // Singleton database connection
 let dbPromise: Promise<IDBDatabase> | null = null
 let recoveryAttempted = false
+let lastRecoveryResult: RecoveryResult | null = null
+
+/**
+ * Get the last recovery result if recovery occurred.
+ */
+export function getLastRecoveryResult(): RecoveryResult | null {
+  return lastRecoveryResult
+}
+
+/**
+ * Clear the recovery result (call after user acknowledges).
+ */
+export function clearRecoveryResult(): void {
+  lastRecoveryResult = null
+}
+
+/**
+ * Attempt to export database contents before deletion.
+ * This tries to read whatever is accessible and save it.
+ */
+async function exportDatabaseToBackup(
+  db?: IDBDatabase
+): Promise<DatabaseBackup | null> {
+  try {
+    const backup: DatabaseBackup = {
+      version: DB_VERSION,
+      timestamp: Date.now(),
+      stores: {}
+    }
+
+    // If no DB provided, try to open in readonly mode
+    if (!db) {
+      try {
+        const request = indexedDB.open(DB_NAME)
+        db = await new Promise<IDBDatabase>((resolve, reject) => {
+          request.onsuccess = () => resolve(request.result)
+          request.onerror = () => reject(request.error)
+          // Don't handle onupgradeneeded - we're just reading
+        })
+      } catch (error) {
+        console.error('Cannot open DB for backup:', error)
+        return null
+      }
+    }
+
+    // Try to export each store
+    for (const storeName of Object.values(STORES)) {
+      if (!db.objectStoreNames.contains(storeName)) {
+        console.warn(`Store ${storeName} not found, skipping`)
+        continue
+      }
+
+      try {
+        const transaction = db.transaction(storeName, 'readonly')
+        const store = transaction.objectStore(storeName)
+        const allKeys = await new Promise<IDBValidKey[]>((resolve, reject) => {
+          const request = store.getAllKeys()
+          request.onsuccess = () => resolve(request.result)
+          request.onerror = () => reject(request.error)
+        })
+
+        const entries: Array<{ key: IDBValidKey; value: any }> = []
+        for (const key of allKeys) {
+          const value = await new Promise<any>((resolve, reject) => {
+            const request = store.get(key)
+            request.onsuccess = () => resolve(request.result)
+            request.onerror = () => reject(request.error)
+          })
+          entries.push({ key, value })
+        }
+
+        backup.stores[storeName] = entries
+        console.log(`Backed up ${entries.length} entries from ${storeName}`)
+      } catch (error) {
+        console.error(`Failed to backup store ${storeName}:`, error)
+        // Continue with other stores
+      }
+    }
+
+    return backup
+  } catch (error) {
+    console.error('Failed to create backup:', error)
+    return null
+  }
+}
+
+/**
+ * Save backup to localStorage as fallback storage.
+ * IndexedDB is corrupted, so we use localStorage temporarily.
+ */
+function saveBackupToLocalStorage(backup: DatabaseBackup): void {
+  try {
+    const backupKey = `prose-backup-${backup.timestamp}`
+    localStorage.setItem(backupKey, JSON.stringify(backup))
+    console.log(`Backup saved to localStorage: ${backupKey}`)
+
+    // Keep only last 3 backups in localStorage to avoid quota issues
+    const allBackupKeys = Object.keys(localStorage)
+      .filter((key) => key.startsWith('prose-backup-'))
+      .sort()
+    if (allBackupKeys.length > 3) {
+      const toRemove = allBackupKeys.slice(0, allBackupKeys.length - 3)
+      toRemove.forEach((key) => localStorage.removeItem(key))
+    }
+  } catch (error) {
+    console.error('Failed to save backup to localStorage:', error)
+  }
+}
+
+/**
+ * Restore data from backup into a freshly created database.
+ */
+async function restoreFromBackup(
+  db: IDBDatabase,
+  backup: DatabaseBackup
+): Promise<string[]> {
+  const restoredStores: string[] = []
+
+  for (const [storeName, entries] of Object.entries(backup.stores)) {
+    if (!db.objectStoreNames.contains(storeName)) {
+      console.warn(`Cannot restore ${storeName} - store doesn't exist`)
+      continue
+    }
+
+    try {
+      const transaction = db.transaction(storeName, 'readwrite')
+      const store = transaction.objectStore(storeName)
+
+      for (const entry of entries) {
+        await new Promise<void>((resolve, reject) => {
+          const request = store.put(entry.value, entry.key)
+          request.onsuccess = () => resolve()
+          request.onerror = () => reject(request.error)
+        })
+      }
+
+      restoredStores.push(storeName)
+      console.log(`Restored ${entries.length} entries to ${storeName}`)
+    } catch (error) {
+      console.error(`Failed to restore store ${storeName}:`, error)
+    }
+  }
+
+  return restoredStores
+}
 
 /**
  * Delete the database and reset state for fresh creation.
@@ -94,17 +257,90 @@ function getDB(): Promise<IDBDatabase> {
       console.error('Failed to open IndexedDB:', request.error)
       dbPromise = null
 
-      // Attempt recovery once by deleting and recreating
+      // Attempt recovery once by backing up, deleting, and recreating
       if (!recoveryAttempted) {
         recoveryAttempted = true
-        console.log('Attempting IndexedDB recovery...')
+        console.log('Attempting IndexedDB recovery with backup...')
+
+        const recoveryResult: RecoveryResult = {
+          recovered: false,
+          timestamp: Date.now(),
+          error: request.error?.message || 'Unknown error',
+          recoveredStores: [],
+          lostStores: []
+        }
+
         try {
+          // Step 1: Try to backup existing data
+          console.log('Step 1: Creating backup...')
+          const backup = await exportDatabaseToBackup()
+
+          if (backup && Object.keys(backup.stores).length > 0) {
+            saveBackupToLocalStorage(backup)
+            console.log(
+              `Backup created with ${Object.keys(backup.stores).length} stores`
+            )
+          } else {
+            console.warn('Could not create backup - database may be unreadable')
+          }
+
+          // Step 2: Delete corrupted database
+          console.log('Step 2: Deleting corrupted database...')
           await deleteDatabase()
-          // Retry opening
-          const retryDb = await getDB()
-          resolve(retryDb)
+
+          // Step 3: Reopen (will trigger onupgradeneeded to create fresh schema)
+          console.log('Step 3: Creating fresh database...')
+          const freshDb = await new Promise<IDBDatabase>((resolve, reject) => {
+            const retryRequest = indexedDB.open(DB_NAME, DB_VERSION)
+            retryRequest.onerror = () => reject(retryRequest.error)
+            retryRequest.onsuccess = () => resolve(retryRequest.result)
+            retryRequest.onupgradeneeded = (event) => {
+              const db = (event.target as IDBOpenDBRequest).result
+              // Create stores (same as original onupgradeneeded)
+              if (!db.objectStoreNames.contains(STORES.DRAFTS)) {
+                db.createObjectStore(STORES.DRAFTS)
+              }
+              if (!db.objectStoreNames.contains(STORES.CONVERSATIONS)) {
+                db.createObjectStore(STORES.CONVERSATIONS)
+              }
+              if (!db.objectStoreNames.contains(STORES.ANNOTATIONS)) {
+                db.createObjectStore(STORES.ANNOTATIONS)
+              }
+              if (!db.objectStoreNames.contains(STORES.COMMAND_HISTORY)) {
+                db.createObjectStore(STORES.COMMAND_HISTORY)
+              }
+            }
+          })
+
+          // Step 4: Restore from backup if available
+          if (backup && Object.keys(backup.stores).length > 0) {
+            console.log('Step 4: Restoring data from backup...')
+            const restoredStores = await restoreFromBackup(freshDb, backup)
+            recoveryResult.recoveredStores = restoredStores
+
+            const allStores = Object.values(STORES)
+            recoveryResult.lostStores = allStores.filter(
+              (store) => !restoredStores.includes(store)
+            )
+
+            console.log(`Restored stores: ${restoredStores.join(', ')}`)
+            if (recoveryResult.lostStores.length > 0) {
+              console.warn(`Lost stores: ${recoveryResult.lostStores.join(', ')}`)
+            }
+          } else {
+            recoveryResult.lostStores = Object.values(STORES)
+            console.warn('No backup available - starting with empty database')
+          }
+
+          recoveryResult.recovered = true
+          lastRecoveryResult = recoveryResult
+
+          resolve(freshDb)
         } catch (retryError) {
           console.error('IndexedDB recovery failed:', retryError)
+          recoveryResult.error =
+            retryError instanceof Error ? retryError.message : 'Recovery failed'
+          lastRecoveryResult = recoveryResult
           reject(request.error)
         }
       } else {

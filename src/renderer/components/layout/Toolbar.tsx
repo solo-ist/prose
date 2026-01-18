@@ -5,7 +5,7 @@ import { useFileListStore } from '../../stores/fileListStore'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
 import { useFileList } from '../../hooks/useFileList'
-import { isMacOS } from '../../lib/browserApi'
+import { isMacOS, getApi } from '../../lib/browserApi'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import {
@@ -262,6 +262,10 @@ export function Toolbar() {
             <DropdownMenuItem onClick={() => setDialogOpen(true)}>
               <Settings className="mr-2 h-4 w-4" />
               Settings
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => getApi().closeWindow()}>
+              Close
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

@@ -368,6 +368,11 @@ export const browserApi: ElectronAPI = {
     throw new Error('Cannot delete files in browser mode')
   },
 
+  closeWindow: async (): Promise<void> => {
+    // Try to close the window/tab in browser mode
+    window.close()
+  },
+
   listDirectory: async (_path: string): Promise<import('../types').FileItem[]> => {
     // Can't list directories in browser mode
     return []

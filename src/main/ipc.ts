@@ -1,4 +1,4 @@
-import { ipcMain, dialog, app, shell, safeStorage } from 'electron'
+import { ipcMain, dialog, app, shell, safeStorage, BrowserWindow } from 'electron'
 import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat } from 'fs/promises'
 import { join, normalize, isAbsolute } from 'path'
 import { homedir } from 'os'
@@ -755,4 +755,16 @@ export function setupIpcHandlers(): void {
       return await clearNotebookMarkdownPath(notebookId, syncDirectory)
     }
   )
+
+  // Window: Close window (macOS) or quit app (Windows/Linux)
+  ipcMain.handle('window:close', (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (window) {
+      if (process.platform === 'darwin') {
+        window.close()
+      } else {
+        app.quit()
+      }
+    }
+  })
 }

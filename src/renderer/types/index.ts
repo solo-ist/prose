@@ -227,6 +227,8 @@ export interface ElectronAPI {
   // File rename/delete
   renameFile: (oldPath: string, newPath: string) => Promise<void>
   deleteFile: (path: string) => Promise<void>
+  // Window operations
+  closeWindow: () => Promise<void>
   // Directory listing (with lazy loading support via maxDepth parameter)
   listDirectory: (path: string, maxDepth?: number) => Promise<FileItem[]>
   // reMarkable sync

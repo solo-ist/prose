@@ -99,6 +99,8 @@ export interface ElectronAPI {
   showInFolder: (path: string) => Promise<void>
   renameFile: (oldPath: string, newPath: string) => Promise<void>
   deleteFile: (path: string) => Promise<void>
+  // Window operations
+  closeWindow: () => Promise<void>
   listDirectory: (path: string, maxDepth?: number) => Promise<FileItem[]>
   remarkableRegister: (code: string) => Promise<RemarkableRegisterResponse>
   remarkableValidate: (deviceToken: string) => Promise<boolean>
@@ -215,6 +217,7 @@ const api: ElectronAPI = {
   showInFolder: (path: string) => ipcRenderer.invoke('file:showInFolder', path),
   renameFile: (oldPath: string, newPath: string) => ipcRenderer.invoke('file:rename', oldPath, newPath),
   deleteFile: (path: string) => ipcRenderer.invoke('file:delete', path),
+  closeWindow: () => ipcRenderer.invoke('window:close'),
   listDirectory: (path: string, maxDepth?: number) => ipcRenderer.invoke('file:listDirectory', path, maxDepth),
   remarkableRegister: (code: string) => ipcRenderer.invoke('remarkable:register', code),
   remarkableValidate: (deviceToken: string) => ipcRenderer.invoke('remarkable:validate', deviceToken),

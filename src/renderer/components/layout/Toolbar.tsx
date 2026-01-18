@@ -31,7 +31,7 @@ import {
 } from 'lucide-react'
 
 export function Toolbar() {
-  const { document, openFile, saveFile, newFile, quickSaveWithTitle } = useEditor()
+  const { document, openFile, saveFile, saveFileAs, newFile, quickSaveWithTitle } = useEditor()
   const { settings, isLoaded, setTheme, setDialogOpen } = useSettings()
   const { isPanelOpen: isChatOpen, togglePanel: toggleChatPanel } = useChat()
   const { isPanelOpen: isFileListOpen, togglePanel: toggleFileListPanel } = useFileList()
@@ -207,6 +207,9 @@ export function Toolbar() {
             </DropdownMenuItem>
             <DropdownMenuItem onClick={saveFile}>
               Save
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={saveFileAs}>
+              Save as...
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => setDialogOpen(true)}>

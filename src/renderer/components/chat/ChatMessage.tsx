@@ -355,12 +355,12 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
         {message.context && (
           <div className="rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">
             <span className="font-medium">Context:</span>
-            <p className="mt-1 line-clamp-3 whitespace-pre-wrap">{message.context}</p>
+            <p className="mt-1 line-clamp-3 whitespace-pre-wrap break-words">{message.context}</p>
           </div>
         )}
         <div className="text-sm leading-relaxed">
           {isUser ? (
-            <p className="whitespace-pre-wrap font-mono">{message.content}</p>
+            <p className="whitespace-pre-wrap break-words font-mono">{message.content}</p>
           ) : (() => {
             // Parse tool tags for assistant messages
             const toolParts = parseToolTags(displayContent)
@@ -368,7 +368,7 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
 
             if (hasToolParts) {
               return (
-                <div className="prose-chat space-y-2">
+                <div className="prose-chat space-y-2 break-words">
                   {toolParts.map((part, idx) => {
                     if (part.type === 'tool-executing') {
                       return (
@@ -401,7 +401,7 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
             // No tool parts - render normally
             if (displayContent.trim()) {
               return (
-                <div className="prose-chat">
+                <div className="prose-chat break-words">
                   {renderMarkdown(displayContent)}
                   {isStreaming && (
                     <span className="inline-block w-2 h-4 bg-primary/50 animate-pulse ml-0.5 align-middle" />
@@ -422,7 +422,7 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
               return <span className="inline-block w-2 h-4 bg-primary/50 animate-pulse" />
             }
 
-            return <div className="prose-chat">{renderMarkdown(displayContent)}</div>
+            return <div className="prose-chat break-words">{renderMarkdown(displayContent)}</div>
           })()}
         </div>
         {/* Show preview only in non-agent mode */}
@@ -463,7 +463,7 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
                   {applyResults
                     .filter((r) => !r.success)
                     .map((r, i) => (
-                      <li key={i} className="truncate">
+                      <li key={i} className="break-words">
                         {r.error}
                       </li>
                     ))}

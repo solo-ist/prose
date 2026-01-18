@@ -1,6 +1,6 @@
 import { ipcMain, dialog, app, shell, safeStorage } from 'electron'
 import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat } from 'fs/promises'
-import { join } from 'path'
+import { join, normalize, isAbsolute } from 'path'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
 
@@ -66,6 +66,23 @@ function expandPath(path: string): string {
   return path
 }
 
+/**
+ * Validate and sanitize a file path to prevent path traversal attacks.
+ * Expands ~ paths and normalizes, then blocks any path containing traversal sequences.
+ */
+function validatePath(inputPath: string): string {
+  const expanded = expandPath(inputPath)
+  const normalized = normalize(expanded)
+
+  // Block traversal sequences after normalization
+  // On Windows, normalize() resolves .. but we check anyway for safety
+  if (normalized.includes('..')) {
+    throw new Error('Path traversal not allowed')
+  }
+
+  return normalized
+}
+
 const defaultSettings: Settings = {
   theme: 'dark',
   llm: {
@@ -105,13 +122,14 @@ export function setupIpcHandlers(): void {
 
   // File: Save content to path
   ipcMain.handle('file:save', async (_event, path: string, content: string) => {
-    await writeFile(path, content, 'utf-8')
+    const safePath = validatePath(path)
+    await writeFile(safePath, content, 'utf-8')
   })
 
   // File: Read file at path
   ipcMain.handle('file:read', async (_event, path: string) => {
-    const expandedPath = expandPath(path)
-    return await readFile(expandedPath, 'utf-8')
+    const safePath = validatePath(path)
+    return await readFile(safePath, 'utf-8')
   })
 
   // File: Save As dialog
@@ -164,8 +182,8 @@ export function setupIpcHandlers(): void {
   // File: Check if file exists
   ipcMain.handle('file:exists', async (_event, path: string) => {
     try {
-      const expandedPath = expandPath(path)
-      await access(expandedPath)
+      const safePath = validatePath(path)
+      await access(safePath)
       return true
     } catch {
       return false
@@ -174,18 +192,21 @@ export function setupIpcHandlers(): void {
 
   // File: Show in folder (Finder on macOS)
   ipcMain.handle('file:showInFolder', async (_event, path: string) => {
-    const expandedPath = expandPath(path)
-    shell.showItemInFolder(expandedPath)
+    const safePath = validatePath(path)
+    shell.showItemInFolder(safePath)
   })
 
   // File: Rename file
   ipcMain.handle('file:rename', async (_event, oldPath: string, newPath: string) => {
-    await rename(oldPath, newPath)
+    const safeOldPath = validatePath(oldPath)
+    const safeNewPath = validatePath(newPath)
+    await rename(safeOldPath, safeNewPath)
   })
 
   // File: Delete file
   ipcMain.handle('file:delete', async (_event, path: string) => {
-    await unlink(path)
+    const safePath = validatePath(path)
+    await unlink(safePath)
   })
 
   // File: List directory contents (with lazy loading support)
@@ -269,9 +290,9 @@ export function setupIpcHandlers(): void {
       }
     }
 
-    // Expand ~ to home directory
-    const expandedPath = expandPath(dirPath)
-    return listDir(expandedPath, 0)
+    // Validate and expand path
+    const safePath = validatePath(dirPath)
+    return listDir(safePath, 0)
   })
 
   // Settings: Load from ~/.prose/settings.json

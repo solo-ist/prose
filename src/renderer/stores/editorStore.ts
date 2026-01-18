@@ -77,11 +77,16 @@ export const useEditorStore = create<EditorState>()(
       })),
 
     setContent: (content) =>
-      set((state) => ({
-        document: { ...state.document, content, isDirty: true },
-        // Invalidate cache when content changes
-        readCache: { content: null, documentId: null }
-      })),
+      set((state) => {
+        const contentChanged = state.document.content !== content
+        return {
+          document: { ...state.document, content, isDirty: true },
+          // Only invalidate cache when content actually changes
+          readCache: contentChanged
+            ? { content: null, documentId: null }
+            : state.readCache
+        }
+      }),
 
     setPath: (path) =>
       set((state) => ({

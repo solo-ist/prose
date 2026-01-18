@@ -67,6 +67,12 @@ export interface LLMStreamError {
   error: string
 }
 
+export interface McpStatus {
+  connected: boolean
+  port: number
+  error?: string
+}
+
 export interface ElectronAPI {
   openFile: () => Promise<FileResult | null>
   saveFile: (path: string, content: string) => Promise<void>
@@ -117,6 +123,8 @@ export interface ElectronAPI {
     callback: (requestId: string, toolName: string, args: unknown) => void
   ) => () => void
   sendMcpToolResult: (requestId: string, result: ToolResult) => void
+  // MCP server status
+  onMcpStatus: (callback: (status: McpStatus) => void) => () => void
 }
 
 export interface FileItem {
@@ -252,6 +260,15 @@ const api: ElectronAPI = {
   },
   sendMcpToolResult: (requestId: string, result: ToolResult) => {
     ipcRenderer.send('mcp:tool:result', requestId, result)
+  },
+  onMcpStatus: (callback: (status: McpStatus) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: McpStatus): void => {
+      callback(status)
+    }
+    ipcRenderer.on('mcp:status', handler)
+    return () => {
+      ipcRenderer.removeListener('mcp:status', handler)
+    }
   },
   onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, chunk: LLMStreamChunk): void => {

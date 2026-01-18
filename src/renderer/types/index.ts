@@ -193,6 +193,12 @@ export interface LLMStreamError {
   error: string
 }
 
+export interface McpStatus {
+  connected: boolean
+  port: number
+  error?: string
+}
+
 export interface ElectronAPI {
   openFile: () => Promise<FileResult | null>
   saveFile: (path: string, content: string) => Promise<void>
@@ -247,6 +253,8 @@ export interface ElectronAPI {
     callback: (requestId: string, toolName: string, args: unknown) => void
   ) => () => void
   sendMcpToolResult: (requestId: string, result: ToolResult) => void
+  // MCP server status
+  onMcpStatus: (callback: (status: McpStatus) => void) => () => void
 }
 
 declare global {

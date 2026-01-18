@@ -16,8 +16,26 @@ let streamListenersInitialized = false
 
 // Module-level refs - these must be outside the hook to ensure event handlers
 // registered once at module level can access the same refs that sendMessage uses
-const pendingToolCallsRef = { current: [] as Array<{ id: string; name: string; args: unknown }> }
-const toolLoopContextRef = { current: null as { apiMessages: LLMMessage[]; assistantMsgId: string } | null }
+// Each ref includes a streamId to prevent race conditions when streams overlap
+const pendingToolCallsRef = {
+  current: [] as Array<{ id: string; name: string; args: unknown }>,
+  streamId: null as string | null
+}
+const toolLoopContextRef = {
+  current: null as { apiMessages: LLMMessage[]; assistantMsgId: string } | null,
+  streamId: null as string | null
+}
+
+/**
+ * Clear stream-related refs. Called on abort/error to prevent stale data
+ * from being used by subsequent streams.
+ */
+function clearStreamRefs(): void {
+  pendingToolCallsRef.current = []
+  pendingToolCallsRef.streamId = null
+  toolLoopContextRef.current = null
+  toolLoopContextRef.streamId = null
+}
 
 export function useChat() {
   const {
@@ -81,8 +99,10 @@ export function useChat() {
     const unsubToolCall = api.onLLMStreamToolCall((toolCallEvent: LLMStreamToolCall) => {
       console.log('[useChat:toolCall] Received:', toolCallEvent.streamId, 'tool:', toolCallEvent.toolCall?.name)
       const state = useChatStore.getState()
-      console.log('[useChat:toolCall] Current streamId:', state.currentStreamId)
-      if (toolCallEvent.streamId === state.currentStreamId) {
+      console.log('[useChat:toolCall] Current streamId:', state.currentStreamId, 'ref streamId:', pendingToolCallsRef.streamId)
+      // Validate both current stream and ref streamId match to prevent race conditions
+      if (toolCallEvent.streamId === state.currentStreamId &&
+          toolCallEvent.streamId === pendingToolCallsRef.streamId) {
         console.log('[useChat:toolCall] ✓ Accumulating tool call')
         // Accumulate tool calls
         pendingToolCallsRef.current.push(toolCallEvent.toolCall)
@@ -101,13 +121,23 @@ export function useChat() {
       }
       console.log('[useChat:complete] ✓ Processing completion')
 
-      // Get all tool calls (from streaming events or completion message)
-      const toolCalls = complete.toolCalls || pendingToolCallsRef.current
-      console.log('[useChat:complete] toolCalls from complete:', complete.toolCalls?.length, 'from ref:', pendingToolCallsRef.current.length)
-      console.log('[useChat:complete] toolLoopContextRef.current:', toolLoopContextRef.current ? 'SET' : 'NULL')
-      pendingToolCallsRef.current = [] // Clear for next stream
+      // Validate streamId on refs to prevent race conditions
+      const refsMatchStream = complete.streamId === pendingToolCallsRef.streamId &&
+                              complete.streamId === toolLoopContextRef.streamId
 
-      if (toolCalls && toolCalls.length > 0 && toolLoopContextRef.current) {
+      // Get all tool calls (from streaming events or completion message)
+      // Only use pendingToolCallsRef if it matches the current stream
+      const toolCalls = complete.toolCalls ||
+        (refsMatchStream ? pendingToolCallsRef.current : [])
+      console.log('[useChat:complete] toolCalls from complete:', complete.toolCalls?.length, 'from ref:', pendingToolCallsRef.current.length, 'refsMatch:', refsMatchStream)
+      console.log('[useChat:complete] toolLoopContextRef.current:', toolLoopContextRef.current ? 'SET' : 'NULL')
+
+      // Clear pending tool calls for this stream
+      if (refsMatchStream) {
+        pendingToolCallsRef.current = []
+      }
+
+      if (toolCalls && toolCalls.length > 0 && toolLoopContextRef.current && refsMatchStream) {
         console.log('[useChat:complete] Executing', toolCalls.length, 'tool calls')
         // Execute tool calls and continue the conversation
         const { apiMessages, assistantMsgId } = toolLoopContextRef.current
@@ -166,8 +196,10 @@ export function useChat() {
         const newStreamId = createMessageId()
         state.startStreaming(assistantMsgId, newStreamId)
 
-        // Update context for potential next tool loop
+        // Update context for potential next tool loop with new streamId
         toolLoopContextRef.current = { apiMessages: updatedMessages, assistantMsgId }
+        toolLoopContextRef.streamId = newStreamId
+        pendingToolCallsRef.streamId = newStreamId
 
         // Call LLM again with tool results
         const settingsState = useSettingsStore.getState()
@@ -189,12 +221,12 @@ export function useChat() {
         } catch (error) {
           console.error('[Chat] Tool loop error:', error)
           state.completeStreaming()
-          toolLoopContextRef.current = null
+          clearStreamRefs()
         }
       } else {
         // No tool calls - complete normally
         state.completeStreaming()
-        toolLoopContextRef.current = null
+        clearStreamRefs()
       }
     })
 
@@ -214,8 +246,7 @@ export function useChat() {
           })
         }
         state.completeStreaming()
-        toolLoopContextRef.current = null
-        pendingToolCallsRef.current = []
+        clearStreamRefs()
       }
     })
 
@@ -321,6 +352,8 @@ export function useChat() {
       }
       if (tools) {
         toolLoopContextRef.current = { apiMessages, assistantMsgId }
+        toolLoopContextRef.streamId = streamId
+        pendingToolCallsRef.streamId = streamId
       }
 
       console.log('[useChat] About to call llmChatStream')
@@ -348,7 +381,7 @@ export function useChat() {
           content: `Error: ${errorMessage}. Please check your API key in Settings (Cmd+,).`
         })
         completeStreaming()
-        toolLoopContextRef.current = null
+        clearStreamRefs()
       }
     },
     [
@@ -376,6 +409,8 @@ export function useChat() {
       const api = getApi()
       api.llmAbortStream(state.currentStreamId)
     }
+    // Clear stream refs before completing to prevent race conditions
+    clearStreamRefs()
     completeStreaming()
   }, [completeStreaming])
 

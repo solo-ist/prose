@@ -413,6 +413,10 @@ export const browserApi: ElectronAPI = {
   },
   sendMcpToolResult: (_requestId: string, _result: import('../../shared/tools/types').ToolResult) => {
     // No MCP in browser mode
+  },
+  onMcpStatus: (_callback: (status: { connected: boolean; port: number; error?: string }) => void) => {
+    // No MCP in browser mode - immediately report not connected
+    return () => {}
   }
 }
 

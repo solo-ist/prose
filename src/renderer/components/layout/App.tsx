@@ -6,6 +6,7 @@ import { ChatPanel } from '../chat/ChatPanel'
 import { FileListPanel } from '../files/FileListPanel'
 import { SettingsDialog } from '../settings/SettingsDialog'
 import { RecoveryDialog } from './RecoveryDialog'
+import { RecoveryModal } from '../RecoveryModal'
 import { KeyboardShortcutsDialog } from '../settings/KeyboardShortcutsDialog'
 import { AboutDialog } from '../settings/AboutDialog'
 import {
@@ -290,6 +291,7 @@ export function App() {
           onRecover={handleRecover}
           onDiscard={handleDiscard}
         />
+        <RecoveryModal />
         <KeyboardShortcutsDialog
           open={isShortcutsDialogOpen}
           onOpenChange={setShortcutsDialogOpen}

@@ -56,7 +56,8 @@ export function Toolbar() {
     closeTab,
     forceCloseTab,
     closeOtherTabs,
-    closeAllTabs
+    closeAllTabs,
+    renameTab
   } = useTabs()
   const { settings, isLoaded, setTheme, setDialogOpen } = useSettings()
   const { isPanelOpen: isChatOpen, togglePanel: toggleChatPanel } = useChat()
@@ -189,12 +190,13 @@ export function Toolbar() {
         </div>
 
         {/* Center: Tab bar */}
-        <div className="flex-1 flex items-center justify-start ml-2 app-region-no-drag overflow-hidden">
+        <div className="flex-1 flex items-center justify-start ml-2 app-region-no-drag min-w-0">
           <TabBar
             onTabClick={handleTabClick}
             onTabClose={handleTabClose}
             onTabCloseOthers={handleCloseOthers}
             onTabCloseAll={handleCloseAll}
+            onTabRename={renameTab}
           />
         </div>
 

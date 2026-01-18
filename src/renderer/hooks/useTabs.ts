@@ -382,6 +382,65 @@ export function useTabs() {
     syncActiveTabWithEditor()
   }, [document.isDirty, document.path, document.content, syncActiveTabWithEditor])
 
+  /**
+   * Rename a tab's file
+   * Returns the new path on success, or null on failure
+   */
+  const renameTab = useCallback(async (tabId: string, newTitle: string): Promise<string | null> => {
+    const tab = getTabById(tabId)
+    if (!tab || !tab.path) return null
+
+    // Sanitize filename - only allow alphanumeric, spaces, dashes, underscores
+    const sanitized = newTitle.trim().replace(/[^\w\s-]/g, '')
+    if (!sanitized) return null
+
+    // Build new path
+    const dir = tab.path.substring(0, tab.path.lastIndexOf('/'))
+    const oldExt = tab.path.match(/\.(md|markdown|txt)$/)?.[0] || '.md'
+    const newName = `${sanitized}${oldExt}`
+    const newPath = `${dir}/${newName}`
+
+    // If same path, no-op
+    if (newPath === tab.path) return tab.path
+
+    try {
+      if (!window.api) return null
+
+      // Check if target already exists
+      const exists = await window.api.fileExists(newPath)
+      if (exists) {
+        console.warn(`Cannot rename: file "${newName}" already exists`)
+        return null
+      }
+
+      // Rename the file
+      await window.api.renameFile(tab.path, newPath)
+
+      // Update tab
+      updateTab(tabId, {
+        path: newPath,
+        title: sanitized
+      })
+
+      // Update editor store if this is the active document
+      if (document.path === tab.path) {
+        useEditorStore.getState().setDocument({
+          ...document,
+          path: newPath
+        })
+      }
+
+      // Refresh file list
+      await useFileListStore.getState().loadFiles()
+      useFileListStore.getState().selectFile(newPath)
+
+      return newPath
+    } catch (error) {
+      console.error('Error renaming tab file:', error)
+      return null
+    }
+  }, [getTabById, updateTab, document])
+
   return {
     tabs,
     activeTabId,
@@ -393,6 +452,7 @@ export function useTabs() {
     closeOtherTabs,
     closeAllTabs,
     saveCurrentTabState,
+    renameTab,
     getActiveTab: useTabStore.getState().getActiveTab
   }
 }

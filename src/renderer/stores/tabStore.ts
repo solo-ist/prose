@@ -31,6 +31,7 @@ interface TabState {
   // Utility
   getNextUntitledNumber: () => number
   reorderTabs: (fromIndex: number, toIndex: number) => void
+  setTabOrder: (tabs: Tab[]) => void
   closeOtherTabs: (tabId: string) => void
   closeAllTabs: () => void
 }
@@ -154,6 +155,10 @@ export const useTabStore = create<TabState>()(
         newTabs.splice(toIndex, 0, removed)
         return { tabs: newTabs }
       })
+    },
+
+    setTabOrder: (tabs) => {
+      set({ tabs })
     },
 
     closeOtherTabs: (tabId) => {

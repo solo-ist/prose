@@ -1,5 +1,5 @@
 import type { FileItem } from '../../types'
-import { ChevronRight, ChevronDown, FileText, Folder, Loader2, Trash2 } from 'lucide-react'
+import { ChevronRight, ChevronDown, FileText, Folder, Loader2, Trash2, Edit3, ExternalLink } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import {
   ContextMenu,
@@ -17,6 +17,8 @@ interface FileTreeProps {
   onFolderToggle: (path: string) => void
   onFolderDoubleClick?: (path: string) => void
   onFileDelete?: (path: string) => void
+  onFileRename?: (path: string) => void
+  onFileShowInFolder?: (path: string) => void
   depth?: number
 }
 
@@ -29,6 +31,8 @@ export function FileTree({
   onFolderToggle,
   onFolderDoubleClick,
   onFileDelete,
+  onFileRename,
+  onFileShowInFolder,
   depth = 0
 }: FileTreeProps) {
   return (
@@ -44,6 +48,8 @@ export function FileTree({
           onFolderToggle={onFolderToggle}
           onFolderDoubleClick={onFolderDoubleClick}
           onFileDelete={onFileDelete}
+          onFileRename={onFileRename}
+          onFileShowInFolder={onFileShowInFolder}
           depth={depth}
         />
       ))}
@@ -60,6 +66,8 @@ interface FileTreeItemProps {
   onFolderToggle: (path: string) => void
   onFolderDoubleClick?: (path: string) => void
   onFileDelete?: (path: string) => void
+  onFileRename?: (path: string) => void
+  onFileShowInFolder?: (path: string) => void
   depth: number
 }
 
@@ -72,6 +80,8 @@ function FileTreeItem({
   onFolderToggle,
   onFolderDoubleClick,
   onFileDelete,
+  onFileRename,
+  onFileShowInFolder,
   depth
 }: FileTreeItemProps) {
   const isExpanded = expandedFolders.has(item.path)
@@ -147,13 +157,27 @@ function FileTreeItem({
             {buttonElement}
           </ContextMenuTrigger>
           <ContextMenuContent>
-            <ContextMenuItem
-              className="text-destructive focus:text-destructive"
-              onClick={() => onFileDelete?.(item.path)}
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Delete
-            </ContextMenuItem>
+            {onFileRename && (
+              <ContextMenuItem onClick={() => onFileRename(item.path)}>
+                <Edit3 className="h-4 w-4 mr-2" />
+                Rename
+              </ContextMenuItem>
+            )}
+            {onFileShowInFolder && (
+              <ContextMenuItem onClick={() => onFileShowInFolder(item.path)}>
+                <ExternalLink className="h-4 w-4 mr-2" />
+                Show in Folder
+              </ContextMenuItem>
+            )}
+            {onFileDelete && (
+              <ContextMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={() => onFileDelete(item.path)}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete
+              </ContextMenuItem>
+            )}
           </ContextMenuContent>
         </ContextMenu>
       )}
@@ -168,6 +192,8 @@ function FileTreeItem({
           onFolderToggle={onFolderToggle}
           onFolderDoubleClick={onFolderDoubleClick}
           onFileDelete={onFileDelete}
+          onFileRename={onFileRename}
+          onFileShowInFolder={onFileShowInFolder}
           depth={depth + 1}
         />
       )}

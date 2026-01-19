@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { Button } from '../ui/button'
-import { Square, MessageSquare, ChevronRight, X } from 'lucide-react'
+import { Square, MessageSquare, ChevronRight, X, Check, Zap } from 'lucide-react'
 import { useChat } from '../../hooks/useChat'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useChatStore, createMessageId } from '../../stores/chatStore'
 import { useCommandHistoryStore } from '../../stores/commandHistoryStore'
 import { executeTool, getAvailableTools } from '../../lib/tools'
 import { cn } from '../../lib/utils'
+import { countPendingDiffs } from '../../lib/applyEdit'
 
 // Tool descriptions for autocomplete
 const toolDescriptions: Record<string, string> = {
@@ -104,6 +105,7 @@ interface ChatInputProps {
 export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputProps) {
   const [message, setMessage] = useState('')
   const [commentCount, setCommentCount] = useState(0)
+  const [diffCount, setDiffCount] = useState(0)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map())
@@ -193,14 +195,23 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
     setCommentCount(getCommentCount())
   }, [getCommentCount])
 
-  // Check for comments when editor changes or on mount
+  // Track diff count changes
+  const updateDiffCount = useCallback(() => {
+    setDiffCount(editor ? countPendingDiffs(editor) : 0)
+  }, [editor])
+
+  // Check for comments and diffs when editor changes or on mount
   useEffect(() => {
     if (!editor) return
 
     updateCommentCount()
+    updateDiffCount()
 
     // Listen for editor updates
-    const handleUpdate = () => updateCommentCount()
+    const handleUpdate = () => {
+      updateCommentCount()
+      updateDiffCount()
+    }
     editor.on('update', handleUpdate)
     editor.on('selectionUpdate', handleUpdate)
 
@@ -208,12 +219,24 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
       editor.off('update', handleUpdate)
       editor.off('selectionUpdate', handleUpdate)
     }
-  }, [editor, updateCommentCount])
+  }, [editor, updateCommentCount, updateDiffCount])
 
   const handleProcessComments = () => {
     processComments()
     setCommentCount(0) // Optimistically clear count
   }
+
+  const handleAcceptEdits = useCallback(() => {
+    if (!editor) return
+    editor.commands.acceptAllSuggestedEdits()
+    setDiffCount(0) // Optimistically clear count
+  }, [editor])
+
+  const handleProcessAndAcceptAll = useCallback(() => {
+    // First accept all edits, then process comments
+    handleAcceptEdits()
+    handleProcessComments()
+  }, [handleAcceptEdits])
 
   // Parse slash commands: /tool_name [args]
   // With hybrid routing, LLM handles complex argument interpretation
@@ -480,6 +503,20 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
         </div>
       )}
 
+      {/* Accept Edits button */}
+      {diffCount > 0 && (
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={handleAcceptEdits}
+          disabled={isLoading}
+          className="mb-2 w-full justify-start gap-2 bg-purple-500/10 hover:bg-purple-500/20 border-purple-500/20"
+        >
+          <Check className="h-4 w-4" />
+          Accept {diffCount} edit{diffCount !== 1 ? 's' : ''}
+        </Button>
+      )}
+
       {/* Process Comments button */}
       {commentCount > 0 && (
         <Button
@@ -491,6 +528,20 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
         >
           <MessageSquare className="h-4 w-4" />
           Process {commentCount} comment{commentCount !== 1 ? 's' : ''}
+        </Button>
+      )}
+
+      {/* Process & Accept All button (when both exist) */}
+      {commentCount > 0 && diffCount > 0 && (
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={handleProcessAndAcceptAll}
+          disabled={isLoading}
+          className="mb-2 w-full justify-start gap-2 bg-gradient-to-r from-purple-500/10 to-blue-500/10 hover:from-purple-500/20 hover:to-blue-500/20"
+        >
+          <Zap className="h-4 w-4" />
+          Process & Accept All
         </Button>
       )}
 

@@ -22,6 +22,8 @@ export interface SuggestedEditAttributes {
   provenanceMessageId: string
   /** Document ID for annotation creation */
   documentId: string
+  /** User's reply/feedback on this suggestion */
+  userReply: string
 }
 
 export interface SuggestedEditMeta {
@@ -75,6 +77,10 @@ declare module '@tiptap/core' {
        * Reject all suggested edits in the document.
        */
       rejectAllSuggestedEdits: () => ReturnType
+      /**
+       * Update the user reply for a suggestion by ID.
+       */
+      updateSuggestedEditReply: (id: string, reply: string) => ReturnType
     }
   }
 }

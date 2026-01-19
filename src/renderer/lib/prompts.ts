@@ -3,6 +3,7 @@
  */
 
 import type { CommentData } from '../extensions/comments/types'
+import type { SuggestionWithReply } from '../extensions/suggested-edit'
 
 /**
  * Strip comment HTML markup from content.
@@ -82,6 +83,29 @@ export function buildCommentsPrompt(comments: CommentData[]): string {
   })
 
   prompt += `Apply the requested changes using SEARCH/REPLACE blocks. Address each comment in order.`
+
+  return prompt
+}
+
+/**
+ * Build a prompt for processing suggestion replies (user feedback on AI suggestions).
+ * The LLM will revise its suggestions based on user feedback.
+ */
+export function buildSuggestionRepliesPrompt(suggestions: SuggestionWithReply[]): string {
+  if (suggestions.length === 0) return ''
+
+  let prompt = `I have feedback on some of your previous suggestions. Please revise them based on my feedback.\n\n`
+
+  suggestions.forEach((suggestion, index) => {
+    prompt += `${index + 1}. Original text: "${suggestion.originalText}"\n`
+    prompt += `   Your suggestion: "${suggestion.suggestedText}"\n`
+    if (suggestion.comment) {
+      prompt += `   Your explanation: ${suggestion.comment}\n`
+    }
+    prompt += `   My feedback: ${suggestion.userReply}\n\n`
+  })
+
+  prompt += `Please provide revised suggestions using SEARCH/REPLACE blocks. The SEARCH should match the original text, and the REPLACE should be your revised suggestion based on my feedback.`
 
   return prompt
 }

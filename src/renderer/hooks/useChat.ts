@@ -4,9 +4,10 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { useEditorStore } from '../stores/editorStore'
 import { useEditorInstanceStore } from '../stores/editorInstanceStore'
 import { validateConfig } from '../lib/llm'
-import { buildSystemPrompt, buildCommentsPrompt } from '../lib/prompts'
+import { buildSystemPrompt, buildCommentsPrompt, buildSuggestionRepliesPrompt } from '../lib/prompts'
 import { getApi } from '../lib/browserApi'
 import { getComments } from '../extensions/comments'
+import { getSuggestionsWithReplies } from '../extensions/suggested-edit'
 import { executeTool } from '../lib/tools'
 import { getToolsForClaudeAPI } from '../../shared/tools/registry'
 import type { LLMMessage, LLMStreamToolCall, LLMContentBlock } from '../types'
@@ -432,6 +433,25 @@ export function useChat() {
     editor.commands.unsetAllComments()
   }, [sendMessage])
 
+  const processSuggestionReplies = useCallback(async () => {
+    const editor = useEditorInstanceStore.getState().editor
+    if (!editor) return
+
+    const suggestions = getSuggestionsWithReplies(editor)
+    if (suggestions.length === 0) return
+
+    // Build the prompt from suggestion replies
+    const repliesPrompt = buildSuggestionRepliesPrompt(suggestions)
+
+    // Clear the userReply from all suggestions (they're being processed)
+    for (const suggestion of suggestions) {
+      editor.commands.updateSuggestedEditReply(suggestion.id, '')
+    }
+
+    // Send the message (this will trigger AI to provide revised suggestions)
+    await sendMessage(repliesPrompt)
+  }, [sendMessage])
+
   // Helper to get current comment count
   const getCommentCount = useCallback(() => {
     const editor = useEditorInstanceStore.getState().editor
@@ -469,6 +489,7 @@ export function useChat() {
     sendMessage,
     stopGeneration,
     processComments,
+    processSuggestionReplies,
     getCommentCount,
     describeDocument,
     updateMessage,

@@ -85,6 +85,14 @@ export const SuggestedEdit = Mark.create<SuggestedEditOptions>({
           return { 'data-document-id': attributes.documentId }
         },
       },
+      userReply: {
+        default: '',
+        parseHTML: (element) => element.getAttribute('data-user-reply'),
+        renderHTML: (attributes) => {
+          if (!attributes.userReply) return {}
+          return { 'data-user-reply': attributes.userReply }
+        },
+      },
     }
   },
 
@@ -268,6 +276,48 @@ export const SuggestedEdit = Mark.create<SuggestedEditOptions>({
         ({ commands }) => {
           return commands.rejectSuggestedEdit()
         },
+
+      updateSuggestedEditReply:
+        (id: string, reply: string): Command =>
+        ({ state, dispatch, tr }) => {
+          if (!dispatch) return false
+
+          const { doc } = state
+          let found = false
+          const updates: Array<{ from: number; to: number }> = []
+
+          // Find all text nodes with this suggestion mark
+          doc.descendants((node, pos) => {
+            if (!node.isText) return
+
+            const mark = node.marks.find((m) => m.type.name === this.name && m.attrs.id === id)
+            if (!mark) return
+
+            updates.push({
+              from: pos,
+              to: pos + node.nodeSize,
+            })
+            found = true
+          })
+
+          if (!found) return false
+
+          // Update the mark's userReply attribute
+          for (const { from, to } of updates) {
+            const existingMark = doc.resolve(from).marks().find((m) => m.type.name === this.name && m.attrs.id === id)
+            if (existingMark) {
+              const newMark = existingMark.type.create({
+                ...existingMark.attrs,
+                userReply: reply,
+              })
+              tr.removeMark(from, to, existingMark)
+              tr.addMark(from, to, newMark)
+            }
+          }
+
+          dispatch(tr)
+          return true
+        },
     }
   },
 
@@ -292,12 +342,32 @@ export const SuggestedEdit = Mark.create<SuggestedEditOptions>({
             const suggestionMark = marks.find((m) => m.type.name === extension.name)
 
             if (suggestionMark) {
+              // Find the full range of this mark to extract originalText
+              const markId = suggestionMark.attrs.id
+              let markStart = pos
+              let markEnd = pos
+
+              // Find the start and end of the marked text
+              doc.descendants((n, p) => {
+                if (!n.isText) return
+                const m = n.marks.find((mk) => mk.type.name === extension.name && mk.attrs.id === markId)
+                if (m) {
+                  const nodeEnd = p + n.nodeSize
+                  if (p < markStart) markStart = p
+                  if (nodeEnd > markEnd) markEnd = nodeEnd
+                }
+              })
+
+              const originalText = doc.textBetween(markStart, markEnd, ' ')
+
               // Dispatch a custom event that components can listen to
               const event = new CustomEvent('suggested-edit-clicked', {
                 detail: {
                   id: suggestionMark.attrs.id,
+                  originalText,
                   suggestedText: suggestionMark.attrs.suggestedText,
                   comment: suggestionMark.attrs.comment,
+                  userReply: suggestionMark.attrs.userReply || '',
                   pos,
                 },
               })

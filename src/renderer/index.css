@@ -616,14 +616,14 @@
   background: hsl(262 65% 50% / 0.35);
 }
 
-/* Suggested Edit Marks (mark-based suggestions) */
+/* Suggested Edit Marks (mark-based suggestions) - Purple to match AI provenance */
 .prose-editor .suggested-edit {
   background: linear-gradient(
     135deg,
-    hsl(45 100% 60% / 0.2) 0%,
-    hsl(45 100% 50% / 0.15) 100%
+    hsl(262 83% 58% / 0.2) 0%,
+    hsl(262 70% 50% / 0.15) 100%
   );
-  border-bottom: 2px solid hsl(45 100% 50% / 0.6);
+  border-bottom: 2px solid hsl(262 83% 58% / 0.6);
   border-radius: 0.125em;
   padding: 0 0.1em;
   cursor: pointer;
@@ -633,28 +633,28 @@
 .dark .prose-editor .suggested-edit {
   background: linear-gradient(
     135deg,
-    hsl(45 100% 50% / 0.25) 0%,
-    hsl(45 100% 45% / 0.18) 100%
+    hsl(262 70% 50% / 0.25) 0%,
+    hsl(262 60% 45% / 0.18) 100%
   );
-  border-bottom-color: hsl(45 100% 60% / 0.5);
+  border-bottom-color: hsl(262 70% 60% / 0.5);
 }
 
 .prose-editor .suggested-edit:hover {
   background: linear-gradient(
     135deg,
-    hsl(45 100% 60% / 0.35) 0%,
-    hsl(45 100% 50% / 0.25) 100%
+    hsl(262 83% 58% / 0.35) 0%,
+    hsl(262 70% 50% / 0.25) 100%
   );
-  border-bottom-color: hsl(45 100% 50% / 0.8);
+  border-bottom-color: hsl(262 83% 58% / 0.8);
 }
 
 .dark .prose-editor .suggested-edit:hover {
   background: linear-gradient(
     135deg,
-    hsl(45 100% 50% / 0.4) 0%,
-    hsl(45 100% 45% / 0.3) 100%
+    hsl(262 70% 50% / 0.4) 0%,
+    hsl(262 60% 45% / 0.3) 100%
   );
-  border-bottom-color: hsl(45 100% 60% / 0.7);
+  border-bottom-color: hsl(262 70% 60% / 0.7);
 }
 
 /* Streaming Edit Placeholder */

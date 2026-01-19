@@ -197,6 +197,7 @@ export function Toolbar() {
             onTabCloseOthers={handleCloseOthers}
             onTabCloseAll={handleCloseAll}
             onTabRename={renameTab}
+            onNewFileSave={quickSaveWithTitle}
           />
         </div>
 

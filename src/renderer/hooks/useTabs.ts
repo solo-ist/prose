@@ -390,8 +390,8 @@ export function useTabs() {
     const tab = getTabById(tabId)
     if (!tab || !tab.path) return null
 
-    // Sanitize filename - only allow alphanumeric, spaces, dashes, underscores
-    const sanitized = newTitle.trim().replace(/[^\w\s-]/g, '')
+    // Sanitize filename - block invalid/dangerous characters (Windows-safe, blocks path traversal)
+    const sanitized = newTitle.trim().replace(/[<>:"/\\|?*\x00-\x1F]/g, '')
     if (!sanitized) return null
 
     // Build new path

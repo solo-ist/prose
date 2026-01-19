@@ -23,9 +23,10 @@ interface TabBarProps {
   onTabCloseOthers: (tabId: string) => void
   onTabCloseAll: () => void
   onTabRename: (tabId: string, newTitle: string) => Promise<string | null>
+  onNewFileSave: (title: string) => Promise<boolean>
 }
 
-export function TabBar({ onTabClick, onTabClose, onTabCloseOthers, onTabCloseAll, onTabRename }: TabBarProps) {
+export function TabBar({ onTabClick, onTabClose, onTabCloseOthers, onTabCloseAll, onTabRename, onNewFileSave }: TabBarProps) {
   const tabs = useTabStore((state) => state.tabs)
   const activeTabId = useTabStore((state) => state.activeTabId)
   const setTabOrder = useTabStore((state) => state.setTabOrder)
@@ -34,6 +35,8 @@ export function TabBar({ onTabClick, onTabClose, onTabCloseOthers, onTabCloseAll
   // Editing state
   const [editingTabId, setEditingTabId] = useState<string | null>(null)
   const [editedTitle, setEditedTitle] = useState('')
+  const [renameError, setRenameError] = useState<string | null>(null)
+  const renameCancelledRef = useRef(false)
 
   const handleMiddleClick = (e: MouseEvent, tabId: string) => {
     // Middle mouse button
@@ -49,10 +52,14 @@ export function TabBar({ onTabClick, onTabClose, onTabCloseOthers, onTabCloseAll
   }
 
   const handleDoubleClick = (tab: Tab) => {
-    if (!tab.path) return // Can't rename untitled files
-    const fileName = tab.path.split('/').pop()?.replace(/\.[^.]+$/, '') || ''
+    // For untitled files, start with empty title; for existing files, extract filename without extension
+    const fileName = tab.path
+      ? tab.path.split('/').pop()?.replace(/\.[^.]+$/, '') || ''
+      : ''
     setEditedTitle(fileName)
     setEditingTabId(tab.id)
+    setRenameError(null)
+    renameCancelledRef.current = false
   }
 
   const handleKeyDown = async (e: KeyboardEvent, tab: Tab) => {
@@ -60,15 +67,36 @@ export function TabBar({ onTabClick, onTabClose, onTabCloseOthers, onTabCloseAll
       e.preventDefault()
       await handleRename(tab)
     } else if (e.key === 'Escape') {
+      renameCancelledRef.current = true
       setEditingTabId(null)
     }
   }
 
   const handleRename = async (tab: Tab) => {
-    if (editedTitle.trim() && tab.path) {
-      await onTabRename(tab.id, editedTitle.trim())
+    // Skip if rename was cancelled (Escape pressed)
+    if (renameCancelledRef.current) {
+      renameCancelledRef.current = false
+      return
+    }
+    const trimmed = editedTitle.trim()
+    if (trimmed) {
+      let success: boolean
+      if (tab.path) {
+        // Rename existing file
+        const result = await onTabRename(tab.id, trimmed)
+        success = result !== null
+      } else {
+        // Save new file with title
+        success = await onNewFileSave(trimmed)
+      }
+      if (!success) {
+        // Operation failed - show error and keep input open
+        setRenameError(tab.path ? 'Could not rename file' : 'Could not save file')
+        return
+      }
     }
     setEditingTabId(null)
+    setRenameError(null)
   }
 
   const handleShowInFolder = (e: MouseEvent, path: string) => {
@@ -95,13 +123,17 @@ export function TabBar({ onTabClick, onTabClose, onTabCloseOthers, onTabCloseAll
           isActive={tab.id === activeTabId}
           isEditing={editingTabId === tab.id}
           editedTitle={editedTitle}
+          hasError={editingTabId === tab.id && renameError !== null}
           onClick={() => onTabClick(tab.id)}
           onMiddleClick={(e) => handleMiddleClick(e, tab.id)}
           onClose={(e) => handleCloseClick(e, tab.id)}
           onCloseOthers={() => onTabCloseOthers(tab.id)}
           onCloseAll={onTabCloseAll}
           onDoubleClick={() => handleDoubleClick(tab)}
-          onEditChange={setEditedTitle}
+          onEditChange={(value) => {
+            setEditedTitle(value)
+            setRenameError(null) // Clear error on edit
+          }}
           onEditKeyDown={(e) => handleKeyDown(e, tab)}
           onEditBlur={() => handleRename(tab)}
           onShowInFolder={(e) => tab.path && handleShowInFolder(e, tab.path)}
@@ -116,6 +148,7 @@ interface TabItemProps {
   isActive: boolean
   isEditing: boolean
   editedTitle: string
+  hasError: boolean
   onClick: () => void
   onMiddleClick: (e: MouseEvent) => void
   onClose: (e: MouseEvent) => void
@@ -133,6 +166,7 @@ function TabItem({
   isActive,
   isEditing,
   editedTitle,
+  hasError,
   onClick,
   onMiddleClick,
   onClose,
@@ -156,9 +190,8 @@ function TabItem({
   }, [isEditing])
 
   // Extract file extension if path exists
-  const extension = tab.path
-    ? tab.path.substring(tab.path.lastIndexOf('.'))
-    : '.md'
+  const lastDot = tab.path ? tab.path.lastIndexOf('.') : -1
+  const extension = lastDot > 0 ? tab.path!.substring(lastDot) : ''
 
   return (
     <Reorder.Item
@@ -200,7 +233,10 @@ function TabItem({
                     onKeyDown={onEditKeyDown}
                     onBlur={onEditBlur}
                     onClick={(e) => e.stopPropagation()}
-                    className="h-5 w-[120px] text-xs px-1 py-0"
+                    className={cn(
+                      'h-5 w-[120px] text-xs px-1 py-0',
+                      hasError && 'border-destructive focus-visible:ring-destructive'
+                    )}
                   />
                 ) : (
                   <span

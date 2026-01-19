@@ -302,6 +302,9 @@ export const SuggestedEdit = Mark.create<SuggestedEditOptions>({
 
           if (!found) return false
 
+          // Sort updates in reverse order to preserve positions when modifying
+          updates.sort((a, b) => b.from - a.from)
+
           // Update the mark's userReply attribute
           for (const { from, to } of updates) {
             const existingMark = doc.resolve(from).marks().find((m) => m.type.name === this.name && m.attrs.id === id)

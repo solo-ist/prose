@@ -440,23 +440,16 @@
   color: hsl(262 70% 70% / calc(var(--annotation-opacity) * 0.85 + 0.15));
 }
 
-/* Replacement type - violet gradient (for AI chat suggestions) */
+/* Replacement type - violet text color (for accepted AI suggestions) */
 .prose-editor .ai-annotation-replacement {
-  background: linear-gradient(
-    135deg,
-    hsl(262 83% 58% / calc(var(--annotation-opacity) * 0.25)) 0%,
-    hsl(270 70% 50% / calc(var(--annotation-opacity) * 0.15)) 100%
-  );
-  border-bottom: 2px solid hsl(262 83% 58% / calc(var(--annotation-opacity) * 0.5));
+  color: hsl(262 83% 45% / calc(var(--annotation-opacity) * 0.9 + 0.1));
+  background: transparent;
+  border-bottom: 1px dotted hsl(262 83% 58% / calc(var(--annotation-opacity) * 0.4));
 }
 
 .dark .prose-editor .ai-annotation-replacement {
-  background: linear-gradient(
-    135deg,
-    hsl(262 70% 50% / calc(var(--annotation-opacity) * 0.3)) 0%,
-    hsl(270 60% 45% / calc(var(--annotation-opacity) * 0.18)) 100%
-  );
-  border-bottom-color: hsl(262 70% 60% / calc(var(--annotation-opacity) * 0.6));
+  color: hsl(262 70% 70% / calc(var(--annotation-opacity) * 0.85 + 0.15));
+  border-bottom-color: hsl(262 70% 60% / calc(var(--annotation-opacity) * 0.5));
 }
 
 /* Hover state - glow effect */
@@ -508,31 +501,37 @@
   animation: shimmer-text 2s ease-in-out infinite;
 }
 
-/* Replacement hover - shimmer across background */
+/* Replacement hover - shimmer across text (matches insertion style) */
 .prose-editor .ai-annotation-replacement:hover {
   background: linear-gradient(
     90deg,
-    hsl(262 83% 58% / 0.2) 0%,
-    hsl(262 83% 58% / 0.2) 40%,
-    hsl(262 90% 70% / 0.4) 50%,
-    hsl(262 83% 58% / 0.2) 60%,
-    hsl(262 83% 58% / 0.2) 100%
+    hsl(262 83% 45%) 0%,
+    hsl(262 83% 45%) 40%,
+    hsl(262 90% 65%) 50%,
+    hsl(262 83% 45%) 60%,
+    hsl(262 83% 45%) 100%
   );
   background-size: 200% 100%;
-  animation: shimmer-bg 2s ease-in-out infinite;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer-text 2s ease-in-out infinite;
 }
 
 .dark .prose-editor .ai-annotation-replacement:hover {
   background: linear-gradient(
     90deg,
-    hsl(262 70% 50% / 0.25) 0%,
-    hsl(262 70% 50% / 0.25) 40%,
-    hsl(262 80% 65% / 0.45) 50%,
-    hsl(262 70% 50% / 0.25) 60%,
-    hsl(262 70% 50% / 0.25) 100%
+    hsl(262 70% 70%) 0%,
+    hsl(262 70% 70%) 40%,
+    hsl(262 85% 85%) 50%,
+    hsl(262 70% 70%) 60%,
+    hsl(262 70% 70%) 100%
   );
   background-size: 200% 100%;
-  animation: shimmer-bg 2s ease-in-out infinite;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer-text 2s ease-in-out infinite;
 }
 
 /* Annotation tooltip */

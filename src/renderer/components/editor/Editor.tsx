@@ -96,6 +96,10 @@ export function Editor() {
         class: 'outline-none min-h-full'
       }
     },
+    onCreate: ({ editor }) => {
+      // Clear undo history after initial content load to prevent undoing past document load
+      editor.commands.clearHistory?.()
+    },
     onUpdate: ({ editor }) => {
       if (isUpdatingFromStore.current) return
 
@@ -139,6 +143,11 @@ export function Editor() {
       isUpdatingFromStore.current = true
       frontmatterRef.current = newFrontmatter
       editor.commands.setContent(newBody)
+      // Clear undo history after loading new document to prevent undoing past document load
+      // Use a small delay to ensure the content is set before clearing history
+      setTimeout(() => {
+        editor.commands.clearHistory?.()
+      }, 0)
       isUpdatingFromStore.current = false
     } else if (newFrontmatter !== frontmatterRef.current) {
       // Just update frontmatter ref if only frontmatter changed

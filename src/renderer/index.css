@@ -615,3 +615,86 @@
 .dark .prose-editor .diff-word-added {
   background: hsl(262 65% 50% / 0.35);
 }
+
+/* Suggested Edit Marks (mark-based suggestions) */
+.prose-editor .suggested-edit {
+  background: linear-gradient(
+    135deg,
+    hsl(45 100% 60% / 0.2) 0%,
+    hsl(45 100% 50% / 0.15) 100%
+  );
+  border-bottom: 2px solid hsl(45 100% 50% / 0.6);
+  border-radius: 0.125em;
+  padding: 0 0.1em;
+  cursor: pointer;
+  transition: background 0.15s ease-out, border-color 0.15s ease-out;
+}
+
+.dark .prose-editor .suggested-edit {
+  background: linear-gradient(
+    135deg,
+    hsl(45 100% 50% / 0.25) 0%,
+    hsl(45 100% 45% / 0.18) 100%
+  );
+  border-bottom-color: hsl(45 100% 60% / 0.5);
+}
+
+.prose-editor .suggested-edit:hover {
+  background: linear-gradient(
+    135deg,
+    hsl(45 100% 60% / 0.35) 0%,
+    hsl(45 100% 50% / 0.25) 100%
+  );
+  border-bottom-color: hsl(45 100% 50% / 0.8);
+}
+
+.dark .prose-editor .suggested-edit:hover {
+  background: linear-gradient(
+    135deg,
+    hsl(45 100% 50% / 0.4) 0%,
+    hsl(45 100% 45% / 0.3) 100%
+  );
+  border-bottom-color: hsl(45 100% 60% / 0.7);
+}
+
+/* Streaming Edit Placeholder */
+.prose-editor .streaming-edit {
+  display: inline;
+  position: relative;
+}
+
+.prose-editor .streaming-edit-original {
+  text-decoration: line-through;
+  color: hsl(var(--muted-foreground) / 0.7);
+}
+
+.prose-editor .streaming-edit-new {
+  color: hsl(140 60% 40%);
+  background: hsl(140 60% 45% / 0.1);
+  border-radius: 0.125em;
+  padding: 0 0.1em;
+}
+
+.dark .prose-editor .streaming-edit-new {
+  color: hsl(140 60% 65%);
+  background: hsl(140 60% 35% / 0.2);
+}
+
+/* Streaming cursor animation */
+.prose-editor .streaming-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: hsl(140 60% 45%);
+  margin-left: 1px;
+  animation: streaming-cursor-blink 1s ease-in-out infinite;
+}
+
+.dark .prose-editor .streaming-cursor {
+  background: hsl(140 60% 60%);
+}
+
+@keyframes streaming-cursor-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}

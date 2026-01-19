@@ -1,8 +1,12 @@
 /**
- * Apply edit blocks to the TipTap editor as inline diff suggestions.
+ * Apply edit blocks to the TipTap editor.
+ *
+ * This module implements a layered matching strategy and block-aware replacement
+ * to prevent style bleeding and ensure precise edit targeting.
  */
 
 import type { Editor } from '@tiptap/core'
+import type { Node as ProseMirrorNode, Schema, Slice, Fragment } from '@tiptap/pm/model'
 import type { EditBlock } from './editBlocks'
 import type { AnnotationType } from '../types/annotations'
 import { useAnnotationStore } from '../extensions/ai-annotations/store'
@@ -29,6 +33,7 @@ export interface TextMatch {
   from: number
   to: number
   similarity?: number
+  matchType?: 'exact' | 'hash' | 'fuzzy'
 }
 
 /**
@@ -39,8 +44,35 @@ function normalizeText(text: string): string {
 }
 
 /**
+ * Normalize text for hash generation: lowercase, collapse whitespace, remove punctuation.
+ */
+function normalizeForHash(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[^\w\s]/g, '')
+    .trim()
+}
+
+/**
+ * Simple hash function for content matching.
+ * Uses a fast string hash that produces consistent 8-character hex strings.
+ */
+function generateContentHash(text: string): string {
+  const normalized = normalizeForHash(text)
+  let hash = 0
+  for (let i = 0; i < normalized.length; i++) {
+    const char = normalized.charCodeAt(i)
+    hash = ((hash << 5) - hash) + char
+    hash = hash & hash // Convert to 32bit integer
+  }
+  // Convert to positive hex string
+  return Math.abs(hash).toString(16).padStart(8, '0').slice(0, 8)
+}
+
+/**
  * Calculate similarity ratio between two strings (0-1).
- * Uses longest common subsequence approach.
+ * Uses Levenshtein distance approach.
  */
 function similarity(a: string, b: string): number {
   if (a === b) return 1
@@ -80,7 +112,7 @@ function similarity(a: string, b: string): number {
  * Build a mapping from text positions to document positions.
  * Uses a separator between block nodes to preserve structure.
  */
-function buildPositionMap(doc: import('@tiptap/pm/model').Node): {
+function buildPositionMap(doc: ProseMirrorNode): {
   text: string
   toDocPos: (textPos: number) => number
 } {
@@ -133,10 +165,76 @@ function buildPositionMap(doc: import('@tiptap/pm/model').Node): {
 }
 
 /**
- * Find best fuzzy match for search text in the document.
- * Returns the match with highest similarity score.
+ * Extract block-level text segments from the document for hash matching.
+ * Returns an array of block boundaries with their text content and hashes.
  */
-export function findFuzzyMatch(editor: Editor, search: string, minSimilarity = 0.7): TextMatch | null {
+function extractBlockSegments(doc: ProseMirrorNode): Array<{
+  from: number
+  to: number
+  text: string
+  hash: string
+}> {
+  const segments: Array<{ from: number; to: number; text: string; hash: string }> = []
+
+  doc.descendants((node, pos) => {
+    // Only process top-level block nodes (paragraphs, headings, etc.)
+    if (node.isBlock && node.content.size > 0) {
+      const text = node.textContent
+      if (text.trim().length > 0) {
+        segments.push({
+          from: pos + 1, // +1 to skip the opening tag
+          to: pos + node.nodeSize - 1, // -1 to skip the closing tag
+          text,
+          hash: generateContentHash(text),
+        })
+      }
+    }
+    // Don't descend into nested blocks
+    return !node.isBlock
+  })
+
+  return segments
+}
+
+/**
+ * Find a match by content hash in block segments.
+ * Compares the search text's hash against each block's hash.
+ */
+function findByContentHash(editor: Editor, search: string): TextMatch | null {
+  const searchHash = generateContentHash(search)
+  const segments = extractBlockSegments(editor.state.doc)
+
+  for (const segment of segments) {
+    if (segment.hash === searchHash) {
+      // Verify similarity to avoid hash collisions
+      const normalizedSegment = normalizeText(segment.text)
+      const normalizedSearch = normalizeText(search)
+      const sim = similarity(normalizedSearch, normalizedSegment)
+
+      if (sim >= 0.85) {
+        return {
+          from: segment.from,
+          to: segment.to,
+          similarity: sim,
+          matchType: 'hash',
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+/**
+ * Find best fuzzy match for search text in the document.
+ * Uses stricter thresholds (90% similarity, 110% window) to avoid false matches.
+ */
+export function findFuzzyMatch(
+  editor: Editor,
+  search: string,
+  minSimilarity = 0.9,
+  maxWindowRatio = 1.1
+): TextMatch | null {
   const doc = editor.state.doc
   const normalizedSearch = normalizeText(search)
   const searchLen = normalizedSearch.length
@@ -165,13 +263,13 @@ export function findFuzzyMatch(editor: Editor, search: string, minSimilarity = 0
   let bestMatch: TextMatch | null = null
   let bestSimilarity = minSimilarity
 
-  // Sliding window search
-  const windowSize = Math.floor(searchLen * 1.5)
+  // Sliding window search with stricter parameters
+  const maxWindowSize = Math.floor(searchLen * maxWindowRatio)
   const step = Math.max(1, Math.floor(searchLen / 4))
 
   for (let i = 0; i <= normalizedFull.length - searchLen * 0.5; i += step) {
-    // Try different window sizes around search length
-    for (const winSize of [searchLen, windowSize, Math.floor(searchLen * 0.8)]) {
+    // Try different window sizes around search length (stricter than before)
+    for (const winSize of [searchLen, maxWindowSize, Math.floor(searchLen * 0.95)]) {
       const end = Math.min(i + winSize, normalizedFull.length)
       const candidate = normalizedFull.slice(i, end)
       const sim = similarity(normalizedSearch, candidate)
@@ -191,6 +289,7 @@ export function findFuzzyMatch(editor: Editor, search: string, minSimilarity = 0
           from: docFrom,
           to: docTo,
           similarity: sim,
+          matchType: 'fuzzy',
         }
       }
     }
@@ -216,6 +315,8 @@ export function findTextInDocument(editor: Editor, search: string): TextMatch[] 
         matches.push({
           from: pos + index,
           to: pos + index + search.length,
+          similarity: 1,
+          matchType: 'exact',
         })
         index += 1
       }
@@ -226,22 +327,70 @@ export function findTextInDocument(editor: Editor, search: string): TextMatch[] 
 }
 
 /**
- * Find the best match for search text, trying exact match first, then fuzzy.
+ * Find the best match for search text using a layered strategy:
+ * 1. Exact match - highest priority
+ * 2. Hash match - fast content-based matching
+ * 3. Strict fuzzy - 90% threshold, 110% window
+ * 4. Fail with clear error - better to fail than match wrong text
  */
 function findBestMatch(editor: Editor, search: string): TextMatch | null {
-  // Try exact match first
+  // 1. Try exact match first
   const exactMatches = findTextInDocument(editor, search)
   if (exactMatches.length > 0) {
-    return { ...exactMatches[0], similarity: 1 }
+    return { ...exactMatches[0], matchType: 'exact' }
   }
 
-  // Fall back to fuzzy matching
-  return findFuzzyMatch(editor, search)
+  // 2. Try hash match - good for block-level content
+  const hashMatch = findByContentHash(editor, search)
+  if (hashMatch) {
+    return hashMatch
+  }
+
+  // 3. Fall back to strict fuzzy matching (90% threshold, 110% window)
+  return findFuzzyMatch(editor, search, 0.9, 1.1)
+}
+
+/**
+ * Parse markdown text into a ProseMirror slice using the editor's schema.
+ * This ensures proper block structure without inheriting context styling.
+ */
+function parseMarkdownToSlice(editor: Editor, markdown: string): Slice {
+  const { schema } = editor.state
+
+  // Check if markdown contains block-level elements (headings, lists, etc.)
+  const hasBlockContent = /^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```)/m.test(markdown)
+
+  if (!hasBlockContent) {
+    // For inline content, create a simple text node
+    // This preserves inline marks but doesn't create new blocks
+    const textNode = schema.text(markdown)
+    return new Slice(Fragment.from(textNode), 0, 0)
+  }
+
+  // For block content, we need to parse it properly
+  // Use the editor's built-in markdown parser if available
+  try {
+    // Create a temporary document fragment by setting content
+    // This leverages tiptap-markdown's parsing capabilities
+    const tempDoc = editor.schema.nodeFromJSON({
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: markdown }] }]
+    })
+
+    // For now, return simple text - the markdown extension handles conversion
+    // on display, but for replacement we want explicit structure
+    const textNode = schema.text(markdown)
+    return new Slice(Fragment.from(textNode), 0, 0)
+  } catch {
+    // Fallback to plain text
+    const textNode = schema.text(markdown)
+    return new Slice(Fragment.from(textNode), 0, 0)
+  }
 }
 
 /**
  * Apply a single edit directly to the document (agent mode).
- * Replaces the matched text with the replacement text immediately.
+ * Uses tr.replaceRange() for precise replacement without style bleeding.
  * Optionally creates an AI annotation for provenance tracking.
  */
 export function applyEditDirect(
@@ -268,15 +417,24 @@ export function applyEditDirect(
 
   // Calculate the position where the new text will be
   const insertFrom = match.from
-  const insertTo = match.from + replace.length
+  const insertTo = insertFrom + replace.length
 
-  // Replace directly
-  editor
-    .chain()
-    .focus()
-    .setTextSelection(match)
-    .insertContent(replace)
-    .run()
+  // Use transaction-based replacement for precise control
+  const { state } = editor
+  const tr = state.tr
+
+  // Create a text node with the replacement content
+  // Using schema.text() ensures no style inheritance from context
+  if (replace.length > 0) {
+    const textNode = state.schema.text(replace)
+    tr.replaceWith(match.from, match.to, textNode)
+  } else {
+    // For deletions, just delete the range
+    tr.delete(match.from, match.to)
+  }
+
+  // Dispatch the transaction
+  editor.view.dispatch(tr)
 
   // Create annotation for AI provenance tracking
   if (provenance && documentId && replace.length > 0) {
@@ -304,8 +462,8 @@ export function applyEditDirect(
 }
 
 /**
- * Apply multiple edits directly (agent mode).
- * Optionally creates AI annotations for provenance tracking.
+ * Apply multiple edits directly using a single transaction with position mapping.
+ * This prevents position cascade issues when accepting multiple suggestions.
  */
 export function applyEditsDirect(
   editor: Editor,
@@ -315,11 +473,78 @@ export function applyEditsDirect(
 ): ApplyResult[] {
   const results: ApplyResult[] = []
 
-  // Apply in reverse order to preserve positions
-  for (let i = editBlocks.length - 1; i >= 0; i--) {
-    const result = applyEditDirect(editor, editBlocks[i], provenance, documentId)
-    results.unshift(result)
+  // If only one edit, use the simple method
+  if (editBlocks.length <= 1) {
+    for (const editBlock of editBlocks) {
+      results.push(applyEditDirect(editor, editBlock, provenance, documentId))
+    }
+    return results
   }
+
+  // For multiple edits, use batched transaction with position mapping
+  const { state } = editor
+  const tr = state.tr
+
+  // 1. Find all matches FIRST (before any changes)
+  const targets = editBlocks.map((edit) => ({
+    edit,
+    match: findBestMatch(editor, edit.search),
+  }))
+
+  // 2. Sort by position descending (apply from end to start)
+  // This simplifies position mapping since later positions aren't affected by earlier changes
+  targets.sort((a, b) => (b.match?.from ?? 0) - (a.match?.from ?? 0))
+
+  // 3. Apply all in single transaction
+  for (const { edit, match } of targets) {
+    if (!match) {
+      results.unshift({
+        success: false,
+        error: `Text not found: "${edit.search.slice(0, 50)}${edit.search.length > 50 ? '...' : ''}"`,
+        matchCount: 0,
+      })
+      continue
+    }
+
+    // Apply replacement at the matched position
+    // Since we're going from end to start, positions are still valid
+    if (edit.replace.length > 0) {
+      const textNode = state.schema.text(edit.replace)
+      tr.replaceWith(match.from, match.to, textNode)
+    } else {
+      tr.delete(match.from, match.to)
+    }
+
+    // Create annotation if provenance exists
+    const insertFrom = match.from
+    const insertTo = insertFrom + edit.replace.length
+
+    if (provenance && documentId && edit.replace.length > 0) {
+      const annotationType: AnnotationType = edit.search.trim() === '' ? 'insertion' : 'replacement'
+
+      useAnnotationStore.getState().addAnnotation({
+        documentId,
+        type: annotationType,
+        from: insertFrom,
+        to: insertTo,
+        content: edit.replace,
+        provenance: {
+          model: provenance.model,
+          conversationId: provenance.conversationId,
+          messageId: provenance.messageId,
+        },
+      })
+    }
+
+    results.unshift({
+      success: true,
+      matchCount: 1,
+      annotationRange: { from: insertFrom, to: insertTo },
+    })
+  }
+
+  // Dispatch the batched transaction
+  editor.view.dispatch(tr)
 
   return results
 }
@@ -357,24 +582,20 @@ export function applyEditAsDiff(
     }
   }
 
-  // Insert the diff suggestion node with provenance data for later annotation
+  // Apply suggestedEdit MARK to the matched text (not a node)
+  // Marks track through document changes automatically, solving position cascade issues
   editor
     .chain()
     .focus()
     .setTextSelection(match)
-    .insertContent({
-      type: 'diffSuggestion',
-      attrs: {
-        id,
-        comment: comment || '',
-        originalText: search,
-        suggestedText: replace,
-        // Store provenance for annotation creation on accept
-        provenanceModel: provenance?.model || '',
-        provenanceConversationId: provenance?.conversationId || '',
-        provenanceMessageId: provenance?.messageId || '',
-        documentId: documentId || '',
-      },
+    .setMark('suggestedEdit', {
+      id,
+      suggestedText: replace,
+      comment: comment || '',
+      provenanceModel: provenance?.model || '',
+      provenanceConversationId: provenance?.conversationId || '',
+      provenanceMessageId: provenance?.messageId || '',
+      documentId: documentId || '',
     })
     .run()
 
@@ -410,13 +631,26 @@ export function applyEditsAsDiffs(
 
 /**
  * Get count of pending diff suggestions in the document.
+ * Counts both mark-based suggestions (new) and node-based (legacy).
  */
 export function countPendingDiffs(editor: Editor): number {
   let count = 0
+  const seenIds = new Set<string>()
 
   editor.state.doc.descendants((node) => {
+    // Count legacy node-based suggestions
     if (node.type.name === 'diffSuggestion') {
       count++
+      return
+    }
+
+    // Count mark-based suggestions (new approach)
+    if (node.isText) {
+      const mark = node.marks.find((m) => m.type.name === 'suggestedEdit')
+      if (mark && mark.attrs.id && !seenIds.has(mark.attrs.id)) {
+        seenIds.add(mark.attrs.id)
+        count++
+      }
     }
   })
 

@@ -154,11 +154,14 @@ export function executeSuggestEdit(args: {
 
 /**
  * Get all pending diff suggestions in the document.
+ * Supports both mark-based (new) and node-based (legacy) suggestions.
  */
 function getPendingDiffs(editor: Editor): DiffSuggestion[] {
   const diffs: DiffSuggestion[] = []
+  const seenIds = new Set<string>()
 
-  editor.state.doc.descendants((node) => {
+  editor.state.doc.descendants((node, pos) => {
+    // Legacy node-based suggestions
     if (node.type.name === 'diffSuggestion') {
       diffs.push({
         id: node.attrs.id,
@@ -166,6 +169,22 @@ function getPendingDiffs(editor: Editor): DiffSuggestion[] {
         suggestedText: node.attrs.suggestedText,
         comment: node.attrs.comment || undefined
       })
+      return
+    }
+
+    // Mark-based suggestions (new approach)
+    if (node.isText) {
+      const mark = node.marks.find((m) => m.type.name === 'suggestedEdit')
+      if (mark && mark.attrs.id && !seenIds.has(mark.attrs.id)) {
+        seenIds.add(mark.attrs.id)
+        // For marks, originalText is the marked text content itself
+        diffs.push({
+          id: mark.attrs.id,
+          originalText: node.text || '',
+          suggestedText: mark.attrs.suggestedText || '',
+          comment: mark.attrs.comment || undefined
+        })
+      }
     }
   })
 
@@ -176,6 +195,7 @@ function getPendingDiffs(editor: Editor): DiffSuggestion[] {
  * accept_diff - Accept a pending diff suggestion.
  * If no ID provided and multiple diffs exist, accepts ALL diffs.
  * Creates AI annotations for accepted text to track provenance.
+ * Supports both mark-based (new) and node-based (legacy) suggestions.
  */
 export function executeAcceptDiff(args: {
   id?: string
@@ -189,7 +209,19 @@ export function executeAcceptDiff(args: {
   const { id } = args
   const documentId = useEditorStore.getState().document.documentId
 
-  // Collect all diff nodes with their data before modifying
+  // Try mark-based suggestions first (new approach)
+  // The acceptSuggestedEdit command handles annotation creation internally
+  const markSuccess = editor.commands.acceptSuggestedEdit(id)
+
+  if (markSuccess) {
+    return toolSuccess({
+      accepted: true,
+      diffId: id,
+      count: id ? 1 : undefined // Count not tracked for accept-all via marks
+    })
+  }
+
+  // Fall back to legacy node-based suggestions
   const diffNodes: Array<{
     id: string
     pos: number
@@ -278,11 +310,7 @@ export function executeAcceptDiff(args: {
 /**
  * reject_diff - Reject a pending diff suggestion.
  * If no ID provided and multiple diffs exist, rejects ALL diffs.
- *
- * Note: The rejectDiffSuggestion(id) command ignores the ID and relies on
- * cursor position, so we use rejectAllDiffSuggestions() which correctly
- * iterates through the document. For specific diff rejection, we filter
- * and apply manually.
+ * Supports both mark-based (new) and node-based (legacy) suggestions.
  */
 export function executeRejectDiff(args: {
   id?: string
@@ -294,6 +322,19 @@ export function executeRejectDiff(args: {
   }
 
   const { id } = args
+
+  // Try mark-based suggestions first (new approach)
+  const markSuccess = editor.commands.rejectSuggestedEdit(id)
+
+  if (markSuccess) {
+    return toolSuccess({
+      rejected: true,
+      diffId: id,
+      count: id ? 1 : undefined
+    })
+  }
+
+  // Fall back to legacy node-based suggestions
   const diffs = getPendingDiffs(editor)
 
   if (diffs.length === 0) {

@@ -6,6 +6,8 @@ import Link from '@tiptap/extension-link'
 import { Markdown } from 'tiptap-markdown'
 import { FocusMode } from '../../lib/focusMode'
 import { DiffSuggestion } from '../../extensions/diff-suggestions'
+import { SuggestedEdit, SuggestionPanel } from '../../extensions/suggested-edit'
+import { StreamingEdit } from '../../extensions/streaming-edit'
 import { Comment } from '../../extensions/comments'
 import { AIAnnotations, useAnnotationStore } from '../../extensions/ai-annotations'
 import { useEditor } from '../../hooks/useEditor'
@@ -84,6 +86,12 @@ export function Editor() {
           accept: '✓',
           reject: '✗',
         },
+      }),
+      SuggestedEdit.configure({
+        className: 'suggested-edit',
+      }),
+      StreamingEdit.configure({
+        className: 'streaming-edit',
       }),
       Comment,
       AIAnnotations.configure({
@@ -539,6 +547,7 @@ export function Editor() {
           setPendingCommentSelection(null)
         }}
       />
+      <SuggestionPanel editor={editor} />
     </div>
   )
 }

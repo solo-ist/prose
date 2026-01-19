@@ -266,8 +266,8 @@ export function useChat() {
 
   const sendMessage = useCallback(
     async (content: string, options?: { hidden?: boolean }) => {
-      console.log('[useChat] sendMessage called with:', content?.substring(0, 50), 'isLoading:', isLoading)
-      if (!content.trim() || isLoading) return
+      console.log('[useChat] sendMessage called with:', content?.substring(0, 50), 'isLoading:', isLoading, 'isInitializing:', isInitializing)
+      if (!content.trim() || isLoading || isInitializing) return
       console.log('[useChat] sendMessage passed initial check')
 
       // Auto-create a conversation if there isn't one
@@ -388,6 +388,7 @@ export function useChat() {
     [
       context,
       isLoading,
+      isInitializing,
       messages,
       includeDocument,
       toolMode,

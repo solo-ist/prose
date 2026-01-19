@@ -25,6 +25,7 @@ interface SettingsState {
   setRecoveryConfig: (config: Partial<NonNullable<Settings['recovery']>>) => void
   setDefaultSaveDirectory: (path: string) => void
   setRemarkableConfig: (config: Partial<NonNullable<Settings['remarkable']>>) => void
+  setFileAssociationConfig: (config: Partial<NonNullable<Settings['fileAssociation']>>) => void
   addRecentFile: (path: string) => void
   removeRecentFile: (path: string) => void
 }
@@ -151,6 +152,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         remarkable: { ...state.settings.remarkable, ...config } as Settings['remarkable']
       }
     })),
+
+  setFileAssociationConfig: (config) => {
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        fileAssociation: { ...state.settings.fileAssociation, ...config }
+      }
+    }))
+    // Auto-save after updating file association
+    get().saveSettings()
+  },
 
   addRecentFile: (path) => {
     set((state) => {

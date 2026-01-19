@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { Toolbar } from './Toolbar'
 import { StatusBar } from './StatusBar'
 import { Editor } from '../editor/Editor'
@@ -7,6 +7,7 @@ import { FileListPanel } from '../files/FileListPanel'
 import { SettingsDialog } from '../settings/SettingsDialog'
 import { RecoveryDialog } from './RecoveryDialog'
 import { RecoveryModal } from '../RecoveryModal'
+import { DefaultHandlerPrompt } from './DefaultHandlerPrompt'
 import { KeyboardShortcutsDialog } from '../settings/KeyboardShortcutsDialog'
 import { AboutDialog } from '../settings/AboutDialog'
 import {
@@ -17,11 +18,13 @@ import {
 import { TooltipProvider } from '../ui/tooltip'
 import { useChat } from '../../hooks/useChat'
 import { useEditor } from '../../hooks/useEditor'
+import { useTabs } from '../../hooks/useTabs'
 import { useFileList } from '../../hooks/useFileList'
 import { useSettings } from '../../hooks/useSettings'
 import { useEditorStore } from '../../stores/editorStore'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useChatStore, setCurrentDocumentId } from '../../stores/chatStore'
+import { useTabStore, createTab, restoreSession, clearSavedSession, hasUnsavedTabs } from '../../stores/tabStore'
 import { useFileListStore } from '../../stores/fileListStore'
 import {
   loadDraft,
@@ -29,7 +32,7 @@ import {
   loadConversations,
   deleteConversations
 } from '../../lib/persistence'
-import type { DraftState } from '../../lib/persistence'
+import type { DraftState, SessionState } from '../../lib/persistence'
 import { executeTool } from '../../lib/tools'
 
 export function App() {
@@ -39,14 +42,19 @@ export function App() {
   // Minimum window width before we auto-close the other panel
   const MIN_WIDTH_FOR_BOTH_PANELS = 3000
   const { openFile, openFileFromPath, saveFile, saveFileAs, newFile } = useEditor()
+  const { createNewTab, openFileInTab, closeTab } = useTabs()
   const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, isAboutDialogOpen, setAboutDialogOpen, settings, isLoaded: settingsLoaded } = useSettings()
   const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false)
   const [pendingDraft, setPendingDraft] = useState<DraftState | null>(null)
+  const [pendingSession, setPendingSession] = useState<SessionState | null>(null)
+  const tabsInitialized = useRef(false)
 
   const hydrateFromDraft = useEditorStore((state) => state.hydrateFromDraft)
   const documentPath = useEditorStore((state) => state.document.path)
   const isDirty = useEditorStore((state) => state.document.isDirty)
   const editor = useEditorInstanceStore((state) => state.editor)
+  const tabs = useTabStore((state) => state.tabs)
+  const addTab = useTabStore((state) => state.addTab)
 
   // Update window title based on document state
   useEffect(() => {
@@ -60,6 +68,27 @@ export function App() {
     async (draft: DraftState) => {
       hydrateFromDraft(draft)
       setCurrentDocumentId(draft.document.documentId)
+
+      // Create a tab for the recovered document
+      const title = draft.document.path
+        ? (() => {
+            const fullFileName = draft.document.path.split('/').pop() || 'Untitled'
+            const hasExtension = fullFileName.includes('.')
+            return hasExtension
+              ? fullFileName.substring(0, fullFileName.lastIndexOf('.'))
+              : fullFileName
+          })()
+        : 'Untitled'
+
+      addTab({
+        documentId: draft.document.documentId,
+        path: draft.document.path,
+        title,
+        isDirty: draft.document.isDirty,
+        content: draft.document.content,
+        cursorPosition: draft.cursorPosition
+      })
+      tabsInitialized.current = true
 
       // Restore file list state if present
       if (draft.fileList) {
@@ -86,7 +115,7 @@ export function App() {
           []
       })
     },
-    [hydrateFromDraft]
+    [hydrateFromDraft, addTab]
   )
 
   // Discard draft and cleanup if it was an unsaved document
@@ -98,42 +127,179 @@ export function App() {
     }
   }, [])
 
+  // Recover session (multiple tabs)
+  const recoverSessionState = useCallback(
+    async (session: SessionState) => {
+      // Restore each tab
+      for (let i = 0; i < session.tabs.length; i++) {
+        const tabDraft = session.tabs[i]
+        const isActiveTab = tabDraft.tabId === session.activeTabId
+
+        addTab({
+          id: tabDraft.tabId,
+          documentId: tabDraft.documentId,
+          path: tabDraft.path,
+          title: tabDraft.title,
+          isDirty: tabDraft.isDirty,
+          content: tabDraft.content,
+          cursorPosition: tabDraft.cursorPosition
+        })
+
+        // If this is the active tab, hydrate the editor
+        if (isActiveTab) {
+          const documentContent = tabDraft.content
+          useEditorStore.setState({
+            document: {
+              documentId: tabDraft.documentId,
+              path: tabDraft.path,
+              content: documentContent,
+              frontmatter: {},
+              isDirty: tabDraft.isDirty
+            }
+          })
+          setCurrentDocumentId(tabDraft.documentId)
+
+          // Load conversations for the active tab
+          const conversations = await loadConversations(tabDraft.documentId)
+          useChatStore.setState({
+            conversations,
+            activeConversationId: tabDraft.activeChatId ?? conversations[0]?.id ?? null,
+            messages:
+              conversations.find((c) => c.id === tabDraft.activeChatId)?.messages ??
+              conversations[0]?.messages ??
+              []
+          })
+        }
+      }
+
+      // Set active tab
+      if (session.activeTabId) {
+        useTabStore.getState().setActiveTab(session.activeTabId)
+      }
+
+      // Restore file list state if present
+      if (session.fileList) {
+        useFileListStore.setState({
+          viewMode: session.fileList.viewMode,
+          rootPath: session.fileList.rootPath,
+          expandedFolders: new Set(session.fileList.expandedFolders),
+          selectedPath: session.fileList.selectedPath
+        })
+        if (session.fileList.rootPath) {
+          useFileListStore.getState().loadFiles()
+        }
+      }
+
+      tabsInitialized.current = true
+    },
+    [addTab]
+  )
+
+  // Discard session
+  const discardSession = useCallback(async (session: SessionState) => {
+    await clearSavedSession()
+    // Clean up chat history for unsaved tabs
+    for (const tab of session.tabs) {
+      if (!tab.path) {
+        await deleteConversations(tab.documentId)
+      }
+    }
+  }, [])
+
   // Handle recovery dialog actions
   const handleRecover = useCallback(async () => {
-    if (pendingDraft) {
+    if (pendingSession) {
+      await recoverSessionState(pendingSession)
+      setPendingSession(null)
+    } else if (pendingDraft) {
       await recoverDraft(pendingDraft)
       setPendingDraft(null)
     }
     setRecoveryDialogOpen(false)
     useChatStore.getState().setInitializing(false)
-  }, [pendingDraft, recoverDraft])
+    // Signal renderer ready to main process
+    if (window.api?.signalRendererReady) {
+      window.api.signalRendererReady()
+    }
+  }, [pendingSession, pendingDraft, recoverSessionState, recoverDraft])
 
   const handleDiscard = useCallback(async () => {
-    if (pendingDraft) {
+    if (pendingSession) {
+      await discardSession(pendingSession)
+      setPendingSession(null)
+    } else if (pendingDraft) {
       await discardDraft(pendingDraft)
       setPendingDraft(null)
     }
+    // Create blank tab after discarding
+    if (!tabsInitialized.current) {
+      await createNewTab()
+      tabsInitialized.current = true
+    }
     setRecoveryDialogOpen(false)
     useChatStore.getState().setInitializing(false)
-  }, [pendingDraft, discardDraft])
+    // Signal renderer ready to main process
+    if (window.api?.signalRendererReady) {
+      window.api.signalRendererReady()
+    }
+  }, [pendingSession, pendingDraft, discardSession, discardDraft, createNewTab])
 
-  // Check for draft recovery after settings are loaded
+  // Check for session/draft recovery after settings are loaded
   useEffect(() => {
     if (!settingsLoaded) return
 
-    const checkForDraft = async () => {
+    const checkForRecovery = async () => {
       try {
+        // First, try to restore session (multi-tab)
+        const session = await restoreSession()
+
+        if (session && session.tabs.length > 0) {
+          // Check if any tabs need recovery (have unsaved content)
+          const needsRecovery = hasUnsavedTabs(session)
+          const recoveryMode = settings?.recovery?.mode ?? 'silent'
+
+          if (needsRecovery && recoveryMode === 'prompt') {
+            // Show recovery dialog for session
+            setPendingSession(session)
+            setRecoveryDialogOpen(true)
+            return
+          }
+
+          // Silent recovery - restore the session
+          await recoverSessionState(session)
+          useChatStore.getState().setInitializing(false)
+          if (window.api?.signalRendererReady) {
+            window.api.signalRendererReady()
+          }
+          return
+        }
+
+        // Fall back to legacy single-draft recovery for backward compatibility
         const draft = await loadDraft()
         if (!draft) {
-          // No draft to recover - initialization complete
+          // No draft to recover - create blank tab and complete initialization
+          if (!tabsInitialized.current) {
+            await createNewTab()
+            tabsInitialized.current = true
+          }
           useChatStore.getState().setInitializing(false)
+          if (window.api?.signalRendererReady) {
+            window.api.signalRendererReady()
+          }
           return
         }
 
         // Only recover if there's actual content
         if (!draft.document.content && !draft.document.isDirty) {
           await clearDraft()
+          if (!tabsInitialized.current) {
+            await createNewTab()
+            tabsInitialized.current = true
+          }
           useChatStore.getState().setInitializing(false)
+          if (window.api?.signalRendererReady) {
+            window.api.signalRendererReady()
+          }
           return
         }
 
@@ -142,18 +308,29 @@ export function App() {
         if (recoveryMode === 'silent') {
           await recoverDraft(draft)
           useChatStore.getState().setInitializing(false)
+          if (window.api?.signalRendererReady) {
+            window.api.signalRendererReady()
+          }
         } else {
           // For 'ask' mode, keep initializing until user decides
           setPendingDraft(draft)
           setRecoveryDialogOpen(true)
         }
       } catch (error) {
-        console.error('Failed to check for draft:', error)
+        console.error('Failed to check for recovery:', error)
+        // Create blank tab on error
+        if (!tabsInitialized.current) {
+          await createNewTab()
+          tabsInitialized.current = true
+        }
         useChatStore.getState().setInitializing(false)
+        if (window.api?.signalRendererReady) {
+          window.api.signalRendererReady()
+        }
       }
     }
 
-    checkForDraft()
+    checkForRecovery()
     // Only run once when settings are loaded
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsLoaded])
@@ -164,10 +341,17 @@ export function App() {
     const unsubscribe = window.api.onMenuAction((action) => {
       switch (action) {
         case 'new':
-          newFile()
+          createNewTab()
           break
         case 'open':
-          openFile()
+          // Open file dialog and open in tab
+          if (window.api) {
+            window.api.openFile().then(async (result) => {
+              if (result) {
+                await openFileInTab(result.path)
+              }
+            })
+          }
           break
         case 'save':
           saveFile()
@@ -208,23 +392,32 @@ export function App() {
         case 'redo':
           editor?.commands.redo()
           break
+        case 'closeTab':
+          // Close the active tab
+          const activeTab = useTabStore.getState().getActiveTab()
+          if (activeTab) {
+            closeTab(activeTab.id)
+          }
+          break
       }
     })
 
     return unsubscribe
-  }, [openFile, saveFile, saveFileAs, newFile, setDialogOpen, toggleChatPanel, toggleFileListPanel, setShortcutsDialogOpen, setAboutDialogOpen, isFileListOpen, isChatOpen, setChatPanelOpen, setFileListPanelOpen, editor])
+  }, [openFileInTab, saveFile, saveFileAs, createNewTab, closeTab, setDialogOpen, toggleChatPanel, toggleFileListPanel, setShortcutsDialogOpen, setAboutDialogOpen, isFileListOpen, isChatOpen, setChatPanelOpen, setFileListPanelOpen, editor])
 
   // Handle file open from OS (double-click .md file)
   useEffect(() => {
     if (!window.api) return
     const unsubscribe = window.api.onFileOpenExternal(async (path) => {
-      const shouldDescribe = await openFileFromPath(path)
+      // Use tab system to open external files
+      const shouldDescribe = await openFileInTab(path)
+      tabsInitialized.current = true
       if (shouldDescribe) {
         describeDocument()
       }
     })
     return unsubscribe
-  }, [openFileFromPath, describeDocument])
+  }, [openFileInTab, describeDocument])
 
   // Handle MCP tool invocations (only active in MCP server mode)
   useEffect(() => {
@@ -300,6 +493,7 @@ export function App() {
           open={isAboutDialogOpen}
           onOpenChange={setAboutDialogOpen}
         />
+        <DefaultHandlerPrompt />
       </div>
     </TooltipProvider>
   )

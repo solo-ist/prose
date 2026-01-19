@@ -19,16 +19,50 @@ if (is.dev) {
 
 // Track file path to open (from command line or open-file event)
 let fileToOpen: string | null = null
+// Track if renderer has signaled ready
+let rendererReady = false
+// Queue of file paths to open once renderer is ready
+const pendingFileOpens: string[] = []
+
+// Single instance lock - ensures only one instance of the app is running
+const gotTheLock = app.requestSingleInstanceLock()
+
+if (!gotTheLock) {
+  // Another instance is already running - quit this one
+  // The file path (if any) will be passed to the existing instance via second-instance event
+  app.quit()
+} else {
+  // Handle second instance launch (another instance tried to start)
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    // Parse command line for file path
+    const args = commandLine.slice(is.dev ? 2 : 1)
+    for (const arg of args) {
+      if (arg.endsWith('.md') && !arg.startsWith('-')) {
+        // Focus main window and send file to renderer
+        const mainWindow = BrowserWindow.getAllWindows()[0]
+        if (mainWindow) {
+          if (mainWindow.isMinimized()) mainWindow.restore()
+          mainWindow.focus()
+          mainWindow.webContents.send('file:openExternal', arg)
+        }
+        break
+      }
+    }
+  })
+}
 
 // Handle file open from macOS Finder (before app is ready)
 app.on('open-file', (event, path) => {
   event.preventDefault()
-  fileToOpen = path
 
-  // If app is already running, send to renderer
+  // If renderer is ready, send immediately
   const mainWindow = BrowserWindow.getAllWindows()[0]
-  if (mainWindow) {
+  if (mainWindow && rendererReady) {
     mainWindow.webContents.send('file:openExternal', path)
+  } else {
+    // Queue for later
+    fileToOpen = path
+    pendingFileOpens.push(path)
   }
 })
 
@@ -118,7 +152,7 @@ app.whenReady().then(async () => {
     return bridge.executeTool(name, args)
   })
 
-  // Send MCP status and file to renderer once loaded
+  // Send MCP status to renderer once loaded
   mainWindow.webContents.once('did-finish-load', () => {
     // Send MCP server status to renderer
     mainWindow.webContents.send('mcp:status', {
@@ -127,10 +161,32 @@ app.whenReady().then(async () => {
       error: mcpStarted ? undefined : 'Port may be in use'
     })
 
-    // Send file if one was specified
+    // Note: Files are sent when renderer signals ready (not on did-finish-load)
+    // This ensures the renderer has initialized its stores and is ready to handle files
+  })
+
+  // Handle renderer ready signal - this is called after settings and stores are initialized
+  const { ipcMain } = await import('electron')
+  ipcMain.handle('renderer:ready', () => {
+    rendererReady = true
+    console.log('[Main] Renderer signaled ready')
+
+    // Send any pending file opens
+    // First, send the initial file (from command line or early open-file event)
     if (fileToOpen) {
       mainWindow.webContents.send('file:openExternal', fileToOpen)
+      fileToOpen = null
     }
+
+    // Then send any queued files (from open-file events while starting up)
+    // Skip the first one if it was already sent as fileToOpen
+    const filesToSend = pendingFileOpens.slice(1)
+    for (const filePath of filesToSend) {
+      mainWindow.webContents.send('file:openExternal', filePath)
+    }
+    pendingFileOpens.length = 0
+
+    return { success: true }
   })
 
   app.on('activate', function () {

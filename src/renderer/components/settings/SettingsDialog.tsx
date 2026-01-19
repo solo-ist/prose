@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { useSettings } from '../../hooks/useSettings'
 import {
   Dialog,
@@ -36,6 +37,20 @@ export function SettingsDialog() {
     setRemarkableConfig,
     saveSettings
   } = useSettings()
+
+  // null = unknown/can't detect, true = is default, false = not default
+  const [isDefaultHandler, setIsDefaultHandler] = useState<boolean | null>(null)
+  const [checkingDefault, setCheckingDefault] = useState(false)
+
+  // Check if we're the default handler when dialog opens
+  useEffect(() => {
+    if (isDialogOpen && window.api?.fileAssociationIsDefault) {
+      setCheckingDefault(true)
+      window.api.fileAssociationIsDefault()
+        .then((result) => setIsDefaultHandler(result))
+        .finally(() => setCheckingDefault(false))
+    }
+  }, [isDialogOpen])
 
   const handleSave = async () => {
     await saveSettings()
@@ -124,6 +139,27 @@ export function SettingsDialog() {
               <p className="text-xs text-muted-foreground">
                 Where new documents are saved when you quick-save from the title bar
               </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Default Markdown Editor</Label>
+              {checkingDefault ? (
+                <p className="text-sm text-muted-foreground">Checking...</p>
+              ) : isDefaultHandler === true ? (
+                <p className="text-sm text-green-600 dark:text-green-400">
+                  ✓ Prose is your default markdown editor
+                </p>
+              ) : (
+                <div className="p-3 bg-muted rounded-md space-y-2">
+                  <p className="text-sm">To set Prose as your default markdown editor:</p>
+                  <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground">
+                    <li>Right-click any .md file in Finder</li>
+                    <li>Select "Get Info" (or press ⌘I)</li>
+                    <li>Under "Open with:", select Prose</li>
+                    <li>Click "Change All..."</li>
+                  </ol>
+                </div>
+              )}
             </div>
           </TabsContent>
 

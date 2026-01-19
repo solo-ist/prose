@@ -12,10 +12,15 @@ extraResources:
     to: mcp-stdio.js
 
 fileAssociations:
-  - ext: md
-    name: Markdown
+  - ext:
+      - md
+      - markdown
+      - mdown
+      - mkd
+    name: Markdown Document
     description: Markdown document
     role: Editor
+    rank: Default
 
 mac:
   category: public.app-category.productivity
@@ -23,6 +28,19 @@ mac:
     - dmg
     - dir
   entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    UTImportedTypeDeclarations:
+      - UTTypeIdentifier: net.daringfireball.markdown
+        UTTypeDescription: Markdown Document
+        UTTypeConformsTo:
+          - public.plain-text
+        UTTypeTagSpecification:
+          public.filename-extension:
+            - md
+            - markdown
+            - mdown
+            - mkd
+          public.mime-type: text/markdown
 
 win:
   target:

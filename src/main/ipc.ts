@@ -767,4 +767,21 @@ export function setupIpcHandlers(): void {
       }
     }
   })
+
+  // File Association: Check if app is default handler (informational only)
+  // Returns: true, false, or null (can't determine)
+  ipcMain.handle('fileAssociation:isDefault', async () => {
+    if (process.platform !== 'darwin') return null
+
+    try {
+      const { execSync } = await import('child_process')
+      // Try duti if available (informational query only)
+      const result = execSync('duti -x md 2>/dev/null').toString().trim()
+      const lines = result.split('\n')
+      const bundleId = lines[2] // Third line is bundle ID
+      return bundleId === 'com.prose.app' || bundleId?.toLowerCase().includes('prose')
+    } catch {
+      return null // Can't determine - that's fine
+    }
+  })
 }

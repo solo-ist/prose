@@ -30,6 +30,9 @@ export interface Settings {
     hasAnthropicKey?: boolean
   }
   recentFiles?: string[]
+  fileAssociation?: {
+    hasBeenPrompted: boolean
+  }
 }
 
 export interface Document {
@@ -210,6 +213,8 @@ export interface ElectronAPI {
   onFileOpenExternal: (callback: (path: string) => void) => () => void
   llmChat: (request: LLMRequest) => Promise<LLMResponse>
   platform: 'aix' | 'darwin' | 'freebsd' | 'linux' | 'openbsd' | 'sunos' | 'win32' | 'android' | 'cygwin' | 'netbsd' | null
+  // Renderer ready signal
+  signalRendererReady: () => Promise<{ success: boolean }>
   // Streaming LLM
   llmChatStream: (request: LLMStreamRequest) => Promise<{ success: boolean }>
   llmAbortStream: (streamId: string) => Promise<{ success: boolean }>
@@ -257,6 +262,9 @@ export interface ElectronAPI {
   sendMcpToolResult: (requestId: string, result: ToolResult) => void
   // MCP server status
   onMcpStatus: (callback: (status: McpStatus) => void) => () => void
+  // File association (default markdown editor)
+  // Returns: true (is default), false (not default), null (can't detect)
+  fileAssociationIsDefault: () => Promise<boolean | null>
 }
 
 declare global {

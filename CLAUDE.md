@@ -141,3 +141,25 @@ OCR requires an Anthropic API key. If using Anthropic as the LLM provider, that 
 - **Component library**: Use shadcn/ui components. Don't introduce other UI libraries.
 - **Animations**: Keep minimal. Use only what shadcn/ui and tailwindcss-animate provide out of the box.
 - **Fonts**: Source Code Pro for all text (UI and editor).
+
+## GitHub Automation
+
+Claude Code is integrated via GitHub Actions for automated assistance.
+
+### Automatic PR Review
+
+Every new PR automatically receives a Claude Code review. This triggers only on PR creation, not on subsequent commits.
+
+### Manual Triggers
+
+Comment on issues or PRs with `@claude` to invoke Claude Code:
+
+**PR Review:**
+```
+@claude please review this PR
+```
+
+**Issue Implementation:**
+```
+@claude Implement this issue. Create a feature branch, make the changes, and open a PR with a test plan.
+```

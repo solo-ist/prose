@@ -6,7 +6,8 @@
  */
 
 import type { Editor } from '@tiptap/core'
-import type { Node as ProseMirrorNode, Schema, Slice, Fragment } from '@tiptap/pm/model'
+import type { Node as ProseMirrorNode, Schema } from '@tiptap/pm/model'
+import { DOMParser, Slice, Fragment } from '@tiptap/pm/model'
 import type { EditBlock } from './editBlocks'
 import type { AnnotationType } from '../types/annotations'
 import { useAnnotationStore } from '../extensions/ai-annotations/store'
@@ -33,7 +34,294 @@ export interface TextMatch {
   from: number
   to: number
   similarity?: number
-  matchType?: 'exact' | 'hash' | 'fuzzy'
+  matchType?: 'exact' | 'hash' | 'fuzzy' | 'markdown-exact' | 'markdown-fuzzy'
+}
+
+// =============================================================================
+// Markdown Position Mapping
+// =============================================================================
+
+/**
+ * Maps a range in the markdown string to document positions.
+ * When docStart is -1, this range is markdown syntax (like ** or #) with no doc equivalent.
+ */
+export interface PositionMapping {
+  mdStart: number       // Start position in markdown string
+  mdEnd: number         // End position in markdown string
+  docStart: number      // Start in ProseMirror doc (-1 if syntax-only)
+  docEnd: number        // End in ProseMirror doc (-1 if syntax-only)
+}
+
+/**
+ * Result of serializing a ProseMirror document to markdown with position tracking.
+ */
+export interface SerializeResult {
+  markdown: string
+  mappings: PositionMapping[]
+  /** Convert a markdown position to a document position (or null if syntax-only) */
+  toDocPos: (mdPos: number) => number | null
+  /** Convert a document position to a markdown position */
+  toMarkdownPos: (docPos: number) => number
+}
+
+/**
+ * Get the opening delimiter for a mark type.
+ */
+function getMarkOpener(mark: import('@tiptap/pm/model').Mark): string {
+  switch (mark.type.name) {
+    case 'bold':
+    case 'strong':
+      return '**'
+    case 'italic':
+    case 'em':
+      return '*'
+    case 'code':
+      return '`'
+    case 'link':
+      return '['
+    default:
+      return ''
+  }
+}
+
+/**
+ * Get the closing delimiter for a mark type.
+ */
+function getMarkCloser(mark: import('@tiptap/pm/model').Mark): string {
+  switch (mark.type.name) {
+    case 'bold':
+    case 'strong':
+      return '**'
+    case 'italic':
+    case 'em':
+      return '*'
+    case 'code':
+      return '`'
+    case 'link':
+      return `](${mark.attrs.href || ''})`
+    default:
+      return ''
+  }
+}
+
+/**
+ * Get the block prefix for a node type (e.g., "# " for h1).
+ */
+function getBlockPrefix(node: ProseMirrorNode): string {
+  switch (node.type.name) {
+    case 'heading': {
+      const level = node.attrs.level || 1
+      return '#'.repeat(level) + ' '
+    }
+    case 'blockquote':
+      return '> '
+    default:
+      return ''
+  }
+}
+
+/**
+ * Serialize a ProseMirror document to markdown while building a bidirectional position map.
+ *
+ * This allows us to:
+ * 1. Search for markdown-formatted text (e.g., "**bold**")
+ * 2. Map the match back to document positions
+ * 3. Apply replacements at the correct positions
+ */
+export function serializeWithPositionMap(editor: Editor): SerializeResult {
+  const doc = editor.state.doc
+  const mappings: PositionMapping[] = []
+  let markdown = ''
+
+  /**
+   * Record a text segment that maps to document positions.
+   */
+  function recordText(text: string, docStart: number, docEnd: number): void {
+    const mdStart = markdown.length
+    markdown += text
+    const mdEnd = markdown.length
+    mappings.push({ mdStart, mdEnd, docStart, docEnd })
+  }
+
+  /**
+   * Record markdown syntax that has no document equivalent.
+   */
+  function recordSyntax(syntax: string): void {
+    if (!syntax) return
+    const mdStart = markdown.length
+    markdown += syntax
+    const mdEnd = markdown.length
+    mappings.push({ mdStart, mdEnd, docStart: -1, docEnd: -1 })
+  }
+
+  /**
+   * Serialize inline content with mark tracking.
+   * Follows prosemirror-markdown's renderInline() pattern.
+   */
+  function serializeInline(parent: ProseMirrorNode, basePos: number): void {
+    type Mark = import('@tiptap/pm/model').Mark
+    const active: Mark[] = []
+
+    parent.forEach((child, offset) => {
+      const pos = basePos + offset + 1 // +1 for opening tag
+      const marks = child.isText ? child.marks : []
+
+      // Find marks to close (no longer active)
+      const toClose: Mark[] = []
+      for (let i = active.length - 1; i >= 0; i--) {
+        if (!marks.some(m => m.eq(active[i]))) {
+          toClose.push(active[i])
+        }
+      }
+
+      // Close marks in LIFO order
+      for (const mark of toClose) {
+        const closer = getMarkCloser(mark)
+        recordSyntax(closer)
+        const idx = active.findIndex(m => m.eq(mark))
+        if (idx !== -1) active.splice(idx, 1)
+      }
+
+      // Open new marks
+      for (const mark of marks) {
+        if (!active.some(m => m.eq(mark))) {
+          const opener = getMarkOpener(mark)
+          recordSyntax(opener)
+          active.push(mark)
+        }
+      }
+
+      // Serialize content
+      if (child.isText && child.text) {
+        recordText(child.text, pos, pos + child.nodeSize)
+      }
+    })
+
+    // Close any remaining marks
+    for (let i = active.length - 1; i >= 0; i--) {
+      recordSyntax(getMarkCloser(active[i]))
+    }
+  }
+
+  /**
+   * Serialize a block node.
+   */
+  function serializeNode(node: ProseMirrorNode, pos: number): void {
+    if (node.isTextblock) {
+      // Emit block prefix (heading, blockquote, etc.)
+      const prefix = getBlockPrefix(node)
+      if (prefix) recordSyntax(prefix)
+
+      // Serialize inline content with mark tracking
+      serializeInline(node, pos)
+
+      // Block separator
+      markdown += '\n\n'
+    } else if (node.isBlock) {
+      // Recurse for container blocks (doc, blockquote body, etc.)
+      node.forEach((child, offset) => {
+        serializeNode(child, pos + offset + 1)
+      })
+    }
+  }
+
+  // Start serialization from doc root
+  doc.forEach((child, offset) => {
+    serializeNode(child, offset)
+  })
+
+  // Trim trailing newlines
+  markdown = markdown.trimEnd()
+
+  /**
+   * Convert a markdown position to a document position.
+   * Returns null if the position is within markdown-only syntax.
+   */
+  function toDocPos(mdPos: number): number | null {
+    for (const mapping of mappings) {
+      if (mdPos >= mapping.mdStart && mdPos < mapping.mdEnd) {
+        if (mapping.docStart === -1) {
+          return null // Syntax-only, no doc position
+        }
+        const offset = mdPos - mapping.mdStart
+        return mapping.docStart + offset
+      }
+      // Handle position at exact end of a mapping
+      if (mdPos === mapping.mdEnd && mapping.docStart !== -1) {
+        return mapping.docEnd
+      }
+    }
+    // If past end, try to return the end of the last content mapping
+    for (let i = mappings.length - 1; i >= 0; i--) {
+      if (mappings[i].docStart !== -1) {
+        return mappings[i].docEnd
+      }
+    }
+    return null
+  }
+
+  /**
+   * Convert a document position to a markdown position.
+   */
+  function toMarkdownPos(docPos: number): number {
+    for (const mapping of mappings) {
+      if (mapping.docStart === -1) continue // Skip syntax mappings
+      if (docPos >= mapping.docStart && docPos < mapping.docEnd) {
+        const offset = docPos - mapping.docStart
+        return mapping.mdStart + offset
+      }
+      if (docPos === mapping.docEnd) {
+        return mapping.mdEnd
+      }
+    }
+    return markdown.length
+  }
+
+  return { markdown, mappings, toDocPos, toMarkdownPos }
+}
+
+/**
+ * Find the document range that corresponds to a markdown range.
+ * Returns null if the range includes syntax-only positions.
+ */
+function mapMarkdownRangeToDoc(
+  serialized: SerializeResult,
+  mdFrom: number,
+  mdTo: number
+): { from: number; to: number } | null {
+  // Find the first content mapping that contains or follows mdFrom
+  let docFrom: number | null = null
+  let docTo: number | null = null
+
+  for (const mapping of serialized.mappings) {
+    if (mapping.docStart === -1) continue // Skip syntax
+
+    // Check if this mapping overlaps with our range
+    if (mapping.mdEnd > mdFrom && mapping.mdStart < mdTo) {
+      // Calculate the overlap
+      const overlapStart = Math.max(mdFrom, mapping.mdStart)
+      const overlapEnd = Math.min(mdTo, mapping.mdEnd)
+
+      const startOffset = overlapStart - mapping.mdStart
+      const endOffset = overlapEnd - mapping.mdStart
+
+      const thisDocFrom = mapping.docStart + startOffset
+      const thisDocTo = mapping.docStart + endOffset
+
+      if (docFrom === null || thisDocFrom < docFrom) {
+        docFrom = thisDocFrom
+      }
+      if (docTo === null || thisDocTo > docTo) {
+        docTo = thisDocTo
+      }
+    }
+  }
+
+  if (docFrom === null || docTo === null) {
+    return null
+  }
+
+  return { from: docFrom, to: docTo }
 }
 
 /**
@@ -327,62 +615,208 @@ export function findTextInDocument(editor: Editor, search: string): TextMatch[] 
 }
 
 /**
+ * Find exact match in markdown space and map back to document positions.
+ */
+function findInMarkdownSpace(
+  editor: Editor,
+  search: string,
+  serialized: SerializeResult
+): TextMatch | null {
+  const { markdown } = serialized
+
+  // Try exact match in markdown
+  const mdIndex = markdown.indexOf(search)
+  if (mdIndex === -1) {
+    return null
+  }
+
+  // Map markdown range to document positions
+  const docRange = mapMarkdownRangeToDoc(serialized, mdIndex, mdIndex + search.length)
+  if (!docRange) {
+    return null
+  }
+
+  return {
+    from: docRange.from,
+    to: docRange.to,
+    similarity: 1,
+    matchType: 'markdown-exact',
+  }
+}
+
+/**
+ * Find fuzzy match in markdown space and map back to document positions.
+ */
+function findFuzzyInMarkdownSpace(
+  editor: Editor,
+  search: string,
+  serialized: SerializeResult,
+  minSimilarity = 0.9,
+  maxWindowRatio = 1.1
+): TextMatch | null {
+  const { markdown } = serialized
+  const normalizedSearch = normalizeText(search)
+  const searchLen = normalizedSearch.length
+
+  if (searchLen === 0) return null
+
+  const normalizedMarkdown = normalizeText(markdown)
+  if (normalizedMarkdown.length < searchLen * 0.5) return null
+
+  // Build mapping from normalized markdown positions to original markdown positions
+  const normToOrig: number[] = []
+  let normIdx = 0
+  for (let i = 0; i < markdown.length; i++) {
+    const char = markdown[i]
+    const prevChar = i > 0 ? markdown[i - 1] : ''
+    if (!/\s/.test(char) || (!/\s/.test(prevChar) && prevChar !== '')) {
+      normToOrig[normIdx] = i
+      normIdx++
+    }
+  }
+  normToOrig[normIdx] = markdown.length
+
+  let bestMatch: TextMatch | null = null
+  let bestSimilarity = minSimilarity
+
+  // Sliding window search
+  const maxWindowSize = Math.floor(searchLen * maxWindowRatio)
+  const step = Math.max(1, Math.floor(searchLen / 4))
+
+  for (let i = 0; i <= normalizedMarkdown.length - searchLen * 0.5; i += step) {
+    for (const winSize of [searchLen, maxWindowSize, Math.floor(searchLen * 0.95)]) {
+      const end = Math.min(i + winSize, normalizedMarkdown.length)
+      const candidate = normalizedMarkdown.slice(i, end)
+      const sim = similarity(normalizedSearch, candidate)
+
+      if (sim > bestSimilarity) {
+        // Map normalized positions back to original markdown positions
+        const mdFrom = normToOrig[i] ?? 0
+        const mdTo = normToOrig[end] ?? markdown.length
+
+        // Map markdown range to document positions
+        const docRange = mapMarkdownRangeToDoc(serialized, mdFrom, mdTo)
+        if (docRange) {
+          bestSimilarity = sim
+          bestMatch = {
+            from: docRange.from,
+            to: docRange.to,
+            similarity: sim,
+            matchType: 'markdown-fuzzy',
+          }
+        }
+      }
+    }
+  }
+
+  return bestMatch
+}
+
+/**
  * Find the best match for search text using a layered strategy:
- * 1. Exact match - highest priority
- * 2. Hash match - fast content-based matching
- * 3. Strict fuzzy - 90% threshold, 110% window
- * 4. Fail with clear error - better to fail than match wrong text
+ *
+ * NEW (markdown-aware):
+ * 1. Validate cross-block search (reject \n\n)
+ * 2. Markdown exact match - for formatted content like **bold**
+ * 3. Markdown fuzzy match - 90% threshold in markdown space
+ *
+ * FALLBACK (plain-text, backwards compatible):
+ * 4. Exact match in raw text
+ * 5. Hash match - fast content-based matching
+ * 6. Strict fuzzy in raw text - 90% threshold, 110% window
+ *
+ * Better to fail than match wrong text.
  */
 function findBestMatch(editor: Editor, search: string): TextMatch | null {
-  // 1. Try exact match first
+  // 1. Validate: reject cross-block searches (v1 limitation)
+  if (search.includes('\n\n')) {
+    // Return null - the caller will generate an appropriate error
+    // In v2, we could support multi-block searches
+    console.warn('[findBestMatch] Cross-block search not supported:', search.slice(0, 50))
+    return null
+  }
+
+  // 2. Try markdown-space matching first (for formatted content)
+  const serialized = serializeWithPositionMap(editor)
+
+  // 2a. Exact match in markdown space
+  const mdExact = findInMarkdownSpace(editor, search, serialized)
+  if (mdExact) {
+    return mdExact
+  }
+
+  // 2b. Fuzzy match in markdown space (90% threshold)
+  const mdFuzzy = findFuzzyInMarkdownSpace(editor, search, serialized, 0.9, 1.1)
+  if (mdFuzzy) {
+    return mdFuzzy
+  }
+
+  // 3. FALLBACK: Try plain-text matching (backwards compatible)
+  // This handles cases where the search string is plain text
+
+  // 3a. Exact match in raw text
   const exactMatches = findTextInDocument(editor, search)
   if (exactMatches.length > 0) {
     return { ...exactMatches[0], matchType: 'exact' }
   }
 
-  // 2. Try hash match - good for block-level content
+  // 3b. Hash match - good for block-level content
   const hashMatch = findByContentHash(editor, search)
   if (hashMatch) {
     return hashMatch
   }
 
-  // 3. Fall back to strict fuzzy matching (90% threshold, 110% window)
+  // 3c. Fuzzy match in raw text (90% threshold, 110% window)
   return findFuzzyMatch(editor, search, 0.9, 1.1)
 }
 
 /**
  * Parse markdown text into a ProseMirror slice using the editor's schema.
- * This ensures proper block structure without inheriting context styling.
+ * Uses tiptap-markdown's parser to convert markdown → HTML → DOM → Slice.
+ * This ensures proper rendering of inline marks (bold, italic, code, links).
  */
 function parseMarkdownToSlice(editor: Editor, markdown: string): Slice {
   const { schema } = editor.state
 
-  // Check if markdown contains block-level elements (headings, lists, etc.)
-  const hasBlockContent = /^(#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```)/m.test(markdown)
+  // Get the markdown parser from tiptap-markdown storage
+  const markdownStorage = editor.storage?.markdown
+  const parser = markdownStorage?.parser
 
-  if (!hasBlockContent) {
-    // For inline content, create a simple text node
-    // This preserves inline marks but doesn't create new blocks
+  if (!parser) {
+    // No markdown parser available, fall back to plain text
     const textNode = schema.text(markdown)
     return new Slice(Fragment.from(textNode), 0, 0)
   }
 
-  // For block content, we need to parse it properly
-  // Use the editor's built-in markdown parser if available
   try {
-    // Create a temporary document fragment by setting content
-    // This leverages tiptap-markdown's parsing capabilities
-    const tempDoc = editor.schema.nodeFromJSON({
-      type: 'doc',
-      content: [{ type: 'paragraph', content: [{ type: 'text', text: markdown }] }]
-    })
+    // Detect if replacement contains block-level structures
+    const hasBlocks = /^#{1,6}\s|^\s*[-*+]\s|^\s*\d+\.\s|^>\s|^```/m.test(markdown)
 
-    // For now, return simple text - the markdown extension handles conversion
-    // on display, but for replacement we want explicit structure
-    const textNode = schema.text(markdown)
-    return new Slice(Fragment.from(textNode), 0, 0)
-  } catch {
-    // Fallback to plain text
+    // Parse markdown to HTML using tiptap-markdown's parser
+    // The parser.parse() method returns HTML string
+    const html = parser.parse(markdown, { inline: !hasBlocks })
+
+    // Convert HTML to DOM
+    const wrapper = document.createElement('div')
+    wrapper.innerHTML = html
+
+    // Parse DOM to Slice using ProseMirror's DOMParser
+    const domParser = DOMParser.fromSchema(schema)
+    const slice = domParser.parseSlice(wrapper, { preserveWhitespace: true })
+
+    // For inline content without blocks, extract just the content without wrapper paragraph
+    if (!hasBlocks && slice.content.childCount === 1) {
+      const firstChild = slice.content.firstChild
+      if (firstChild && firstChild.type.name === 'paragraph') {
+        // Return just the inline content without the paragraph wrapper
+        return new Slice(firstChild.content, 0, 0)
+      }
+    }
+
+    return slice
+  } catch (error) {
+    // Fallback to plain text on any parsing error
+    console.warn('[parseMarkdownToSlice] Parsing failed, using plain text:', error)
     const textNode = schema.text(markdown)
     return new Slice(Fragment.from(textNode), 0, 0)
   }
@@ -415,19 +849,15 @@ export function applyEditDirect(
     }
   }
 
-  // Calculate the position where the new text will be
-  const insertFrom = match.from
-  const insertTo = insertFrom + replace.length
-
   // Use transaction-based replacement for precise control
   const { state } = editor
   const tr = state.tr
 
-  // Create a text node with the replacement content
-  // Using schema.text() ensures no style inheritance from context
+  // Parse the replacement as markdown to handle formatting (bold, italic, etc.)
+  // This ensures that replacements like "_italic_" render correctly
   if (replace.length > 0) {
-    const textNode = state.schema.text(replace)
-    tr.replaceWith(match.from, match.to, textNode)
+    const slice = parseMarkdownToSlice(editor, replace)
+    tr.replaceRange(match.from, match.to, slice)
   } else {
     // For deletions, just delete the range
     tr.delete(match.from, match.to)
@@ -435,6 +865,11 @@ export function applyEditDirect(
 
   // Dispatch the transaction
   editor.view.dispatch(tr)
+
+  // Calculate the actual inserted content length for annotation
+  // This accounts for the fact that markdown may expand to multiple nodes
+  const insertFrom = match.from
+  const insertTo = insertFrom + replace.length // Approximation for annotation
 
   // Create annotation for AI provenance tracking
   if (provenance && documentId && replace.length > 0) {
@@ -508,9 +943,10 @@ export function applyEditsDirect(
 
     // Apply replacement at the matched position
     // Since we're going from end to start, positions are still valid
+    // Parse markdown to handle formatting (bold, italic, etc.)
     if (edit.replace.length > 0) {
-      const textNode = state.schema.text(edit.replace)
-      tr.replaceWith(match.from, match.to, textNode)
+      const slice = parseMarkdownToSlice(editor, edit.replace)
+      tr.replaceRange(match.from, match.to, slice)
     } else {
       tr.delete(match.from, match.to)
     }

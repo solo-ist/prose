@@ -77,6 +77,8 @@ function getMarkOpener(mark: import('@tiptap/pm/model').Mark): string {
       return '*'
     case 'code':
       return '`'
+    case 'strike':
+      return '~~'
     case 'link':
       return '['
     default:
@@ -97,6 +99,8 @@ function getMarkCloser(mark: import('@tiptap/pm/model').Mark): string {
       return '*'
     case 'code':
       return '`'
+    case 'strike':
+      return '~~'
     case 'link':
       return `](${mark.attrs.href || ''})`
     default:
@@ -194,6 +198,9 @@ export function serializeWithPositionMap(editor: Editor): SerializeResult {
       // Serialize content
       if (child.isText && child.text) {
         recordText(child.text, pos, pos + child.nodeSize)
+      } else if (child.type.name === 'hardBreak') {
+        // Hard breaks serialize as backslash-newline in markdown
+        recordSyntax('\\\n')
       }
     })
 
@@ -204,24 +211,153 @@ export function serializeWithPositionMap(editor: Editor): SerializeResult {
   }
 
   /**
+   * Context for list serialization - tracks nesting and numbering.
+   */
+  interface ListContext {
+    indent: string           // Current indentation (spaces)
+    orderedCounter: number   // Counter for ordered lists (0 if bullet list)
+  }
+
+  /**
+   * Serialize a list item with proper prefix.
+   */
+  function serializeListItem(node: ProseMirrorNode, pos: number, ctx: ListContext): void {
+    // Emit list item prefix
+    const prefix = ctx.orderedCounter > 0
+      ? `${ctx.indent}${ctx.orderedCounter}. `
+      : `${ctx.indent}- `
+    recordSyntax(prefix)
+
+    // Serialize list item content
+    // List items can contain paragraphs, nested lists, etc.
+    let isFirstBlock = true
+    node.forEach((child, offset) => {
+      const childPos = pos + offset + 1
+
+      if (child.type.name === 'paragraph') {
+        // First paragraph is inline with the bullet
+        if (isFirstBlock) {
+          serializeInline(child, childPos)
+          markdown += '\n'
+          isFirstBlock = false
+        } else {
+          // Subsequent paragraphs need blank line and indentation
+          recordSyntax(ctx.indent + '  ')
+          serializeInline(child, childPos)
+          markdown += '\n'
+        }
+      } else if (child.type.name === 'bulletList' || child.type.name === 'orderedList') {
+        // Nested list - increase indentation
+        if (!isFirstBlock) markdown += '\n'
+        serializeList(child, childPos, { indent: ctx.indent + '  ', orderedCounter: 0 })
+        isFirstBlock = false
+      } else {
+        // Other block content (code blocks, etc.)
+        serializeNode(child, childPos)
+        isFirstBlock = false
+      }
+    })
+  }
+
+  /**
+   * Serialize a list (bullet or ordered).
+   */
+  function serializeList(node: ProseMirrorNode, pos: number, ctx: ListContext): void {
+    const isOrdered = node.type.name === 'orderedList'
+    let counter = isOrdered ? (node.attrs.start || 1) : 0
+
+    node.forEach((child, offset) => {
+      if (child.type.name === 'listItem') {
+        serializeListItem(child, pos + offset + 1, {
+          indent: ctx.indent,
+          orderedCounter: isOrdered ? counter++ : 0
+        })
+      }
+    })
+
+    // Add blank line after list if at root level
+    if (ctx.indent === '') {
+      markdown += '\n'
+    }
+  }
+
+  /**
+   * Serialize a code block with fencing.
+   */
+  function serializeCodeBlock(node: ProseMirrorNode, pos: number): void {
+    const language = node.attrs.language || ''
+    recordSyntax('```' + language + '\n')
+
+    // Code content maps directly (no inline formatting)
+    const text = node.textContent
+    if (text) {
+      recordText(text, pos + 1, pos + 1 + text.length)
+    }
+
+    recordSyntax('\n```\n\n')
+  }
+
+  /**
+   * Serialize a blockquote.
+   */
+  function serializeBlockquote(node: ProseMirrorNode, pos: number): void {
+    // Each block in the blockquote needs a > prefix
+    node.forEach((child, offset) => {
+      const childPos = pos + offset + 1
+
+      if (child.isTextblock) {
+        recordSyntax('> ')
+        serializeInline(child, childPos)
+        markdown += '\n'
+      } else if (child.type.name === 'blockquote') {
+        // Nested blockquote - TODO: handle properly
+        serializeBlockquote(child, childPos)
+      } else {
+        serializeNode(child, childPos)
+      }
+    })
+    markdown += '\n'
+  }
+
+  /**
    * Serialize a block node.
    */
   function serializeNode(node: ProseMirrorNode, pos: number): void {
-    if (node.isTextblock) {
-      // Emit block prefix (heading, blockquote, etc.)
-      const prefix = getBlockPrefix(node)
-      if (prefix) recordSyntax(prefix)
+    switch (node.type.name) {
+      case 'bulletList':
+      case 'orderedList':
+        serializeList(node, pos, { indent: '', orderedCounter: 0 })
+        break
 
-      // Serialize inline content with mark tracking
-      serializeInline(node, pos)
+      case 'codeBlock':
+        serializeCodeBlock(node, pos)
+        break
 
-      // Block separator
-      markdown += '\n\n'
-    } else if (node.isBlock) {
-      // Recurse for container blocks (doc, blockquote body, etc.)
-      node.forEach((child, offset) => {
-        serializeNode(child, pos + offset + 1)
-      })
+      case 'blockquote':
+        serializeBlockquote(node, pos)
+        break
+
+      case 'horizontalRule':
+        recordSyntax('---\n\n')
+        break
+
+      case 'hardBreak':
+        recordSyntax('  \n')
+        break
+
+      default:
+        if (node.isTextblock) {
+          // Standard textblock (paragraph, heading)
+          const prefix = getBlockPrefix(node)
+          if (prefix) recordSyntax(prefix)
+          serializeInline(node, pos)
+          markdown += '\n\n'
+        } else if (node.isBlock) {
+          // Container block (doc, etc.) - recurse
+          node.forEach((child, offset) => {
+            serializeNode(child, pos + offset + 1)
+          })
+        }
     }
   }
 

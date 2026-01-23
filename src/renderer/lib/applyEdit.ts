@@ -39,6 +39,46 @@ function normalizeText(text: string): string {
 }
 
 /**
+ * Detect common issues with search text that indicate the AI used
+ * placeholders or descriptions instead of verbatim text.
+ */
+function detectSearchTextIssues(search: string): string | null {
+  // Check for ellipsis placeholder (most common issue)
+  if (search.includes('...') || search.includes('…')) {
+    return 'Search text contains "..." placeholder. Copy the COMPLETE text you want to find, character-for-character.'
+  }
+
+  // Check for descriptive patterns like "## the heading" or "the paragraph about"
+  const descriptivePatterns = [
+    /^(the|a|an)\s+(heading|paragraph|section|sentence|line|text)\b/i,
+    /\b(about|regarding|describing|containing)\b/i,
+    /^##?\s*(the|a|an)\s+/i
+  ]
+  for (const pattern of descriptivePatterns) {
+    if (pattern.test(search)) {
+      return 'Search text appears to describe content rather than quote it. Copy the exact text from the document.'
+    }
+  }
+
+  return null
+}
+
+/**
+ * Build a helpful error message when text is not found.
+ */
+function buildNotFoundError(search: string): string {
+  // Check for common issues first
+  const issue = detectSearchTextIssues(search)
+  if (issue) {
+    return issue
+  }
+
+  // Generic message with verbatim reminder
+  const preview = search.slice(0, 50) + (search.length > 50 ? '...' : '')
+  return `Text not found: "${preview}". Make sure the search text is copied VERBATIM from the document.`
+}
+
+/**
  * Calculate similarity ratio between two strings (0-1).
  * Uses longest common subsequence approach.
  */
@@ -261,7 +301,7 @@ export function applyEditDirect(
   if (!match) {
     return {
       success: false,
-      error: `Text not found: "${search.slice(0, 50)}${search.length > 50 ? '...' : ''}"`,
+      error: buildNotFoundError(search),
       matchCount: 0,
     }
   }
@@ -352,7 +392,7 @@ export function applyEditAsDiff(
   if (!match) {
     return {
       success: false,
-      error: `Text not found: "${search.slice(0, 50)}${search.length > 50 ? '...' : ''}"`,
+      error: buildNotFoundError(search),
       matchCount: 0,
     }
   }

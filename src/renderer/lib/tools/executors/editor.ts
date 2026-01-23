@@ -8,12 +8,7 @@ import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useEditorStore } from '../../../stores/editorStore'
 import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
 import { useAnnotationStore } from '../../../extensions/ai-annotations'
-import {
-  findTextInDocument,
-  findFuzzyMatch,
-  applyEditDirect,
-  applyEditAsDiff
-} from '../../applyEdit'
+import { findNodeById } from '../../../extensions/node-ids'
 import { generateId } from '../../persistence'
 
 /**
@@ -24,43 +19,53 @@ function getEditor(): Editor | null {
 }
 
 /**
- * edit - Replace text in the document using SEARCH/REPLACE pattern.
+ * edit - Replace the content of a node by its ID.
  */
 export function executeEdit(args: {
-  search: string
-  replace: string
-  fuzzy?: boolean
-}): ToolResult<{ applied: boolean; matchInfo?: string }> {
+  nodeId: string
+  content: string
+}): ToolResult<{ applied: boolean; nodeId: string }> {
   const editor = getEditor()
 
   if (!editor) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
-  const { search, replace, fuzzy = true } = args
+  const { nodeId, content } = args
 
-  if (!search) {
-    return toolError('Search text is required', 'INVALID_INPUT')
+  if (!nodeId) {
+    return toolError('Node ID is required', 'INVALID_INPUT')
   }
 
-  const { document } = useEditorStore.getState()
+  // Find the node by ID
+  const found = findNodeById(editor.state.doc, nodeId)
 
-  const result = applyEditDirect(
-    editor,
-    { id: generateId(), search, replace },
-    undefined, // No provenance for tool-based edits (added at higher level)
-    document.documentId
-  )
-
-  if (result.success) {
-    return toolSuccess({
-      applied: true,
-      matchInfo: `Replaced "${search.slice(0, 30)}${search.length > 30 ? '...' : ''}" with "${replace.slice(0, 30)}${replace.length > 30 ? '...' : ''}"`
-    })
-  } else {
-    // If exact match failed and fuzzy is enabled, the applyEditDirect already tried fuzzy
-    return toolError(result.error || 'Failed to apply edit', 'EDIT_FAILED')
+  if (!found) {
+    return toolError(
+      `Node with ID "${nodeId}" not found. Use read_document to get current node IDs.`,
+      'NODE_NOT_FOUND'
+    )
   }
+
+  const { node, pos } = found
+
+  // Replace the node's content
+  // For text-containing nodes, we replace from pos+1 to pos+node.nodeSize-1 (inside the node)
+  // The node structure is: <node>[content]</node>, so content starts at pos+1
+  const contentStart = pos + 1
+  const contentEnd = pos + node.nodeSize - 1
+
+  editor
+    .chain()
+    .focus()
+    .setTextSelection({ from: contentStart, to: contentEnd })
+    .insertContent(content)
+    .run()
+
+  return toolSuccess({
+    applied: true,
+    nodeId
+  })
 }
 
 /**
@@ -111,13 +116,12 @@ export function executeInsert(args: {
 }
 
 /**
- * suggest_edit - Show a diff suggestion without applying it.
+ * suggest_edit - Show a diff suggestion for a node by ID.
  */
 export function executeSuggestEdit(args: {
-  search: string
-  replace: string
+  nodeId: string
+  content: string
   comment?: string
-  fuzzy?: boolean
 }): ToolResult<{ suggested: boolean; diffId: string }> {
   const editor = getEditor()
 
@@ -125,31 +129,58 @@ export function executeSuggestEdit(args: {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
-  const { search, replace, comment, fuzzy = true } = args
+  const { nodeId, content, comment } = args
 
-  if (!search) {
-    return toolError('Search text is required', 'INVALID_INPUT')
+  if (!nodeId) {
+    return toolError('Node ID is required', 'INVALID_INPUT')
   }
 
+  // Find the node by ID
+  const found = findNodeById(editor.state.doc, nodeId)
+
+  if (!found) {
+    return toolError(
+      `Node with ID "${nodeId}" not found. Use read_document to get current node IDs.`,
+      'NODE_NOT_FOUND'
+    )
+  }
+
+  const { node, pos } = found
   const { document } = useEditorStore.getState()
   const diffId = generateId()
 
-  const result = applyEditAsDiff(
-    editor,
-    { id: diffId, search, replace },
-    comment,
-    undefined, // Provenance added at higher level if needed
-    document.documentId
-  )
+  // Get the original text content
+  const originalText = node.textContent
 
-  if (result.success) {
-    return toolSuccess({
-      suggested: true,
-      diffId: result.diffId || diffId
+  // Replace with diff suggestion node
+  // Select the entire content area of the node
+  const contentStart = pos + 1
+  const contentEnd = pos + node.nodeSize - 1
+
+  editor
+    .chain()
+    .focus()
+    .setTextSelection({ from: contentStart, to: contentEnd })
+    .insertContent({
+      type: 'diffSuggestion',
+      attrs: {
+        id: diffId,
+        comment: comment || '',
+        originalText,
+        suggestedText: content,
+        // Provenance will be added at higher level if needed
+        provenanceModel: '',
+        provenanceConversationId: '',
+        provenanceMessageId: '',
+        documentId: document.documentId || ''
+      }
     })
-  } else {
-    return toolError(result.error || 'Failed to create suggestion', 'SUGGEST_FAILED')
-  }
+    .run()
+
+  return toolSuccess({
+    suggested: true,
+    diffId
+  })
 }
 
 /**

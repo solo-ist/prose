@@ -8,6 +8,7 @@ import { FocusMode } from '../../lib/focusMode'
 import { DiffSuggestion } from '../../extensions/diff-suggestions'
 import { Comment } from '../../extensions/comments'
 import { AIAnnotations, useAnnotationStore } from '../../extensions/ai-annotations'
+import { NodeIds } from '../../extensions/node-ids'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
@@ -89,6 +90,7 @@ export function Editor() {
       AIAnnotations.configure({
         showTooltip: true,
       }),
+      NodeIds,
     ],
     content: initialContent,
     editorProps: {

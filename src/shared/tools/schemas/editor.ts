@@ -10,19 +10,18 @@ import type { ToolConfig } from '../types'
 // ============================================================================
 
 export const editSchema = z.object({
-  search: z.string().describe('Text to find in the document (exact or fuzzy match)'),
-  replace: z.string().describe('Replacement text'),
-  fuzzy: z
-    .boolean()
-    .optional()
-    .default(true)
-    .describe('Allow fuzzy matching if exact match fails (default: true)')
+  nodeId: z
+    .string()
+    .describe(
+      'The ID of the node to edit. Get node IDs from read_document which lists all nodes with their IDs.'
+    ),
+  content: z.string().describe('The new content for the node (replaces entire node content)')
 })
 
 export const editConfig: ToolConfig<typeof editSchema> = {
   name: 'edit',
   description:
-    'Replace text in the document using SEARCH/REPLACE pattern. Applies the edit directly.',
+    'Replace the content of a specific node by ID. Use read_document first to see all nodes with their IDs, then target the node you want to edit.',
   schema: editSchema,
   category: 'editor',
   requiresMode: 'full', // Only available in Full Autonomy mode
@@ -56,23 +55,22 @@ export const insertConfig: ToolConfig<typeof insertSchema> = {
 // ============================================================================
 
 export const suggestEditSchema = z.object({
-  search: z.string().describe('Text to find in the document'),
-  replace: z.string().describe('Suggested replacement text'),
+  nodeId: z
+    .string()
+    .describe(
+      'The ID of the node to suggest changes for. Get node IDs from read_document.'
+    ),
+  content: z.string().describe('The suggested new content for the node'),
   comment: z
     .string()
     .optional()
-    .describe('Optional comment explaining the suggested change'),
-  fuzzy: z
-    .boolean()
-    .optional()
-    .default(true)
-    .describe('Allow fuzzy matching if exact match fails')
+    .describe('Optional comment explaining the suggested change')
 })
 
 export const suggestEditConfig: ToolConfig<typeof suggestEditSchema> = {
   name: 'suggest_edit',
   description:
-    'Show a diff suggestion without applying it. The user can accept or reject.',
+    'Show a diff suggestion for a specific node without applying it. Use read_document first to see all nodes with their IDs.',
   schema: suggestEditSchema,
   category: 'editor',
   requiresMode: null, // Available in all modes

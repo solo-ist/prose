@@ -14,6 +14,9 @@ import type { LLMMessage, LLMStreamToolCall, LLMContentBlock } from '../types'
 // Module-level flag to ensure stream listeners are only registered once globally
 let streamListenersInitialized = false
 
+// Maximum tool roundtrips before circuit breaker stops the loop
+const MAX_TOOL_ROUNDTRIPS = 5
+
 // Module-level refs - these must be outside the hook to ensure event handlers
 // registered once at module level can access the same refs that sendMessage uses
 // Each ref includes a streamId to prevent race conditions when streams overlap
@@ -22,7 +25,12 @@ const pendingToolCallsRef = {
   streamId: null as string | null
 }
 const toolLoopContextRef = {
-  current: null as { apiMessages: LLMMessage[]; assistantMsgId: string } | null,
+  current: null as {
+    apiMessages: LLMMessage[]
+    assistantMsgId: string
+    roundtripCount: number
+    lastErrorSignature: string | null
+  } | null,
   streamId: null as string | null
 }
 
@@ -140,7 +148,20 @@ export function useChat() {
       if (toolCalls && toolCalls.length > 0 && toolLoopContextRef.current && refsMatchStream) {
         console.log('[useChat:complete] Executing', toolCalls.length, 'tool calls')
         // Execute tool calls and continue the conversation
-        const { apiMessages, assistantMsgId } = toolLoopContextRef.current
+        const { apiMessages, assistantMsgId, roundtripCount, lastErrorSignature } = toolLoopContextRef.current
+
+        // Circuit breaker: stop if we've hit max roundtrips
+        if (roundtripCount >= MAX_TOOL_ROUNDTRIPS) {
+          console.log('[useChat:complete] Circuit breaker: max roundtrips reached', roundtripCount)
+          const currentMsg = state.messages.find((m) => m.id === assistantMsgId)
+          state.updateMessage(assistantMsgId, {
+            content: (currentMsg?.content || '') +
+              `\n\n*Stopped: Maximum tool iterations (${MAX_TOOL_ROUNDTRIPS}) reached. The edits may require manual attention.*`
+          })
+          state.completeStreaming()
+          clearStreamRefs()
+          return
+        }
 
         // Build assistant message content with text AND tool_use blocks
         // The Anthropic API requires tool_use blocks in the assistant message
@@ -170,9 +191,16 @@ export function useChat() {
 
         // Execute each tool and collect results
         const toolResults: Array<{ id: string; name: string; result: unknown }> = []
+        let currentErrorSignature: string | null = null
+
         for (const toolCall of toolCalls) {
           const result = await executeTool(toolCall.name, toolCall.args, state.toolMode)
           toolResults.push({ id: toolCall.id, name: toolCall.name, result })
+
+          // Track error signature for consecutive failure detection
+          if (!result.success && result.error) {
+            currentErrorSignature = `${toolCall.name}:${result.error}`
+          }
 
           // Append tool execution info to the message
           const resultSummary = result.success
@@ -192,12 +220,30 @@ export function useChat() {
           })
         }
 
+        // Consecutive failure detection: stop if same error occurs twice
+        if (currentErrorSignature && currentErrorSignature === lastErrorSignature) {
+          console.log('[useChat:complete] Consecutive failure detected:', currentErrorSignature)
+          const currentMsg = state.messages.find((m) => m.id === assistantMsgId)
+          state.updateMessage(assistantMsgId, {
+            content: (currentMsg?.content || '') +
+              `\n\n*Stopped: Same error occurred twice. Please check the search text is copied exactly from the document.*`
+          })
+          state.completeStreaming()
+          clearStreamRefs()
+          return
+        }
+
         // Continue conversation with tool results
         const newStreamId = createMessageId()
         state.startStreaming(assistantMsgId, newStreamId)
 
         // Update context for potential next tool loop with new streamId
-        toolLoopContextRef.current = { apiMessages: updatedMessages, assistantMsgId }
+        toolLoopContextRef.current = {
+          apiMessages: updatedMessages,
+          assistantMsgId,
+          roundtripCount: roundtripCount + 1,
+          lastErrorSignature: currentErrorSignature
+        }
         toolLoopContextRef.streamId = newStreamId
         pendingToolCallsRef.streamId = newStreamId
 
@@ -351,7 +397,12 @@ export function useChat() {
         tools = undefined
       }
       if (tools) {
-        toolLoopContextRef.current = { apiMessages, assistantMsgId }
+        toolLoopContextRef.current = {
+          apiMessages,
+          assistantMsgId,
+          roundtripCount: 0,
+          lastErrorSignature: null
+        }
         toolLoopContextRef.streamId = streamId
         pendingToolCallsRef.streamId = streamId
       }

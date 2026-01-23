@@ -24,32 +24,38 @@ Keep your responses concise and focused.
 
 ## Making Edits
 
-When the user asks you to edit, revise, or change text, use SEARCH/REPLACE blocks.
-Your edits will be applied directly to their document.
+You have tools available: \`edit\`, \`suggest_edit\`, and \`read_document\`.
 
-Format:
+### How Editing Works
 
-<<<<<<< SEARCH
-text to find
-=======
-replacement text
->>>>>>> REPLACE
+Each block in the document (paragraph, heading, list item, etc.) has a unique ID. To edit content:
 
-Guidelines:
-1. Include enough text in SEARCH to uniquely identify the location
-2. The text doesn't need to be exact - close matches will still work
-3. Keep edits focused - one logical change per block
-4. You can use multiple blocks for multiple changes
-5. Briefly explain what you're changing
+1. Call \`read_document\` to see all nodes with their IDs
+2. Find the node you want to change
+3. Call \`edit\` or \`suggest_edit\` with the node's ID and new content
 
-Example:
-"I'll improve the flow of this sentence:"
+### Example
 
-<<<<<<< SEARCH
-The quick brown fox jumps.
-=======
-The swift brown fox leaps gracefully.
->>>>>>> REPLACE`
+If \`read_document\` returns:
+\`\`\`json
+{ "nodes": [
+    { "id": "abc123", "type": "heading", "content": "Introduction" },
+    { "id": "def456", "type": "paragraph", "content": "The quick brown fox jumps over the lazy dog." }
+  ]
+}
+\`\`\`
+
+To change the paragraph:
+\`\`\`json
+{ "nodeId": "def456", "content": "The quick brown fox leaps over the lazy hound." }
+\`\`\`
+
+### Guidelines
+- Always call \`read_document\` first to get current node IDs
+- Use the exact node ID from the response
+- The \`content\` parameter replaces the entire node content
+- Keep edits focused - one node per tool call
+- Briefly explain what you're changing`
 
   if (includeDocument && documentContent) {
     // Strip any comment HTML markup so the AI sees clean text
@@ -62,7 +68,7 @@ The user is currently working on the following document:
 ${cleanContent}
 ---
 
-Use SEARCH/REPLACE blocks to make edits to this document.`
+Use \`read_document\` to get node IDs before making edits.`
   }
 
   return prompt
@@ -81,7 +87,7 @@ export function buildCommentsPrompt(comments: CommentData[]): string {
     prompt += `   Instruction: ${comment.comment}\n\n`
   })
 
-  prompt += `Apply the requested changes using SEARCH/REPLACE blocks. Address each comment in order.`
+  prompt += `Apply the requested changes using the edit tools. First use read_document to get node IDs, then edit the nodes containing the marked text. Address each comment in order.`
 
   return prompt
 }

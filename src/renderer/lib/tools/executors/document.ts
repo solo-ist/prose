@@ -7,6 +7,7 @@ import type { ToolResult, DocumentMetadata, TextMatch, OutlineEntry } from '../.
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useEditorStore } from '../../../stores/editorStore'
 import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
+import { getNodesWithIds } from '../../../extensions/node-ids'
 
 /**
  * Get the TipTap editor instance.
@@ -17,23 +18,49 @@ function getEditor(): Editor | null {
 }
 
 /**
- * read_document - Get the full markdown content of the current document.
- * Uses caching to avoid redundant reads when document hasn't changed.
+ * Node representation with ID for AI targeting.
  */
-export function executeReadDocument(): ToolResult<{ content: string }> {
+interface DocumentNode {
+  id: string
+  type: string
+  content: string
+}
+
+/**
+ * read_document - Get the document content with node IDs for targeting.
+ *
+ * Returns a structured list of nodes with their IDs, allowing the AI to
+ * target specific nodes by ID when making edits.
+ */
+export function executeReadDocument(): ToolResult<{
+  nodes: DocumentNode[]
+  markdown: string
+}> {
+  const editor = getEditor()
   const store = useEditorStore.getState()
 
-  // Check cache first
-  const cached = store.getCachedRead()
-  if (cached !== null) {
-    return toolSuccess({ content: cached })
+  if (!editor) {
+    // Fallback to raw content if editor not available
+    return toolSuccess({
+      nodes: [],
+      markdown: store.document.content
+    })
   }
 
-  // Read fresh and update cache
-  const content = store.document.content
-  store.updateReadCache(content)
+  // Get nodes with their IDs
+  const nodesWithIds = getNodesWithIds(editor.state.doc)
 
-  return toolSuccess({ content })
+  // Format as structured list
+  const nodes: DocumentNode[] = nodesWithIds.map((n) => ({
+    id: n.nodeId,
+    type: n.type,
+    content: n.textContent
+  }))
+
+  return toolSuccess({
+    nodes,
+    markdown: store.document.content
+  })
 }
 
 /**

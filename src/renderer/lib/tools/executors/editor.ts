@@ -116,13 +116,14 @@ export function executeInsert(args: {
 }
 
 /**
- * suggest_edit - Show a diff suggestion for a node by ID.
+ * suggest_edit - Show an AI suggestion as a highlighted mark on text.
+ * The user can click the highlighted text to see the suggestion and accept/reject it.
  */
 export function executeSuggestEdit(args: {
   nodeId: string
   content: string
   comment?: string
-}): ToolResult<{ suggested: boolean; diffId: string }> {
+}): ToolResult<{ suggested: boolean; suggestionId: string }> {
   const editor = getEditor()
 
   if (!editor) {
@@ -146,14 +147,12 @@ export function executeSuggestEdit(args: {
   }
 
   const { node, pos } = found
-  const { document } = useEditorStore.getState()
-  const diffId = generateId()
+  const suggestionId = generateId()
 
   // Get the original text content
   const originalText = node.textContent
 
-  // Replace with diff suggestion node
-  // Select the entire content area of the node
+  // Select the text content of the node and apply the AI suggestion mark
   const contentStart = pos + 1
   const contentEnd = pos + node.nodeSize - 1
 
@@ -161,25 +160,18 @@ export function executeSuggestEdit(args: {
     .chain()
     .focus()
     .setTextSelection({ from: contentStart, to: contentEnd })
-    .insertContent({
-      type: 'diffSuggestion',
-      attrs: {
-        id: diffId,
-        comment: comment || '',
-        originalText,
-        suggestedText: content,
-        // Provenance will be added at higher level if needed
-        provenanceModel: '',
-        provenanceConversationId: '',
-        provenanceMessageId: '',
-        documentId: document.documentId || ''
-      }
+    .setAISuggestion({
+      id: suggestionId,
+      type: 'edit',
+      originalText,
+      suggestedText: content,
+      explanation: comment || ''
     })
     .run()
 
   return toolSuccess({
     suggested: true,
-    diffId
+    suggestionId
   })
 }
 

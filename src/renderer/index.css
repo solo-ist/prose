@@ -400,6 +400,118 @@
   opacity: 1;
 }
 
+/* AI Suggestion Marks - Purple highlighting for AI edit suggestions */
+.prose-editor .ai-suggestion-mark {
+  background: hsl(270 70% 70% / 0.4);
+  border-bottom: 2px solid hsl(270 70% 50%);
+  padding: 0 0.1em;
+  border-radius: 0.125em;
+  cursor: pointer;
+  position: relative;
+}
+
+.dark .prose-editor .ai-suggestion-mark {
+  background: hsl(270 70% 40% / 0.3);
+  border-bottom-color: hsl(270 70% 60%);
+}
+
+.prose-editor .ai-suggestion-mark:hover {
+  background: hsl(270 70% 70% / 0.6);
+}
+
+.dark .prose-editor .ai-suggestion-mark:hover {
+  background: hsl(270 70% 40% / 0.5);
+}
+
+/* AI Suggestion Popover */
+.ai-suggestion-popover {
+  background: hsl(var(--popover));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 12px hsl(var(--foreground) / 0.15);
+  padding: 1rem;
+  max-width: 400px;
+  z-index: 100;
+}
+
+.ai-suggestion-popover .suggested-label {
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  margin-bottom: 0.5rem;
+}
+
+.ai-suggestion-popover .suggested-text {
+  background: hsl(145 60% 20%);
+  color: hsl(145 70% 75%);
+  padding: 0.75rem 1rem;
+  border-radius: 0.375rem;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  margin-bottom: 1rem;
+  border-left: 3px solid hsl(145 70% 45%);
+}
+
+.ai-suggestion-popover .explanation-label {
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  margin-bottom: 0.5rem;
+}
+
+.ai-suggestion-popover .explanation-text {
+  font-size: 0.875rem;
+  color: hsl(var(--foreground));
+  margin-bottom: 1rem;
+  line-height: 1.5;
+}
+
+.ai-suggestion-popover .actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.ai-suggestion-popover .accept-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: hsl(145 60% 40%);
+  color: white;
+  border: none;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.ai-suggestion-popover .accept-btn:hover {
+  background: hsl(145 60% 35%);
+}
+
+.ai-suggestion-popover .reject-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.ai-suggestion-popover .reject-btn:hover {
+  background: hsl(var(--accent));
+}
+
 /* Spell-check styling - more prominent squiggles */
 .prose-editor ::spelling-error {
   text-decoration: wavy underline hsl(0 75% 55%);

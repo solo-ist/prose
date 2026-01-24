@@ -7,6 +7,7 @@ import { Markdown } from 'tiptap-markdown'
 import { FocusMode } from '../../lib/focusMode'
 import { DiffSuggestion } from '../../extensions/diff-suggestions'
 import { Comment } from '../../extensions/comments'
+import { AISuggestion } from '../../extensions/ai-suggestions'
 import { AIAnnotations, useAnnotationStore } from '../../extensions/ai-annotations'
 import { NodeIds } from '../../extensions/node-ids'
 import { useEditor } from '../../hooks/useEditor'
@@ -22,6 +23,7 @@ import { AddCommentDialog } from './AddCommentDialog'
 import { EmptyState } from '../layout/EmptyState'
 import { FrontmatterDisplay, hasFrontmatter, getContentWithoutFrontmatter, getFrontmatterRaw } from './FrontmatterDisplay'
 import { TransformAnimation, useTransformAnimation } from './TransformAnimation'
+import { AISuggestionPopover } from '../AISuggestionPopover'
 
 export function Editor() {
   const { document, setContent, openFile, saveFile } = useEditor()
@@ -87,6 +89,7 @@ export function Editor() {
         },
       }),
       Comment,
+      AISuggestion,
       AIAnnotations.configure({
         showTooltip: true,
       }),
@@ -541,6 +544,7 @@ export function Editor() {
           setPendingCommentSelection(null)
         }}
       />
+      {editor && <AISuggestionPopover editor={editor} />}
     </div>
   )
 }

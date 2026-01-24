@@ -170,25 +170,28 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           if (!dispatch) return false
 
           const { doc } = state
-          let found = false
           let suggestionAttrs: Record<string, unknown> | null = null
-          let markFrom = 0
-          let markTo = 0
+          const positions: Array<{ pos: number; nodeSize: number }> = []
 
-          // Find the suggestion mark
+          // Find all nodes with this suggestion mark (mark can span multiple text nodes
+          // when inline formatting like bold/italic is present)
           doc.descendants((node, pos) => {
-            if (found) return false
             node.marks.forEach((mark) => {
               if (mark.type.name === this.name && mark.attrs.id === id) {
-                suggestionAttrs = mark.attrs
-                markFrom = pos
-                markTo = pos + node.nodeSize
-                found = true
+                if (!suggestionAttrs) {
+                  suggestionAttrs = mark.attrs
+                }
+                positions.push({ pos, nodeSize: node.nodeSize })
               }
             })
           })
 
-          if (!found || !suggestionAttrs) return false
+          if (positions.length === 0 || !suggestionAttrs) return false
+
+          // Calculate the full range from first to last node
+          const markFrom = positions[0].pos
+          const lastPos = positions[positions.length - 1]
+          const markTo = lastPos.pos + lastPos.nodeSize
 
           // Get the suggested text
           const suggestedText = (suggestionAttrs as { suggestedText?: string }).suggestedText || ''
@@ -214,27 +217,35 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           if (!dispatch) return false
 
           const { doc } = state
-          let removed = false
+          const positions: Array<{ pos: number; nodeSize: number }> = []
 
+          // Find all nodes with this suggestion mark (mark can span multiple text nodes
+          // when inline formatting like bold/italic is present)
           doc.descendants((node, pos) => {
             node.marks.forEach((mark) => {
               if (mark.type.name === this.name && mark.attrs.id === id) {
-                tr.removeMark(pos, pos + node.nodeSize, mark.type)
-                removed = true
-
-                if (this.options.onSuggestionRejected) {
-                  this.options.onSuggestionRejected(id)
-                }
+                positions.push({ pos, nodeSize: node.nodeSize })
               }
             })
           })
 
-          if (removed) {
-            dispatch(tr)
-            return true
+          if (positions.length === 0) return false
+
+          // Calculate the full range from first to last node
+          const markFrom = positions[0].pos
+          const lastPos = positions[positions.length - 1]
+          const markTo = lastPos.pos + lastPos.nodeSize
+
+          // Remove the mark across the entire range
+          tr.removeMark(markFrom, markTo, state.schema.marks.aiSuggestion)
+
+          dispatch(tr)
+
+          if (this.options.onSuggestionRejected) {
+            this.options.onSuggestionRejected(id)
           }
 
-          return false
+          return true
         },
 
       rejectAllAISuggestions:

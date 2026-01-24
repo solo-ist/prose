@@ -60,7 +60,7 @@ export function Toolbar() {
     closeAllTabs,
     renameTab
   } = useTabs()
-  const { settings, isLoaded, setTheme, setDialogOpen, setAutosaveConfig } = useSettings()
+  const { settings, isLoaded, effectiveTheme, setTheme, setDialogOpen, setAutosaveConfig } = useSettings()
   const { isPanelOpen: isChatOpen, togglePanel: toggleChatPanel } = useChat()
   const { isPanelOpen: isFileListOpen, togglePanel: toggleFileListPanel } = useFileList()
   const isEditing = useEditorStore((state) => state.isEditing)
@@ -74,10 +74,6 @@ export function Toolbar() {
     : null
 
   const toggleTheme = () => {
-    // If theme is 'system', check what it actually resolved to
-    const effectiveTheme = settings.theme === 'system'
-      ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-      : settings.theme
     setTheme(effectiveTheme === 'dark' ? 'light' : 'dark')
   }
 
@@ -226,7 +222,7 @@ export function Toolbar() {
           <Tooltip>
             <TooltipTrigger asChild>
               <Button variant="ghost" size="icon" onClick={toggleTheme} disabled={!isLoaded} aria-label="Toggle theme">
-                {settings.theme === 'dark' ? (
+                {effectiveTheme === 'dark' ? (
                   <Sun className="h-4 w-4" />
                 ) : (
                   <Moon className="h-4 w-4" />

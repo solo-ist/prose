@@ -140,4 +140,4 @@ OCR requires an Anthropic API key. If using Anthropic as the LLM provider, that 
 
 - **Component library**: Use shadcn/ui components. Don't introduce other UI libraries.
 - **Animations**: Keep minimal. Use only what shadcn/ui and tailwindcss-animate provide out of the box.
-- **Fonts**: Source Code Pro for all text (UI and editor).
+- **Fonts**: IBM Plex Mono for all text (UI and editor) by default. Users can change fonts in Settings → Editor.

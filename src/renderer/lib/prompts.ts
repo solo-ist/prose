@@ -3,6 +3,7 @@
  */
 
 import type { CommentData } from '../extensions/comments/types'
+import type { AISuggestionData } from '../extensions/ai-suggestions/types'
 
 /**
  * Strip comment HTML markup from content.
@@ -88,6 +89,28 @@ export function buildCommentsPrompt(comments: CommentData[]): string {
   })
 
   prompt += `Apply the requested changes using the edit tools. First use read_document to get node IDs, then edit the nodes containing the marked text. Address each comment in order.`
+
+  return prompt
+}
+
+/**
+ * Build a prompt for processing suggestion feedback (user replies)
+ */
+export function buildSuggestionRepliesPrompt(suggestions: AISuggestionData[]): string {
+  if (suggestions.length === 0) return ''
+
+  let prompt = `The user has provided feedback on your previous suggestions. Please revise each suggestion based on their feedback.\n\n`
+
+  suggestions.forEach((suggestion, index) => {
+    prompt += `${index + 1}. Original text: "${suggestion.originalText}"\n`
+    prompt += `   Your suggestion: "${suggestion.suggestedText}"\n`
+    if (suggestion.explanation) {
+      prompt += `   Your explanation: ${suggestion.explanation}\n`
+    }
+    prompt += `   User feedback: ${suggestion.userReply}\n\n`
+  })
+
+  prompt += `For each item, use suggest_edit to create a new suggestion that addresses the user's feedback. Use read_document first to get current node IDs. The new suggestion should incorporate the user's requested changes while maintaining proper grammar and style.`
 
   return prompt
 }

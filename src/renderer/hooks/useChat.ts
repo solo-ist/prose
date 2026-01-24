@@ -4,9 +4,10 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { useEditorStore } from '../stores/editorStore'
 import { useEditorInstanceStore } from '../stores/editorInstanceStore'
 import { validateConfig } from '../lib/llm'
-import { buildSystemPrompt, buildCommentsPrompt } from '../lib/prompts'
+import { buildSystemPrompt, buildCommentsPrompt, buildSuggestionRepliesPrompt } from '../lib/prompts'
 import { getApi } from '../lib/browserApi'
 import { getComments } from '../extensions/comments'
+import { getSuggestionsWithFeedback } from '../extensions/ai-suggestions'
 import { executeTool } from '../lib/tools'
 import { getToolsForClaudeAPI } from '../../shared/tools/registry'
 import type { LLMMessage, LLMStreamToolCall, LLMContentBlock } from '../types'
@@ -490,6 +491,33 @@ export function useChat() {
     return getComments(editor).length
   }, [])
 
+  const processSuggestionReplies = useCallback(async () => {
+    const editor = useEditorInstanceStore.getState().editor
+    if (!editor) return
+
+    const suggestionsWithFeedback = getSuggestionsWithFeedback(editor)
+    if (suggestionsWithFeedback.length === 0) return
+
+    // Build the prompt from suggestions with feedback
+    const feedbackPrompt = buildSuggestionRepliesPrompt(suggestionsWithFeedback)
+
+    // Send the message (this will trigger agent mode to create new suggestions)
+    await sendMessage(feedbackPrompt)
+
+    // Remove the old suggestions after sending (they'll be replaced by new suggestions)
+    // We do this immediately since the user triggered "Process Feedback"
+    suggestionsWithFeedback.forEach((suggestion) => {
+      editor.commands.rejectAISuggestion(suggestion.id)
+    })
+  }, [sendMessage])
+
+  // Helper to get count of suggestions with pending feedback
+  const getSuggestionFeedbackCount = useCallback(() => {
+    const editor = useEditorInstanceStore.getState().editor
+    if (!editor) return 0
+    return getSuggestionsWithFeedback(editor).length
+  }, [])
+
   // Auto-describe document on open (hidden message triggers AI summary)
   const describeDocument = useCallback(async () => {
     // Only describe if there's content and tools are available
@@ -521,6 +549,8 @@ export function useChat() {
     stopGeneration,
     processComments,
     getCommentCount,
+    processSuggestionReplies,
+    getSuggestionFeedbackCount,
     describeDocument,
     updateMessage,
     clearMessages,

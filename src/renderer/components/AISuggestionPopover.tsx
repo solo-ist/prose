@@ -1,11 +1,11 @@
 /**
- * AI Suggestion Popover - Shows suggested text with accept/reject actions
+ * AI Suggestion Popover - Shows suggested text with accept/reject/feedback actions
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import type { Editor } from '@tiptap/core'
-import { Check, X } from 'lucide-react'
+import { Check, X, MessageSquare } from 'lucide-react'
 
 interface AISuggestionPopoverProps {
   editor: Editor
@@ -16,6 +16,7 @@ interface PopoverState {
   suggestionId: string | null
   suggestedText: string
   explanation: string
+  userReply: string
   position: { x: number; y: number }
 }
 
@@ -25,9 +26,13 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
     suggestionId: null,
     suggestedText: '',
     explanation: '',
+    userReply: '',
     position: { x: 0, y: 0 },
   })
+  const [feedbackInput, setFeedbackInput] = useState('')
+  const [showFeedbackForm, setShowFeedbackForm] = useState(false)
   const popoverRef = useRef<HTMLDivElement>(null)
+  const feedbackInputRef = useRef<HTMLTextAreaElement>(null)
 
   // Handle clicks on AI suggestion marks
   useEffect(() => {
@@ -43,14 +48,18 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
         const id = suggestionMark.getAttribute('data-ai-suggestion-id')
         const suggestedText = suggestionMark.getAttribute('data-ai-suggested') || ''
         const explanation = suggestionMark.getAttribute('data-ai-explanation') || ''
+        const userReply = suggestionMark.getAttribute('data-ai-user-reply') || ''
 
         if (id) {
           const rect = suggestionMark.getBoundingClientRect()
+          setFeedbackInput(userReply) // Pre-fill with existing feedback
+          setShowFeedbackForm(!!userReply) // Show form if feedback already exists
           setPopover({
             isOpen: true,
             suggestionId: id,
             suggestedText,
             explanation,
+            userReply,
             position: {
               x: rect.left + rect.width / 2,
               y: rect.bottom + 8,
@@ -63,6 +72,8 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
       // Close popover if clicking outside
       if (popoverRef.current && !popoverRef.current.contains(target)) {
         setPopover((prev) => ({ ...prev, isOpen: false }))
+        setShowFeedbackForm(false)
+        setFeedbackInput('')
       }
     }
 
@@ -75,6 +86,8 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && popover.isOpen) {
         setPopover((prev) => ({ ...prev, isOpen: false }))
+        setShowFeedbackForm(false)
+        setFeedbackInput('')
       }
     }
 
@@ -82,10 +95,19 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [popover.isOpen])
 
+  // Focus feedback input when form is shown
+  useEffect(() => {
+    if (showFeedbackForm && feedbackInputRef.current) {
+      feedbackInputRef.current.focus()
+    }
+  }, [showFeedbackForm])
+
   const handleAccept = useCallback(() => {
     if (popover.suggestionId) {
       editor.commands.acceptAISuggestion(popover.suggestionId)
       setPopover((prev) => ({ ...prev, isOpen: false }))
+      setShowFeedbackForm(false)
+      setFeedbackInput('')
     }
   }, [editor, popover.suggestionId])
 
@@ -93,8 +115,30 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
     if (popover.suggestionId) {
       editor.commands.rejectAISuggestion(popover.suggestionId)
       setPopover((prev) => ({ ...prev, isOpen: false }))
+      setShowFeedbackForm(false)
+      setFeedbackInput('')
     }
   }, [editor, popover.suggestionId])
+
+  const handleToggleFeedback = useCallback(() => {
+    setShowFeedbackForm((prev) => !prev)
+  }, [])
+
+  const handleSubmitFeedback = useCallback(() => {
+    if (popover.suggestionId && feedbackInput.trim()) {
+      editor.commands.setAISuggestionReply(popover.suggestionId, feedbackInput.trim())
+      setPopover((prev) => ({ ...prev, isOpen: false, userReply: feedbackInput.trim() }))
+      setShowFeedbackForm(false)
+      setFeedbackInput('')
+    }
+  }, [editor, popover.suggestionId, feedbackInput])
+
+  const handleFeedbackKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      handleSubmitFeedback()
+    }
+  }, [handleSubmitFeedback])
 
   if (!popover.isOpen) return null
 
@@ -140,6 +184,38 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
         </>
       )}
 
+      {/* Feedback section */}
+      {showFeedbackForm ? (
+        <div className="feedback-section">
+          <div className="feedback-label">Your feedback:</div>
+          <textarea
+            ref={feedbackInputRef}
+            className="feedback-input"
+            value={feedbackInput}
+            onChange={(e) => setFeedbackInput(e.target.value)}
+            onKeyDown={handleFeedbackKeyDown}
+            placeholder="Tell the AI what to change..."
+            rows={2}
+          />
+          <div className="feedback-actions">
+            <button className="feedback-submit-btn" onClick={handleSubmitFeedback} disabled={!feedbackInput.trim()}>
+              Submit
+            </button>
+            <button className="feedback-cancel-btn" onClick={handleToggleFeedback}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : popover.userReply ? (
+        <div className="existing-feedback">
+          <div className="feedback-label">Your feedback:</div>
+          <div className="feedback-text">{popover.userReply}</div>
+          <button className="edit-feedback-btn" onClick={handleToggleFeedback}>
+            Edit
+          </button>
+        </div>
+      ) : null}
+
       <div className="actions">
         <button className="accept-btn" onClick={handleAccept}>
           <Check size={16} />
@@ -149,6 +225,12 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
           <X size={16} />
           Reject
         </button>
+        {!showFeedbackForm && !popover.userReply && (
+          <button className="feedback-btn" onClick={handleToggleFeedback}>
+            <MessageSquare size={16} />
+            Feedback
+          </button>
+        )}
       </div>
     </div>,
     document.body

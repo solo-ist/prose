@@ -1,4 +1,4 @@
-export { AISuggestion, getAISuggestions, aiSuggestionMarkdownSerializer } from './extension'
+export { AISuggestion, getAISuggestions, getSuggestionsWithFeedback, aiSuggestionMarkdownSerializer } from './extension'
 export type {
   AISuggestionMark,
   AISuggestionData,

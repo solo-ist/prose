@@ -8,6 +8,7 @@ import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useChatStore } from '../../stores/chatStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { CopyButton } from '../ui/copy-button'
 
 // Tool call indicator component with AI sparkle styling
 function ToolCallIndicator({ name, status, children }: { name: string; status: 'executing' | 'success' | 'error'; children?: React.ReactNode }) {
@@ -206,10 +207,16 @@ function renderMarkdown(content: string): React.ReactNode {
     if (line.startsWith('```')) {
       if (inCodeBlock) {
         // End code block
+        const codeText = codeContent.join('\n')
         elements.push(
-          <pre key={`code-${i}`} className="my-2 rounded bg-muted p-3 overflow-x-auto">
-            <code className="text-xs font-mono">{codeContent.join('\n')}</code>
-          </pre>
+          <div key={`code-${i}`} className="relative group my-2">
+            <pre className="rounded bg-muted p-3 pr-10 overflow-x-auto">
+              <code className="text-xs font-mono">{codeText}</code>
+            </pre>
+            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+              <CopyButton value={codeText} />
+            </div>
+          </div>
         )
         codeContent = []
         inCodeBlock = false
@@ -333,7 +340,7 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
   return (
     <div
       className={cn(
-        'flex gap-3 p-4 transition-colors',
+        'flex gap-3 p-4 transition-colors group',
         isUser ? 'bg-transparent' : 'bg-muted/30'
       )}
       onMouseEnter={() => setShowTimestamp(true)}
@@ -352,6 +359,14 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
         )}
       </div>
       <div className="flex-1 space-y-2 overflow-hidden">
+        {!isUser && (
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex-1" />
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+              <CopyButton value={message.content} />
+            </div>
+          </div>
+        )}
         {message.context && (
           <div className="rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">
             <span className="font-medium">Context:</span>

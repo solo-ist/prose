@@ -207,7 +207,7 @@ export function SettingsDialog() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value='"IBM Plex Mono", monospace'>
-                    IBM Plex Mono
+                    IBM Plex Mono (Default)
                   </SelectItem>
                   <SelectItem value='"IBM Plex Sans", sans-serif'>
                     IBM Plex Sans

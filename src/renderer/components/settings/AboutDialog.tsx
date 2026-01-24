@@ -5,6 +5,8 @@ import {
   DialogTitle
 } from '../ui/dialog'
 import { Separator } from '../ui/separator'
+import iconDark from '../../assets/icon-dark.png'
+import iconLight from '../../assets/icon-light.png'
 
 // Git hash is injected at build time via electron-vite.config.ts
 declare const __GIT_HASH__: string | undefined
@@ -24,9 +26,16 @@ export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
         </DialogHeader>
 
         <div className="flex flex-col items-center gap-4 py-4">
-          <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-primary/10">
-            <span className="text-3xl font-bold text-primary">P</span>
-          </div>
+          <img
+            src={iconDark}
+            alt="Prose"
+            className="h-16 w-16 hidden dark:block"
+          />
+          <img
+            src={iconLight}
+            alt="Prose"
+            className="h-16 w-16 block dark:hidden"
+          />
 
           <div className="text-center space-y-1">
             <p className="text-sm text-muted-foreground">

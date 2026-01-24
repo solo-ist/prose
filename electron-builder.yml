@@ -10,6 +10,8 @@ files:
 extraResources:
   - from: out/mcp-stdio.js
     to: mcp-stdio.js
+  - from: resources/
+    to: resources/
 
 fileAssociations:
   - ext:

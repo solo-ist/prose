@@ -5,6 +5,37 @@ const MAX_RECENT_FILES = 15
 
 type SettingsTab = 'general' | 'editor' | 'llm' | 'integrations' | 'account'
 
+// Helper to apply theme to document
+function applyTheme(theme: Settings['theme']): void {
+  const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  if (isDark) {
+    document.documentElement.classList.add('dark')
+  } else {
+    document.documentElement.classList.remove('dark')
+  }
+}
+
+// Track system theme listener
+let systemThemeListener: ((e: MediaQueryListEvent) => void) | null = null
+
+function setupSystemThemeListener(theme: Settings['theme']): void {
+  const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+
+  // Remove existing listener if any
+  if (systemThemeListener) {
+    mediaQuery.removeEventListener('change', systemThemeListener)
+    systemThemeListener = null
+  }
+
+  // Only add listener if theme is 'system'
+  if (theme === 'system') {
+    systemThemeListener = () => {
+      applyTheme('system')
+    }
+    mediaQuery.addEventListener('change', systemThemeListener)
+  }
+}
+
 interface SettingsState {
   settings: Settings
   isLoaded: boolean
@@ -12,6 +43,7 @@ interface SettingsState {
   isShortcutsDialogOpen: boolean
   isAboutDialogOpen: boolean
   dialogTab: SettingsTab
+  effectiveTheme: 'dark' | 'light'
   setSettings: (settings: Partial<Settings>) => void
   loadSettings: () => Promise<void>
   saveSettings: () => Promise<void>
@@ -47,6 +79,14 @@ const defaultSettings: Settings = {
   }
 }
 
+// Helper to compute effective theme
+function getEffectiveTheme(theme: Settings['theme']): 'dark' | 'light' {
+  if (theme === 'system') {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  }
+  return theme
+}
+
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   settings: defaultSettings,
   isLoaded: false,
@@ -54,6 +94,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   isShortcutsDialogOpen: false,
   isAboutDialogOpen: false,
   dialogTab: 'general' as SettingsTab,
+  effectiveTheme: 'dark',
 
   setSettings: (newSettings) =>
     set((state) => ({
@@ -69,14 +110,26 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         return
       }
       const settings = await window.api.loadSettings()
-      set({ settings: { ...defaultSettings, ...settings }, isLoaded: true })
-
-      // Apply theme on load
       const theme = settings.theme || 'dark'
-      if (theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-        document.documentElement.classList.add('dark')
-      } else {
-        document.documentElement.classList.remove('dark')
+      const effectiveTheme = getEffectiveTheme(theme)
+
+      set({
+        settings: { ...defaultSettings, ...settings },
+        isLoaded: true,
+        effectiveTheme
+      })
+
+      // Apply theme and set up listener
+      applyTheme(theme)
+      setupSystemThemeListener(theme)
+
+      // If theme is 'system', also listen for changes to update effectiveTheme
+      if (theme === 'system') {
+        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+        const updateEffective = () => {
+          set({ effectiveTheme: getEffectiveTheme('system') })
+        }
+        mediaQuery.addEventListener('change', updateEffective)
       }
     } catch (error) {
       console.error('Failed to load settings:', error)
@@ -105,14 +158,22 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setAboutDialogOpen: (open) => set({ isAboutDialogOpen: open }),
 
   setTheme: (theme) => {
+    const effectiveTheme = getEffectiveTheme(theme)
     set((state) => ({
-      settings: { ...state.settings, theme }
+      settings: { ...state.settings, theme },
+      effectiveTheme
     }))
 
-    if (theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-      document.documentElement.classList.add('dark')
-    } else {
-      document.documentElement.classList.remove('dark')
+    applyTheme(theme)
+    setupSystemThemeListener(theme)
+
+    // If theme is 'system', set up listener to update effectiveTheme
+    if (theme === 'system') {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+      const updateEffective = () => {
+        set({ effectiveTheme: getEffectiveTheme('system') })
+      }
+      mediaQuery.addEventListener('change', updateEffective)
     }
   },
 

@@ -73,6 +73,17 @@ export interface McpStatus {
   error?: string
 }
 
+export interface TestApiKeyRequest {
+  provider: string
+  apiKey: string
+  baseUrl?: string
+}
+
+export interface TestApiKeyResult {
+  success: boolean
+  message: string
+}
+
 export interface ElectronAPI {
   openFile: () => Promise<FileResult | null>
   saveFile: (path: string, content: string) => Promise<void>
@@ -80,6 +91,7 @@ export interface ElectronAPI {
   readFile: (path: string) => Promise<string>
   loadSettings: () => Promise<Settings>
   saveSettings: (settings: Settings) => Promise<void>
+  testApiKey: (request: TestApiKeyRequest) => Promise<TestApiKeyResult>
   onMenuAction: (callback: (action: string) => void) => () => void
   onFileOpenExternal: (callback: (path: string) => void) => () => void
   llmChat: (request: LLMRequest) => Promise<LLMResponse>
@@ -189,6 +201,7 @@ const api: ElectronAPI = {
   readFile: (path: string) => ipcRenderer.invoke('file:read', path),
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (settings: Settings) => ipcRenderer.invoke('settings:save', settings),
+  testApiKey: (request: TestApiKeyRequest) => ipcRenderer.invoke('settings:testApiKey', request),
   onMenuAction: (callback: (action: string) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, action: string): void => {
       callback(action)

@@ -283,13 +283,23 @@ export function useChat() {
       console.log('[useChat:error] Current streamId:', state.currentStreamId)
       if (error.streamId === state.currentStreamId) {
         console.log('[useChat:error] ✓ Processing error')
-        // Append error to the streaming message
+        // Append error to the streaming message with actionable guidance
         if (state.streamingMessageId) {
           const currentMsg = state.messages.find(
             (m) => m.id === state.streamingMessageId
           )
+          // Provide actionable guidance based on error type
+          const lowerError = error.error.toLowerCase()
+          let guidance = ''
+          if (lowerError.includes('api key') || lowerError.includes('unauthorized') || lowerError.includes('invalid')) {
+            guidance = ' Check your API key in Settings.'
+          } else if (lowerError.includes('rate limit') || lowerError.includes('overloaded')) {
+            guidance = ' Wait a moment and try again.'
+          } else if (lowerError.includes('connect') || lowerError.includes('network') || lowerError.includes('timeout')) {
+            guidance = ' Check your internet connection.'
+          }
           state.updateMessage(state.streamingMessageId, {
-            content: (currentMsg?.content || '') + `\n\n*Error: ${error.error}*`
+            content: (currentMsg?.content || '') + `\n\n*Error: ${error.error}${guidance}*`
           })
         }
         state.completeStreaming()
@@ -428,9 +438,25 @@ export function useChat() {
         console.error('[Chat] Error:', error)
         const errorMessage =
           error instanceof Error ? error.message : 'Unknown error'
-        // Update the assistant message with error
+
+        // Provide actionable guidance based on error type
+        let guidance = ''
+        const lowerError = errorMessage.toLowerCase()
+        if (lowerError.includes('api key') || lowerError.includes('unauthorized') || lowerError.includes('401')) {
+          guidance = 'Please check your API key in Settings (Cmd+,).'
+        } else if (lowerError.includes('rate limit') || lowerError.includes('429')) {
+          guidance = 'Please wait a moment and try again.'
+        } else if (lowerError.includes('connect') || lowerError.includes('network') || lowerError.includes('timeout')) {
+          guidance = 'Please check your internet connection and try again.'
+        } else if (lowerError.includes('model') || lowerError.includes('not found')) {
+          guidance = 'Please verify the model name in Settings (Cmd+,).'
+        } else {
+          guidance = 'Please check your settings (Cmd+,) and try again.'
+        }
+
+        // Update the assistant message with error and guidance
         updateMessage(assistantMsgId, {
-          content: `Error: ${errorMessage}. Please check your API key in Settings (Cmd+,).`
+          content: `Error: ${errorMessage}. ${guidance}`
         })
         completeStreaming()
         clearStreamRefs()

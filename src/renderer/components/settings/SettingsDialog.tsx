@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useSettings } from '../../hooks/useSettings'
 import {
   Dialog,
@@ -22,6 +22,9 @@ import { Slider } from '../ui/slider'
 import { Switch } from '../ui/switch'
 import { RemarkableIntegration } from './RemarkableIntegration'
 import type { Settings } from '../../types'
+import { Eye, EyeOff, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
+import { getModelsForProvider, getDefaultModel, type LLMProvider } from '../../../shared/llm/models'
+import { validateApiKeyFormat, validateUrl, maskApiKey } from '../../lib/llm'
 
 export function SettingsDialog() {
   const {
@@ -44,6 +47,47 @@ export function SettingsDialog() {
   const [isDefaultHandler, setIsDefaultHandler] = useState<boolean | null>(null)
   const [checkingDefault, setCheckingDefault] = useState(false)
 
+  // API key visibility and testing
+  const [showApiKey, setShowApiKey] = useState(false)
+  const [testingApiKey, setTestingApiKey] = useState(false)
+  const [apiKeyTestResult, setApiKeyTestResult] = useState<{ success: boolean; message: string } | null>(null)
+
+  // Custom model input (for when user wants to enter a model not in the list)
+  const [customModel, setCustomModel] = useState(false)
+
+  // Get models for current provider
+  const availableModels = useMemo(
+    () => getModelsForProvider(settings.llm.provider as LLMProvider),
+    [settings.llm.provider]
+  )
+
+  // Check if current model is in the list
+  const isCustomModel = useMemo(
+    () => !availableModels.some(m => m.id === settings.llm.model),
+    [availableModels, settings.llm.model]
+  )
+
+  // Validation errors
+  const apiKeyFormatError = useMemo(
+    () => validateApiKeyFormat(settings.llm.provider as LLMProvider, settings.llm.apiKey),
+    [settings.llm.provider, settings.llm.apiKey]
+  )
+
+  const baseUrlError = useMemo(
+    () => validateUrl(settings.llm.baseUrl || ''),
+    [settings.llm.baseUrl]
+  )
+
+  // Reset API key test result when key changes
+  useEffect(() => {
+    setApiKeyTestResult(null)
+  }, [settings.llm.apiKey, settings.llm.provider])
+
+  // Reset custom model state when provider changes
+  useEffect(() => {
+    setCustomModel(isCustomModel)
+  }, [settings.llm.provider, isCustomModel])
+
   // Check if we're the default handler when dialog opens
   useEffect(() => {
     if (isDialogOpen && window.api?.fileAssociationIsDefault) {
@@ -57,6 +101,46 @@ export function SettingsDialog() {
   const handleSave = async () => {
     await saveSettings()
     setDialogOpen(false)
+  }
+
+  const handleProviderChange = (provider: LLMProvider) => {
+    // When provider changes, set the default model for that provider
+    const defaultModel = getDefaultModel(provider)
+    setLLMConfig({ provider, model: defaultModel })
+    setCustomModel(false)
+    setApiKeyTestResult(null)
+  }
+
+  const handleTestApiKey = async () => {
+    if (!settings.llm.apiKey || apiKeyFormatError) return
+
+    setTestingApiKey(true)
+    setApiKeyTestResult(null)
+
+    try {
+      // Use the window.api if available, otherwise show error
+      if (window.api?.testApiKey) {
+        const result = await window.api.testApiKey({
+          provider: settings.llm.provider,
+          apiKey: settings.llm.apiKey,
+          baseUrl: settings.llm.baseUrl
+        })
+        setApiKeyTestResult(result)
+      } else {
+        // Fallback: do a simple validation check
+        setApiKeyTestResult({
+          success: true,
+          message: 'API key format is valid (connection test not available in browser)'
+        })
+      }
+    } catch (error) {
+      setApiKeyTestResult({
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to test API key'
+      })
+    } finally {
+      setTestingApiKey(false)
+    }
   }
 
   return (
@@ -280,9 +364,7 @@ export function SettingsDialog() {
               <Label htmlFor="provider">Provider</Label>
               <Select
                 value={settings.llm.provider}
-                onValueChange={(value) =>
-                  setLLMConfig({ provider: value as Settings['llm']['provider'] })
-                }
+                onValueChange={(value) => handleProviderChange(value as LLMProvider)}
               >
                 <SelectTrigger id="provider">
                   <SelectValue />
@@ -297,30 +379,147 @@ export function SettingsDialog() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="model">Model</Label>
-              <Input
-                id="model"
-                value={settings.llm.model}
-                onChange={(e) => setLLMConfig({ model: e.target.value })}
-                placeholder="e.g., claude-sonnet-4-20250514"
-              />
+              <div className="flex items-center justify-between">
+                <Label htmlFor="model">Model</Label>
+                {!customModel && (
+                  <button
+                    type="button"
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                    onClick={() => setCustomModel(true)}
+                  >
+                    Use custom model
+                  </button>
+                )}
+                {customModel && (
+                  <button
+                    type="button"
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      setCustomModel(false)
+                      // Reset to first model in list if current is custom
+                      if (isCustomModel && availableModels.length > 0) {
+                        setLLMConfig({ model: availableModels[0].id })
+                      }
+                    }}
+                  >
+                    Choose from list
+                  </button>
+                )}
+              </div>
+              {customModel ? (
+                <Input
+                  id="model"
+                  value={settings.llm.model}
+                  onChange={(e) => setLLMConfig({ model: e.target.value })}
+                  placeholder="e.g., claude-sonnet-4-20250514"
+                />
+              ) : (
+                <Select
+                  value={settings.llm.model}
+                  onValueChange={(value) => setLLMConfig({ model: value })}
+                >
+                  <SelectTrigger id="model">
+                    <SelectValue placeholder="Select a model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableModels.map((model) => (
+                      <SelectItem key={model.id} value={model.id}>
+                        <div className="flex flex-col">
+                          <span>{model.name}</span>
+                          {model.description && (
+                            <span className="text-xs text-muted-foreground">
+                              {model.description}
+                            </span>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              {customModel && settings.llm.provider === 'ollama' && (
+                <p className="text-xs text-muted-foreground">
+                  Make sure this model is installed: <code>ollama pull {settings.llm.model}</code>
+                </p>
+              )}
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="apiKey">API Key</Label>
-              <Input
-                id="apiKey"
-                type="password"
-                value={settings.llm.apiKey}
-                onChange={(e) => setLLMConfig({ apiKey: e.target.value })}
-                placeholder="Enter your API key"
-              />
-            </div>
+            {settings.llm.provider !== 'ollama' && (
+              <div className="space-y-2">
+                <Label htmlFor="apiKey">API Key</Label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Input
+                      id="apiKey"
+                      type={showApiKey ? 'text' : 'password'}
+                      value={settings.llm.apiKey}
+                      onChange={(e) => setLLMConfig({ apiKey: e.target.value })}
+                      placeholder="Enter your API key"
+                      className={apiKeyFormatError ? 'border-amber-500 pr-10' : 'pr-10'}
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      tabIndex={-1}
+                    >
+                      {showApiKey ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleTestApiKey}
+                    disabled={!settings.llm.apiKey || !!apiKeyFormatError || testingApiKey}
+                  >
+                    {testingApiKey ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      'Test'
+                    )}
+                  </Button>
+                </div>
+                {apiKeyFormatError && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    {apiKeyFormatError}
+                  </p>
+                )}
+                {apiKeyTestResult && (
+                  <p className={`text-xs flex items-center gap-1 ${
+                    apiKeyTestResult.success
+                      ? 'text-green-600 dark:text-green-400'
+                      : 'text-red-600 dark:text-red-400'
+                  }`}>
+                    {apiKeyTestResult.success ? (
+                      <CheckCircle2 className="h-3 w-3" />
+                    ) : (
+                      <AlertCircle className="h-3 w-3" />
+                    )}
+                    {apiKeyTestResult.message}
+                  </p>
+                )}
+                {settings.llm.apiKey && !showApiKey && !apiKeyFormatError && (
+                  <p className="text-xs text-muted-foreground">
+                    Current key: {maskApiKey(settings.llm.apiKey)}
+                  </p>
+                )}
+              </div>
+            )}
 
             {(settings.llm.provider === 'ollama' ||
               settings.llm.provider === 'openrouter') && (
               <div className="space-y-2">
-                <Label htmlFor="baseUrl">Base URL</Label>
+                <Label htmlFor="baseUrl">
+                  Base URL
+                  {settings.llm.provider === 'ollama' && (
+                    <span className="text-xs text-muted-foreground ml-2">(optional)</span>
+                  )}
+                </Label>
                 <Input
                   id="baseUrl"
                   value={settings.llm.baseUrl || ''}
@@ -330,7 +529,19 @@ export function SettingsDialog() {
                       ? 'http://localhost:11434'
                       : 'https://openrouter.ai/api/v1'
                   }
+                  className={baseUrlError ? 'border-red-500' : ''}
                 />
+                {baseUrlError && (
+                  <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    {baseUrlError}
+                  </p>
+                )}
+                {settings.llm.provider === 'ollama' && !baseUrlError && (
+                  <p className="text-xs text-muted-foreground">
+                    Leave empty to use default (http://localhost:11434)
+                  </p>
+                )}
               </div>
             )}
           </TabsContent>

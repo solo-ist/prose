@@ -26,6 +26,7 @@ import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useChatStore, setCurrentDocumentId } from '../../stores/chatStore'
 import { useTabStore, createTab, restoreSession, clearSavedSession, hasUnsavedTabs } from '../../stores/tabStore'
 import { useFileListStore } from '../../stores/fileListStore'
+import { useAutosave } from '../../hooks/useAutosave'
 import {
   loadDraft,
   clearDraft,
@@ -55,6 +56,9 @@ export function App() {
   const editor = useEditorInstanceStore((state) => state.editor)
   const tabs = useTabStore((state) => state.tabs)
   const addTab = useTabStore((state) => state.addTab)
+
+  // Initialize autosave functionality
+  useAutosave()
 
   // Update window title based on document state
   useEffect(() => {

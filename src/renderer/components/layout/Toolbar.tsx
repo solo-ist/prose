@@ -14,6 +14,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuCheckboxItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '../ui/dropdown-menu'
@@ -59,7 +60,7 @@ export function Toolbar() {
     closeAllTabs,
     renameTab
   } = useTabs()
-  const { settings, isLoaded, setTheme, setDialogOpen } = useSettings()
+  const { settings, isLoaded, setTheme, setDialogOpen, setAutosaveConfig } = useSettings()
   const { isPanelOpen: isChatOpen, togglePanel: toggleChatPanel } = useChat()
   const { isPanelOpen: isFileListOpen, togglePanel: toggleFileListPanel } = useFileList()
   const isEditing = useEditorStore((state) => state.isEditing)
@@ -269,6 +270,12 @@ export function Toolbar() {
               <DropdownMenuItem onClick={saveFileAs}>
                 Save as...
               </DropdownMenuItem>
+              <DropdownMenuCheckboxItem
+                checked={settings.autosave?.enabled ?? false}
+                onCheckedChange={(checked) => setAutosaveConfig({ enabled: checked })}
+              >
+                Autosave
+              </DropdownMenuCheckboxItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setDialogOpen(true)}>
                 <Settings className="mr-2 h-4 w-4" />

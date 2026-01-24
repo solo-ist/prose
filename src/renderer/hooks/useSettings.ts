@@ -22,7 +22,8 @@ export function useSettings() {
     setRecoveryConfig,
     setDefaultSaveDirectory,
     setRemarkableConfig,
-    setFileAssociationConfig
+    setFileAssociationConfig,
+    setAutosaveConfig
   } = useSettingsStore()
 
   useEffect(() => {
@@ -50,6 +51,7 @@ export function useSettings() {
     setRecoveryConfig,
     setDefaultSaveDirectory,
     setRemarkableConfig,
-    setFileAssociationConfig
+    setFileAssociationConfig,
+    setAutosaveConfig
   }
 }

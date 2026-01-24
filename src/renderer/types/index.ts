@@ -33,6 +33,10 @@ export interface Settings {
   fileAssociation?: {
     hasBeenPrompted: boolean
   }
+  autosave?: {
+    enabled: boolean
+    intervalSeconds: number
+  }
 }
 
 export interface Document {

@@ -45,7 +45,7 @@ export const useFileListStore = create<FileListState>()(
   subscribeWithSelector((set, get) => ({
     isPanelOpen: false,
     isLoading: false,
-    viewMode: 'notebooks' as ViewMode,
+    viewMode: 'folder' as ViewMode,
     isInitialized: false,
     files: [],
     rootPath: null,

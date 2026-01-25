@@ -27,36 +27,17 @@ export interface ValidationResult {
  * Returns null if valid, error message if invalid.
  */
 export function validateApiKeyFormat(provider: LLMProviderType, apiKey: string): string | null {
-  if (!apiKey) return null // Empty is handled separately
-
-  switch (provider) {
-    case 'anthropic':
-      // Anthropic keys start with sk-ant-
-      if (!apiKey.startsWith('sk-ant-')) {
-        return 'Anthropic API keys should start with "sk-ant-"'
-      }
-      if (apiKey.length < 40) {
-        return 'Anthropic API key appears to be incomplete'
-      }
-      break
-    case 'openai':
-      // OpenAI keys start with sk-
-      if (!apiKey.startsWith('sk-')) {
-        return 'OpenAI API keys should start with "sk-"'
-      }
-      if (apiKey.length < 40) {
-        return 'OpenAI API key appears to be incomplete'
-      }
-      break
-    case 'openrouter':
-      // OpenRouter keys start with sk-or-
-      if (!apiKey.startsWith('sk-or-')) {
-        return 'OpenRouter API keys should start with "sk-or-"'
-      }
-      break
-    case 'ollama':
-      // Ollama typically doesn't require an API key
-      break
+  // Anthropic requires an API key
+  if (provider === 'anthropic') {
+    if (!apiKey || !apiKey.trim()) {
+      return 'API key is required'
+    }
+    if (!apiKey.startsWith('sk-ant-')) {
+      return 'Anthropic API keys should start with "sk-ant-"'
+    }
+    if (apiKey.length < 40) {
+      return 'Anthropic API key appears to be incomplete'
+    }
   }
   return null
 }

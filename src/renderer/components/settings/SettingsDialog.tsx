@@ -371,9 +371,6 @@ export function SettingsDialog() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="anthropic">Anthropic</SelectItem>
-                  <SelectItem value="openai">OpenAI</SelectItem>
-                  <SelectItem value="openrouter">OpenRouter</SelectItem>
-                  <SelectItem value="ollama">Ollama</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -424,7 +421,7 @@ export function SettingsDialog() {
                   <SelectContent>
                     {availableModels.map((model) => (
                       <SelectItem key={model.id} value={model.id}>
-                        <div className="flex flex-col">
+                        <div className="flex flex-col items-start text-left">
                           <span>{model.name}</span>
                           {model.description && (
                             <span className="text-xs text-muted-foreground">
@@ -437,14 +434,10 @@ export function SettingsDialog() {
                   </SelectContent>
                 </Select>
               )}
-              {customModel && settings.llm.provider === 'ollama' && (
-                <p className="text-xs text-muted-foreground">
-                  Make sure this model is installed: <code>ollama pull {settings.llm.model}</code>
-                </p>
-              )}
             </div>
 
-            {settings.llm.provider !== 'ollama' && (
+            {/* API Key - always shown for Anthropic */}
+            {settings.llm.provider === 'anthropic' && (
               <div className="space-y-2">
                 <Label htmlFor="apiKey">API Key</Label>
                 <div className="flex gap-2">
@@ -511,39 +504,6 @@ export function SettingsDialog() {
               </div>
             )}
 
-            {(settings.llm.provider === 'ollama' ||
-              settings.llm.provider === 'openrouter') && (
-              <div className="space-y-2">
-                <Label htmlFor="baseUrl">
-                  Base URL
-                  {settings.llm.provider === 'ollama' && (
-                    <span className="text-xs text-muted-foreground ml-2">(optional)</span>
-                  )}
-                </Label>
-                <Input
-                  id="baseUrl"
-                  value={settings.llm.baseUrl || ''}
-                  onChange={(e) => setLLMConfig({ baseUrl: e.target.value })}
-                  placeholder={
-                    settings.llm.provider === 'ollama'
-                      ? 'http://localhost:11434'
-                      : 'https://openrouter.ai/api/v1'
-                  }
-                  className={baseUrlError ? 'border-red-500' : ''}
-                />
-                {baseUrlError && (
-                  <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" />
-                    {baseUrlError}
-                  </p>
-                )}
-                {settings.llm.provider === 'ollama' && !baseUrlError && (
-                  <p className="text-xs text-muted-foreground">
-                    Leave empty to use default (http://localhost:11434)
-                  </p>
-                )}
-              </div>
-            )}
           </TabsContent>
 
           <TabsContent value="integrations" className="space-y-4 mt-4">
@@ -577,7 +537,7 @@ export function SettingsDialog() {
           <Button variant="outline" onClick={() => setDialogOpen(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSave}>Save Changes</Button>
+          <Button onClick={handleSave} disabled={!!apiKeyFormatError}>Save Changes</Button>
         </div>
       </DialogContent>
     </Dialog>

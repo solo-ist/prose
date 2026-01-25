@@ -10,11 +10,8 @@ export interface ModelInfo {
 }
 
 export const ANTHROPIC_MODELS: ModelInfo[] = [
-  { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', description: 'Best balance of speed and intelligence' },
-  { id: 'claude-opus-4-20250514', name: 'Claude Opus 4', description: 'Most capable model' },
-  { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', description: 'Previous generation' },
-  { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', description: 'Fast and efficient' },
-  { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus', description: 'Previous generation flagship' },
+  { id: 'claude-sonnet-4-5-20250929', name: 'Claude Sonnet 4.5', description: 'Best balance of speed and intelligence' },
+  { id: 'claude-opus-4-5-20251101', name: 'Claude Opus 4.5', description: 'Most capable model' },
 ]
 
 export const OPENAI_MODELS: ModelInfo[] = [
@@ -83,7 +80,7 @@ export function isKnownModel(provider: LLMProvider, modelId: string): boolean {
 export function getDefaultModel(provider: LLMProvider): string {
   switch (provider) {
     case 'anthropic':
-      return 'claude-sonnet-4-20250514'
+      return 'claude-sonnet-4-5-20250929'
     case 'openai':
       return 'gpt-4o'
     case 'openrouter':

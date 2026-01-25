@@ -79,8 +79,11 @@ export const useEditorStore = create<EditorState>()(
     setContent: (content) =>
       set((state) => {
         const contentChanged = state.document.content !== content
+        // Only mark dirty if content actually changed
+        // Preserve existing dirty state if content is the same
+        const newDirty = contentChanged ? true : state.document.isDirty
         return {
-          document: { ...state.document, content, isDirty: true },
+          document: { ...state.document, content, isDirty: newDirty },
           // Only invalidate cache when content actually changes
           readCache: contentChanged
             ? { content: null, documentId: null }

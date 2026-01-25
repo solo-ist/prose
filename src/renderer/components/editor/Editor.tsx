@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react'
 import { useEditor as useTipTapEditor, EditorContent } from '@tiptap/react'
+import { EditorState } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import Link from '@tiptap/extension-link'
@@ -36,6 +37,7 @@ export function Editor() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isUpdatingFromStore = useRef(false)
   const frontmatterRef = useRef<string>('')
+  const lastDocumentIdRef = useRef<string>(document.documentId)
   const [isFindOpen, setIsFindOpen] = useState(false)
   const [isAddCommentOpen, setIsAddCommentOpen] = useState(false)
   const [pendingCommentSelection, setPendingCommentSelection] = useState<{
@@ -103,6 +105,8 @@ export function Editor() {
         class: 'outline-none min-h-full'
       }
     },
+    // Note: No onCreate needed - editor is created with initial content,
+    // so history naturally starts from that state
     onUpdate: ({ editor }) => {
       if (isUpdatingFromStore.current) return
 
@@ -141,11 +145,37 @@ export function Editor() {
     // Get current editor content (without frontmatter since we strip it)
     const currentMarkdown = editor.storage.markdown?.getMarkdown() || ''
 
+    // Check if this is a new document (different documentId)
+    const isNewDocument = lastDocumentIdRef.current !== document.documentId
+    if (isNewDocument) {
+      lastDocumentIdRef.current = document.documentId
+    }
+
     // Check if body content differs (comparing without frontmatter)
     if (newBody !== currentMarkdown) {
       isUpdatingFromStore.current = true
       frontmatterRef.current = newFrontmatter
-      editor.commands.setContent(newBody)
+
+      if (isNewDocument) {
+        // Create a fresh EditorState when loading a new document.
+        // This resets the undo history so users can't undo past the initial document state.
+        // Note: TipTap's clearHistory() doesn't exist - ProseMirror requires recreating the state.
+
+        // First, set the content to let tiptap-markdown parse it
+        editor.commands.setContent(newBody)
+
+        // Now create a fresh state with the parsed document (this clears history)
+        const newState = EditorState.create({
+          doc: editor.state.doc,
+          plugins: editor.state.plugins,
+          schema: editor.state.schema,
+        })
+        editor.view.updateState(newState)
+      } else {
+        // Normal content update - preserve history so user can undo their edits
+        editor.commands.setContent(newBody)
+      }
+
       isUpdatingFromStore.current = false
 
       // Scroll to top when new content is loaded
@@ -157,7 +187,7 @@ export function Editor() {
       // Just update frontmatter ref if only frontmatter changed
       frontmatterRef.current = newFrontmatter
     }
-  }, [editor, document.content])
+  }, [editor, document.content, document.documentId])
 
   // Register editor instance in store for cross-component access
   useEffect(() => {

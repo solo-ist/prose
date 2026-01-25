@@ -1,6 +1,5 @@
 import { google, docs_v1 } from 'googleapis'
 import { getAuthenticatedClient } from './auth'
-import { Readable } from 'stream'
 
 /**
  * Extract a Google Doc ID from either a raw ID or a full Google Docs URL.
@@ -43,7 +42,7 @@ export async function createDoc(title: string, markdown: string): Promise<string
     },
     media: {
       mimeType: 'text/markdown',
-      body: Readable.from([markdown])
+      body: markdown
     },
     fields: 'id'
   })

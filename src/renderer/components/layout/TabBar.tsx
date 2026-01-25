@@ -114,7 +114,7 @@ export function TabBar({ onTabClick, onTabClose, onTabCloseOthers, onTabCloseAll
       axis="x"
       values={tabs}
       onReorder={setTabOrder}
-      className="flex items-center gap-0.5"
+      className="flex items-center gap-0.5 app-region-no-drag"
     >
       {tabs.map((tab) => (
         <TabItem

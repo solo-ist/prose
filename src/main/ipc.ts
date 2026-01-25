@@ -3,6 +3,7 @@ import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat } fro
 import { join, normalize, isAbsolute } from 'path'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
+import { withRetry, getNetworkErrorMessage } from '../shared/utils/retry'
 
 // Content block types for Anthropic API tool use
 interface LLMTextBlock {
@@ -320,6 +321,87 @@ export function setupIpcHandlers(): void {
     }
   })
 
+  // Settings: Test API key (validates by making a minimal request)
+  ipcMain.handle('settings:testApiKey', async (_event, request: {
+    provider: string
+    apiKey: string
+    baseUrl?: string
+  }): Promise<{ success: boolean; message: string }> => {
+    const { provider, apiKey, baseUrl } = request
+
+    try {
+      switch (provider) {
+        case 'anthropic': {
+          const Anthropic = (await import('@anthropic-ai/sdk')).default
+          const client = new Anthropic({ apiKey })
+          // Make a minimal request to validate the key
+          await client.messages.create({
+            model: 'claude-3-5-haiku-20241022',
+            max_tokens: 1,
+            messages: [{ role: 'user', content: 'Hi' }]
+          })
+          return { success: true, message: 'API key is valid' }
+        }
+        case 'openai': {
+          const { createOpenAI } = await import('@ai-sdk/openai')
+          const openai = createOpenAI({ apiKey })
+          const { generateText } = await import('ai')
+          await generateText({
+            model: openai('gpt-4o-mini'),
+            maxTokens: 1,
+            prompt: 'Hi'
+          })
+          return { success: true, message: 'API key is valid' }
+        }
+        case 'openrouter': {
+          const { createOpenRouter } = await import('@openrouter/ai-sdk-provider')
+          const openrouter = createOpenRouter({ apiKey })
+          const { generateText } = await import('ai')
+          await generateText({
+            model: openrouter('openai/gpt-4o-mini'),
+            maxTokens: 1,
+            prompt: 'Hi'
+          })
+          return { success: true, message: 'API key is valid' }
+        }
+        case 'ollama': {
+          // For Ollama, test connectivity to the base URL
+          const url = baseUrl || 'http://localhost:11434'
+          const response = await fetch(`${url}/api/tags`)
+          if (!response.ok) {
+            throw new Error(`Ollama server returned ${response.status}`)
+          }
+          return { success: true, message: 'Connected to Ollama server' }
+        }
+        default:
+          return { success: false, message: `Unknown provider: ${provider}` }
+      }
+    } catch (error) {
+      console.error('[testApiKey] Error:', error)
+
+      // Parse error messages for better user feedback
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+
+      if (errorMessage.includes('401') || errorMessage.includes('Unauthorized') || errorMessage.includes('invalid_api_key')) {
+        return { success: false, message: 'Invalid API key' }
+      }
+      if (errorMessage.includes('403') || errorMessage.includes('Forbidden')) {
+        return { success: false, message: 'API key does not have required permissions' }
+      }
+      if (errorMessage.includes('429') || errorMessage.includes('rate_limit')) {
+        return { success: false, message: 'Rate limited - but API key is valid' }
+      }
+      if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('fetch failed')) {
+        return { success: false, message: 'Could not connect to server' }
+      }
+      if (errorMessage.includes('ETIMEDOUT') || errorMessage.includes('timeout')) {
+        return { success: false, message: 'Connection timed out' }
+      }
+
+      return { success: false, message: errorMessage }
+    }
+  })
+
   // LLM: Chat completion (runs in main process to avoid CORS)
   ipcMain.handle('llm:chat', async (_event, request: LLMRequest) => {
     const { createAnthropic } = await import('@ai-sdk/anthropic')
@@ -360,28 +442,44 @@ export function setupIpcHandlers(): void {
     }
 
     try {
-      const result = streamText({
-        model,
-        system: request.system,
-        messages: request.messages
-      })
+      // Use retry logic for transient network errors
+      const textContent = await withRetry(
+        async () => {
+          const result = streamText({
+            model,
+            system: request.system,
+            messages: request.messages
+          })
 
-      // Collect the full response
-      let textContent = ''
-      for await (const part of result.fullStream) {
-        if (part.type === 'text-delta') {
-          const delta = (part as { text?: string; textDelta?: string }).text ??
-                        (part as { text?: string; textDelta?: string }).textDelta ?? ''
-          textContent += delta
-        } else if (part.type === 'error') {
-          console.error('[LLM] Stream error:', part.error)
-          throw part.error
+          // Collect the full response
+          let content = ''
+          for await (const part of result.fullStream) {
+            if (part.type === 'text-delta') {
+              const delta = (part as { text?: string; textDelta?: string }).text ??
+                            (part as { text?: string; textDelta?: string }).textDelta ?? ''
+              content += delta
+            } else if (part.type === 'error') {
+              console.error('[LLM] Stream error:', part.error)
+              throw part.error
+            }
+          }
+          return content
+        },
+        {
+          maxRetries: 2,
+          onRetry: (attempt, error, delay) => {
+            console.log(`[LLM] Retry attempt ${attempt} after ${delay}ms:`, error.message)
+          }
         }
-      }
+      )
 
       return { content: textContent }
     } catch (error) {
       console.error('[LLM] Error:', error)
+      // Enhance error message for user
+      if (error instanceof Error) {
+        error.message = getNetworkErrorMessage(error)
+      }
       throw error
     }
   })
@@ -500,7 +598,7 @@ export function setupIpcHandlers(): void {
         console.error('[LLM:stream] Anthropic direct error:', error)
         event.sender.send('llm:stream:error', {
           streamId,
-          error: error instanceof Error ? error.message : 'Unknown error'
+          error: getNetworkErrorMessage(error)
         })
         return { success: false }
       } finally {
@@ -583,7 +681,7 @@ export function setupIpcHandlers(): void {
       } else {
         event.sender.send('llm:stream:error', {
           streamId,
-          error: error instanceof Error ? error.message : 'Unknown error'
+          error: getNetworkErrorMessage(error)
         })
       }
       return { success: false }

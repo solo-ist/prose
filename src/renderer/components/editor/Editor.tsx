@@ -35,6 +35,7 @@ export function Editor() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isUpdatingFromStore = useRef(false)
   const frontmatterRef = useRef<string>('')
+  const lastDocumentIdRef = useRef<string>(document.documentId)
   const [isFindOpen, setIsFindOpen] = useState(false)
   const [isAddCommentOpen, setIsAddCommentOpen] = useState(false)
   const [pendingCommentSelection, setPendingCommentSelection] = useState<{
@@ -101,6 +102,10 @@ export function Editor() {
         class: 'outline-none min-h-full'
       }
     },
+    onCreate: ({ editor }) => {
+      // Clear history after initial content load to prevent undoing to empty state
+      editor.commands.clearHistory?.()
+    },
     onUpdate: ({ editor }) => {
       if (isUpdatingFromStore.current) return
 
@@ -139,17 +144,27 @@ export function Editor() {
     // Get current editor content (without frontmatter since we strip it)
     const currentMarkdown = editor.storage.markdown?.getMarkdown() || ''
 
+    // Check if this is a new document (different documentId)
+    const isNewDocument = lastDocumentIdRef.current !== document.documentId
+    if (isNewDocument) {
+      lastDocumentIdRef.current = document.documentId
+    }
+
     // Check if body content differs (comparing without frontmatter)
     if (newBody !== currentMarkdown) {
       isUpdatingFromStore.current = true
       frontmatterRef.current = newFrontmatter
       editor.commands.setContent(newBody)
+      // Clear history when loading a new document to prevent undoing past initial load
+      if (isNewDocument) {
+        editor.commands.clearHistory?.()
+      }
       isUpdatingFromStore.current = false
     } else if (newFrontmatter !== frontmatterRef.current) {
       // Just update frontmatter ref if only frontmatter changed
       frontmatterRef.current = newFrontmatter
     }
-  }, [editor, document.content])
+  }, [editor, document.content, document.documentId])
 
   // Register editor instance in store for cross-component access
   useEffect(() => {

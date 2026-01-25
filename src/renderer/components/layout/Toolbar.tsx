@@ -14,7 +14,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuCheckboxItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '../ui/dropdown-menu'
@@ -44,7 +43,8 @@ import {
   PanelRight,
   MoreHorizontal,
   Copy,
-  Check
+  Check,
+  Timer
 } from 'lucide-react'
 
 export function Toolbar() {
@@ -60,7 +60,7 @@ export function Toolbar() {
     closeAllTabs,
     renameTab
   } = useTabs()
-  const { settings, isLoaded, effectiveTheme, setTheme, setDialogOpen, setAutosaveConfig } = useSettings()
+  const { settings, isLoaded, effectiveTheme, autosaveActive, setTheme, setDialogOpen, toggleAutosaveActive } = useSettings()
   const { isPanelOpen: isChatOpen, togglePanel: toggleChatPanel } = useChat()
   const { isPanelOpen: isFileListOpen, togglePanel: toggleFileListPanel } = useFileList()
   const isEditing = useEditorStore((state) => state.isEditing)
@@ -219,6 +219,23 @@ export function Toolbar() {
             <TooltipContent>{hasCopied ? 'Copied!' : 'Copy document'}</TooltipContent>
           </Tooltip>
 
+          {settings.autosave?.enabled && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={toggleAutosaveActive}
+                  aria-label={autosaveActive ? 'Pause autosave' : 'Resume autosave'}
+                  className={autosaveActive ? '' : 'text-muted-foreground'}
+                >
+                  <Timer className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{autosaveActive ? 'Autosave on' : 'Autosave paused'}</TooltipContent>
+            </Tooltip>
+          )}
+
           <Tooltip>
             <TooltipTrigger asChild>
               <Button variant="ghost" size="icon" onClick={toggleTheme} disabled={!isLoaded} aria-label="Toggle theme">
@@ -266,12 +283,6 @@ export function Toolbar() {
               <DropdownMenuItem onClick={saveFileAs}>
                 Save as...
               </DropdownMenuItem>
-              <DropdownMenuCheckboxItem
-                checked={settings.autosave?.enabled ?? false}
-                onCheckedChange={(checked) => setAutosaveConfig({ enabled: checked })}
-              >
-                Autosave
-              </DropdownMenuCheckboxItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setDialogOpen(true)}>
                 <Settings className="mr-2 h-4 w-4" />

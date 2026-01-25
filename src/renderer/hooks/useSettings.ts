@@ -10,6 +10,7 @@ export function useSettings() {
     isAboutDialogOpen,
     dialogTab,
     effectiveTheme,
+    autosaveActive,
     setSettings,
     loadSettings,
     saveSettings,
@@ -24,7 +25,8 @@ export function useSettings() {
     setDefaultSaveDirectory,
     setRemarkableConfig,
     setFileAssociationConfig,
-    setAutosaveConfig
+    setAutosaveConfig,
+    toggleAutosaveActive
   } = useSettingsStore()
 
   useEffect(() => {
@@ -41,6 +43,7 @@ export function useSettings() {
     isAboutDialogOpen,
     dialogTab,
     effectiveTheme,
+    autosaveActive,
     setSettings,
     saveSettings,
     setDialogOpen,
@@ -54,6 +57,7 @@ export function useSettings() {
     setDefaultSaveDirectory,
     setRemarkableConfig,
     setFileAssociationConfig,
-    setAutosaveConfig
+    setAutosaveConfig,
+    toggleAutosaveActive
   }
 }

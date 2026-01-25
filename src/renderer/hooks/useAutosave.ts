@@ -50,16 +50,17 @@ export function useAutosave() {
     const unsubscribe = useEditorStore.subscribe(
       (state) => ({ isDirty: state.document.isDirty, path: state.document.path }),
       ({ isDirty, path }) => {
-        const settings = useSettingsStore.getState().settings
+        const { settings, autosaveActive } = useSettingsStore.getState()
 
         // Clear any existing timer
         clearTimer()
 
         // Only set up autosave if:
-        // - Autosave is enabled
+        // - Autosave feature is enabled in settings
+        // - Autosave is currently active (runtime toggle)
         // - Document has a path (is saved to disk)
         // - Document is dirty
-        if (settings.autosave?.enabled && path && isDirty) {
+        if (settings.autosave?.enabled && autosaveActive && path && isDirty) {
           const intervalMs = (settings.autosave.intervalSeconds ?? 30) * 1000
           timerRef.current = setTimeout(performSave, intervalMs)
         }
@@ -69,10 +70,10 @@ export function useAutosave() {
 
     // Also subscribe to settings changes to handle autosave being toggled
     const unsubscribeSettings = useSettingsStore.subscribe(
-      (state) => state.settings.autosave,
-      (autosave) => {
-        // If autosave was disabled, clear any pending save
-        if (!autosave?.enabled) {
+      (state) => ({ autosave: state.settings.autosave, autosaveActive: state.autosaveActive }),
+      ({ autosave, autosaveActive }) => {
+        // If autosave feature was disabled or runtime toggle is off, clear any pending save
+        if (!autosave?.enabled || !autosaveActive) {
           clearTimer()
         }
       }

@@ -53,7 +53,7 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
         if (id) {
           const rect = suggestionMark.getBoundingClientRect()
           setFeedbackInput(userReply) // Pre-fill with existing feedback
-          setShowFeedbackForm(!!userReply) // Show form if feedback already exists
+          setShowFeedbackForm(false) // Always start in view mode, user can click Edit
           setPopover({
             isOpen: true,
             suggestionId: id,

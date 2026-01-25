@@ -3,13 +3,14 @@
  */
 
 import type { Editor } from '@tiptap/core'
-import type { ToolResult, DiffSuggestion } from '../../../../shared/tools/types'
+import type { ToolResult } from '../../../../shared/tools/types'
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useEditorStore } from '../../../stores/editorStore'
 import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
 import { useAnnotationStore } from '../../../extensions/ai-annotations'
 import { findNodeById } from '../../../extensions/node-ids'
 import { generateId } from '../../persistence'
+import { getAISuggestions } from '../../../extensions/ai-suggestions'
 
 /**
  * Get the TipTap editor instance.
@@ -175,30 +176,17 @@ export function executeSuggestEdit(args: {
   })
 }
 
-/**
- * Get all pending diff suggestions in the document.
- */
-function getPendingDiffs(editor: Editor): DiffSuggestion[] {
-  const diffs: DiffSuggestion[] = []
-
-  editor.state.doc.descendants((node) => {
-    if (node.type.name === 'diffSuggestion') {
-      diffs.push({
-        id: node.attrs.id,
-        originalText: node.attrs.originalText,
-        suggestedText: node.attrs.suggestedText,
-        comment: node.attrs.comment || undefined
-      })
-    }
-  })
-
-  return diffs
+/** Suggestion data returned by list_diffs */
+interface SuggestionInfo {
+  id: string
+  originalText: string
+  suggestedText: string
+  explanation?: string
 }
 
 /**
- * accept_diff - Accept a pending diff suggestion.
- * If no ID provided and multiple diffs exist, accepts ALL diffs.
- * Creates AI annotations for accepted text to track provenance.
+ * accept_diff - Accept pending AI suggestions.
+ * If no ID provided, accepts ALL suggestions.
  */
 export function executeAcceptDiff(args: {
   id?: string
@@ -210,102 +198,41 @@ export function executeAcceptDiff(args: {
   }
 
   const { id } = args
-  const documentId = useEditorStore.getState().document.documentId
+  const suggestions = getAISuggestions(editor)
 
-  // Collect all diff nodes with their data before modifying
-  const diffNodes: Array<{
-    id: string
-    pos: number
-    nodeSize: number
-    suggestedText: string
-    provenanceModel: string
-    provenanceConversationId: string
-    provenanceMessageId: string
-    documentId: string
-  }> = []
-
-  editor.state.doc.descendants((node, pos) => {
-    if (node.type.name === 'diffSuggestion') {
-      // If ID specified, only collect that one
-      if (id && node.attrs.id !== id) return
-
-      diffNodes.push({
-        id: node.attrs.id,
-        pos,
-        nodeSize: node.nodeSize,
-        suggestedText: node.attrs.suggestedText || '',
-        provenanceModel: node.attrs.provenanceModel || '',
-        provenanceConversationId: node.attrs.provenanceConversationId || '',
-        provenanceMessageId: node.attrs.provenanceMessageId || '',
-        documentId: node.attrs.documentId || documentId
-      })
-    }
-  })
-
-  if (diffNodes.length === 0) {
-    if (id) {
-      return toolError(`Diff with id "${id}" not found`, 'DIFF_NOT_FOUND')
-    }
-    return toolError('No pending diff suggestions', 'NO_DIFFS')
+  if (suggestions.length === 0) {
+    return toolError('No pending suggestions', 'NO_DIFFS')
   }
 
-  // Sort by position descending so we can apply in reverse order (preserves positions)
-  diffNodes.sort((a, b) => b.pos - a.pos)
+  if (id) {
+    // Accept specific suggestion
+    const target = suggestions.find((s) => s.id === id)
+    if (!target) {
+      return toolError(`Suggestion with id "${id}" not found`, 'DIFF_NOT_FOUND')
+    }
 
-  let acceptedCount = 0
-
-  // Accept each diff and create annotation
-  for (const diff of diffNodes) {
-    const { pos, nodeSize, suggestedText, provenanceModel, provenanceConversationId, provenanceMessageId } = diff
-
-    // Replace diff node with suggested text
-    editor.chain()
-      .focus()
-      .setTextSelection({ from: pos, to: pos + nodeSize })
-      .insertContent(suggestedText)
-      .run()
-
-    acceptedCount++
-
-    // Create AI annotation if we have provenance data
-    if (provenanceModel && suggestedText && diff.documentId) {
-      const newFrom = pos
-      const newTo = pos + suggestedText.length
-
-      useAnnotationStore.getState().addAnnotation({
-        documentId: diff.documentId,
-        type: 'replacement',
-        from: newFrom,
-        to: newTo,
-        content: suggestedText,
-        provenance: {
-          model: provenanceModel,
-          conversationId: provenanceConversationId,
-          messageId: provenanceMessageId
-        }
-      })
+    const success = editor.commands.acceptAISuggestion(id)
+    if (success) {
+      return toolSuccess({ accepted: true, diffId: id, count: 1 })
+    } else {
+      return toolError('Failed to accept suggestion', 'ACCEPT_FAILED')
     }
   }
 
-  if (acceptedCount > 0) {
-    return toolSuccess({
-      accepted: true,
-      diffId: id,
-      count: acceptedCount
-    })
+  // Accept all suggestions
+  const count = suggestions.length
+  const success = editor.commands.acceptAllAISuggestions()
+
+  if (success) {
+    return toolSuccess({ accepted: true, count })
   } else {
-    return toolError('Failed to accept diffs', 'ACCEPT_FAILED')
+    return toolError('Failed to accept suggestions', 'ACCEPT_FAILED')
   }
 }
 
 /**
- * reject_diff - Reject a pending diff suggestion.
- * If no ID provided and multiple diffs exist, rejects ALL diffs.
- *
- * Note: The rejectDiffSuggestion(id) command ignores the ID and relies on
- * cursor position, so we use rejectAllDiffSuggestions() which correctly
- * iterates through the document. For specific diff rejection, we filter
- * and apply manually.
+ * reject_diff - Reject pending AI suggestions.
+ * If no ID provided, rejects ALL suggestions.
  */
 export function executeRejectDiff(args: {
   id?: string
@@ -317,68 +244,55 @@ export function executeRejectDiff(args: {
   }
 
   const { id } = args
-  const diffs = getPendingDiffs(editor)
+  const suggestions = getAISuggestions(editor)
 
-  if (diffs.length === 0) {
-    return toolError('No pending diff suggestions', 'NO_DIFFS')
+  if (suggestions.length === 0) {
+    return toolError('No pending suggestions', 'NO_DIFFS')
   }
 
-  // If ID provided, reject specific diff by manually applying the change
   if (id) {
-    const targetDiff = diffs.find((d) => d.id === id)
-    if (!targetDiff) {
-      return toolError(`Diff with id "${id}" not found`, 'DIFF_NOT_FOUND')
+    // Reject specific suggestion
+    const target = suggestions.find((s) => s.id === id)
+    if (!target) {
+      return toolError(`Suggestion with id "${id}" not found`, 'DIFF_NOT_FOUND')
     }
 
-    // Find the diff node in the document and replace it with original text
-    let found = false
-    editor.state.doc.descendants((node, pos) => {
-      if (found) return false
-      if (node.type.name === 'diffSuggestion' && node.attrs.id === id) {
-        const originalText = node.attrs.originalText || ''
-        editor.chain()
-          .focus()
-          .setTextSelection({ from: pos, to: pos + node.nodeSize })
-          .insertContent(originalText)
-          .run()
-        found = true
-        return false
-      }
-    })
-
-    if (found) {
-      return toolSuccess({
-        rejected: true,
-        diffId: id
-      })
+    const success = editor.commands.rejectAISuggestion(id)
+    if (success) {
+      return toolSuccess({ rejected: true, diffId: id, count: 1 })
     } else {
-      return toolError('Failed to reject diff', 'REJECT_FAILED')
+      return toolError('Failed to reject suggestion', 'REJECT_FAILED')
     }
   }
 
-  // No ID provided - reject ALL diffs using the built-in command
-  const success = editor.commands.rejectAllDiffSuggestions()
+  // Reject all suggestions
+  const count = suggestions.length
+  const success = editor.commands.rejectAllAISuggestions()
 
   if (success) {
-    return toolSuccess({
-      rejected: true,
-      count: diffs.length
-    })
+    return toolSuccess({ rejected: true, count })
   } else {
-    return toolError('Failed to reject diffs', 'REJECT_FAILED')
+    return toolError('Failed to reject suggestions', 'REJECT_FAILED')
   }
 }
 
 /**
- * List all pending diffs (helper for other tools).
+ * List all pending AI suggestions.
  */
-export function executeListDiffs(): ToolResult<{ diffs: DiffSuggestion[] }> {
+export function executeListDiffs(): ToolResult<{ diffs: SuggestionInfo[] }> {
   const editor = getEditor()
 
   if (!editor) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
-  const diffs = getPendingDiffs(editor)
+  const suggestions = getAISuggestions(editor)
+  const diffs: SuggestionInfo[] = suggestions.map((s) => ({
+    id: s.id,
+    originalText: s.originalText,
+    suggestedText: s.suggestedText,
+    explanation: s.explanation || undefined
+  }))
+
   return toolSuccess({ diffs })
 }

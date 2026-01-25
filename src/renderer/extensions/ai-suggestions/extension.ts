@@ -45,6 +45,10 @@ declare module '@tiptap/core' {
        */
       rejectAISuggestion: (id: string) => ReturnType
       /**
+       * Accept all AI suggestions
+       */
+      acceptAllAISuggestions: () => ReturnType
+      /**
        * Reject all AI suggestions
        */
       rejectAllAISuggestions: () => ReturnType
@@ -300,6 +304,74 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             this.options.onSuggestionRejected(id)
           }
 
+          return true
+        },
+
+      acceptAllAISuggestions:
+        () =>
+        ({ tr, state, dispatch }) => {
+          if (!dispatch) return false
+
+          const { doc } = state
+
+          // Collect all suggestions with their positions and data
+          // We need to process from end to start to avoid position shifts
+          const suggestions: Array<{
+            id: string
+            from: number
+            to: number
+            suggestedText: string
+          }> = []
+
+          // First pass: collect all unique suggestion IDs and their ranges
+          const seenIds = new Set<string>()
+          doc.descendants((node, pos) => {
+            node.marks.forEach((mark) => {
+              if (mark.type.name === this.name && mark.attrs.id && !seenIds.has(mark.attrs.id)) {
+                seenIds.add(mark.attrs.id)
+
+                // Find full range of this suggestion
+                const positions: Array<{ pos: number; nodeSize: number }> = []
+                doc.descendants((n, p) => {
+                  n.marks.forEach((m) => {
+                    if (m.type.name === this.name && m.attrs.id === mark.attrs.id) {
+                      positions.push({ pos: p, nodeSize: n.nodeSize })
+                    }
+                  })
+                })
+
+                if (positions.length > 0) {
+                  const from = positions[0].pos
+                  const lastPos = positions[positions.length - 1]
+                  const to = lastPos.pos + lastPos.nodeSize
+
+                  suggestions.push({
+                    id: mark.attrs.id,
+                    from,
+                    to,
+                    suggestedText: mark.attrs.suggestedText || ''
+                  })
+                }
+              }
+            })
+          })
+
+          if (suggestions.length === 0) return false
+
+          // Sort by position descending so we can apply from end to start
+          suggestions.sort((a, b) => b.from - a.from)
+
+          // Apply each suggestion
+          for (const suggestion of suggestions) {
+            tr.removeMark(suggestion.from, suggestion.to, state.schema.marks.aiSuggestion)
+            tr.replaceWith(suggestion.from, suggestion.to, state.schema.text(suggestion.suggestedText))
+
+            if (this.options.onSuggestionAccepted) {
+              this.options.onSuggestionAccepted(suggestion.id)
+            }
+          }
+
+          dispatch(tr)
           return true
         },
 

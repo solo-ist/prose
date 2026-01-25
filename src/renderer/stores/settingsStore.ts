@@ -23,6 +23,8 @@ interface SettingsState {
   isAboutDialogOpen: boolean
   dialogTab: SettingsTab
   effectiveTheme: 'dark' | 'light'
+  // Runtime state for autosave toggle (not persisted)
+  autosaveActive: boolean
   setSettings: (settings: Partial<Settings>) => void
   loadSettings: () => Promise<void>
   saveSettings: () => Promise<void>
@@ -37,6 +39,8 @@ interface SettingsState {
   setDefaultSaveDirectory: (path: string) => void
   setRemarkableConfig: (config: Partial<NonNullable<Settings['remarkable']>>) => void
   setFileAssociationConfig: (config: Partial<NonNullable<Settings['fileAssociation']>>) => void
+  setAutosaveConfig: (config: Partial<NonNullable<Settings['autosave']>>) => void
+  toggleAutosaveActive: () => void
   addRecentFile: (path: string) => void
   removeRecentFile: (path: string) => void
 }
@@ -55,6 +59,10 @@ const defaultSettings: Settings = {
   },
   recovery: {
     mode: 'silent'
+  },
+  autosave: {
+    enabled: false,
+    intervalSeconds: 30
   }
 }
 
@@ -104,6 +112,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   isAboutDialogOpen: false,
   dialogTab: 'general' as SettingsTab,
   effectiveTheme: 'dark',
+  autosaveActive: true, // Runtime toggle, starts active
 
   setSettings: (newSettings) =>
     set((state) => ({
@@ -215,6 +224,19 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     // Auto-save after updating file association
     get().saveSettings()
   },
+
+  setAutosaveConfig: (config) => {
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        autosave: { ...state.settings.autosave, ...config } as Settings['autosave']
+      }
+    }))
+    // Auto-save settings after updating autosave config
+    get().saveSettings()
+  },
+
+  toggleAutosaveActive: () => set((state) => ({ autosaveActive: !state.autosaveActive })),
 
   addRecentFile: (path) => {
     set((state) => {

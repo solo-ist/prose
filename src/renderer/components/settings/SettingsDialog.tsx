@@ -19,6 +19,7 @@ import {
 import { Button } from '../ui/button'
 import { Separator } from '../ui/separator'
 import { Slider } from '../ui/slider'
+import { Switch } from '../ui/switch'
 import { RemarkableIntegration } from './RemarkableIntegration'
 import type { Settings } from '../../types'
 
@@ -35,6 +36,7 @@ export function SettingsDialog() {
     setRecoveryConfig,
     setDefaultSaveDirectory,
     setRemarkableConfig,
+    setAutosaveConfig,
     saveSettings
   } = useSettings()
 
@@ -140,6 +142,44 @@ export function SettingsDialog() {
                 Where new documents are saved when you quick-save from the title bar
               </p>
             </div>
+
+            <Separator />
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="autosave">Autosave</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Automatically save documents after changes
+                  </p>
+                </div>
+                <Switch
+                  id="autosave"
+                  checked={settings.autosave?.enabled ?? false}
+                  onCheckedChange={(checked) => setAutosaveConfig({ enabled: checked })}
+                />
+              </div>
+
+              {settings.autosave?.enabled && (
+                <div className="space-y-2 pl-0">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="autosaveInterval">Save interval</Label>
+                    <span className="text-sm text-muted-foreground">
+                      {settings.autosave?.intervalSeconds ?? 30}s
+                    </span>
+                  </div>
+                  <Slider
+                    value={settings.autosave?.intervalSeconds ?? 30}
+                    onChange={(value) => setAutosaveConfig({ intervalSeconds: value })}
+                    min={5}
+                    max={120}
+                    step={5}
+                  />
+                </div>
+              )}
+            </div>
+
+            <Separator />
 
             <div className="space-y-2">
               <Label>Default Markdown Editor</Label>

@@ -97,6 +97,10 @@ const defaultSettings: Settings = {
   },
   recovery: {
     mode: 'silent'
+  },
+  autosave: {
+    enabled: false,
+    intervalSeconds: 30
   }
 }
 

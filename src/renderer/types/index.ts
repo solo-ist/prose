@@ -9,8 +9,9 @@ export interface Settings {
     baseUrl?: string
   }
   google?: {
-    refreshToken: string
-    email: string
+    email: string        // Display only (token stored securely)
+    picture?: string     // Profile picture URL
+    connectedAt: string  // ISO timestamp
   }
   editor: {
     fontSize: number
@@ -116,6 +117,50 @@ export interface RemarkableCloudNotebook {
 export interface RemarkableSyncState {
   selectedNotebooks: string[]
   lastUpdated: string
+}
+
+// Google Docs integration types
+export interface GoogleAuthResult {
+  success: boolean
+  email?: string
+  picture?: string
+  error?: string
+}
+
+export interface GoogleConnectionStatus {
+  connected: boolean
+  email?: string
+  picture?: string
+  error?: string
+}
+
+export interface GooglePushResult {
+  success: boolean
+  docId?: string
+  webViewLink?: string
+  error?: string
+  isNew: boolean
+}
+
+export interface GooglePullResult {
+  success: boolean
+  content?: string
+  modifiedTime?: string
+  error?: string
+}
+
+export interface GoogleImportResult {
+  success: boolean
+  content?: string
+  title?: string
+  error?: string
+}
+
+export interface GoogleDocMetadata {
+  id: string
+  title: string
+  modifiedTime: string
+  webViewLink: string
 }
 
 // Content block types for Anthropic API tool use
@@ -281,6 +326,14 @@ export interface ElectronAPI {
   // File association (default markdown editor)
   // Returns: true (is default), false (not default), null (can't detect)
   fileAssociationIsDefault: () => Promise<boolean | null>
+  // Google Docs integration
+  googleStartAuth: () => Promise<GoogleAuthResult>
+  googleDisconnect: () => Promise<void>
+  googleGetConnectionStatus: () => Promise<GoogleConnectionStatus>
+  googlePush: (content: string, frontmatter: Record<string, unknown>, title: string) => Promise<GooglePushResult>
+  googlePull: (docId: string) => Promise<GooglePullResult>
+  googleImport: (docId: string) => Promise<GoogleImportResult>
+  googleListRecentDocs: (maxResults?: number) => Promise<GoogleDocMetadata[]>
 }
 
 declare global {

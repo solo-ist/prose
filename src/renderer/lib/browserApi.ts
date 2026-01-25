@@ -422,7 +422,32 @@ export const browserApi: ElectronAPI = {
   onMcpStatus: (_callback: (status: { connected: boolean; port: number; error?: string }) => void) => {
     // No MCP in browser mode - immediately report not connected
     return () => {}
-  }
+  },
+
+  // Google Docs integration - not available in browser mode
+  googleStartAuth: async () => ({
+    success: false,
+    error: 'Google Docs sync is not available in browser mode. Please use the Electron app.'
+  }),
+  googleDisconnect: async () => {},
+  googleGetConnectionStatus: async () => ({
+    connected: false,
+    error: 'Google Docs sync is not available in browser mode.'
+  }),
+  googlePush: async () => ({
+    success: false,
+    error: 'Google Docs sync is not available in browser mode.',
+    isNew: false
+  }),
+  googlePull: async () => ({
+    success: false,
+    error: 'Google Docs sync is not available in browser mode.'
+  }),
+  googleImport: async () => ({
+    success: false,
+    error: 'Google Docs sync is not available in browser mode.'
+  }),
+  googleListRecentDocs: async () => []
 }
 
 /**

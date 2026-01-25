@@ -21,6 +21,7 @@ import { Separator } from '../ui/separator'
 import { Slider } from '../ui/slider'
 import { Switch } from '../ui/switch'
 import { RemarkableIntegration } from './RemarkableIntegration'
+import { GoogleDocsIntegration } from './GoogleDocsIntegration'
 import type { Settings } from '../../types'
 import { Eye, EyeOff, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
 import { getModelsForProvider, getDefaultModel, type LLMProvider } from '../../../shared/llm/models'
@@ -39,6 +40,7 @@ export function SettingsDialog() {
     setRecoveryConfig,
     setDefaultSaveDirectory,
     setRemarkableConfig,
+    setGoogleConfig,
     setAutosaveConfig,
     saveSettings
   } = useSettings()
@@ -514,20 +516,10 @@ export function SettingsDialog() {
           </TabsContent>
 
           <TabsContent value="account" className="space-y-4 mt-4">
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-sm font-medium mb-2">Google Account</h3>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Connect your Google account to sync documents across devices.
-                </p>
-                <Button variant="outline" disabled>
-                  Connect Google Account
-                </Button>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Coming soon
-                </p>
-              </div>
-            </div>
+            <GoogleDocsIntegration
+              settings={settings}
+              setGoogleConfig={setGoogleConfig}
+            />
           </TabsContent>
         </Tabs>
 

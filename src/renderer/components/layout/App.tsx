@@ -17,6 +17,18 @@ import {
   ResizableHandle
 } from '../ui/resizable'
 import { TooltipProvider } from '../ui/tooltip'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '../ui/alert-dialog'
+import { Input } from '../ui/input'
+import { Label } from '../ui/label'
 import { useChat } from '../../hooks/useChat'
 import { useEditor } from '../../hooks/useEditor'
 import { useTabs } from '../../hooks/useTabs'
@@ -49,6 +61,8 @@ export function App() {
   const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false)
   const [pendingDraft, setPendingDraft] = useState<DraftState | null>(null)
   const [pendingSession, setPendingSession] = useState<SessionState | null>(null)
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
+  const [importDocId, setImportDocId] = useState('')
   const tabsInitialized = useRef(false)
 
   const hydrateFromDraft = useEditorStore((state) => state.hydrateFromDraft)
@@ -249,6 +263,169 @@ export function App() {
     }
   }, [pendingSession, pendingDraft, discardSession, discardDraft, createNewTab])
 
+  // Google Docs sync handlers
+  const handleGooglePush = useCallback(async () => {
+    if (!window.api?.googlePush || !window.api?.googleGetConnectionStatus) {
+      console.warn('Google API not available')
+      return
+    }
+
+    // Check if connected
+    const status = await window.api.googleGetConnectionStatus()
+    if (!status.connected) {
+      alert('Please connect your Google account first.\n\nGo to Settings > Account to connect.')
+      return
+    }
+
+    const editorState = useEditorStore.getState()
+    const content = editorState.document.content
+    const frontmatter = editorState.document.frontmatter
+    const path = editorState.document.path
+    const title = path
+      ? path.split('/').pop()?.replace(/\.[^/.]+$/, '') || 'Untitled'
+      : 'Untitled'
+
+    try {
+      const result = await window.api.googlePush(content, frontmatter, title)
+
+      if (result.success && result.docId) {
+        // Update frontmatter with Google Doc ID and save to disk
+        const updatedFrontmatter = {
+          ...frontmatter,
+          google_doc_id: result.docId,
+          google_synced_at: new Date().toISOString()
+        }
+        editorState.setFrontmatter(updatedFrontmatter)
+
+        // Save file to persist frontmatter to disk
+        if (editorState.document.path) {
+          const { serializeMarkdown } = await import('../../lib/markdown')
+          const serialized = serializeMarkdown(editorState.document.content, updatedFrontmatter)
+          await window.api!.saveFile(editorState.document.path, serialized)
+        }
+
+        const message = result.isNew
+          ? `Created new Google Doc.\n\nOpen in browser?`
+          : `Updated Google Doc.\n\nOpen in browser?`
+
+        if (result.webViewLink && confirm(message)) {
+          window.open(result.webViewLink, '_blank')
+        }
+      } else {
+        alert(`Failed to push to Google Docs: ${result.error || 'Unknown error'}`)
+      }
+    } catch (error) {
+      alert(`Error pushing to Google Docs: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }, [])
+
+  const handleGooglePull = useCallback(async () => {
+    if (!window.api?.googlePull || !window.api?.googleGetConnectionStatus) {
+      console.warn('Google API not available')
+      return
+    }
+
+    // Check if connected
+    const status = await window.api.googleGetConnectionStatus()
+    if (!status.connected) {
+      alert('Please connect your Google account first.\n\nGo to Settings > Account to connect.')
+      return
+    }
+
+    const editorState = useEditorStore.getState()
+    const frontmatter = editorState.document.frontmatter
+    const docId = frontmatter.google_doc_id as string | undefined
+
+    if (!docId) {
+      alert('This document is not linked to a Google Doc.\n\nUse "Push to Google Docs" first to create a link.')
+      return
+    }
+
+    if (!confirm('This will replace your local content with the Google Doc content.\n\nAre you sure?')) {
+      return
+    }
+
+    try {
+      const result = await window.api.googlePull(docId)
+
+      if (result.success && result.content !== undefined) {
+        // Update editor content
+        const editor = useEditorInstanceStore.getState().editor
+        if (editor) {
+          editor.commands.setContent(result.content)
+        }
+
+        // Update frontmatter with sync timestamp
+        const updatedFrontmatter = {
+          ...frontmatter,
+          google_synced_at: result.modifiedTime || new Date().toISOString()
+        }
+        editorState.setFrontmatter(updatedFrontmatter)
+        editorState.setDirty(true)
+
+        alert('Content updated from Google Docs.')
+      } else {
+        alert(`Failed to pull from Google Docs: ${result.error || 'Unknown error'}`)
+      }
+    } catch (error) {
+      alert(`Error pulling from Google Docs: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }, [])
+
+  const handleGoogleImport = useCallback(async () => {
+    if (!window.api?.googleImport || !window.api?.googleGetConnectionStatus) {
+      console.warn('Google API not available')
+      return
+    }
+
+    // Check if connected
+    const status = await window.api.googleGetConnectionStatus()
+    if (!status.connected) {
+      alert('Please connect your Google account first.\n\nGo to Settings > Account to connect.')
+      return
+    }
+
+    // Open the import dialog (prompt() doesn't work in Electron)
+    setImportDocId('')
+    setImportDialogOpen(true)
+  }, [])
+
+  const handleGoogleImportConfirm = useCallback(async () => {
+    const docId = importDocId.trim()
+    setImportDialogOpen(false)
+    setImportDocId('')
+
+    if (!docId || !window.api?.googleImport) return
+
+    try {
+      const result = await window.api.googleImport(docId)
+
+      if (result.success && result.content !== undefined) {
+        // Create new tab with imported content
+        await createNewTab()
+
+        // Update editor content
+        const editor = useEditorInstanceStore.getState().editor
+        if (editor) {
+          editor.commands.setContent(result.content)
+        }
+
+        // Set frontmatter with Google Doc link
+        const editorState = useEditorStore.getState()
+        editorState.setFrontmatter({
+          google_doc_id: docId,
+          google_synced_at: new Date().toISOString()
+        })
+
+        alert(`Imported "${result.title || 'Untitled'}" from Google Docs.`)
+      } else {
+        alert(`Failed to import from Google Docs: ${result.error || 'Unknown error'}`)
+      }
+    } catch (error) {
+      alert(`Error importing from Google Docs: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }, [importDocId, createNewTab])
+
   // Check for session/draft recovery after settings are loaded
   useEffect(() => {
     if (!settingsLoaded) return
@@ -404,11 +581,20 @@ export function App() {
             closeTab(activeTab.id)
           }
           break
+        case 'googlePush':
+          handleGooglePush()
+          break
+        case 'googlePull':
+          handleGooglePull()
+          break
+        case 'googleImport':
+          handleGoogleImport()
+          break
       }
     })
 
     return unsubscribe
-  }, [openFileInTab, saveFile, saveFileAs, createNewTab, closeTab, setDialogOpen, toggleChatPanel, toggleFileListPanel, setShortcutsDialogOpen, setAboutDialogOpen, isFileListOpen, isChatOpen, setChatPanelOpen, setFileListPanelOpen, editor])
+  }, [openFileInTab, saveFile, saveFileAs, createNewTab, closeTab, setDialogOpen, toggleChatPanel, toggleFileListPanel, setShortcutsDialogOpen, setAboutDialogOpen, isFileListOpen, isChatOpen, setChatPanelOpen, setFileListPanelOpen, editor, handleGooglePush, handleGooglePull, handleGoogleImport])
 
   // Handle file open from OS (double-click .md file)
   useEffect(() => {
@@ -503,6 +689,45 @@ export function App() {
           onOpenChange={setModelPickerOpen}
         />
         <DefaultHandlerPrompt />
+
+        {/* Google Docs Import Dialog */}
+        <AlertDialog open={importDialogOpen} onOpenChange={(open) => {
+          if (!open) {
+            setImportDialogOpen(false)
+            setImportDocId('')
+          }
+        }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Import from Google Docs</AlertDialogTitle>
+              <AlertDialogDescription>
+                Enter the Google Doc ID. You can find it in the URL:
+                docs.google.com/document/d/<strong>[DOC_ID]</strong>/edit
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="py-2">
+              <Label htmlFor="google-doc-id" className="sr-only">Document ID</Label>
+              <Input
+                id="google-doc-id"
+                value={importDocId}
+                onChange={(e) => setImportDocId(e.target.value)}
+                placeholder="e.g. 1BxiM0C2..."
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && importDocId.trim()) {
+                    handleGoogleImportConfirm()
+                  }
+                }}
+                autoFocus
+              />
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={handleGoogleImportConfirm} disabled={!importDocId.trim()}>
+                Import
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </TooltipProvider>
   )

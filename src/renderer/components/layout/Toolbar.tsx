@@ -44,7 +44,8 @@ import {
   MoreHorizontal,
   Copy,
   Check,
-  Timer
+  Timer,
+  CircleUserRound
 } from 'lucide-react'
 
 export function Toolbar() {
@@ -66,6 +67,30 @@ export function Toolbar() {
   const isEditing = useEditorStore((state) => state.isEditing)
 
   const [hasCopied, setHasCopied] = useState(false)
+  const [googlePicture, setGooglePicture] = useState<string | null>(null)
+
+  // Check Google connection status on mount and when settings change
+  useEffect(() => {
+    // First check settings for cached picture
+    if (settings.google?.picture) {
+      setGooglePicture(settings.google.picture)
+    }
+
+    async function checkGoogleConnection() {
+      if (!window.api?.googleGetConnectionStatus) return
+      try {
+        const status = await window.api.googleGetConnectionStatus()
+        if (status.connected && status.picture) {
+          setGooglePicture(status.picture)
+        } else if (!status.connected) {
+          setGooglePicture(null)
+        }
+      } catch {
+        // Keep cached picture from settings if check fails
+      }
+    }
+    checkGoogleConnection()
+  }, [settings.google])
 
   // Tab close confirmation state
   const [pendingCloseTabId, setPendingCloseTabId] = useState<string | null>(null)
@@ -247,6 +272,32 @@ export function Toolbar() {
               </Button>
             </TooltipTrigger>
             <TooltipContent>Toggle theme</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setDialogOpen(true, 'account')}
+                aria-label={googlePicture ? 'Google account' : 'Connect Google account'}
+                className="relative"
+              >
+                {googlePicture ? (
+                  <img
+                    src={googlePicture}
+                    alt="Google account"
+                    className="h-5 w-5 rounded-full"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <CircleUserRound className="h-5 w-5 text-muted-foreground" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {googlePicture ? 'Google account' : 'Connect Google account'}
+            </TooltipContent>
           </Tooltip>
 
           <Tooltip>

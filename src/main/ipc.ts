@@ -886,4 +886,46 @@ export function setupIpcHandlers(): void {
       return null // Can't determine - that's fine
     }
   })
+
+  // Google: Start OAuth flow
+  ipcMain.handle('google:startAuth', async () => {
+    const { startOAuthFlow } = await import('./google/auth')
+    return await startOAuthFlow()
+  })
+
+  // Google: Disconnect (clear tokens)
+  ipcMain.handle('google:disconnect', async () => {
+    const { clearTokens } = await import('./google/auth')
+    await clearTokens()
+  })
+
+  // Google: Get connection status
+  ipcMain.handle('google:getConnectionStatus', async () => {
+    const { validateConnection } = await import('./google/auth')
+    return await validateConnection()
+  })
+
+  // Google: Push document to Google Docs
+  ipcMain.handle('google:push', async (_event, content: string, frontmatter: Record<string, unknown>, title: string) => {
+    const { pushToGoogle } = await import('./google/sync')
+    return await pushToGoogle(content, frontmatter, title)
+  })
+
+  // Google: Pull document from Google Docs
+  ipcMain.handle('google:pull', async (_event, docId: string) => {
+    const { pullFromGoogle } = await import('./google/sync')
+    return await pullFromGoogle(docId)
+  })
+
+  // Google: Import document from Google Docs
+  ipcMain.handle('google:import', async (_event, docId: string) => {
+    const { importFromGoogle } = await import('./google/sync')
+    return await importFromGoogle(docId)
+  })
+
+  // Google: List recent docs
+  ipcMain.handle('google:listRecentDocs', async (_event, maxResults?: number) => {
+    const { listRecentDocs } = await import('./google/client')
+    return await listRecentDocs(maxResults)
+  })
 }

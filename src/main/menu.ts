@@ -83,6 +83,26 @@ export function createMenu(_mainWindow: BrowserWindow): void {
             sendMenuAction('saveAs')
           }
         },
+        { type: 'separator' },
+        {
+          label: 'Push to Google Docs',
+          accelerator: 'CmdOrCtrl+Shift+G',
+          click: (): void => {
+            sendMenuAction('googlePush')
+          }
+        },
+        {
+          label: 'Pull from Google Docs',
+          click: (): void => {
+            sendMenuAction('googlePull')
+          }
+        },
+        {
+          label: 'Import from Google Docs...',
+          click: (): void => {
+            sendMenuAction('googleImport')
+          }
+        },
         ...(isMac
           ? []
           : [{ type: 'separator' as const }, { role: 'quit' as const }])

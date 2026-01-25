@@ -84,6 +84,49 @@ export interface TestApiKeyResult {
   message: string
 }
 
+export interface GoogleAuthResult {
+  success: boolean
+  email?: string
+  picture?: string
+  error?: string
+}
+
+export interface GoogleConnectionStatus {
+  connected: boolean
+  email?: string
+  picture?: string
+  error?: string
+}
+
+export interface GooglePushResult {
+  success: boolean
+  docId?: string
+  webViewLink?: string
+  error?: string
+  isNew: boolean
+}
+
+export interface GooglePullResult {
+  success: boolean
+  content?: string
+  modifiedTime?: string
+  error?: string
+}
+
+export interface GoogleImportResult {
+  success: boolean
+  content?: string
+  title?: string
+  error?: string
+}
+
+export interface GoogleDocMetadata {
+  id: string
+  title: string
+  modifiedTime: string
+  webViewLink: string
+}
+
 export interface ElectronAPI {
   openFile: () => Promise<FileResult | null>
   saveFile: (path: string, content: string) => Promise<void>
@@ -143,6 +186,14 @@ export interface ElectronAPI {
   onMcpStatus: (callback: (status: McpStatus) => void) => () => void
   // File association (default markdown editor)
   fileAssociationIsDefault: () => Promise<boolean | null>
+  // Google Docs integration
+  googleStartAuth: () => Promise<GoogleAuthResult>
+  googleDisconnect: () => Promise<void>
+  googleGetConnectionStatus: () => Promise<GoogleConnectionStatus>
+  googlePush: (content: string, frontmatter: Record<string, unknown>, title: string) => Promise<GooglePushResult>
+  googlePull: (docId: string) => Promise<GooglePullResult>
+  googleImport: (docId: string) => Promise<GoogleImportResult>
+  googleListRecentDocs: (maxResults?: number) => Promise<GoogleDocMetadata[]>
 }
 
 export interface FileItem {
@@ -329,7 +380,16 @@ const api: ElectronAPI = {
     }
   },
   // File association
-  fileAssociationIsDefault: () => ipcRenderer.invoke('fileAssociation:isDefault')
+  fileAssociationIsDefault: () => ipcRenderer.invoke('fileAssociation:isDefault'),
+  // Google Docs integration
+  googleStartAuth: () => ipcRenderer.invoke('google:startAuth'),
+  googleDisconnect: () => ipcRenderer.invoke('google:disconnect'),
+  googleGetConnectionStatus: () => ipcRenderer.invoke('google:getConnectionStatus'),
+  googlePush: (content: string, frontmatter: Record<string, unknown>, title: string) =>
+    ipcRenderer.invoke('google:push', content, frontmatter, title),
+  googlePull: (docId: string) => ipcRenderer.invoke('google:pull', docId),
+  googleImport: (docId: string) => ipcRenderer.invoke('google:import', docId),
+  googleListRecentDocs: (maxResults?: number) => ipcRenderer.invoke('google:listRecentDocs', maxResults)
 }
 
 contextBridge.exposeInMainWorld('api', api)

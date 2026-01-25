@@ -512,6 +512,150 @@
   background: hsl(var(--accent));
 }
 
+.ai-suggestion-popover .feedback-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: hsl(270 60% 50%);
+  color: white;
+  border: none;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.ai-suggestion-popover .feedback-btn:hover {
+  background: hsl(270 60% 45%);
+}
+
+/* Feedback section styles */
+.ai-suggestion-popover .feedback-section {
+  margin-bottom: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid hsl(var(--border));
+}
+
+.ai-suggestion-popover .feedback-label {
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  margin-bottom: 0.5rem;
+}
+
+.ai-suggestion-popover .feedback-input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: hsl(var(--muted));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.375rem;
+  font-family: inherit;
+  font-size: 0.875rem;
+  color: hsl(var(--foreground));
+  resize: none;
+  margin-bottom: 0.5rem;
+}
+
+.ai-suggestion-popover .feedback-input:focus {
+  outline: none;
+  border-color: hsl(270 60% 50%);
+  box-shadow: 0 0 0 2px hsl(270 60% 50% / 0.2);
+}
+
+.ai-suggestion-popover .feedback-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.ai-suggestion-popover .feedback-submit-btn {
+  flex: 1;
+  padding: 0.375rem 0.75rem;
+  background: hsl(270 60% 50%);
+  color: white;
+  border: none;
+  border-radius: 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.ai-suggestion-popover .feedback-submit-btn:hover:not(:disabled) {
+  background: hsl(270 60% 45%);
+}
+
+.ai-suggestion-popover .feedback-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ai-suggestion-popover .feedback-cancel-btn {
+  padding: 0.375rem 0.75rem;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.375rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.ai-suggestion-popover .feedback-cancel-btn:hover {
+  background: hsl(var(--muted));
+}
+
+/* Existing feedback display */
+.ai-suggestion-popover .existing-feedback {
+  margin-bottom: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid hsl(var(--border));
+}
+
+.ai-suggestion-popover .feedback-text {
+  background: hsl(270 60% 30% / 0.2);
+  color: hsl(var(--foreground));
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  margin-bottom: 0.5rem;
+  border-left: 3px solid hsl(270 60% 50%);
+}
+
+.ai-suggestion-popover .edit-feedback-btn {
+  padding: 0.25rem 0.5rem;
+  background: transparent;
+  color: hsl(270 60% 60%);
+  border: none;
+  font-size: 0.75rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.ai-suggestion-popover .edit-feedback-btn:hover {
+  color: hsl(270 60% 70%);
+}
+
+/* Visual indicator for suggestions with pending feedback */
+.prose-editor .ai-suggestion-mark[data-ai-user-reply] {
+  background: hsl(270 70% 60% / 0.5);
+  border-bottom: 2px dashed hsl(270 70% 50%);
+  animation: pulse-feedback 2s ease-in-out infinite;
+}
+
+.dark .prose-editor .ai-suggestion-mark[data-ai-user-reply] {
+  background: hsl(270 70% 45% / 0.4);
+  border-bottom-color: hsl(270 70% 65%);
+}
+
+@keyframes pulse-feedback {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
 /* Spell-check styling - more prominent squiggles */
 .prose-editor ::spelling-error {
   text-decoration: wavy underline hsl(0 75% 55%);

@@ -33,6 +33,10 @@ declare module '@tiptap/core' {
         explanation: string
       }) => ReturnType
       /**
+       * Set user reply on an AI suggestion by ID
+       */
+      setAISuggestionReply: (id: string, reply: string) => ReturnType
+      /**
        * Accept an AI suggestion by ID - replaces text with suggested text
        */
       acceptAISuggestion: (id: string) => ReturnType
@@ -40,6 +44,10 @@ declare module '@tiptap/core' {
        * Reject an AI suggestion by ID - removes the mark
        */
       rejectAISuggestion: (id: string) => ReturnType
+      /**
+       * Accept all AI suggestions
+       */
+      acceptAllAISuggestions: () => ReturnType
       /**
        * Reject all AI suggestions
        */
@@ -109,6 +117,14 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           return { 'data-ai-created': String(attributes.createdAt) }
         },
       },
+      userReply: {
+        default: null,
+        parseHTML: (element) => element.getAttribute('data-ai-user-reply'),
+        renderHTML: (attributes) => {
+          if (!attributes.userReply) return {}
+          return { 'data-ai-user-reply': attributes.userReply }
+        },
+      },
     }
   },
 
@@ -162,6 +178,49 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           }
 
           return result
+        },
+
+      setAISuggestionReply:
+        (id, reply) =>
+        ({ tr, state, dispatch }) => {
+          if (!dispatch) return false
+
+          const { doc } = state
+          const positions: Array<{ pos: number; nodeSize: number; mark: typeof state.schema.marks.aiSuggestion }> = []
+          let existingAttrs: Record<string, unknown> | null = null
+
+          // Find all nodes with this suggestion mark
+          doc.descendants((node, pos) => {
+            node.marks.forEach((mark) => {
+              if (mark.type.name === this.name && mark.attrs.id === id) {
+                if (!existingAttrs) {
+                  existingAttrs = mark.attrs
+                }
+                positions.push({ pos, nodeSize: node.nodeSize, mark: mark.type })
+              }
+            })
+          })
+
+          if (positions.length === 0 || !existingAttrs) return false
+
+          // Calculate the full range
+          const markFrom = positions[0].pos
+          const lastPos = positions[positions.length - 1]
+          const markTo = lastPos.pos + lastPos.nodeSize
+
+          // Remove the old mark and add new one with userReply
+          tr.removeMark(markFrom, markTo, state.schema.marks.aiSuggestion)
+          tr.addMark(
+            markFrom,
+            markTo,
+            state.schema.marks.aiSuggestion.create({
+              ...existingAttrs,
+              userReply: reply
+            })
+          )
+
+          dispatch(tr)
+          return true
         },
 
       acceptAISuggestion:
@@ -248,6 +307,74 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           return true
         },
 
+      acceptAllAISuggestions:
+        () =>
+        ({ tr, state, dispatch }) => {
+          if (!dispatch) return false
+
+          const { doc } = state
+
+          // Collect all suggestions with their positions and data
+          // We need to process from end to start to avoid position shifts
+          const suggestions: Array<{
+            id: string
+            from: number
+            to: number
+            suggestedText: string
+          }> = []
+
+          // First pass: collect all unique suggestion IDs and their ranges
+          const seenIds = new Set<string>()
+          doc.descendants((node, pos) => {
+            node.marks.forEach((mark) => {
+              if (mark.type.name === this.name && mark.attrs.id && !seenIds.has(mark.attrs.id)) {
+                seenIds.add(mark.attrs.id)
+
+                // Find full range of this suggestion
+                const positions: Array<{ pos: number; nodeSize: number }> = []
+                doc.descendants((n, p) => {
+                  n.marks.forEach((m) => {
+                    if (m.type.name === this.name && m.attrs.id === mark.attrs.id) {
+                      positions.push({ pos: p, nodeSize: n.nodeSize })
+                    }
+                  })
+                })
+
+                if (positions.length > 0) {
+                  const from = positions[0].pos
+                  const lastPos = positions[positions.length - 1]
+                  const to = lastPos.pos + lastPos.nodeSize
+
+                  suggestions.push({
+                    id: mark.attrs.id,
+                    from,
+                    to,
+                    suggestedText: mark.attrs.suggestedText || ''
+                  })
+                }
+              }
+            })
+          })
+
+          if (suggestions.length === 0) return false
+
+          // Sort by position descending so we can apply from end to start
+          suggestions.sort((a, b) => b.from - a.from)
+
+          // Apply each suggestion
+          for (const suggestion of suggestions) {
+            tr.removeMark(suggestion.from, suggestion.to, state.schema.marks.aiSuggestion)
+            tr.replaceWith(suggestion.from, suggestion.to, state.schema.text(suggestion.suggestedText))
+
+            if (this.options.onSuggestionAccepted) {
+              this.options.onSuggestionAccepted(suggestion.id)
+            }
+          }
+
+          dispatch(tr)
+          return true
+        },
+
       rejectAllAISuggestions:
         () =>
         ({ tr, state, dispatch }) => {
@@ -298,6 +425,7 @@ export function getAISuggestions(editor: {
                 suggestedText: string
                 explanation: string
                 createdAt: number
+                userReply?: string
               }
             }>
             nodeSize: number
@@ -323,6 +451,7 @@ export function getAISuggestions(editor: {
           createdAt: mark.attrs.createdAt || Date.now(),
           from: pos,
           to: pos + node.nodeSize,
+          userReply: mark.attrs.userReply || undefined,
         })
       }
     })
@@ -335,6 +464,13 @@ export function getAISuggestions(editor: {
     seen.add(s.id)
     return true
   })
+}
+
+/**
+ * Get AI suggestions that have pending user feedback (userReply set)
+ */
+export function getSuggestionsWithFeedback(editor: Parameters<typeof getAISuggestions>[0]): AISuggestionData[] {
+  return getAISuggestions(editor).filter((s) => s.userReply && s.userReply.trim() !== '')
 }
 
 export default AISuggestion

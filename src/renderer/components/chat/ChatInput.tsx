@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { Button } from '../ui/button'
-import { Square, MessageSquare, ChevronRight, X } from 'lucide-react'
+import { Square, MessageSquare, ChevronRight, X, Sparkles } from 'lucide-react'
 import { useChat } from '../../hooks/useChat'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useChatStore, createMessageId } from '../../stores/chatStore'
@@ -104,10 +104,11 @@ interface ChatInputProps {
 export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputProps) {
   const [message, setMessage] = useState('')
   const [commentCount, setCommentCount] = useState(0)
+  const [suggestionFeedbackCount, setSuggestionFeedbackCount] = useState(0)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map())
-  const { context, setContext, toolMode, processComments, getCommentCount, isInitializing } = useChat()
+  const { context, setContext, toolMode, processComments, getCommentCount, processSuggestionReplies, getSuggestionFeedbackCount, isInitializing } = useChat()
   const editor = useEditorInstanceStore((state) => state.editor)
   const { addArg, getRecentArgs, clearHistory } = useCommandHistoryStore()
 
@@ -193,14 +194,23 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
     setCommentCount(getCommentCount())
   }, [getCommentCount])
 
-  // Check for comments when editor changes or on mount
+  // Track suggestion feedback count changes
+  const updateSuggestionFeedbackCount = useCallback(() => {
+    setSuggestionFeedbackCount(getSuggestionFeedbackCount())
+  }, [getSuggestionFeedbackCount])
+
+  // Check for comments and suggestion feedback when editor changes or on mount
   useEffect(() => {
     if (!editor) return
 
     updateCommentCount()
+    updateSuggestionFeedbackCount()
 
     // Listen for editor updates
-    const handleUpdate = () => updateCommentCount()
+    const handleUpdate = () => {
+      updateCommentCount()
+      updateSuggestionFeedbackCount()
+    }
     editor.on('update', handleUpdate)
     editor.on('selectionUpdate', handleUpdate)
 
@@ -208,11 +218,16 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
       editor.off('update', handleUpdate)
       editor.off('selectionUpdate', handleUpdate)
     }
-  }, [editor, updateCommentCount])
+  }, [editor, updateCommentCount, updateSuggestionFeedbackCount])
 
   const handleProcessComments = () => {
     processComments()
     setCommentCount(0) // Optimistically clear count
+  }
+
+  const handleProcessSuggestionFeedback = () => {
+    processSuggestionReplies()
+    setSuggestionFeedbackCount(0) // Optimistically clear count
   }
 
   // Parse slash commands: /tool_name [args]
@@ -491,6 +506,20 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
         >
           <MessageSquare className="h-4 w-4" />
           Process {commentCount} comment{commentCount !== 1 ? 's' : ''}
+        </Button>
+      )}
+
+      {/* Process Suggestion Feedback button */}
+      {suggestionFeedbackCount > 0 && (
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={handleProcessSuggestionFeedback}
+          disabled={isLoading}
+          className="mb-2 w-full justify-start gap-2 bg-purple-500/10 hover:bg-purple-500/20 border-purple-500/30"
+        >
+          <Sparkles className="h-4 w-4 text-purple-500" />
+          Process {suggestionFeedbackCount} suggestion feedback{suggestionFeedbackCount !== 1 ? 's' : ''}
         </Button>
       )}
 

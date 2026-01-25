@@ -11,6 +11,7 @@ export interface AISuggestionMark {
   suggestedText: string
   explanation: string
   createdAt: number
+  userReply?: string
 }
 
 export interface AISuggestionData {
@@ -22,6 +23,7 @@ export interface AISuggestionData {
   createdAt: number
   from: number
   to: number
+  userReply?: string
 }
 
 export interface AISuggestionOptions {

@@ -215,13 +215,21 @@ function TabItem({
                 )}
               >
                 {tab.path ? (
-                  <button
+                  <div
                     onClick={onShowInFolder}
-                    className="opacity-60 hover:opacity-100 transition-opacity shrink-0"
+                    className="opacity-60 hover:opacity-100 transition-opacity shrink-0 cursor-pointer"
                     title="Open in Finder"
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        onShowInFolder(e as unknown as MouseEvent)
+                      }
+                    }}
                   >
                     <FileText className="h-3.5 w-3.5" />
-                  </button>
+                  </div>
                 ) : (
                   <FileText className="h-3.5 w-3.5 shrink-0 opacity-40" />
                 )}
@@ -253,17 +261,25 @@ function TabItem({
                 {tab.isDirty && (
                   <span className="text-muted-foreground shrink-0">*</span>
                 )}
-                <button
+                <div
                   onClick={onClose}
                   className={cn(
-                    'ml-1 p-0.5 rounded hover:bg-accent shrink-0',
+                    'ml-1 p-0.5 rounded hover:bg-accent shrink-0 cursor-pointer',
                     'opacity-0 group-hover:opacity-100 transition-opacity',
                     isActive && 'opacity-100'
                   )}
+                  role="button"
+                  tabIndex={0}
                   aria-label="Close tab"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      onClose(e as unknown as MouseEvent)
+                    }
+                  }}
                 >
                   <X className="h-3 w-3" />
-                </button>
+                </div>
               </button>
             </TooltipTrigger>
             {tab.path && (

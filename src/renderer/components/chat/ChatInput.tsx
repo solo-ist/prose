@@ -383,8 +383,8 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Cmd+K clears command history
-    if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
+    // Cmd+Shift+Backspace clears command history
+    if (e.key === 'Backspace' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
       e.preventDefault()
       clearHistory()
       return

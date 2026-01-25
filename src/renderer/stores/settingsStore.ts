@@ -21,6 +21,7 @@ interface SettingsState {
   isDialogOpen: boolean
   isShortcutsDialogOpen: boolean
   isAboutDialogOpen: boolean
+  isModelPickerOpen: boolean
   dialogTab: SettingsTab
   effectiveTheme: 'dark' | 'light'
   // Runtime state for autosave toggle (not persisted)
@@ -32,6 +33,7 @@ interface SettingsState {
   setDialogTab: (tab: SettingsTab) => void
   setShortcutsDialogOpen: (open: boolean) => void
   setAboutDialogOpen: (open: boolean) => void
+  setModelPickerOpen: (open: boolean) => void
   setTheme: (theme: Settings['theme']) => void
   setLLMConfig: (config: Partial<Settings['llm']>) => void
   setEditorConfig: (config: Partial<Settings['editor']>) => void
@@ -110,6 +112,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   isDialogOpen: false,
   isShortcutsDialogOpen: false,
   isAboutDialogOpen: false,
+  isModelPickerOpen: false,
   dialogTab: 'general' as SettingsTab,
   effectiveTheme: 'dark',
   autosaveActive: true, // Runtime toggle, starts active
@@ -165,6 +168,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setShortcutsDialogOpen: (open) => set({ isShortcutsDialogOpen: open }),
 
   setAboutDialogOpen: (open) => set({ isAboutDialogOpen: open }),
+
+  setModelPickerOpen: (open) => set({ isModelPickerOpen: open }),
 
   setTheme: (theme) => {
     const effectiveTheme = getEffectiveTheme(theme)

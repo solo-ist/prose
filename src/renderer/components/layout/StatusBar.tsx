@@ -7,14 +7,17 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  DropdownMenuLabel
 } from '../ui/dropdown-menu'
 import type { ToolMode } from '../../stores/chatStore'
 import { cn } from '../../lib/utils'
+import { getModelsForProvider, type LLMProvider } from '../../../shared/llm/models'
 
 export function StatusBar() {
   const { document, cursorPosition } = useEditor()
-  const { settings } = useSettings()
+  const { settings, setLLMConfig, saveSettings } = useSettings()
   const { toolMode, setToolMode, includeDocument, setIncludeDocument } = useChat()
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
 
@@ -26,12 +29,22 @@ export function StatusBar() {
 
   // Mode configuration
   const modeConfig: Record<ToolMode, { label: string; description: string }> = {
-    suggestions: { label: 'suggestions', description: 'Read-only + suggestions' },
-    full: { label: 'full', description: 'Direct edits enabled' },
+    suggestions: { label: 'suggest edits', description: 'AI suggests changes for review' },
+    full: { label: 'accept edits', description: 'AI applies changes directly' },
     plan: { label: 'plan', description: 'Review changes before applying' }
   }
 
   const currentMode = modeConfig[toolMode]
+
+  // Get available models for current provider
+  const availableModels = getModelsForProvider(settings.llm.provider as LLMProvider)
+  const currentModel = availableModels.find(m => m.id === settings.llm.model)
+  const modelDisplayName = currentModel?.name || settings.llm.model.split('/').pop() || settings.llm.model
+
+  const handleModelChange = async (modelId: string) => {
+    setLLMConfig({ model: modelId })
+    await saveSettings()
+  }
 
   return (
     <div className="flex h-6 items-center justify-between border-t border-border bg-muted/30 px-4 text-xs text-muted-foreground font-mono">
@@ -51,8 +64,44 @@ export function StatusBar() {
           </>
         )}
 
-        {/* Provider */}
-        <span>{settings.llm.provider}</span>
+        {/* Model selector */}
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button className="hover:text-foreground transition-colors cursor-pointer max-w-[120px] truncate">
+                  {modelDisplayName}
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p>{settings.llm.provider} / {settings.llm.model}</p>
+            </TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="end" className="max-h-[300px] overflow-y-auto">
+            <DropdownMenuLabel className="text-xs text-muted-foreground">
+              {settings.llm.provider}
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {availableModels.map((model) => (
+              <DropdownMenuItem
+                key={model.id}
+                onClick={() => handleModelChange(model.id)}
+                className="cursor-pointer font-mono text-xs"
+              >
+                <div className="flex flex-col items-start">
+                  <span>{model.name}</span>
+                  {model.description && (
+                    <span className="text-[10px] text-muted-foreground">{model.description}</span>
+                  )}
+                </div>
+                {model.id === settings.llm.model && (
+                  <span className="ml-auto pl-2 text-primary">✓</span>
+                )}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <span className="text-muted-foreground/40 mx-1">|</span>
 

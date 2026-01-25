@@ -10,6 +10,7 @@ import { RecoveryModal } from '../RecoveryModal'
 import { DefaultHandlerPrompt } from './DefaultHandlerPrompt'
 import { KeyboardShortcutsDialog } from '../settings/KeyboardShortcutsDialog'
 import { AboutDialog } from '../settings/AboutDialog'
+import { ModelPickerDialog } from '../ModelPickerDialog'
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -44,7 +45,7 @@ export function App() {
   const MIN_WIDTH_FOR_BOTH_PANELS = 3000
   const { openFile, openFileFromPath, saveFile, saveFileAs, newFile } = useEditor()
   const { createNewTab, openFileInTab, closeTab } = useTabs()
-  const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, isAboutDialogOpen, setAboutDialogOpen, settings, isLoaded: settingsLoaded } = useSettings()
+  const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, isAboutDialogOpen, setAboutDialogOpen, isModelPickerOpen, setModelPickerOpen, settings, isLoaded: settingsLoaded } = useSettings()
   const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false)
   const [pendingDraft, setPendingDraft] = useState<DraftState | null>(null)
   const [pendingSession, setPendingSession] = useState<SessionState | null>(null)
@@ -496,6 +497,10 @@ export function App() {
         <AboutDialog
           open={isAboutDialogOpen}
           onOpenChange={setAboutDialogOpen}
+        />
+        <ModelPickerDialog
+          open={isModelPickerOpen}
+          onOpenChange={setModelPickerOpen}
         />
         <DefaultHandlerPrompt />
       </div>

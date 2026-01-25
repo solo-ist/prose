@@ -3,6 +3,7 @@ import { useEditor as useTipTapEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import Link from '@tiptap/extension-link'
+import Underline from '@tiptap/extension-underline'
 import { Markdown } from 'tiptap-markdown'
 import { FocusMode } from '../../lib/focusMode'
 import { DiffSuggestion } from '../../extensions/diff-suggestions'
@@ -29,7 +30,7 @@ export function Editor() {
   const { document, setContent, openFile, saveFile } = useEditor()
   const isEditing = useEditorStore((state) => state.isEditing)
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
-  const { settings, setDialogOpen, setShortcutsDialogOpen } = useSettings()
+  const { settings, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen } = useSettings()
   const { setContext, togglePanel, setPanelOpen, agentMode, setAgentMode, includeDocument, setIncludeDocument } = useChat()
   const setEditorInstance = useEditorInstanceStore((state) => state.setEditor)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -72,6 +73,7 @@ export function Editor() {
           rel: 'noopener noreferrer'
         }
       }),
+      Underline,
       Markdown.configure({
         html: true,
         tightLists: true,
@@ -358,16 +360,97 @@ export function Editor() {
       // F1: Show keyboard shortcuts
       e.preventDefault()
       setShortcutsDialogOpen(true)
+    } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'm') {
+      // Cmd+Shift+M: Open model picker
+      e.preventDefault()
+      setModelPickerOpen(true)
+    } else if (isMod && e.key === '.' && !e.shiftKey) {
+      // Cmd+.: Toggle document context
+      e.preventDefault()
+      setIncludeDocument(!includeDocument)
     } else if (e.shiftKey && e.key === 'Tab' && !isMod) {
       // Shift+Tab: Toggle agent mode
       e.preventDefault()
       setAgentMode(!agentMode)
     } else if (isMod && e.key === 'k' && !e.shiftKey) {
-      // Cmd+K: Toggle full context
+      // Cmd+K: Insert/edit link
       e.preventDefault()
-      setIncludeDocument(!includeDocument)
+      if (editor) {
+        const previousUrl = editor.getAttributes('link').href
+        const url = window.prompt('URL', previousUrl || '')
+        if (url === null) return
+        if (url === '') {
+          editor.chain().focus().extendMarkRange('link').unsetLink().run()
+        } else {
+          editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
+        }
+      }
+    } else if (isMod && e.key === 'u' && !e.shiftKey) {
+      // Cmd+U: Underline
+      e.preventDefault()
+      if (editor) {
+        editor.chain().focus().toggleUnderline().run()
+      }
+    } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'x') {
+      // Cmd+Shift+X: Strikethrough
+      e.preventDefault()
+      if (editor) {
+        editor.chain().focus().toggleStrike().run()
+      }
+    } else if (e.altKey && !isMod && e.key === 'ArrowUp') {
+      // Alt+Up: Move line up
+      e.preventDefault()
+      if (editor) {
+        const { $from } = editor.state.selection
+        const currentLine = $from.before($from.depth)
+        if (currentLine > 1) {
+          // Get the previous line's position
+          const prevLineStart = editor.state.doc.resolve(currentLine - 1).before($from.depth)
+          const currentLineEnd = $from.after($from.depth)
+          const currentLineContent = editor.state.doc.textBetween($from.start(), $from.end(), '\n')
+          const prevLineContent = editor.state.doc.textBetween(
+            editor.state.doc.resolve(currentLine - 1).start(),
+            editor.state.doc.resolve(currentLine - 1).end(),
+            '\n'
+          )
+          // Swap the lines
+          editor.chain()
+            .setTextSelection({ from: prevLineStart, to: currentLineEnd })
+            .insertContent(currentLineContent + '\n' + prevLineContent)
+            .setTextSelection({ from: prevLineStart, to: prevLineStart + currentLineContent.length })
+            .run()
+        }
+      }
+    } else if (e.altKey && !isMod && e.key === 'ArrowDown') {
+      // Alt+Down: Move line down
+      e.preventDefault()
+      if (editor) {
+        const { $from } = editor.state.selection
+        const currentLineEnd = $from.after($from.depth)
+        const docSize = editor.state.doc.content.size
+        if (currentLineEnd < docSize - 1) {
+          // Get the next line's position
+          const nextLineEnd = editor.state.doc.resolve(currentLineEnd + 1).after($from.depth)
+          const currentLineStart = $from.before($from.depth)
+          const currentLineContent = editor.state.doc.textBetween($from.start(), $from.end(), '\n')
+          const nextLineContent = editor.state.doc.textBetween(
+            editor.state.doc.resolve(currentLineEnd + 1).start(),
+            editor.state.doc.resolve(currentLineEnd + 1).end(),
+            '\n'
+          )
+          // Swap the lines
+          editor.chain()
+            .setTextSelection({ from: currentLineStart, to: nextLineEnd })
+            .insertContent(nextLineContent + '\n' + currentLineContent)
+            .setTextSelection({
+              from: currentLineStart + nextLineContent.length + 1,
+              to: currentLineStart + nextLineContent.length + 1 + currentLineContent.length
+            })
+            .run()
+        }
+      }
     }
-  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, editor, setContext, setPanelOpen, togglePanel, isFindOpen, openAddCommentDialog, agentMode, setAgentMode, includeDocument, setIncludeDocument])
+  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen, editor, setContext, setPanelOpen, togglePanel, isFindOpen, openAddCommentDialog, agentMode, setAgentMode, includeDocument, setIncludeDocument])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)

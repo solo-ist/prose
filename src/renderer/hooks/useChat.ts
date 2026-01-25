@@ -546,7 +546,11 @@ export function useChat() {
 
   // Auto-describe document on open (hidden message triggers AI summary)
   const describeDocument = useCallback(async () => {
-    // Only describe if there's content and tools are available
+    // Only describe if document context is enabled
+    const state = useChatStore.getState()
+    if (!state.includeDocument) return
+
+    // Only describe if there's content
     const content = useEditorStore.getState().document.content
     if (!content || content.trim().length === 0) return
 

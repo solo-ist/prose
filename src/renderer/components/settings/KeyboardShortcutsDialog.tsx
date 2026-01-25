@@ -29,7 +29,7 @@ const shortcutSections: ShortcutSection[] = [
   {
     title: 'File',
     shortcuts: [
-      { keys: [modKey, 'N'], description: 'New document' },
+      { keys: [modKey, 'T'], description: 'New tab' },
       { keys: [modKey, 'O'], description: 'Open file' },
       { keys: [modKey, 'S'], description: 'Save file' },
       { keys: [modKey, '⇧', 'S'], description: 'Save as' },
@@ -43,8 +43,10 @@ const shortcutSections: ShortcutSection[] = [
       { keys: [modKey, 'D'], description: 'Duplicate line' },
       { keys: [modKey, '⇧', '⌫'], description: 'Delete line' },
       { keys: [modKey, '/'], description: 'Toggle comment' },
+      { keys: [altKey, '↑'], description: 'Move line up' },
+      { keys: [altKey, '↓'], description: 'Move line down' },
       { keys: [modKey, 'Z'], description: 'Undo' },
-      { keys: [modKey, '⇧', 'Z'], description: 'Redo' },
+      { keys: isMac ? [modKey, '⇧', 'Z'] : ['Ctrl', 'Y'], description: 'Redo' },
     ]
   },
   {
@@ -52,6 +54,9 @@ const shortcutSections: ShortcutSection[] = [
     shortcuts: [
       { keys: [modKey, 'B'], description: 'Bold' },
       { keys: [modKey, 'I'], description: 'Italic' },
+      { keys: [modKey, 'U'], description: 'Underline' },
+      { keys: [modKey, '⇧', 'X'], description: 'Strikethrough' },
+      { keys: [modKey, 'K'], description: 'Insert link' },
       { keys: [modKey, altKey, '1-6'], description: 'Heading level' },
     ]
   },
@@ -65,8 +70,8 @@ const shortcutSections: ShortcutSection[] = [
   {
     title: 'Chat',
     shortcuts: [
-      { keys: [modKey, 'K'], description: 'Toggle full context' },
-      { keys: ['⇧', 'Tab'], description: 'Toggle agent mode' },
+      { keys: ['⇧', 'Tab'], description: 'Toggle edit mode' },
+      { keys: [modKey, '.'], description: 'Toggle document context' },
       { keys: [modKey, '⇧', 'K'], description: 'Add selection as context' },
       { keys: [modKey, '⇧', 'C'], description: 'Add comment to selection' },
       { keys: [modKey, '↵'], description: 'Send message' },
@@ -77,6 +82,7 @@ const shortcutSections: ShortcutSection[] = [
     title: 'Application',
     shortcuts: [
       { keys: [modKey, ','], description: 'Open settings' },
+      { keys: [modKey, '⇧', 'M'], description: 'Switch model' },
       { keys: ['F1'], description: 'Show keyboard shortcuts' },
     ]
   }

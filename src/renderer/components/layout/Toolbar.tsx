@@ -187,7 +187,7 @@ export function Toolbar() {
         </div>
 
         {/* Center: Tab bar */}
-        <div className="flex-1 flex items-center justify-start ml-2 app-region-no-drag min-w-0">
+        <div className="flex-1 flex items-center justify-start ml-2 app-region-drag min-w-0">
           <TabBar
             onTabClick={handleTabClick}
             onTabClose={handleTabClose}

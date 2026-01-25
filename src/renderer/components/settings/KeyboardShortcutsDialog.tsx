@@ -59,7 +59,7 @@ const shortcutSections: ShortcutSection[] = [
     title: 'View',
     shortcuts: [
       { keys: [modKey, '⇧', 'H'], description: 'Toggle file list' },
-      { keys: [modKey, '\\'], description: 'Toggle chat panel' },
+      { keys: [modKey, '⇧', 'L'], description: 'Toggle chat panel' },
     ]
   },
   {
@@ -68,6 +68,7 @@ const shortcutSections: ShortcutSection[] = [
       { keys: [modKey, 'K'], description: 'Toggle full context' },
       { keys: ['⇧', 'Tab'], description: 'Toggle agent mode' },
       { keys: [modKey, '⇧', 'K'], description: 'Add selection as context' },
+      { keys: [modKey, '⇧', 'C'], description: 'Add comment to selection' },
       { keys: [modKey, '↵'], description: 'Send message' },
       { keys: ['Esc'], description: 'Close chat panel' },
     ]

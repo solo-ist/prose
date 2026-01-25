@@ -161,6 +161,7 @@ export function App() {
           title: tabDraft.title,
           isDirty: tabDraft.isDirty,
           content: tabDraft.content,
+          frontmatter: tabDraft.frontmatter,
           cursorPosition: tabDraft.cursorPosition
         })
 
@@ -172,7 +173,7 @@ export function App() {
               documentId: tabDraft.documentId,
               path: tabDraft.path,
               content: documentContent,
-              frontmatter: {},
+              frontmatter: tabDraft.frontmatter ?? {},
               isDirty: tabDraft.isDirty
             }
           })
@@ -279,11 +280,26 @@ export function App() {
 
     const editorState = useEditorStore.getState()
     const content = editorState.document.content
-    const frontmatter = editorState.document.frontmatter
+    let frontmatter = editorState.document.frontmatter
     const path = editorState.document.path
     const title = path
       ? path.split('/').pop()?.replace(/\.[^/.]+$/, '') || 'Untitled'
       : 'Untitled'
+
+    // Safety net: if frontmatter lost google_doc_id (e.g. after tab switch), re-read from disk
+    if (!frontmatter.google_doc_id && path && window.api?.readFile) {
+      try {
+        const { parseMarkdown } = await import('../../lib/markdown')
+        const raw = await window.api.readFile(path)
+        const parsed = parseMarkdown(raw)
+        if (parsed.frontmatter.google_doc_id) {
+          frontmatter = parsed.frontmatter
+          editorState.setFrontmatter(frontmatter)
+        }
+      } catch {
+        // File read failed, proceed with in-memory frontmatter
+      }
+    }
 
     try {
       const result = await window.api.googlePush(content, frontmatter, title)
@@ -701,8 +717,7 @@ export function App() {
             <AlertDialogHeader>
               <AlertDialogTitle>Import from Google Docs</AlertDialogTitle>
               <AlertDialogDescription>
-                Enter the Google Doc ID. You can find it in the URL:
-                docs.google.com/document/d/<strong>[DOC_ID]</strong>/edit
+                Enter the Google Doc ID or paste the full document URL.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <div className="py-2">

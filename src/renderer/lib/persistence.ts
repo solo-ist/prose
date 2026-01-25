@@ -34,6 +34,7 @@ export interface TabDraft {
   title: string
   content: string
   isDirty: boolean
+  frontmatter?: Record<string, unknown>
   cursorPosition?: { line: number; column: number }
   activeChatId: string | null
 }

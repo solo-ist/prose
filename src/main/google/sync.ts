@@ -1,4 +1,4 @@
-import { createDoc, updateDoc, getDoc, getDocMetadata, docExists } from './client'
+import { createDoc, updateDoc, getDoc, getDocMetadata, docExists, extractDocId } from './client'
 
 export interface PushResult {
   success: boolean
@@ -31,7 +31,8 @@ export async function pushToGoogle(
   title: string
 ): Promise<PushResult> {
   try {
-    const existingDocId = frontmatter.google_doc_id
+    const rawDocId = frontmatter.google_doc_id
+    const existingDocId = rawDocId ? extractDocId(String(rawDocId)) : undefined
 
     if (existingDocId) {
       // Check if doc still exists
@@ -79,8 +80,9 @@ export async function pushToGoogle(
 /**
  * Pull document content from Google Docs
  */
-export async function pullFromGoogle(docId: string): Promise<PullResult> {
+export async function pullFromGoogle(rawDocId: string): Promise<PullResult> {
   try {
+    const docId = extractDocId(rawDocId)
     // Check if doc exists
     const exists = await docExists(docId)
     if (!exists) {
@@ -111,13 +113,14 @@ export async function pullFromGoogle(docId: string): Promise<PullResult> {
 /**
  * Import a Google Doc by ID
  */
-export async function importFromGoogle(docId: string): Promise<{
+export async function importFromGoogle(rawDocId: string): Promise<{
   success: boolean
   content?: string
   title?: string
   error?: string
 }> {
   try {
+    const docId = extractDocId(rawDocId)
     const content = await getDoc(docId)
     const metadata = await getDocMetadata(docId)
 

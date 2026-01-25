@@ -16,7 +16,8 @@ const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || ''
 
 const SCOPES = [
   'https://www.googleapis.com/auth/drive.file', // Access to files created/opened by the app
-  'https://www.googleapis.com/auth/userinfo.email' // Get user's email for display
+  'https://www.googleapis.com/auth/userinfo.email', // Get user's email for display
+  'https://www.googleapis.com/auth/userinfo.profile' // Get user's profile picture
 ]
 
 export interface GoogleAuthResult {

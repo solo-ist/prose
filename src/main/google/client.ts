@@ -2,6 +2,23 @@ import { google, docs_v1 } from 'googleapis'
 import { getAuthenticatedClient } from './auth'
 import { Readable } from 'stream'
 
+/**
+ * Extract a Google Doc ID from either a raw ID or a full Google Docs URL.
+ * Accepts:
+ *   - Raw ID: "1BxiM0C2ABC123"
+ *   - Full URL: "https://docs.google.com/document/d/1BxiM0C2ABC123/edit"
+ *   - URL with query params: "https://docs.google.com/document/d/1BxiM0C2ABC123/edit?usp=sharing"
+ */
+export function extractDocId(input: string): string {
+  const trimmed = input.trim()
+  // Try to extract from Google Docs URL
+  const urlMatch = trimmed.match(/\/document\/d\/([a-zA-Z0-9_-]+)/)
+  if (urlMatch) return urlMatch[1]
+  // Otherwise treat as raw ID (alphanumeric, hyphens, underscores)
+  if (/^[a-zA-Z0-9_-]+$/.test(trimmed)) return trimmed
+  throw new Error('Invalid Google Doc ID or URL. Expected a document ID or a docs.google.com URL.')
+}
+
 export interface DocMetadata {
   id: string
   title: string

@@ -29,9 +29,10 @@ export function GoogleDocsIntegration({ settings, setGoogleConfig }: Props) {
 
         // Update settings if connection state changed
         if (status.connected && status.email) {
-          if (!googleSettings || googleSettings.email !== status.email) {
+          if (!googleSettings || googleSettings.email !== status.email || googleSettings.picture !== status.picture) {
             setGoogleConfig({
               email: status.email,
+              picture: status.picture,
               connectedAt: googleSettings?.connectedAt || new Date().toISOString()
             })
           }

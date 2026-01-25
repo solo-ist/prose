@@ -57,6 +57,7 @@ export function useTabs() {
     // Update tab with current state
     updateTab(activeTab.id, {
       content: document.content,
+      frontmatter: document.frontmatter,
       cursorPosition,
       isDirty: document.isDirty
     })
@@ -81,7 +82,7 @@ export function useTabs() {
       documentId: newDocumentId,
       path: targetTab.path,
       content: targetTab.content ?? '',
-      frontmatter: {},
+      frontmatter: targetTab.frontmatter ?? {},
       isDirty: targetTab.isDirty
     })
 
@@ -195,6 +196,7 @@ export function useTabs() {
       title,
       isDirty: false,
       content: parsed.content,
+      frontmatter: parsed.frontmatter,
       cursorPosition: { line: 1, column: 1 }
     })
 
@@ -372,7 +374,8 @@ export function useTabs() {
         isDirty: document.isDirty,
         path: document.path,
         title,
-        content: document.content
+        content: document.content,
+        frontmatter: document.frontmatter
       })
     }
   }, [getActiveTab, document, updateTab])

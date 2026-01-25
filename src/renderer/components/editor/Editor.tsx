@@ -145,6 +145,12 @@ export function Editor() {
       frontmatterRef.current = newFrontmatter
       editor.commands.setContent(newBody)
       isUpdatingFromStore.current = false
+
+      // Scroll to top when new content is loaded
+      const editorContainer = editor.view.dom.closest('.overflow-auto')
+      if (editorContainer) {
+        editorContainer.scrollTop = 0
+      }
     } else if (newFrontmatter !== frontmatterRef.current) {
       // Just update frontmatter ref if only frontmatter changed
       frontmatterRef.current = newFrontmatter
@@ -235,7 +241,12 @@ export function Editor() {
       hasFocusedRef.current = true
       // Small delay to ensure DOM is ready
       const timer = setTimeout(() => {
-        editor.commands.focus('end')
+        editor.commands.focus('start')
+        // Scroll editor container to top
+        const editorContainer = editor.view.dom.closest('.overflow-auto')
+        if (editorContainer) {
+          editorContainer.scrollTop = 0
+        }
       }, 50)
       return () => clearTimeout(timer)
     }

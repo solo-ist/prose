@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react'
 import { useEditor as useTipTapEditor, EditorContent } from '@tiptap/react'
+import { EditorState } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import Link from '@tiptap/extension-link'
@@ -102,10 +103,8 @@ export function Editor() {
         class: 'outline-none min-h-full'
       }
     },
-    onCreate: ({ editor }) => {
-      // Clear history after initial content load to prevent undoing to empty state
-      editor.commands.clearHistory?.()
-    },
+    // Note: No onCreate needed - editor is created with initial content,
+    // so history naturally starts from that state
     onUpdate: ({ editor }) => {
       if (isUpdatingFromStore.current) return
 
@@ -154,11 +153,27 @@ export function Editor() {
     if (newBody !== currentMarkdown) {
       isUpdatingFromStore.current = true
       frontmatterRef.current = newFrontmatter
-      editor.commands.setContent(newBody)
-      // Clear history when loading a new document to prevent undoing past initial load
+
       if (isNewDocument) {
-        editor.commands.clearHistory?.()
+        // Create a fresh EditorState when loading a new document.
+        // This resets the undo history so users can't undo past the initial document state.
+        // Note: TipTap's clearHistory() doesn't exist - ProseMirror requires recreating the state.
+
+        // First, set the content to let tiptap-markdown parse it
+        editor.commands.setContent(newBody)
+
+        // Now create a fresh state with the parsed document (this clears history)
+        const newState = EditorState.create({
+          doc: editor.state.doc,
+          plugins: editor.state.plugins,
+          schema: editor.state.schema,
+        })
+        editor.view.updateState(newState)
+      } else {
+        // Normal content update - preserve history so user can undo their edits
+        editor.commands.setContent(newBody)
       }
+
       isUpdatingFromStore.current = false
     } else if (newFrontmatter !== frontmatterRef.current) {
       // Just update frontmatter ref if only frontmatter changed

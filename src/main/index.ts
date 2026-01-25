@@ -4,7 +4,7 @@ import { join } from 'path'
 // Load environment variables from .env file
 config()
 
-import { app, shell, BrowserWindow } from 'electron'
+import { app, shell, BrowserWindow, session } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { setupIpcHandlers } from './ipc'
 import { createMenu } from './menu'
@@ -116,6 +116,30 @@ function createWindow(): BrowserWindow {
 
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.prose.app')
+
+  // Configure Content Security Policy
+  // In development, we need 'unsafe-eval' for Vite HMR to work
+  // In production, we use a stricter policy without 'unsafe-eval'
+  const cspDirectives = [
+    "default-src 'self'",
+    is.dev ? "script-src 'self' 'unsafe-eval'" : "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "connect-src 'self' https://api.anthropic.com https://api.openai.com https://openrouter.ai https://generativelanguage.googleapis.com",
+    "img-src 'self' data: https:",
+    "media-src 'none'",
+    "object-src 'none'",
+    "frame-src 'none'"
+  ].join('; ')
+
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [cspDirectives]
+      }
+    })
+  })
 
   // Start HTTP/SSE server for MCP communication (Claude Desktop connects here)
   const mcpServer = getMcpHttpServer()

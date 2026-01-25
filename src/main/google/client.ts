@@ -27,28 +27,29 @@ export interface DocMetadata {
 
 /**
  * Create a new Google Doc from markdown content
- * Uses the Drive API to create a doc with markdown import
+ * Creates an empty doc first, then inserts content via Docs API
+ * (avoids googleapis media upload which requires Buffer/Node streams)
  */
 export async function createDoc(title: string, markdown: string): Promise<string> {
   const auth = await getAuthenticatedClient()
   const drive = google.drive({ version: 'v3', auth })
 
-  // Create the document with markdown content using media upload
-  // Google Docs can import markdown when using text/markdown MIME type
+  // Create an empty Google Doc
   const response = await drive.files.create({
     requestBody: {
       name: title,
       mimeType: 'application/vnd.google-apps.document'
-    },
-    media: {
-      mimeType: 'text/markdown',
-      body: markdown
     },
     fields: 'id'
   })
 
   if (!response.data.id) {
     throw new Error('Failed to create document: no ID returned')
+  }
+
+  // Insert content using the Docs API (no Buffer dependency)
+  if (markdown.length > 0) {
+    await updateDoc(response.data.id, markdown)
   }
 
   return response.data.id

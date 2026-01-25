@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 
 interface FrontmatterDisplayProps {
   content: string
+  frontmatter?: Record<string, unknown>
 }
 
 interface ParsedFrontmatter {
@@ -31,8 +32,19 @@ function parseFrontmatter(content: string): ParsedFrontmatter | null {
   return { data, bodyStart }
 }
 
-export function FrontmatterDisplay({ content }: FrontmatterDisplayProps) {
-  const frontmatter = useMemo(() => parseFrontmatter(content), [content])
+export function FrontmatterDisplay({ content, frontmatter: frontmatterObj }: FrontmatterDisplayProps) {
+  const frontmatter = useMemo(() => {
+    // If a pre-parsed frontmatter object is provided, use it directly
+    if (frontmatterObj && Object.keys(frontmatterObj).length > 0) {
+      const data: Record<string, string> = {}
+      for (const [key, value] of Object.entries(frontmatterObj)) {
+        data[key] = String(value ?? '')
+      }
+      return { data, bodyStart: 0 }
+    }
+    // Otherwise fall back to parsing from content string
+    return parseFrontmatter(content)
+  }, [content, frontmatterObj])
 
   if (!frontmatter || Object.keys(frontmatter.data).length === 0) {
     return null

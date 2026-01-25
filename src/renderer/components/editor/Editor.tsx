@@ -509,7 +509,12 @@ export function Editor() {
   const showEmptyState = !isEditing && !document.path && !document.content && !document.isDirty
 
   // Check if document has frontmatter to display
-  const showFrontmatter = useMemo(() => hasFrontmatter(document.content), [document.content])
+  const showFrontmatter = useMemo(() => {
+    // Check the parsed frontmatter object first (works for files loaded via parseMarkdown)
+    if (document.frontmatter && Object.keys(document.frontmatter).length > 0) return true
+    // Fall back to checking raw content (for content that still has --- markers)
+    return hasFrontmatter(document.content)
+  }, [document.content, document.frontmatter])
 
   // Focus editor when transitioning from empty state to editing
   useEffect(() => {
@@ -645,7 +650,7 @@ export function Editor() {
           <TransformAnimation isTransforming={isTransforming} onComplete={completeTransform}>
             <div className={`max-w-3xl prose-editor ${isRemarkableReadOnly && !isTransforming ? 'opacity-80 select-none' : ''}`}>
               {showFrontmatter && (
-                <FrontmatterDisplay content={document.content} />
+                <FrontmatterDisplay content={document.content} frontmatter={document.frontmatter} />
               )}
               <EditorContent
                 editor={editor}

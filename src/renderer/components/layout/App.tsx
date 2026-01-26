@@ -279,8 +279,12 @@ export function App() {
     }
 
     const editorState = useEditorStore.getState()
-    const content = editorState.document.content
     let frontmatter = editorState.document.frontmatter
+
+    // Strip frontmatter from content before pushing to Google Docs
+    const { parseMarkdown } = await import('../../lib/markdown')
+    const parsed = parseMarkdown(editorState.document.content)
+    const content = parsed.content
     const path = editorState.document.path
     const title = path
       ? path.split('/').pop()?.replace(/\.[^/.]+$/, '') || 'Untitled'

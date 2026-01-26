@@ -1,4 +1,5 @@
-import { google, docs_v1 } from 'googleapis'
+import { Readable } from 'stream'
+import { google } from 'googleapis'
 import { getAuthenticatedClient } from './auth'
 
 /**
@@ -26,19 +27,22 @@ export interface DocMetadata {
 }
 
 /**
- * Create a new Google Doc from markdown content
- * Creates an empty doc first, then inserts content via Docs API
- * (avoids googleapis media upload which requires Buffer/Node streams)
+ * Create a new Google Doc from markdown content.
+ * Uses Drive API media upload with text/markdown MIME type to produce
+ * a formatted Google Doc (headings, bold, etc. render correctly).
  */
 export async function createDoc(title: string, markdown: string): Promise<string> {
   const auth = await getAuthenticatedClient()
   const drive = google.drive({ version: 'v3', auth })
 
-  // Create an empty Google Doc
   const response = await drive.files.create({
     requestBody: {
       name: title,
       mimeType: 'application/vnd.google-apps.document'
+    },
+    media: {
+      mimeType: 'text/markdown',
+      body: Readable.from(markdown)
     },
     fields: 'id'
   })
@@ -47,67 +51,26 @@ export async function createDoc(title: string, markdown: string): Promise<string
     throw new Error('Failed to create document: no ID returned')
   }
 
-  // Insert content using the Docs API (no Buffer dependency)
-  if (markdown.length > 0) {
-    await updateDoc(response.data.id, markdown)
-  }
-
   return response.data.id
 }
 
 /**
- * Update an existing Google Doc with new markdown content
- * This replaces the entire document content
+ * Update an existing Google Doc with new markdown content.
+ * Uses Drive API media upload to replace content with formatted markdown,
+ * avoiding the Docs API batchUpdate path (which hits empty-range errors
+ * and only supports plain text).
  */
 export async function updateDoc(docId: string, markdown: string): Promise<void> {
   const auth = await getAuthenticatedClient()
-  const docs = google.docs({ version: 'v1', auth })
+  const drive = google.drive({ version: 'v3', auth })
 
-  // First, get the current document to find its content length
-  const doc = await docs.documents.get({ documentId: docId })
-  const content = doc.data.body?.content || []
-
-  // Calculate the end index (excluding the final newline that Google Docs adds)
-  let endIndex = 1
-  for (const element of content) {
-    if (element.endIndex && element.endIndex > endIndex) {
-      endIndex = element.endIndex
+  await drive.files.update({
+    fileId: docId,
+    media: {
+      mimeType: 'text/markdown',
+      body: Readable.from(markdown)
     }
-  }
-
-  // Build batch update requests
-  const requests: docs_v1.Schema$Request[] = []
-
-  // Delete all existing content (if any beyond the trailing newline)
-  if (endIndex > 2) {
-    requests.push({
-      deleteContentRange: {
-        range: {
-          startIndex: 1,
-          endIndex: endIndex - 1
-        }
-      }
-    })
-  }
-
-  // Insert new content
-  // Note: We insert plain text here. For proper markdown rendering,
-  // users should use the native Google Docs import feature.
-  if (markdown.length > 0) {
-    requests.push({
-      insertText: {
-        location: { index: 1 },
-        text: markdown
-      }
-    })
-  }
-
-  if (requests.length > 0) {
-    await docs.documents.batchUpdate({
-      documentId: docId,
-      requestBody: { requests }
-    })
-  }
+  })
 }
 
 /**

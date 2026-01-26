@@ -56,9 +56,9 @@ export function FrontmatterDisplay({ content, frontmatter: frontmatterObj }: Fro
     <div className="mb-6 rounded-md bg-muted/50 border border-border/50 px-4 py-3 font-mono text-xs text-muted-foreground">
       <div className="space-y-0.5">
         {Object.entries(data).map(([key, value]) => (
-          <div key={key} className="flex">
-            <span className="text-muted-foreground/70 w-20 shrink-0">{key}:</span>
-            <span className="text-foreground/80">{value}</span>
+          <div key={key} className="flex gap-2">
+            <span className="text-muted-foreground/70 shrink-0">{key}:</span>
+            <span className="text-foreground/80 break-all">{value}</span>
           </div>
         ))}
       </div>

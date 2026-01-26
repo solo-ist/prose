@@ -78,8 +78,8 @@ export async function updateDoc(docId: string, markdown: string): Promise<void> 
   // Build batch update requests
   const requests: docs_v1.Schema$Request[] = []
 
-  // Delete all existing content (if any)
-  if (endIndex > 1) {
+  // Delete all existing content (if any beyond the trailing newline)
+  if (endIndex > 2) {
     requests.push({
       deleteContentRange: {
         range: {

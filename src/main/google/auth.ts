@@ -1,5 +1,5 @@
 import { google } from 'googleapis'
-import { shell, safeStorage } from 'electron'
+import { BrowserWindow, safeStorage, session } from 'electron'
 import { createServer, IncomingMessage, ServerResponse } from 'http'
 import { readFile, writeFile, unlink, mkdir } from 'fs/promises'
 import { join } from 'path'
@@ -68,6 +68,8 @@ export async function startOAuthFlow(): Promise<GoogleAuthResult> {
   return new Promise((resolve) => {
     // Port will be set when server starts listening
     let serverPort: number = 0
+    let authCompleted = false
+    let authWindow: BrowserWindow | null = null
 
     // Create a temporary HTTP server on a random port
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -85,11 +87,12 @@ export async function startOAuthFlow(): Promise<GoogleAuthResult> {
               <body style="font-family: -apple-system, system-ui, sans-serif; padding: 40px; text-align: center;">
                 <h1>Authentication Failed</h1>
                 <p>Error: ${error}</p>
-                <p>You can close this window.</p>
               </body>
             </html>
           `)
+          authCompleted = true
           server.close()
+          if (authWindow && !authWindow.isDestroyed()) authWindow.close()
           resolve({ success: false, error })
           return
         }
@@ -102,11 +105,12 @@ export async function startOAuthFlow(): Promise<GoogleAuthResult> {
               <body style="font-family: -apple-system, system-ui, sans-serif; padding: 40px; text-align: center;">
                 <h1>Authentication Failed</h1>
                 <p>No authorization code received.</p>
-                <p>You can close this window.</p>
               </body>
             </html>
           `)
+          authCompleted = true
           server.close()
+          if (authWindow && !authWindow.isDestroyed()) authWindow.close()
           resolve({ success: false, error: 'No authorization code received' })
           return
         }
@@ -122,12 +126,12 @@ export async function startOAuthFlow(): Promise<GoogleAuthResult> {
               <body style="font-family: -apple-system, system-ui, sans-serif; padding: 40px; text-align: center;">
                 <h1>Authentication Successful!</h1>
                 <p>Connected as ${result.email}</p>
-                <p>You can close this window and return to Prose.</p>
-                <script>window.close()</script>
               </body>
             </html>
           `)
+          authCompleted = true
           server.close()
+          if (authWindow && !authWindow.isDestroyed()) authWindow.close()
           resolve(result)
         } catch (err) {
           const errorMessage = err instanceof Error ? err.message : 'Unknown error'
@@ -138,11 +142,12 @@ export async function startOAuthFlow(): Promise<GoogleAuthResult> {
               <body style="font-family: -apple-system, system-ui, sans-serif; padding: 40px; text-align: center;">
                 <h1>Authentication Failed</h1>
                 <p>${errorMessage}</p>
-                <p>You can close this window.</p>
               </body>
             </html>
           `)
+          authCompleted = true
           server.close()
+          if (authWindow && !authWindow.isDestroyed()) authWindow.close()
           resolve({ success: false, error: errorMessage })
         }
       } else {
@@ -170,8 +175,39 @@ export async function startOAuthFlow(): Promise<GoogleAuthResult> {
         prompt: 'consent' // Force consent to always get refresh token
       })
 
-      // Open browser to auth URL
-      shell.openExternal(authUrl)
+      // Open auth URL in an embedded BrowserWindow
+      const parent = BrowserWindow.getFocusedWindow()
+      authWindow = new BrowserWindow({
+        width: 500,
+        height: 700,
+        parent: parent || undefined,
+        modal: false,
+        autoHideMenuBar: true,
+        title: 'Sign in with Google',
+        webPreferences: {
+          partition: 'persist:google-auth',
+          nodeIntegration: false,
+          contextIsolation: true
+        }
+      })
+
+      if (parent) {
+        const parentBounds = parent.getBounds()
+        authWindow.setPosition(
+          Math.round(parentBounds.x + (parentBounds.width - 500) / 2),
+          Math.round(parentBounds.y + (parentBounds.height - 700) / 2)
+        )
+      }
+
+      authWindow.on('closed', () => {
+        authWindow = null
+        if (!authCompleted) {
+          server.close()
+          resolve({ success: false, error: 'User cancelled authentication' })
+        }
+      })
+
+      authWindow.loadURL(authUrl)
     })
   })
 }
@@ -308,6 +344,13 @@ export async function clearTokens(): Promise<void> {
     await unlink(REFRESH_TOKEN_PATH)
   } catch {
     // File doesn't exist, ignore
+  }
+
+  // Clear auth session cookies so re-auth starts fresh
+  try {
+    await session.fromPartition('persist:google-auth').clearStorageData()
+  } catch {
+    // Session cleanup failed, ignore
   }
 }
 

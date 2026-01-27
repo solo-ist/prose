@@ -8,6 +8,7 @@ import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
 import { useFileList } from '../../hooks/useFileList'
 import { isMacOS, getApi } from '../../lib/browserApi'
+import { cn } from '../../lib/utils'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import {
@@ -45,7 +46,8 @@ import {
   Copy,
   Check,
   Timer,
-  CircleUserRound
+  CircleUserRound,
+  Loader2
 } from 'lucide-react'
 
 export function Toolbar() {
@@ -65,6 +67,7 @@ export function Toolbar() {
   const { isPanelOpen: isChatOpen, togglePanel: toggleChatPanel } = useChat()
   const { isPanelOpen: isFileListOpen, togglePanel: toggleFileListPanel } = useFileList()
   const isEditing = useEditorStore((state) => state.isEditing)
+  const isGoogleSyncing = useFileListStore((state) => state.isGoogleSyncing)
 
   const [hasCopied, setHasCopied] = useState(false)
   const [googlePicture, setGooglePicture] = useState<string | null>(null)
@@ -279,24 +282,38 @@ export function Toolbar() {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => setDialogOpen(true, 'account')}
-                aria-label={googlePicture ? 'Google account' : 'Connect Google account'}
+                onClick={() => {
+                  if (googlePicture) {
+                    const authParam = settings.google?.email ? `?authuser=${encodeURIComponent(settings.google.email)}` : ''
+                    window.open(`https://docs.google.com${authParam}`, '_blank')
+                  } else {
+                    setDialogOpen(true, 'account')
+                  }
+                }}
+                aria-label={googlePicture ? 'Open Google Docs' : 'Connect Google account'}
                 className="relative"
               >
                 {googlePicture ? (
-                  <img
-                    src={googlePicture}
-                    alt="Google account"
-                    className="h-5 w-5 rounded-full"
-                    referrerPolicy="no-referrer"
-                  />
+                  <>
+                    <img
+                      src={googlePicture}
+                      alt="Google account"
+                      className={cn("h-5 w-5 rounded-full", isGoogleSyncing && "opacity-30")}
+                      referrerPolicy="no-referrer"
+                    />
+                    {isGoogleSyncing && (
+                      <Loader2 className="absolute h-4 w-4 animate-spin text-muted-foreground" />
+                    )}
+                  </>
+                ) : isGoogleSyncing ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 ) : (
                   <CircleUserRound className="h-5 w-5 text-muted-foreground" />
                 )}
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              {googlePicture ? 'Google account' : 'Connect Google account'}
+              {googlePicture ? 'Open Google Docs' : 'Connect Google account'}
             </TooltipContent>
           </Tooltip>
 

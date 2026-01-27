@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useFileList } from '../../hooks/useFileList'
 import { useEditor } from '../../hooks/useEditor'
+import { useTabs } from '../../hooks/useTabs'
 import { useChat } from '../../hooks/useChat'
 import { useRemarkableSync } from '../../hooks/useRemarkableSync'
+import { useGoogleDocsSync } from '../../hooks/useGoogleDocsSync'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useEditorStore } from '../../stores/editorStore'
+import { useFileListStore } from '../../stores/fileListStore'
 import { FileTree } from './FileTree'
 import { ScrollArea } from '../ui/scroll-area'
 import { Button } from '../ui/button'
@@ -26,11 +29,11 @@ import {
 } from '../ui/dialog'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
-import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, Folder, FolderOpen, Download, Trash2, FilePlus, ExternalLink, X } from 'lucide-react'
+import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, Folder, FolderOpen, Download, Trash2, FilePlus, ExternalLink, X, Globe, Edit3 } from 'lucide-react'
 import { useSettings } from '../../hooks/useSettings'
 import { cn } from '../../lib/utils'
 import { getApi } from '../../lib/browserApi'
-import type { RemarkableNotebookMetadata, RemarkableCloudNotebook } from '../../types'
+import type { RemarkableNotebookMetadata, RemarkableCloudNotebook, GoogleDocEntry } from '../../types'
 
 export function FileListPanel() {
   const {
@@ -52,16 +55,22 @@ export function FileListPanel() {
     navigateToParent,
     toggleNotebookSync,
     loadFiles,
+    loadGoogleDocsMetadata,
+    googleDocsMetadata,
     syncDirectory,
     deviceToken,
     removeRecentFile
   } = useFileList()
 
   const { openFileFromPath } = useEditor()
+  const { openFileInTab } = useTabs()
   const { describeDocument } = useChat()
   const { isSyncing, sync, error: syncError } = useRemarkableSync()
+  const { isSyncing: isGoogleSyncing, sync: googleSync, error: googleSyncError } = useGoogleDocsSync()
   const { setDialogOpen } = useSettings()
   const remarkableEnabled = useSettingsStore((state) => state.settings.remarkable?.enabled)
+  const googleConnected = useSettingsStore((state) => !!state.settings.google)
+  const googleSyncDirectory = useSettingsStore((state) => state.settings.google?.syncDirectory)
 
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -114,6 +123,17 @@ export function FileListPanel() {
 
       // Delete the file
       await window.api.deleteFile(deleteTarget.path)
+
+      // If this file is tracked in Google Docs metadata, remove its entry
+      if (googleDocsMetadata && window.api.googleRemoveSyncMetadataEntry) {
+        const trackedEntry = Object.values(googleDocsMetadata.documents).find(
+          (e) => e.localPath === deleteTarget.path
+        )
+        if (trackedEntry) {
+          await window.api.googleRemoveSyncMetadataEntry(trackedEntry.googleDocId)
+          await loadGoogleDocsMetadata()
+        }
+      }
 
       // If the deleted file was currently open, clear the editor
       const currentPath = useEditorStore.getState().document.path
@@ -200,6 +220,23 @@ export function FileListPanel() {
       }
 
       await api.renameFile(renameFilePath, newPath)
+
+      // If this file is tracked in Google Docs metadata, update its localPath
+      if (googleDocsMetadata && window.api?.googleUpdateSyncMetadataEntry) {
+        const trackedEntry = Object.values(googleDocsMetadata.documents).find(
+          (e) => e.localPath === renameFilePath
+        )
+        if (trackedEntry) {
+          const newTitle = newName.replace(/\.(md|markdown|txt)$/, '')
+          await window.api.googleUpdateSyncMetadataEntry({
+            ...trackedEntry,
+            localPath: newPath,
+            title: newTitle
+          })
+          await loadGoogleDocsMetadata()
+        }
+      }
+
       setRenameDialogOpen(false)
       setRenameFilePath(null)
       setRenameFileName('')
@@ -237,6 +274,20 @@ export function FileListPanel() {
     }
   }, [viewMode, remarkableEnabled]) // Intentionally exclude sync and isSyncing to only trigger on view change
 
+  // Load metadata and auto-sync when switching to Google Docs view
+  useEffect(() => {
+    if (viewMode === 'googledocs' && googleConnected) {
+      // Load metadata first for instant display
+      loadGoogleDocsMetadata()
+      // Then trigger a background sync (if not already syncing)
+      if (!isGoogleSyncing) {
+        googleSync().catch((err) => {
+          console.error('[FileListPanel] Google Docs auto-sync failed:', err)
+        })
+      }
+    }
+  }, [viewMode, googleConnected]) // Intentionally exclude googleSync and isGoogleSyncing to only trigger on view change
+
   const handleFileClick = async (path: string) => {
     selectFile(path)
     const shouldDescribe = await openFileFromPath(path)
@@ -244,6 +295,26 @@ export function FileListPanel() {
       describeDocument()
     }
   }
+
+  // Google Docs: open file in tab (avoids rootPath race condition)
+  const handleGoogleDocClick = useCallback(async (path: string) => {
+    selectFile(path)
+    await openFileInTab(path)
+  }, [selectFile, openFileInTab])
+
+  // Google Docs: open the linked Google Doc in the browser (using metadata)
+  const googleEmail = useSettingsStore((state) => state.settings.google?.email)
+  const handleGoogleDocLinkClick = useCallback((entry: GoogleDocEntry) => {
+    const authParam = googleEmail ? `?authuser=${encodeURIComponent(googleEmail)}` : ''
+    window.open(`${entry.webViewLink}${authParam}`, '_blank')
+  }, [googleEmail])
+
+  // Google Docs: remove a stale entry from metadata
+  const handleRemoveGoogleDocEntry = useCallback(async (googleDocId: string) => {
+    if (!window.api?.googleRemoveSyncMetadataEntry) return
+    await window.api.googleRemoveSyncMetadataEntry(googleDocId)
+    await loadGoogleDocsMetadata()
+  }, [loadGoogleDocsMetadata])
 
   // Get folder name from path for display
   const folderName = rootPath?.split('/').pop() || 'Cloud'
@@ -465,7 +536,7 @@ export function FileListPanel() {
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-medium truncate" title={viewMode === 'folder' ? rootPath || undefined : undefined}>
-            {viewMode === 'recent' ? 'Recent' : viewMode === 'notebooks' ? 'Notebooks' : folderName}
+            {viewMode === 'recent' ? 'Recent' : viewMode === 'notebooks' ? 'Notebooks' : viewMode === 'googledocs' ? 'Google Docs' : folderName}
           </h2>
         </div>
         <div className="flex items-center gap-1">
@@ -504,6 +575,30 @@ export function FileListPanel() {
             </TooltipTrigger>
             <TooltipContent>Files</TooltipContent>
           </Tooltip>
+          {googleConnected && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn("h-8 w-8", viewMode === 'googledocs' && "bg-muted")}
+                  onClick={() => {
+                    if (viewMode === 'googledocs') {
+                      googleSync().catch((err) => {
+                        console.error('[FileListPanel] Manual Google sync failed:', err)
+                      })
+                    } else {
+                      setViewMode('googledocs')
+                    }
+                  }}
+                  aria-label="Google Docs"
+                >
+                  <Globe className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Google Docs</TooltipContent>
+            </Tooltip>
+          )}
           {remarkableEnabled && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -533,7 +628,7 @@ export function FileListPanel() {
       </div>
 
       {/* Loading bar */}
-      {(isLoading || isSyncing) && (
+      {(isLoading || isSyncing || isGoogleSyncing) && (
         <div className="h-0.5 w-full overflow-hidden bg-muted/50">
           <div className="h-full w-1/3 animate-loading-bar bg-gradient-to-r from-violet-500 via-fuchsia-500 to-violet-500" />
         </div>
@@ -576,6 +671,103 @@ export function FileListPanel() {
                   </ContextMenuContent>
                 </ContextMenu>
               ))}
+            </div>
+          )
+        ) : viewMode === 'googledocs' ? (
+          // Google Docs view — flat list from sync metadata
+          !googleConnected ? (
+            <div className="flex h-full flex-col p-4">
+              <p className="text-sm text-muted-foreground">
+                Connect your Google account to sync documents.
+              </p>
+              <Button
+                variant="ghost"
+                className="mt-6 w-full border border-dashed border-muted-foreground/30 text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground"
+                onClick={() => setDialogOpen(true, 'account')}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : !googleDocsMetadata || Object.keys(googleDocsMetadata.documents).length === 0 ? (
+            <div className="p-4 text-sm text-muted-foreground">
+              {isLoading || isGoogleSyncing ? 'Syncing Google Docs...' : googleSyncError ? (
+                <span className="text-red-500">{googleSyncError}</span>
+              ) : 'No Google Docs found. Sync or import documents first.'}
+            </div>
+          ) : (
+            <div className={cn(
+              "p-2",
+              isGoogleSyncing && "opacity-50 pointer-events-none"
+            )}>
+              {Object.values(googleDocsMetadata.documents)
+                .sort((a, b) => new Date(b.syncedAt).getTime() - new Date(a.syncedAt).getTime())
+                .map((entry) => {
+                  const isMissing = entry.status === 'missing'
+                  return (
+                    <ContextMenu key={entry.googleDocId}>
+                      <ContextMenuTrigger asChild>
+                        <div className={cn("group flex items-center relative")}>
+                          <button
+                            className={cn(
+                              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50",
+                              selectedPath === entry.localPath && "bg-muted",
+                              isMissing && "opacity-50"
+                            )}
+                            onClick={() => {
+                              if (!isMissing) {
+                                handleGoogleDocClick(entry.localPath)
+                              }
+                            }}
+                            title={isMissing ? `${entry.localPath} (file missing)` : entry.localPath}
+                            disabled={isMissing}
+                          >
+                            <FileText className={cn(
+                              "h-4 w-4 shrink-0",
+                              isMissing ? "text-muted-foreground/50" : "text-muted-foreground"
+                            )} />
+                            <span className="truncate flex-1">{entry.title}</span>
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleGoogleDocLinkClick(entry)
+                            }}
+                            className="absolute right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent"
+                            title="Open in Google Docs"
+                          >
+                            <ExternalLink className="h-3 w-3 text-muted-foreground" />
+                          </button>
+                        </div>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent>
+                        {isMissing ? (
+                          <ContextMenuItem onClick={() => handleRemoveGoogleDocEntry(entry.googleDocId)}>
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Remove from tracking
+                          </ContextMenuItem>
+                        ) : (
+                          <>
+                            <ContextMenuItem onClick={() => handleFileRename(entry.localPath)}>
+                              <Edit3 className="h-4 w-4 mr-2" />
+                              Rename
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleFileShowInFolder(entry.localPath)}>
+                              <ExternalLink className="h-4 w-4 mr-2" />
+                              Show in Folder
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onClick={() => handleFileDeleteRequest(entry.localPath)}
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
+                            </ContextMenuItem>
+                          </>
+                        )}
+                      </ContextMenuContent>
+                    </ContextMenu>
+                  )
+                })}
             </div>
           )
         ) : viewMode === 'notebooks' ? (

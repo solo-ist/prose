@@ -29,6 +29,7 @@ import {
 } from '../ui/alert-dialog'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
+import { Checkbox } from '../ui/checkbox'
 import { useChat } from '../../hooks/useChat'
 import { useEditor } from '../../hooks/useEditor'
 import { useTabs } from '../../hooks/useTabs'
@@ -63,6 +64,7 @@ export function App() {
   const [pendingSession, setPendingSession] = useState<SessionState | null>(null)
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [importDocId, setImportDocId] = useState('')
+  const [importAsAI, setImportAsAI] = useState(false)
   const tabsInitialized = useRef(false)
 
   const hydrateFromDraft = useEditorStore((state) => state.hydrateFromDraft)
@@ -265,8 +267,8 @@ export function App() {
   }, [pendingSession, pendingDraft, discardSession, discardDraft, createNewTab])
 
   // Google Docs sync handlers
-  const handleGooglePush = useCallback(async () => {
-    if (!window.api?.googlePush || !window.api?.googleGetConnectionStatus) {
+  const handleGoogleSync = useCallback(async () => {
+    if (!window.api?.googleSync || !window.api?.googleGetConnectionStatus) {
       console.warn('Google API not available')
       return
     }
@@ -281,8 +283,8 @@ export function App() {
     const editorState = useEditorStore.getState()
     let frontmatter = editorState.document.frontmatter
 
-    // Strip frontmatter from content before pushing to Google Docs
-    const { parseMarkdown } = await import('../../lib/markdown')
+    // Strip frontmatter from content before syncing
+    const { parseMarkdown, serializeMarkdown } = await import('../../lib/markdown')
     const parsed = parseMarkdown(editorState.document.content)
     const content = parsed.content
     const path = editorState.document.path
@@ -293,11 +295,10 @@ export function App() {
     // Safety net: if frontmatter lost google_doc_id (e.g. after tab switch), re-read from disk
     if (!frontmatter.google_doc_id && path && window.api?.readFile) {
       try {
-        const { parseMarkdown } = await import('../../lib/markdown')
         const raw = await window.api.readFile(path)
-        const parsed = parseMarkdown(raw)
-        if (parsed.frontmatter.google_doc_id) {
-          frontmatter = parsed.frontmatter
+        const diskParsed = parseMarkdown(raw)
+        if (diskParsed.frontmatter.google_doc_id) {
+          frontmatter = diskParsed.frontmatter
           editorState.setFrontmatter(frontmatter)
         }
       } catch {
@@ -306,89 +307,80 @@ export function App() {
     }
 
     try {
-      const result = await window.api.googlePush(content, frontmatter, title)
+      const result = await window.api.googleSync(content, frontmatter, title)
 
-      if (result.success && result.docId) {
-        // Update frontmatter with Google Doc ID and save to disk
-        const updatedFrontmatter = {
-          ...frontmatter,
-          google_doc_id: result.docId,
-          google_synced_at: new Date().toISOString()
-        }
-        editorState.setFrontmatter(updatedFrontmatter)
-
-        // Save file to persist frontmatter to disk
-        if (editorState.document.path) {
-          const { serializeMarkdown } = await import('../../lib/markdown')
-          const serialized = serializeMarkdown(editorState.document.content, updatedFrontmatter)
-          await window.api!.saveFile(editorState.document.path, serialized)
-        }
-
-        const message = result.isNew
-          ? `Created new Google Doc.\n\nOpen in browser?`
-          : `Updated Google Doc.\n\nOpen in browser?`
-
-        if (result.webViewLink && confirm(message)) {
-          window.open(result.webViewLink, '_blank')
-        }
-      } else {
-        alert(`Failed to push to Google Docs: ${result.error || 'Unknown error'}`)
+      if (!result.success) {
+        alert(`Sync failed: ${result.error || 'Unknown error'}`)
+        return
       }
-    } catch (error) {
-      alert(`Error pushing to Google Docs: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    }
-  }, [])
 
-  const handleGooglePull = useCallback(async () => {
-    if (!window.api?.googlePull || !window.api?.googleGetConnectionStatus) {
-      console.warn('Google API not available')
-      return
-    }
-
-    // Check if connected
-    const status = await window.api.googleGetConnectionStatus()
-    if (!status.connected) {
-      alert('Please connect your Google account first.\n\nGo to Settings > Account to connect.')
-      return
-    }
-
-    const editorState = useEditorStore.getState()
-    const frontmatter = editorState.document.frontmatter
-    const docId = frontmatter.google_doc_id as string | undefined
-
-    if (!docId) {
-      alert('This document is not linked to a Google Doc.\n\nUse "Push to Google Docs" first to create a link.')
-      return
-    }
-
-    if (!confirm('This will replace your local content with the Google Doc content.\n\nAre you sure?')) {
-      return
-    }
-
-    try {
-      const result = await window.api.googlePull(docId)
-
-      if (result.success && result.content !== undefined) {
-        // Update editor content
+      if (result.direction === 'pull' && result.content !== undefined) {
+        // Pull: update editor content
         const editor = useEditorInstanceStore.getState().editor
         if (editor) {
           editor.commands.setContent(result.content)
         }
-
-        // Update frontmatter with sync timestamp
         const updatedFrontmatter = {
           ...frontmatter,
+          google_doc_id: result.docId || frontmatter.google_doc_id,
           google_synced_at: result.modifiedTime || new Date().toISOString()
         }
         editorState.setFrontmatter(updatedFrontmatter)
         editorState.setDirty(true)
 
-        alert('Content updated from Google Docs.')
+        // Update sync metadata
+        if (result.docId && path && window.api.googleUpdateSyncMetadataEntry) {
+          await window.api.googleUpdateSyncMetadataEntry({
+            title,
+            googleDocId: result.docId,
+            localPath: path,
+            webViewLink: result.webViewLink || `https://docs.google.com/document/d/${result.docId}/edit`,
+            syncedAt: new Date().toISOString(),
+            remoteModifiedTime: result.modifiedTime || new Date().toISOString()
+          })
+          useFileListStore.getState().loadGoogleDocsMetadata()
+        }
+
+        console.log('[Google Sync] Pulled changes from Google Docs')
       } else {
-        alert(`Failed to pull from Google Docs: ${result.error || 'Unknown error'}`)
+        // Push or Create: update frontmatter with docId + synced_at
+        const updatedFrontmatter = {
+          ...frontmatter,
+          google_doc_id: result.docId || frontmatter.google_doc_id,
+          google_synced_at: result.modifiedTime || new Date().toISOString()
+        }
+        editorState.setFrontmatter(updatedFrontmatter)
+
+        // Save file to persist frontmatter to disk
+        if (editorState.document.path) {
+          const serialized = serializeMarkdown(editorState.document.content, updatedFrontmatter)
+          await window.api!.saveFile(editorState.document.path, serialized)
+        }
+
+        // Update sync metadata
+        const docId = result.docId || String(frontmatter.google_doc_id)
+        if (docId && window.api.googleUpdateSyncMetadataEntry) {
+          await window.api.googleUpdateSyncMetadataEntry({
+            title,
+            googleDocId: docId,
+            localPath: editorState.document.path || '',
+            webViewLink: result.webViewLink || `https://docs.google.com/document/d/${docId}/edit`,
+            syncedAt: new Date().toISOString(),
+            remoteModifiedTime: result.modifiedTime || new Date().toISOString()
+          })
+          useFileListStore.getState().loadGoogleDocsMetadata()
+        }
+
+        if (result.direction === 'create' && result.webViewLink) {
+          if (confirm('Created new Google Doc.\n\nOpen in browser?')) {
+            window.open(result.webViewLink, '_blank')
+          }
+        }
+
+        console.log(`[Google Sync] ${result.direction === 'create' ? 'Created' : 'Pushed'} to Google Docs`)
       }
     } catch (error) {
-      alert(`Error pulling from Google Docs: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      alert(`Error syncing with Google Docs: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }, [])
 
@@ -411,40 +403,94 @@ export function App() {
   }, [])
 
   const handleGoogleImportConfirm = useCallback(async () => {
-    const docId = importDocId.trim()
+    const rawDocId = importDocId.trim()
+    const markAsAI = importAsAI
     setImportDialogOpen(false)
     setImportDocId('')
+    setImportAsAI(false)
 
-    if (!docId || !window.api?.googleImport) return
+    if (!rawDocId || !window.api?.googleImport) return
 
     try {
-      const result = await window.api.googleImport(docId)
+      const result = await window.api.googleImport(rawDocId)
 
       if (result.success && result.content !== undefined) {
-        // Create new tab with imported content
-        await createNewTab()
+        const extractedDocId = result.docId || rawDocId
+        const docTitle = result.title || 'Untitled'
 
-        // Update editor content
-        const editor = useEditorInstanceStore.getState().editor
-        if (editor) {
-          editor.commands.setContent(result.content)
+        // Auto-save to ~/Documents/Google Docs/
+        const { serializeMarkdown } = await import('../../lib/markdown')
+        const frontmatter = {
+          google_doc_id: extractedDocId,
+          google_synced_at: new Date().toISOString()
+        }
+        const serialized = serializeMarkdown(result.content, frontmatter)
+
+        let savedPath: string | undefined
+        if (window.api.googleEnsureFolder) {
+          try {
+            const folderPath = await window.api.googleEnsureFolder()
+            const sanitizedTitle = docTitle.replace(/[/\\:*?"<>|]/g, '-').trim() || 'Untitled'
+            savedPath = `${folderPath}/${sanitizedTitle}.md`
+            await window.api.saveFile(savedPath, serialized)
+
+            // Record in sync metadata
+            if (window.api.googleUpdateSyncMetadataEntry) {
+              await window.api.googleUpdateSyncMetadataEntry({
+                title: docTitle,
+                googleDocId: extractedDocId,
+                localPath: savedPath,
+                webViewLink: `https://docs.google.com/document/d/${extractedDocId}/edit`,
+                syncedAt: new Date().toISOString(),
+                remoteModifiedTime: new Date().toISOString()
+              })
+              useFileListStore.getState().loadGoogleDocsMetadata()
+            }
+          } catch (err) {
+            console.error('Failed to auto-save imported doc:', err)
+          }
         }
 
-        // Set frontmatter with Google Doc link
-        const editorState = useEditorStore.getState()
-        editorState.setFrontmatter({
-          google_doc_id: docId,
-          google_synced_at: new Date().toISOString()
-        })
+        if (savedPath) {
+          // Open the saved file in a tab
+          await openFileInTab(savedPath)
+        } else {
+          // Fallback: create new untitled tab
+          await createNewTab()
+          const editor = useEditorInstanceStore.getState().editor
+          if (editor) {
+            editor.commands.setContent(result.content)
+          }
+          const editorState = useEditorStore.getState()
+          editorState.setFrontmatter(frontmatter)
+        }
 
-        alert(`Imported "${result.title || 'Untitled'}" from Google Docs.`)
+        // Mark as AI-generated if checkbox was checked
+        if (markAsAI) {
+          // Wait for editor to settle with the content
+          setTimeout(() => {
+            const editor = useEditorInstanceStore.getState().editor
+            const editorState = useEditorStore.getState()
+            if (editor && result.content) {
+              const { useAnnotationStore } = require('../../extensions/ai-annotations/store')
+              useAnnotationStore.getState().addAnnotation({
+                documentId: editorState.document.documentId,
+                type: 'insertion' as const,
+                from: 0,
+                to: editor.state.doc.content.size,
+                content: result.content,
+                provenance: { model: 'external', conversationId: '', messageId: '' }
+              })
+            }
+          }, 100)
+        }
       } else {
         alert(`Failed to import from Google Docs: ${result.error || 'Unknown error'}`)
       }
     } catch (error) {
       alert(`Error importing from Google Docs: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
-  }, [importDocId, createNewTab])
+  }, [importDocId, importAsAI, createNewTab, openFileInTab])
 
   // Check for session/draft recovery after settings are loaded
   useEffect(() => {
@@ -601,11 +647,8 @@ export function App() {
             closeTab(activeTab.id)
           }
           break
-        case 'googlePush':
-          handleGooglePush()
-          break
-        case 'googlePull':
-          handleGooglePull()
+        case 'googleSync':
+          handleGoogleSync()
           break
         case 'googleImport':
           handleGoogleImport()
@@ -614,7 +657,7 @@ export function App() {
     })
 
     return unsubscribe
-  }, [openFileInTab, saveFile, saveFileAs, createNewTab, closeTab, setDialogOpen, toggleChatPanel, toggleFileListPanel, setShortcutsDialogOpen, setAboutDialogOpen, isFileListOpen, isChatOpen, setChatPanelOpen, setFileListPanelOpen, editor, handleGooglePush, handleGooglePull, handleGoogleImport])
+  }, [openFileInTab, saveFile, saveFileAs, createNewTab, closeTab, setDialogOpen, toggleChatPanel, toggleFileListPanel, setShortcutsDialogOpen, setAboutDialogOpen, isFileListOpen, isChatOpen, setChatPanelOpen, setFileListPanelOpen, editor, handleGoogleSync, handleGoogleImport])
 
   // Handle file open from OS (double-click .md file)
   useEffect(() => {
@@ -724,20 +767,32 @@ export function App() {
                 Enter the Google Doc ID or paste the full document URL.
               </AlertDialogDescription>
             </AlertDialogHeader>
-            <div className="py-2">
-              <Label htmlFor="google-doc-id" className="sr-only">Document ID</Label>
-              <Input
-                id="google-doc-id"
-                value={importDocId}
-                onChange={(e) => setImportDocId(e.target.value)}
-                placeholder="e.g. 1BxiM0C2..."
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && importDocId.trim()) {
-                    handleGoogleImportConfirm()
-                  }
-                }}
-                autoFocus
-              />
+            <div className="py-2 space-y-3">
+              <div>
+                <Label htmlFor="google-doc-id" className="sr-only">Document ID</Label>
+                <Input
+                  id="google-doc-id"
+                  value={importDocId}
+                  onChange={(e) => setImportDocId(e.target.value)}
+                  placeholder="e.g. 1BxiM0C2..."
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && importDocId.trim()) {
+                      handleGoogleImportConfirm()
+                    }
+                  }}
+                  autoFocus
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="import-as-ai"
+                  checked={importAsAI}
+                  onCheckedChange={(checked) => setImportAsAI(checked === true)}
+                />
+                <Label htmlFor="import-as-ai" className="text-sm font-normal cursor-pointer">
+                  Mark as AI-generated
+                </Label>
+              </div>
             </div>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>

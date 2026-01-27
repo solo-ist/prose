@@ -434,10 +434,10 @@ export const browserApi: ElectronAPI = {
     connected: false,
     error: 'Google Docs sync is not available in browser mode.'
   }),
-  googlePush: async () => ({
+  googleSync: async () => ({
     success: false,
-    error: 'Google Docs sync is not available in browser mode.',
-    isNew: false
+    direction: 'push' as const,
+    error: 'Google Docs sync is not available in browser mode.'
   }),
   googlePull: async () => ({
     success: false,
@@ -447,7 +447,16 @@ export const browserApi: ElectronAPI = {
     success: false,
     error: 'Google Docs sync is not available in browser mode.'
   }),
-  googleListRecentDocs: async () => []
+  googleEnsureFolder: async () => '',
+  googleSyncAll: async () => ({
+    synced: 0,
+    skipped: 0,
+    errors: ['Google Docs sync is not available in browser mode.']
+  }),
+  googleListRecentDocs: async () => [],
+  googleGetSyncMetadata: async () => null,
+  googleUpdateSyncMetadataEntry: async () => {},
+  googleRemoveSyncMetadataEntry: async () => {}
 }
 
 /**

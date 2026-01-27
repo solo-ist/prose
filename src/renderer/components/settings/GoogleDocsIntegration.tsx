@@ -65,10 +65,22 @@ export function GoogleDocsIntegration({ settings, setGoogleConfig }: Props) {
 
       if (result.success && result.email) {
         setConnectionStatus({ connected: true, email: result.email, picture: result.picture })
+
+        // Ensure the sync folder exists
+        let syncDirectory: string | undefined
+        if (window.api?.googleEnsureFolder) {
+          try {
+            syncDirectory = await window.api.googleEnsureFolder()
+          } catch (err) {
+            console.error('Failed to create Google Docs folder:', err)
+          }
+        }
+
         setGoogleConfig({
           email: result.email,
           picture: result.picture,
-          connectedAt: new Date().toISOString()
+          connectedAt: new Date().toISOString(),
+          syncDirectory
         })
       } else {
         setError(result.error || 'Failed to connect')
@@ -168,15 +180,15 @@ export function GoogleDocsIntegration({ settings, setGoogleConfig }: Props) {
           <p className="text-sm font-medium">How to sync</p>
           <ul className="text-sm text-muted-foreground space-y-1">
             <li>
-              <span className="font-medium">Push:</span> File {'>'} Push to Google Docs (Cmd+Shift+G)
+              <span className="font-medium">Sync:</span> File {'>'} Sync with Google Docs (Cmd+Shift+G)
             </li>
             <li>
-              <span className="font-medium">Pull:</span> File {'>'} Pull from Google Docs
-            </li>
-            <li>
-              <span className="font-medium">Import:</span> File {'>'} Import from Google Docs
+              <span className="font-medium">Import:</span> File {'>'} Import from Google Docs (Cmd+Shift+I)
             </li>
           </ul>
+          <p className="text-xs text-muted-foreground mt-2">
+            Documents are saved to ~/Documents/Google Docs/
+          </p>
         </div>
       )}
 

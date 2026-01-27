@@ -905,10 +905,10 @@ export function setupIpcHandlers(): void {
     return await validateConnection()
   })
 
-  // Google: Push document to Google Docs
-  ipcMain.handle('google:push', async (_event, content: string, frontmatter: Record<string, unknown>, title: string) => {
-    const { pushToGoogle } = await import('./google/sync')
-    return await pushToGoogle(content, frontmatter, title)
+  // Google: Unified sync (determines push/pull/create automatically)
+  ipcMain.handle('google:sync', async (_event, content: string, frontmatter: Record<string, unknown>, title: string) => {
+    const { syncDocument } = await import('./google/sync')
+    return await syncDocument(content, frontmatter, title)
   })
 
   // Google: Pull document from Google Docs
@@ -923,9 +923,39 @@ export function setupIpcHandlers(): void {
     return await importFromGoogle(docId)
   })
 
+  // Google: Ensure ~/Documents/Google Docs/ folder exists
+  ipcMain.handle('google:ensureFolder', async () => {
+    const { ensureGoogleDocsFolder } = await import('./google/sync')
+    return await ensureGoogleDocsFolder()
+  })
+
+  // Google: Sync all Prose-linked docs to local folder
+  ipcMain.handle('google:syncAll', async (_event, syncDir: string) => {
+    const { syncAllGoogleDocs } = await import('./google/sync')
+    return await syncAllGoogleDocs(syncDir)
+  })
+
   // Google: List recent docs
   ipcMain.handle('google:listRecentDocs', async (_event, maxResults?: number) => {
     const { listRecentDocs } = await import('./google/client')
     return await listRecentDocs(maxResults)
+  })
+
+  // Google: Get sync metadata (with file-existence checks)
+  ipcMain.handle('google:getSyncMetadata', async () => {
+    const { getGoogleSyncMetadata } = await import('./google/sync')
+    return await getGoogleSyncMetadata()
+  })
+
+  // Google: Add/update a metadata entry
+  ipcMain.handle('google:updateSyncMetadataEntry', async (_event, entry: import('./google/sync').GoogleDocEntry) => {
+    const { updateGoogleSyncMetadataEntry } = await import('./google/sync')
+    await updateGoogleSyncMetadataEntry(entry)
+  })
+
+  // Google: Remove a metadata entry
+  ipcMain.handle('google:removeSyncMetadataEntry', async (_event, googleDocId: string) => {
+    const { removeGoogleSyncMetadataEntry } = await import('./google/sync')
+    await removeGoogleSyncMetadataEntry(googleDocId)
   })
 }

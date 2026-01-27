@@ -98,12 +98,14 @@ export interface GoogleConnectionStatus {
   error?: string
 }
 
-export interface GooglePushResult {
+export interface GoogleSyncDocResult {
   success: boolean
+  direction: 'push' | 'pull' | 'create'
   docId?: string
   webViewLink?: string
+  content?: string
+  modifiedTime?: string
   error?: string
-  isNew: boolean
 }
 
 export interface GooglePullResult {
@@ -117,7 +119,14 @@ export interface GoogleImportResult {
   success: boolean
   content?: string
   title?: string
+  docId?: string
   error?: string
+}
+
+export interface GoogleSyncAllResult {
+  synced: number
+  skipped: number
+  errors: string[]
 }
 
 export interface GoogleDocMetadata {
@@ -125,6 +134,21 @@ export interface GoogleDocMetadata {
   title: string
   modifiedTime: string
   webViewLink: string
+}
+
+export interface GoogleDocEntry {
+  title: string
+  googleDocId: string
+  localPath: string
+  webViewLink: string
+  syncedAt: string
+  remoteModifiedTime: string
+  status?: 'ok' | 'missing'
+}
+
+export interface GoogleSyncMetadata {
+  lastSyncedAt: string
+  documents: Record<string, GoogleDocEntry>
 }
 
 export interface ElectronAPI {
@@ -190,10 +214,15 @@ export interface ElectronAPI {
   googleStartAuth: () => Promise<GoogleAuthResult>
   googleDisconnect: () => Promise<void>
   googleGetConnectionStatus: () => Promise<GoogleConnectionStatus>
-  googlePush: (content: string, frontmatter: Record<string, unknown>, title: string) => Promise<GooglePushResult>
+  googleSync: (content: string, frontmatter: Record<string, unknown>, title: string) => Promise<GoogleSyncDocResult>
   googlePull: (docId: string) => Promise<GooglePullResult>
   googleImport: (docId: string) => Promise<GoogleImportResult>
+  googleEnsureFolder: () => Promise<string>
+  googleSyncAll: (syncDir: string) => Promise<GoogleSyncAllResult>
   googleListRecentDocs: (maxResults?: number) => Promise<GoogleDocMetadata[]>
+  googleGetSyncMetadata: () => Promise<GoogleSyncMetadata | null>
+  googleUpdateSyncMetadataEntry: (entry: GoogleDocEntry) => Promise<void>
+  googleRemoveSyncMetadataEntry: (googleDocId: string) => Promise<void>
 }
 
 export interface FileItem {
@@ -385,11 +414,16 @@ const api: ElectronAPI = {
   googleStartAuth: () => ipcRenderer.invoke('google:startAuth'),
   googleDisconnect: () => ipcRenderer.invoke('google:disconnect'),
   googleGetConnectionStatus: () => ipcRenderer.invoke('google:getConnectionStatus'),
-  googlePush: (content: string, frontmatter: Record<string, unknown>, title: string) =>
-    ipcRenderer.invoke('google:push', content, frontmatter, title),
+  googleSync: (content: string, frontmatter: Record<string, unknown>, title: string) =>
+    ipcRenderer.invoke('google:sync', content, frontmatter, title),
   googlePull: (docId: string) => ipcRenderer.invoke('google:pull', docId),
   googleImport: (docId: string) => ipcRenderer.invoke('google:import', docId),
-  googleListRecentDocs: (maxResults?: number) => ipcRenderer.invoke('google:listRecentDocs', maxResults)
+  googleEnsureFolder: () => ipcRenderer.invoke('google:ensureFolder'),
+  googleSyncAll: (syncDir: string) => ipcRenderer.invoke('google:syncAll', syncDir),
+  googleListRecentDocs: (maxResults?: number) => ipcRenderer.invoke('google:listRecentDocs', maxResults),
+  googleGetSyncMetadata: () => ipcRenderer.invoke('google:getSyncMetadata'),
+  googleUpdateSyncMetadataEntry: (entry: GoogleDocEntry) => ipcRenderer.invoke('google:updateSyncMetadataEntry', entry),
+  googleRemoveSyncMetadataEntry: (googleDocId: string) => ipcRenderer.invoke('google:removeSyncMetadataEntry', googleDocId)
 }
 
 contextBridge.exposeInMainWorld('api', api)

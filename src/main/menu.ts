@@ -85,20 +85,15 @@ export function createMenu(_mainWindow: BrowserWindow): void {
         },
         { type: 'separator' },
         {
-          label: 'Push to Google Docs',
+          label: 'Sync with Google Docs',
           accelerator: 'CmdOrCtrl+Shift+G',
           click: (): void => {
-            sendMenuAction('googlePush')
-          }
-        },
-        {
-          label: 'Pull from Google Docs',
-          click: (): void => {
-            sendMenuAction('googlePull')
+            sendMenuAction('googleSync')
           }
         },
         {
           label: 'Import from Google Docs...',
+          accelerator: 'CmdOrCtrl+Shift+I',
           click: (): void => {
             sendMenuAction('googleImport')
           }

@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { mkdir, readFile, writeFile, access, readdir } from 'fs/promises'
+import { mkdir, readFile, writeFile, access, readdir, stat } from 'fs/promises'
 import { join } from 'path'
 import { createDoc, updateDoc, getDoc, getDocMetadata, docExists, extractDocId, listRecentDocs } from './client'
 
@@ -12,6 +12,7 @@ export interface GoogleDocEntry {
   webViewLink: string
   syncedAt: string
   remoteModifiedTime: string
+  localModifiedAt?: string
   status?: 'ok' | 'missing'
 }
 
@@ -128,10 +129,23 @@ export async function getGoogleSyncMetadata(): Promise<GoogleSyncMetadata> {
 
 /**
  * Add or update a single document entry in the metadata.
+ * Auto-captures localModifiedAt from the file's mtime if localPath exists.
  */
 export async function updateGoogleSyncMetadataEntry(entry: GoogleDocEntry): Promise<void> {
   const metadata = await loadMetadata()
-  metadata.documents[entry.googleDocId] = { ...entry, status: 'ok' }
+
+  // Auto-capture local file mtime so callers don't need to pass it
+  let localModifiedAt = entry.localModifiedAt
+  if (entry.localPath) {
+    try {
+      const fileStat = await stat(entry.localPath)
+      localModifiedAt = new Date(fileStat.mtimeMs).toISOString()
+    } catch {
+      // File doesn't exist yet — keep whatever was passed
+    }
+  }
+
+  metadata.documents[entry.googleDocId] = { ...entry, localModifiedAt, status: 'ok' }
   metadata.lastSyncedAt = new Date().toISOString()
   await saveMetadata(metadata)
 }
@@ -348,15 +362,55 @@ export async function syncDocument(
       }
     }
 
-    // Compare timestamps to decide direction
+    // Use sync metadata to decide direction via bidirectional timestamp comparison
     const metadata = await getDocMetadata(existingDocId)
-    const remoteMod = new Date(metadata.modifiedTime).getTime()
-    const localSyncedAt = frontmatter.google_synced_at
-      ? new Date(String(frontmatter.google_synced_at)).getTime()
-      : 0
+    const syncMeta = await loadMetadata()
+    const entry = syncMeta.documents[existingDocId]
 
-    if (remoteMod > localSyncedAt) {
-      // Remote is newer → pull
+    let localChanged = false
+    let remoteChanged = false
+
+    if (entry) {
+      // Compare current remote modifiedTime against stored snapshot
+      const currentRemoteMod = new Date(metadata.modifiedTime).getTime()
+      const storedRemoteMod = new Date(entry.remoteModifiedTime).getTime()
+      remoteChanged = currentRemoteMod > storedRemoteMod
+
+      // Compare current local file mtime against stored snapshot
+      if (entry.localPath && entry.localModifiedAt) {
+        try {
+          const fileStat = await stat(entry.localPath)
+          const localFileMtime = fileStat.mtimeMs
+          const storedLocalMod = new Date(entry.localModifiedAt).getTime()
+          localChanged = localFileMtime > storedLocalMod
+        } catch {
+          // Can't stat file — treat as local changed to push what we have
+          localChanged = true
+        }
+      }
+      // If localModifiedAt is missing (legacy entry), localChanged stays false
+      // so remoteChanged can trigger a pull. After this sync completes,
+      // updateGoogleSyncMetadataEntry will capture localModifiedAt for next time.
+    } else {
+      // No metadata entry yet — first sync for this doc, push local content
+      localChanged = true
+    }
+
+    if (localChanged) {
+      // Local has edits (or both changed) → push. User triggered sync from their editor,
+      // so pushing their local content is the least-surprise behavior.
+      await updateDoc(existingDocId, content)
+      const updatedMetadata = await getDocMetadata(existingDocId)
+
+      return {
+        success: true,
+        direction: 'push',
+        docId: existingDocId,
+        webViewLink: updatedMetadata.webViewLink,
+        modifiedTime: updatedMetadata.modifiedTime
+      }
+    } else if (remoteChanged) {
+      // Only remote changed → pull
       const remoteContent = await getDoc(existingDocId)
       return {
         success: true,
@@ -367,7 +421,7 @@ export async function syncDocument(
         modifiedTime: metadata.modifiedTime
       }
     } else {
-      // Local is newer or same → push
+      // Neither changed — user triggered sync explicitly, push is harmless
       await updateDoc(existingDocId, content)
       const updatedMetadata = await getDocMetadata(existingDocId)
 

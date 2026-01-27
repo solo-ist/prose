@@ -15,8 +15,7 @@ const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || ''
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || ''
 
 const SCOPES = [
-  'https://www.googleapis.com/auth/drive.file', // Access to files created/opened by the app
-  'https://www.googleapis.com/auth/drive.readonly', // Read access to all files (for import)
+  'https://www.googleapis.com/auth/drive', // Read/write access to files (needed for import + push)
   'https://www.googleapis.com/auth/userinfo.email', // Get user's email for display
   'https://www.googleapis.com/auth/userinfo.profile' // Get user's profile picture
 ]
@@ -288,9 +287,22 @@ async function refreshAccessToken(refreshToken: string): Promise<TokenData> {
 }
 
 /**
- * Clear all stored tokens (disconnect)
+ * Clear all stored tokens (disconnect).
+ * Revokes the token on Google's side first so that a fresh reconnect
+ * picks up any scope changes made in the GCP console.
  */
 export async function clearTokens(): Promise<void> {
+  // Revoke token on Google's side before clearing locally
+  const refreshToken = await getRefreshToken()
+  if (refreshToken) {
+    try {
+      const oauth2Client = createOAuth2Client()
+      await oauth2Client.revokeToken(refreshToken)
+    } catch {
+      // Revocation failed (network error, already revoked, etc.) — proceed with local cleanup
+    }
+  }
+
   cachedTokens = null
   try {
     await unlink(REFRESH_TOKEN_PATH)

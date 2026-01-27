@@ -1,5 +1,6 @@
 import { Readable } from 'stream'
 import { google } from 'googleapis'
+import { marked } from 'marked'
 import { getAuthenticatedClient } from './auth'
 
 /**
@@ -27,13 +28,22 @@ export interface DocMetadata {
 }
 
 /**
+ * Convert markdown to HTML for upload to Google Docs.
+ * Google Drive handles HTML-to-Docs conversion more reliably than
+ * markdown-to-Docs, preserving bold, italic, strikethrough, etc.
+ */
+function markdownToHtml(markdown: string): string {
+  return marked.parse(markdown, { async: false }) as string
+}
+
+/**
  * Create a new Google Doc from markdown content.
- * Uses Drive API media upload with text/markdown MIME type to produce
- * a formatted Google Doc (headings, bold, etc. render correctly).
+ * Converts to HTML first for reliable formatting preservation.
  */
 export async function createDoc(title: string, markdown: string): Promise<string> {
   const auth = await getAuthenticatedClient()
   const drive = google.drive({ version: 'v3', auth })
+  const html = markdownToHtml(markdown)
 
   const response = await drive.files.create({
     requestBody: {
@@ -41,8 +51,8 @@ export async function createDoc(title: string, markdown: string): Promise<string
       mimeType: 'application/vnd.google-apps.document'
     },
     media: {
-      mimeType: 'text/markdown',
-      body: Readable.from(markdown)
+      mimeType: 'text/html',
+      body: Readable.from(html)
     },
     fields: 'id'
   })
@@ -56,19 +66,18 @@ export async function createDoc(title: string, markdown: string): Promise<string
 
 /**
  * Update an existing Google Doc with new markdown content.
- * Uses Drive API media upload to replace content with formatted markdown,
- * avoiding the Docs API batchUpdate path (which hits empty-range errors
- * and only supports plain text).
+ * Converts to HTML first for reliable formatting preservation.
  */
 export async function updateDoc(docId: string, markdown: string): Promise<void> {
   const auth = await getAuthenticatedClient()
   const drive = google.drive({ version: 'v3', auth })
+  const html = markdownToHtml(markdown)
 
   await drive.files.update({
     fileId: docId,
     media: {
-      mimeType: 'text/markdown',
-      body: Readable.from(markdown)
+      mimeType: 'text/html',
+      body: Readable.from(html)
     }
   })
 }

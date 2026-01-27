@@ -8,7 +8,6 @@ import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
 import { useFileList } from '../../hooks/useFileList'
 import { isMacOS, getApi } from '../../lib/browserApi'
-import { cn } from '../../lib/utils'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import {
@@ -46,8 +45,7 @@ import {
   Copy,
   Check,
   Timer,
-  CircleUserRound,
-  Loader2
+  CircleUserRound
 } from 'lucide-react'
 
 export function Toolbar() {
@@ -298,15 +296,80 @@ export function Toolbar() {
                     <img
                       src={googlePicture}
                       alt="Google account"
-                      className={cn("h-5 w-5 rounded-full", isGoogleSyncing && "opacity-30")}
+                      className="h-5 w-5 rounded-full"
                       referrerPolicy="no-referrer"
                     />
                     {isGoogleSyncing && (
-                      <Loader2 className="absolute h-4 w-4 animate-spin text-muted-foreground" />
+                      <svg
+                        className="absolute inset-0 pointer-events-none"
+                        style={{ width: '100%', height: '100%' }}
+                        viewBox="0 0 40 40"
+                        fill="none"
+                      >
+                        <defs>
+                          <linearGradient id="sync-ring-a" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stopColor="#8b5cf6" />
+                            <stop offset="50%" stopColor="#d946ef" />
+                            <stop offset="100%" stopColor="#8b5cf6" />
+                          </linearGradient>
+                          <linearGradient id="sync-ring-b" x1="100%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.7" />
+                            <stop offset="100%" stopColor="#a78bfa" stopOpacity="0.7" />
+                          </linearGradient>
+                        </defs>
+                        <circle
+                          className="animate-spin"
+                          cx="20" cy="20" r="18"
+                          stroke="url(#sync-ring-a)"
+                          strokeWidth="2"
+                          strokeDasharray="28 85"
+                          strokeLinecap="round"
+                          style={{ animationDuration: '2s', transformOrigin: '50% 50%' }}
+                        />
+                        <circle
+                          className="animate-spin"
+                          cx="20" cy="20" r="14"
+                          stroke="url(#sync-ring-b)"
+                          strokeWidth="1.5"
+                          strokeDasharray="18 70"
+                          strokeLinecap="round"
+                          style={{ animationDuration: '1.5s', animationDirection: 'reverse', transformOrigin: '50% 50%' }}
+                        />
+                      </svg>
                     )}
                   </>
                 ) : isGoogleSyncing ? (
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  <svg
+                    viewBox="0 0 40 40"
+                    fill="none"
+                    style={{ width: '1.25rem', height: '1.25rem' }}
+                  >
+                    <defs>
+                      <linearGradient id="sync-ring-solo" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#8b5cf6" />
+                        <stop offset="50%" stopColor="#d946ef" />
+                        <stop offset="100%" stopColor="#8b5cf6" />
+                      </linearGradient>
+                    </defs>
+                    <circle
+                      className="animate-spin"
+                      cx="20" cy="20" r="18"
+                      stroke="url(#sync-ring-solo)"
+                      strokeWidth="2"
+                      strokeDasharray="28 85"
+                      strokeLinecap="round"
+                      style={{ animationDuration: '2s', transformOrigin: '50% 50%' }}
+                    />
+                    <circle
+                      className="animate-spin"
+                      cx="20" cy="20" r="12"
+                      stroke="url(#sync-ring-solo)"
+                      strokeWidth="1.5"
+                      strokeDasharray="15 60"
+                      strokeLinecap="round"
+                      style={{ animationDuration: '1.5s', animationDirection: 'reverse', transformOrigin: '50% 50%' }}
+                    />
+                  </svg>
                 ) : (
                   <CircleUserRound className="h-5 w-5 text-muted-foreground" />
                 )}

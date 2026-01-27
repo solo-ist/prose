@@ -306,6 +306,7 @@ export function App() {
       }
     }
 
+    useFileListStore.getState().setGoogleSyncing(true)
     try {
       const result = await window.api.googleSync(content, frontmatter, title)
 
@@ -381,6 +382,8 @@ export function App() {
       }
     } catch (error) {
       alert(`Error syncing with Google Docs: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      useFileListStore.getState().setGoogleSyncing(false)
     }
   }, [])
 

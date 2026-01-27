@@ -189,6 +189,7 @@ export interface GoogleDocEntry {
   webViewLink: string        // Google Docs URL
   syncedAt: string           // ISO timestamp of last sync
   remoteModifiedTime: string // Last modified time from Google Drive
+  localModifiedAt?: string   // Local file mtime snapshot from last sync
   status?: 'ok' | 'missing' // Set at load time after checking file exists
 }
 

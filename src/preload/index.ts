@@ -143,6 +143,7 @@ export interface GoogleDocEntry {
   webViewLink: string
   syncedAt: string
   remoteModifiedTime: string
+  localModifiedAt?: string
   status?: 'ok' | 'missing'
 }
 

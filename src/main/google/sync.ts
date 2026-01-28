@@ -94,8 +94,8 @@ async function migrateFromFrontmatter(): Promise<GoogleSyncMetadata> {
             : new Date().toISOString(),
           status: 'ok'
         }
-      } catch {
-        // Skip unreadable files
+      } catch (err) {
+        console.warn(`[Google] Failed to migrate ${entry.name}:`, err)
       }
     }
   } catch {
@@ -396,9 +396,44 @@ export async function syncDocument(
       localChanged = true
     }
 
-    if (localChanged) {
-      // Local has edits (or both changed) → push. User triggered sync from their editor,
-      // so pushing their local content is the least-surprise behavior.
+    if (localChanged && remoteChanged) {
+      // Both changed — newest wins
+      let localMtime = Date.now()
+      if (entry?.localPath) {
+        try {
+          const fileStat = await stat(entry.localPath)
+          localMtime = fileStat.mtimeMs
+        } catch {
+          // Can't stat — default to now, which favors local (push)
+        }
+      }
+      const remoteMtime = new Date(metadata.modifiedTime).getTime()
+
+      if (remoteMtime > localMtime) {
+        // Remote is newer → pull
+        const remoteContent = await getDoc(existingDocId)
+        return {
+          success: true,
+          direction: 'pull',
+          docId: existingDocId,
+          webViewLink: metadata.webViewLink,
+          content: remoteContent,
+          modifiedTime: metadata.modifiedTime
+        }
+      } else {
+        // Local is newer (or equal) → push
+        await updateDoc(existingDocId, content)
+        const updatedMetadata = await getDocMetadata(existingDocId)
+        return {
+          success: true,
+          direction: 'push',
+          docId: existingDocId,
+          webViewLink: updatedMetadata.webViewLink,
+          modifiedTime: updatedMetadata.modifiedTime
+        }
+      }
+    } else if (localChanged) {
+      // Only local changed → push
       await updateDoc(existingDocId, content)
       const updatedMetadata = await getDocMetadata(existingDocId)
 

@@ -8,6 +8,7 @@ import { URL } from 'url'
 
 const SETTINGS_DIR = join(homedir(), '.prose')
 const REFRESH_TOKEN_PATH = join(SETTINGS_DIR, '.google-refresh-token')
+const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000 // Refresh 5 min before expiry
 
 // Google OAuth credentials - these are for a desktop app
 // Client ID and secret are safe to embed in desktop apps (not secrets for installed apps)
@@ -280,7 +281,7 @@ export async function getRefreshToken(): Promise<string | null> {
  */
 export async function getAccessToken(): Promise<string | null> {
   // Check if cached token is still valid (with 5 min buffer)
-  if (cachedTokens && cachedTokens.expiry_date > Date.now() + 5 * 60 * 1000) {
+  if (cachedTokens && cachedTokens.expiry_date > Date.now() + TOKEN_EXPIRY_BUFFER_MS) {
     return cachedTokens.access_token
   }
 

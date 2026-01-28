@@ -40,6 +40,7 @@ interface SettingsState {
   setRecoveryConfig: (config: Partial<NonNullable<Settings['recovery']>>) => void
   setDefaultSaveDirectory: (path: string) => void
   setRemarkableConfig: (config: Partial<NonNullable<Settings['remarkable']>>) => void
+  setGoogleConfig: (config: Partial<NonNullable<Settings['google']>> | undefined) => void
   setFileAssociationConfig: (config: Partial<NonNullable<Settings['fileAssociation']>>) => void
   setAutosaveConfig: (config: Partial<NonNullable<Settings['autosave']>>) => void
   toggleAutosaveActive: () => void
@@ -218,6 +219,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         remarkable: { ...state.settings.remarkable, ...config } as Settings['remarkable']
       }
     })),
+
+  setGoogleConfig: (config) => {
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        google: config === undefined ? undefined : { ...state.settings.google, ...config } as Settings['google']
+      }
+    }))
+    // Auto-save after updating Google config
+    get().saveSettings()
+  },
 
   setFileAssociationConfig: (config) => {
     set((state) => ({

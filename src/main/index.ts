@@ -125,7 +125,7 @@ app.whenReady().then(async () => {
     is.dev ? "script-src 'self' 'unsafe-eval'" : "script-src 'self'",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
-    "connect-src 'self' https://api.anthropic.com https://api.openai.com https://openrouter.ai https://generativelanguage.googleapis.com",
+    "connect-src 'self' https://api.anthropic.com https://api.openai.com https://openrouter.ai https://generativelanguage.googleapis.com https://accounts.google.com https://www.googleapis.com https://docs.googleapis.com https://oauth2.googleapis.com",
     "img-src 'self' data: https:",
     "media-src 'none'",
     "object-src 'none'",

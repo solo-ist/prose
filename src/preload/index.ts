@@ -84,6 +84,74 @@ export interface TestApiKeyResult {
   message: string
 }
 
+export interface GoogleAuthResult {
+  success: boolean
+  email?: string
+  picture?: string
+  error?: string
+}
+
+export interface GoogleConnectionStatus {
+  connected: boolean
+  email?: string
+  picture?: string
+  error?: string
+}
+
+export interface GoogleSyncDocResult {
+  success: boolean
+  direction: 'push' | 'pull' | 'create'
+  docId?: string
+  webViewLink?: string
+  content?: string
+  modifiedTime?: string
+  error?: string
+}
+
+export interface GooglePullResult {
+  success: boolean
+  content?: string
+  modifiedTime?: string
+  error?: string
+}
+
+export interface GoogleImportResult {
+  success: boolean
+  content?: string
+  title?: string
+  docId?: string
+  error?: string
+}
+
+export interface GoogleSyncAllResult {
+  synced: number
+  skipped: number
+  errors: string[]
+}
+
+export interface GoogleDocMetadata {
+  id: string
+  title: string
+  modifiedTime: string
+  webViewLink: string
+}
+
+export interface GoogleDocEntry {
+  title: string
+  googleDocId: string
+  localPath: string
+  webViewLink: string
+  syncedAt: string
+  remoteModifiedTime: string
+  localModifiedAt?: string
+  status?: 'ok' | 'missing'
+}
+
+export interface GoogleSyncMetadata {
+  lastSyncedAt: string
+  documents: Record<string, GoogleDocEntry>
+}
+
 export interface ElectronAPI {
   openFile: () => Promise<FileResult | null>
   saveFile: (path: string, content: string) => Promise<void>
@@ -143,6 +211,19 @@ export interface ElectronAPI {
   onMcpStatus: (callback: (status: McpStatus) => void) => () => void
   // File association (default markdown editor)
   fileAssociationIsDefault: () => Promise<boolean | null>
+  // Google Docs integration
+  googleStartAuth: () => Promise<GoogleAuthResult>
+  googleDisconnect: () => Promise<void>
+  googleGetConnectionStatus: () => Promise<GoogleConnectionStatus>
+  googleSync: (content: string, frontmatter: Record<string, unknown>, title: string) => Promise<GoogleSyncDocResult>
+  googlePull: (docId: string) => Promise<GooglePullResult>
+  googleImport: (docId: string) => Promise<GoogleImportResult>
+  googleEnsureFolder: () => Promise<string>
+  googleSyncAll: (syncDir: string) => Promise<GoogleSyncAllResult>
+  googleListRecentDocs: (maxResults?: number) => Promise<GoogleDocMetadata[]>
+  googleGetSyncMetadata: () => Promise<GoogleSyncMetadata | null>
+  googleUpdateSyncMetadataEntry: (entry: GoogleDocEntry) => Promise<void>
+  googleRemoveSyncMetadataEntry: (googleDocId: string) => Promise<void>
 }
 
 export interface FileItem {
@@ -329,7 +410,21 @@ const api: ElectronAPI = {
     }
   },
   // File association
-  fileAssociationIsDefault: () => ipcRenderer.invoke('fileAssociation:isDefault')
+  fileAssociationIsDefault: () => ipcRenderer.invoke('fileAssociation:isDefault'),
+  // Google Docs integration
+  googleStartAuth: () => ipcRenderer.invoke('google:startAuth'),
+  googleDisconnect: () => ipcRenderer.invoke('google:disconnect'),
+  googleGetConnectionStatus: () => ipcRenderer.invoke('google:getConnectionStatus'),
+  googleSync: (content: string, frontmatter: Record<string, unknown>, title: string) =>
+    ipcRenderer.invoke('google:sync', content, frontmatter, title),
+  googlePull: (docId: string) => ipcRenderer.invoke('google:pull', docId),
+  googleImport: (docId: string) => ipcRenderer.invoke('google:import', docId),
+  googleEnsureFolder: () => ipcRenderer.invoke('google:ensureFolder'),
+  googleSyncAll: (syncDir: string) => ipcRenderer.invoke('google:syncAll', syncDir),
+  googleListRecentDocs: (maxResults?: number) => ipcRenderer.invoke('google:listRecentDocs', maxResults),
+  googleGetSyncMetadata: () => ipcRenderer.invoke('google:getSyncMetadata'),
+  googleUpdateSyncMetadataEntry: (entry: GoogleDocEntry) => ipcRenderer.invoke('google:updateSyncMetadataEntry', entry),
+  googleRemoveSyncMetadataEntry: (googleDocId: string) => ipcRenderer.invoke('google:removeSyncMetadataEntry', googleDocId)
 }
 
 contextBridge.exposeInMainWorld('api', api)

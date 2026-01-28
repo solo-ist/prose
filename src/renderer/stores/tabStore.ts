@@ -12,6 +12,7 @@ export interface Tab {
   isDirty: boolean        // Unsaved changes
   // Cached state for when tab is not active
   content?: string
+  frontmatter?: Record<string, unknown>
   cursorPosition?: { line: number; column: number }
 }
 
@@ -194,6 +195,7 @@ export function createTab(overrides: Partial<Tab> = {}): Omit<Tab, 'id'> {
     title,
     isDirty: overrides.isDirty ?? false,
     content: overrides.content,
+    frontmatter: overrides.frontmatter,
     cursorPosition: overrides.cursorPosition
   }
 }
@@ -214,6 +216,7 @@ export async function persistSession(): Promise<void> {
     title: tab.title,
     content: tab.content ?? '',
     isDirty: tab.isDirty,
+    frontmatter: tab.frontmatter,
     cursorPosition: tab.cursorPosition,
     activeChatId: tab.documentId === chatState.currentDocumentId
       ? chatState.activeConversationId

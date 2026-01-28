@@ -9,8 +9,11 @@ export interface Settings {
     baseUrl?: string
   }
   google?: {
-    refreshToken: string
-    email: string
+    email: string        // Display only (token stored securely)
+    picture?: string     // Profile picture URL
+    connectedAt: string  // ISO timestamp
+    syncDirectory?: string   // ~/Documents/Google Docs/
+    lastSyncedAt?: string
   }
   editor: {
     fontSize: number
@@ -116,6 +119,83 @@ export interface RemarkableCloudNotebook {
 export interface RemarkableSyncState {
   selectedNotebooks: string[]
   lastUpdated: string
+}
+
+// Google Docs integration types
+export interface GoogleAuthResult {
+  success: boolean
+  email?: string
+  picture?: string
+  error?: string
+}
+
+export interface GoogleConnectionStatus {
+  connected: boolean
+  email?: string
+  picture?: string
+  error?: string
+}
+
+export interface GooglePushResult {
+  success: boolean
+  docId?: string
+  webViewLink?: string
+  error?: string
+  isNew: boolean
+}
+
+export interface GooglePullResult {
+  success: boolean
+  content?: string
+  modifiedTime?: string
+  error?: string
+}
+
+export interface GoogleImportResult {
+  success: boolean
+  content?: string
+  title?: string
+  docId?: string
+  error?: string
+}
+
+export interface GoogleSyncDocResult {
+  success: boolean
+  direction: 'push' | 'pull' | 'create'
+  docId?: string
+  webViewLink?: string
+  content?: string
+  modifiedTime?: string
+  error?: string
+}
+
+export interface GoogleSyncAllResult {
+  synced: number
+  skipped: number
+  errors: string[]
+}
+
+export interface GoogleDocMetadata {
+  id: string
+  title: string
+  modifiedTime: string
+  webViewLink: string
+}
+
+export interface GoogleDocEntry {
+  title: string
+  googleDocId: string
+  localPath: string          // Absolute path to .md file (can be anywhere)
+  webViewLink: string        // Google Docs URL
+  syncedAt: string           // ISO timestamp of last sync
+  remoteModifiedTime: string // Last modified time from Google Drive
+  localModifiedAt?: string   // Local file mtime snapshot from last sync
+  status?: 'ok' | 'missing' // Set at load time after checking file exists
+}
+
+export interface GoogleSyncMetadata {
+  lastSyncedAt: string
+  documents: Record<string, GoogleDocEntry>  // Keyed by googleDocId
 }
 
 // Content block types for Anthropic API tool use
@@ -281,6 +361,19 @@ export interface ElectronAPI {
   // File association (default markdown editor)
   // Returns: true (is default), false (not default), null (can't detect)
   fileAssociationIsDefault: () => Promise<boolean | null>
+  // Google Docs integration
+  googleStartAuth: () => Promise<GoogleAuthResult>
+  googleDisconnect: () => Promise<void>
+  googleGetConnectionStatus: () => Promise<GoogleConnectionStatus>
+  googleSync: (content: string, frontmatter: Record<string, unknown>, title: string) => Promise<GoogleSyncDocResult>
+  googlePull: (docId: string) => Promise<GooglePullResult>
+  googleImport: (docId: string) => Promise<GoogleImportResult>
+  googleEnsureFolder: () => Promise<string>
+  googleSyncAll: (syncDir: string) => Promise<GoogleSyncAllResult>
+  googleListRecentDocs: (maxResults?: number) => Promise<GoogleDocMetadata[]>
+  googleGetSyncMetadata: () => Promise<GoogleSyncMetadata | null>
+  googleUpdateSyncMetadataEntry: (entry: GoogleDocEntry) => Promise<void>
+  googleRemoveSyncMetadataEntry: (googleDocId: string) => Promise<void>
 }
 
 declare global {

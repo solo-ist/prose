@@ -68,6 +68,14 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
     }
   },
 
+  addStorage() {
+    return {
+      markdown: {
+        serialize: aiSuggestionMarkdownSerializer,
+      },
+    }
+  },
+
   addAttributes() {
     return {
       id: {

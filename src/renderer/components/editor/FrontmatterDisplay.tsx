@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 
 interface FrontmatterDisplayProps {
   content: string
+  frontmatter?: Record<string, unknown>
 }
 
 interface ParsedFrontmatter {
@@ -31,8 +32,19 @@ function parseFrontmatter(content: string): ParsedFrontmatter | null {
   return { data, bodyStart }
 }
 
-export function FrontmatterDisplay({ content }: FrontmatterDisplayProps) {
-  const frontmatter = useMemo(() => parseFrontmatter(content), [content])
+export function FrontmatterDisplay({ content, frontmatter: frontmatterObj }: FrontmatterDisplayProps) {
+  const frontmatter = useMemo(() => {
+    // If a pre-parsed frontmatter object is provided, use it directly
+    if (frontmatterObj && Object.keys(frontmatterObj).length > 0) {
+      const data: Record<string, string> = {}
+      for (const [key, value] of Object.entries(frontmatterObj)) {
+        data[key] = String(value ?? '')
+      }
+      return { data, bodyStart: 0 }
+    }
+    // Otherwise fall back to parsing from content string
+    return parseFrontmatter(content)
+  }, [content, frontmatterObj])
 
   if (!frontmatter || Object.keys(frontmatter.data).length === 0) {
     return null
@@ -43,12 +55,27 @@ export function FrontmatterDisplay({ content }: FrontmatterDisplayProps) {
   return (
     <div className="mb-6 rounded-md bg-muted/50 border border-border/50 px-4 py-3 font-mono text-xs text-muted-foreground">
       <div className="space-y-0.5">
-        {Object.entries(data).map(([key, value]) => (
-          <div key={key} className="flex">
-            <span className="text-muted-foreground/70 w-20 shrink-0">{key}:</span>
-            <span className="text-foreground/80">{value}</span>
-          </div>
-        ))}
+        {Object.entries(data).map(([key, value]) => {
+          const isDocId = key === 'google_doc_id'
+          const displayValue = isDocId ? value.replace(/^['"]|['"]$/g, '') : value
+          return (
+            <div key={key} className="flex gap-2">
+              <span className="text-muted-foreground/70 shrink-0">{key}:</span>
+              {isDocId ? (
+                <a
+                  href={`https://docs.google.com/document/d/${displayValue}/edit`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-foreground/80 break-all underline decoration-muted-foreground/40 hover:decoration-foreground/60"
+                >
+                  {displayValue}
+                </a>
+              ) : (
+                <span className="text-foreground/80 break-all">{value}</span>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )

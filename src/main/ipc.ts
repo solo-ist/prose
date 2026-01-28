@@ -886,4 +886,76 @@ export function setupIpcHandlers(): void {
       return null // Can't determine - that's fine
     }
   })
+
+  // Google: Start OAuth flow
+  ipcMain.handle('google:startAuth', async () => {
+    const { startOAuthFlow } = await import('./google/auth')
+    return await startOAuthFlow()
+  })
+
+  // Google: Disconnect (clear tokens)
+  ipcMain.handle('google:disconnect', async () => {
+    const { clearTokens } = await import('./google/auth')
+    await clearTokens()
+  })
+
+  // Google: Get connection status
+  ipcMain.handle('google:getConnectionStatus', async () => {
+    const { validateConnection } = await import('./google/auth')
+    return await validateConnection()
+  })
+
+  // Google: Unified sync (determines push/pull/create automatically)
+  ipcMain.handle('google:sync', async (_event, content: string, frontmatter: Record<string, unknown>, title: string) => {
+    const { syncDocument } = await import('./google/sync')
+    return await syncDocument(content, frontmatter, title)
+  })
+
+  // Google: Pull document from Google Docs
+  ipcMain.handle('google:pull', async (_event, docId: string) => {
+    const { pullFromGoogle } = await import('./google/sync')
+    return await pullFromGoogle(docId)
+  })
+
+  // Google: Import document from Google Docs
+  ipcMain.handle('google:import', async (_event, docId: string) => {
+    const { importFromGoogle } = await import('./google/sync')
+    return await importFromGoogle(docId)
+  })
+
+  // Google: Ensure ~/Documents/Google Docs/ folder exists
+  ipcMain.handle('google:ensureFolder', async () => {
+    const { ensureGoogleDocsFolder } = await import('./google/sync')
+    return await ensureGoogleDocsFolder()
+  })
+
+  // Google: Sync all Prose-linked docs to local folder
+  ipcMain.handle('google:syncAll', async (_event, syncDir: string) => {
+    const { syncAllGoogleDocs } = await import('./google/sync')
+    return await syncAllGoogleDocs(syncDir)
+  })
+
+  // Google: List recent docs
+  ipcMain.handle('google:listRecentDocs', async (_event, maxResults?: number) => {
+    const { listRecentDocs } = await import('./google/client')
+    return await listRecentDocs(maxResults)
+  })
+
+  // Google: Get sync metadata (with file-existence checks)
+  ipcMain.handle('google:getSyncMetadata', async () => {
+    const { getGoogleSyncMetadata } = await import('./google/sync')
+    return await getGoogleSyncMetadata()
+  })
+
+  // Google: Add/update a metadata entry
+  ipcMain.handle('google:updateSyncMetadataEntry', async (_event, entry: import('./google/sync').GoogleDocEntry) => {
+    const { updateGoogleSyncMetadataEntry } = await import('./google/sync')
+    await updateGoogleSyncMetadataEntry(entry)
+  })
+
+  // Google: Remove a metadata entry
+  ipcMain.handle('google:removeSyncMetadataEntry', async (_event, googleDocId: string) => {
+    const { removeGoogleSyncMetadataEntry } = await import('./google/sync')
+    await removeGoogleSyncMetadataEntry(googleDocId)
+  })
 }

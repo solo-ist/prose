@@ -19,6 +19,7 @@ interface FileTreeProps {
   onFileDelete?: (path: string) => void
   onFileRename?: (path: string) => void
   onFileShowInFolder?: (path: string) => void
+  onFileLinkClick?: (path: string) => void
   depth?: number
 }
 
@@ -33,6 +34,7 @@ export function FileTree({
   onFileDelete,
   onFileRename,
   onFileShowInFolder,
+  onFileLinkClick,
   depth = 0
 }: FileTreeProps) {
   return (
@@ -50,6 +52,7 @@ export function FileTree({
           onFileDelete={onFileDelete}
           onFileRename={onFileRename}
           onFileShowInFolder={onFileShowInFolder}
+          onFileLinkClick={onFileLinkClick}
           depth={depth}
         />
       ))}
@@ -68,6 +71,7 @@ interface FileTreeItemProps {
   onFileDelete?: (path: string) => void
   onFileRename?: (path: string) => void
   onFileShowInFolder?: (path: string) => void
+  onFileLinkClick?: (path: string) => void
   depth: number
 }
 
@@ -82,6 +86,7 @@ function FileTreeItem({
   onFileDelete,
   onFileRename,
   onFileShowInFolder,
+  onFileLinkClick,
   depth
 }: FileTreeItemProps) {
   const isExpanded = expandedFolders.has(item.path)
@@ -111,40 +116,54 @@ function FileTreeItem({
   const showChevron = item.isDirectory && (item.children?.length || item.hasChildren)
 
   const buttonElement = (
-    <button
-      onClick={handleClick}
-      onDoubleClick={handleDoubleClick}
-      className={cn(
-        'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm text-left transition-colors',
-        'hover:bg-accent hover:text-accent-foreground',
-        isSelected && !item.isDirectory && 'bg-accent text-accent-foreground'
-      )}
-      style={{ paddingLeft: `${depth * 12 + 8}px` }}
-      title={item.path}
-    >
-      {item.isDirectory ? (
-        <>
-          {isLoading ? (
-            <Loader2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground animate-spin" />
-          ) : showChevron ? (
-            isExpanded ? (
-              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+    <div className={cn("group flex items-center", !item.isDirectory && onFileLinkClick && "relative")}>
+      <button
+        onClick={handleClick}
+        onDoubleClick={handleDoubleClick}
+        className={cn(
+          'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm text-left transition-colors',
+          'hover:bg-accent hover:text-accent-foreground',
+          isSelected && !item.isDirectory && 'bg-accent text-accent-foreground'
+        )}
+        style={{ paddingLeft: `${depth * 12 + 8}px` }}
+        title={item.path}
+      >
+        {item.isDirectory ? (
+          <>
+            {isLoading ? (
+              <Loader2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground animate-spin" />
+            ) : showChevron ? (
+              isExpanded ? (
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              )
             ) : (
-              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            )
-          ) : (
-            <span className="w-3.5" /> // Empty folder spacer
-          )}
-          <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
-        </>
-      ) : (
-        <>
-          <span className="w-3.5" /> {/* Spacer for alignment */}
-          <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-        </>
+              <span className="w-3.5" /> // Empty folder spacer
+            )}
+            <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+          </>
+        ) : (
+          <>
+            <span className="w-3.5" /> {/* Spacer for alignment */}
+            <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+          </>
+        )}
+        <span className="truncate">{displayName}</span>
+      </button>
+      {!item.isDirectory && onFileLinkClick && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onFileLinkClick(item.path)
+          }}
+          className="absolute right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent"
+          title="Open in Google Docs"
+        >
+          <ExternalLink className="h-3 w-3 text-muted-foreground" />
+        </button>
       )}
-      <span className="truncate">{displayName}</span>
-    </button>
+    </div>
   )
 
   return (
@@ -194,6 +213,7 @@ function FileTreeItem({
           onFileDelete={onFileDelete}
           onFileRename={onFileRename}
           onFileShowInFolder={onFileShowInFolder}
+          onFileLinkClick={onFileLinkClick}
           depth={depth + 1}
         />
       )}

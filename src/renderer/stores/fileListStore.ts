@@ -1,8 +1,8 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
-import type { FileItem, RemarkableSyncMetadata, RemarkableCloudNotebook, RemarkableSyncState } from '../types'
+import type { FileItem, RemarkableSyncMetadata, RemarkableCloudNotebook, RemarkableSyncState, GoogleSyncMetadata } from '../types'
 
-type ViewMode = 'recent' | 'folder' | 'notebooks'
+type ViewMode = 'recent' | 'folder' | 'notebooks' | 'googledocs'
 
 interface FileListState {
   // Panel state
@@ -18,15 +18,22 @@ interface FileListState {
   selectedPath: string | null
   loadingFolders: Set<string> // Track which folders are currently loading children
 
+  // Google Docs sync state
+  isGoogleSyncing: boolean
+
   // Notebook metadata
   notebookMetadata: RemarkableSyncMetadata | null
   cloudNotebooks: RemarkableCloudNotebook[]
   syncState: RemarkableSyncState | null
 
+  // Google Docs metadata
+  googleDocsMetadata: GoogleSyncMetadata | null
+
   // Actions
   togglePanel: () => void
   setPanelOpen: (open: boolean) => void
   setViewMode: (mode: ViewMode) => void
+  setGoogleSyncing: (syncing: boolean) => void
   setRootPath: (path: string | null) => void
   initializeDefaultPath: () => Promise<void>
   navigateToParent: () => void
@@ -35,6 +42,7 @@ interface FileListState {
   loadNotebooks: (syncDirectory: string) => Promise<void>
   loadCloudNotebooks: (deviceToken: string, syncDirectory: string) => Promise<void>
   toggleNotebookSync: (notebookId: string, syncDirectory: string) => Promise<void>
+  loadGoogleDocsMetadata: () => Promise<void>
   selectFile: (path: string | null) => void
   toggleFolder: (path: string) => void
   setExpanded: (path: string, expanded: boolean) => void
@@ -52,9 +60,13 @@ export const useFileListStore = create<FileListState>()(
     expandedFolders: new Set<string>(),
     selectedPath: null,
     loadingFolders: new Set<string>(),
+    isGoogleSyncing: false,
+    googleDocsMetadata: null,
     notebookMetadata: null,
     cloudNotebooks: [],
     syncState: null,
+
+    setGoogleSyncing: (syncing) => set({ isGoogleSyncing: syncing }),
 
     togglePanel: () => set((state) => ({ isPanelOpen: !state.isPanelOpen })),
 
@@ -152,6 +164,19 @@ export const useFileListStore = create<FileListState>()(
         const updatedLoading = new Set(currentLoading)
         updatedLoading.delete(folderPath)
         set({ loadingFolders: updatedLoading })
+      }
+    },
+
+    loadGoogleDocsMetadata: async () => {
+      if (!window.api?.googleGetSyncMetadata) return
+
+      set({ isLoading: true })
+      try {
+        const metadata = await window.api.googleGetSyncMetadata()
+        set({ googleDocsMetadata: metadata, isLoading: false })
+      } catch (error) {
+        console.error('Failed to load Google Docs metadata:', error)
+        set({ googleDocsMetadata: null, isLoading: false })
       }
     },
 

@@ -50,6 +50,14 @@ export const Comment = Mark.create<CommentOptions>({
     }
   },
 
+  addStorage() {
+    return {
+      markdown: {
+        serialize: commentMarkdownSerializer,
+      },
+    }
+  },
+
   addAttributes() {
     return {
       id: {

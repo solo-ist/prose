@@ -28,6 +28,18 @@ export const DiffSuggestion = Node.create<DiffSuggestionOptions>({
     }
   },
 
+  addStorage() {
+    return {
+      markdown: {
+        serialize(state: { write: (text: string) => void }, node: { attrs: { originalText?: string } }) {
+          // Output the original text (suggestion not yet accepted)
+          state.write(node.attrs.originalText || '')
+        },
+        parse: {},
+      },
+    }
+  },
+
   group: 'inline',
 
   inline: true,

@@ -1,10 +1,27 @@
-# Prose v0.1.0-alpha.1 — Early Preview
+# Prose v0.1.0-alpha.2 — Quality of Life
 
-The first public alpha release of Prose, a minimal markdown editor with integrated AI assistance.
+Fixes and improvements focused on editor stability and user experience.
 
-## What is Prose?
+## What's New
 
-Prose is a distraction-free writing environment that combines a clean markdown editor with AI chat capabilities. Write naturally in markdown while having Claude available for brainstorming, editing suggestions, and research assistance.
+### Bug Fixes
+- **Fixed undo stack behavior** — Undo no longer goes past the initial document state when opening files
+- **Fixed dirty state tracking** — Document dirty indicator now works correctly
+- **Fixed document scroll position** — Documents now open at the top instead of the bottom
+- **Fixed button nesting warning** — Resolved React warning in TabBar component
+
+### Improvements
+- **Keyboard shortcuts overhaul** — Comprehensive audit and implementation of keyboard shortcuts
+- **API key validation** — Better error handling and testing for API keys
+- **User feedback for AI suggestions** — Added mechanism to provide feedback on AI responses
+- **Autosave functionality** — Configurable autosave intervals to prevent data loss
+- **Copy-to-clipboard buttons** — Easily copy chat content
+- **Window dragging** — Tab bar area now supports window dragging
+- **Content Security Policy** — Eliminated Electron security warnings
+- **Default font change** — Now uses IBM Plex Mono instead of Source Code Pro
+
+### Developer Experience
+- **Automatic Claude code review** — CI now runs code review on PR open
 
 ## Requirements
 
@@ -13,7 +30,7 @@ Prose is a distraction-free writing environment that combines a clean markdown e
 
 ## Installation
 
-1. Download `Prose-0.1.0-alpha.1-arm64.dmg`
+1. Download `Prose-0.1.0-alpha.2-arm64.dmg`
 2. Open the DMG and drag Prose to Applications
 3. **Important: Unsigned app workaround**
 
@@ -25,15 +42,6 @@ Prose is a distraction-free writing environment that combines a clean markdown e
 
    Then open Prose normally. This is only required once after installation.
 
-## Features
-
-- **Markdown editor** with syntax highlighting and live preview
-- **AI chat panel** powered by Claude (Anthropic, OpenRouter, or Ollama)
-- **Dark mode** by default, with light theme available
-- **File explorer** sidebar for navigating your documents
-- **Tab-based editing** with drag reordering
-- **reMarkable integration** for syncing handwritten notes (optional)
-
 ## Known Limitations
 
 This is an early alpha release:
@@ -42,12 +50,11 @@ This is an early alpha release:
 - Apple Silicon only (Intel support coming)
 - App is unsigned — requires manual security bypass
 - No auto-updates yet
-- Some rough edges expected
 
 ## Feedback
 
 Found a bug or have a suggestion? Please open an issue:
-https://github.com/angelmarino/prose/issues
+https://github.com/solo-ist/prose/issues
 
 ---
 

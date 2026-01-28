@@ -26,6 +26,7 @@ export function useSettings() {
     setRecoveryConfig,
     setDefaultSaveDirectory,
     setRemarkableConfig,
+    setGoogleConfig,
     setFileAssociationConfig,
     setAutosaveConfig,
     toggleAutosaveActive
@@ -60,6 +61,7 @@ export function useSettings() {
     setRecoveryConfig,
     setDefaultSaveDirectory,
     setRemarkableConfig,
+    setGoogleConfig,
     setFileAssociationConfig,
     setAutosaveConfig,
     toggleAutosaveActive

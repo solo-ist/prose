@@ -36,7 +36,7 @@ export const newFileSchema = z.object({
 
 export const newFileConfig: ToolConfig<typeof newFileSchema> = {
   name: 'new_file',
-  description: 'Create a new unsaved document. Optionally provide initial content.',
+  description: 'Create a NEW document, replacing the current one. This clears the current document and chat history. Only use when the user explicitly requests a new document. To add content to the current document, use the "insert" tool instead.',
   schema: newFileSchema,
   category: 'file',
   requiresMode: null,

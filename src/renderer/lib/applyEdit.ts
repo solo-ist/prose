@@ -6,6 +6,7 @@ import type { Editor } from '@tiptap/core'
 import type { EditBlock } from './editBlocks'
 import type { AnnotationType } from '../types/annotations'
 import { useAnnotationStore } from '../extensions/ai-annotations/store'
+import { computeWordDiff, extractChangedRanges } from './wordDiff'
 
 export interface ApplyResult {
   success: boolean
@@ -322,18 +323,25 @@ export function applyEditDirect(
   if (provenance && documentId && replace.length > 0) {
     const annotationType: AnnotationType = search.trim() === '' ? 'insertion' : 'replacement'
 
-    useAnnotationStore.getState().addAnnotation({
-      documentId,
-      type: annotationType,
-      from: insertFrom,
-      to: insertTo,
-      content: replace,
-      provenance: {
-        model: provenance.model,
-        conversationId: provenance.conversationId,
-        messageId: provenance.messageId,
-      },
-    })
+    // Use word-level diffing to annotate only changed portions
+    const diff = computeWordDiff(search, replace)
+    const changedRanges = extractChangedRanges(diff, search, replace)
+
+    // Create annotations for each changed range
+    for (const range of changedRanges) {
+      useAnnotationStore.getState().addAnnotation({
+        documentId,
+        type: annotationType,
+        from: insertFrom + range.from,
+        to: insertFrom + range.to,
+        content: range.text,
+        provenance: {
+          model: provenance.model,
+          conversationId: provenance.conversationId,
+          messageId: provenance.messageId,
+        },
+      })
+    }
   }
 
   return {

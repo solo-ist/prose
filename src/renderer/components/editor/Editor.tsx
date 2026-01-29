@@ -546,7 +546,7 @@ export function Editor() {
         >
           {/* reMarkable read-only indicator */}
           {isRemarkableReadOnly && !isTransforming && (
-            <div className="max-w-3xl mx-auto mb-4 px-4 py-2 rounded-md bg-muted/50 border border-border text-sm text-muted-foreground flex items-center justify-between">
+            <div className="max-w-[75ch] mx-auto mb-4 px-4 py-2 rounded-md bg-muted/50 border border-border text-sm text-muted-foreground flex items-center justify-between">
               <span>Viewing reMarkable OCR (read-only)</span>
               <button
                 className="text-xs px-2 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
@@ -599,7 +599,7 @@ export function Editor() {
           )}
           {/* reMarkable editable indicator - show when editing a file linked to a notebook */}
           {!isRemarkableReadOnly && linkedNotebookId && !isTransforming && (
-            <div className="max-w-3xl mx-auto mb-4 px-4 py-2 rounded-md bg-muted/50 border border-border text-sm text-muted-foreground flex items-center justify-between">
+            <div className="max-w-[75ch] mx-auto mb-4 px-4 py-2 rounded-md bg-muted/50 border border-border text-sm text-muted-foreground flex items-center justify-between">
               <span>Editing reMarkable notebook</span>
               <button
                 className="text-xs px-2 py-1 rounded bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors"
@@ -648,7 +648,7 @@ export function Editor() {
             </div>
           )}
           <TransformAnimation isTransforming={isTransforming} onComplete={completeTransform}>
-            <div className={`max-w-3xl prose-editor ${isRemarkableReadOnly && !isTransforming ? 'opacity-80 select-none' : ''}`}>
+            <div className={`max-w-[75ch] mx-auto prose-editor ${isRemarkableReadOnly && !isTransforming ? 'opacity-80 select-none' : ''}`}>
               {showFrontmatter && (
                 <FrontmatterDisplay content={document.content} frontmatter={document.frontmatter} />
               )}

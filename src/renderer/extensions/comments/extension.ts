@@ -184,30 +184,53 @@ export const Comment = Mark.create<CommentOptions>({
  * Extract all comments from the editor
  */
 export function getComments(editor: { state: { doc: { descendants: (fn: (node: { marks: Array<{ type: { name: string }; attrs: { id: string; comment: string; createdAt: number } }>; nodeSize: number; textContent: string }, pos: number) => void) => void } } }): CommentData[] {
-  const comments: CommentData[] = []
+  // Map to collect all text nodes for each comment ID
+  const commentMap = new Map<string, {
+    texts: string[]
+    comment: string
+    createdAt: number
+    from: number
+    to: number
+  }>()
 
   editor.state.doc.descendants((node, pos) => {
     node.marks.forEach((mark) => {
       if (mark.type.name === 'comment' && mark.attrs.id) {
-        comments.push({
-          id: mark.attrs.id,
-          markedText: node.textContent,
-          comment: mark.attrs.comment || '',
-          createdAt: mark.attrs.createdAt || Date.now(),
-          from: pos,
-          to: pos + node.nodeSize,
-        })
+        const existing = commentMap.get(mark.attrs.id)
+
+        if (existing) {
+          // Add this node's text to the existing comment
+          existing.texts.push(node.textContent)
+          // Extend the range to include this node
+          existing.to = pos + node.nodeSize
+        } else {
+          // First occurrence of this comment ID
+          commentMap.set(mark.attrs.id, {
+            texts: [node.textContent],
+            comment: mark.attrs.comment || '',
+            createdAt: mark.attrs.createdAt || Date.now(),
+            from: pos,
+            to: pos + node.nodeSize,
+          })
+        }
       }
     })
   })
 
-  // Dedupe by ID (marks can span multiple text nodes)
-  const seen = new Set<string>()
-  return comments.filter((c) => {
-    if (seen.has(c.id)) return false
-    seen.add(c.id)
-    return true
+  // Convert map to array, joining all text nodes with paragraph separator
+  const comments: CommentData[] = []
+  commentMap.forEach((data, id) => {
+    comments.push({
+      id,
+      markedText: data.texts.join('\n\n'),
+      comment: data.comment,
+      createdAt: data.createdAt,
+      from: data.from,
+      to: data.to,
+    })
   })
+
+  return comments
 }
 
 export default Comment

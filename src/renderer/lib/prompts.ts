@@ -56,7 +56,15 @@ To change the paragraph:
 - Use the exact node ID from the response
 - The \`content\` parameter replaces the entire node content
 - Keep edits focused - one node per tool call
-- Briefly explain what you're changing`
+- Briefly explain what you're changing
+
+## Referencing Line Numbers
+
+When you reference specific line numbers in the document (e.g., when searching or analyzing), format them as clickable markdown links:
+
+- Format: \`[Line N](line:N)\` where N is the line number
+- Example: "Found 3 occurrences: [Line 12](line:12), [Line 45](line:45), and [Line 128](line:128)"
+- These will appear as clickable links that navigate to that line in the editor`
 
   if (includeDocument && documentContent) {
     // Strip any comment HTML markup so the AI sees clean text

@@ -12,6 +12,7 @@ import { Comment } from '../../extensions/comments'
 import { AISuggestion } from '../../extensions/ai-suggestions'
 import { AIAnnotations, useAnnotationStore } from '../../extensions/ai-annotations'
 import { NodeIds } from '../../extensions/node-ids'
+import { SearchHighlight } from '../../extensions/search-highlight'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
@@ -98,6 +99,7 @@ export function Editor() {
         showTooltip: true,
       }),
       NodeIds,
+      SearchHighlight,
     ],
     content: initialContent,
     editorProps: {
@@ -503,6 +505,13 @@ export function Editor() {
     const handleMenuFind = () => setIsFindOpen(true)
     window.addEventListener('menu:find', handleMenuFind)
     return () => window.removeEventListener('menu:find', handleMenuFind)
+  }, [])
+
+  // Listen for search:show event from tools (e.g., search_document)
+  useEffect(() => {
+    const handleSearchShow = () => setIsFindOpen(true)
+    window.addEventListener('search:show', handleSearchShow)
+    return () => window.removeEventListener('search:show', handleSearchShow)
   }, [])
 
   // Show empty state when document is empty, untitled, and user hasn't started editing

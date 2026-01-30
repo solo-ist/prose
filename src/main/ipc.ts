@@ -878,7 +878,11 @@ export function setupIpcHandlers(): void {
     try {
       const { execSync } = await import('child_process')
       // Try duti if available (informational query only)
-      const result = execSync('duti -x md 2>/dev/null').toString().trim()
+      // Use stdio option to properly suppress stderr and avoid EPIPE errors
+      const result = execSync('duti -x md', {
+        stdio: ['pipe', 'pipe', 'ignore'],
+        timeout: 5000,
+      }).toString().trim()
       const lines = result.split('\n')
       const bundleId = lines[2] // Third line is bundle ID
       return bundleId === 'com.prose.app' || bundleId?.toLowerCase().includes('prose')

@@ -871,3 +871,23 @@
 .dark .prose-editor .diff-word-added {
   background: hsl(262 65% 50% / 0.35);
 }
+
+/* Search Highlight - FindBar multi-match highlighting */
+.prose-editor .search-match {
+  background-color: hsl(45 100% 50% / 0.3);
+  border-radius: 2px;
+}
+
+.dark .prose-editor .search-match {
+  background-color: hsl(45 100% 50% / 0.25);
+}
+
+.prose-editor .search-match-current {
+  background-color: hsl(45 100% 50% / 0.7);
+  box-shadow: 0 0 0 1px hsl(45 100% 50% / 0.8);
+}
+
+.dark .prose-editor .search-match-current {
+  background-color: hsl(45 100% 50% / 0.55);
+  box-shadow: 0 0 0 1px hsl(45 100% 60% / 0.7);
+}

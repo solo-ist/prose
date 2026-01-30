@@ -9,6 +9,7 @@ import { useChatStore } from '../../stores/chatStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { CopyButton } from '../ui/copy-button'
+import { jumpToLine } from '../../lib/lineNavigation'
 
 // Tool call indicator component with AI sparkle styling
 function ToolCallIndicator({ name, status, children }: { name: string; status: 'executing' | 'success' | 'error'; children?: React.ReactNode }) {
@@ -106,22 +107,60 @@ interface ChatMessageProps {
 }
 
 // Process inline formatting for a line
-function processInlineFormatting(text: string, keyPrefix: string): React.ReactNode {
-  // Order matters: bold (**) before italic (*) to avoid conflicts
+function processInlineFormatting(text: string, keyPrefix: string, editor: any): React.ReactNode {
+  // Order matters: process markdown links first, then bold, italic, code
   const parts: React.ReactNode[] = []
-  let remaining = text
   let key = 0
 
-  // Process bold first
-  const boldRegex = /\*\*(.+?)\*\*/g
+  // Process markdown links first: [text](url)
+  // This handles both regular links and line references like [Line 37](line:37)
+  const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g
   let lastIndex = 0
   let match
 
-  while ((match = boldRegex.exec(text)) !== null) {
+  while ((match = linkRegex.exec(text)) !== null) {
+    // Add text before the link
     if (match.index > lastIndex) {
       parts.push(text.slice(lastIndex, match.index))
     }
-    parts.push(<strong key={`${keyPrefix}-b-${key++}`}>{match[1]}</strong>)
+
+    const linkText = match[1]
+    const linkUrl = match[2]
+
+    // Check if this is a line reference (line:N)
+    const lineMatch = linkUrl.match(/^line:(\d+)$/i)
+    if (lineMatch) {
+      const lineNumber = parseInt(lineMatch[1], 10)
+      parts.push(
+        <button
+          key={`${keyPrefix}-link-${key++}`}
+          onClick={(e) => {
+            e.preventDefault()
+            if (editor) {
+              jumpToLine(editor, lineNumber)
+            }
+          }}
+          className="text-primary hover:underline cursor-pointer inline-flex items-center gap-0.5 group"
+          title={`${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+Click to jump to line ${lineNumber}`}
+        >
+          {linkText}
+        </button>
+      )
+    } else {
+      // Regular link
+      parts.push(
+        <a
+          key={`${keyPrefix}-link-${key++}`}
+          href={linkUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-primary hover:underline"
+        >
+          {linkText}
+        </a>
+      )
+    }
+
     lastIndex = match.index + match[0].length
   }
 
@@ -133,7 +172,31 @@ function processInlineFormatting(text: string, keyPrefix: string): React.ReactNo
     parts.push(text)
   }
 
-  // Now process italic on the text parts (not already processed bold)
+  // Now process bold on the text parts (not already processed links)
+  const processBold = (node: React.ReactNode, idx: number): React.ReactNode => {
+    if (typeof node !== 'string') return node
+
+    const boldRegex = /\*\*(.+?)\*\*/g
+    const boldParts: React.ReactNode[] = []
+    let boldLastIndex = 0
+    let boldMatch
+
+    while ((boldMatch = boldRegex.exec(node)) !== null) {
+      if (boldMatch.index > boldLastIndex) {
+        boldParts.push(node.slice(boldLastIndex, boldMatch.index))
+      }
+      boldParts.push(<strong key={`${keyPrefix}-b-${idx}-${boldParts.length}`}>{boldMatch[1]}</strong>)
+      boldLastIndex = boldMatch.index + boldMatch[0].length
+    }
+
+    if (boldLastIndex < node.length) {
+      boldParts.push(node.slice(boldLastIndex))
+    }
+
+    return boldParts.length > 0 ? boldParts : node
+  }
+
+  // Process italic on the text parts (not already processed)
   const processItalic = (node: React.ReactNode, idx: number): React.ReactNode => {
     if (typeof node !== 'string') return node
 
@@ -185,9 +248,19 @@ function processInlineFormatting(text: string, keyPrefix: string): React.ReactNo
     return codeParts.length > 0 ? codeParts : node
   }
 
-  // Apply transformations
+  // Apply transformations in order: bold -> italic -> code
   return parts.flatMap((part, idx) => {
-    const withItalic = processItalic(part, idx)
+    const withBold = processBold(part, idx)
+    if (Array.isArray(withBold)) {
+      return withBold.flatMap((p, i) => {
+        const withItalic = processItalic(p, idx * 1000 + i)
+        if (Array.isArray(withItalic)) {
+          return withItalic.flatMap((q, j) => processCode(q, idx * 1000 + i * 100 + j))
+        }
+        return processCode(withItalic, idx * 1000 + i)
+      })
+    }
+    const withItalic = processItalic(withBold, idx)
     if (Array.isArray(withItalic)) {
       return withItalic.flatMap((p, i) => processCode(p, idx * 100 + i))
     }
@@ -196,7 +269,7 @@ function processInlineFormatting(text: string, keyPrefix: string): React.ReactNo
 }
 
 // Simple markdown renderer for assistant messages
-function renderMarkdown(content: string): React.ReactNode {
+function renderMarkdown(content: string, editor: any): React.ReactNode {
   // Split into lines and process
   const lines = content.split('\n')
   const elements: React.ReactNode[] = []
@@ -232,7 +305,7 @@ function renderMarkdown(content: string): React.ReactNode {
     }
 
     // Process inline formatting
-    const processed = processInlineFormatting(line, `line-${i}`)
+    const processed = processInlineFormatting(line, `line-${i}`, editor)
 
     if (line === '') {
       elements.push(<br key={i} />)
@@ -397,13 +470,13 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
                           name={part.name || 'tool'}
                           status={part.success ? 'success' : 'error'}
                         >
-                          {part.content && renderMarkdown(part.content)}
+                          {part.content && renderMarkdown(part.content, editor)}
                         </ToolCallIndicator>
                       )
                     }
                     // Regular text
                     return part.content.trim() ? (
-                      <div key={idx}>{renderMarkdown(part.content)}</div>
+                      <div key={idx}>{renderMarkdown(part.content, editor)}</div>
                     ) : null
                   })}
                   {isStreaming && (
@@ -417,7 +490,7 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
             if (displayContent.trim()) {
               return (
                 <div className="prose-chat break-words">
-                  {renderMarkdown(displayContent)}
+                  {renderMarkdown(displayContent, editor)}
                   {isStreaming && (
                     <span className="inline-block w-2 h-4 bg-primary/50 animate-pulse ml-0.5 align-middle" />
                   )}
@@ -437,7 +510,7 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
               return <span className="inline-block w-2 h-4 bg-primary/50 animate-pulse" />
             }
 
-            return <div className="prose-chat break-words">{renderMarkdown(displayContent)}</div>
+            return <div className="prose-chat break-words">{renderMarkdown(displayContent, editor)}</div>
           })()}
         </div>
         {/* Show preview only in non-agent mode */}

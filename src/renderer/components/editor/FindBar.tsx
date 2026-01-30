@@ -3,16 +3,12 @@ import { X, ChevronUp, ChevronDown } from 'lucide-react'
 import { Input } from '../ui/input'
 import { Button } from '../ui/button'
 import type { Editor } from '@tiptap/react'
+import type { SearchResult } from '../../extensions/search-highlight'
 
 interface FindBarProps {
   editor: Editor | null
   isOpen: boolean
   onClose: () => void
-}
-
-interface SearchResult {
-  from: number
-  to: number
 }
 
 export function FindBar({ editor, isOpen, onClose }: FindBarProps) {
@@ -29,11 +25,33 @@ export function FindBar({ editor, isOpen, onClose }: FindBarProps) {
     }
   }, [isOpen])
 
+  // Clear highlights when closed
+  useEffect(() => {
+    if (!isOpen && editor) {
+      editor.commands.clearSearchHighlight()
+    }
+  }, [isOpen, editor])
+
+  // Listen for search:show events from tools (e.g., search_document)
+  useEffect(() => {
+    const handleSearchShow = (e: CustomEvent<{ query: string }>) => {
+      const { query } = e.detail
+      if (query) {
+        setSearchTerm(query)
+        // The search will trigger via the debounced effect
+      }
+    }
+
+    window.addEventListener('search:show', handleSearchShow as EventListener)
+    return () => window.removeEventListener('search:show', handleSearchShow as EventListener)
+  }, [])
+
   // Search for matches in the document
   const search = useCallback(() => {
     if (!editor || !searchTerm.trim()) {
       setResults([])
       setCurrentIndex(0)
+      editor?.commands.clearSearchHighlight()
       return
     }
 
@@ -56,12 +74,16 @@ export function FindBar({ editor, isOpen, onClose }: FindBarProps) {
     })
 
     setResults(searchResults)
-    setCurrentIndex(searchResults.length > 0 ? 0 : -1)
+    const newIndex = searchResults.length > 0 ? 0 : -1
+    setCurrentIndex(newIndex)
 
-    // Highlight first result
+    // Update decorations and highlight first result
     if (searchResults.length > 0) {
+      editor.commands.setSearchHighlight(searchResults, 0)
       editor.commands.setTextSelection(searchResults[0])
       scrollToSelection(editor)
+    } else {
+      editor.commands.clearSearchHighlight()
     }
   }, [editor, searchTerm])
 
@@ -90,6 +112,7 @@ export function FindBar({ editor, isOpen, onClose }: FindBarProps) {
     if (!editor || results.length === 0) return
     const nextIndex = (currentIndex + 1) % results.length
     setCurrentIndex(nextIndex)
+    editor.commands.setSearchHighlight(results, nextIndex)
     editor.commands.setTextSelection(results[nextIndex])
     scrollToSelection(editor)
   }, [editor, results, currentIndex])
@@ -98,6 +121,7 @@ export function FindBar({ editor, isOpen, onClose }: FindBarProps) {
     if (!editor || results.length === 0) return
     const prevIndex = currentIndex <= 0 ? results.length - 1 : currentIndex - 1
     setCurrentIndex(prevIndex)
+    editor.commands.setSearchHighlight(results, prevIndex)
     editor.commands.setTextSelection(results[prevIndex])
     scrollToSelection(editor)
   }, [editor, results, currentIndex])

@@ -216,6 +216,11 @@ export function executeSearchDocument(args: {
     }
   }
 
+  // Trigger FindBar UI with the search term if we found matches
+  if (matches.length > 0) {
+    window.dispatchEvent(new CustomEvent('search:show', { detail: { query } }))
+  }
+
   return toolSuccess({ matches, totalCount })
 }
 

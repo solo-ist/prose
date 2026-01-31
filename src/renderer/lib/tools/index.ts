@@ -36,6 +36,14 @@ import {
   executeReadFile
 } from './executors/file'
 
+/** Provenance context for AI-generated content tracking */
+export interface ToolProvenance {
+  model: string
+  conversationId: string
+  messageId: string
+  documentId: string
+}
+
 /**
  * Execute a tool by name with the given arguments.
  * Validates the tool exists and checks mode access before executing.
@@ -43,7 +51,8 @@ import {
 export async function executeTool(
   toolName: string,
   args: unknown,
-  mode: ToolMode = 'full'
+  mode: ToolMode = 'full',
+  provenance?: ToolProvenance
 ): Promise<ToolResult> {
   // Check if tool exists
   const tool = getTool(toolName)
@@ -89,7 +98,7 @@ export async function executeTool(
       case 'insert':
         return executeInsert(validatedArgs)
       case 'suggest_edit':
-        return executeSuggestEdit(validatedArgs)
+        return executeSuggestEdit(validatedArgs, provenance)
       case 'accept_diff':
         return executeAcceptDiff(validatedArgs)
       case 'reject_diff':

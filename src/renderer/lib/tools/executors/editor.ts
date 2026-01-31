@@ -116,15 +116,26 @@ export function executeInsert(args: {
   }
 }
 
+/** Provenance context for AI-generated content tracking */
+interface ToolProvenance {
+  model: string
+  conversationId: string
+  messageId: string
+  documentId: string
+}
+
 /**
  * suggest_edit - Show an AI suggestion as a highlighted mark on text.
  * The user can click the highlighted text to see the suggestion and accept/reject it.
  */
-export function executeSuggestEdit(args: {
-  nodeId: string
-  content: string
-  comment?: string
-}): ToolResult<{ suggested: boolean; suggestionId: string }> {
+export function executeSuggestEdit(
+  args: {
+    nodeId: string
+    content: string
+    comment?: string
+  },
+  provenance?: ToolProvenance
+): ToolResult<{ suggested: boolean; suggestionId: string }> {
   const editor = getEditor()
 
   if (!editor) {
@@ -166,7 +177,11 @@ export function executeSuggestEdit(args: {
       type: 'edit',
       originalText,
       suggestedText: content,
-      explanation: comment || ''
+      explanation: comment || '',
+      provenanceModel: provenance?.model || '',
+      provenanceConversationId: provenance?.conversationId || '',
+      provenanceMessageId: provenance?.messageId || '',
+      documentId: provenance?.documentId || '',
     })
     .run()
 

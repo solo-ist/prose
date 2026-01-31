@@ -8,6 +8,7 @@
 import { Mark, mergeAttributes } from '@tiptap/core'
 import type { MarkSerializerSpec } from 'prosemirror-markdown'
 import type { AISuggestionOptions, AISuggestionData, SuggestionType } from './types'
+import { useAnnotationStore } from '../ai-annotations'
 
 /**
  * Markdown serializer for AI suggestion marks - outputs just the text content
@@ -31,6 +32,10 @@ declare module '@tiptap/core' {
         originalText: string
         suggestedText: string
         explanation: string
+        provenanceModel?: string
+        provenanceConversationId?: string
+        provenanceMessageId?: string
+        documentId?: string
       }) => ReturnType
       /**
        * Set user reply on an AI suggestion by ID
@@ -133,6 +138,38 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           return { 'data-ai-user-reply': attributes.userReply }
         },
       },
+      provenanceModel: {
+        default: '',
+        parseHTML: (element) => element.getAttribute('data-provenance-model'),
+        renderHTML: (attributes) => {
+          if (!attributes.provenanceModel) return {}
+          return { 'data-provenance-model': attributes.provenanceModel }
+        },
+      },
+      provenanceConversationId: {
+        default: '',
+        parseHTML: (element) => element.getAttribute('data-provenance-conversation'),
+        renderHTML: (attributes) => {
+          if (!attributes.provenanceConversationId) return {}
+          return { 'data-provenance-conversation': attributes.provenanceConversationId }
+        },
+      },
+      provenanceMessageId: {
+        default: '',
+        parseHTML: (element) => element.getAttribute('data-provenance-message'),
+        renderHTML: (attributes) => {
+          if (!attributes.provenanceMessageId) return {}
+          return { 'data-provenance-message': attributes.provenanceMessageId }
+        },
+      },
+      documentId: {
+        default: '',
+        parseHTML: (element) => element.getAttribute('data-document-id'),
+        renderHTML: (attributes) => {
+          if (!attributes.documentId) return {}
+          return { 'data-document-id': attributes.documentId }
+        },
+      },
     }
   },
 
@@ -179,6 +216,10 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             suggestedText: attrs.suggestedText,
             explanation: attrs.explanation,
             createdAt: Date.now(),
+            provenanceModel: attrs.provenanceModel || '',
+            provenanceConversationId: attrs.provenanceConversationId || '',
+            provenanceMessageId: attrs.provenanceMessageId || '',
+            documentId: attrs.documentId || '',
           })
 
           if (result && this.options.onSuggestionAdded) {
@@ -266,8 +307,35 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           // Remove the mark first
           tr.removeMark(markFrom, markTo, state.schema.marks.aiSuggestion)
 
-          // Replace the text with suggested text
-          tr.replaceWith(markFrom, markTo, state.schema.text(suggestedText))
+          // Replace the text with suggested text, or delete if empty
+          if (suggestedText.length > 0) {
+            tr.replaceWith(markFrom, markTo, state.schema.text(suggestedText))
+          } else {
+            tr.delete(markFrom, markTo)
+          }
+
+          // Create AI annotation for provenance tracking
+          const attrs = suggestionAttrs as {
+            provenanceModel?: string
+            provenanceConversationId?: string
+            provenanceMessageId?: string
+            documentId?: string
+          }
+
+          if (attrs.provenanceModel && attrs.documentId && suggestedText.length > 0) {
+            useAnnotationStore.getState().addAnnotation({
+              documentId: attrs.documentId,
+              type: 'insertion',
+              from: markFrom,
+              to: markFrom + suggestedText.length,
+              content: suggestedText,
+              provenance: {
+                model: attrs.provenanceModel,
+                conversationId: attrs.provenanceConversationId || '',
+                messageId: attrs.provenanceMessageId || '',
+              },
+            })
+          }
 
           dispatch(tr)
 
@@ -372,7 +440,11 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           // Apply each suggestion
           for (const suggestion of suggestions) {
             tr.removeMark(suggestion.from, suggestion.to, state.schema.marks.aiSuggestion)
-            tr.replaceWith(suggestion.from, suggestion.to, state.schema.text(suggestion.suggestedText))
+            if (suggestion.suggestedText.length > 0) {
+              tr.replaceWith(suggestion.from, suggestion.to, state.schema.text(suggestion.suggestedText))
+            } else {
+              tr.delete(suggestion.from, suggestion.to)
+            }
 
             if (this.options.onSuggestionAccepted) {
               this.options.onSuggestionAccepted(suggestion.id)

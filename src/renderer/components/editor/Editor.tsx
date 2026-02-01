@@ -10,6 +10,7 @@ import { FocusMode } from '../../lib/focusMode'
 import { DiffSuggestion } from '../../extensions/diff-suggestions'
 import { Comment } from '../../extensions/comments'
 import { AISuggestion } from '../../extensions/ai-suggestions'
+import { useSuggestionStore } from '../../extensions/ai-suggestions/store'
 import { AIAnnotations, useAnnotationStore } from '../../extensions/ai-annotations'
 import { NodeIds } from '../../extensions/node-ids'
 import { SearchHighlight } from '../../extensions/search-highlight'
@@ -258,6 +259,31 @@ export function Editor() {
       })
     }
   }, [document.documentId, editor])
+
+  // Restore AI suggestions when document changes
+  useEffect(() => {
+    if (!editor || !document.documentId) return
+
+    const suggestionStore = useSuggestionStore.getState()
+    const pendingSuggestions = suggestionStore.pendingSuggestions
+
+    // Only restore if there are pending suggestions and they match current document
+    if (pendingSuggestions.length > 0 && suggestionStore.documentId === document.documentId) {
+      console.log('[Editor] Restoring suggestions:', {
+        documentId: document.documentId,
+        count: pendingSuggestions.length
+      })
+
+      // Small delay to ensure editor content is fully loaded
+      const timer = setTimeout(() => {
+        editor.commands.restoreAISuggestions(pendingSuggestions)
+        // Clear pending suggestions after restoring
+        suggestionStore.clearSuggestions()
+      }, 100)
+
+      return () => clearTimeout(timer)
+    }
+  }, [editor, document.documentId])
 
   // Auto-focus editor once when document loads (not on every content change)
   const hasFocusedRef = useRef(false)
@@ -657,7 +683,7 @@ export function Editor() {
             </div>
           )}
           <TransformAnimation isTransforming={isTransforming} onComplete={completeTransform}>
-            <div className={`max-w-3xl prose-editor ${isRemarkableReadOnly && !isTransforming ? 'opacity-80 select-none' : ''}`}>
+            <div className={`max-w-3xl mx-auto prose-editor ${isRemarkableReadOnly && !isTransforming ? 'opacity-80 select-none' : ''}`}>
               {showFrontmatter && (
                 <FrontmatterDisplay content={document.content} frontmatter={document.frontmatter} />
               )}

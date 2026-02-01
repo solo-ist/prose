@@ -24,6 +24,10 @@ export interface AISuggestionData {
   from: number
   to: number
   userReply?: string
+  provenanceModel?: string
+  provenanceConversationId?: string
+  provenanceMessageId?: string
+  documentId?: string
 }
 
 export interface AISuggestionOptions {

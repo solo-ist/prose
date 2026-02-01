@@ -28,7 +28,7 @@ Before writing any code, complete this checklist:
 
 Before presenting completed work for user review, ensure a clean environment:
 
-1. **Kill stale processes**: Run `pkill -f "Electron.app" && pkill -f "electron-vite"` to terminate any orphaned instances
+1. **Kill this project's dev server**: Use PID file for safe cleanup (see below)
 2. **Start fresh dev server**: Run `npm run dev` in the background
 3. **Verify no errors**: Check dev server output for compilation errors before announcing completion
 
@@ -48,11 +48,29 @@ Circuit Electron launches its own Electron instance, which bypasses electron-vit
 
 ### Safe Process Cleanup
 
+The dev server writes its PID to `.dev.pid` on startup. Use this for safe cleanup:
+
 ```bash
-pkill -f "Electron.app"     # Kill Electron only
-pkill -f "electron-vite"    # Kill Vite dev server
+# Kill only THIS project's dev server (safe with multiple agents)
+kill $(cat .dev.pid) 2>/dev/null || true
+
+# Fallback if PID file missing (use sparingly - may affect other agents)
+pkill -f "prose.*Electron"
+pkill -f "electron-vite.*prose"
+
 # NEVER: pkill -f node      # This kills Circuit Electron MCP!
+# NEVER: pkill -f Electron  # This kills ALL Electron apps!
 ```
+
+### Multi-Agent Awareness
+
+Multiple Claude Code agents may run simultaneously on this machine, potentially working on different Electron apps with similar signatures. This causes:
+
+- **Port conflicts**: Default ports (5173, 9222) may already be in use
+- **Process confusion**: Broad `pkill` patterns kill another agent's processes
+- **Session conflicts**: Circuit Electron sessions may collide
+
+**Always prefer the PID file method** for cleanup. When encountering "address already in use" errors, check if another agent is active before assuming a bug. Vite automatically finds alternative ports, but DevTools debugging port (9222) conflicts will cause launch failures.
 
 ### Built App Location
 

@@ -2,6 +2,11 @@ import type { Document, ChatMessage } from '../types'
 import type { AIAnnotation } from '../types/annotations'
 import type { AISuggestionData } from '../extensions/ai-suggestions/types'
 
+// Session ID for debugging multi-process scenarios
+// Using last 4 chars of a unique ID + timestamp for readability
+export const SESSION_ID = `${Math.random().toString(36).slice(-4)}-${Date.now().toString(36).slice(-4)}`
+console.log(`[persistence] Session started: ${SESSION_ID}`)
+
 // Types for persistence
 export interface ChatConversation {
   id: string
@@ -50,7 +55,7 @@ export interface SessionState {
 
 // Database constants
 const DB_NAME = 'prose-db'
-const DB_VERSION = 4
+const DB_VERSION = 5
 const STORES = {
   DRAFTS: 'drafts',
   CONVERSATIONS: 'conversations',
@@ -768,15 +773,39 @@ export async function loadCommandHistory(): Promise<Record<string, string[]>> {
 // ============ Suggestion Operations ============
 
 /**
+ * Ensure the suggestions store exists, forcing re-initialization if needed.
+ * This handles cases where migration didn't complete (e.g., blocked by another tab).
+ */
+async function ensureSuggestionsStore(): Promise<IDBDatabase> {
+  let db = await getDB()
+
+  if (!db.objectStoreNames.contains(STORES.SUGGESTIONS)) {
+    console.warn('[persistence] suggestions store missing, forcing re-initialization')
+    db.close()
+    dbPromise = null
+    db = await getDB() // Re-open, should trigger upgrade
+  }
+
+  return db
+}
+
+/**
  * Save pending AI suggestions for a document
  */
 export async function saveSuggestions(
   documentId: string,
   suggestions: AISuggestionData[]
 ): Promise<void> {
-  console.log('[persistence] saveSuggestions:', { documentId, count: suggestions.length })
+  console.log(`[persistence:${SESSION_ID}] saveSuggestions:`, { documentId, count: suggestions.length })
   try {
-    const db = await getDB()
+    const db = await ensureSuggestionsStore()
+
+    // Check if store exists after re-initialization attempt
+    if (!db.objectStoreNames.contains(STORES.SUGGESTIONS)) {
+      console.warn('[persistence] suggestions store still missing after re-init - skipping save')
+      return
+    }
+
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(STORES.SUGGESTIONS, 'readwrite')
       const store = transaction.objectStore(STORES.SUGGESTIONS)
@@ -784,7 +813,7 @@ export async function saveSuggestions(
 
       request.onerror = () => reject(request.error)
       request.onsuccess = () => {
-        console.log('[persistence] saveSuggestions SUCCESS:', { documentId })
+        console.log(`[persistence:${SESSION_ID}] saveSuggestions SUCCESS:`, { documentId })
         resolve()
       }
     })
@@ -799,9 +828,16 @@ export async function saveSuggestions(
 export async function loadSuggestions(
   documentId: string
 ): Promise<AISuggestionData[]> {
-  console.log('[persistence] loadSuggestions:', { documentId })
+  console.log(`[persistence:${SESSION_ID}] loadSuggestions:`, { documentId })
   try {
-    const db = await getDB()
+    const db = await ensureSuggestionsStore()
+
+    // Check if store exists after re-initialization attempt
+    if (!db.objectStoreNames.contains(STORES.SUGGESTIONS)) {
+      console.warn('[persistence] suggestions store still missing after re-init - returning empty')
+      return []
+    }
+
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(STORES.SUGGESTIONS, 'readonly')
       const store = transaction.objectStore(STORES.SUGGESTIONS)
@@ -810,7 +846,7 @@ export async function loadSuggestions(
       request.onerror = () => reject(request.error)
       request.onsuccess = () => {
         const result = request.result ?? []
-        console.log('[persistence] loadSuggestions SUCCESS:', { documentId, count: result.length })
+        console.log(`[persistence:${SESSION_ID}] loadSuggestions SUCCESS:`, { documentId, count: result.length })
         resolve(result)
       }
     })
@@ -825,7 +861,14 @@ export async function loadSuggestions(
  */
 export async function deleteSuggestions(documentId: string): Promise<void> {
   try {
-    const db = await getDB()
+    const db = await ensureSuggestionsStore()
+
+    // Check if store exists after re-initialization attempt
+    if (!db.objectStoreNames.contains(STORES.SUGGESTIONS)) {
+      console.warn('[persistence] suggestions store still missing after re-init - skipping delete')
+      return
+    }
+
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(STORES.SUGGESTIONS, 'readwrite')
       const store = transaction.objectStore(STORES.SUGGESTIONS)

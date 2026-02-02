@@ -11,6 +11,7 @@ import { DiffSuggestion } from '../../extensions/diff-suggestions'
 import { Comment } from '../../extensions/comments'
 import { AISuggestion } from '../../extensions/ai-suggestions'
 import { useSuggestionStore } from '../../extensions/ai-suggestions/store'
+import { SESSION_ID } from '../../lib/persistence'
 import { AIAnnotations, useAnnotationStore } from '../../extensions/ai-annotations'
 import { NodeIds } from '../../extensions/node-ids'
 import { SearchHighlight } from '../../extensions/search-highlight'
@@ -260,16 +261,17 @@ export function Editor() {
     }
   }, [document.documentId, editor])
 
-  // Restore AI suggestions when document changes
+  // Subscribe to pending suggestions reactively for restoration
+  const pendingSuggestions = useSuggestionStore((state) => state.pendingSuggestions)
+  const suggestionStoreDocumentId = useSuggestionStore((state) => state.documentId)
+
+  // Restore AI suggestions when document changes or pending suggestions are loaded
   useEffect(() => {
     if (!editor || !document.documentId) return
 
-    const suggestionStore = useSuggestionStore.getState()
-    const pendingSuggestions = suggestionStore.pendingSuggestions
-
     // Only restore if there are pending suggestions and they match current document
-    if (pendingSuggestions.length > 0 && suggestionStore.documentId === document.documentId) {
-      console.log('[Editor] Restoring suggestions:', {
+    if (pendingSuggestions.length > 0 && suggestionStoreDocumentId === document.documentId) {
+      console.log(`[Editor:${SESSION_ID}] Restoring suggestions:`, {
         documentId: document.documentId,
         count: pendingSuggestions.length
       })
@@ -278,12 +280,12 @@ export function Editor() {
       const timer = setTimeout(() => {
         editor.commands.restoreAISuggestions(pendingSuggestions)
         // Clear pending suggestions after restoring
-        suggestionStore.clearSuggestions()
+        useSuggestionStore.getState().clearSuggestions()
       }, 100)
 
       return () => clearTimeout(timer)
     }
-  }, [editor, document.documentId])
+  }, [editor, document.documentId, pendingSuggestions, suggestionStoreDocumentId])
 
   // Auto-focus editor once when document loads (not on every content change)
   const hasFocusedRef = useRef(false)

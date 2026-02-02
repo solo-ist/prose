@@ -21,7 +21,8 @@ import {
   saveAnnotations,
   loadAnnotations,
   deleteAnnotations,
-  deleteSuggestions
+  deleteSuggestions,
+  SESSION_ID
 } from '../lib/persistence'
 import type { DraftState } from '../lib/persistence'
 
@@ -73,8 +74,11 @@ export function useTabs() {
     const editor = useEditorInstanceStore.getState().editor
     if (editor) {
       const suggestions = getAISuggestions(editor)
-      console.log('[useTabs] Saving suggestions:', { count: suggestions.length })
-      await useSuggestionStore.getState().saveSuggestions(suggestions)
+      const docId = activeTab.documentId
+      console.log(`[useTabs:${SESSION_ID}] Saving suggestions:`, { documentId: docId, count: suggestions.length })
+      if (docId) {
+        await useSuggestionStore.getState().saveSuggestions(docId, suggestions)
+      }
     }
 
     // Update tab with current state
@@ -130,9 +134,9 @@ export function useTabs() {
     console.log('[useTabs] annotations loaded:', useAnnotationStore.getState().annotations.length)
 
     // Load suggestions for the target document
-    console.log('[useTabs] loading suggestions for:', newDocumentId)
+    console.log(`[useTabs:${SESSION_ID}] loading suggestions for:`, newDocumentId)
     await useSuggestionStore.getState().loadSuggestions(newDocumentId)
-    console.log('[useTabs] suggestions loaded:', useSuggestionStore.getState().pendingSuggestions.length)
+    console.log(`[useTabs:${SESSION_ID}] suggestions loaded:`, useSuggestionStore.getState().pendingSuggestions.length)
 
     // Clear reMarkable read-only state
     useEditorStore.getState().setRemarkableReadOnly(false, null)

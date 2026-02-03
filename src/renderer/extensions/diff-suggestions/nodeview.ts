@@ -245,12 +245,33 @@ export class DiffSuggestionNodeView implements NodeView {
     const suggestedText = this.node.attrs.suggestedText || ''
     const originalText = this.node.attrs.originalText || ''
 
-    const transaction = this.view.state.tr.replaceWith(
+    console.log('[DiffSuggestion:accept] Position BEFORE dispatch:', {
       pos,
-      pos + this.node.nodeSize,
-      this.view.state.schema.text(suggestedText)
-    )
+      nodeSize: this.node.nodeSize,
+      docSize: this.view.state.doc.nodeSize,
+      originalText: originalText.substring(0, 50),
+      suggestedText: suggestedText.substring(0, 50)
+    })
+
+    // Handle empty replacement (deletion) vs text replacement
+    let transaction
+    if (suggestedText.length === 0) {
+      // Delete the node entirely
+      transaction = this.view.state.tr.delete(pos, pos + this.node.nodeSize)
+    } else {
+      transaction = this.view.state.tr.replaceWith(
+        pos,
+        pos + this.node.nodeSize,
+        this.view.state.schema.text(suggestedText)
+      )
+    }
     this.view.dispatch(transaction)
+
+    console.log('[DiffSuggestion:accept] Position AFTER dispatch:', {
+      originalPos: pos,
+      mappedPos: transaction.mapping.map(pos, 1),
+      newDocSize: this.view.state.doc.nodeSize
+    })
 
     // Create AI annotation for provenance tracking if provenance data exists
     const {
@@ -263,18 +284,68 @@ export class DiffSuggestionNodeView implements NodeView {
     if (provenanceModel && documentId && suggestedText.length > 0) {
       const annotationType: AnnotationType = originalText.trim() === '' ? 'insertion' : 'replacement'
 
-      useAnnotationStore.getState().addAnnotation({
-        documentId,
-        type: annotationType,
-        from: pos,
-        to: pos + suggestedText.length,
-        content: suggestedText,
-        provenance: {
-          model: provenanceModel,
-          conversationId: provenanceConversationId || '',
-          messageId: provenanceMessageId || '',
-        },
+      // Compute word-level diff to annotate only changed portions
+      const diff = computeWordDiff(originalText, suggestedText)
+
+      // Find added segments and their positions
+      const addedSegments: { from: number; to: number; content: string }[] = []
+      let charOffset = 0
+      for (const segment of diff.new) {
+        if (segment.type === 'added') {
+          addedSegments.push({
+            from: pos + charOffset,
+            to: pos + charOffset + segment.text.length,
+            content: segment.text,
+          })
+        }
+        charOffset += segment.text.length
+      }
+
+      console.log('[DiffSuggestion:accept] Computed annotation segments:', {
+        addedSegmentsCount: addedSegments.length,
+        segments: addedSegments.map(s => ({ from: s.from, to: s.to, content: s.content.substring(0, 20) })),
+        docSizeAfterDispatch: this.view.state.doc.nodeSize,
+        posUsed: pos,
+        note: 'Positions are relative to PRE-dispatch doc state (may be stale!)'
       })
+
+      // If we found added segments, annotate only those; otherwise fall back to full text
+      if (addedSegments.length > 0) {
+        for (const seg of addedSegments) {
+          console.log('[DiffSuggestion:accept] Creating annotation:', {
+            from: seg.from,
+            to: seg.to,
+            content: seg.content.substring(0, 30),
+            currentDocSize: this.view.state.doc.nodeSize
+          })
+          useAnnotationStore.getState().addAnnotation({
+            documentId,
+            type: annotationType,
+            from: seg.from,
+            to: seg.to,
+            content: seg.content,
+            provenance: {
+              model: provenanceModel,
+              conversationId: provenanceConversationId || '',
+              messageId: provenanceMessageId || '',
+            },
+          })
+        }
+      } else {
+        // Fallback: annotate the entire suggested text
+        useAnnotationStore.getState().addAnnotation({
+          documentId,
+          type: annotationType,
+          from: pos,
+          to: pos + suggestedText.length,
+          content: suggestedText,
+          provenance: {
+            model: provenanceModel,
+            conversationId: provenanceConversationId || '',
+            messageId: provenanceMessageId || '',
+          },
+        })
+      }
     }
 
     this.options.onAccept?.(meta)

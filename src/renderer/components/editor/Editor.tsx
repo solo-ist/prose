@@ -114,6 +114,8 @@ export function Editor() {
     onUpdate: ({ editor }) => {
       if (isUpdatingFromStore.current) return
 
+      console.log('[Editor:onUpdate] Content changed, scheduling save')
+
       // Debounce content updates to store
       if (debounceRef.current) {
         clearTimeout(debounceRef.current)
@@ -123,6 +125,11 @@ export function Editor() {
         const markdown = editor.storage.markdown.getMarkdown()
         // Prepend frontmatter if present
         const fullContent = frontmatterRef.current + markdown
+        console.log('[Editor:onUpdate] Saving content to store:', {
+          length: fullContent.length,
+          preview: fullContent.substring(0, 100).replace(/\n/g, '\\n'),
+          hasTable: fullContent.includes('|')
+        })
         setContent(fullContent)
       }, 500)
     }
@@ -246,20 +253,35 @@ export function Editor() {
     checkLinkedNotebook()
   }, [document.path])
 
-  // Load annotations when document changes and force decoration refresh
+  // Subscribe to annotations reactively for restoration
+  const annotations = useAnnotationStore((state) => state.annotations)
+  const annotationStoreDocumentId = useAnnotationStore((state) => state.documentId)
+
+  // Load and restore annotations when document changes
   useEffect(() => {
+    if (!editor || !document.documentId) return
+
     const annotationStore = useAnnotationStore.getState()
-    if (document.documentId) {
+
+    // Set document ID and load annotations if needed
+    if (annotationStoreDocumentId !== document.documentId) {
       annotationStore.setDocumentId(document.documentId)
-      annotationStore.loadAnnotations(document.documentId).then(() => {
-        // Force the editor to rebuild decorations after annotations load
-        if (editor) {
-          // Dispatch an empty transaction to trigger decoration rebuild
-          editor.view.dispatch(editor.state.tr)
-        }
-      })
+      annotationStore.loadAnnotations(document.documentId)
     }
-  }, [document.documentId, editor])
+
+    // Force decoration rebuild when annotations change
+    // Small delay to ensure editor content is fully loaded
+    if (annotations.length > 0 && annotationStoreDocumentId === document.documentId) {
+      console.log(`[Editor:${SESSION_ID}] Restoring annotations:`, {
+        documentId: document.documentId,
+        count: annotations.length
+      })
+      const timer = setTimeout(() => {
+        editor.view.dispatch(editor.state.tr)
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [editor, document.documentId, annotations, annotationStoreDocumentId])
 
   // Subscribe to pending suggestions reactively for restoration
   const pendingSuggestions = useSuggestionStore((state) => state.pendingSuggestions)

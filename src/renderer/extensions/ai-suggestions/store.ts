@@ -24,7 +24,7 @@ interface SuggestionPersistenceState {
   setDocumentId: (documentId: string) => void
 
   /** Save current suggestions to IndexedDB */
-  saveSuggestions: (suggestions: AISuggestionData[]) => Promise<void>
+  saveSuggestions: (documentId: string, suggestions: AISuggestionData[]) => Promise<void>
 
   /** Load suggestions from IndexedDB for a document */
   loadSuggestions: (documentId: string) => Promise<void>
@@ -44,10 +44,9 @@ export const useSuggestionStore = create<SuggestionPersistenceState>((set, get) 
     set({ documentId, pendingSuggestions: [] })
   },
 
-  saveSuggestions: async (suggestions: AISuggestionData[]) => {
-    const { documentId } = get()
+  saveSuggestions: async (documentId: string, suggestions: AISuggestionData[]) => {
     if (!documentId) {
-      console.warn('[SuggestionStore] No documentId set, skipping save')
+      console.warn('[SuggestionStore] No documentId provided, skipping save')
       return
     }
 

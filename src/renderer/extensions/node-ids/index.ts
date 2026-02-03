@@ -45,13 +45,18 @@ export const NodeIds = Extension.create({
   },
 
   addProseMirrorPlugins() {
+    let initialized = false
+
     return [
       new Plugin({
         key: new PluginKey('nodeIds'),
         appendTransaction: (transactions, oldState, newState) => {
-          // Only process if document changed
+          // Process if document changed OR this is the first run (to assign IDs to initial content)
           const docChanged = transactions.some((tr) => tr.docChanged)
-          if (!docChanged) return null
+          const isFirstRun = !initialized
+          initialized = true
+
+          if (!docChanged && !isFirstRun) return null
 
           let modified = false
           const tr = newState.tr

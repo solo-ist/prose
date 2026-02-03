@@ -3,6 +3,7 @@ import { Button } from '../ui/button'
 import { Square, MessageSquare, ChevronRight, X, Sparkles } from 'lucide-react'
 import { useChat } from '../../hooks/useChat'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
+import { useEditorStore } from '../../stores/editorStore'
 import { useChatStore, createMessageId } from '../../stores/chatStore'
 import { useCommandHistoryStore } from '../../stores/commandHistoryStore'
 import { executeTool, getAvailableTools } from '../../lib/tools'
@@ -26,7 +27,9 @@ const toolDescriptions: Record<string, string> = {
   save_file: 'Save to file',
   list_files: 'List files in directory',
   read_file: 'Read file contents',
-  help: 'Show available commands'
+  help: 'Show available commands',
+  clear: 'Start a new chat',
+  new: 'Start a new chat'
 }
 
 // Commands that require arguments (no-arg will show echo)
@@ -115,8 +118,8 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
   // Disable input while app is initializing (loading draft/conversations) or while loading
   const isDisabled = isLoading || isInitializing
 
-  // All available commands
-  const allCommands = useMemo(() => [...getAvailableTools(), 'help'], [])
+  // All available commands (including built-in shortcuts)
+  const allCommands = useMemo(() => [...getAvailableTools(), 'help', 'clear', 'new'], [])
 
   // Parse the current command from input (e.g., "/list_files " -> "list_files")
   const activeCommand = useMemo(() => {
@@ -326,6 +329,15 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
           content: '**Available commands:**\n\n' + toolList + '\n\n**Examples:**\n• `/list_files ~/Documents`\n• `/read_document`\n• `/search_document keyword`\n\n*Tip: Most commands are interpreted by the AI for better results.*',
           timestamp: new Date()
         })
+        setMessage('')
+        setTimeout(() => textareaRef.current?.focus(), 0)
+        return
+      }
+
+      // Handle /clear - start a new chat
+      if (command.toolName === 'clear' || command.toolName === 'new') {
+        const documentId = useEditorStore.getState().document.documentId
+        useChatStore.getState().addConversation(documentId)
         setMessage('')
         setTimeout(() => textareaRef.current?.focus(), 0)
         return

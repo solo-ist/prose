@@ -1,10 +1,12 @@
 {
   "name": "prose",
-  "version": "0.1.0-alpha.3",
+  "version": "0.1.0-alpha.4",
   "description": "A minimal markdown editor with AI chat",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
+    "dev:kill": "kill $(cat .dev.pid 2>/dev/null) 2>/dev/null || true; lsof -ti:9222 | xargs kill -9 2>/dev/null || true; lsof -ti:5173 | xargs kill -9 2>/dev/null || true",
+    "dev:restart": "npm run dev:kill && sleep 2 && npm run dev",
     "build": "npm run build:mcp-stdio && electron-vite build",
     "build:mcp-stdio": "npx esbuild src/mcp-stdio/index.ts --bundle --platform=node --target=node18 --outfile=out/mcp-stdio.js",
     "preview": "electron-vite preview",

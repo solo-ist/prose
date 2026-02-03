@@ -19,6 +19,10 @@ export const aiAnnotationsPluginKey = new PluginKey('aiAnnotations')
 // Track tooltip element for cleanup
 let activeTooltip: HTMLElement | null = null
 
+// Track annotations that have already animated (to prevent re-triggering on decoration rebuild)
+const hasAnimated = new Set<string>()
+let lastDocumentId: string | null = null
+
 function removeTooltip() {
   if (activeTooltip) {
     activeTooltip.remove()
@@ -86,21 +90,39 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
         const state = useAnnotationStore.getState()
         currentAnnotations = state.annotations
         isVisible = state.isVisible
+        const createdThisSession = state.createdThisSession
 
         const decorations: Decoration[] = []
 
         if (isVisible) {
           for (const annotation of currentAnnotations) {
             if (annotation.from < 0 || annotation.to > doc.nodeSize - 2 || annotation.from >= annotation.to) {
+              console.warn('[AIAnnotations:plugin] Skipping invalid annotation (init):', {
+                id: annotation.id,
+                from: annotation.from,
+                to: annotation.to,
+                docSize: doc.nodeSize,
+                maxValidTo: doc.nodeSize - 2,
+                reason: annotation.from < 0 ? 'negative from' :
+                        annotation.to > doc.nodeSize - 2 ? `to (${annotation.to}) exceeds max (${doc.nodeSize - 2})` :
+                        `from (${annotation.from}) >= to (${annotation.to})`
+              })
               continue
             }
 
             const opacity = calculateOpacity(annotation.createdAt, opts.maxAge)
             if (opacity < ANNOTATION_CONSTANTS.MIN_OPACITY) continue
 
+            // Only animate annotations loaded from storage that haven't animated yet
+            const shouldAnimate = !createdThisSession.has(annotation.id) && !hasAnimated.has(annotation.id)
+            const animateClass = shouldAnimate ? ' animate-in' : ''
+            if (shouldAnimate) {
+              hasAnimated.add(annotation.id)
+            }
+
             decorations.push(
               Decoration.inline(annotation.from, annotation.to, {
-                class: `ai-annotation ai-annotation-${annotation.type}`,
+                class: `ai-annotation ai-annotation-${annotation.type}${animateClass}`,
                 style: `--annotation-opacity: ${opacity.toFixed(3)}`,
                 'data-annotation-id': annotation.id,
                 'data-annotation-type': annotation.type,
@@ -125,6 +147,12 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
         const storeState = useAnnotationStore.getState()
         const storeAnnotations = storeState.annotations
         const storeVisible = storeState.isVisible
+
+        // Clear animation tracking when document changes
+        if (storeState.documentId !== lastDocumentId) {
+          hasAnimated.clear()
+          lastDocumentId = storeState.documentId
+        }
 
         // Check if we need to rebuild decorations
         const annotationsChanged = storeAnnotations !== pluginState.annotations
@@ -185,21 +213,39 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
         // Rebuild decorations if needed
         if (annotationsChanged || visibilityChanged || needsRefresh || tr.docChanged) {
           const decorations: Decoration[] = []
+          const createdThisSession = storeState.createdThisSession
 
           if (isVisible) {
             for (const annotation of storeAnnotations) {
               // Validate bounds
               const maxPos = doc.nodeSize - 2
               if (annotation.from < 0 || annotation.to > maxPos || annotation.from >= annotation.to) {
+                console.warn('[AIAnnotations:plugin] Skipping invalid annotation (apply):', {
+                  id: annotation.id,
+                  from: annotation.from,
+                  to: annotation.to,
+                  docSize: doc.nodeSize,
+                  maxValidTo: maxPos,
+                  reason: annotation.from < 0 ? 'negative from' :
+                          annotation.to > maxPos ? `to (${annotation.to}) exceeds max (${maxPos})` :
+                          `from (${annotation.from}) >= to (${annotation.to})`
+                })
                 continue
               }
 
               const opacity = calculateOpacity(annotation.createdAt, opts.maxAge)
               if (opacity < ANNOTATION_CONSTANTS.MIN_OPACITY) continue
 
+              // Only animate annotations loaded from storage that haven't animated yet
+              const shouldAnimate = !createdThisSession.has(annotation.id) && !hasAnimated.has(annotation.id)
+              const animateClass = shouldAnimate ? ' animate-in' : ''
+              if (shouldAnimate) {
+                hasAnimated.add(annotation.id)
+              }
+
               decorations.push(
                 Decoration.inline(annotation.from, annotation.to, {
-                  class: `ai-annotation ai-annotation-${annotation.type}`,
+                  class: `ai-annotation ai-annotation-${annotation.type}${animateClass}`,
                   style: `--annotation-opacity: ${opacity.toFixed(3)}`,
                   'data-annotation-id': annotation.id,
                   'data-annotation-type': annotation.type,

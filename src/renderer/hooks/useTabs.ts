@@ -107,6 +107,10 @@ export function useTabs() {
     // Save current tab state first
     await saveCurrentTabState()
 
+    // Pause annotation position updates during document loading
+    // This prevents the plugin from deleting annotations when doc content changes
+    useAnnotationStore.getState().setLoadingDocument(true)
+
     // Activate the new tab
     setActiveTab(tabId)
 
@@ -148,6 +152,12 @@ export function useTabs() {
     if (targetTab.path) {
       useFileListStore.getState().revealAndSelectPath(targetTab.path)
     }
+
+    // Resume annotation position updates after a small delay to let editor settle
+    // This allows the new document content to fully load before enabling position mapping
+    setTimeout(() => {
+      useAnnotationStore.getState().setLoadingDocument(false)
+    }, 100)
   }, [activeTabId, getTabById, saveCurrentTabState, setActiveTab, setDocument, setCursorPosition, loadChatForDocument, setEditing])
 
   /**
@@ -156,6 +166,9 @@ export function useTabs() {
   const createNewTab = useCallback(async () => {
     // Save current tab state first
     await saveCurrentTabState()
+
+    // Pause annotation position updates during document loading
+    useAnnotationStore.getState().setLoadingDocument(true)
 
     const newDocumentId = generateId()
     const title = generateUntitledTitle()
@@ -201,6 +214,11 @@ export function useTabs() {
     // Mark as editing
     setEditing(true)
 
+    // Resume annotation position updates
+    setTimeout(() => {
+      useAnnotationStore.getState().setLoadingDocument(false)
+    }, 100)
+
     return tabId
   }, [saveCurrentTabState, addTab, setDocument, setCursorPosition, setEditing])
 
@@ -217,6 +235,9 @@ export function useTabs() {
 
     // Save current tab state first
     await saveCurrentTabState()
+
+    // Pause annotation position updates during document loading
+    useAnnotationStore.getState().setLoadingDocument(true)
 
     // Read file content
     if (!window.api) return false
@@ -276,6 +297,11 @@ export function useTabs() {
 
     // Highlight file in sidebar
     useFileListStore.getState().revealAndSelectPath(filePath)
+
+    // Resume annotation position updates after a small delay
+    setTimeout(() => {
+      useAnnotationStore.getState().setLoadingDocument(false)
+    }, 100)
 
     // Return true if document has content but no chat history (for auto-prompt)
     const conversations = useChatStore.getState().conversations

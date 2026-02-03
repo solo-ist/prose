@@ -8,13 +8,19 @@ import { create } from 'zustand'
 import type { AIAnnotation, AnnotationState, AnnotationActions } from '../../types/annotations'
 import { generateId, saveAnnotations, loadAnnotations } from '../../lib/persistence'
 
-type AnnotationStore = AnnotationState & AnnotationActions
+type AnnotationStore = AnnotationState & AnnotationActions & {
+  // Session-scoped set of annotation IDs created (not loaded) this session
+  // These should not animate on appear
+  createdThisSession: Set<string>
+}
 
 export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
   // Initial state
   annotations: [],
   isVisible: true,
   documentId: null,
+  isLoadingDocument: false,
+  createdThisSession: new Set(),
 
   // Add a new annotation
   addAnnotation: (annotationData) => {
@@ -25,12 +31,46 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
       createdAt: Date.now(),
     }
 
-    set((state) => ({
-      annotations: [...state.annotations, annotation],
-    }))
+    // Ensure store's documentId matches the annotation's documentId for correct persistence
+    const currentDocId = get().documentId
+    console.log('[AnnotationStore] addAnnotation:', {
+      id,
+      from: annotationData.from,
+      to: annotationData.to,
+      type: annotationData.type,
+      content: annotationData.content?.substring(0, 30),
+      annotationDocId: annotationData.documentId,
+      storeDocId: currentDocId,
+      willSync: annotationData.documentId && annotationData.documentId !== currentDocId
+    })
+
+    // Temporarily pause position updates while adding annotation
+    // This prevents the plugin from immediately mapping (and corrupting) the new annotation's
+    // positions, which are already in the correct coordinate system for the current document
+    set({ isLoadingDocument: true })
+
+    if (annotationData.documentId && annotationData.documentId !== currentDocId) {
+      set((state) => ({
+        annotations: [...state.annotations, annotation],
+        documentId: annotationData.documentId,
+      }))
+    } else {
+      set((state) => ({
+        annotations: [...state.annotations, annotation],
+      }))
+    }
 
     // Auto-save after adding
     get().saveAnnotations()
+
+    // Track that this annotation was created this session (should not animate)
+    get().createdThisSession.add(id)
+
+    // Resume position updates after microtask to let current transaction complete
+    queueMicrotask(() => {
+      set({ isLoadingDocument: false })
+      console.log('[AnnotationStore] addAnnotation complete, position updates resumed')
+    })
 
     return id
   },
@@ -57,6 +97,12 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
 
   // Update positions after document edits using ProseMirror position mapping
   updatePositions: (mapping) => {
+    // Skip position updates during document loading (tab switches)
+    if (get().isLoadingDocument) {
+      console.log('[AnnotationStore] updatePositions SKIPPED - document is loading')
+      return
+    }
+
     set((state) => {
       const updatedAnnotations: AIAnnotation[] = []
 
@@ -65,10 +111,25 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
 
         if (mapped) {
           // Position still valid, update it
+          if (mapped.from !== annotation.from || mapped.to !== annotation.to) {
+            console.log('[AnnotationStore] updatePositions mapping:', {
+              id: annotation.id,
+              oldFrom: annotation.from,
+              oldTo: annotation.to,
+              newFrom: mapped.from,
+              newTo: mapped.to
+            })
+          }
           updatedAnnotations.push({
             ...annotation,
             from: mapped.from,
             to: mapped.to,
+          })
+        } else {
+          console.log('[AnnotationStore] updatePositions - annotation deleted by mapping:', {
+            id: annotation.id,
+            from: annotation.from,
+            to: annotation.to
           })
         }
         // If mapping returns null, the annotation was deleted
@@ -84,6 +145,16 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
     mapPos: (pos: number, bias: number) => number,
     insertions: Array<{ pos: number; length: number }>
   ) => {
+    // Skip position updates during document loading (tab switches)
+    if (get().isLoadingDocument) {
+      console.log('[AnnotationStore] updatePositionsWithSplitting SKIPPED - document is loading')
+      return
+    }
+
+    console.log('[AnnotationStore] updatePositionsWithSplitting called:', {
+      insertions,
+      annotationCount: get().annotations.length
+    })
     set((state) => {
       const updatedAnnotations: AIAnnotation[] = []
 
@@ -94,6 +165,12 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
         )
 
         if (insertionInside) {
+          console.log('[AnnotationStore] Splitting annotation due to insertion:', {
+            annotationId: annotation.id,
+            annotationRange: [annotation.from, annotation.to],
+            insertionPos: insertionInside.pos,
+            insertionLength: insertionInside.length
+          })
           // Split the annotation around the insertion point
           // Before part: [from, insertionPos) - mapped
           const beforeFrom = mapPos(annotation.from, 1)
@@ -153,9 +230,22 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
 
   // Load annotations for a document
   loadAnnotations: async (documentId) => {
+    console.log('[AnnotationStore] loadAnnotations called:', { documentId })
     try {
       const annotations = await loadAnnotations(documentId)
-      set({ annotations, documentId })
+      console.log('[AnnotationStore] Loaded from IndexedDB:', {
+        documentId,
+        count: annotations.length,
+        annotations: annotations.map(a => ({
+          id: a.id,
+          from: a.from,
+          to: a.to,
+          type: a.type,
+          content: a.content?.substring(0, 30)
+        }))
+      })
+      // Clear the "created this session" set - loaded annotations should animate
+      set({ annotations, documentId, createdThisSession: new Set() })
     } catch (error) {
       console.error('Failed to load annotations:', error)
       set({ annotations: [], documentId })
@@ -165,10 +255,15 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
   // Save current annotations
   saveAnnotations: async () => {
     const { documentId, annotations } = get()
-    if (!documentId) return
+    console.log('[AnnotationStore] saveAnnotations called:', { documentId, count: annotations.length })
+    if (!documentId) {
+      console.warn('[AnnotationStore] Cannot save - no documentId')
+      return
+    }
 
     try {
       await saveAnnotations(documentId, annotations)
+      console.log('[AnnotationStore] Saved successfully:', { documentId, count: annotations.length })
     } catch (error) {
       console.error('Failed to save annotations:', error)
     }
@@ -182,6 +277,12 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
   // Set document ID
   setDocumentId: (documentId) => {
     set({ documentId })
+  },
+
+  // Set loading document state (pauses position updates during tab switches)
+  setLoadingDocument: (loading) => {
+    console.log('[AnnotationStore] setLoadingDocument:', loading)
+    set({ isLoadingDocument: loading })
   },
 }))
 

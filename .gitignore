@@ -27,3 +27,5 @@ Thumbs.db
 # Dev artifacts
 electron-screenshot-*.jpeg
 .dev.pid
+qa-screenshots/
+*.code-workspace

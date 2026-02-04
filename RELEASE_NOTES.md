@@ -1,27 +1,19 @@
-# Prose v0.1.0-alpha.2 — Quality of Life
+# Prose v0.1.0-alpha.4 — Persistence & Polish
 
-Fixes and improvements focused on editor stability and user experience.
+Fixes AI feature persistence and improves editor reliability.
 
 ## What's New
 
 ### Bug Fixes
-- **Fixed undo stack behavior** — Undo no longer goes past the initial document state when opening files
-- **Fixed dirty state tracking** — Document dirty indicator now works correctly
-- **Fixed document scroll position** — Documents now open at the top instead of the bottom
-- **Fixed button nesting warning** — Resolved React warning in TabBar component
+- **Persist AI suggestions across tab switches** — AI-generated suggestions now survive when you switch between tabs
+- **Persist AI annotations across tab switches** — Inline AI annotations remain visible after tab navigation
+- **Fixed chat panel disappearing** — Chat no longer disappears when generating content on blank documents
 
 ### Improvements
-- **Keyboard shortcuts overhaul** — Comprehensive audit and implementation of keyboard shortcuts
-- **API key validation** — Better error handling and testing for API keys
-- **User feedback for AI suggestions** — Added mechanism to provide feedback on AI responses
-- **Autosave functionality** — Configurable autosave intervals to prevent data loss
-- **Copy-to-clipboard buttons** — Easily copy chat content
-- **Window dragging** — Tab bar area now supports window dragging
-- **Content Security Policy** — Eliminated Electron security warnings
-- **Default font change** — Now uses IBM Plex Mono instead of Source Code Pro
-
-### Developer Experience
-- **Automatic Claude code review** — CI now runs code review on PR open
+- **Clickable line references** — Line references in chat are now clickable with visual search highlighting
+- **Multi-node selection in comments** — Improved selection capture for the comment system
+- **Updated default model** — Now uses claude-sonnet-4-5 for better performance
+- **Dev server PID protocol** — Added safe process management for development
 
 ## Requirements
 
@@ -30,7 +22,7 @@ Fixes and improvements focused on editor stability and user experience.
 
 ## Installation
 
-1. Download `Prose-0.1.0-alpha.2-arm64.dmg`
+1. Download `Prose-0.1.0-alpha.4-arm64.dmg`
 2. Open the DMG and drag Prose to Applications
 3. **Important: Unsigned app workaround**
 

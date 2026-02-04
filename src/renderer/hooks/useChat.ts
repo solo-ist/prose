@@ -190,12 +190,20 @@ export function useChat() {
           { role: 'assistant' as const, content: assistantContentBlocks }
         ]
 
+        // Build provenance context for AI annotation tracking
+        const provenance = {
+          model: useSettingsStore.getState().settings.llm.model || 'unknown',
+          conversationId: useChatStore.getState().activeConversationId || '',
+          messageId: assistantMsgId,
+          documentId: useEditorStore.getState().document.documentId || '',
+        }
+
         // Execute each tool and collect results
         const toolResults: Array<{ id: string; name: string; result: unknown }> = []
         let currentErrorSignature: string | null = null
 
         for (const toolCall of toolCalls) {
-          const result = await executeTool(toolCall.name, toolCall.args, state.toolMode)
+          const result = await executeTool(toolCall.name, toolCall.args, state.toolMode, provenance)
           toolResults.push({ id: toolCall.id, name: toolCall.name, result })
 
           // Track error signature for consecutive failure detection

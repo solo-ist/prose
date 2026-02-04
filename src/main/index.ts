@@ -1,5 +1,6 @@
 import { config } from 'dotenv'
 import { join } from 'path'
+import { writeFileSync, unlinkSync, existsSync } from 'fs'
 
 // Load environment variables from .env file
 config()
@@ -15,6 +16,30 @@ console.log('[Main] Environment loaded. OCR URL:', process.env.REMARKABLE_OCR_UR
 // Enable remote debugging in dev mode for QA automation (Circuit Electron, Playwright)
 if (is.dev) {
   app.commandLine.appendSwitch('remote-debugging-port', '9222')
+}
+
+// Write PID file in dev mode for safe process cleanup by Claude Code agents
+// This allows agents to kill only their own dev server instance
+const pidFile = join(process.cwd(), '.dev.pid')
+if (is.dev) {
+  writeFileSync(pidFile, String(process.pid))
+  console.log(`[Main] PID file written: ${pidFile} (${process.pid})`)
+
+  // Clean up PID file on exit
+  const cleanupPidFile = () => {
+    try {
+      if (existsSync(pidFile)) {
+        unlinkSync(pidFile)
+        console.log('[Main] PID file cleaned up')
+      }
+    } catch (e) {
+      // Ignore cleanup errors
+    }
+  }
+
+  process.on('exit', cleanupPidFile)
+  process.on('SIGINT', () => { cleanupPidFile(); process.exit() })
+  process.on('SIGTERM', () => { cleanupPidFile(); process.exit() })
 }
 
 // Track file path to open (from command line or open-file event)

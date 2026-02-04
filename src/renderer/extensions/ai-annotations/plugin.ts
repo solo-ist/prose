@@ -19,6 +19,7 @@ export const aiAnnotationsPluginKey = new PluginKey('aiAnnotations')
 // Track tooltip element for cleanup
 let activeTooltip: HTMLElement | null = null
 
+
 function removeTooltip() {
   if (activeTooltip) {
     activeTooltip.remove()
@@ -86,12 +87,23 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
         const state = useAnnotationStore.getState()
         currentAnnotations = state.annotations
         isVisible = state.isVisible
+        const createdThisSession = state.createdThisSession
 
         const decorations: Decoration[] = []
 
         if (isVisible) {
           for (const annotation of currentAnnotations) {
             if (annotation.from < 0 || annotation.to > doc.nodeSize - 2 || annotation.from >= annotation.to) {
+              console.warn('[AIAnnotations:plugin] Skipping invalid annotation (init):', {
+                id: annotation.id,
+                from: annotation.from,
+                to: annotation.to,
+                docSize: doc.nodeSize,
+                maxValidTo: doc.nodeSize - 2,
+                reason: annotation.from < 0 ? 'negative from' :
+                        annotation.to > doc.nodeSize - 2 ? `to (${annotation.to}) exceeds max (${doc.nodeSize - 2})` :
+                        `from (${annotation.from}) >= to (${annotation.to})`
+              })
               continue
             }
 
@@ -185,12 +197,23 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
         // Rebuild decorations if needed
         if (annotationsChanged || visibilityChanged || needsRefresh || tr.docChanged) {
           const decorations: Decoration[] = []
+          const createdThisSession = storeState.createdThisSession
 
           if (isVisible) {
             for (const annotation of storeAnnotations) {
               // Validate bounds
               const maxPos = doc.nodeSize - 2
               if (annotation.from < 0 || annotation.to > maxPos || annotation.from >= annotation.to) {
+                console.warn('[AIAnnotations:plugin] Skipping invalid annotation (apply):', {
+                  id: annotation.id,
+                  from: annotation.from,
+                  to: annotation.to,
+                  docSize: doc.nodeSize,
+                  maxValidTo: maxPos,
+                  reason: annotation.from < 0 ? 'negative from' :
+                          annotation.to > maxPos ? `to (${annotation.to}) exceeds max (${maxPos})` :
+                          `from (${annotation.from}) >= to (${annotation.to})`
+                })
                 continue
               }
 

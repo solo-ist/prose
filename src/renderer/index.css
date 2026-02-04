@@ -682,7 +682,6 @@
   --annotation-opacity: 1;
   position: relative;
   border-radius: 0.125em;
-  transition: background 0.2s ease-out, border-color 0.2s ease-out, box-shadow 0.2s ease-out;
 }
 
 /* Insertion type - violet text color (for imported/manual AI annotations) */

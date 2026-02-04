@@ -2,7 +2,7 @@
  * AI Suggestion Popover - Shows suggested text with accept/reject/feedback actions
  */
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
 import type { Editor } from '@tiptap/core'
 import { Check, X, MessageSquare } from 'lucide-react'
@@ -31,6 +31,7 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
   })
   const [feedbackInput, setFeedbackInput] = useState('')
   const [showFeedbackForm, setShowFeedbackForm] = useState(false)
+  const [adjustedPosition, setAdjustedPosition] = useState<{ x: number; y: number } | null>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
   const feedbackInputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -102,6 +103,41 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
     }
   }, [showFeedbackForm])
 
+  // Reset adjusted position when popover opens at new position
+  useEffect(() => {
+    setAdjustedPosition(null)
+  }, [popover.position.x, popover.position.y])
+
+  // Adjust position to keep popover in viewport (after render)
+  useLayoutEffect(() => {
+    if (!popover.isOpen || !popoverRef.current || adjustedPosition) return
+
+    const rect = popoverRef.current.getBoundingClientRect()
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+    const newPosition = { ...popover.position }
+
+    // Adjust horizontal position
+    if (newPosition.x + rect.width / 2 > viewportWidth - 16) {
+      newPosition.x = viewportWidth - rect.width / 2 - 16
+    }
+    if (newPosition.x - rect.width / 2 < 16) {
+      newPosition.x = rect.width / 2 + 16
+    }
+
+    // Adjust vertical position (show above if not enough space below)
+    if (newPosition.y + rect.height > viewportHeight - 16) {
+      newPosition.y = popover.position.y - rect.height - 40
+    }
+
+    // Only update if position changed
+    if (newPosition.x !== popover.position.x || newPosition.y !== popover.position.y) {
+      setAdjustedPosition(newPosition)
+    } else {
+      setAdjustedPosition(popover.position)
+    }
+  }, [popover.isOpen, popover.position, adjustedPosition])
+
   const handleAccept = useCallback(() => {
     if (popover.suggestionId) {
       editor.commands.acceptAISuggestion(popover.suggestionId)
@@ -142,26 +178,8 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
 
   if (!popover.isOpen) return null
 
-  // Adjust position to keep popover in viewport
-  const adjustedPosition = { ...popover.position }
-  if (popoverRef.current) {
-    const rect = popoverRef.current.getBoundingClientRect()
-    const viewportWidth = window.innerWidth
-    const viewportHeight = window.innerHeight
-
-    // Adjust horizontal position
-    if (adjustedPosition.x + rect.width / 2 > viewportWidth - 16) {
-      adjustedPosition.x = viewportWidth - rect.width / 2 - 16
-    }
-    if (adjustedPosition.x - rect.width / 2 < 16) {
-      adjustedPosition.x = rect.width / 2 + 16
-    }
-
-    // Adjust vertical position (show above if not enough space below)
-    if (adjustedPosition.y + rect.height > viewportHeight - 16) {
-      adjustedPosition.y = popover.position.y - rect.height - 40
-    }
-  }
+  // Use adjusted position if available, otherwise use initial position (will be adjusted after first render)
+  const displayPosition = adjustedPosition || popover.position
 
   return createPortal(
     <div
@@ -169,9 +187,11 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
       className="ai-suggestion-popover"
       style={{
         position: 'fixed',
-        left: adjustedPosition.x,
-        top: adjustedPosition.y,
+        left: displayPosition.x,
+        top: displayPosition.y,
         transform: 'translateX(-50%)',
+        // Hide until position is adjusted to prevent flash at wrong position
+        visibility: adjustedPosition ? 'visible' : 'hidden',
       }}
     >
       <div className="suggested-label">Suggested:</div>

@@ -28,7 +28,7 @@ Before writing any code, complete this checklist:
 
 Before presenting completed work for user review, ensure a clean environment:
 
-1. **Kill stale processes**: Run `pkill -f "Electron.app" && pkill -f "electron-vite"` to terminate any orphaned instances
+1. **Kill this project's dev server**: Use PID file for safe cleanup (see below)
 2. **Start fresh dev server**: Run `npm run dev` in the background
 3. **Verify no errors**: Check dev server output for compilation errors before announcing completion
 
@@ -46,13 +46,36 @@ Circuit Electron launches its own Electron instance, which bypasses electron-vit
 2. **Launch with Circuit Electron**: Use development mode to launch from project directory
 3. **Test the feature**: Interact with the app using Circuit Electron tools
 
-### Safe Process Cleanup
+### Dev Server PID Protocol
+
+The dev server writes its PID to `.dev.pid` on startup. **Always use this file** for process management—never use pattern matching like `pgrep -f "prose.*Electron"` which may match stale instances from other sessions.
 
 ```bash
-pkill -f "Electron.app"     # Kill Electron only
-pkill -f "electron-vite"    # Kill Vite dev server
+# Check if running (ALWAYS do this first)
+cat .dev.pid 2>/dev/null && ps -p $(cat .dev.pid) -o pid= >/dev/null 2>&1 && echo "Running" || echo "Not running"
+
+# Kill only THIS project's dev server
+kill $(cat .dev.pid) 2>/dev/null || true
+
+# Fallback ONLY if PID file missing (use sparingly - may affect other agents)
+pkill -f "prose.*Electron"
+pkill -f "electron-vite.*prose"
+
 # NEVER: pkill -f node      # This kills Circuit Electron MCP!
+# NEVER: pkill -f Electron  # This kills ALL Electron apps!
 ```
+
+If the PID file is missing but Electron processes exist, they're likely stale from a crashed session. Kill them before starting fresh.
+
+### Multi-Agent Awareness
+
+Multiple Claude Code agents may run simultaneously on this machine, potentially working on different Electron apps with similar signatures. This causes:
+
+- **Port conflicts**: Default ports (5173, 9222) may already be in use
+- **Process confusion**: Broad `pkill` patterns kill another agent's processes
+- **Session conflicts**: Circuit Electron sessions may collide
+
+**Always prefer the PID file method** for cleanup. When encountering "address already in use" errors, check if another agent is active before assuming a bug. Vite automatically finds alternative ports, but DevTools debugging port (9222) conflicts will cause launch failures.
 
 ### Built App Location
 
@@ -107,6 +130,14 @@ Zustand stores in `src/renderer/stores/`:
 - `settingsStore` - App settings (theme, LLM config, editor preferences)
 - `fileListStore` - File explorer state and directory listing
 
+### IndexedDB Schema Changes
+
+Client-side persistence uses IndexedDB (`src/renderer/lib/persistence.ts`). When modifying the schema:
+
+- **Always bump `DB_VERSION`** when adding/removing object stores. The `onupgradeneeded` callback only runs when the version increases—reopening at the same version won't create missing stores.
+- **Upgrades can be blocked** if the database is open in another tab. The upgrade waits until all connections close, but users may not notice. New stores may silently fail to create.
+- **Test fresh installs and upgrades** separately. A fresh install always gets the latest schema, but existing users need the migration path.
+
 ### LLM Integration
 
 LLM calls flow: `useChat` hook → `window.api.llmChat()` → IPC → main process → Vercel AI SDK
@@ -141,3 +172,12 @@ OCR requires an Anthropic API key. If using Anthropic as the LLM provider, that 
 - **Component library**: Use shadcn/ui components. Don't introduce other UI libraries.
 - **Animations**: Keep minimal. Use only what shadcn/ui and tailwindcss-animate provide out of the box.
 - **Fonts**: IBM Plex Mono for all text (UI and editor) by default. Users can change fonts in Settings → Editor.
+
+## Session Management
+
+When the user signals they want to stop working (e.g., "let's take a break", "let's stop for now", "I'm done for now"), automatically provide:
+
+1. A brief 1-2 sentence summary of what we were working on (to make resuming easy)
+2. The current date and time
+
+This can also be invoked manually with `/break`.

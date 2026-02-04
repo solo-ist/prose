@@ -10,6 +10,8 @@ import { FocusMode } from '../../lib/focusMode'
 import { DiffSuggestion } from '../../extensions/diff-suggestions'
 import { Comment } from '../../extensions/comments'
 import { AISuggestion } from '../../extensions/ai-suggestions'
+import { useSuggestionStore } from '../../extensions/ai-suggestions/store'
+import { SESSION_ID } from '../../lib/persistence'
 import { AIAnnotations, useAnnotationStore } from '../../extensions/ai-annotations'
 import { NodeIds } from '../../extensions/node-ids'
 import { SearchHighlight } from '../../extensions/search-highlight'
@@ -112,6 +114,8 @@ export function Editor() {
     onUpdate: ({ editor }) => {
       if (isUpdatingFromStore.current) return
 
+      console.log('[Editor:onUpdate] Content changed, scheduling save')
+
       // Debounce content updates to store
       if (debounceRef.current) {
         clearTimeout(debounceRef.current)
@@ -121,6 +125,11 @@ export function Editor() {
         const markdown = editor.storage.markdown.getMarkdown()
         // Prepend frontmatter if present
         const fullContent = frontmatterRef.current + markdown
+        console.log('[Editor:onUpdate] Saving content to store:', {
+          length: fullContent.length,
+          preview: fullContent.substring(0, 100).replace(/\n/g, '\\n'),
+          hasTable: fullContent.includes('|')
+        })
         setContent(fullContent)
       }, 500)
     }
@@ -244,20 +253,61 @@ export function Editor() {
     checkLinkedNotebook()
   }, [document.path])
 
-  // Load annotations when document changes and force decoration refresh
+  // Subscribe to annotations reactively for restoration
+  const annotations = useAnnotationStore((state) => state.annotations)
+  const annotationStoreDocumentId = useAnnotationStore((state) => state.documentId)
+
+  // Load and restore annotations when document changes
   useEffect(() => {
+    if (!editor || !document.documentId) return
+
     const annotationStore = useAnnotationStore.getState()
-    if (document.documentId) {
+
+    // Set document ID and load annotations if needed
+    if (annotationStoreDocumentId !== document.documentId) {
       annotationStore.setDocumentId(document.documentId)
-      annotationStore.loadAnnotations(document.documentId).then(() => {
-        // Force the editor to rebuild decorations after annotations load
-        if (editor) {
-          // Dispatch an empty transaction to trigger decoration rebuild
-          editor.view.dispatch(editor.state.tr)
-        }
-      })
+      annotationStore.loadAnnotations(document.documentId)
     }
-  }, [document.documentId, editor])
+
+    // Force decoration rebuild when annotations change
+    // Small delay to ensure editor content is fully loaded
+    if (annotations.length > 0 && annotationStoreDocumentId === document.documentId) {
+      console.log(`[Editor:${SESSION_ID}] Restoring annotations:`, {
+        documentId: document.documentId,
+        count: annotations.length
+      })
+      const timer = setTimeout(() => {
+        editor.view.dispatch(editor.state.tr)
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [editor, document.documentId, annotations, annotationStoreDocumentId])
+
+  // Subscribe to pending suggestions reactively for restoration
+  const pendingSuggestions = useSuggestionStore((state) => state.pendingSuggestions)
+  const suggestionStoreDocumentId = useSuggestionStore((state) => state.documentId)
+
+  // Restore AI suggestions when document changes or pending suggestions are loaded
+  useEffect(() => {
+    if (!editor || !document.documentId) return
+
+    // Only restore if there are pending suggestions and they match current document
+    if (pendingSuggestions.length > 0 && suggestionStoreDocumentId === document.documentId) {
+      console.log(`[Editor:${SESSION_ID}] Restoring suggestions:`, {
+        documentId: document.documentId,
+        count: pendingSuggestions.length
+      })
+
+      // Small delay to ensure editor content is fully loaded
+      const timer = setTimeout(() => {
+        editor.commands.restoreAISuggestions(pendingSuggestions)
+        // Clear pending suggestions after restoring
+        useSuggestionStore.getState().clearSuggestions()
+      }, 100)
+
+      return () => clearTimeout(timer)
+    }
+  }, [editor, document.documentId, pendingSuggestions, suggestionStoreDocumentId])
 
   // Auto-focus editor once when document loads (not on every content change)
   const hasFocusedRef = useRef(false)
@@ -657,7 +707,7 @@ export function Editor() {
             </div>
           )}
           <TransformAnimation isTransforming={isTransforming} onComplete={completeTransform}>
-            <div className={`max-w-3xl prose-editor ${isRemarkableReadOnly && !isTransforming ? 'opacity-80 select-none' : ''}`}>
+            <div className={`max-w-3xl mx-auto prose-editor ${isRemarkableReadOnly && !isTransforming ? 'opacity-80 select-none' : ''}`}>
               {showFrontmatter && (
                 <FrontmatterDisplay content={document.content} frontmatter={document.frontmatter} />
               )}

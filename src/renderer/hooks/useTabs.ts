@@ -1,8 +1,11 @@
 import { useCallback, useEffect } from 'react'
 import { useTabStore, createTab, generateUntitledTitle, type Tab } from '../stores/tabStore'
 import { useEditorStore } from '../stores/editorStore'
+import { useEditorInstanceStore } from '../stores/editorInstanceStore'
 import { useChatStore, setCurrentDocumentId } from '../stores/chatStore'
 import { useAnnotationStore } from '../extensions/ai-annotations'
+import { useSuggestionStore } from '../extensions/ai-suggestions/store'
+import { getAISuggestions } from '../extensions/ai-suggestions'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFileListStore } from '../stores/fileListStore'
 import { parseMarkdown, serializeMarkdown } from '../lib/markdown'
@@ -17,7 +20,9 @@ import {
   deleteConversations,
   saveAnnotations,
   loadAnnotations,
-  deleteAnnotations
+  deleteAnnotations,
+  deleteSuggestions,
+  SESSION_ID
 } from '../lib/persistence'
 import type { DraftState } from '../lib/persistence'
 
@@ -51,8 +56,30 @@ export function useTabs() {
     const activeTab = getActiveTab()
     if (!activeTab) return
 
+    console.log('[useTabs] saveCurrentTabState:', {
+      tabId: activeTab.id,
+      tabDocumentId: activeTab.documentId,
+      editorDocumentId: document.documentId,
+      annotationStoreDocId: useAnnotationStore.getState().documentId,
+      annotationCount: useAnnotationStore.getState().annotations.length
+    })
+
     // Save conversations for current document
     await saveCurrentConversation(document.documentId)
+
+    // Save annotations for current document
+    await useAnnotationStore.getState().saveAnnotations()
+
+    // Save AI suggestions for current document
+    const editor = useEditorInstanceStore.getState().editor
+    if (editor) {
+      const suggestions = getAISuggestions(editor)
+      const docId = activeTab.documentId
+      console.log(`[useTabs:${SESSION_ID}] Saving suggestions:`, { documentId: docId, count: suggestions.length })
+      if (docId) {
+        await useSuggestionStore.getState().saveSuggestions(docId, suggestions)
+      }
+    }
 
     // Update tab with current state
     updateTab(activeTab.id, {
@@ -70,8 +97,19 @@ export function useTabs() {
     const targetTab = getTabById(tabId)
     if (!targetTab || tabId === activeTabId) return
 
+    console.log('[useTabs] switchToTab:', {
+      fromTabId: activeTabId,
+      toTabId: tabId,
+      targetDocumentId: targetTab.documentId,
+      targetPath: targetTab.path
+    })
+
     // Save current tab state first
     await saveCurrentTabState()
+
+    // Pause annotation position updates during document loading
+    // This prevents the plugin from deleting annotations when doc content changes
+    useAnnotationStore.getState().setLoadingDocument(true)
 
     // Activate the new tab
     setActiveTab(tabId)
@@ -95,7 +133,14 @@ export function useTabs() {
     setCurrentDocumentId(newDocumentId)
 
     // Load annotations for the target document
+    console.log('[useTabs] loading annotations for:', newDocumentId)
     await useAnnotationStore.getState().loadAnnotations(newDocumentId)
+    console.log('[useTabs] annotations loaded:', useAnnotationStore.getState().annotations.length)
+
+    // Load suggestions for the target document
+    console.log(`[useTabs:${SESSION_ID}] loading suggestions for:`, newDocumentId)
+    await useSuggestionStore.getState().loadSuggestions(newDocumentId)
+    console.log(`[useTabs:${SESSION_ID}] suggestions loaded:`, useSuggestionStore.getState().pendingSuggestions.length)
 
     // Clear reMarkable read-only state
     useEditorStore.getState().setRemarkableReadOnly(false, null)
@@ -107,6 +152,12 @@ export function useTabs() {
     if (targetTab.path) {
       useFileListStore.getState().revealAndSelectPath(targetTab.path)
     }
+
+    // Resume annotation position updates after a small delay to let editor settle
+    // This allows the new document content to fully load before enabling position mapping
+    setTimeout(() => {
+      useAnnotationStore.getState().setLoadingDocument(false)
+    }, 100)
   }, [activeTabId, getTabById, saveCurrentTabState, setActiveTab, setDocument, setCursorPosition, loadChatForDocument, setEditing])
 
   /**
@@ -115,6 +166,9 @@ export function useTabs() {
   const createNewTab = useCallback(async () => {
     // Save current tab state first
     await saveCurrentTabState()
+
+    // Pause annotation position updates during document loading
+    useAnnotationStore.getState().setLoadingDocument(true)
 
     const newDocumentId = generateId()
     const title = generateUntitledTitle()
@@ -151,11 +205,19 @@ export function useTabs() {
     // Clear annotations
     useAnnotationStore.getState().clearAnnotations()
 
+    // Clear suggestions
+    useSuggestionStore.getState().setDocumentId(newDocumentId)
+
     // Clear reMarkable read-only state
     useEditorStore.getState().setRemarkableReadOnly(false, null)
 
     // Mark as editing
     setEditing(true)
+
+    // Resume annotation position updates
+    setTimeout(() => {
+      useAnnotationStore.getState().setLoadingDocument(false)
+    }, 100)
 
     return tabId
   }, [saveCurrentTabState, addTab, setDocument, setCursorPosition, setEditing])
@@ -173,6 +235,9 @@ export function useTabs() {
 
     // Save current tab state first
     await saveCurrentTabState()
+
+    // Pause annotation position updates during document loading
+    useAnnotationStore.getState().setLoadingDocument(true)
 
     // Read file content
     if (!window.api) return false
@@ -218,6 +283,9 @@ export function useTabs() {
     // Load annotations for the document
     await useAnnotationStore.getState().loadAnnotations(newDocumentId)
 
+    // Load suggestions for the document
+    await useSuggestionStore.getState().loadSuggestions(newDocumentId)
+
     // Clear reMarkable read-only state
     useEditorStore.getState().setRemarkableReadOnly(false, null)
 
@@ -229,6 +297,11 @@ export function useTabs() {
 
     // Highlight file in sidebar
     useFileListStore.getState().revealAndSelectPath(filePath)
+
+    // Resume annotation position updates after a small delay
+    setTimeout(() => {
+      useAnnotationStore.getState().setLoadingDocument(false)
+    }, 100)
 
     // Return true if document has content but no chat history (for auto-prompt)
     const conversations = useChatStore.getState().conversations
@@ -259,6 +332,7 @@ export function useTabs() {
     if (!tab.path) {
       await deleteConversations(tab.documentId)
       await deleteAnnotations(tab.documentId)
+      await deleteSuggestions(tab.documentId)
     }
 
     // If we closed the last tab, create a new one
@@ -292,6 +366,7 @@ export function useTabs() {
     if (!tab.path) {
       await deleteConversations(tab.documentId)
       await deleteAnnotations(tab.documentId)
+      await deleteSuggestions(tab.documentId)
     }
 
     // If we closed the last tab, create a new one
@@ -318,6 +393,7 @@ export function useTabs() {
       if (!tab.path) {
         await deleteConversations(tab.documentId)
         await deleteAnnotations(tab.documentId)
+        await deleteSuggestions(tab.documentId)
       }
     }
 
@@ -338,6 +414,7 @@ export function useTabs() {
       if (!tab.isDirty && !tab.path) {
         await deleteConversations(tab.documentId)
         await deleteAnnotations(tab.documentId)
+        await deleteSuggestions(tab.documentId)
       }
     }
 

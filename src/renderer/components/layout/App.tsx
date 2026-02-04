@@ -700,38 +700,33 @@ export function App() {
         <Toolbar />
 
         <div className="flex-1 overflow-hidden">
-          {isFileListOpen || isChatOpen ? (
-            <ResizablePanelGroup
-              direction="horizontal"
-              key={`panels-${isFileListOpen ? 'f' : ''}-${isChatOpen ? 'c' : ''}`}
+          <ResizablePanelGroup
+            direction="horizontal"
+          >
+            {isFileListOpen && (
+              <>
+                <ResizablePanel id="file-list" defaultSize={20} minSize={15} maxSize={35} className="min-w-[16.25rem]">
+                  <FileListPanel />
+                </ResizablePanel>
+                <ResizableHandle />
+              </>
+            )}
+            <ResizablePanel
+              id="editor"
+              defaultSize={isFileListOpen && isChatOpen ? 40 : isFileListOpen || isChatOpen ? 50 : 100}
+              minSize={30}
             >
-              {isFileListOpen && (
-                <>
-                  <ResizablePanel id="file-list" defaultSize={20} minSize={15} maxSize={35} className="min-w-[16.25rem]">
-                    <FileListPanel />
-                  </ResizablePanel>
-                  <ResizableHandle />
-                </>
-              )}
-              <ResizablePanel
-                id="editor"
-                defaultSize={isFileListOpen && isChatOpen ? 40 : isFileListOpen ? 80 : 50}
-                minSize={30}
-              >
-                <Editor />
-              </ResizablePanel>
-              {isChatOpen && (
-                <>
-                  <ResizableHandle />
-                  <ResizablePanel id="chat" defaultSize={isFileListOpen ? 40 : 50} minSize={20} maxSize={60}>
-                    <ChatPanel />
-                  </ResizablePanel>
-                </>
-              )}
-            </ResizablePanelGroup>
-          ) : (
-            <Editor />
-          )}
+              <Editor />
+            </ResizablePanel>
+            {isChatOpen && (
+              <>
+                <ResizableHandle />
+                <ResizablePanel id="chat" defaultSize={isFileListOpen ? 40 : 50} minSize={20} maxSize={60}>
+                  <ChatPanel />
+                </ResizablePanel>
+              </>
+            )}
+          </ResizablePanelGroup>
         </div>
 
         <StatusBar />

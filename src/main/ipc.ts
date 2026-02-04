@@ -88,7 +88,7 @@ const defaultSettings: Settings = {
   theme: 'dark',
   llm: {
     provider: 'anthropic',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-5-20250929',
     apiKey: ''
   },
   editor: {

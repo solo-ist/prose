@@ -68,6 +68,8 @@ export interface AnnotationState {
   isVisible: boolean
   /** The current document ID */
   documentId: string | null
+  /** Whether document is being loaded (skip position updates during tab switches) */
+  isLoadingDocument: boolean
 }
 
 /**
@@ -99,6 +101,8 @@ export interface AnnotationActions {
   clearAnnotations: () => void
   /** Set document ID */
   setDocumentId: (documentId: string | null) => void
+  /** Set loading document state (pauses position updates during tab switches) */
+  setLoadingDocument: (loading: boolean) => void
 }
 
 /**

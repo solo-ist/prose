@@ -23,4 +23,7 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+
+# Dev artifacts
 electron-screenshot-*.jpeg
+.dev.pid

@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(lsof *)",
+      "Bash(kill *)",
+      "Bash(pkill *)",
+      "Bash(cat .dev.pid*)",
+      "Bash(ps *)",
+      "Bash(sleep *)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git branch*)",
+      "Bash(ls *)"
+    ]
+  }
+}

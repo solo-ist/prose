@@ -19,9 +19,6 @@ export const aiAnnotationsPluginKey = new PluginKey('aiAnnotations')
 // Track tooltip element for cleanup
 let activeTooltip: HTMLElement | null = null
 
-// Track annotations that have already animated (to prevent re-triggering on decoration rebuild)
-const hasAnimated = new Set<string>()
-let lastDocumentId: string | null = null
 
 function removeTooltip() {
   if (activeTooltip) {
@@ -113,16 +110,9 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
             const opacity = calculateOpacity(annotation.createdAt, opts.maxAge)
             if (opacity < ANNOTATION_CONSTANTS.MIN_OPACITY) continue
 
-            // Only animate annotations loaded from storage that haven't animated yet
-            const shouldAnimate = !createdThisSession.has(annotation.id) && !hasAnimated.has(annotation.id)
-            const animateClass = shouldAnimate ? ' animate-in' : ''
-            if (shouldAnimate) {
-              hasAnimated.add(annotation.id)
-            }
-
             decorations.push(
               Decoration.inline(annotation.from, annotation.to, {
-                class: `ai-annotation ai-annotation-${annotation.type}${animateClass}`,
+                class: `ai-annotation ai-annotation-${annotation.type}`,
                 style: `--annotation-opacity: ${opacity.toFixed(3)}`,
                 'data-annotation-id': annotation.id,
                 'data-annotation-type': annotation.type,
@@ -147,12 +137,6 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
         const storeState = useAnnotationStore.getState()
         const storeAnnotations = storeState.annotations
         const storeVisible = storeState.isVisible
-
-        // Clear animation tracking when document changes
-        if (storeState.documentId !== lastDocumentId) {
-          hasAnimated.clear()
-          lastDocumentId = storeState.documentId
-        }
 
         // Check if we need to rebuild decorations
         const annotationsChanged = storeAnnotations !== pluginState.annotations
@@ -236,16 +220,9 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
               const opacity = calculateOpacity(annotation.createdAt, opts.maxAge)
               if (opacity < ANNOTATION_CONSTANTS.MIN_OPACITY) continue
 
-              // Only animate annotations loaded from storage that haven't animated yet
-              const shouldAnimate = !createdThisSession.has(annotation.id) && !hasAnimated.has(annotation.id)
-              const animateClass = shouldAnimate ? ' animate-in' : ''
-              if (shouldAnimate) {
-                hasAnimated.add(annotation.id)
-              }
-
               decorations.push(
                 Decoration.inline(annotation.from, annotation.to, {
-                  class: `ai-annotation ai-annotation-${annotation.type}${animateClass}`,
+                  class: `ai-annotation ai-annotation-${annotation.type}`,
                   style: `--annotation-opacity: ${opacity.toFixed(3)}`,
                   'data-annotation-id': annotation.id,
                   'data-annotation-type': annotation.type,

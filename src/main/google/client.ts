@@ -241,6 +241,147 @@ turndown.addRule('googleDocsBlockquote', {
 const DEBUG_GOOGLE_DOCS_HTML = process.env.DEBUG_GOOGLE_DOCS_HTML === 'true'
 
 /**
+ * Represents a parsed list item with its indentation level
+ */
+interface ListItem {
+  content: string
+  marginLeft: number
+  fullMatch: string
+}
+
+/**
+ * Parse list items from a <ul> or <ol> content, extracting margin-left values.
+ * Google Docs exports flat lists with margin-left styles instead of semantic nesting.
+ */
+function parseListItems(html: string): ListItem[] {
+  const items: ListItem[] = []
+
+  // Match <li> elements - Google Docs uses style attributes for indentation
+  // Pattern matches both cases: with margin-left style and without
+  const liPattern = /<li[^>]*>([\s\S]*?)<\/li>/gi
+  let match
+
+  while ((match = liPattern.exec(html)) !== null) {
+    const fullMatch = match[0]
+    const content = match[1]
+
+    // Extract margin-left from the <li> tag's style attribute
+    const styleMatch = fullMatch.match(/style="[^"]*margin-left:\s*(\d+(?:\.\d+)?)(pt|px)?/i)
+    let marginLeft = 0
+
+    if (styleMatch) {
+      const value = parseFloat(styleMatch[1])
+      const unit = styleMatch[2] || 'pt'
+      // Convert to pixels for consistent comparison (1pt ≈ 1.33px)
+      marginLeft = unit === 'pt' ? value * 1.33 : value
+    }
+
+    items.push({ content, marginLeft, fullMatch })
+  }
+
+  return items
+}
+
+/**
+ * Build nested list HTML from flat items based on their indentation levels.
+ * Groups consecutive items by relative indentation to create proper <ul>/<ol> nesting.
+ */
+function buildNestedList(items: ListItem[], listTag: string): string {
+  if (items.length === 0) return ''
+
+  // Determine indentation levels by finding unique margin values
+  const margins = [...new Set(items.map(i => i.marginLeft))].sort((a, b) => a - b)
+
+  // Map each margin value to a level (0, 1, 2, etc.)
+  const marginToLevel = new Map<number, number>()
+  margins.forEach((m, i) => marginToLevel.set(m, i))
+
+  // Assign levels to items, using threshold-based grouping for similar margins
+  const MARGIN_THRESHOLD = 10 // px - margins within this range are same level
+  function getLevel(margin: number): number {
+    // Find the closest margin bucket
+    for (const [m, level] of marginToLevel) {
+      if (Math.abs(margin - m) < MARGIN_THRESHOLD) {
+        return level
+      }
+    }
+    return marginToLevel.get(margin) || 0
+  }
+
+  // Build the nested structure recursively
+  let result = ''
+  let i = 0
+
+  function buildLevel(currentLevel: number): string {
+    let html = ''
+
+    while (i < items.length) {
+      const item = items[i]
+      const itemLevel = getLevel(item.marginLeft)
+
+      if (itemLevel < currentLevel) {
+        // This item belongs to a parent level, return to parent
+        break
+      }
+
+      if (itemLevel > currentLevel) {
+        // This item is nested deeper - create nested list
+        html += `<${listTag}>${buildLevel(itemLevel)}</${listTag}>`
+      } else {
+        // Same level - add the item
+        html += `<li>${item.content}</li>`
+        i++
+
+        // Check if next items are nested under this one
+        if (i < items.length && getLevel(items[i].marginLeft) > currentLevel) {
+          // Remove the closing </li> and append nested list inside
+          html = html.slice(0, -5) // Remove "</li>"
+          html += `<${listTag}>${buildLevel(currentLevel + 1)}</${listTag}></li>`
+        }
+      }
+    }
+
+    return html
+  }
+
+  result = buildLevel(0)
+  return result
+}
+
+/**
+ * Pre-process Google Docs HTML to reconstruct nested lists.
+ * Google Docs exports flat lists with margin-left styles instead of nested <ul>/<ol>.
+ * This function rebuilds proper semantic nesting based on indentation levels.
+ */
+function reconstructNestedLists(html: string): string {
+  // Match <ul> and <ol> blocks (non-greedy to handle multiple lists)
+  return html.replace(/<(ul|ol)([^>]*)>([\s\S]*?)<\/\1>/gi, (match, tag, attrs, content) => {
+    const items = parseListItems(content)
+
+    if (DEBUG_GOOGLE_DOCS_HTML) {
+      console.log('[GoogleDocs] Parsing list items:')
+      items.forEach((item, idx) => {
+        console.log(`  [${idx}] margin: ${item.marginLeft.toFixed(1)}px, content: ${item.content.substring(0, 50)}...`)
+      })
+    }
+
+    // If all items have same margin, no nesting needed
+    const uniqueMargins = new Set(items.map(i => Math.round(i.marginLeft / 10) * 10))
+    if (uniqueMargins.size <= 1) {
+      return match // Return original, no reconstruction needed
+    }
+
+    const nested = buildNestedList(items, tag)
+
+    if (DEBUG_GOOGLE_DOCS_HTML) {
+      console.log('[GoogleDocs] Reconstructed nested list:', `<${tag}${attrs}>${nested}</${tag}>`.substring(0, 300))
+    }
+
+    return `<${tag}${attrs}>${nested}</${tag}>`
+  })
+}
+
+/**
  * Convert HTML from Google Docs export to markdown
  */
 function htmlToMarkdown(html: string): string {
@@ -249,13 +390,17 @@ function htmlToMarkdown(html: string): string {
     const listPattern = /<(ul|ol)[^>]*>[\s\S]*?<\/\1>/gi
     const lists = html.match(listPattern)
     if (lists) {
-      console.log('[GoogleDocs] Found lists in HTML:')
+      console.log('[GoogleDocs] Found lists in HTML (before preprocessing):')
       lists.forEach((list, i) => {
         console.log(`[GoogleDocs] List ${i + 1}:`, list.substring(0, 500))
       })
     }
   }
-  return turndown.turndown(html)
+
+  // Reconstruct nested lists from Google Docs' flat structure
+  const preprocessed = reconstructNestedLists(html)
+
+  return turndown.turndown(preprocessed)
 }
 
 /**

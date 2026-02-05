@@ -870,6 +870,18 @@ export function setupIpcHandlers(): void {
     }
   })
 
+  ipcMain.handle('window:isFullScreen', (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    return window?.isFullScreen() ?? false
+  })
+
+  ipcMain.handle('window:exitFullScreen', (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (window?.isFullScreen()) {
+      window.setFullScreen(false)
+    }
+  })
+
   // Shell: Open external URL (for CMD+Click on links)
   ipcMain.handle('shell:openExternal', async (_event, url: string) => {
     // Validate URL before opening

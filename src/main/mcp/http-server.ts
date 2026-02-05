@@ -1,6 +1,11 @@
 /**
  * HTTP/SSE MCP Server for Prose.
  *
+ * @deprecated This HTTP server is being replaced by Unix socket IPC (see socket-server.ts).
+ * The socket approach allows mcp-stdio to communicate with Prose directly, enabling
+ * on-demand launching and better integration with Claude Desktop. This HTTP server
+ * will be removed in a future release.
+ *
  * Exposes MCP tools via HTTP with SSE transport, allowing Claude Desktop
  * to connect directly via URL: http://localhost:9877/mcp
  */

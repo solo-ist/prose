@@ -22,6 +22,7 @@ import { Slider } from '../ui/slider'
 import { Switch } from '../ui/switch'
 import { RemarkableIntegration } from './RemarkableIntegration'
 import { GoogleDocsIntegration } from './GoogleDocsIntegration'
+import { McpIntegration } from './McpIntegration'
 import type { Settings } from '../../types'
 import { Eye, EyeOff, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
 import { getModelsForProvider, getDefaultModel, type LLMProvider } from '../../../shared/llm/models'
@@ -509,6 +510,8 @@ export function SettingsDialog() {
           </TabsContent>
 
           <TabsContent value="integrations" className="space-y-4 mt-4">
+            <McpIntegration />
+            <Separator />
             <RemarkableIntegration
               settings={settings}
               setRemarkableConfig={setRemarkableConfig}

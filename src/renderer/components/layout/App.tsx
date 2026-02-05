@@ -33,8 +33,9 @@ import { Checkbox } from '../ui/checkbox'
 import { useChat } from '../../hooks/useChat'
 import { useEditor } from '../../hooks/useEditor'
 import { useTabs } from '../../hooks/useTabs'
-import { useFileList } from '../../hooks/useFileList'
 import { useSettings } from '../../hooks/useSettings'
+import { usePanelLayout, PanelLayoutProvider } from '../../hooks/usePanelLayout'
+import type { ImperativePanelHandle } from 'react-resizable-panels'
 import { useEditorStore } from '../../stores/editorStore'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useChatStore, setCurrentDocumentId } from '../../stores/chatStore'
@@ -51,11 +52,15 @@ import type { DraftState, SessionState } from '../../lib/persistence'
 import { executeTool } from '../../lib/tools'
 
 export function App() {
-  const { isPanelOpen: isChatOpen, togglePanel: toggleChatPanel, setPanelOpen: setChatPanelOpen, describeDocument } = useChat()
-  const { isPanelOpen: isFileListOpen, togglePanel: toggleFileListPanel, setPanelOpen: setFileListPanelOpen } = useFileList()
+  const { describeDocument } = useChat()
 
-  // Minimum window width before we auto-close the other panel
-  const MIN_WIDTH_FOR_BOTH_PANELS = 3000
+  // Panel refs for imperative collapse/expand
+  const fileListPanelRef = useRef<ImperativePanelHandle>(null)
+  const chatPanelRef = useRef<ImperativePanelHandle>(null)
+
+  const panelLayout = usePanelLayout({ fileListPanelRef, chatPanelRef })
+  const { isChatOpen, isFileListOpen, toggleChat, toggleFileList, panelSizes } = panelLayout
+
   const { openFile, openFileFromPath, saveFile, saveFileAs, newFile } = useEditor()
   const { createNewTab, openFileInTab, closeTab } = useTabs()
   const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, isAboutDialogOpen, setAboutDialogOpen, isModelPickerOpen, setModelPickerOpen, settings, isLoaded: settingsLoaded } = useSettings()
@@ -614,18 +619,10 @@ export function App() {
           setDialogOpen(true)
           break
         case 'toggleChat':
-          // If opening chat and window is narrow and file list is open, close file list
-          if (!isChatOpen && isFileListOpen && window.innerWidth < MIN_WIDTH_FOR_BOTH_PANELS) {
-            setFileListPanelOpen(false)
-          }
-          toggleChatPanel()
+          toggleChat()
           break
         case 'toggleFileList':
-          // If opening file list and window is narrow and chat is open, close chat
-          if (!isFileListOpen && isChatOpen && window.innerWidth < MIN_WIDTH_FOR_BOTH_PANELS) {
-            setChatPanelOpen(false)
-          }
-          toggleFileListPanel()
+          toggleFileList()
           break
         case 'find':
           // Dispatch custom event for Editor to handle
@@ -660,7 +657,7 @@ export function App() {
     })
 
     return unsubscribe
-  }, [openFileInTab, saveFile, saveFileAs, createNewTab, closeTab, setDialogOpen, toggleChatPanel, toggleFileListPanel, setShortcutsDialogOpen, setAboutDialogOpen, isFileListOpen, isChatOpen, setChatPanelOpen, setFileListPanelOpen, editor, handleGoogleSync, handleGoogleImport])
+  }, [openFileInTab, saveFile, saveFileAs, createNewTab, closeTab, setDialogOpen, toggleChat, toggleFileList, setShortcutsDialogOpen, setAboutDialogOpen, editor, handleGoogleSync, handleGoogleImport])
 
   // Handle file open from OS (double-click .md file)
   useEffect(() => {
@@ -695,6 +692,7 @@ export function App() {
   }, [])
 
   return (
+    <PanelLayoutProvider value={panelLayout}>
     <TooltipProvider delayDuration={300}>
       <div className="flex h-screen flex-col bg-background text-foreground">
         <Toolbar />
@@ -702,30 +700,35 @@ export function App() {
         <div className="flex-1 overflow-hidden">
           <ResizablePanelGroup
             direction="horizontal"
+            autoSaveId="prose-panels"
           >
-            {isFileListOpen && (
-              <>
-                <ResizablePanel id="file-list" defaultSize={20} minSize={15} maxSize={35} className="min-w-[16.25rem]">
-                  <FileListPanel />
-                </ResizablePanel>
-                <ResizableHandle />
-              </>
-            )}
             <ResizablePanel
-              id="editor"
-              defaultSize={isFileListOpen && isChatOpen ? 40 : isFileListOpen || isChatOpen ? 50 : 100}
-              minSize={30}
+              ref={fileListPanelRef}
+              id="file-list"
+              order={1}
+              defaultSize={0}
+              minSize={isFileListOpen ? panelSizes.fileListMin : 0}
+              maxSize={panelSizes.fileListMax}
+              className="h-full overflow-hidden"
             >
+              {isFileListOpen && <FileListPanel />}
+            </ResizablePanel>
+            <ResizableHandle />
+            <ResizablePanel id="editor" order={2} minSize={panelSizes.editorMin}>
               <Editor />
             </ResizablePanel>
-            {isChatOpen && (
-              <>
-                <ResizableHandle />
-                <ResizablePanel id="chat" defaultSize={isFileListOpen ? 40 : 50} minSize={20} maxSize={60}>
-                  <ChatPanel />
-                </ResizablePanel>
-              </>
-            )}
+            <ResizableHandle />
+            <ResizablePanel
+              ref={chatPanelRef}
+              id="chat"
+              order={3}
+              defaultSize={0}
+              minSize={isChatOpen ? panelSizes.chatMin : 0}
+              maxSize={panelSizes.chatMax}
+              className="h-full overflow-hidden"
+            >
+              {isChatOpen && <ChatPanel />}
+            </ResizablePanel>
           </ResizablePanelGroup>
         </div>
 
@@ -802,5 +805,6 @@ export function App() {
         </AlertDialog>
       </div>
     </TooltipProvider>
+    </PanelLayoutProvider>
   )
 }

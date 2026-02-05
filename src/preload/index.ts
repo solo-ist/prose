@@ -197,6 +197,8 @@ export interface ElectronAPI {
   deleteFile: (path: string) => Promise<void>
   // Window operations
   closeWindow: () => Promise<void>
+  isFullScreen: () => Promise<boolean>
+  exitFullScreen: () => Promise<void>
   listDirectory: (path: string, maxDepth?: number) => Promise<FileItem[]>
   remarkableRegister: (code: string) => Promise<RemarkableRegisterResponse>
   remarkableValidate: (deviceToken: string) => Promise<boolean>
@@ -336,6 +338,8 @@ const api: ElectronAPI = {
   renameFile: (oldPath: string, newPath: string) => ipcRenderer.invoke('file:rename', oldPath, newPath),
   deleteFile: (path: string) => ipcRenderer.invoke('file:delete', path),
   closeWindow: () => ipcRenderer.invoke('window:close'),
+  isFullScreen: () => ipcRenderer.invoke('window:isFullScreen'),
+  exitFullScreen: () => ipcRenderer.invoke('window:exitFullScreen'),
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
   listDirectory: (path: string, maxDepth?: number) => ipcRenderer.invoke('file:listDirectory', path, maxDepth),
   remarkableRegister: (code: string) => ipcRenderer.invoke('remarkable:register', code),

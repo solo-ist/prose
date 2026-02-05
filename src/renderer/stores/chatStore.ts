@@ -82,7 +82,7 @@ export const useChatStore = create<ChatState>()(
     activeConversationId: null,
     messages: [],
     isLoading: false,
-    isPanelOpen: true,
+    isPanelOpen: false,
     context: null,
     includeDocument: true,
     agentMode: true, // Legacy - maps to toolMode

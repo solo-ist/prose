@@ -129,6 +129,7 @@ export function FindBar({ editor, isOpen, onClose }: FindBarProps) {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       e.preventDefault()
+      e.stopPropagation()
       onClose()
     } else if (e.key === 'Enter') {
       e.preventDefault()

@@ -5,8 +5,7 @@ import { useEditorStore } from '../../stores/editorStore'
 import { useTabStore } from '../../stores/tabStore'
 import { useFileListStore } from '../../stores/fileListStore'
 import { useSettings } from '../../hooks/useSettings'
-import { useChat } from '../../hooks/useChat'
-import { useFileList } from '../../hooks/useFileList'
+import { usePanelLayoutContext } from '../../hooks/usePanelLayout'
 import { isMacOS, getApi } from '../../lib/browserApi'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
@@ -62,8 +61,7 @@ export function Toolbar() {
     renameTab
   } = useTabs()
   const { settings, isLoaded, effectiveTheme, autosaveActive, setTheme, setDialogOpen, toggleAutosaveActive } = useSettings()
-  const { isPanelOpen: isChatOpen, togglePanel: toggleChatPanel } = useChat()
-  const { isPanelOpen: isFileListOpen, togglePanel: toggleFileListPanel } = useFileList()
+  const { isChatOpen, isFileListOpen, toggleChat, toggleFileList } = usePanelLayoutContext()
   const isEditing = useEditorStore((state) => state.isEditing)
   const isGoogleSyncing = useFileListStore((state) => state.isGoogleSyncing)
 
@@ -198,7 +196,7 @@ export function Toolbar() {
         <div className="flex items-center gap-2 app-region-no-drag">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={toggleFileListPanel} aria-label={isFileListOpen ? 'Hide files' : 'Show files'}>
+              <Button variant="ghost" size="icon" onClick={toggleFileList} aria-label={isFileListOpen ? 'Hide files' : 'Show files'}>
                 {isFileListOpen ? (
                   <PanelLeftClose className="h-4 w-4" />
                 ) : (
@@ -382,7 +380,7 @@ export function Toolbar() {
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={toggleChatPanel} aria-label={isChatOpen ? 'Hide chat' : 'Show chat'}>
+              <Button variant="ghost" size="icon" onClick={toggleChat} aria-label={isChatOpen ? 'Hide chat' : 'Show chat'}>
                 {isChatOpen ? (
                   <PanelRightClose className="h-4 w-4" />
                 ) : (

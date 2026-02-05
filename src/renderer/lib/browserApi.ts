@@ -373,6 +373,16 @@ export const browserApi: ElectronAPI = {
     window.close()
   },
 
+  isFullScreen: async (): Promise<boolean> => {
+    return !!document.fullscreenElement
+  },
+
+  exitFullScreen: async (): Promise<void> => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen()
+    }
+  },
+
   openExternal: async (url: string): Promise<void> => {
     // In browser mode, just open in a new tab
     window.open(url, '_blank', 'noopener,noreferrer')

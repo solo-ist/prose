@@ -19,6 +19,7 @@ import { LinkHover } from '../../extensions/link-hover'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
+import { usePanelLayoutContext } from '../../hooks/usePanelLayout'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -36,7 +37,8 @@ export function Editor() {
   const isEditing = useEditorStore((state) => state.isEditing)
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
   const { settings, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen } = useSettings()
-  const { setContext, togglePanel, setPanelOpen, agentMode, setAgentMode, includeDocument, setIncludeDocument } = useChat()
+  const { setContext, agentMode, setAgentMode, includeDocument, setIncludeDocument } = useChat()
+  const { isChatOpen, isFileListOpen, toggleChat, setChatOpen, setFileListOpen } = usePanelLayoutContext()
   const setEditorInstance = useEditorInstanceStore((state) => state.setEditor)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isUpdatingFromStore = useRef(false)
@@ -369,7 +371,7 @@ export function Editor() {
           const selectedText = editor.state.doc.textBetween(from, to, '\n')
           if (selectedText.trim()) {
             setContext(selectedText)
-            setPanelOpen(true)
+            setChatOpen(true)
           }
         }
       }
@@ -380,13 +382,17 @@ export function Editor() {
     } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'l') {
       // Cmd+Shift+L: Toggle chat panel
       e.preventDefault()
-      togglePanel()
+      toggleChat()
     } else if (e.key === 'Escape') {
-      // Escape: Close find bar or chat panel
+      // Escape cascade: find bar → chat → file list → exit fullscreen
       if (isFindOpen) {
         setIsFindOpen(false)
-      } else {
-        setPanelOpen(false)
+      } else if (isChatOpen) {
+        setChatOpen(false)
+      } else if (isFileListOpen) {
+        setFileListOpen(false)
+      } else if (window.api?.exitFullScreen) {
+        window.api.exitFullScreen()
       }
     } else if (isMod && e.key === 'f' && !e.shiftKey) {
       // Cmd+F: Open find bar
@@ -545,7 +551,7 @@ export function Editor() {
         }
       }
     }
-  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen, editor, setContext, setPanelOpen, togglePanel, isFindOpen, openAddCommentDialog, agentMode, setAgentMode, includeDocument, setIncludeDocument])
+  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen, editor, setContext, setChatOpen, setFileListOpen, toggleChat, isChatOpen, isFileListOpen, isFindOpen, openAddCommentDialog, agentMode, setAgentMode, includeDocument, setIncludeDocument])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)

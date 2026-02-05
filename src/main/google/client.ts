@@ -241,136 +241,201 @@ turndown.addRule('googleDocsBlockquote', {
 const DEBUG_GOOGLE_DOCS_HTML = process.env.DEBUG_GOOGLE_DOCS_HTML === 'true'
 
 /**
- * Represents a parsed list item with its indentation level
+ * Represents a parsed list block from Google Docs
  */
-interface ListItem {
-  content: string
-  marginLeft: number
-  fullMatch: string
+interface ListBlock {
+  tag: 'ul' | 'ol'
+  baseClass: string  // e.g., "lst-kix_pbuofgg1u4ns"
+  level: number      // 0, 1, 2, etc. from class suffix
+  content: string    // innerHTML of the list
+  fullMatch: string  // Full HTML including tags
+  startIndex: number
+  endIndex: number
 }
 
 /**
- * Extract margin-left value from an HTML element string.
- * Google Docs may put margin-left on the <li> tag or on child elements like <p> or <span>.
+ * Extract list class info from Google Docs list element.
+ * Google Docs uses classes like "lst-kix_abc123-0" where -0, -1, -2 indicates nesting level.
  */
-function extractMarginLeft(html: string): number {
-  // Look for margin-left in any style attribute within this HTML
-  const marginPattern = /margin-left:\s*(\d+(?:\.\d+)?)(pt|px)?/gi
-  let maxMargin = 0
+function parseListClass(attrs: string): { baseClass: string; level: number } | null {
+  // Match Google Docs list class pattern: lst-kix_xxxxx-N or lst-kix_xxxxx_xxxxx-N
+  const classMatch = attrs.match(/class="[^"]*\b(lst-[a-z0-9_]+)-(\d+)\b[^"]*"/i)
+  if (classMatch) {
+    return {
+      baseClass: classMatch[1],
+      level: parseInt(classMatch[2], 10)
+    }
+  }
+  return null
+}
 
+/**
+ * Find all list blocks in HTML and parse their class-based nesting levels.
+ */
+function findListBlocks(html: string): ListBlock[] {
+  const blocks: ListBlock[] = []
+  const listPattern = /<(ul|ol)([^>]*)>([\s\S]*?)<\/\1>/gi
   let match
-  while ((match = marginPattern.exec(html)) !== null) {
-    const value = parseFloat(match[1])
-    const unit = match[2] || 'pt'
-    // Convert to pixels for consistent comparison (1pt ≈ 1.33px)
-    const marginPx = unit === 'pt' ? value * 1.33 : value
-    // Use the largest margin found (in case there are multiple)
-    if (marginPx > maxMargin) {
-      maxMargin = marginPx
-    }
+
+  while ((match = listPattern.exec(html)) !== null) {
+    const tag = match[1].toLowerCase() as 'ul' | 'ol'
+    const attrs = match[2]
+    const content = match[3]
+    const classInfo = parseListClass(attrs)
+
+    blocks.push({
+      tag,
+      baseClass: classInfo?.baseClass || '',
+      level: classInfo?.level ?? 0,
+      content,
+      fullMatch: match[0],
+      startIndex: match.index,
+      endIndex: match.index + match[0].length
+    })
   }
 
-  return maxMargin
+  return blocks
 }
 
 /**
- * Parse list items from a <ul> or <ol> content, extracting margin-left values.
- * Google Docs exports flat lists with margin-left styles instead of semantic nesting.
+ * Check if two list blocks are consecutive (only whitespace between them).
  */
-function parseListItems(html: string): ListItem[] {
-  const items: ListItem[] = []
-
-  // Match <li> elements - use a more robust pattern that handles nested tags
-  // We need to be careful with nested tags, so we match opening <li> and find the closing </li>
-  const liOpenPattern = /<li[^>]*>/gi
-  let openMatch
-
-  while ((openMatch = liOpenPattern.exec(html)) !== null) {
-    const startIndex = openMatch.index
-    const afterOpenTag = openMatch.index + openMatch[0].length
-
-    // Find the closing </li> - need to handle nested elements
-    let depth = 1
-    let endIndex = afterOpenTag
-
-    while (depth > 0 && endIndex < html.length) {
-      const nextOpen = html.indexOf('<li', endIndex)
-      const nextClose = html.indexOf('</li>', endIndex)
-
-      if (nextClose === -1) break
-
-      if (nextOpen !== -1 && nextOpen < nextClose) {
-        depth++
-        endIndex = nextOpen + 3
-      } else {
-        depth--
-        if (depth === 0) {
-          endIndex = nextClose
-        } else {
-          endIndex = nextClose + 5
-        }
-      }
-    }
-
-    const fullMatch = html.substring(startIndex, endIndex + 5)
-    const content = html.substring(afterOpenTag, endIndex)
-    const marginLeft = extractMarginLeft(fullMatch)
-
-    items.push({ content, marginLeft, fullMatch })
-  }
-
-  return items
+function areConsecutive(html: string, block1: ListBlock, block2: ListBlock): boolean {
+  const between = html.substring(block1.endIndex, block2.startIndex)
+  return /^\s*$/.test(between)
 }
 
 /**
- * Build nested list HTML from flat items based on their indentation levels.
- * Groups consecutive items by relative indentation to create proper <ul>/<ol> nesting.
+ * Check if two blocks belong to the same logical list.
+ *
+ * Google Docs uses the same base class for items in a list, but creates NEW
+ * base classes when switching list types at nested levels. For example:
+ *   1. Parent (lst-kix_abc-0)
+ *      - Child (lst-kix_abc-1)
+ *   2. Parent2 (lst-kix_abc-0)
+ *      a. Nested ordered (lst-kix_xyz-1) <- Different base class!
+ *
+ * So we consider blocks as same family if:
+ * 1. Same base class, OR
+ * 2. Adjacent levels (one is nested under the other) - handles type switches
  */
-function buildNestedList(items: ListItem[], listTag: string): string {
-  if (items.length === 0) return ''
-
-  // Determine indentation levels by finding unique margin values
-  // Round to nearest 10px to group similar margins together
-  const roundedMargins = items.map(i => Math.round(i.marginLeft / 20) * 20)
-  const uniqueMargins = [...new Set(roundedMargins)].sort((a, b) => a - b)
-
-  // Map each rounded margin value to a level (0, 1, 2, etc.)
-  const marginToLevel = new Map<number, number>()
-  uniqueMargins.forEach((m, i) => marginToLevel.set(m, i))
-
-  function getLevel(margin: number): number {
-    const rounded = Math.round(margin / 20) * 20
-    return marginToLevel.get(rounded) || 0
+function areSameListFamily(block1: ListBlock, block2: ListBlock): boolean {
+  // Same base class is definitely same family
+  if (block1.baseClass && block2.baseClass && block1.baseClass === block2.baseClass) {
+    return true
   }
+
+  // Adjacent levels (0→1 or 1→0, etc.) are likely the same logical list
+  // even if Google assigned different class IDs due to type switching
+  const levelDiff = Math.abs(block1.level - block2.level)
+  if (levelDiff === 1) {
+    return true
+  }
+
+  // Same level with different classes could still be continuation
+  // (e.g., after nested content returns to parent level)
+  // But we need to be careful not to merge unrelated lists
+  // For now, only merge if levels are adjacent
+  return false
+}
+
+/**
+ * Merge consecutive list blocks that belong to the same list family into nested structure.
+ *
+ * The key insight is that when going from level N to level N+1, the nested content
+ * must be inserted INSIDE the last <li> of level N, not as a sibling.
+ *
+ * Example: blocks with levels [0, 1, 0] should produce:
+ *   <ul>
+ *     <li>Item 1</li>
+ *     <li>Item 2
+ *       <ul>
+ *         <li>Nested 1</li>
+ *         <li>Nested 2</li>
+ *       </ul>
+ *     </li>
+ *     <li>Item 3</li>
+ *   </ul>
+ */
+function mergeListBlocks(blocks: ListBlock[]): string {
+  if (blocks.length === 0) return ''
+  if (blocks.length === 1) {
+    const b = blocks[0]
+    return `<${b.tag}>${b.content}</${b.tag}>`
+  }
+
+  // Process blocks and build nested structure
+  // We need to track when to insert nested content inside the last <li>
+
+  interface ProcessedBlock {
+    tag: string
+    level: number
+    items: string[] // Individual <li>...</li> elements
+  }
+
+  // Parse each block's content into individual list items
+  const processed: ProcessedBlock[] = blocks.map(b => {
+    const items: string[] = []
+    const liPattern = /<li[^>]*>[\s\S]*?<\/li>/gi
+    let match
+    while ((match = liPattern.exec(b.content)) !== null) {
+      items.push(match[0])
+    }
+    return { tag: b.tag, level: b.level, items }
+  })
 
   // Build the nested structure recursively
-  let i = 0
+  let blockIndex = 0
 
-  function buildLevel(currentLevel: number): string {
+  function buildLevel(targetLevel: number): string {
+    if (blockIndex >= processed.length) return ''
+
+    const block = processed[blockIndex]
+    if (block.level !== targetLevel) return ''
+
+    blockIndex++
     let html = ''
 
-    while (i < items.length) {
-      const item = items[i]
-      const itemLevel = getLevel(item.marginLeft)
+    // Process each item in this block
+    for (let i = 0; i < block.items.length; i++) {
+      const item = block.items[i]
+      const isLast = i === block.items.length - 1
 
-      if (itemLevel < currentLevel) {
-        // This item belongs to a parent level, return to parent
-        break
-      }
+      // Check if next block is nested under this one
+      const nextBlock = blockIndex < processed.length ? processed[blockIndex] : null
+      const hasNestedContent = isLast && nextBlock && nextBlock.level > targetLevel
 
-      if (itemLevel > currentLevel) {
-        // This item is nested deeper - create nested list
-        html += `<${listTag}>${buildLevel(itemLevel)}</${listTag}>`
+      if (hasNestedContent) {
+        // Insert nested content inside this <li>
+        // Remove closing </li> tag, add nested list, then close
+        const itemWithoutClose = item.replace(/<\/li>$/i, '')
+        const nestedTag = nextBlock!.tag
+        const nestedContent = buildLevel(nextBlock!.level)
+        html += `${itemWithoutClose}<${nestedTag}>${nestedContent}</${nestedTag}></li>`
       } else {
-        // Same level - add the item
-        html += `<li>${item.content}</li>`
-        i++
+        html += item
+      }
+    }
 
-        // Check if next items are nested under this one
-        if (i < items.length && getLevel(items[i].marginLeft) > currentLevel) {
-          // Remove the closing </li> and append nested list inside
-          html = html.slice(0, -5) // Remove "</li>"
-          html += `<${listTag}>${buildLevel(currentLevel + 1)}</${listTag}></li>`
+    // Check if there's more content at this level after nested content
+    while (blockIndex < processed.length && processed[blockIndex].level === targetLevel) {
+      const continueBlock = processed[blockIndex]
+      blockIndex++
+
+      for (let i = 0; i < continueBlock.items.length; i++) {
+        const item = continueBlock.items[i]
+        const isLast = i === continueBlock.items.length - 1
+
+        const nextBlock = blockIndex < processed.length ? processed[blockIndex] : null
+        const hasNestedContent = isLast && nextBlock && nextBlock.level > targetLevel
+
+        if (hasNestedContent) {
+          const itemWithoutClose = item.replace(/<\/li>$/i, '')
+          const nestedTag = nextBlock!.tag
+          const nestedContent = buildLevel(nextBlock!.level)
+          html += `${itemWithoutClose}<${nestedTag}>${nestedContent}</${nestedTag}></li>`
+        } else {
+          html += item
         }
       }
     }
@@ -378,42 +443,84 @@ function buildNestedList(items: ListItem[], listTag: string): string {
     return html
   }
 
-  return buildLevel(0)
+  const firstBlock = processed[0]
+  const content = buildLevel(firstBlock.level)
+  return `<${firstBlock.tag}>${content}</${firstBlock.tag}>`
 }
 
 /**
  * Pre-process Google Docs HTML to reconstruct nested lists.
- * Google Docs exports flat lists with margin-left styles instead of nested <ul>/<ol>.
- * This function rebuilds proper semantic nesting based on indentation levels.
+ *
+ * Google Docs exports nested lists as SEPARATE <ul>/<ol> elements with class names
+ * like "lst-kix_abc123-0", "lst-kix_abc123-1" where the suffix indicates nesting level.
+ * This function finds consecutive lists belonging to the same family and merges them
+ * into properly nested HTML structure.
  */
 function reconstructNestedLists(html: string): string {
-  // Match <ul> and <ol> blocks (non-greedy to handle multiple lists)
-  return html.replace(/<(ul|ol)([^>]*)>([\s\S]*?)<\/\1>/gi, (match, tag, attrs, content) => {
-    const items = parseListItems(content)
+  const blocks = findListBlocks(html)
+
+  if (DEBUG_GOOGLE_DOCS_HTML && blocks.length > 0) {
+    console.log('[GoogleDocs] Found list blocks:')
+    blocks.forEach((b, i) => {
+      console.log(`  [${i}] ${b.tag} class="${b.baseClass}-${b.level}" level=${b.level}`)
+    })
+  }
+
+  if (blocks.length === 0) return html
+
+  // Group consecutive blocks that belong to the same list family
+  const groups: ListBlock[][] = []
+  let currentGroup: ListBlock[] = []
+
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i]
+
+    if (currentGroup.length === 0) {
+      currentGroup.push(block)
+    } else {
+      const lastBlock = currentGroup[currentGroup.length - 1]
+      // Check if this block should join the current group
+      if (areConsecutive(html, lastBlock, block) && areSameListFamily(lastBlock, block)) {
+        currentGroup.push(block)
+      } else {
+        // Start a new group
+        if (currentGroup.length > 1) {
+          groups.push(currentGroup)
+        }
+        currentGroup = [block]
+      }
+    }
+  }
+
+  // Don't forget the last group
+  if (currentGroup.length > 1) {
+    groups.push(currentGroup)
+  }
+
+  if (DEBUG_GOOGLE_DOCS_HTML && groups.length > 0) {
+    console.log('[GoogleDocs] List groups to merge:', groups.length)
+    groups.forEach((g, i) => {
+      console.log(`  Group ${i}: ${g.length} blocks, levels: ${g.map(b => b.level).join(',')}`)
+    })
+  }
+
+  // Replace each group with merged nested structure
+  // Process in reverse order to maintain correct indices
+  let result = html
+  for (let i = groups.length - 1; i >= 0; i--) {
+    const group = groups[i]
+    const startIndex = group[0].startIndex
+    const endIndex = group[group.length - 1].endIndex
+    const merged = mergeListBlocks(group)
 
     if (DEBUG_GOOGLE_DOCS_HTML) {
-      console.log('[GoogleDocs] Parsing list items:')
-      items.forEach((item, idx) => {
-        console.log(`  [${idx}] margin: ${item.marginLeft.toFixed(1)}px, content: ${item.content.substring(0, 80)}...`)
-      })
+      console.log('[GoogleDocs] Merged list:', merged.substring(0, 200) + '...')
     }
 
-    // If no items found or all items have same margin, no nesting needed
-    if (items.length === 0) return match
+    result = result.substring(0, startIndex) + merged + result.substring(endIndex)
+  }
 
-    const uniqueMargins = new Set(items.map(i => Math.round(i.marginLeft / 20) * 20))
-    if (uniqueMargins.size <= 1) {
-      return match // Return original, no reconstruction needed
-    }
-
-    const nested = buildNestedList(items, tag)
-
-    if (DEBUG_GOOGLE_DOCS_HTML) {
-      console.log('[GoogleDocs] Reconstructed nested list:', `<${tag}${attrs}>${nested}</${tag}>`.substring(0, 300))
-    }
-
-    return `<${tag}${attrs}>${nested}</${tag}>`
-  })
+  return result
 }
 
 /**

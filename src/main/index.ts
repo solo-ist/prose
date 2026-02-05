@@ -10,6 +10,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { setupIpcHandlers } from './ipc'
 import { createMenu } from './menu'
 import { getMcpHttpServer, getMcpBridge } from './mcp'
+import { initializeSpellcheck, setupContextMenu } from './spellcheck'
 
 console.log('[Main] Environment loaded. OCR URL:', process.env.REMARKABLE_OCR_URL ? 'set' : 'not set')
 
@@ -191,6 +192,10 @@ app.whenReady().then(async () => {
   const mainWindow = createWindow()
   setupIpcHandlers()
   createMenu(mainWindow)
+
+  // Initialize spellcheck with personal dictionary
+  await initializeSpellcheck()
+  setupContextMenu(mainWindow)
 
   // Set up MCP bridge with main window for tool execution
   const bridge = getMcpBridge()

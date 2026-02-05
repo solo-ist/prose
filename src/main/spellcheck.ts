@@ -37,8 +37,8 @@ export async function addToDictionary(word: string): Promise<void> {
     words.push(word.toLowerCase())
     await savePersonalDictionary(words)
   }
-  // Register with Electron's spellchecker
-  session.defaultSession.addWordToSpellCheckerDictionary(word)
+  // Register with Electron's spellchecker (lowercase for consistency with storage)
+  session.defaultSession.addWordToSpellCheckerDictionary(word.toLowerCase())
 }
 
 /**

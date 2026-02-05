@@ -250,31 +250,71 @@ interface ListItem {
 }
 
 /**
+ * Extract margin-left value from an HTML element string.
+ * Google Docs may put margin-left on the <li> tag or on child elements like <p> or <span>.
+ */
+function extractMarginLeft(html: string): number {
+  // Look for margin-left in any style attribute within this HTML
+  const marginPattern = /margin-left:\s*(\d+(?:\.\d+)?)(pt|px)?/gi
+  let maxMargin = 0
+
+  let match
+  while ((match = marginPattern.exec(html)) !== null) {
+    const value = parseFloat(match[1])
+    const unit = match[2] || 'pt'
+    // Convert to pixels for consistent comparison (1pt ≈ 1.33px)
+    const marginPx = unit === 'pt' ? value * 1.33 : value
+    // Use the largest margin found (in case there are multiple)
+    if (marginPx > maxMargin) {
+      maxMargin = marginPx
+    }
+  }
+
+  return maxMargin
+}
+
+/**
  * Parse list items from a <ul> or <ol> content, extracting margin-left values.
  * Google Docs exports flat lists with margin-left styles instead of semantic nesting.
  */
 function parseListItems(html: string): ListItem[] {
   const items: ListItem[] = []
 
-  // Match <li> elements - Google Docs uses style attributes for indentation
-  // Pattern matches both cases: with margin-left style and without
-  const liPattern = /<li[^>]*>([\s\S]*?)<\/li>/gi
-  let match
+  // Match <li> elements - use a more robust pattern that handles nested tags
+  // We need to be careful with nested tags, so we match opening <li> and find the closing </li>
+  const liOpenPattern = /<li[^>]*>/gi
+  let openMatch
 
-  while ((match = liPattern.exec(html)) !== null) {
-    const fullMatch = match[0]
-    const content = match[1]
+  while ((openMatch = liOpenPattern.exec(html)) !== null) {
+    const startIndex = openMatch.index
+    const afterOpenTag = openMatch.index + openMatch[0].length
 
-    // Extract margin-left from the <li> tag's style attribute
-    const styleMatch = fullMatch.match(/style="[^"]*margin-left:\s*(\d+(?:\.\d+)?)(pt|px)?/i)
-    let marginLeft = 0
+    // Find the closing </li> - need to handle nested elements
+    let depth = 1
+    let endIndex = afterOpenTag
 
-    if (styleMatch) {
-      const value = parseFloat(styleMatch[1])
-      const unit = styleMatch[2] || 'pt'
-      // Convert to pixels for consistent comparison (1pt ≈ 1.33px)
-      marginLeft = unit === 'pt' ? value * 1.33 : value
+    while (depth > 0 && endIndex < html.length) {
+      const nextOpen = html.indexOf('<li', endIndex)
+      const nextClose = html.indexOf('</li>', endIndex)
+
+      if (nextClose === -1) break
+
+      if (nextOpen !== -1 && nextOpen < nextClose) {
+        depth++
+        endIndex = nextOpen + 3
+      } else {
+        depth--
+        if (depth === 0) {
+          endIndex = nextClose
+        } else {
+          endIndex = nextClose + 5
+        }
+      }
     }
+
+    const fullMatch = html.substring(startIndex, endIndex + 5)
+    const content = html.substring(afterOpenTag, endIndex)
+    const marginLeft = extractMarginLeft(fullMatch)
 
     items.push({ content, marginLeft, fullMatch })
   }
@@ -290,26 +330,20 @@ function buildNestedList(items: ListItem[], listTag: string): string {
   if (items.length === 0) return ''
 
   // Determine indentation levels by finding unique margin values
-  const margins = [...new Set(items.map(i => i.marginLeft))].sort((a, b) => a - b)
+  // Round to nearest 10px to group similar margins together
+  const roundedMargins = items.map(i => Math.round(i.marginLeft / 20) * 20)
+  const uniqueMargins = [...new Set(roundedMargins)].sort((a, b) => a - b)
 
-  // Map each margin value to a level (0, 1, 2, etc.)
+  // Map each rounded margin value to a level (0, 1, 2, etc.)
   const marginToLevel = new Map<number, number>()
-  margins.forEach((m, i) => marginToLevel.set(m, i))
+  uniqueMargins.forEach((m, i) => marginToLevel.set(m, i))
 
-  // Assign levels to items, using threshold-based grouping for similar margins
-  const MARGIN_THRESHOLD = 10 // px - margins within this range are same level
   function getLevel(margin: number): number {
-    // Find the closest margin bucket
-    for (const [m, level] of marginToLevel) {
-      if (Math.abs(margin - m) < MARGIN_THRESHOLD) {
-        return level
-      }
-    }
-    return marginToLevel.get(margin) || 0
+    const rounded = Math.round(margin / 20) * 20
+    return marginToLevel.get(rounded) || 0
   }
 
   // Build the nested structure recursively
-  let result = ''
   let i = 0
 
   function buildLevel(currentLevel: number): string {
@@ -344,8 +378,7 @@ function buildNestedList(items: ListItem[], listTag: string): string {
     return html
   }
 
-  result = buildLevel(0)
-  return result
+  return buildLevel(0)
 }
 
 /**
@@ -361,12 +394,14 @@ function reconstructNestedLists(html: string): string {
     if (DEBUG_GOOGLE_DOCS_HTML) {
       console.log('[GoogleDocs] Parsing list items:')
       items.forEach((item, idx) => {
-        console.log(`  [${idx}] margin: ${item.marginLeft.toFixed(1)}px, content: ${item.content.substring(0, 50)}...`)
+        console.log(`  [${idx}] margin: ${item.marginLeft.toFixed(1)}px, content: ${item.content.substring(0, 80)}...`)
       })
     }
 
-    // If all items have same margin, no nesting needed
-    const uniqueMargins = new Set(items.map(i => Math.round(i.marginLeft / 10) * 10))
+    // If no items found or all items have same margin, no nesting needed
+    if (items.length === 0) return match
+
+    const uniqueMargins = new Set(items.map(i => Math.round(i.marginLeft / 20) * 20))
     if (uniqueMargins.size <= 1) {
       return match // Return original, no reconstruction needed
     }

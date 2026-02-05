@@ -330,6 +330,8 @@ export interface ElectronAPI {
   deleteFile: (path: string) => Promise<void>
   // Window operations
   closeWindow: () => Promise<void>
+  // External URL opening (for CMD+Click on links)
+  openExternal?: (url: string) => Promise<void>
   // Directory listing (with lazy loading support via maxDepth parameter)
   listDirectory: (path: string, maxDepth?: number) => Promise<FileItem[]>
   // reMarkable sync

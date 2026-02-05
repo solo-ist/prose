@@ -71,7 +71,7 @@ export function Editor() {
         placeholder: 'Start writing...'
       }),
       Link.configure({
-        openOnClick: true,
+        openOnClick: false, // We handle CMD+Click in LinkHover extension
         autolink: true,
         linkOnPaste: true,
         HTMLAttributes: {

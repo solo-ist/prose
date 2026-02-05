@@ -373,6 +373,11 @@ export const browserApi: ElectronAPI = {
     window.close()
   },
 
+  openExternal: async (url: string): Promise<void> => {
+    // In browser mode, just open in a new tab
+    window.open(url, '_blank', 'noopener,noreferrer')
+  },
+
   listDirectory: async (_path: string): Promise<import('../types').FileItem[]> => {
     // Can't list directories in browser mode
     return []

@@ -318,6 +318,7 @@ const api: ElectronAPI = {
   renameFile: (oldPath: string, newPath: string) => ipcRenderer.invoke('file:rename', oldPath, newPath),
   deleteFile: (path: string) => ipcRenderer.invoke('file:delete', path),
   closeWindow: () => ipcRenderer.invoke('window:close'),
+  openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
   listDirectory: (path: string, maxDepth?: number) => ipcRenderer.invoke('file:listDirectory', path, maxDepth),
   remarkableRegister: (code: string) => ipcRenderer.invoke('remarkable:register', code),
   remarkableValidate: (deviceToken: string) => ipcRenderer.invoke('remarkable:validate', deviceToken),

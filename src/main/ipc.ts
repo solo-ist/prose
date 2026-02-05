@@ -870,6 +870,20 @@ export function setupIpcHandlers(): void {
     }
   })
 
+  // Shell: Open external URL (for CMD+Click on links)
+  ipcMain.handle('shell:openExternal', async (_event, url: string) => {
+    // Validate URL before opening
+    try {
+      const parsed = new URL(url)
+      // Only allow http/https protocols for security
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        await shell.openExternal(url)
+      }
+    } catch {
+      // Invalid URL, ignore
+    }
+  })
+
   // File Association: Check if app is default handler (informational only)
   // Returns: true, false, or null (can't determine)
   ipcMain.handle('fileAssociation:isDefault', async () => {

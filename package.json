@@ -60,6 +60,7 @@
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "tiptap-markdown": "^0.8.10",
+    "turndown": "^7.2.2",
     "zod-to-json-schema": "^3.25.1",
     "zustand": "^5.0.3"
   },
@@ -67,6 +68,7 @@
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.17",
     "@types/react-dom": "^18.3.5",
+    "@types/turndown": "^5.0.6",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "electron": "^33.2.1",

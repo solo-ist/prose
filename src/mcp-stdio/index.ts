@@ -27,67 +27,13 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import { spawn } from 'child_process'
+import { getToolsForMCP } from '../shared/tools/registry'
 
 // Socket path must match the one in socket-server.ts
 const SOCKET_PATH = path.join(os.homedir(), 'Library', 'Application Support', 'Prose', 'prose.sock')
 
-// Tool definitions (static, works without Prose running)
-const TOOLS = [
-  {
-    name: 'read_document',
-    description: 'Read the current document content from Prose editor',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {},
-      required: [] as string[]
-    }
-  },
-  {
-    name: 'get_outline',
-    description: 'Get the document outline (headings) from Prose editor',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {},
-      required: [] as string[]
-    }
-  },
-  {
-    name: 'open_file',
-    description: 'Open a file in Prose editor',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        path: {
-          type: 'string',
-          description: 'The file path to open'
-        }
-      },
-      required: ['path']
-    }
-  },
-  {
-    name: 'suggest_edit',
-    description: 'Suggest an edit to the document in Prose editor',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        search: {
-          type: 'string',
-          description: 'Text to find in the document'
-        },
-        replace: {
-          type: 'string',
-          description: 'Replacement text'
-        },
-        comment: {
-          type: 'string',
-          description: 'Optional comment explaining the edit'
-        }
-      },
-      required: ['search', 'replace']
-    }
-  }
-]
+// Tool definitions from shared registry (works without Prose running)
+const TOOLS = getToolsForMCP()
 
 // Per-tool execution timeouts (milliseconds)
 const TOOL_TIMEOUTS: Record<string, number> = {

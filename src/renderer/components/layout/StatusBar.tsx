@@ -2,6 +2,7 @@ import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
 import { useEditorStore } from '../../stores/editorStore'
+import { useLinkHoverStore } from '../../stores/linkHoverStore'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import {
   DropdownMenu,
@@ -20,6 +21,7 @@ export function StatusBar() {
   const { settings, setLLMConfig, saveSettings } = useSettings()
   const { toolMode, setToolMode, includeDocument, setIncludeDocument } = useChat()
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
+  const hoveredUrl = useLinkHoverStore((state) => state.hoveredUrl)
 
   const wordCount = document.content
     .split(/\s+/)
@@ -48,12 +50,20 @@ export function StatusBar() {
 
   return (
     <div className="flex h-6 items-center justify-between border-t border-border bg-muted/30 px-4 text-xs text-muted-foreground font-mono">
-      <div className="flex items-center gap-4">
-        <span>
-          Ln {cursorPosition.line}, Col {cursorPosition.column}
-        </span>
-        <span>{wordCount} words</span>
-        <span>{charCount} characters</span>
+      <div className="flex items-center gap-4 min-w-0">
+        {hoveredUrl ? (
+          <span className="text-muted-foreground truncate max-w-[400px]" title={hoveredUrl}>
+            {hoveredUrl}
+          </span>
+        ) : (
+          <>
+            <span>
+              Ln {cursorPosition.line}, Col {cursorPosition.column}
+            </span>
+            <span>{wordCount} words</span>
+            <span>{charCount} characters</span>
+          </>
+        )}
       </div>
 
       <div className="flex items-center gap-1">

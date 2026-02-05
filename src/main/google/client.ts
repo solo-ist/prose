@@ -1,6 +1,7 @@
 import { Readable } from 'stream'
 import { google } from 'googleapis'
 import { marked } from 'marked'
+import TurndownService from 'turndown'
 import { getAuthenticatedClient } from './auth'
 
 /**
@@ -100,123 +101,161 @@ export async function getDoc(docId: string): Promise<string> {
   return htmlToMarkdown(response.data as string)
 }
 
+// Configure turndown for HTML-to-markdown conversion
+const turndown = new TurndownService({
+  headingStyle: 'atx',
+  codeBlockStyle: 'fenced',
+  emDelimiter: '*',
+  strongDelimiter: '**',
+  bulletListMarker: '-'
+})
+
+// Remove style and script tags (Google Docs includes lots of CSS)
+turndown.addRule('removeStyles', {
+  filter: ['style', 'script', 'head'],
+  replacement: () => ''
+})
+
+// Add strikethrough support (not built-in)
+turndown.addRule('strikethrough', {
+  filter: ['del', 's', 'strike'],
+  replacement: (content) => `~~${content}~~`
+})
+
+// Add underline support (non-standard markdown, use underscore emphasis)
+turndown.addRule('underline', {
+  filter: ['u'],
+  replacement: (content) => `_${content}_`
+})
+
+// Helper to get raw style attribute string from a node
+function getStyleAttr(node: Node): string {
+  return (node as Element).getAttribute?.('style') || ''
+}
+
+// Helper to unwrap Google redirect URLs (google.com/url?q=ACTUAL_URL&...)
+function unwrapGoogleUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    if (parsed.hostname === 'www.google.com' && parsed.pathname === '/url') {
+      const actualUrl = parsed.searchParams.get('q')
+      if (actualUrl) return actualUrl
+    }
+  } catch {
+    // Not a valid URL, return as-is
+  }
+  return url
+}
+
+// Handle Google Docs links - unwrap redirect URLs
+turndown.addRule('googleDocsLinks', {
+  filter: 'a',
+  replacement: (content, node) => {
+    const href = (node as Element).getAttribute?.('href') || ''
+    const url = unwrapGoogleUrl(href)
+    const text = content.trim()
+    if (!text || text === url) return url
+    return `[${text}](${url})`
+  }
+})
+
+// Google Docs uses spans with inline styles instead of semantic tags
+// Parse the raw style attribute since Node.js doesn't compute CSS properties
+
+// Handle bold spans (font-weight: 700 or bold)
+turndown.addRule('googleDocsBold', {
+  filter: (node) => {
+    if (node.nodeName !== 'SPAN') return false
+    const style = getStyleAttr(node)
+    return /font-weight:\s*(700|bold)/i.test(style)
+  },
+  replacement: (content) => content.trim() ? `**${content}**` : ''
+})
+
+// Handle italic spans (font-style: italic)
+turndown.addRule('googleDocsItalic', {
+  filter: (node) => {
+    if (node.nodeName !== 'SPAN') return false
+    const style = getStyleAttr(node)
+    return /font-style:\s*italic/i.test(style)
+  },
+  replacement: (content) => content.trim() ? `*${content}*` : ''
+})
+
+// Handle strikethrough spans (text-decoration includes line-through)
+turndown.addRule('googleDocsStrikethrough', {
+  filter: (node) => {
+    if (node.nodeName !== 'SPAN') return false
+    const style = getStyleAttr(node)
+    return /text-decoration[^:]*:[^;]*line-through/i.test(style)
+  },
+  replacement: (content) => content.trim() ? `~~${content}~~` : ''
+})
+
+// Handle underline spans (text-decoration includes underline)
+turndown.addRule('googleDocsUnderline', {
+  filter: (node) => {
+    if (node.nodeName !== 'SPAN') return false
+    const style = getStyleAttr(node)
+    return /text-decoration[^:]*:[^;]*underline/i.test(style)
+  },
+  replacement: (content) => content.trim() ? `_${content}_` : ''
+})
+
+// Handle code spans (monospace font families)
+turndown.addRule('googleDocsCode', {
+  filter: (node) => {
+    if (node.nodeName !== 'SPAN') return false
+    const style = getStyleAttr(node).toLowerCase()
+    return /font-family:[^;]*(monospace|courier|consolas|menlo|monaco|roboto\s*mono|fira\s*code|source\s*code|jetbrains|inconsolata)/i.test(style)
+  },
+  replacement: (content) => content.trim() ? `\`${content}\`` : ''
+})
+
+// Handle Google Docs "blockquotes" (indented paragraphs via margin-left)
+// Google Docs doesn't use semantic <blockquote> tags - it uses inline styles
+turndown.addRule('googleDocsBlockquote', {
+  filter: (node) => {
+    if (node.nodeName !== 'P') return false
+    const style = getStyleAttr(node)
+    // Google Docs uses margin-left for indentation (typically 36pt or 40px+ for quotes)
+    const marginMatch = style.match(/margin-left:\s*(\d+(?:\.\d+)?)(pt|px)?/)
+    if (marginMatch) {
+      const value = parseFloat(marginMatch[1])
+      const unit = marginMatch[2] || 'pt'
+      // Convert to pixels for comparison (1pt ≈ 1.33px)
+      const marginPx = unit === 'pt' ? value * 1.33 : value
+      return marginPx >= 30 // Threshold for "quote-like" indentation
+    }
+    return false
+  },
+  replacement: (content) => {
+    const text = content.trim()
+    if (!text) return ''
+    // Prefix each line with >
+    return '\n\n' + text.split('\n').map(line => `> ${line}`).join('\n') + '\n\n'
+  }
+})
+
+// Debug flag for diagnosing Google Docs HTML structure
+const DEBUG_GOOGLE_DOCS_HTML = process.env.DEBUG_GOOGLE_DOCS_HTML === 'true'
+
 /**
  * Convert HTML from Google Docs export to markdown
  */
 function htmlToMarkdown(html: string): string {
-  // Strip the full HTML wrapper - get just the body content
-  let body = html
-  const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i)
-  if (bodyMatch) {
-    body = bodyMatch[1]
+  // Debug: log list HTML structure to help diagnose nested list issues
+  if (DEBUG_GOOGLE_DOCS_HTML) {
+    const listPattern = /<(ul|ol)[^>]*>[\s\S]*?<\/\1>/gi
+    const lists = html.match(listPattern)
+    if (lists) {
+      console.log('[GoogleDocs] Found lists in HTML:')
+      lists.forEach((list, i) => {
+        console.log(`[GoogleDocs] List ${i + 1}:`, list.substring(0, 500))
+      })
+    }
   }
-
-  let md = body
-
-  // Remove Google Docs style tags and spans with inline styles
-  md = md.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-
-  // Headings (Google Docs uses h1-h6)
-  for (let i = 1; i <= 6; i++) {
-    const hashes = '#'.repeat(i)
-    const re = new RegExp(`<h${i}[^>]*>(.*?)<\\/h${i}>`, 'gi')
-    md = md.replace(re, (_match, content) => `${hashes} ${stripTags(content).trim()}\n\n`)
-  }
-
-  // Bold
-  md = md.replace(/<b[^>]*>(.*?)<\/b>/gi, '**$1**')
-  md = md.replace(/<strong[^>]*>(.*?)<\/strong>/gi, '**$1**')
-
-  // Italic
-  md = md.replace(/<i[^>]*>(.*?)<\/i>/gi, '*$1*')
-  md = md.replace(/<em[^>]*>(.*?)<\/em>/gi, '*$1*')
-
-  // Underline (no native markdown, use emphasis)
-  md = md.replace(/<u[^>]*>(.*?)<\/u>/gi, '_$1_')
-
-  // Strikethrough
-  md = md.replace(/<s[^>]*>(.*?)<\/s>/gi, '~~$1~~')
-  md = md.replace(/<strike[^>]*>(.*?)<\/strike>/gi, '~~$1~~')
-  md = md.replace(/<del[^>]*>(.*?)<\/del>/gi, '~~$1~~')
-
-  // Code (inline)
-  md = md.replace(/<code[^>]*>(.*?)<\/code>/gi, '`$1`')
-
-  // Pre/code blocks
-  md = md.replace(/<pre[^>]*>([\s\S]*?)<\/pre>/gi, (_match, content) => {
-    return '\n```\n' + stripTags(content).trim() + '\n```\n\n'
-  })
-
-  // Links
-  md = md.replace(/<a[^>]+href="([^"]*)"[^>]*>(.*?)<\/a>/gi, (_match, href, text) => {
-    const cleanText = stripTags(text).trim()
-    if (cleanText === href) return href
-    return `[${cleanText}](${href})`
-  })
-
-  // Images
-  md = md.replace(/<img[^>]+src="([^"]*)"[^>]*alt="([^"]*)"[^>]*\/?>/gi, '![$2]($1)')
-  md = md.replace(/<img[^>]+src="([^"]*)"[^>]*\/?>/gi, '![]($1)')
-
-  // Unordered lists
-  md = md.replace(/<ul[^>]*>([\s\S]*?)<\/ul>/gi, (_match, content) => {
-    return content.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_m: string, item: string) => {
-      return `- ${stripTags(item).trim()}\n`
-    }) + '\n'
-  })
-
-  // Ordered lists
-  let listCounter = 0
-  md = md.replace(/<ol[^>]*>([\s\S]*?)<\/ol>/gi, (_match, content) => {
-    listCounter = 0
-    return content.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_m: string, item: string) => {
-      listCounter++
-      return `${listCounter}. ${stripTags(item).trim()}\n`
-    }) + '\n'
-  })
-
-  // Blockquotes
-  md = md.replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, (_match, content) => {
-    return stripTags(content).trim().split('\n').map((line: string) => `> ${line}`).join('\n') + '\n\n'
-  })
-
-  // Horizontal rules
-  md = md.replace(/<hr[^>]*\/?>/gi, '\n---\n\n')
-
-  // Line breaks
-  md = md.replace(/<br[^>]*\/?>/gi, '\n')
-
-  // Paragraphs
-  md = md.replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, (_match, content) => {
-    const text = stripTags(content).trim()
-    if (!text) return '\n'
-    return text + '\n\n'
-  })
-
-  // Strip remaining tags
-  md = stripTags(md)
-
-  // Decode HTML entities
-  md = md.replace(/&amp;/g, '&')
-  md = md.replace(/&lt;/g, '<')
-  md = md.replace(/&gt;/g, '>')
-  md = md.replace(/&quot;/g, '"')
-  md = md.replace(/&#39;/g, "'")
-  md = md.replace(/&nbsp;/g, ' ')
-  md = md.replace(/&#(\d+);/g, (_match, code) => String.fromCharCode(parseInt(code)))
-
-  // Clean up excessive whitespace
-  md = md.replace(/\n{3,}/g, '\n\n')
-  md = md.trim() + '\n'
-
-  return md
-}
-
-/**
- * Strip HTML tags from a string
- */
-function stripTags(html: string): string {
-  return html.replace(/<[^>]*>/g, '')
+  return turndown.turndown(html)
 }
 
 /**

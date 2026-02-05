@@ -45,6 +45,9 @@ const TOOL_TIMEOUTS: Record<string, number> = {
 
 const DEFAULT_TIMEOUT = 30000
 
+// Maximum buffer size (1MB) to prevent memory exhaustion from malformed responses
+const MAX_BUFFER_SIZE = 1024 * 1024
+
 // Connection state
 let socketConnection: net.Socket | null = null
 let pendingRequests: Map<number | string, {
@@ -177,6 +180,13 @@ function connectToSocket(): Promise<net.Socket> {
 
     socket.on('data', (data) => {
       buffer += data.toString()
+
+      // Guard against unbounded buffer growth
+      if (buffer.length > MAX_BUFFER_SIZE) {
+        console.error('[Prose MCP] Buffer exceeded max size, disconnecting')
+        socket.destroy()
+        return
+      }
 
       // Process complete lines
       let newlineIndex: number

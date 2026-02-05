@@ -19,6 +19,9 @@ import type { ToolResult } from '../../shared/tools/types'
 const SOCKET_DIR = path.join(app.getPath('userData'), '')
 const SOCKET_PATH = path.join(SOCKET_DIR, 'prose.sock')
 
+// Maximum buffer size (1MB) to prevent memory exhaustion from malformed input
+const MAX_BUFFER_SIZE = 1024 * 1024
+
 /**
  * Unix Socket MCP Server.
  */
@@ -114,6 +117,13 @@ export class McpSocketServer {
 
     socket.on('data', async (data) => {
       buffer += data.toString()
+
+      // Guard against unbounded buffer growth
+      if (buffer.length > MAX_BUFFER_SIZE) {
+        console.error('[MCP Socket] Buffer exceeded max size, disconnecting client')
+        socket.destroy()
+        return
+      }
 
       // Process complete lines (newline-delimited JSON)
       let newlineIndex: number

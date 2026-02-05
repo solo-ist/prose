@@ -1,5 +1,5 @@
 import { ipcMain, dialog, app, shell, safeStorage, BrowserWindow } from 'electron'
-import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat } from 'fs/promises'
+import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat, copyFile } from 'fs/promises'
 import { join, normalize, isAbsolute } from 'path'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
@@ -1048,11 +1048,25 @@ export function setupIpcHandlers(): void {
 
       // Update Claude Desktop config
       let config: { mcpServers?: Record<string, unknown> } = { mcpServers: {} }
+      let configExists = false
       try {
         const configContent = await readFile(CONFIG_PATH, 'utf-8')
         config = JSON.parse(configContent)
+        configExists = true
       } catch {
         // Config doesn't exist, we'll create it
+      }
+
+      // Backup existing config before modifying
+      if (configExists) {
+        const BACKUP_PATH = CONFIG_PATH + '.backup'
+        try {
+          await copyFile(CONFIG_PATH, BACKUP_PATH)
+          console.log('[MCP:install] Backed up config to', BACKUP_PATH)
+        } catch (backupErr) {
+          console.error('[MCP:install] Failed to backup config:', backupErr)
+          // Continue anyway - backup failure shouldn't block install
+        }
       }
 
       // Ensure mcpServers exists

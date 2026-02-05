@@ -9,7 +9,7 @@ import { app, shell, BrowserWindow, session } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { setupIpcHandlers } from './ipc'
 import { createMenu } from './menu'
-import { getMcpHttpServer, getMcpBridge } from './mcp'
+import { getMcpHttpServer, getMcpBridge, getMcpSocketServer } from './mcp'
 import { initializeSpellcheck, setupContextMenu } from './spellcheck'
 
 console.log('[Main] Environment loaded. OCR URL:', process.env.REMARKABLE_OCR_URL ? 'set' : 'not set')
@@ -221,7 +221,7 @@ app.whenReady().then(async () => {
 
   // Handle renderer ready signal - this is called after settings and stores are initialized
   const { ipcMain } = await import('electron')
-  ipcMain.handle('renderer:ready', () => {
+  ipcMain.handle('renderer:ready', async () => {
     rendererReady = true
     console.log('[Main] Renderer signaled ready')
 
@@ -240,6 +240,17 @@ app.whenReady().then(async () => {
     }
     pendingFileOpens.length = 0
 
+    // Start MCP socket server now that renderer bridge is ready
+    // All MCP tools require renderer, so we can only start after this point
+    const socketServer = getMcpSocketServer()
+    socketServer.setToolInvokeHandler((name, args) => bridge.executeTool(name, args))
+    try {
+      await socketServer.start()
+      console.log('[Main] MCP socket server started')
+    } catch (err) {
+      console.warn('[Main] MCP socket server failed to start:', err instanceof Error ? err.message : err)
+    }
+
     return { success: true }
   })
 
@@ -252,4 +263,10 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+// Clean up socket server on quit
+app.on('will-quit', async () => {
+  const socketServer = getMcpSocketServer()
+  await socketServer.stop()
 })

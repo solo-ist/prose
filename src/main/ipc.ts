@@ -976,4 +976,143 @@ export function setupIpcHandlers(): void {
     const { removeGoogleSyncMetadataEntry } = await import('./google/sync')
     await removeGoogleSyncMetadataEntry(googleDocId)
   })
+
+  // MCP: Get installation status
+  ipcMain.handle('mcp:getStatus', async (): Promise<{
+    installed: boolean
+    version: string | null
+    appVersion: string
+    needsUpdate: boolean
+    configPath: string
+    serverPath: string
+  }> => {
+    const MCP_SERVER_DIR = join(app.getPath('userData'), 'mcp-server')
+    const MCP_SERVER_PATH = join(MCP_SERVER_DIR, 'mcp-stdio.js')
+    const VERSION_PATH = join(MCP_SERVER_DIR, 'version.json')
+    const CONFIG_PATH = join(homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+    const appVersion = app.getVersion()
+
+    let installed = false
+    let version: string | null = null
+    let needsUpdate = false
+
+    try {
+      await access(MCP_SERVER_PATH)
+      installed = true
+
+      // Check version
+      try {
+        const versionData = JSON.parse(await readFile(VERSION_PATH, 'utf-8'))
+        version = versionData.version
+        needsUpdate = version !== appVersion
+      } catch {
+        // No version file, needs update
+        needsUpdate = true
+      }
+    } catch {
+      // Server not installed
+    }
+
+    return {
+      installed,
+      version,
+      appVersion,
+      needsUpdate,
+      configPath: CONFIG_PATH,
+      serverPath: MCP_SERVER_PATH
+    }
+  })
+
+  // MCP: Install server
+  ipcMain.handle('mcp:install', async (): Promise<{ success: boolean; error?: string }> => {
+    const MCP_SERVER_DIR = join(app.getPath('userData'), 'mcp-server')
+    const MCP_SERVER_PATH = join(MCP_SERVER_DIR, 'mcp-stdio.js')
+    const VERSION_PATH = join(MCP_SERVER_DIR, 'version.json')
+    const CONFIG_PATH = join(homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+    const appVersion = app.getVersion()
+
+    try {
+      // Create MCP server directory
+      await mkdir(MCP_SERVER_DIR, { recursive: true })
+
+      // Copy the mcp-stdio.js from app resources
+      const resourcePath = app.isPackaged
+        ? join(process.resourcesPath, 'mcp-stdio.js')
+        : join(__dirname, '../../out/mcp-stdio.js')
+
+      const serverCode = await readFile(resourcePath, 'utf-8')
+      await writeFile(MCP_SERVER_PATH, serverCode, 'utf-8')
+
+      // Write version file
+      await writeFile(VERSION_PATH, JSON.stringify({ version: appVersion }), 'utf-8')
+
+      // Update Claude Desktop config
+      let config: { mcpServers?: Record<string, unknown> } = { mcpServers: {} }
+      try {
+        const configContent = await readFile(CONFIG_PATH, 'utf-8')
+        config = JSON.parse(configContent)
+      } catch {
+        // Config doesn't exist, we'll create it
+      }
+
+      // Ensure mcpServers exists
+      if (!config.mcpServers) {
+        config.mcpServers = {}
+      }
+
+      // Add Prose entry
+      config.mcpServers.prose = {
+        command: 'node',
+        args: [MCP_SERVER_PATH]
+      }
+
+      // Ensure Claude config directory exists
+      await mkdir(join(homedir(), 'Library', 'Application Support', 'Claude'), { recursive: true })
+      await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8')
+
+      return { success: true }
+    } catch (error) {
+      console.error('[MCP:install] Error:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  })
+
+  // MCP: Uninstall server
+  ipcMain.handle('mcp:uninstall', async (): Promise<{ success: boolean; error?: string }> => {
+    const MCP_SERVER_DIR = join(app.getPath('userData'), 'mcp-server')
+    const CONFIG_PATH = join(homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+
+    try {
+      // Remove from Claude Desktop config
+      try {
+        const configContent = await readFile(CONFIG_PATH, 'utf-8')
+        const config = JSON.parse(configContent)
+        if (config.mcpServers?.prose) {
+          delete config.mcpServers.prose
+          await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8')
+        }
+      } catch {
+        // Config doesn't exist or can't be read, that's fine
+      }
+
+      // Remove server files
+      try {
+        const { rm } = await import('fs/promises')
+        await rm(MCP_SERVER_DIR, { recursive: true, force: true })
+      } catch {
+        // Directory doesn't exist, that's fine
+      }
+
+      return { success: true }
+    } catch (error) {
+      console.error('[MCP:uninstall] Error:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  })
 }

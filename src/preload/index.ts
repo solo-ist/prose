@@ -152,6 +152,20 @@ export interface GoogleSyncMetadata {
   documents: Record<string, GoogleDocEntry>
 }
 
+export interface McpServerStatus {
+  installed: boolean
+  version: string | null
+  appVersion: string
+  needsUpdate: boolean
+  configPath: string
+  serverPath: string
+}
+
+export interface McpInstallResult {
+  success: boolean
+  error?: string
+}
+
 export interface ElectronAPI {
   openFile: () => Promise<FileResult | null>
   saveFile: (path: string, content: string) => Promise<void>
@@ -224,6 +238,10 @@ export interface ElectronAPI {
   googleGetSyncMetadata: () => Promise<GoogleSyncMetadata | null>
   googleUpdateSyncMetadataEntry: (entry: GoogleDocEntry) => Promise<void>
   googleRemoveSyncMetadataEntry: (googleDocId: string) => Promise<void>
+  // MCP Server integration
+  mcpGetStatus: () => Promise<McpServerStatus>
+  mcpInstall: () => Promise<McpInstallResult>
+  mcpUninstall: () => Promise<McpInstallResult>
 }
 
 export interface FileItem {
@@ -425,7 +443,11 @@ const api: ElectronAPI = {
   googleListRecentDocs: (maxResults?: number) => ipcRenderer.invoke('google:listRecentDocs', maxResults),
   googleGetSyncMetadata: () => ipcRenderer.invoke('google:getSyncMetadata'),
   googleUpdateSyncMetadataEntry: (entry: GoogleDocEntry) => ipcRenderer.invoke('google:updateSyncMetadataEntry', entry),
-  googleRemoveSyncMetadataEntry: (googleDocId: string) => ipcRenderer.invoke('google:removeSyncMetadataEntry', googleDocId)
+  googleRemoveSyncMetadataEntry: (googleDocId: string) => ipcRenderer.invoke('google:removeSyncMetadataEntry', googleDocId),
+  // MCP Server integration
+  mcpGetStatus: () => ipcRenderer.invoke('mcp:getStatus'),
+  mcpInstall: () => ipcRenderer.invoke('mcp:install'),
+  mcpUninstall: () => ipcRenderer.invoke('mcp:uninstall')
 }
 
 contextBridge.exposeInMainWorld('api', api)

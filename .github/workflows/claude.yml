@@ -33,20 +33,20 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          claude_args: '--allowedTools "Bash(gh *),Bash(git diff*),Bash(git log*),Bash(git show*),Read,Glob,Grep"'
+          claude_args: '--allowedTools "Bash(gh pr *),Bash(git diff*),Bash(git log*),Bash(git show*),Read,Glob,Grep"'
           prompt: |
-            Review this pull request and provide feedback.
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
 
-            Focus on:
+            Review this pull request. Focus on:
             - Code correctness and potential bugs
             - Security concerns
             - Performance implications
-            - Code style and maintainability
 
-            Be concise and actionable. Only comment on significant issues.
+            Be concise. Only comment on significant issues - if the code looks good, say so briefly.
 
-            REPO: ${{ github.repository }}
-            PR NUMBER: ${{ github.event.pull_request.number }}
+            IMPORTANT: Post your review as a PR comment using `gh pr comment ${{ github.event.pull_request.number }}`
+            Do not just output text - you must use the gh command to post your feedback.
 
   # Manual invocation via @claude mentions
   claude:

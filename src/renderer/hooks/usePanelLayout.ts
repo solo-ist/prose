@@ -147,6 +147,19 @@ export function usePanelLayout({ fileListPanelRef, chatPanelRef }: UsePanelLayou
     prevFileListOpen.current = isFileListOpen
   }, [isChatOpen, isFileListOpen, chatPanelRef, fileListPanelRef])
 
+  // --- Mount: force panels to match store state ---
+  // react-resizable-panels restores persisted sizes from localStorage
+  // (autoSaveId), which may give closed panels non-zero width.
+  useEffect(() => {
+    if (!isChatOpen) {
+      chatPanelRef.current?.resize(0)
+    }
+    if (!isFileListOpen) {
+      fileListPanelRef.current?.resize(0)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Mount only
+
   // --- Window resize listener ---
 
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type MouseEvent, type KeyboardEvent } from 'react'
+import { useState, useRef, useEffect, useCallback, type MouseEvent, type KeyboardEvent } from 'react'
 import { Reorder } from 'framer-motion'
 import { X, FileText } from 'lucide-react'
 import { cn } from '../../lib/utils'
@@ -17,6 +17,8 @@ import {
   TooltipTrigger
 } from '../ui/tooltip'
 import type { TabTier } from '../../hooks/useTabTier'
+import { useTabEmoji } from '../../hooks/useTabEmoji'
+import { regenerateEmoji } from '../../lib/emojiService'
 
 interface TabBarProps {
   onTabClick: (tabId: string) => void
@@ -207,6 +209,10 @@ function TabItem({
   const tabs = useTabStore((state) => state.tabs)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  // Emoji for compact tiers
+  const needsEmoji = tier >= 3
+  const emoji = useTabEmoji(tab, needsEmoji)
+
   // Focus input when editing starts
   useEffect(() => {
     if (isEditing && inputRef.current) {
@@ -219,8 +225,12 @@ function TabItem({
   const lastDot = tab.path ? tab.path.lastIndexOf('.') : -1
   const extension = lastDot > 0 ? tab.path!.substring(lastDot) : ''
 
+  const handleRegenEmoji = useCallback(() => {
+    regenerateEmoji(tab)
+  }, [tab])
+
   // Build tooltip content based on tier
-  const tooltipContent = tier >= 4
+  const tooltipContent = tier >= 3
     ? (
       <div className="text-xs">
         <p className="font-medium">{tab.title}{extension}{tab.isDirty ? ' *' : ''}</p>
@@ -230,6 +240,9 @@ function TabItem({
     : tab.path
       ? <p className="text-xs break-all">{tab.path}</p>
       : null
+
+  // Show emoji icon for tier 3+ instead of FileText
+  const showEmoji = tier >= 3
 
   return (
     <Reorder.Item
@@ -255,7 +268,16 @@ function TabItem({
                     : 'text-muted-foreground'
                 )}
               >
-                {tier < 4 && (
+                {/* Icon: emoji for tier 3+, FileText for lower tiers */}
+                {showEmoji ? (
+                  <span
+                    className="text-base leading-none shrink-0 transition-opacity duration-200"
+                    role="img"
+                    aria-label="Tab icon"
+                  >
+                    {emoji}
+                  </span>
+                ) : (
                   tab.path ? (
                     <div
                       onClick={onShowInFolder}
@@ -276,11 +298,7 @@ function TabItem({
                     <FileText className="h-3.5 w-3.5 shrink-0 opacity-40" />
                   )
                 )}
-                {tier >= 4 && (
-                  <span className="text-base leading-none shrink-0" role="img">
-                    📄
-                  </span>
-                )}
+                {/* Text: shown for tiers < 4, hidden at tier 4 (emoji only) */}
                 {isEditing ? (
                   <Input
                     ref={inputRef}
@@ -306,12 +324,14 @@ function TabItem({
                     }}
                   >
                     {tab.title}
-                    <span className="text-muted-foreground">{extension}</span>
+                    {tier < 3 && <span className="text-muted-foreground">{extension}</span>}
                   </span>
                 ) : null}
+                {/* Dirty indicator: shown for tiers < 4 */}
                 {tier < 4 && tab.isDirty && (
                   <span className="text-muted-foreground shrink-0">*</span>
                 )}
+                {/* Close button: shown for tiers < 4; at tier 4 use context menu or middle-click */}
                 {tier < 4 && (
                   <div
                     onClick={onClose}
@@ -353,6 +373,14 @@ function TabItem({
             Close Others
           </ContextMenuItem>
           <ContextMenuSeparator />
+          {tier >= 3 && (
+            <>
+              <ContextMenuItem onClick={handleRegenEmoji}>
+                Regenerate Emoji
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+            </>
+          )}
           <ContextMenuItem onClick={onCloseAll}>
             Close All
           </ContextMenuItem>

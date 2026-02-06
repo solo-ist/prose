@@ -53,15 +53,23 @@ export interface SessionState {
   savedAt: number
 }
 
+// Emoji cache entry type
+export interface EmojiCacheEntry {
+  emoji: string
+  generatedAt: number
+  titleAtGeneration: string
+}
+
 // Database constants
 const DB_NAME = 'prose-db'
-const DB_VERSION = 5
+const DB_VERSION = 6
 const STORES = {
   DRAFTS: 'drafts',
   CONVERSATIONS: 'conversations',
   ANNOTATIONS: 'annotations',
   COMMAND_HISTORY: 'command_history',
-  SUGGESTIONS: 'suggestions'
+  SUGGESTIONS: 'suggestions',
+  EMOJI_CACHE: 'emoji_cache'
 } as const
 
 // Recovery types
@@ -89,6 +97,8 @@ export interface DatabaseBackup {
  * v2: Added annotations store
  * v3: Added command_history store
  * v4: Added suggestions store (persists AI suggestions across tab switches)
+ * v5: (no schema change, version alignment)
+ * v6: Added emoji_cache store (LLM-generated emoji icons for tabs)
  *
  * When bumping version:
  * 1. Update DB_VERSION above
@@ -341,6 +351,9 @@ function getDB(): Promise<IDBDatabase> {
               if (!db.objectStoreNames.contains(STORES.SUGGESTIONS)) {
                 db.createObjectStore(STORES.SUGGESTIONS)
               }
+              if (!db.objectStoreNames.contains(STORES.EMOJI_CACHE)) {
+                db.createObjectStore(STORES.EMOJI_CACHE)
+              }
             }
           })
 
@@ -417,6 +430,9 @@ function getDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORES.SUGGESTIONS)) {
         db.createObjectStore(STORES.SUGGESTIONS)
+      }
+      if (!db.objectStoreNames.contains(STORES.EMOJI_CACHE)) {
+        db.createObjectStore(STORES.EMOJI_CACHE)
       }
     }
   })
@@ -879,5 +895,107 @@ export async function deleteSuggestions(documentId: string): Promise<void> {
     })
   } catch (error) {
     console.error('Failed to delete suggestions:', error)
+  }
+}
+
+// ============ Emoji Cache Operations ============
+
+/**
+ * Save an emoji cache entry
+ */
+export async function saveEmojiCache(
+  key: string,
+  entry: EmojiCacheEntry
+): Promise<void> {
+  try {
+    const db = await getDB()
+    if (!db.objectStoreNames.contains(STORES.EMOJI_CACHE)) return
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORES.EMOJI_CACHE, 'readwrite')
+      const store = transaction.objectStore(STORES.EMOJI_CACHE)
+      const request = store.put(entry, key)
+
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve()
+    })
+  } catch (error) {
+    console.error('Failed to save emoji cache:', error)
+  }
+}
+
+/**
+ * Load a single emoji cache entry
+ */
+export async function loadEmojiCache(
+  key: string
+): Promise<EmojiCacheEntry | null> {
+  try {
+    const db = await getDB()
+    if (!db.objectStoreNames.contains(STORES.EMOJI_CACHE)) return null
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORES.EMOJI_CACHE, 'readonly')
+      const store = transaction.objectStore(STORES.EMOJI_CACHE)
+      const request = store.get(key)
+
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve(request.result ?? null)
+    })
+  } catch (error) {
+    console.error('Failed to load emoji cache:', error)
+    return null
+  }
+}
+
+/**
+ * Load all emoji cache entries (for seeding memory cache on init)
+ */
+export async function loadAllEmojiCache(): Promise<Record<string, EmojiCacheEntry>> {
+  try {
+    const db = await getDB()
+    if (!db.objectStoreNames.contains(STORES.EMOJI_CACHE)) return {}
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORES.EMOJI_CACHE, 'readonly')
+      const store = transaction.objectStore(STORES.EMOJI_CACHE)
+      const entries: Record<string, EmojiCacheEntry> = {}
+
+      const cursorRequest = store.openCursor()
+      cursorRequest.onerror = () => reject(cursorRequest.error)
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result
+        if (cursor) {
+          entries[cursor.key as string] = cursor.value
+          cursor.continue()
+        } else {
+          resolve(entries)
+        }
+      }
+    })
+  } catch (error) {
+    console.error('Failed to load all emoji cache:', error)
+    return {}
+  }
+}
+
+/**
+ * Delete an emoji cache entry
+ */
+export async function deleteEmojiCache(key: string): Promise<void> {
+  try {
+    const db = await getDB()
+    if (!db.objectStoreNames.contains(STORES.EMOJI_CACHE)) return
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORES.EMOJI_CACHE, 'readwrite')
+      const store = transaction.objectStore(STORES.EMOJI_CACHE)
+      const request = store.delete(key)
+
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve()
+    })
+  } catch (error) {
+    console.error('Failed to delete emoji cache:', error)
   }
 }

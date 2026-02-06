@@ -507,6 +507,23 @@ export function SettingsDialog() {
               </div>
             )}
 
+            <Separator />
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="emojiIcons">Emoji Tab Icons</Label>
+                <p className="text-xs text-muted-foreground">
+                  Show AI-generated emoji icons on all tabs
+                </p>
+              </div>
+              <Switch
+                id="emojiIcons"
+                checked={settings.llm.emojiIcons ?? false}
+                onCheckedChange={(checked) => setLLMConfig({ emojiIcons: checked })}
+                disabled={settings.llm.provider !== 'anthropic' || !settings.llm.apiKey}
+              />
+            </div>
+
           </TabsContent>
 
           <TabsContent value="integrations" className="space-y-4 mt-4">

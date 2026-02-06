@@ -7,6 +7,7 @@ export interface Settings {
     model: string
     apiKey: string
     baseUrl?: string
+    emojiIcons?: boolean
   }
   google?: {
     email: string        // Display only (token stored securely)
@@ -376,6 +377,10 @@ export interface ElectronAPI {
   googleGetSyncMetadata: () => Promise<GoogleSyncMetadata | null>
   googleUpdateSyncMetadataEntry: (entry: GoogleDocEntry) => Promise<void>
   googleRemoveSyncMetadataEntry: (googleDocId: string) => Promise<void>
+  // Emoji generation (runs in main process to avoid CORS)
+  emojiGenerate: (title: string, contentPreview?: string) => Promise<{ emoji: string | null; error?: string }>
+  // Window fullscreen state
+  onFullscreenChange: (callback: (isFullscreen: boolean) => void) => () => void
 }
 
 declare global {

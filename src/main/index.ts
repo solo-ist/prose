@@ -126,6 +126,14 @@ function createWindow(): BrowserWindow {
     mainWindow.show()
   })
 
+  // Notify renderer of fullscreen changes (for traffic light padding)
+  mainWindow.on('enter-full-screen', () => {
+    mainWindow.webContents.send('window:fullscreen-change', true)
+  })
+  mainWindow.on('leave-full-screen', () => {
+    mainWindow.webContents.send('window:fullscreen-change', false)
+  })
+
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
@@ -159,12 +167,9 @@ app.whenReady().then(async () => {
   ].join('; ')
 
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': [cspDirectives]
-      }
-    })
+    const responseHeaders = { ...details.responseHeaders }
+    responseHeaders['Content-Security-Policy'] = [cspDirectives]
+    callback({ responseHeaders })
   })
 
   // Start HTTP/SSE server for MCP communication (Claude Desktop connects here)

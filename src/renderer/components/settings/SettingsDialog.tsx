@@ -176,6 +176,8 @@ export function SettingsDialog() {
                   <SelectItem value="light">Light</SelectItem>
                   <SelectItem value="dark">Dark</SelectItem>
                   <SelectItem value="system">System</SelectItem>
+                  <SelectItem value="termy-green-light">Termy Green Light</SelectItem>
+                  <SelectItem value="termy-green-dark">Termy Green Dark</SelectItem>
                 </SelectContent>
               </Select>
             </div>

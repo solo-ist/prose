@@ -7,11 +7,19 @@ type SettingsTab = 'general' | 'editor' | 'llm' | 'integrations' | 'account'
 
 // Helper to apply theme to document
 function applyTheme(theme: Settings['theme']): void {
-  const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-  if (isDark) {
-    document.documentElement.classList.add('dark')
+  // Remove all theme classes first
+  document.documentElement.classList.remove('dark', 'termy-green-dark', 'termy-green-light')
+
+  // Apply the appropriate theme class(es)
+  if (theme === 'termy-green-dark') {
+    document.documentElement.classList.add('dark', 'termy-green-dark')
+  } else if (theme === 'termy-green-light') {
+    document.documentElement.classList.add('termy-green-light')
   } else {
-    document.documentElement.classList.remove('dark')
+    const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+    if (isDark) {
+      document.documentElement.classList.add('dark')
+    }
   }
 }
 
@@ -74,6 +82,12 @@ const defaultSettings: Settings = {
 function getEffectiveTheme(theme: Settings['theme']): 'dark' | 'light' {
   if (theme === 'system') {
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  }
+  if (theme === 'termy-green-dark') {
+    return 'dark'
+  }
+  if (theme === 'termy-green-light') {
+    return 'light'
   }
   return theme
 }

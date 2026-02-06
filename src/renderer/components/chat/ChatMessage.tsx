@@ -419,27 +419,28 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
       onMouseEnter={() => setShowTimestamp(true)}
       onMouseLeave={() => setShowTimestamp(false)}
     >
-      <div
-        className={cn(
-          'flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
-          isUser ? 'bg-primary/10' : 'bg-primary/20'
-        )}
-      >
-        {isUser ? (
-          <User className="h-4 w-4 text-primary" />
-        ) : (
-          <Bot className="h-4 w-4 text-primary" />
-        )}
-      </div>
-      <div className="flex-1 space-y-2 overflow-hidden">
+      {/* Left rail with avatar and copy button */}
+      <div className="flex flex-col items-center gap-1 w-8 shrink-0">
+        <div
+          className={cn(
+            'flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
+            isUser ? 'bg-primary/10' : 'bg-primary/20'
+          )}
+        >
+          {isUser ? (
+            <User className="h-4 w-4 text-primary" />
+          ) : (
+            <Bot className="h-4 w-4 text-primary" />
+          )}
+        </div>
         {!isUser && (
-          <div className="flex items-center justify-between mb-1">
-            <div className="flex-1" />
-            <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-              <CopyButton value={message.content} />
-            </div>
+          <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+            <CopyButton value={message.content} />
           </div>
         )}
+      </div>
+      {/* Content area */}
+      <div className="flex-1 min-w-0 space-y-2">{/* Removed overflow-hidden to allow proper text wrapping */}
         {message.context && (
           <div className="rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">
             <span className="font-medium">Context:</span>

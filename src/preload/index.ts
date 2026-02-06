@@ -242,6 +242,8 @@ export interface ElectronAPI {
   mcpGetStatus: () => Promise<McpServerStatus>
   mcpInstall: () => Promise<McpInstallResult>
   mcpUninstall: () => Promise<McpInstallResult>
+  // Emoji generation (runs in main process to avoid CORS)
+  emojiGenerate: (title: string, contentPreview?: string) => Promise<{ emoji: string | null; error?: string }>
   // Window fullscreen state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => () => void
 }
@@ -450,6 +452,8 @@ const api: ElectronAPI = {
   mcpGetStatus: () => ipcRenderer.invoke('mcp:getStatus'),
   mcpInstall: () => ipcRenderer.invoke('mcp:install'),
   mcpUninstall: () => ipcRenderer.invoke('mcp:uninstall'),
+  // Emoji generation
+  emojiGenerate: (title: string, contentPreview?: string) => ipcRenderer.invoke('emoji:generate', title, contentPreview),
   // Window fullscreen state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, isFullscreen: boolean): void => {

@@ -10,15 +10,14 @@ import {
 const memoryCache = new Map<string, string>()
 
 // In-flight request dedup
-const inflight = new Map<string, Promise<string>>()
+const inflight = new Map<string, Promise<string | null>>()
 
 // Concurrency limiter
 const MAX_CONCURRENT = 2
 let activeCount = 0
 const queue: Array<() => void> = []
 
-const FALLBACK_EMOJI = '\u{1F4C4}' // 📄
-const EMOJI_REGEX = /^\p{Emoji_Presentation}$/u
+export const FALLBACK_EMOJI = '\u{1F4C4}' // 📄
 
 function getCacheKey(tab: { path: string | null; title: string }): string {
   return tab.path ? `path:${tab.path}` : `title:${tab.title}`
@@ -31,6 +30,12 @@ function getPromptTitle(tab: { path: string | null; title: string }): string {
     return filename.replace(/\.[^.]+$/, '')
   }
   return tab.title
+}
+
+function getContentPreview(tab: { content?: string }): string | undefined {
+  if (!tab.content) return undefined
+  // First 200 chars of content, stripped of markdown syntax noise
+  return tab.content.slice(0, 200).replace(/^#+\s*/gm, '').trim() || undefined
 }
 
 async function acquireConcurrencySlot(): Promise<void> {
@@ -52,59 +57,29 @@ function releaseConcurrencySlot(): void {
   if (next) next()
 }
 
-async function callAnthropicApi(title: string, apiKey: string): Promise<string> {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 10,
-      system: 'Respond with exactly ONE emoji that represents the document title. Nothing else — no text, no explanation, just the emoji.',
-      messages: [{ role: 'user', content: title }]
-    })
-  })
-
-  if (!response.ok) {
-    throw new Error(`Anthropic API error: ${response.status}`)
-  }
-
-  const data = await response.json()
-  const text = data.content?.[0]?.text?.trim() ?? ''
-
-  // Validate: must be a single emoji
-  // Be permissive — accept the first emoji-like character(s)
-  const emojiMatch = text.match(/\p{Emoji_Presentation}/u)
-  if (emojiMatch) {
-    return emojiMatch[0]
-  }
-
-  return FALLBACK_EMOJI
-}
-
 /**
  * Generate an emoji for a tab. Returns cached result immediately if available,
  * otherwise triggers async generation and returns fallback.
+ * Only caches real emoji results — fallbacks are NOT cached, allowing retries.
  */
-export async function generateEmoji(tab: { path: string | null; title: string }): Promise<string> {
+export async function generateEmoji(tab: { path: string | null; title: string; content?: string }): Promise<string> {
   const key = getCacheKey(tab)
 
-  // 1. Check memory cache
+  // 1. Check memory cache (only contains real emojis, never fallback)
   const cached = memoryCache.get(key)
   if (cached) return cached
 
   // 2. Check for inflight request (dedup)
   const existing = inflight.get(key)
-  if (existing) return existing
+  if (existing) {
+    const result = await existing
+    return result ?? FALLBACK_EMOJI
+  }
 
-  // 3. Check IndexedDB cache
+  // 3. Check IndexedDB cache (skip stale fallback entries from prior buggy runs)
   try {
     const dbEntry = await loadEmojiCache(key)
-    if (dbEntry) {
+    if (dbEntry && dbEntry.emoji !== FALLBACK_EMOJI) {
       memoryCache.set(key, dbEntry.emoji)
       return dbEntry.emoji
     }
@@ -112,31 +87,31 @@ export async function generateEmoji(tab: { path: string | null; title: string })
     // Ignore DB errors, proceed to API
   }
 
-  // 4. Check if we have an Anthropic API key
-  const settings = await getApi().loadSettings()
-  if (settings.llm.provider !== 'anthropic' || !settings.llm.apiKey) {
-    memoryCache.set(key, FALLBACK_EMOJI)
-    return FALLBACK_EMOJI
-  }
-
-  // 5. Make API call with concurrency limiting
+  // 4. Make API call via IPC (main process handles provider/key checks)
   const title = getPromptTitle(tab)
-  const promise = (async () => {
+  const contentPreview = getContentPreview(tab)
+  const promise = (async (): Promise<string | null> => {
     await acquireConcurrencySlot()
     try {
-      const emoji = await callAnthropicApi(title, settings.llm.apiKey)
-      memoryCache.set(key, emoji)
-      // Persist to IndexedDB
-      await saveEmojiCache(key, {
-        emoji,
-        generatedAt: Date.now(),
-        titleAtGeneration: title
-      }).catch(() => {}) // Don't fail on DB error
-      return emoji
+      const result = await getApi().emojiGenerate(title, contentPreview)
+
+      if (result.emoji) {
+        memoryCache.set(key, result.emoji)
+        // Persist to IndexedDB
+        await saveEmojiCache(key, {
+          emoji: result.emoji,
+          generatedAt: Date.now(),
+          titleAtGeneration: title
+        }).catch(() => {}) // Don't fail on DB error
+        return result.emoji
+      }
+
+      // No emoji returned (no API key, error, etc.) — don't cache
+      console.warn('[emojiService] No emoji generated:', result.error)
+      return null
     } catch (err) {
       console.warn('[emojiService] Generation failed:', err)
-      memoryCache.set(key, FALLBACK_EMOJI)
-      return FALLBACK_EMOJI
+      return null
     } finally {
       releaseConcurrencySlot()
       inflight.delete(key)
@@ -144,7 +119,8 @@ export async function generateEmoji(tab: { path: string | null; title: string })
   })()
 
   inflight.set(key, promise)
-  return promise
+  const result = await promise
+  return result ?? FALLBACK_EMOJI
 }
 
 /**
@@ -157,7 +133,7 @@ export function getEmojiSync(tab: { path: string | null; title: string }): strin
 /**
  * Regenerate emoji for a tab (clears cache and generates fresh).
  */
-export async function regenerateEmoji(tab: { path: string | null; title: string }): Promise<string> {
+export async function regenerateEmoji(tab: { path: string | null; title: string; content?: string }): Promise<string> {
   const key = getCacheKey(tab)
   memoryCache.delete(key)
   await deleteEmojiCache(key).catch(() => {})
@@ -171,6 +147,8 @@ export async function seedEmojiCache(): Promise<void> {
   try {
     const entries = await loadAllEmojiCache()
     for (const [key, entry] of Object.entries(entries)) {
+      // Skip stale fallback entries from prior runs that cached 📄
+      if (entry.emoji === FALLBACK_EMOJI) continue
       memoryCache.set(key, entry.emoji)
     }
   } catch {

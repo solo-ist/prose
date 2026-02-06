@@ -19,6 +19,7 @@ import {
 import type { TabTier } from '../../hooks/useTabTier'
 import { useTabEmoji } from '../../hooks/useTabEmoji'
 import { regenerateEmoji } from '../../lib/emojiService'
+import { useSettings } from '../../hooks/useSettings'
 
 interface TabBarProps {
   onTabClick: (tabId: string) => void
@@ -209,9 +210,10 @@ function TabItem({
   const tabs = useTabStore((state) => state.tabs)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // Emoji for compact tiers
-  const needsEmoji = tier >= 3
-  const emoji = useTabEmoji(tab, needsEmoji)
+  // Emoji: always generate eagerly, display based on tab width or setting
+  const { settings } = useSettings()
+  const emoji = useTabEmoji(tab)
+  const showEmoji = settings.llm.emojiIcons || (tabWidth !== undefined && tabWidth <= 140)
 
   // Focus input when editing starts
   useEffect(() => {
@@ -229,8 +231,8 @@ function TabItem({
     regenerateEmoji(tab)
   }, [tab])
 
-  // Build tooltip content based on tier
-  const tooltipContent = tier >= 3
+  // Build tooltip content based on whether emoji is shown (name may be truncated/hidden)
+  const tooltipContent = showEmoji
     ? (
       <div className="text-xs">
         <p className="font-medium">{tab.title}{extension}{tab.isDirty ? ' *' : ''}</p>
@@ -240,9 +242,6 @@ function TabItem({
     : tab.path
       ? <p className="text-xs break-all">{tab.path}</p>
       : null
-
-  // Show emoji icon for tier 3+ instead of FileText
-  const showEmoji = tier >= 3
 
   return (
     <Reorder.Item
@@ -324,7 +323,7 @@ function TabItem({
                     }}
                   >
                     {tab.title}
-                    {tier < 3 && <span className="text-muted-foreground">{extension}</span>}
+                    {!showEmoji && <span className="text-muted-foreground">{extension}</span>}
                   </span>
                 ) : null}
                 {/* Dirty indicator: shown for tiers < 4 */}
@@ -373,7 +372,7 @@ function TabItem({
             Close Others
           </ContextMenuItem>
           <ContextMenuSeparator />
-          {tier >= 3 && (
+          {showEmoji && (
             <>
               <ContextMenuItem onClick={handleRegenEmoji}>
                 Regenerate Emoji

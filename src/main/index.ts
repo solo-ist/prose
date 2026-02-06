@@ -169,15 +169,6 @@ app.whenReady().then(async () => {
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const responseHeaders = { ...details.responseHeaders }
     responseHeaders['Content-Security-Policy'] = [cspDirectives]
-
-    // Inject CORS headers for Anthropic API responses so the renderer
-    // can make direct fetch() calls (used by emoji generation service)
-    if (details.url.startsWith('https://api.anthropic.com/')) {
-      responseHeaders['Access-Control-Allow-Origin'] = ['*']
-      responseHeaders['Access-Control-Allow-Headers'] = ['Content-Type, x-api-key, anthropic-version, anthropic-dangerous-direct-browser-access']
-      responseHeaders['Access-Control-Allow-Methods'] = ['POST, OPTIONS']
-    }
-
     callback({ responseHeaders })
   })
 

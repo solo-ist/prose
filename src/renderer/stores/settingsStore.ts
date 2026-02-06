@@ -53,7 +53,8 @@ const defaultSettings: Settings = {
   llm: {
     provider: 'anthropic',
     model: 'claude-sonnet-4-5-20250929',
-    apiKey: ''
+    apiKey: '',
+    emojiIcons: false
   },
   editor: {
     fontSize: 16,

@@ -463,6 +463,9 @@ export const browserApi: ElectronAPI = {
   googleUpdateSyncMetadataEntry: async () => {},
   googleRemoveSyncMetadataEntry: async () => {},
 
+  // Emoji generation - not available in browser (CORS blocks Anthropic)
+  emojiGenerate: async (_title: string, _contentPreview?: string) => ({ emoji: null, error: 'Not available in browser mode' }),
+
   // Window fullscreen - not available in browser
   onFullscreenChange: (_callback: (isFullscreen: boolean) => void) => {
     return () => {}

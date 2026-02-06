@@ -89,7 +89,8 @@ const defaultSettings: Settings = {
   llm: {
     provider: 'anthropic',
     model: 'claude-sonnet-4-5-20250929',
-    apiKey: ''
+    apiKey: '',
+    emojiIcons: false
   },
   editor: {
     fontSize: 16,
@@ -857,6 +858,48 @@ export function setupIpcHandlers(): void {
       return await clearNotebookMarkdownPath(notebookId, syncDirectory)
     }
   )
+
+  // Emoji: Generate emoji for a tab title (runs in main process to avoid CORS)
+  ipcMain.handle('emoji:generate', async (_event, title: string, contentPreview?: string): Promise<{ emoji: string | null; error?: string }> => {
+    try {
+      // Read settings to check for Anthropic API key
+      let settings: Settings
+      try {
+        const content = await readFile(SETTINGS_PATH, 'utf-8')
+        settings = { ...defaultSettings, ...JSON.parse(content) }
+      } catch {
+        settings = defaultSettings
+      }
+
+      if (settings.llm.provider !== 'anthropic' || !settings.llm.apiKey) {
+        return { emoji: null, error: 'no-api-key' }
+      }
+
+      const Anthropic = (await import('@anthropic-ai/sdk')).default
+      const client = new Anthropic({ apiKey: settings.llm.apiKey })
+
+      // Build prompt with optional content preview for better context
+      let prompt = title
+      if (contentPreview) {
+        prompt = `Title: ${title}\nContent preview: ${contentPreview}`
+      }
+
+      const response = await client.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 10,
+        system: 'Respond with exactly ONE emoji that represents the document. Nothing else — no text, no explanation, just the emoji.',
+        messages: [{ role: 'user', content: prompt }]
+      })
+
+      const text = response.content[0]?.type === 'text' ? response.content[0].text.trim() : ''
+      const emojiMatch = text.match(/\p{Emoji_Presentation}/u)
+
+      return { emoji: emojiMatch ? emojiMatch[0] : null }
+    } catch (err) {
+      console.error('[emoji:generate] Error:', err)
+      return { emoji: null, error: err instanceof Error ? err.message : 'Unknown error' }
+    }
+  })
 
   // Window: Close window (macOS) or quit app (Windows/Linux)
   ipcMain.handle('window:close', (event) => {

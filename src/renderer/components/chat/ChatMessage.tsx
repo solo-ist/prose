@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { cn } from '../../lib/utils'
 import type { ChatMessage as ChatMessageType } from '../../types'
-import { User, Bot, Wand2, Check, AlertCircle, ArrowRight, Sparkles, CheckCircle2, XCircle } from 'lucide-react'
+import { User, Wand2, Check, AlertCircle, ArrowRight, Sparkles, CheckCircle2, XCircle } from 'lucide-react'
 import { parseEditBlocks, hasEditBlocks, stripEditBlocks, type EditBlock } from '../../lib/editBlocks'
 import { applyEditsAsDiffs, applyEditsDirect, type ApplyResult, type EditProvenance } from '../../lib/applyEdit'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
@@ -10,6 +10,8 @@ import { useEditorStore } from '../../stores/editorStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { CopyButton } from '../ui/copy-button'
 import { jumpToLine } from '../../lib/lineNavigation'
+import avatarDark from '../../assets/avatar-dark.png'
+import avatarLight from '../../assets/avatar-light.png'
 
 // Tool call indicator component with AI sparkle styling
 function ToolCallIndicator({ name, status, children }: { name: string; status: 'executing' | 'success' | 'error'; children?: React.ReactNode }) {
@@ -360,7 +362,9 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
   const agentMode = useChatStore((state) => state.agentMode)
   const activeConversationId = useChatStore((state) => state.activeConversationId)
   const documentId = useEditorStore((state) => state.document.documentId)
-  const llmModel = useSettingsStore((state) => state.settings.llm.model)
+  const settings = useSettingsStore((state) => state.settings)
+  const effectiveTheme = useSettingsStore((state) => state.effectiveTheme)
+  const llmModel = settings.llm.model
   const isUser = message.role === 'user'
   const containsEdits = !isUser && hasEditBlocks(message.content)
   const editBlocks = containsEdits ? parseEditBlocks(message.content) : []
@@ -423,14 +427,32 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
       <div className="flex flex-col items-center gap-2 w-8 shrink-0">
         <div
           className={cn(
-            'flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
-            isUser ? 'bg-primary/10' : 'bg-primary/20'
+            'flex h-8 w-8 shrink-0 items-center justify-center rounded-full overflow-hidden',
+            isUser
+              ? settings.google?.picture
+                ? effectiveTheme === 'dark' ? 'ring-2 ring-[#004400]' : 'ring-2 ring-[#40ff40]'
+                : 'bg-primary/10'
+              : effectiveTheme === 'dark'
+                ? 'bg-[#020901] ring-2 ring-[#004400]'
+                : 'bg-[#fbfdfa] ring-2 ring-[#40ff40]'
           )}
         >
           {isUser ? (
-            <User className="h-4 w-4 text-primary" />
+            settings.google?.picture ? (
+              <img
+                src={settings.google.picture}
+                alt="User"
+                className="h-8 w-8 rounded-full object-cover"
+              />
+            ) : (
+              <User className="h-4 w-4 text-primary" />
+            )
           ) : (
-            <Bot className="h-4 w-4 text-primary" />
+            <img
+              src={effectiveTheme === 'dark' ? avatarDark : avatarLight}
+              alt="Prose"
+              className="h-5 w-5 object-contain"
+            />
           )}
         </div>
         {!isUser && (

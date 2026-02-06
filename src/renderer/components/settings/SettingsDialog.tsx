@@ -114,7 +114,10 @@ export function SettingsDialog() {
   }
 
   const handleTabChange = (value: string) => {
-    // Reset scroll position to top when switching tabs
+    // Reset scroll on the outgoing (currently visible) tab.
+    // The incoming tab is still hidden at this point, so browsers
+    // ignore scrollTop changes on it. Resetting the outgoing tab
+    // ensures it starts at the top when the user returns to it.
     const tabRefs: Record<string, React.RefObject<HTMLDivElement>> = {
       general: generalTabRef,
       editor: editorTabRef,
@@ -123,9 +126,9 @@ export function SettingsDialog() {
       account: accountTabRef
     }
 
-    const ref = tabRefs[value]
-    if (ref?.current) {
-      ref.current.scrollTop = 0
+    const outgoingRef = tabRefs[dialogTab]
+    if (outgoingRef?.current) {
+      outgoingRef.current.scrollTop = 0
     }
 
     setDialogTab(value as typeof dialogTab)

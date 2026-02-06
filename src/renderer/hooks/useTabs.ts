@@ -223,7 +223,31 @@ export function useTabs() {
   }, [saveCurrentTabState, addTab, setDocument, setCursorPosition, setEditing])
 
   /**
+   * Helper function to check if a tab is empty and untitled
+   * Returns true if the tab has no path and no meaningful content
+   */
+  const isEmptyUntitled = useCallback((tab: Tab | null): boolean => {
+    if (!tab) return false
+
+    // Must be untitled (no path)
+    if (tab.path !== null) return false
+
+    // Check if content is empty or whitespace-only
+    const content = tab.content ?? ''
+    const trimmed = content.trim()
+
+    // Empty or whitespace-only content
+    if (trimmed === '') return true
+
+    // TipTap may store empty content as empty HTML tags like <p></p>
+    // Strip HTML tags and check again
+    const withoutTags = trimmed.replace(/<[^>]*>/g, '').trim()
+    return withoutTags === ''
+  }, [])
+
+  /**
    * Open a file in a new tab (or switch to existing if already open)
+   * If the current tab is empty and untitled, replace it instead
    */
   const openFileInTab = useCallback(async (filePath: string): Promise<boolean> => {
     // Check if file is already open
@@ -233,8 +257,14 @@ export function useTabs() {
       return true
     }
 
-    // Save current tab state first
-    await saveCurrentTabState()
+    // Check if current tab is empty and untitled
+    const currentTab = getActiveTab()
+    const shouldReplaceCurrentTab = isEmptyUntitled(currentTab)
+
+    // Save current tab state first (unless we're replacing it)
+    if (!shouldReplaceCurrentTab) {
+      await saveCurrentTabState()
+    }
 
     // Pause annotation position updates during document loading
     useAnnotationStore.getState().setLoadingDocument(true)
@@ -254,16 +284,32 @@ export function useTabs() {
       ? fullFileName.substring(0, fullFileName.lastIndexOf('.'))
       : fullFileName
 
-    // Create new tab
-    const tabId = addTab({
-      documentId: newDocumentId,
-      path: filePath,
-      title,
-      isDirty: false,
-      content: parsed.content,
-      frontmatter: parsed.frontmatter,
-      cursorPosition: { line: 1, column: 1 }
-    })
+    let tabId: string
+
+    if (shouldReplaceCurrentTab && currentTab) {
+      // Replace the current empty untitled tab
+      updateTab(currentTab.id, {
+        documentId: newDocumentId,
+        path: filePath,
+        title,
+        isDirty: false,
+        content: parsed.content,
+        frontmatter: parsed.frontmatter,
+        cursorPosition: { line: 1, column: 1 }
+      })
+      tabId = currentTab.id
+    } else {
+      // Create new tab
+      tabId = addTab({
+        documentId: newDocumentId,
+        path: filePath,
+        title,
+        isDirty: false,
+        content: parsed.content,
+        frontmatter: parsed.frontmatter,
+        cursorPosition: { line: 1, column: 1 }
+      })
+    }
 
     // Set up document in editorStore
     setDocument({

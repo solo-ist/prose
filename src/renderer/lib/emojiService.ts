@@ -62,7 +62,7 @@ async function callAnthropicApi(title: string, apiKey: string): Promise<string> 
       'anthropic-dangerous-direct-browser-access': 'true'
     },
     body: JSON.stringify({
-      model: 'claude-3-5-haiku-20241022',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 10,
       system: 'Respond with exactly ONE emoji that represents the document title. Nothing else — no text, no explanation, just the emoji.',
       messages: [{ role: 'user', content: title }]

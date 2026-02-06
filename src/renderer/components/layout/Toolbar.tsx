@@ -239,7 +239,7 @@ export function Toolbar() {
         </div>
 
         {/* Right: Actions */}
-        <div className="flex items-center gap-1 app-region-no-drag">
+        <div className="flex items-center gap-1 ml-2 app-region-no-drag">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button

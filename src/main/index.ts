@@ -126,6 +126,14 @@ function createWindow(): BrowserWindow {
     mainWindow.show()
   })
 
+  // Notify renderer of fullscreen changes (for traffic light padding)
+  mainWindow.on('enter-full-screen', () => {
+    mainWindow.webContents.send('window:fullscreen-change', true)
+  })
+  mainWindow.on('leave-full-screen', () => {
+    mainWindow.webContents.send('window:fullscreen-change', false)
+  })
+
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }

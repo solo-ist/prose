@@ -461,7 +461,12 @@ export const browserApi: ElectronAPI = {
   googleListRecentDocs: async () => [],
   googleGetSyncMetadata: async () => null,
   googleUpdateSyncMetadataEntry: async () => {},
-  googleRemoveSyncMetadataEntry: async () => {}
+  googleRemoveSyncMetadataEntry: async () => {},
+
+  // Window fullscreen - not available in browser
+  onFullscreenChange: (_callback: (isFullscreen: boolean) => void) => {
+    return () => {}
+  }
 }
 
 /**

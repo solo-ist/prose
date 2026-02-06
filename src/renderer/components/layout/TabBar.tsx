@@ -16,6 +16,7 @@ import {
   TooltipContent,
   TooltipTrigger
 } from '../ui/tooltip'
+import type { TabTier } from '../../hooks/useTabTier'
 
 interface TabBarProps {
   onTabClick: (tabId: string) => void
@@ -24,9 +25,20 @@ interface TabBarProps {
   onTabCloseAll: () => void
   onTabRename: (tabId: string, newTitle: string) => Promise<string | null>
   onNewFileSave: (title: string) => Promise<boolean>
+  tier: TabTier
+  containerWidth: number
 }
 
-export function TabBar({ onTabClick, onTabClose, onTabCloseOthers, onTabCloseAll, onTabRename, onNewFileSave }: TabBarProps) {
+// Max widths per tier
+const MAX_TAB_WIDTH: Record<TabTier, number> = {
+  0: 180,
+  1: 160,
+  2: 120,
+  3: 100,
+  4: 40
+}
+
+export function TabBar({ onTabClick, onTabClose, onTabCloseOthers, onTabCloseAll, onTabRename, onNewFileSave, tier, containerWidth }: TabBarProps) {
   const tabs = useTabStore((state) => state.tabs)
   const activeTabId = useTabStore((state) => state.activeTabId)
   const setTabOrder = useTabStore((state) => state.setTabOrder)
@@ -37,6 +49,14 @@ export function TabBar({ onTabClick, onTabClose, onTabCloseOthers, onTabCloseAll
   const [editedTitle, setEditedTitle] = useState('')
   const [renameError, setRenameError] = useState<string | null>(null)
   const renameCancelledRef = useRef(false)
+
+  // Calculate per-tab width for tiers 1+
+  const tabWidth = tier >= 1 && tabs.length > 0
+    ? Math.min(
+        Math.floor((containerWidth - (tabs.length - 1) * 2) / tabs.length), // account for gap
+        MAX_TAB_WIDTH[tier]
+      )
+    : undefined
 
   const handleMiddleClick = (e: MouseEvent, tabId: string) => {
     // Middle mouse button
@@ -114,7 +134,7 @@ export function TabBar({ onTabClick, onTabClose, onTabCloseOthers, onTabCloseAll
       axis="x"
       values={tabs}
       onReorder={setTabOrder}
-      className="flex items-center gap-0.5 app-region-no-drag"
+      className="flex items-center gap-0.5 app-region-no-drag overflow-hidden"
     >
       {tabs.map((tab) => (
         <TabItem
@@ -124,6 +144,8 @@ export function TabBar({ onTabClick, onTabClose, onTabCloseOthers, onTabCloseAll
           isEditing={editingTabId === tab.id}
           editedTitle={editedTitle}
           hasError={editingTabId === tab.id && renameError !== null}
+          tier={editingTabId === tab.id ? Math.min(tier, 2) as TabTier : tier}
+          tabWidth={tabWidth}
           onClick={() => onTabClick(tab.id)}
           onMiddleClick={(e) => handleMiddleClick(e, tab.id)}
           onClose={(e) => handleCloseClick(e, tab.id)}
@@ -149,6 +171,8 @@ interface TabItemProps {
   isEditing: boolean
   editedTitle: string
   hasError: boolean
+  tier: TabTier
+  tabWidth: number | undefined
   onClick: () => void
   onMiddleClick: (e: MouseEvent) => void
   onClose: (e: MouseEvent) => void
@@ -167,6 +191,8 @@ function TabItem({
   isEditing,
   editedTitle,
   hasError,
+  tier,
+  tabWidth,
   onClick,
   onMiddleClick,
   onClose,
@@ -193,10 +219,23 @@ function TabItem({
   const lastDot = tab.path ? tab.path.lastIndexOf('.') : -1
   const extension = lastDot > 0 ? tab.path!.substring(lastDot) : ''
 
+  // Build tooltip content based on tier
+  const tooltipContent = tier >= 4
+    ? (
+      <div className="text-xs">
+        <p className="font-medium">{tab.title}{extension}{tab.isDirty ? ' *' : ''}</p>
+        {tab.path && <p className="break-all text-muted-foreground mt-0.5">{tab.path}</p>}
+      </div>
+    )
+    : tab.path
+      ? <p className="text-xs break-all">{tab.path}</p>
+      : null
+
   return (
     <Reorder.Item
       value={tab}
-      className="shrink-0"
+      className="min-w-0"
+      style={tabWidth ? { width: tabWidth, flexShrink: 0 } : undefined}
       whileDrag={{ scale: 1.02, opacity: 0.8 }}
     >
       <ContextMenu>
@@ -207,31 +246,40 @@ function TabItem({
                 onClick={onClick}
                 onMouseDown={onMiddleClick}
                 className={cn(
-                  'group flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors min-w-0',
+                  'group flex items-center gap-1.5 py-1.5 text-sm rounded-md min-w-0 w-full',
+                  'transition-[colors,width,padding,opacity] duration-200 ease-in-out',
                   'hover:bg-accent/50',
+                  tier >= 4 ? 'px-1.5 justify-center' : 'px-3',
                   isActive
                     ? 'bg-accent text-accent-foreground'
                     : 'text-muted-foreground'
                 )}
               >
-                {tab.path ? (
-                  <div
-                    onClick={onShowInFolder}
-                    className="opacity-60 hover:opacity-100 transition-opacity shrink-0 cursor-pointer"
-                    title="Open in Finder"
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        onShowInFolder(e as unknown as MouseEvent)
-                      }
-                    }}
-                  >
-                    <FileText className="h-3.5 w-3.5" />
-                  </div>
-                ) : (
-                  <FileText className="h-3.5 w-3.5 shrink-0 opacity-40" />
+                {tier < 4 && (
+                  tab.path ? (
+                    <div
+                      onClick={onShowInFolder}
+                      className="opacity-60 hover:opacity-100 transition-opacity shrink-0 cursor-pointer"
+                      title="Open in Finder"
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          onShowInFolder(e as unknown as MouseEvent)
+                        }
+                      }}
+                    >
+                      <FileText className="h-3.5 w-3.5" />
+                    </div>
+                  ) : (
+                    <FileText className="h-3.5 w-3.5 shrink-0 opacity-40" />
+                  )
+                )}
+                {tier >= 4 && (
+                  <span className="text-base leading-none shrink-0" role="img">
+                    📄
+                  </span>
                 )}
                 {isEditing ? (
                   <Input
@@ -246,9 +294,12 @@ function TabItem({
                       hasError && 'border-destructive focus-visible:ring-destructive'
                     )}
                   />
-                ) : (
+                ) : tier < 4 ? (
                   <span
-                    className="truncate w-[120px]"
+                    className={cn(
+                      'truncate min-w-0',
+                      tier === 0 ? 'max-w-[180px]' : 'flex-1'
+                    )}
                     onDoubleClick={(e) => {
                       e.stopPropagation()
                       onDoubleClick()
@@ -257,34 +308,36 @@ function TabItem({
                     {tab.title}
                     <span className="text-muted-foreground">{extension}</span>
                   </span>
-                )}
-                {tab.isDirty && (
+                ) : null}
+                {tier < 4 && tab.isDirty && (
                   <span className="text-muted-foreground shrink-0">*</span>
                 )}
-                <div
-                  onClick={onClose}
-                  className={cn(
-                    'ml-1 p-0.5 rounded hover:bg-accent shrink-0 cursor-pointer',
-                    'opacity-0 group-hover:opacity-100 transition-opacity',
-                    isActive && 'opacity-100'
-                  )}
-                  role="button"
-                  tabIndex={0}
-                  aria-label="Close tab"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      onClose(e as unknown as MouseEvent)
-                    }
-                  }}
-                >
-                  <X className="h-3 w-3" />
-                </div>
+                {tier < 4 && (
+                  <div
+                    onClick={onClose}
+                    className={cn(
+                      'ml-1 p-0.5 rounded hover:bg-accent shrink-0 cursor-pointer',
+                      'opacity-0 group-hover:opacity-100 transition-opacity',
+                      isActive && 'opacity-100'
+                    )}
+                    role="button"
+                    tabIndex={0}
+                    aria-label="Close tab"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        onClose(e as unknown as MouseEvent)
+                      }
+                    }}
+                  >
+                    <X className="h-3 w-3" />
+                  </div>
+                )}
               </button>
             </TooltipTrigger>
-            {tab.path && (
+            {tooltipContent && (
               <TooltipContent side="bottom" className="max-w-md">
-                <p className="text-xs break-all">{tab.path}</p>
+                {tooltipContent}
               </TooltipContent>
             )}
           </Tooltip>

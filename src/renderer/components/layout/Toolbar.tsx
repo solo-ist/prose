@@ -8,6 +8,7 @@ import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
 import { useFileList } from '../../hooks/useFileList'
 import { isMacOS, getApi } from '../../lib/browserApi'
+import { useTabTier } from '../../hooks/useTabTier'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import {
@@ -69,6 +70,17 @@ export function Toolbar() {
 
   const [hasCopied, setHasCopied] = useState(false)
   const [googlePicture, setGooglePicture] = useState<string | null>(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const tabBarContainerRef = useRef<HTMLDivElement>(null)
+  const { tier, containerWidth } = useTabTier(tabBarContainerRef, { tabCount: tabs.length })
+
+  // Track fullscreen state for traffic light padding
+  useEffect(() => {
+    const api = getApi()
+    if (!api.onFullscreenChange) return
+    const cleanup = api.onFullscreenChange((fs) => setIsFullscreen(fs))
+    return cleanup
+  }, [])
 
   // Check Google connection status on mount and when settings change
   useEffect(() => {
@@ -188,8 +200,8 @@ export function Toolbar() {
     await createNewTab()
   }
 
-  // Add left padding on macOS to clear traffic lights
-  const leftPadding = isMacOS() ? 'pl-20' : 'pl-4'
+  // Add left padding on macOS to clear traffic lights (less when fullscreen)
+  const leftPadding = isMacOS() ? (isFullscreen ? 'pl-4' : 'pl-20') : 'pl-4'
 
   return (
     <>
@@ -213,7 +225,7 @@ export function Toolbar() {
         </div>
 
         {/* Center: Tab bar */}
-        <div className="flex-1 flex items-center justify-start ml-2 app-region-drag min-w-0">
+        <div ref={tabBarContainerRef} className="flex-1 flex items-center justify-start ml-2 app-region-drag min-w-0 overflow-hidden">
           <TabBar
             onTabClick={handleTabClick}
             onTabClose={handleTabClose}
@@ -221,6 +233,8 @@ export function Toolbar() {
             onTabCloseAll={handleCloseAll}
             onTabRename={renameTab}
             onNewFileSave={quickSaveWithTitle}
+            tier={tier}
+            containerWidth={containerWidth}
           />
         </div>
 

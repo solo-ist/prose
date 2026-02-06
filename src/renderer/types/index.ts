@@ -376,6 +376,8 @@ export interface ElectronAPI {
   googleGetSyncMetadata: () => Promise<GoogleSyncMetadata | null>
   googleUpdateSyncMetadataEntry: (entry: GoogleDocEntry) => Promise<void>
   googleRemoveSyncMetadataEntry: (googleDocId: string) => Promise<void>
+  // Window fullscreen state
+  onFullscreenChange: (callback: (isFullscreen: boolean) => void) => () => void
 }
 
 declare global {

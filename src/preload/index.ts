@@ -242,6 +242,8 @@ export interface ElectronAPI {
   mcpGetStatus: () => Promise<McpServerStatus>
   mcpInstall: () => Promise<McpInstallResult>
   mcpUninstall: () => Promise<McpInstallResult>
+  // Window fullscreen state
+  onFullscreenChange: (callback: (isFullscreen: boolean) => void) => () => void
 }
 
 export interface FileItem {
@@ -447,7 +449,17 @@ const api: ElectronAPI = {
   // MCP Server integration
   mcpGetStatus: () => ipcRenderer.invoke('mcp:getStatus'),
   mcpInstall: () => ipcRenderer.invoke('mcp:install'),
-  mcpUninstall: () => ipcRenderer.invoke('mcp:uninstall')
+  mcpUninstall: () => ipcRenderer.invoke('mcp:uninstall'),
+  // Window fullscreen state
+  onFullscreenChange: (callback: (isFullscreen: boolean) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, isFullscreen: boolean): void => {
+      callback(isFullscreen)
+    }
+    ipcRenderer.on('window:fullscreen-change', handler)
+    return () => {
+      ipcRenderer.removeListener('window:fullscreen-change', handler)
+    }
+  }
 }
 
 contextBridge.exposeInMainWorld('api', api)

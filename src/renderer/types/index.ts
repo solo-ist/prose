@@ -38,8 +38,8 @@ export interface Settings {
     hasBeenPrompted: boolean
   }
   autosave?: {
-    enabled: boolean
-    intervalSeconds: number
+    mode: 'off' | 'auto' | 'custom'
+    intervalSeconds: number  // only used when mode === 'custom'
   }
 }
 

@@ -101,7 +101,7 @@ const defaultSettings: Settings = {
     mode: 'silent'
   },
   autosave: {
-    enabled: false,
+    mode: 'off',
     intervalSeconds: 30
   }
 }

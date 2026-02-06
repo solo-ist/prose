@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useSettings } from '../../hooks/useSettings'
 import {
   Dialog,
@@ -58,6 +58,13 @@ export function SettingsDialog() {
   // Custom model input (for when user wants to enter a model not in the list)
   const [customModel, setCustomModel] = useState(false)
 
+  // Refs for scrollable tab content
+  const generalTabRef = useRef<HTMLDivElement>(null)
+  const editorTabRef = useRef<HTMLDivElement>(null)
+  const llmTabRef = useRef<HTMLDivElement>(null)
+  const integrationsTabRef = useRef<HTMLDivElement>(null)
+  const accountTabRef = useRef<HTMLDivElement>(null)
+
   // Get models for current provider
   const availableModels = useMemo(
     () => getModelsForProvider(settings.llm.provider as LLMProvider),
@@ -106,6 +113,24 @@ export function SettingsDialog() {
     setDialogOpen(false)
   }
 
+  const handleTabChange = (value: string) => {
+    // Reset scroll position to top when switching tabs
+    const tabRefs: Record<string, React.RefObject<HTMLDivElement>> = {
+      general: generalTabRef,
+      editor: editorTabRef,
+      llm: llmTabRef,
+      integrations: integrationsTabRef,
+      account: accountTabRef
+    }
+
+    const ref = tabRefs[value]
+    if (ref?.current) {
+      ref.current.scrollTop = 0
+    }
+
+    setDialogTab(value as typeof dialogTab)
+  }
+
   const handleProviderChange = (provider: LLMProvider) => {
     // When provider changes, set the default model for that provider
     const defaultModel = getDefaultModel(provider)
@@ -148,13 +173,13 @@ export function SettingsDialog() {
 
   return (
     <Dialog open={isDialogOpen} onOpenChange={setDialogOpen}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+        <DialogHeader className="flex-shrink-0">
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
 
-        <Tabs value={dialogTab} onValueChange={(value) => setDialogTab(value as typeof dialogTab)} className="mt-4">
-          <TabsList className="grid w-full grid-cols-5">
+        <Tabs value={dialogTab} onValueChange={handleTabChange} className="mt-4 flex-1 min-h-0 flex flex-col">
+          <TabsList className="grid w-full grid-cols-5 flex-shrink-0">
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="editor">Editor</TabsTrigger>
             <TabsTrigger value="llm">LLM</TabsTrigger>
@@ -162,7 +187,7 @@ export function SettingsDialog() {
             <TabsTrigger value="account">Account</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="general" className="space-y-4 mt-4">
+          <TabsContent value="general" className="space-y-4 mt-4 overflow-y-auto flex-1" ref={generalTabRef}>
             <div className="space-y-2">
               <Label htmlFor="theme">Theme</Label>
               <Select
@@ -290,7 +315,7 @@ export function SettingsDialog() {
             </div>
           </TabsContent>
 
-          <TabsContent value="editor" className="space-y-6 mt-4">
+          <TabsContent value="editor" className="space-y-6 mt-4 overflow-y-auto flex-1" ref={editorTabRef}>
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label htmlFor="fontSize">Font Size</Label>
@@ -362,7 +387,7 @@ export function SettingsDialog() {
             </div>
           </TabsContent>
 
-          <TabsContent value="llm" className="space-y-4 mt-4">
+          <TabsContent value="llm" className="space-y-4 mt-4 overflow-y-auto flex-1" ref={llmTabRef}>
             <div className="space-y-2">
               <Label htmlFor="provider">Provider</Label>
               <Select
@@ -526,7 +551,7 @@ export function SettingsDialog() {
 
           </TabsContent>
 
-          <TabsContent value="integrations" className="space-y-4 mt-4">
+          <TabsContent value="integrations" className="space-y-4 mt-4 overflow-y-auto flex-1" ref={integrationsTabRef}>
             <McpIntegration />
             <Separator />
             <RemarkableIntegration
@@ -535,7 +560,7 @@ export function SettingsDialog() {
             />
           </TabsContent>
 
-          <TabsContent value="account" className="space-y-4 mt-4">
+          <TabsContent value="account" className="space-y-4 mt-4 overflow-y-auto flex-1" ref={accountTabRef}>
             <GoogleDocsIntegration
               settings={settings}
               setGoogleConfig={setGoogleConfig}
@@ -543,9 +568,9 @@ export function SettingsDialog() {
           </TabsContent>
         </Tabs>
 
-        <Separator className="my-4" />
+        <Separator className="my-4 flex-shrink-0" />
 
-        <div className="flex justify-end gap-2">
+        <div className="flex justify-end gap-2 flex-shrink-0">
           <Button variant="outline" onClick={() => setDialogOpen(false)}>
             Cancel
           </Button>

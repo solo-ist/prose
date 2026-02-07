@@ -290,7 +290,7 @@ export function FileListPanel() {
 
   const handleFileClick = async (path: string) => {
     selectFile(path)
-    const shouldDescribe = await openFileFromPath(path)
+    const shouldDescribe = await openFileInTab(path)
     if (shouldDescribe) {
       describeDocument()
     }

@@ -4,6 +4,7 @@
  */
 
 import { create } from 'zustand'
+import { subscribeWithSelector } from 'zustand/middleware'
 import type { Editor } from '@tiptap/core'
 
 interface EditorInstanceState {
@@ -11,7 +12,7 @@ interface EditorInstanceState {
   setEditor: (editor: Editor | null) => void
 }
 
-export const useEditorInstanceStore = create<EditorInstanceState>((set) => ({
+export const useEditorInstanceStore = create<EditorInstanceState>()(subscribeWithSelector((set) => ({
   editor: null,
   setEditor: (editor) => set({ editor }),
-}))
+})))

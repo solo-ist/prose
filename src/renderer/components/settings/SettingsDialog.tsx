@@ -261,22 +261,30 @@ export function SettingsDialog() {
             <Separator />
 
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="autosave">Autosave</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Automatically save documents after changes
-                  </p>
-                </div>
-                <Switch
-                  id="autosave"
-                  checked={settings.autosave?.enabled ?? false}
-                  onCheckedChange={(checked) => setAutosaveConfig({ enabled: checked })}
-                />
+              <div className="space-y-2">
+                <Label htmlFor="autosaveMode">Autosave</Label>
+                <Select
+                  value={settings.autosave?.mode ?? 'off'}
+                  onValueChange={(value) => setAutosaveConfig({ mode: value as 'off' | 'auto' | 'custom' })}
+                >
+                  <SelectTrigger id="autosaveMode">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="off">Off</SelectItem>
+                    <SelectItem value="auto">Auto</SelectItem>
+                    <SelectItem value="custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {settings.autosave?.mode === 'auto' && 'Save after you stop typing'}
+                  {settings.autosave?.mode === 'custom' && 'Save at a custom interval'}
+                  {(!settings.autosave?.mode || settings.autosave?.mode === 'off') && 'Manual save only'}
+                </p>
               </div>
 
-              {settings.autosave?.enabled && (
-                <div className="space-y-2 pl-0">
+              {settings.autosave?.mode === 'custom' && (
+                <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label htmlFor="autosaveInterval">Save interval</Label>
                     <span className="text-sm text-muted-foreground">
@@ -287,7 +295,7 @@ export function SettingsDialog() {
                     value={settings.autosave?.intervalSeconds ?? 30}
                     onChange={(value) => setAutosaveConfig({ intervalSeconds: value })}
                     min={5}
-                    max={120}
+                    max={300}
                     step={5}
                   />
                 </div>

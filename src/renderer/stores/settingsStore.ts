@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { subscribeWithSelector } from 'zustand/middleware'
 import type { Settings } from '../types'
 
 const MAX_RECENT_FILES = 15
@@ -65,7 +66,7 @@ const defaultSettings: Settings = {
     mode: 'silent'
   },
   autosave: {
-    enabled: false,
+    mode: 'off',
     intervalSeconds: 30
   }
 }
@@ -108,7 +109,7 @@ function setupSystemThemeListener(theme: Settings['theme'], set: (state: Partial
   }
 }
 
-export const useSettingsStore = create<SettingsState>((set, get) => ({
+export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((set, get) => ({
   settings: defaultSettings,
   isLoaded: false,
   isDialogOpen: false,
@@ -135,6 +136,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const settings = await window.api.loadSettings()
       const theme = settings.theme || 'dark'
       const effectiveTheme = getEffectiveTheme(theme)
+
+      // Backwards compatibility: migrate old autosave.enabled to autosave.mode
+      if (settings.autosave && 'enabled' in settings.autosave) {
+        const oldAutosave = settings.autosave as { enabled: boolean; intervalSeconds: number }
+        settings.autosave = {
+          mode: oldAutosave.enabled ? 'custom' : 'off',
+          intervalSeconds: oldAutosave.intervalSeconds ?? 30
+        }
+      }
 
       set({
         settings: { ...defaultSettings, ...settings },
@@ -280,4 +290,4 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     })
     get().saveSettings()
   }
-}))
+})))

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { subscribeWithSelector } from 'zustand/middleware'
 import type { Settings } from '../types'
 
 const MAX_RECENT_FILES = 15
@@ -108,7 +109,7 @@ function setupSystemThemeListener(theme: Settings['theme'], set: (state: Partial
   }
 }
 
-export const useSettingsStore = create<SettingsState>((set, get) => ({
+export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((set, get) => ({
   settings: defaultSettings,
   isLoaded: false,
   isDialogOpen: false,
@@ -289,4 +290,4 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     })
     get().saveSettings()
   }
-}))
+})))

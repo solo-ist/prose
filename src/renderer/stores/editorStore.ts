@@ -28,6 +28,8 @@ interface EditorState {
   readCache: ReadCache
   // Selection cache for read_selection when editor loses focus
   lastSelection: SelectionCache | null
+  // Autosave in-progress flag (true only during the actual save call)
+  isAutosaving: boolean
   setDocument: (doc: Partial<Document>) => void
   setContent: (content: string) => void
   setPath: (path: string | null) => void
@@ -46,6 +48,7 @@ interface EditorState {
   // Selection cache methods
   setLastSelection: (sel: SelectionCache | null) => void
   getLastSelection: () => SelectionCache | null
+  setAutosaving: (isAutosaving: boolean) => void
 }
 
 function createInitialDocument(): Document {
@@ -68,6 +71,7 @@ export const useEditorStore = create<EditorState>()(
     remarkableNotebookId: null,
     readCache: { content: null, documentId: null },
     lastSelection: null,
+    isAutosaving: false,
 
     setDocument: (doc) =>
       set((state) => ({
@@ -177,7 +181,9 @@ export const useEditorStore = create<EditorState>()(
     // Selection cache methods
     setLastSelection: (sel) => set({ lastSelection: sel }),
 
-    getLastSelection: () => get().lastSelection
+    getLastSelection: () => get().lastSelection,
+
+    setAutosaving: (isAutosaving) => set({ isAutosaving })
   }))
 )
 

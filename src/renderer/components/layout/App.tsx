@@ -63,7 +63,7 @@ export function App() {
 
   const { openFile, openFileFromPath, saveFile, saveFileAs, newFile } = useEditor()
   const { createNewTab, openFileInTab, closeTab } = useTabs()
-  const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, isAboutDialogOpen, setAboutDialogOpen, isModelPickerOpen, setModelPickerOpen, settings, isLoaded: settingsLoaded } = useSettings()
+  const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, isAboutDialogOpen, setAboutDialogOpen, isModelPickerOpen, setModelPickerOpen, settings, autosaveActive, isLoaded: settingsLoaded } = useSettings()
   const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false)
   const [pendingDraft, setPendingDraft] = useState<DraftState | null>(null)
   const [pendingSession, setPendingSession] = useState<SessionState | null>(null)
@@ -83,11 +83,12 @@ export function App() {
   useAutosave()
 
   // Update window title based on document state
+  const isAutoSaving = settings.autosave?.mode === 'auto' && autosaveActive && !!documentPath
   useEffect(() => {
     const fileName = documentPath ? documentPath.split('/').pop() : 'Untitled'
-    const dirtyIndicator = isDirty ? ' *' : ''
+    const dirtyIndicator = isDirty && !isAutoSaving ? ' *' : ''
     document.title = `${fileName}${dirtyIndicator} — Prose`
-  }, [documentPath, isDirty])
+  }, [documentPath, isDirty, isAutoSaving])
 
   // Recover draft and associated conversations
   const recoverDraft = useCallback(

@@ -17,6 +17,7 @@ import {
   TooltipTrigger
 } from '../ui/tooltip'
 import type { TabTier } from '../../hooks/useTabTier'
+import { useSettingsStore } from '../../stores/settingsStore'
 import { useTabEmoji } from '../../hooks/useTabEmoji'
 import { regenerateEmoji } from '../../lib/emojiService'
 import { useSettings } from '../../hooks/useSettings'
@@ -208,6 +209,7 @@ function TabItem({
   onShowInFolder
 }: TabItemProps) {
   const tabs = useTabStore((state) => state.tabs)
+  const isAutoSaving = useSettingsStore((state) => state.settings.autosave?.mode === 'auto' && state.autosaveActive) && !!tab.path
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Emoji: always generate eagerly, display based on tab width or setting
@@ -235,7 +237,7 @@ function TabItem({
   const tooltipContent = showEmoji
     ? (
       <div className="text-xs">
-        <p className="font-medium">{tab.title}{extension}{tab.isDirty ? ' *' : ''}</p>
+        <p className="font-medium">{tab.title}{extension}{tab.isDirty && !isAutoSaving ? ' *' : ''}</p>
         {tab.path && <p className="break-all text-muted-foreground mt-0.5">{tab.path}</p>}
       </div>
     )
@@ -326,8 +328,8 @@ function TabItem({
                     {!showEmoji && <span className="text-muted-foreground">{extension}</span>}
                   </span>
                 ) : null}
-                {/* Dirty indicator: shown for tiers < 4 */}
-                {tier < 4 && tab.isDirty && (
+                {/* Dirty indicator: shown for tiers < 4, suppressed in auto-save mode */}
+                {tier < 4 && tab.isDirty && !isAutoSaving && (
                   <span className="text-muted-foreground shrink-0">*</span>
                 )}
                 {/* Close button: shown for tiers < 4; at tier 4 use context menu or middle-click */}

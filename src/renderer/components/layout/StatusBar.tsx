@@ -18,9 +18,10 @@ import { getModelsForProvider, type LLMProvider } from '../../../shared/llm/mode
 
 export function StatusBar() {
   const { document, cursorPosition } = useEditor()
-  const { settings, setLLMConfig, saveSettings } = useSettings()
+  const { settings, autosaveActive, setLLMConfig, saveSettings } = useSettings()
   const { toolMode, setToolMode, includeDocument, setIncludeDocument } = useChat()
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
+  const isAutosaving = useEditorStore((state) => state.isAutosaving)
   const hoveredUrl = useLinkHoverStore((state) => state.hoveredUrl)
 
   const wordCount = document.content
@@ -67,12 +68,17 @@ export function StatusBar() {
       </div>
 
       <div className="flex items-center gap-1">
-        {document.isDirty && !isRemarkableReadOnly && (
+        {isAutosaving ? (
+          <>
+            <span className="text-yellow-500">saving...</span>
+            <span className="text-muted-foreground/40 mx-1">|</span>
+          </>
+        ) : document.isDirty && !isRemarkableReadOnly && !(settings.autosave?.mode === 'auto' && autosaveActive && document.path) ? (
           <>
             <span className="text-yellow-500">unsaved</span>
             <span className="text-muted-foreground/40 mx-1">|</span>
           </>
-        )}
+        ) : null}
 
         {/* Model selector */}
         <DropdownMenu>

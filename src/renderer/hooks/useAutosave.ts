@@ -24,7 +24,7 @@ export function useAutosave() {
   }, [])
 
   const performSave = useCallback(async () => {
-    const { document, setDirty } = useEditorStore.getState()
+    const { document, setDirty, setAutosaving } = useEditorStore.getState()
 
     // Don't save if:
     // - Already saving
@@ -35,15 +35,21 @@ export function useAutosave() {
     }
 
     isSavingRef.current = true
+    setAutosaving(true)
 
     try {
       const content = serializeMarkdown(document.content, document.frontmatter)
-      await window.api?.saveFile(document.path, content)
+      // Run save and minimum display time in parallel so "saving..." is visible
+      await Promise.all([
+        window.api?.saveFile(document.path, content),
+        new Promise((r) => setTimeout(r, 500))
+      ])
       setDirty(false)
     } catch (error) {
       console.error('[Autosave] Failed to save:', error)
     } finally {
       isSavingRef.current = false
+      setAutosaving(false)
     }
   }, [])
 
@@ -68,9 +74,10 @@ export function useAutosave() {
           // Clear existing timer
           clearTimer()
 
-          // Only schedule save if document has path and is dirty
-          if (document.path && document.isDirty) {
-            // Debounce: wait 1.5 seconds after last edit
+          // Schedule save if document has a path
+          // Note: isDirty may not be set yet (Editor.tsx debounces store updates)
+          // so we check it in performSave instead, which runs after the 1.5s delay
+          if (document.path) {
             timerRef.current = setTimeout(performSave, 1500)
           }
         }
@@ -89,13 +96,13 @@ export function useAutosave() {
         const { settings, autosaveActive } = useSettingsStore.getState()
         const mode = settings.autosave?.mode ?? 'off'
 
-        // Clear any existing timer
-        clearTimer()
-
-        // Custom mode: interval-based autosave
-        if (mode === 'custom' && autosaveActive && path && isDirty) {
-          const intervalMs = (settings.autosave?.intervalSeconds ?? 30) * 1000
-          timerRef.current = setTimeout(performSave, intervalMs)
+        // Only manage timer in custom mode — auto mode manages its own timer via handleUpdate
+        if (mode === 'custom') {
+          clearTimer()
+          if (autosaveActive && path && isDirty) {
+            const intervalMs = (settings.autosave?.intervalSeconds ?? 30) * 1000
+            timerRef.current = setTimeout(performSave, intervalMs)
+          }
         }
       },
       { equalityFn: (a, b) => a.isDirty === b.isDirty && a.path === b.path }
@@ -106,11 +113,34 @@ export function useAutosave() {
       (state) => ({ autosave: state.settings.autosave, autosaveActive: state.autosaveActive }),
       ({ autosave, autosaveActive }) => {
         const mode = autosave?.mode ?? 'off'
-        // If switched to off or runtime toggle is off, clear any pending save
-        if (mode === 'off' || !autosaveActive) {
-          clearTimer()
+
+        // Clear any pending save and existing editor listener
+        clearTimer()
+        if (editorUnsubscribeRef.current) {
+          editorUnsubscribeRef.current()
+          editorUnsubscribeRef.current = null
         }
-      }
+
+        // Re-attach editor listener if switching to auto mode
+        if (mode === 'auto' && autosaveActive) {
+          const { editor } = useEditorInstanceStore.getState()
+          if (editor) {
+            const handleUpdate = () => {
+              const { document } = useEditorStore.getState()
+              clearTimer()
+              if (document.path) {
+                timerRef.current = setTimeout(performSave, 1500)
+              }
+            }
+
+            editor.on('update', handleUpdate)
+            editorUnsubscribeRef.current = () => {
+              editor.off('update', handleUpdate)
+            }
+          }
+        }
+      },
+      { equalityFn: (a, b) => a.autosave === b.autosave && a.autosaveActive === b.autosaveActive }
     )
 
     // Subscribe to editor instance changes (for auto mode)
@@ -131,7 +161,7 @@ export function useAutosave() {
           const handleUpdate = () => {
             const { document } = useEditorStore.getState()
             clearTimer()
-            if (document.path && document.isDirty) {
+            if (document.path) {
               timerRef.current = setTimeout(performSave, 1500)
             }
           }

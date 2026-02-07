@@ -51,11 +51,12 @@ Circuit Electron launches its own Electron instance, which bypasses electron-vit
 The dev server writes its PID to `.dev.pid` on startup. **Always use this file** for process management—never use pattern matching like `pgrep -f "prose.*Electron"` which may match stale instances from other sessions.
 
 ```bash
-# Check if running (ALWAYS do this first)
-cat .dev.pid 2>/dev/null && ps -p $(cat .dev.pid) -o pid= >/dev/null 2>&1 && echo "Running" || echo "Not running"
+# Check if running (use SEPARATE Bash calls — never chain with && or ||)
+cat .dev.pid 2>/dev/null        # Call 1: read the PID
+ps -p <PID> -o pid=             # Call 2: check if process exists
 
 # Kill only THIS project's dev server
-kill $(cat .dev.pid) 2>/dev/null || true
+kill <PID>                      # Use the PID from call 1
 
 # Fallback ONLY if PID file missing (use sparingly - may affect other agents)
 pkill -f "prose.*Electron"

@@ -413,14 +413,14 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
   return (
     <div
       className={cn(
-        'flex gap-3 p-4 transition-colors group',
+        'flex gap-3 p-4 pr-6 transition-colors group',
         isUser ? 'bg-transparent' : 'bg-muted/30'
       )}
       onMouseEnter={() => setShowTimestamp(true)}
       onMouseLeave={() => setShowTimestamp(false)}
     >
       {/* Left rail with avatar and copy button */}
-      <div className="flex flex-col items-center gap-1 w-8 shrink-0">
+      <div className="flex flex-col items-center gap-2 w-8 shrink-0">
         <div
           className={cn(
             'flex h-8 w-8 shrink-0 items-center justify-center rounded-full',

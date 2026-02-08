@@ -233,16 +233,19 @@ function TabItem({
     regenerateEmoji(tab)
   }, [tab])
 
+  // Shorten path: replace /Users/<username> with ~
+  const displayPath = tab.path?.replace(/^\/Users\/[^/]+/, '~') ?? null
+
   // Build tooltip content based on whether emoji is shown (name may be truncated/hidden)
   const tooltipContent = showEmoji
     ? (
       <div className="text-xs">
         <p className="font-medium">{tab.title}{extension}{tab.isDirty && !isAutoSaving ? ' *' : ''}</p>
-        {tab.path && <p className="break-all text-muted-foreground mt-0.5">{tab.path}</p>}
+        {displayPath && <p className="break-all text-muted-foreground mt-0.5">{displayPath}</p>}
       </div>
     )
-    : tab.path
-      ? <p className="text-xs break-all">{tab.path}</p>
+    : displayPath
+      ? <p className="text-xs break-all">{displayPath}</p>
       : null
 
   return (

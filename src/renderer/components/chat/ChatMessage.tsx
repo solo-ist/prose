@@ -432,9 +432,7 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
               ? settings.google?.picture
                 ? effectiveTheme === 'dark' ? 'ring-2 ring-[#004400]' : 'ring-2 ring-[#40ff40]'
                 : 'bg-primary/10'
-              : effectiveTheme === 'dark'
-                ? 'bg-[#020901] ring-2 ring-[#004400]'
-                : 'bg-[#fbfdfa] ring-2 ring-[#40ff40]'
+              : 'bg-[#020901] ring-2 ring-[#004400]'
           )}
         >
           {isUser ? (

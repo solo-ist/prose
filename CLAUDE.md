@@ -45,6 +45,7 @@ Circuit Electron launches its own Electron instance, which bypasses electron-vit
 1. **Build first**: Run `npm run build` to create fresh `out/` files
 2. **Launch with Circuit Electron**: Use development mode to launch from project directory
 3. **Test the feature**: Interact with the app using Circuit Electron tools
+4. **Clean up screenshots**: Delete `electron-screenshot-*.jpeg` files from the project root after testing
 
 ### Dev Server PID Protocol
 

@@ -47,6 +47,50 @@
     --input: 240 3.7% 15.9%;
     --ring: 240 4.9% 83.9%;
   }
+
+  .termy-green-dark {
+    --background: 120 20% 4%;
+    --foreground: 120 100% 70%;
+    --card: 120 20% 6%;
+    --card-foreground: 120 100% 70%;
+    --popover: 120 20% 6%;
+    --popover-foreground: 120 100% 70%;
+    --primary: 120 100% 70%;
+    --primary-foreground: 120 20% 4%;
+    --secondary: 120 25% 12%;
+    --secondary-foreground: 120 100% 70%;
+    --muted: 120 25% 12%;
+    --muted-foreground: 120 60% 50%;
+    --accent: 120 25% 12%;
+    --accent-foreground: 120 100% 70%;
+    --destructive: 0 80% 45%;
+    --destructive-foreground: 120 100% 70%;
+    --border: 120 30% 15%;
+    --input: 120 30% 15%;
+    --ring: 120 100% 70%;
+  }
+
+  .termy-green-light {
+    --background: 40 30% 96%;
+    --foreground: 120 60% 20%;
+    --card: 40 30% 98%;
+    --card-foreground: 120 60% 20%;
+    --popover: 40 30% 98%;
+    --popover-foreground: 120 60% 20%;
+    --primary: 120 60% 25%;
+    --primary-foreground: 40 30% 96%;
+    --secondary: 120 20% 88%;
+    --secondary-foreground: 120 60% 20%;
+    --muted: 120 20% 88%;
+    --muted-foreground: 120 40% 40%;
+    --accent: 120 20% 88%;
+    --accent-foreground: 120 60% 20%;
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 40 30% 96%;
+    --border: 120 25% 80%;
+    --input: 120 25% 80%;
+    --ring: 120 60% 25%;
+  }
 }
 
 @layer base {

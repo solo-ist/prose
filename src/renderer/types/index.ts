@@ -1,7 +1,7 @@
 import type { ToolResult } from '../../shared/tools/types'
 
 export interface Settings {
-  theme: 'light' | 'dark' | 'system'
+  theme: 'light' | 'dark' | 'system' | 'termy-green-light' | 'termy-green-dark'
   llm: {
     provider: 'anthropic' | 'openai' | 'openrouter' | 'ollama'
     model: string

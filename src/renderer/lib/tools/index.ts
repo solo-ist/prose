@@ -33,7 +33,8 @@ import {
   executeNewFile,
   executeSaveFile,
   executeListFiles,
-  executeReadFile
+  executeReadFile,
+  executeCreateAndOpenFile
 } from './executors/file'
 
 /** Provenance context for AI-generated content tracking */
@@ -118,6 +119,8 @@ export async function executeTool(
         return await executeListFiles(validatedArgs)
       case 'read_file':
         return await executeReadFile(validatedArgs)
+      case 'create_and_open_file':
+        return await executeCreateAndOpenFile(validatedArgs)
 
       default:
         return toolError(`Tool "${toolName}" not implemented`, 'NOT_IMPLEMENTED')

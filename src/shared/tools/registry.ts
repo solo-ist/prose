@@ -84,7 +84,13 @@ export function getToolsForClaudeAPI(mode: ToolMode = 'full'): Array<{
  * Tools exposed via MCP server.
  * Focused subset for Claude Desktop integration.
  */
-const mcpToolNames = ['read_document', 'get_outline', 'open_file', 'suggest_edit'] as const
+const mcpToolNames = [
+  'read_document',
+  'get_outline',
+  'open_file',
+  'suggest_edit',
+  'create_and_open_file'
+] as const
 
 /**
  * Get tools formatted for MCP server.

@@ -90,6 +90,7 @@ export async function executeTool(
       case 'search_document':
         return executeSearchDocument(validatedArgs)
       case 'get_outline':
+      case 'outline':
         return executeGetOutline()
 
       // Editor tools

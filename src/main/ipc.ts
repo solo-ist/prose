@@ -532,7 +532,7 @@ export function setupIpcHandlers(): void {
 
         const stream = client.messages.stream({
           model: request.model,
-          max_tokens: 4096,
+          max_tokens: request.maxTokens || 4096,
           system: request.system,
           messages: anthropicMessages,
           tools: anthropicTools

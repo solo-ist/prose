@@ -64,13 +64,13 @@ export const suggestEditSchema = z.object({
   comment: z
     .string()
     .optional()
-    .describe('Optional comment explaining the suggested change')
+    .describe('Brief rationale for the change, shown in the diff UI. Keep under 20 words.')
 })
 
 export const suggestEditConfig: ToolConfig<typeof suggestEditSchema> = {
   name: 'suggest_edit',
   description:
-    'Show a diff suggestion for a specific node without applying it. Use read_document first to see all nodes with their IDs.',
+    'Create an inline diff suggestion on a node. The user sees a highlighted comparison and can accept or reject it. Use read_document first to get node IDs.',
   schema: suggestEditSchema,
   category: 'editor',
   requiresMode: null, // Available in all modes
@@ -90,7 +90,7 @@ export const acceptDiffSchema = z.object({
 
 export const acceptDiffConfig: ToolConfig<typeof acceptDiffSchema> = {
   name: 'accept_diff',
-  description: 'Accept a pending diff suggestion, applying the change to the document',
+  description: 'Accept a pending suggestion. If no ID provided, accepts all pending suggestions.',
   schema: acceptDiffSchema,
   category: 'editor',
   requiresMode: null, // Available in all modes
@@ -110,7 +110,7 @@ export const rejectDiffSchema = z.object({
 
 export const rejectDiffConfig: ToolConfig<typeof rejectDiffSchema> = {
   name: 'reject_diff',
-  description: 'Reject a pending diff suggestion, keeping the original text',
+  description: 'Reject a pending suggestion. If no ID provided, rejects all pending suggestions.',
   schema: rejectDiffSchema,
   category: 'editor',
   requiresMode: null, // Available in all modes

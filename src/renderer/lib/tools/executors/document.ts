@@ -226,8 +226,9 @@ export function executeSearchDocument(args: {
 
 /**
  * get_outline - Get the document structure as a list of headings.
+ * When there are few headings (< 3), provides a summary instead.
  */
-export function executeGetOutline(): ToolResult<{ outline: OutlineEntry[] }> {
+export function executeGetOutline(): ToolResult<{ outline: OutlineEntry[]; summary?: string }> {
   const editor = getEditor()
 
   if (!editor) {
@@ -254,6 +255,22 @@ export function executeGetOutline(): ToolResult<{ outline: OutlineEntry[] }> {
       })
     }
   })
+
+  // If few headings, provide a summary instead
+  if (outline.length < 3) {
+    const store = useEditorStore.getState()
+    const content = store.document.content
+    const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0
+
+    let summary = `Document has ${outline.length} heading${outline.length !== 1 ? 's' : ''}`
+    if (outline.length > 0) {
+      const headingList = outline.map(h => `${'  '.repeat(h.level - 1)}- ${h.text}`).join('\n')
+      summary += `:\n\n${headingList}`
+    }
+    summary += `\n\nDocument contains ${wordCount} words.`
+
+    return toolSuccess({ outline, summary })
+  }
 
   return toolSuccess({ outline })
 }

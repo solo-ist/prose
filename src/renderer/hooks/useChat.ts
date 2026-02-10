@@ -18,6 +18,24 @@ let streamListenersInitialized = false
 // Maximum tool roundtrips before circuit breaker stops the loop
 const MAX_TOOL_ROUNDTRIPS = 5
 
+// Maximum messages to keep in context (plus pinned first user message)
+const MAX_HISTORY_MESSAGES = 20
+
+/**
+ * Summarize tool results to reduce context size.
+ * Strips redundant `markdown` field from read_document results since nodes already contain content.
+ */
+function summarizeToolResult(toolName: string, result: { success: boolean; data?: unknown; error?: string }): string {
+  if (!result.success) return JSON.stringify(result)
+  if (toolName === 'read_document' && result.data) {
+    const data = result.data as { nodes?: unknown[]; markdown?: string }
+    if (data.nodes) {
+      return JSON.stringify({ success: true, data: { nodes: data.nodes, nodeCount: data.nodes.length } })
+    }
+  }
+  return JSON.stringify(result)
+}
+
 // Module-level refs - these must be outside the hook to ensure event handlers
 // registered once at module level can access the same refs that sendMessage uses
 // Each ref includes a streamId to prevent race conditions when streams overlap
@@ -221,10 +239,10 @@ export function useChat() {
               `\n\n*[Tool: ${toolCall.name}] ${resultSummary}*`
           })
 
-          // Add tool result message to API messages
+          // Add tool result message to API messages (summarized to reduce context)
           updatedMessages.push({
             role: 'tool' as const,
-            content: JSON.stringify(result),
+            content: summarizeToolResult(toolCall.name, result),
             tool_call_id: toolCall.id
           })
         }
@@ -268,10 +286,11 @@ export function useChat() {
             apiKey: settingsState.settings.llm.apiKey,
             baseUrl: settingsState.settings.llm.baseUrl,
             messages: updatedMessages,
-            system: buildSystemPrompt(state.includeDocument, editorState.document.content),
+            system: buildSystemPrompt(state.includeDocument, editorState.document.content, state.toolMode, editorState.document.path),
             streamId: newStreamId,
             tools,
-            maxToolRoundtrips: 5
+            maxToolRoundtrips: 5,
+            maxTokens: state.toolMode === 'suggestions' ? 3072 : 4096
           })
         } catch (error) {
           console.error('[Chat] Tool loop error:', error)
@@ -380,13 +399,25 @@ export function useChat() {
       setLoading(true)
 
       // Build messages array for the API
-      const apiMessages: LLMMessage[] = messages.map((m) => ({
+      let apiMessages: LLMMessage[] = messages.map((m) => ({
         role: m.role as 'user' | 'assistant',
         content: m.context
           ? `Regarding this text:\n\n> ${m.context}\n\n${m.content}`
           : m.content
       }))
       apiMessages.push({ role: 'user' as const, content: fullMessage })
+
+      // Prune history: keep first user message + last MAX_HISTORY_MESSAGES
+      if (apiMessages.length > MAX_HISTORY_MESSAGES) {
+        // Find first non-hidden user message (skip auto-describe)
+        const firstUserIdx = messages.findIndex((m) => m.role === 'user' && !m.hidden)
+        const pinned = firstUserIdx >= 0 ? [apiMessages[firstUserIdx]] : []
+        const recent = apiMessages.slice(-MAX_HISTORY_MESSAGES)
+        apiMessages =
+          pinned.length > 0 && !recent.includes(pinned[0])
+            ? [...pinned, ...recent]
+            : recent
+      }
 
       // Create assistant message placeholder for streaming
       const assistantMsgId = createMessageId()
@@ -437,10 +468,11 @@ export function useChat() {
           apiKey: settings.llm.apiKey,
           baseUrl: settings.llm.baseUrl,
           messages: apiMessages,
-          system: buildSystemPrompt(includeDocument, useEditorStore.getState().document.content),
+          system: buildSystemPrompt(includeDocument, useEditorStore.getState().document.content, toolMode, useEditorStore.getState().document.path),
           streamId,
           tools,
-          maxToolRoundtrips: 5
+          maxToolRoundtrips: 5,
+          maxTokens: toolMode === 'suggestions' ? 3072 : 4096
         })
       } catch (error) {
         console.error('[Chat] Error:', error)
@@ -554,8 +586,11 @@ export function useChat() {
 
   // Auto-describe document on open (hidden message triggers AI summary)
   const describeDocument = useCallback(async () => {
-    // Only describe if document context is enabled
     const state = useChatStore.getState()
+
+    // Guard: don't describe if already active or has history
+    if (state.isLoading || state.isStreaming) return
+    if (state.messages.length > 0) return
     if (!state.includeDocument) return
 
     // Only describe if there's content
@@ -565,10 +600,8 @@ export function useChat() {
     // Open chat panel to show the description
     setPanelOpen(true)
 
-    // Send a hidden prompt that triggers declarative description
-    // The prompt encourages confident, direct language without hedging
     await sendMessage(
-      'Briefly describe this document in 1-2 sentences. Be direct and declarative - state what it is, not what it "appears to be". Focus on the content and purpose.',
+      'Summarize this document in 1-2 sentences. State what it is and its purpose. No hedging.',
       { hidden: true }
     )
   }, [sendMessage, setPanelOpen])

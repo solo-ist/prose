@@ -16,11 +16,8 @@ import { useChatStore } from '../../stores/chatStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 
-// Track which documents have been auto-prompted this session
-const autoPromptedDocs = new Set<string>()
-
 export function ChatPanel() {
-  const { messages, isLoading, isStreaming, isInitializing, sendMessage, stopGeneration, clearMessages } = useChat()
+  const { messages, isLoading, isStreaming, sendMessage, stopGeneration, clearMessages } = useChat()
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const {
@@ -45,19 +42,6 @@ export function ChatPanel() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [messages, isLoading, isStreaming, lastMessageContent])
-
-  // Auto-prompt when panel opens for a document with content but no chat history
-  useEffect(() => {
-    const hasContent = document.content.trim().length > 0
-    const hasNoHistory = conversations.length === 0
-    const notYetPrompted = !autoPromptedDocs.has(documentId)
-    const appReady = !isInitializing
-
-    if (hasContent && hasNoHistory && notYetPrompted && appReady) {
-      autoPromptedDocs.add(documentId)
-      sendMessage('What is this?', { hidden: true })
-    }
-  }, [documentId, document.content, conversations.length, isInitializing, sendMessage])
 
   const handleNewChat = () => {
     addConversation(documentId)

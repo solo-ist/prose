@@ -13,7 +13,8 @@ export const readDocumentSchema = z.object({}).describe('No parameters required'
 
 export const readDocumentConfig: ToolConfig<typeof readDocumentSchema> = {
   name: 'read_document',
-  description: 'Get the full markdown content of the current document',
+  description:
+    'Get the document as structured nodes, each with a unique ID. Returns { nodes: [{ id, type, content }], markdown }. Node IDs are required for edit and suggest_edit calls.',
   schema: readDocumentSchema,
   category: 'document',
   requiresMode: null, // Available in all modes
@@ -77,7 +78,8 @@ export const searchDocumentSchema = z.object({
 
 export const searchDocumentConfig: ToolConfig<typeof searchDocumentSchema> = {
   name: 'search_document',
-  description: 'Find all occurrences of text or regex pattern in the document',
+  description:
+    'Search the document for text or regex matches. Returns match positions with line numbers. Useful for locating content before targeting edits.',
   schema: searchDocumentSchema,
   category: 'document',
   requiresMode: null,

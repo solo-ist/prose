@@ -250,6 +250,7 @@ export interface LLMStreamRequest extends LLMRequest {
   streamId: string
   tools?: LLMToolDefinition[]
   maxToolRoundtrips?: number
+  maxTokens?: number
 }
 
 export interface LLMStreamChunk {

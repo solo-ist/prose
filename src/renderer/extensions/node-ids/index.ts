@@ -139,6 +139,14 @@ export function getNodesWithIds(
 
   doc.descendants((node, pos) => {
     if (node.attrs.nodeId) {
+      // Skip paragraphs inside list items — the listItem already covers the content
+      if (node.type.name === 'paragraph') {
+        const parent = doc.resolve(pos).parent
+        if (parent.type.name === 'listItem' || parent.type.name === 'taskItem') {
+          return
+        }
+      }
+
       nodes.push({
         nodeId: node.attrs.nodeId,
         type: node.type.name,

@@ -57,6 +57,7 @@ const PLAN_MODE_INSTRUCTIONS = `
 ### Workflow
 1. **Always** call \`read_document\` first — node IDs change between sessions and cannot be guessed
 2. Call \`suggest_edit\` with the target node ID, new content, and a brief comment (under 20 words)
+3. **Always include \`search\`** with the node's original text content — this ensures edits succeed even if node IDs have changed
 
 The user sees a highlighted diff and decides whether to accept. You have a budget of 5 tool roundtrips per response.`
 
@@ -71,6 +72,7 @@ const FULL_MODE_INSTRUCTIONS = `
 ### Workflow
 1. **Always** call \`read_document\` first — node IDs change between sessions and cannot be guessed
 2. Use \`suggest_edit\` when judgment is involved, \`edit\` for obvious fixes
+3. **Always include \`search\`** with the node's original text content — this ensures edits succeed even if node IDs have changed
 
 Keep edit comments under 20 words. You have a budget of 5 tool roundtrips per response.`
 

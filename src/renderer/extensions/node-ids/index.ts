@@ -105,6 +105,30 @@ export function findNodeById(
 }
 
 /**
+ * Find a node by matching its text content.
+ * Used as a fallback when node IDs are stale (e.g., after document re-parse).
+ * Returns the first match.
+ */
+export function findNodeByContent(
+  doc: import('@tiptap/pm/model').Node,
+  text: string
+): { node: import('@tiptap/pm/model').Node; pos: number } | null {
+  let result: { node: import('@tiptap/pm/model').Node; pos: number } | null = null
+  const normalized = text.trim()
+
+  doc.descendants((node, pos) => {
+    if (result) return false
+    if (!NODE_TYPES_WITH_IDS.includes(node.type.name)) return
+    if (node.textContent.trim() === normalized) {
+      result = { node, pos }
+      return false
+    }
+  })
+
+  return result
+}
+
+/**
  * Get all nodes with IDs as a flat list.
  * Useful for read_document output.
  */

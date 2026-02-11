@@ -54,6 +54,8 @@ const noArgCommands = [
 // Direct-exec commands: executed immediately without LLM interpretation
 // These are instant operations that don't need natural language explanation
 const directExecCommands = [
+  'clear',
+  'new',
   'help',
   'list_diffs',
   'accept_diff',
@@ -127,7 +129,11 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
   const isDisabled = isLoading || isInitializing
 
   // All available commands (including built-in shortcuts)
-  const allCommands = useMemo(() => [...getAvailableTools(), 'help', 'clear', 'new'], [])
+  // Normalize aliases: get_outline → outline for consistent display
+  const allCommands = useMemo(() => [
+    ...getAvailableTools().map(t => t === 'get_outline' ? 'outline' : t),
+    'help', 'clear', 'new'
+  ], [])
 
   // Parse the current command from input (e.g., "/list_files " -> "list_files")
   const activeCommand = useMemo(() => {
@@ -322,7 +328,7 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
       if (commandObj) {
         setMessage('')
         setTimeout(() => textareaRef.current?.focus(), 0)
-        handleDirectExec(commandObj)
+        handleDirectExec(commandObj).catch(console.error)
       }
       return
     }

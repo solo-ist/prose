@@ -347,7 +347,11 @@ export async function executeCreateAndOpenFile(args: {
     return toolError('File API not available', 'API_NOT_AVAILABLE')
   }
 
-  const { filename = 'Untitled.md', content = '' } = args
+  const { content = '' } = args
+
+  // Sanitize filename: strip path separators and leading dots to prevent traversal
+  const rawFilename = (args.filename || 'Untitled.md').replace(/[/\\]/g, '').replace(/^\.+/, '')
+  const sanitizedFilename = rawFilename || 'Untitled.md'
 
   try {
     // Get the default save directory from settings
@@ -355,7 +359,7 @@ export async function executeCreateAndOpenFile(args: {
     const targetFolder = settings.defaultSaveDirectory || (await api.getDocumentsPath())
 
     // Ensure filename has .md extension
-    const finalFilename = filename.endsWith('.md') ? filename : `${filename}.md`
+    const finalFilename = sanitizedFilename.endsWith('.md') ? sanitizedFilename : `${sanitizedFilename}.md`
 
     // Check if file exists and auto-increment if needed
     let attemptFilename = finalFilename

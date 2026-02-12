@@ -628,6 +628,13 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
     }
   }
 
+  // Focus input on mount (when chat panel opens)
+  useEffect(() => {
+    // Short delay to ensure the panel transition has completed
+    const timer = setTimeout(() => textareaRef.current?.focus(), 50)
+    return () => clearTimeout(timer)
+  }, [])
+
   // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {

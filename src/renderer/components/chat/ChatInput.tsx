@@ -29,7 +29,7 @@ const toolDescriptions: Record<string, string> = {
   read_file: 'Read file contents',
   help: 'Show available commands',
   clear: 'Start a new chat',
-  new: 'Start a new chat'
+  new: 'New blank tab'
 }
 
 // Commands that require arguments (no-arg will show echo)
@@ -231,10 +231,16 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
       return
     }
 
-    // Handle /clear and /new
-    if (command.toolName === 'clear' || command.toolName === 'new') {
+    // Handle /clear - start a new chat conversation
+    if (command.toolName === 'clear') {
       const documentId = useEditorStore.getState().document.documentId
       useChatStore.getState().addConversation(documentId)
+      return
+    }
+
+    // Handle /new - create a new blank tab
+    if (command.toolName === 'new') {
+      await handleSlashCommand({ ...command, toolName: 'new_file' }, '/new')
       return
     }
 
@@ -475,7 +481,7 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
         return
       }
 
-      // Handle /clear - start a new chat
+      // Handle /clear and /new (both are direct-exec)
       if (command.toolName === 'clear' || command.toolName === 'new') {
         setMessage('')
         setTimeout(() => textareaRef.current?.focus(), 0)

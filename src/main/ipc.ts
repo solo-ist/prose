@@ -196,6 +196,17 @@ export function setupIpcHandlers(): void {
     }
   })
 
+  // File: Get file stats (timestamps, size)
+  ipcMain.handle('file:stat', async (_event, path: string) => {
+    const safePath = validatePath(path)
+    const stats = await stat(safePath)
+    return {
+      createdAt: stats.birthtime.toISOString(),
+      modifiedAt: stats.mtime.toISOString(),
+      size: stats.size
+    }
+  })
+
   // File: Show in folder (Finder on macOS)
   ipcMain.handle('file:showInFolder', async (_event, path: string) => {
     const safePath = validatePath(path)

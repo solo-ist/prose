@@ -325,6 +325,7 @@ export interface ElectronAPI {
   saveToFolder: (folder: string, filename: string, content: string) => Promise<string>
   getDocumentsPath: () => Promise<string>
   fileExists: (path: string) => Promise<boolean>
+  fileStat: (path: string) => Promise<{ createdAt: string; modifiedAt: string; size: number }>
   // File reveal
   showInFolder: (path: string) => Promise<void>
   // File rename/delete

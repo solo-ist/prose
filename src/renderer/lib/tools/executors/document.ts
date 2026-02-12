@@ -7,7 +7,11 @@ import type { ToolResult, DocumentMetadata, TextMatch, OutlineEntry } from '../.
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useEditorStore } from '../../../stores/editorStore'
 import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
+import { useAnnotationStore } from '../../../extensions/ai-annotations'
 import { getNodesWithIds } from '../../../extensions/node-ids'
+import { getComments } from '../../../extensions/comments'
+import { getAISuggestions } from '../../../extensions/ai-suggestions'
+import { getApi } from '../../browserApi'
 
 /**
  * Get the TipTap editor instance.
@@ -116,13 +120,38 @@ export function executeReadSelection(): ToolResult<{
 /**
  * get_metadata - Get document metadata.
  */
-export function executeGetMetadata(): ToolResult<DocumentMetadata> {
+export async function executeGetMetadata(): Promise<ToolResult<DocumentMetadata>> {
+  const editor = getEditor()
   const { document } = useEditorStore.getState()
 
   const content = document.content
   const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0
   const characterCount = content.length
   const lineCount = content.split('\n').length
+
+  // Comment and suggestion counts
+  const commentCount = editor ? getComments(editor).length : 0
+  const pendingSuggestionCount = editor ? getAISuggestions(editor).length : 0
+  const annotationCount = useAnnotationStore.getState().annotations.length
+
+  // File timestamps (only available for saved files in Electron)
+  let createdAt: string | null = null
+  let modifiedAt: string | null = null
+  let fileSize: number | null = null
+
+  if (document.path) {
+    try {
+      const api = getApi()
+      const stats = await api.fileStat(document.path)
+      if (stats.createdAt) {
+        createdAt = stats.createdAt
+        modifiedAt = stats.modifiedAt
+        fileSize = stats.size
+      }
+    } catch {
+      // File may not exist yet (unsaved)
+    }
+  }
 
   return toolSuccess({
     documentId: document.documentId,
@@ -131,7 +160,13 @@ export function executeGetMetadata(): ToolResult<DocumentMetadata> {
     characterCount,
     lineCount,
     frontmatter: document.frontmatter,
-    isDirty: document.isDirty
+    isDirty: document.isDirty,
+    commentCount,
+    annotationCount,
+    pendingSuggestionCount,
+    createdAt,
+    modifiedAt,
+    fileSize
   })
 }
 

@@ -192,6 +192,7 @@ export interface ElectronAPI {
   saveToFolder: (folder: string, filename: string, content: string) => Promise<string>
   getDocumentsPath: () => Promise<string>
   fileExists: (path: string) => Promise<boolean>
+  fileStat: (path: string) => Promise<{ createdAt: string; modifiedAt: string; size: number }>
   showInFolder: (path: string) => Promise<void>
   renameFile: (oldPath: string, newPath: string) => Promise<void>
   deleteFile: (path: string) => Promise<void>
@@ -338,6 +339,7 @@ const api: ElectronAPI = {
     ipcRenderer.invoke('file:saveToFolder', folder, filename, content),
   getDocumentsPath: () => ipcRenderer.invoke('file:documentsPath'),
   fileExists: (path: string) => ipcRenderer.invoke('file:exists', path),
+  fileStat: (path: string) => ipcRenderer.invoke('file:stat', path),
   showInFolder: (path: string) => ipcRenderer.invoke('file:showInFolder', path),
   renameFile: (oldPath: string, newPath: string) => ipcRenderer.invoke('file:rename', oldPath, newPath),
   deleteFile: (path: string) => ipcRenderer.invoke('file:delete', path),

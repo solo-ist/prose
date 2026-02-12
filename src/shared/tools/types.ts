@@ -110,6 +110,12 @@ export interface DocumentMetadata {
   lineCount: number
   frontmatter: Record<string, unknown>
   isDirty: boolean
+  commentCount: number
+  annotationCount: number
+  pendingSuggestionCount: number
+  createdAt: string | null
+  modifiedAt: string | null
+  fileSize: number | null
 }
 
 /**

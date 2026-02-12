@@ -12,11 +12,14 @@ import { useFileListStore } from '../../../stores/fileListStore'
 import { useAnnotationStore } from '../../../extensions/ai-annotations'
 import { parseMarkdown, serializeMarkdown } from '../../markdown'
 import {
+  generateId,
   generateIdFromPath,
   clearDraft,
   saveConversations,
   saveAnnotations
 } from '../../persistence'
+import { useTabStore, generateUntitledTitle } from '../../../stores/tabStore'
+import { useSuggestionStore } from '../../../extensions/ai-suggestions/store'
 
 /**
  * Get the Electron API.
@@ -97,15 +100,35 @@ export async function executeNewFile(args: {
     const { document } = useEditorStore.getState()
     await useChatStore.getState().saveCurrentConversation(document.documentId)
 
-    // Reset creates a new documentId
-    useEditorStore.getState().resetDocument()
+    // Pause annotation position updates during document loading
+    useAnnotationStore.getState().setLoadingDocument(true)
 
-    // If content provided, set it
-    if (content) {
-      useEditorStore.getState().setContent(content)
-    }
+    // Create a new tab
+    const newDocumentId = generateId()
+    const title = generateUntitledTitle()
 
-    // Clear conversations and context for the new document
+    useTabStore.getState().addTab({
+      documentId: newDocumentId,
+      path: null,
+      title,
+      isDirty: false,
+      content,
+      cursorPosition: { line: 1, column: 1 }
+    })
+
+    // Set up new document in editorStore
+    useEditorStore.getState().setDocument({
+      documentId: newDocumentId,
+      path: null,
+      content,
+      frontmatter: {},
+      isDirty: false
+    })
+
+    useEditorStore.getState().setCursorPosition(1, 1)
+    setCurrentDocumentId(newDocumentId)
+
+    // Clear chat state for new document
     useChatStore.setState({
       conversations: [],
       activeConversationId: null,
@@ -113,13 +136,20 @@ export async function executeNewFile(args: {
       context: null
     })
 
-    // Clear annotations for the new document
+    // Clear annotations and suggestions
     useAnnotationStore.getState().clearAnnotations()
+    useSuggestionStore.getState().setDocumentId(newDocumentId)
+
+    // Clear reMarkable read-only state
+    useEditorStore.getState().setRemarkableReadOnly(false, null)
 
     // Mark as editing
     useEditorStore.getState().setEditing(true)
 
-    const newDocumentId = useEditorStore.getState().document.documentId
+    // Resume annotation position updates
+    setTimeout(() => {
+      useAnnotationStore.getState().setLoadingDocument(false)
+    }, 100)
 
     return toolSuccess({
       created: true,

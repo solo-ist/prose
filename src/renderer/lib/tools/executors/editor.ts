@@ -8,7 +8,7 @@ import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useEditorStore } from '../../../stores/editorStore'
 import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
 import { useAnnotationStore } from '../../../extensions/ai-annotations'
-import { findNodeById } from '../../../extensions/node-ids'
+import { findNodeById, findNodeByContent } from '../../../extensions/node-ids'
 import { generateId } from '../../persistence'
 import { getAISuggestions } from '../../../extensions/ai-suggestions'
 
@@ -21,10 +21,12 @@ function getEditor(): Editor | null {
 
 /**
  * edit - Replace the content of a node by its ID.
+ * Falls back to content matching if the nodeId is stale.
  */
 export function executeEdit(args: {
   nodeId: string
   content: string
+  search?: string
 }): ToolResult<{ applied: boolean; nodeId: string }> {
   const editor = getEditor()
 
@@ -32,14 +34,18 @@ export function executeEdit(args: {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
-  const { nodeId, content } = args
+  const { nodeId, content, search } = args
 
   if (!nodeId) {
     return toolError('Node ID is required', 'INVALID_INPUT')
   }
 
-  // Find the node by ID
-  const found = findNodeById(editor.state.doc, nodeId)
+  // Find the node by ID, fall back to content matching if stale
+  let found = findNodeById(editor.state.doc, nodeId)
+
+  if (!found && search) {
+    found = findNodeByContent(editor.state.doc, search)
+  }
 
   if (!found) {
     return toolError(
@@ -127,12 +133,14 @@ interface ToolProvenance {
 /**
  * suggest_edit - Show an AI suggestion as a highlighted mark on text.
  * The user can click the highlighted text to see the suggestion and accept/reject it.
+ * Falls back to content matching if the nodeId is stale.
  */
 export function executeSuggestEdit(
   args: {
     nodeId: string
     content: string
     comment?: string
+    search?: string
   },
   provenance?: ToolProvenance
 ): ToolResult<{ suggested: boolean; suggestionId: string }> {
@@ -142,14 +150,18 @@ export function executeSuggestEdit(
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
-  const { nodeId, content, comment } = args
+  const { nodeId, content, comment, search } = args
 
   if (!nodeId) {
     return toolError('Node ID is required', 'INVALID_INPUT')
   }
 
-  // Find the node by ID
-  const found = findNodeById(editor.state.doc, nodeId)
+  // Find the node by ID, fall back to content matching if stale
+  let found = findNodeById(editor.state.doc, nodeId)
+
+  if (!found && search) {
+    found = findNodeByContent(editor.state.doc, search)
+  }
 
   if (!found) {
     return toolError(

@@ -86,10 +86,11 @@ export async function executeTool(
       case 'read_selection':
         return executeReadSelection()
       case 'get_metadata':
-        return executeGetMetadata()
+        return await executeGetMetadata()
       case 'search_document':
         return executeSearchDocument(validatedArgs)
       case 'get_outline':
+      case 'outline':
         return executeGetOutline()
 
       // Editor tools

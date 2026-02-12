@@ -15,13 +15,19 @@ export const editSchema = z.object({
     .describe(
       'The ID of the node to edit. Get node IDs from read_document which lists all nodes with their IDs.'
     ),
-  content: z.string().describe('The new content for the node (replaces entire node content)')
+  content: z.string().describe('The new content for the node (replaces entire node content)'),
+  search: z
+    .string()
+    .optional()
+    .describe(
+      'Original text content of the node (from read_document). Used as fallback to locate the node if nodeId is stale.'
+    )
 })
 
 export const editConfig: ToolConfig<typeof editSchema> = {
   name: 'edit',
   description:
-    'Replace the content of a specific node by ID. Use read_document first to see all nodes with their IDs, then target the node you want to edit.',
+    'Replace the content of a specific node by ID. Use read_document first to see all nodes with their IDs, then target the node you want to edit. Always include the search parameter with the original text for reliability.',
   schema: editSchema,
   category: 'editor',
   requiresMode: 'full', // Only available in Full Autonomy mode
@@ -64,13 +70,19 @@ export const suggestEditSchema = z.object({
   comment: z
     .string()
     .optional()
-    .describe('Brief rationale for the change, shown in the diff UI. Keep under 20 words.')
+    .describe('Brief rationale for the change, shown in the diff UI. Keep under 20 words.'),
+  search: z
+    .string()
+    .optional()
+    .describe(
+      'Original text content of the node (from read_document). Used as fallback to locate the node if nodeId is stale.'
+    )
 })
 
 export const suggestEditConfig: ToolConfig<typeof suggestEditSchema> = {
   name: 'suggest_edit',
   description:
-    'Create an inline diff suggestion on a node. The user sees a highlighted comparison and can accept or reject it. Use read_document first to get node IDs.',
+    'Create an inline diff suggestion on a node. The user sees a highlighted comparison and can accept or reject it. Use read_document first to get node IDs. Always include the search parameter with the original text for reliability.',
   schema: suggestEditSchema,
   category: 'editor',
   requiresMode: null, // Available in all modes

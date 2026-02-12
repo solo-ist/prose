@@ -354,6 +354,11 @@ export const browserApi: ElectronAPI = {
     return false
   },
 
+  fileStat: async (_path: string) => {
+    // No file stats in browser mode
+    return { createdAt: '', modifiedAt: '', size: 0 }
+  },
+
   showInFolder: async (_path: string): Promise<void> => {
     // Can't reveal in folder in browser mode
   },

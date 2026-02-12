@@ -15,29 +15,28 @@ const toolDescriptions: Record<string, string> = {
   read_selection: 'Read selected text',
   get_metadata: 'Get document metadata',
   search_document: 'Search in document',
-  get_outline: 'Get document outline/headings',
+  outline: 'Get document outline/headings',
   edit: 'Replace text in document',
   insert: 'Insert text at position',
-  suggest_edit: 'Suggest an edit (plan mode)',
+  suggest_edit: 'Suggest edits to improve document',
   accept_diff: 'Accept a suggested diff',
   reject_diff: 'Reject a suggested diff',
   list_diffs: 'List pending diffs',
   open_file: 'Open a file',
-  new_file: 'Create new file',
+  new_file: 'Create new file in new tab',
   save_file: 'Save to file',
   list_files: 'List files in directory',
   read_file: 'Read file contents',
   help: 'Show available commands',
   clear: 'Start a new chat',
-  new: 'Start a new chat'
+  new: 'New blank tab'
 }
 
 // Commands that require arguments (no-arg will show echo)
 const noArgEchoMessages: Record<string, string> = {
   search_document: 'Usage: `/search_document <query>` — requires a search query',
   edit: 'Usage: `/edit {"search": "...", "replace": "..."}` — requires search/replace args',
-  insert: 'Usage: `/insert <text>` — what would you like to insert?',
-  suggest_edit: 'Usage: `/suggest_edit {"search": "...", "replace": "..."}` — what do you want to improve?'
+  insert: 'Usage: `/insert <text>` — what would you like to insert?'
 }
 
 // Commands that work without args (return content from current document)
@@ -45,7 +44,7 @@ const noArgCommands = [
   'read_document',
   'read_selection',
   'get_metadata',
-  'get_outline',
+  'outline',
   'list_diffs',
   'accept_diff',
   'reject_diff',
@@ -55,11 +54,22 @@ const noArgCommands = [
 // Direct-exec commands: executed immediately without LLM interpretation
 // These are instant operations that don't need natural language explanation
 const directExecCommands = [
+  'clear',
+  'new',
   'help',
   'list_diffs',
   'accept_diff',
-  'reject_diff'
+  'reject_diff',
+  'outline',
+  'list_files',
+  'new_file'
 ]
+
+// Auto-execute commands: commands that execute with a default prompt when selected from dropdown
+// These use LLM interpretation but don't require the user to type additional input
+const autoExecCommands: Record<string, string> = {
+  'suggest_edit': 'Suggest a few high-impact improvements to this document. Apply each suggestion as a separate tool call with its own rationale.'
+}
 
 // Transform slash commands to natural language for LLM interpretation
 function transformToNaturalLanguage(toolName: string, rawArg?: string): string {
@@ -72,7 +82,7 @@ function transformToNaturalLanguage(toolName: string, rawArg?: string): string {
       return 'Read the currently selected text in the document.'
     case 'get_metadata':
       return 'Get the metadata for the current document (file path, word count, etc.).'
-    case 'get_outline':
+    case 'outline':
       return 'Get the document outline showing the heading structure.'
     case 'search_document':
       return arg ? `Search for "${arg}" in this document.` : 'Search the document for...'
@@ -119,7 +129,11 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
   const isDisabled = isLoading || isInitializing
 
   // All available commands (including built-in shortcuts)
-  const allCommands = useMemo(() => [...getAvailableTools(), 'help', 'clear', 'new'], [])
+  // Normalize aliases: get_outline → outline for consistent display
+  const allCommands = useMemo(() => [
+    ...getAvailableTools().map(t => t === 'get_outline' ? 'outline' : t),
+    'help', 'clear', 'new'
+  ], [])
 
   // Parse the current command from input (e.g., "/list_files " -> "list_files")
   const activeCommand = useMemo(() => {
@@ -179,7 +193,153 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
     }
   }, [selectedIndex, showAutocomplete])
 
+  // Execute direct commands (help, clear, new_file, list_files, outline, etc.)
+  const handleDirectExec = async (command: { toolName: string; args: unknown; rawArg?: string }) => {
+    // Handle /help specially
+    if (command.toolName === 'help') {
+      const { addMessage } = useChatStore.getState()
+      const availableTools = getAvailableTools()
+      addMessage({
+        id: createMessageId(),
+        role: 'user',
+        content: '/help',
+        timestamp: new Date()
+      })
+      addMessage({
+        id: createMessageId(),
+        role: 'assistant',
+        content: `**Available commands:**
+
+• **/clear** — Start a new chat
+• **/suggest_edit** — Suggest high-impact improvements
+• **/new_file** — Create new file in new tab
+• **/list_files** — List files in current directory
+• **/outline** — Get document outline/summary
+• **/read_document** — Read current document
+• **/read_selection** — Read selected text
+• **/get_metadata** — Get document metadata
+• **/search_document** — Search in document
+• **/edit** — Replace text in document
+• **/insert** — Insert text at position
+• **/open_file** — Open a file
+• **/save_file** — Save to file
+• **/read_file** — Read file contents
+
+*Tip: Select a command from the dropdown to execute it immediately, or type arguments after the command.*`,
+        timestamp: new Date()
+      })
+      return
+    }
+
+    // Handle /clear - start a new chat conversation
+    if (command.toolName === 'clear') {
+      const documentId = useEditorStore.getState().document.documentId
+      useChatStore.getState().addConversation(documentId)
+      return
+    }
+
+    // Handle /new - create a new blank tab
+    if (command.toolName === 'new') {
+      await handleSlashCommand({ ...command, toolName: 'new_file' }, '/new')
+      return
+    }
+
+    // Handle /new_file
+    if (command.toolName === 'new_file') {
+      await handleSlashCommand(command, '/new_file')
+      return
+    }
+
+    // Handle /list_files - get current file's directory first
+    if (command.toolName === 'list_files') {
+      const { document } = useEditorStore.getState()
+      const path = document.path
+      if (path) {
+        // Extract directory from file path
+        const dir = path.substring(0, path.lastIndexOf('/')) || '~'
+        // First get metadata, then list files
+        const enhancedCommand = { ...command, args: { path: dir }, rawArg: dir }
+        await handleSlashCommand(enhancedCommand, `/list_files ${dir}`)
+      } else {
+        // No current file, list home directory
+        await handleSlashCommand({ ...command, args: { path: '~' }, rawArg: '~' }, '/list_files ~')
+      }
+      return
+    }
+
+    // Handle /outline - will provide summary if few headings
+    if (command.toolName === 'outline' || command.toolName === 'get_outline') {
+      const { addMessage } = useChatStore.getState()
+      addMessage({
+        id: createMessageId(),
+        role: 'user',
+        content: '/outline',
+        timestamp: new Date()
+      })
+
+      const assistantMsgId = createMessageId()
+      addMessage({
+        id: assistantMsgId,
+        role: 'assistant',
+        content: `<tool-executing name="get_outline">Executing...</tool-executing>`,
+        timestamp: new Date()
+      })
+
+      const result = await executeTool('get_outline', {}, toolMode)
+
+      if (result.success && result.data) {
+        const data = result.data as { outline: Array<{ level: number; text: string; line: number }>; summary?: string }
+
+        let resultText = ''
+        if (data.summary) {
+          // Show summary for documents with few headings
+          resultText = data.summary
+        } else if (data.outline.length > 0) {
+          // Show outline for documents with many headings
+          resultText = '**Document Outline:**\n\n' +
+            data.outline.map(h => `${'  '.repeat(h.level - 1)}- ${h.text}`).join('\n')
+        } else {
+          resultText = 'No headings found in document.'
+        }
+
+        useChatStore.getState().updateMessage(assistantMsgId, {
+          content: `<tool-result name="get_outline" success="true">${resultText}</tool-result>`
+        })
+      } else {
+        useChatStore.getState().updateMessage(assistantMsgId, {
+          content: `<tool-result name="get_outline" success="false">Error: ${result.error}</tool-result>`
+        })
+      }
+      return
+    }
+
+    // Other direct-exec commands (accept_diff, reject_diff, list_diffs)
+    await handleSlashCommand(command, `/${command.toolName}`)
+  }
+
   const selectCommand = (command: string) => {
+    // Check if this is an auto-execute command
+    if (autoExecCommands[command]) {
+      // Auto-execute with default prompt
+      setMessage('')
+      setTimeout(() => textareaRef.current?.focus(), 0)
+      onSend(autoExecCommands[command])
+      return
+    }
+
+    // Check if this is a direct-exec command that needs no args
+    if (directExecCommands.includes(command)) {
+      // Auto-execute immediately
+      const commandObj = parseSlashCommand('/' + command)
+      if (commandObj) {
+        setMessage('')
+        setTimeout(() => textareaRef.current?.focus(), 0)
+        handleDirectExec(commandObj).catch(console.error)
+      }
+      return
+    }
+
+    // Otherwise, just populate the input for the user to add args
     setMessage('/' + command + ' ')
     // Focus after state update
     setTimeout(() => textareaRef.current?.focus(), 0)
@@ -315,39 +475,32 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
 
       // Handle /help specially (always direct-exec)
       if (command.toolName === 'help' || command.toolName === '?') {
-        const { addMessage } = useChatStore.getState()
-        addMessage({
-          id: createMessageId(),
-          role: 'user',
-          content: '/help',
-          timestamp: new Date()
-        })
-        const toolList = availableTools.map(t => '• /' + t).join('\n')
-        addMessage({
-          id: createMessageId(),
-          role: 'assistant',
-          content: '**Available commands:**\n\n' + toolList + '\n\n**Examples:**\n• `/list_files ~/Documents`\n• `/read_document`\n• `/search_document keyword`\n\n*Tip: Most commands are interpreted by the AI for better results.*',
-          timestamp: new Date()
-        })
         setMessage('')
         setTimeout(() => textareaRef.current?.focus(), 0)
+        await handleDirectExec(command)
         return
       }
 
-      // Handle /clear - start a new chat
+      // Handle /clear and /new (both are direct-exec)
       if (command.toolName === 'clear' || command.toolName === 'new') {
-        const documentId = useEditorStore.getState().document.documentId
-        useChatStore.getState().addConversation(documentId)
         setMessage('')
         setTimeout(() => textareaRef.current?.focus(), 0)
+        await handleDirectExec(command)
         return
       }
 
-      // Check if this is a valid tool
-      if (availableTools.includes(command.toolName)) {
+      // Check if this is a valid tool (allow 'outline' as alias for 'get_outline')
+      const isValidTool = availableTools.includes(command.toolName) ||
+                          (command.toolName === 'outline' && availableTools.includes('get_outline'))
+
+      if (isValidTool) {
+        // Normalize 'outline' to 'get_outline' for registry lookup
+        const normalizedToolName = command.toolName === 'outline' ? 'get_outline' : command.toolName
+        const normalizedCommand = { ...command, toolName: normalizedToolName }
+
         // Check for no-arg echo messages (commands that require arguments)
         if (!command.rawArg) {
-          const echoMessage = noArgEchoMessages[command.toolName]
+          const echoMessage = noArgEchoMessages[normalizedToolName]
           if (echoMessage) {
             const { addMessage } = useChatStore.getState()
             addMessage({
@@ -371,15 +524,27 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
         // Route based on command type: direct-exec vs LLM-mediated
         if (directExecCommands.includes(command.toolName)) {
           // Direct execution - instant, no LLM
-          // Capture message before clearing (handleSlashCommand needs it for user message display)
-          const originalMessage = message.trim()
           setMessage('')
           setTimeout(() => textareaRef.current?.focus(), 0)
-          await handleSlashCommand(command, originalMessage)
+          await handleDirectExec({ ...command, toolName: normalizedToolName })
+          return
+        } else if (autoExecCommands[command.toolName]) {
+          // Auto-execute with default prompt if no args provided
+          if (!command.rawArg) {
+            setMessage('')
+            setTimeout(() => textareaRef.current?.focus(), 0)
+            onSend(autoExecCommands[command.toolName])
+            return
+          }
+          // If args provided, use LLM interpretation
+          const naturalLanguage = transformToNaturalLanguage(normalizedToolName, command.rawArg)
+          setMessage('')
+          setTimeout(() => textareaRef.current?.focus(), 0)
+          onSend(naturalLanguage)
           return
         } else {
           // LLM-mediated - transform to natural language and send to LLM
-          const naturalLanguage = transformToNaturalLanguage(command.toolName, command.rawArg)
+          const naturalLanguage = transformToNaturalLanguage(normalizedToolName, command.rawArg)
           setMessage('')
           setTimeout(() => textareaRef.current?.focus(), 0)
           onSend(naturalLanguage)
@@ -462,6 +627,13 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
       handleSubmit()
     }
   }
+
+  // Focus input on mount (when chat panel opens)
+  useEffect(() => {
+    // Short delay to ensure the panel transition has completed
+    const timer = setTimeout(() => textareaRef.current?.focus(), 50)
+    return () => clearTimeout(timer)
+  }, [])
 
   // Auto-resize textarea
   useEffect(() => {
@@ -601,8 +773,8 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={isInitializing ? "Loading..." : "Ask about your document..."}
-            className="flex-1 min-h-[24px] max-h-[96px] resize-none bg-transparent font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50"
+            placeholder={isInitializing ? "Loading..." : "/CMD"}
+            className="flex-1 min-h-[24px] max-h-[96px] resize-none bg-transparent font-mono text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none disabled:opacity-50"
             disabled={isDisabled}
             rows={1}
           />

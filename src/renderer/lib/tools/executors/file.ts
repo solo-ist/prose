@@ -332,3 +332,60 @@ export async function executeReadFile(args: {
     return toolError(`Failed to read file: ${e}`, 'READ_FAILED')
   }
 }
+
+/**
+ * create_and_open_file - Create a new file in the default directory and open it.
+ * MCP-specific tool for Claude Desktop integration.
+ */
+export async function executeCreateAndOpenFile(args: {
+  filename?: string
+  content?: string
+}): Promise<ToolResult<{ path: string; opened: boolean }>> {
+  const api = getApi()
+
+  if (!api) {
+    return toolError('File API not available', 'API_NOT_AVAILABLE')
+  }
+
+  const { content = '' } = args
+
+  // Sanitize filename: strip path separators and leading dots to prevent traversal
+  const rawFilename = (args.filename || 'Untitled.md').replace(/[/\\]/g, '').replace(/^\.+/, '')
+  const sanitizedFilename = rawFilename || 'Untitled.md'
+
+  try {
+    // Get the default save directory from settings
+    const settings = useSettingsStore.getState().settings
+    const targetFolder = settings.defaultSaveDirectory || (await api.getDocumentsPath())
+
+    // Ensure filename has .md extension
+    const finalFilename = sanitizedFilename.endsWith('.md') ? sanitizedFilename : `${sanitizedFilename}.md`
+
+    // Check if file exists and auto-increment if needed
+    let attemptFilename = finalFilename
+    let counter = 2
+    const baseFilename = finalFilename.replace(/\.md$/, '')
+
+    while (await api.fileExists(`${targetFolder}/${attemptFilename}`)) {
+      attemptFilename = `${baseFilename} ${counter}.md`
+      counter++
+    }
+
+    // Create the file
+    const fullPath = await api.saveToFolder(targetFolder, attemptFilename, content)
+
+    // Open the newly created file
+    const openResult = await executeOpenFile({ path: fullPath })
+
+    if (!openResult.success) {
+      return toolError(
+        `File created at ${fullPath} but failed to open: ${openResult.error}`,
+        'OPEN_FAILED'
+      )
+    }
+
+    return toolSuccess({ path: fullPath, opened: true })
+  } catch (e) {
+    return toolError(`Failed to create and open file: ${e}`, 'CREATE_FAILED')
+  }
+}

@@ -109,6 +109,32 @@ export const readFileConfig: ToolConfig<typeof readFileSchema> = {
 }
 
 // ============================================================================
+// create_and_open_file (MCP-specific)
+// ============================================================================
+
+export const createAndOpenFileSchema = z.object({
+  filename: z
+    .string()
+    .optional()
+    .describe('Filename for the new document (e.g., "My Document.md"). If omitted, defaults to "Untitled.md" with auto-incrementing suffix if needed.'),
+  content: z
+    .string()
+    .optional()
+    .default('')
+    .describe('Initial content for the new document. Defaults to empty string.')
+})
+
+export const createAndOpenFileConfig: ToolConfig<typeof createAndOpenFileSchema> = {
+  name: 'create_and_open_file',
+  description:
+    'Create a new markdown file in the default documents directory, save it to disk, and open it in Prose. Perfect for generating new documents from Claude Desktop. The file is immediately saved (not just opened in memory) and will appear in the default save location. If filename already exists, automatically increments (e.g., "Untitled.md" → "Untitled 2.md").',
+  schema: createAndOpenFileSchema,
+  category: 'file',
+  requiresMode: null,
+  dangerous: false
+}
+
+// ============================================================================
 // Export all file tools
 // ============================================================================
 
@@ -117,5 +143,6 @@ export const fileTools = [
   newFileConfig,
   saveFileConfig,
   listFilesConfig,
-  readFileConfig
+  readFileConfig,
+  createAndOpenFileConfig
 ] as const

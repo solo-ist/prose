@@ -131,7 +131,9 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
   // All available commands (including built-in shortcuts)
   // Normalize aliases: get_outline → outline for consistent display
   const allCommands = useMemo(() => [
-    ...getAvailableTools().map(t => t === 'get_outline' ? 'outline' : t),
+    ...getAvailableTools()
+      .filter(t => t !== 'create_and_open_file')
+      .map(t => t === 'get_outline' ? 'outline' : t),
     'help', 'clear', 'new'
   ], [])
 
@@ -638,8 +640,13 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
   // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto'
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 96)}px`
+      if (!message) {
+        // When empty, clear inline style and let CSS h-6 control height
+        textareaRef.current.style.height = ''
+      } else {
+        textareaRef.current.style.height = 'auto'
+        textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 96)}px`
+      }
     }
   }, [message])
 
@@ -774,7 +781,7 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={isInitializing ? "Loading..." : "/CMD"}
-            className="flex-1 min-h-[24px] max-h-[96px] resize-none bg-transparent font-mono text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none disabled:opacity-50"
+            className="flex-1 h-6 max-h-[96px] resize-none bg-transparent font-mono text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none disabled:opacity-50"
             disabled={isDisabled}
             rows={1}
           />

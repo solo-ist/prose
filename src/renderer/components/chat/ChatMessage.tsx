@@ -16,7 +16,7 @@ import avatarLight from '../../assets/avatar-light.png'
 // Tool call indicator component with AI sparkle styling
 function ToolCallIndicator({ name, status, children }: { name: string; status: 'executing' | 'success' | 'error'; children?: React.ReactNode }) {
   return (
-    <div className="my-2 rounded-md border border-border bg-muted/20 overflow-hidden">
+    <div className="rounded-md border border-border bg-muted/20 overflow-hidden">
       <div className={cn(
         "flex items-center gap-2 px-3 py-2 text-xs font-medium",
         status === 'executing' && "text-violet-600 dark:text-violet-400 bg-violet-500/5",

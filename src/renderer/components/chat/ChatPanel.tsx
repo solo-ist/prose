@@ -2,7 +2,6 @@ import { useRef, useEffect } from 'react'
 import { useChat } from '../../hooks/useChat'
 import { ChatMessage } from './ChatMessage'
 import { ChatInput } from './ChatInput'
-import { ScrollArea } from '../ui/scroll-area'
 import { Button } from '../ui/button'
 import {
   DropdownMenu,
@@ -158,9 +157,9 @@ export function ChatPanel() {
       </div>
 
       {/* Messages */}
-      <ScrollArea className="flex-1" viewportRef={scrollRef}>
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
         {visibleMessages.length === 0 ? (
-          <div className="flex h-full items-center justify-center p-8">
+          <div className="flex items-center justify-center p-8 py-16">
             <div className="text-center">
               <MessageSquare className="mx-auto h-12 w-12 text-muted-foreground/30" />
               <p className="mt-4 text-sm text-muted-foreground">
@@ -203,7 +202,7 @@ export function ChatPanel() {
             )}
           </div>
         )}
-      </ScrollArea>
+      </div>
 
       {/* Input */}
       <ChatInput

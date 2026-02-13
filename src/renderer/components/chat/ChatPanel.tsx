@@ -158,9 +158,9 @@ export function ChatPanel() {
       </div>
 
       {/* Messages */}
-      <ScrollArea className="flex-1" viewportRef={scrollRef}>
+      <ScrollArea className="flex-1 min-h-0" viewportRef={scrollRef}>
         {visibleMessages.length === 0 ? (
-          <div className="flex h-full items-center justify-center p-8">
+          <div className="flex items-center justify-center p-8 py-16">
             <div className="text-center">
               <MessageSquare className="mx-auto h-12 w-12 text-muted-foreground/30" />
               <p className="mt-4 text-sm text-muted-foreground">

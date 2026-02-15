@@ -48,8 +48,12 @@ export function UpdateBanner() {
   const handleDownload = async () => {
     setState('downloading')
     setProgress(0)
-    const api = getApi()
-    await api.updaterDownload?.()
+    try {
+      const api = getApi()
+      await api.updaterDownload?.()
+    } catch {
+      setState('available')
+    }
   }
 
   const handleInstall = () => {

@@ -21,26 +21,32 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
 
   autoUpdater.on('update-available', (info) => {
     console.log('[Updater] Update available:', info.version)
-    mainWindow.webContents.send('updater:update-available', {
-      version: info.version,
-      releaseNotes: info.releaseNotes
-    })
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('updater:update-available', {
+        version: info.version,
+        releaseNotes: info.releaseNotes
+      })
+    }
   })
 
   autoUpdater.on('download-progress', (progress) => {
-    mainWindow.webContents.send('updater:download-progress', {
-      percent: progress.percent,
-      bytesPerSecond: progress.bytesPerSecond,
-      transferred: progress.transferred,
-      total: progress.total
-    })
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('updater:download-progress', {
+        percent: progress.percent,
+        bytesPerSecond: progress.bytesPerSecond,
+        transferred: progress.transferred,
+        total: progress.total
+      })
+    }
   })
 
   autoUpdater.on('update-downloaded', (info) => {
     console.log('[Updater] Update downloaded:', info.version)
-    mainWindow.webContents.send('updater:update-downloaded', {
-      version: info.version
-    })
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('updater:update-downloaded', {
+        version: info.version
+      })
+    }
   })
 
   autoUpdater.on('error', (error) => {

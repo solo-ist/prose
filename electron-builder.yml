@@ -31,7 +31,11 @@ mac:
   target:
     - dmg
     - dir
-  entitlementsInherit: build/entitlements.mac.plist
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  hardenedRuntime: true
+  notarize: true
+  gatekeeperAssess: false
   extendInfo:
     UTImportedTypeDeclarations:
       - UTTypeIdentifier: net.daringfireball.markdown

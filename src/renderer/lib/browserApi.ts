@@ -484,7 +484,21 @@ export const browserApi: ElectronAPI = {
   // Window fullscreen - not available in browser
   onFullscreenChange: (_callback: (isFullscreen: boolean) => void) => {
     return () => {}
-  }
+  },
+
+  // Auto-updater - not available in browser
+  onUpdateAvailable: (_callback: (info: { version: string; releaseNotes?: string }) => void) => {
+    return () => {}
+  },
+  onDownloadProgress: (_callback: (progress: { percent: number }) => void) => {
+    return () => {}
+  },
+  onUpdateDownloaded: (_callback: (info: { version: string }) => void) => {
+    return () => {}
+  },
+  updaterDownload: async () => ({ success: false }),
+  updaterInstall: async () => {},
+  updaterCheck: async () => ({ updateAvailable: false })
 }
 
 /**

@@ -383,6 +383,13 @@ export interface ElectronAPI {
   emojiGenerate: (title: string, contentPreview?: string) => Promise<{ emoji: string | null; error?: string }>
   // Window fullscreen state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => () => void
+  // Auto-updater
+  onUpdateAvailable?: (callback: (info: { version: string; releaseNotes?: string }) => void) => () => void
+  onDownloadProgress?: (callback: (progress: { percent: number }) => void) => () => void
+  onUpdateDownloaded?: (callback: (info: { version: string }) => void) => () => void
+  updaterDownload?: () => Promise<{ success: boolean }>
+  updaterInstall?: () => Promise<void>
+  updaterCheck?: () => Promise<{ updateAvailable: boolean }>
 }
 
 declare global {

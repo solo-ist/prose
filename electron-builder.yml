@@ -26,10 +26,16 @@ fileAssociations:
 
 afterPack: ./scripts/afterPack.js
 
+publish:
+  provider: github
+  owner: solo-ist
+  repo: prose
+
 mac:
   category: public.app-category.productivity
   target:
     - dmg
+    - zip
     - dir
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Toolbar } from './Toolbar'
+import { UpdateBanner } from './UpdateBanner'
 import { StatusBar } from './StatusBar'
 import { Editor } from '../editor/Editor'
 import { ChatPanel } from '../chat/ChatPanel'
@@ -697,6 +698,7 @@ export function App() {
     <TooltipProvider delayDuration={300}>
       <div className="flex h-screen flex-col bg-background text-foreground">
         <Toolbar />
+        <UpdateBanner />
 
         <div className="flex-1 overflow-hidden">
           <ResizablePanelGroup

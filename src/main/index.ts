@@ -11,6 +11,7 @@ import { setupIpcHandlers } from './ipc'
 import { createMenu } from './menu'
 import { getMcpHttpServer, getMcpBridge, getMcpSocketServer } from './mcp'
 import { initializeSpellcheck, setupContextMenu } from './spellcheck'
+import { initAutoUpdater } from './updater'
 
 console.log('[Main] Environment loaded. OCR URL:', process.env.REMARKABLE_OCR_URL ? 'set' : 'not set')
 
@@ -197,6 +198,7 @@ app.whenReady().then(async () => {
   const mainWindow = createWindow()
   setupIpcHandlers()
   createMenu(mainWindow)
+  initAutoUpdater(mainWindow)
 
   // Initialize spellcheck with personal dictionary
   await initializeSpellcheck()

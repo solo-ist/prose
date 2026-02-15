@@ -2,7 +2,14 @@ import { autoUpdater } from 'electron-updater'
 import { BrowserWindow, ipcMain } from 'electron'
 import { is } from '@electron-toolkit/utils'
 
+declare const __IS_MAS_BUILD__: boolean
+
 export function initAutoUpdater(mainWindow: BrowserWindow): void {
+  if (__IS_MAS_BUILD__) {
+    console.log('[Updater] Disabled in Mac App Store build')
+    return
+  }
+
   if (is.dev) {
     console.log('[Updater] Skipping auto-updater in dev mode')
     return
@@ -10,6 +17,7 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
 
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.allowPrerelease = true
 
   autoUpdater.on('update-available', (info) => {
     console.log('[Updater] Update available:', info.version)
@@ -52,9 +60,12 @@ export function initAutoUpdater(mainWindow: BrowserWindow): void {
   ipcMain.handle('updater:check', async () => {
     try {
       const result = await autoUpdater.checkForUpdates()
-      return { updateAvailable: !!result?.updateInfo }
-    } catch {
-      return { updateAvailable: false }
+      console.log('[Updater] Check result:', JSON.stringify(result?.updateInfo))
+      return { updateAvailable: !!result?.updateInfo, version: result?.updateInfo?.version }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('[Updater] Check error:', message)
+      return { updateAvailable: false, error: message }
     }
   })
 

@@ -13,7 +13,10 @@ const getGitHash = () => {
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()]
+    plugins: [externalizeDepsPlugin()],
+    define: {
+      __IS_MAS_BUILD__: JSON.stringify(process.env.MAS_BUILD === '1')
+    }
   },
   preload: {
     plugins: [externalizeDepsPlugin()]

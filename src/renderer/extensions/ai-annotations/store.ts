@@ -84,13 +84,39 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
     get().saveAnnotations()
   },
 
-  // Remove all annotations overlapping a range
+  // Remove annotations in a range, splitting partially-overlapping ones into remnants
   removeAnnotationsInRange: (from, to) => {
-    set((state) => ({
-      annotations: state.annotations.filter(
-        (a) => a.to <= from || a.from >= to // Keep if no overlap
-      ),
-    }))
+    set((state) => {
+      const updated: AIAnnotation[] = []
+
+      for (const a of state.annotations) {
+        if (a.to <= from || a.from >= to) {
+          // No overlap — keep as-is
+          updated.push(a)
+        } else {
+          // Overlaps — split into before/after remnants
+          if (a.from < from) {
+            updated.push({
+              ...a,
+              id: generateId(),
+              to: from,
+              content: a.content.slice(0, from - a.from),
+            })
+          }
+          if (a.to > to) {
+            updated.push({
+              ...a,
+              id: generateId(),
+              from: to,
+              content: a.content.slice(to - a.from),
+            })
+          }
+          // If fully contained (a.from >= from && a.to <= to), no remnants → removed
+        }
+      }
+
+      return { annotations: updated }
+    })
 
     get().saveAnnotations()
   },

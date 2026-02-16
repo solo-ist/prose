@@ -1,16 +1,16 @@
 ---
-name: backlog-groom
+name: roadmap-refinement
 description: Audit open issues and project board. Flags done-but-open issues, board drift, and stale items for bulk cleanup.
 ---
 
-# Backlog Groom
+# Roadmap Refinement
 
 Audit the backlog and project board, then present findings for approval before making changes.
 
 ## Usage
 
 ```
-/backlog-groom
+/roadmap-refinement
 ```
 
 No arguments. Operates on `solo-ist/prose` and the Prose Roadmap project.
@@ -26,6 +26,8 @@ mcp__github__list_issues (owner: "solo-ist", repo: "prose", state: "OPEN")
 mcp__github__list_pull_requests (owner: "solo-ist", repo: "prose", state: "all")
 gh project item-list 5 --owner solo-ist --format json
 ```
+
+**Important:** `gh project item-list` returns ALL items regardless of issue state — the GitHub Projects UI `is:open` filter is view-only and not applied by the API. After fetching, build an open issues set from the issues list and use it to distinguish open vs closed board items throughout the analysis.
 
 ### 2. Cross-Reference: Done but Open
 

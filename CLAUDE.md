@@ -93,6 +93,7 @@ dist/mac-arm64/prose.app
 - **Commits**: Reference issue numbers in commits (e.g., `Fix login validation (#42)`).
 - **Pull requests**: One PR per issue. Merge to `main` after code review.
 - **Before merging any PR**: Check for unresolved review comments (`/review-feedback <pr-number>` or `get_review_comments` + `get_comments`). Do not merge until all feedback is addressed, dismissed with rationale, or deferred to a follow-up issue.
+- **Always output links**: After creating, closing, or commenting on issues or PRs, always output the full URL (e.g., `https://github.com/solo-ist/prose/pull/42`) so the user can Cmd+click from the terminal.
 - **Issue documentation**: For complex issues, create a folder in `docs/issues/<number>/`. See `docs/issues/README.md` for details.
 
 ### Automated Review Analysis

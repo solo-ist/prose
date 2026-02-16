@@ -95,6 +95,19 @@ dist/mac-arm64/prose.app
 - **Before merging any PR**: Check for unresolved review comments (`/review-feedback <pr-number>` or `get_review_comments` + `get_comments`). Do not merge until all feedback is addressed, dismissed with rationale, or deferred to a follow-up issue.
 - **Issue documentation**: For complex issues, create a folder in `docs/issues/<number>/`. See `docs/issues/README.md` for details.
 
+### Automated Review Analysis
+
+When a PR is opened, Claude auto-reviews it (via `claude.yml`). A second workflow (`review-feedback.yml`) auto-analyzes that review:
+
+1. **Detection**: Triggers on `issue_comment` from `claude[bot]` containing `## Code Review`
+2. **Analysis**: Calls Claude Sonnet API to categorize feedback (Blocking / Functional / Quality / Nitpicks / Questions)
+3. **Output**: Posts structured triage comment with severity, effort, and MERGE / FIX REQUIRED / NEEDS DISCUSSION recommendation
+4. **Loop prevention**: Analysis comments include a `<!-- review-feedback-analysis -->` sentinel excluded from detection
+
+**Manual trigger**: Run `workflow_dispatch` on `review-feedback.yml` with a PR number to re-analyze any PR.
+
+**Local deep-dive**: For code-level validation of review concerns, use `/review-feedback <pr-number>` locally. The cloud version is a quick triage; the local skill reads actual source files.
+
 ## Architecture
 
 ### Cross-Platform Design

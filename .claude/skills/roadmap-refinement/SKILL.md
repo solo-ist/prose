@@ -1,16 +1,16 @@
 ---
-name: backlog-groom
+name: roadmap-refinement
 description: Audit open issues and project board. Flags done-but-open issues, board drift, and stale items for bulk cleanup.
 ---
 
-# Backlog Groom
+# Roadmap Refinement
 
 Audit the backlog and project board, then present findings for approval before making changes.
 
 ## Usage
 
 ```
-/backlog-groom
+/roadmap-refinement
 ```
 
 No arguments. Operates on `solo-ist/prose` and the Prose Roadmap project.

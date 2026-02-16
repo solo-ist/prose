@@ -27,6 +27,8 @@ mcp__github__list_pull_requests (owner: "solo-ist", repo: "prose", state: "all")
 gh project item-list 5 --owner solo-ist --format json
 ```
 
+**Important:** `gh project item-list` returns ALL items regardless of issue state — the GitHub Projects UI `is:open` filter is view-only and not applied by the API. After fetching, build an open issues set from the issues list and use it to distinguish open vs closed board items throughout the analysis.
+
 ### 2. Cross-Reference: Done but Open
 
 For each open issue, check if it's likely completed:

@@ -29,9 +29,11 @@ mcp__github__list_pull_requests (owner: "solo-ist", repo: "prose", state: "open"
 
 Parse project items grouped by status column. Parse open PRs to detect work already in flight.
 
+**Important:** `gh project item-list` returns ALL items regardless of issue state — the GitHub Projects UI `is:open` filter is view-only and not applied by the API. After fetching, cross-reference board items against the open issues list: only include items whose `content.number` appears in the open issues set. Discard closed issues silently — they are not actionable.
+
 ### 2. Map the Board
 
-Group items by status column and present the current state:
+Group **open items only** by status column and present the current state:
 
 | Column | Purpose |
 |--------|---------|

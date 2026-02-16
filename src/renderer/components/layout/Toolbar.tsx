@@ -45,7 +45,9 @@ import {
   Copy,
   Check,
   Timer,
-  CircleUserRound
+  CircleUserRound,
+  MessageSquarePlus,
+  MessagesSquare
 } from 'lucide-react'
 
 export function Toolbar() {
@@ -430,6 +432,15 @@ export function Toolbar() {
               <DropdownMenuItem onClick={() => setDialogOpen(true)}>
                 <Settings className="mr-2 h-4 w-4" />
                 Settings
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => window.open('https://github.com/solo-ist/prose/issues/new?template=feature-request.yml', '_blank')}>
+                <MessageSquarePlus className="mr-2 h-4 w-4" />
+                Request a Feature
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => window.open('https://github.com/solo-ist/prose/discussions/categories/ideas', '_blank')}>
+                <MessagesSquare className="mr-2 h-4 w-4" />
+                Discuss Ideas
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleClose}>

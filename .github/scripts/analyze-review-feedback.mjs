@@ -99,12 +99,17 @@ const response = await fetch('https://api.anthropic.com/v1/messages', {
 })
 
 if (!response.ok) {
-  const error = await response.text()
-  console.error(`Anthropic API error (${response.status}): ${error}`)
+  console.error(`Anthropic API error: ${response.status} ${response.statusText}`)
   process.exit(1)
 }
 
 const data = await response.json()
+
+if (!data.content?.[0]?.text) {
+  console.error(`Unexpected API response structure: ${JSON.stringify(data).substring(0, 200)}`)
+  process.exit(1)
+}
+
 const analysis = data.content[0].text
 
 // Prepend sentinel marker (invisible in rendered markdown) to prevent loop

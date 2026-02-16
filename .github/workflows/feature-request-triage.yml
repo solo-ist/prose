@@ -1,0 +1,38 @@
+name: Feature Request Triage
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  add-to-project:
+    if: github.event.label.name == 'feature-request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add to project and set status
+        env:
+          # Fine-grained PAT scoped to solo-ist/prose with:
+          #   - Issues: Read
+          #   - Projects: Read and write
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+        run: |
+          # Add issue to Prose Roadmap project
+          ITEM_ID=$(gh project item-add 5 --owner solo-ist \
+            --url "${{ github.event.issue.html_url }}" \
+            --format json --jq '.id')
+
+          # Look up "User Requested" option ID dynamically
+          OPTION_ID=$(gh api graphql -f query='{
+            node(id: "PVTSSF_lADOC6voP84BPTiXzg9wHj8") {
+              ... on ProjectV2SingleSelectField {
+                options { id name }
+              }
+            }
+          }' --jq '.data.node.options[] | select(.name == "User Requested") | .id')
+
+          # Set status to "User Requested"
+          gh project item-edit \
+            --project-id PVT_kwDOC6voP84BPTiX \
+            --id "$ITEM_ID" \
+            --field-id PVTSSF_lADOC6voP84BPTiXzg9wHj8 \
+            --single-select-option-id "$OPTION_ID"

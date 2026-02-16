@@ -16,10 +16,16 @@ jobs:
           #   - Projects: Read and write
           GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
         run: |
+          set -e
+
           # Add issue to Prose Roadmap project
           ITEM_ID=$(gh project item-add 5 --owner solo-ist \
             --url "${{ github.event.issue.html_url }}" \
             --format json --jq '.id')
+          if [ -z "$ITEM_ID" ]; then
+            echo "::error::Failed to add issue to project"
+            exit 1
+          fi
 
           # Look up "User Requested" option ID dynamically
           OPTION_ID=$(gh api graphql -f query='{
@@ -29,6 +35,10 @@ jobs:
               }
             }
           }' --jq '.data.node.options[] | select(.name == "User Requested") | .id')
+          if [ -z "$OPTION_ID" ]; then
+            echo "::error::'User Requested' status option not found in project"
+            exit 1
+          fi
 
           # Set status to "User Requested"
           gh project item-edit \

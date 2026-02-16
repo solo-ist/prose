@@ -92,6 +92,7 @@ dist/mac-arm64/prose.app
 - **Branching**: Create a branch per issue using format `issue-<number>-<short-description>` (e.g., `issue-42-fix-login-bug`). Branch from `main`.
 - **Commits**: Reference issue numbers in commits (e.g., `Fix login validation (#42)`).
 - **Pull requests**: One PR per issue. Merge to `main` after code review.
+- **Before merging any PR**: Check for unresolved review comments (`/review-feedback <pr-number>` or `get_review_comments` + `get_comments`). Do not merge until all feedback is addressed, dismissed with rationale, or deferred to a follow-up issue.
 - **Issue documentation**: For complex issues, create a folder in `docs/issues/<number>/`. See `docs/issues/README.md` for details.
 
 ## Architecture

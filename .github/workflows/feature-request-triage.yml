@@ -11,8 +11,9 @@ jobs:
     steps:
       - name: Add to project and set status
         env:
-          # Requires a PAT with `project` and `repo` scopes.
-          # The default GITHUB_TOKEN cannot access org-level projects.
+          # Fine-grained PAT scoped to solo-ist/prose with:
+          #   - Issues: Read
+          #   - Projects: Read and write
           GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
         run: |
           # Add issue to Prose Roadmap project

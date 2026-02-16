@@ -434,11 +434,11 @@ export function Toolbar() {
                 Settings
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => window.open('https://github.com/solo-ist/prose/issues/new?template=feature-request.yml', '_blank')}>
+              <DropdownMenuItem onClick={() => window.open('https://github.com/solo-ist/prose/issues/new?template=feature-request.yml', '_blank', 'noopener,noreferrer')}>
                 <MessageSquarePlus className="mr-2 h-4 w-4" />
                 Request a Feature
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => window.open('https://github.com/solo-ist/prose/discussions/categories/ideas', '_blank')}>
+              <DropdownMenuItem onClick={() => window.open('https://github.com/solo-ist/prose/discussions/categories/ideas', '_blank', 'noopener,noreferrer')}>
                 <MessagesSquare className="mr-2 h-4 w-4" />
                 Discuss Ideas
               </DropdownMenuItem>

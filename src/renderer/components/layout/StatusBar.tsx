@@ -1,8 +1,12 @@
+import { useMemo } from 'react'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
 import { useEditorStore } from '../../stores/editorStore'
+import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useLinkHoverStore } from '../../stores/linkHoverStore'
+import { useReviewStore } from '../../stores/reviewStore'
+import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import {
   DropdownMenu,
@@ -23,6 +27,14 @@ export function StatusBar() {
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
   const isAutosaving = useEditorStore((state) => state.isAutosaving)
   const hoveredUrl = useLinkHoverStore((state) => state.hoveredUrl)
+  const editor = useEditorInstanceStore((state) => state.editor)
+
+  // Track pending suggestion count
+  const suggestionCount = useMemo(() => {
+    if (!editor) return 0
+    return getAISuggestions(editor).length
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, editor?.state.doc])
 
   const wordCount = document.content
     .split(/\s+/)
@@ -79,6 +91,26 @@ export function StatusBar() {
             <span className="text-muted-foreground/40 mx-1">|</span>
           </>
         ) : null}
+
+        {/* Suggestion count */}
+        {suggestionCount > 0 && (
+          <>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => useReviewStore.getState().setReviewMode('quick')}
+                  className="text-violet-600 dark:text-violet-400 hover:text-violet-500 transition-colors cursor-pointer"
+                >
+                  {suggestionCount} suggestion{suggestionCount !== 1 ? 's' : ''}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                <p>Review pending suggestions</p>
+              </TooltipContent>
+            </Tooltip>
+            <span className="text-muted-foreground/40 mx-1">|</span>
+          </>
+        )}
 
         {/* Model selector */}
         <DropdownMenu>

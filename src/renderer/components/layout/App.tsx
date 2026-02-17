@@ -50,6 +50,36 @@ import {
 } from '../../lib/persistence'
 import type { DraftState, SessionState } from '../../lib/persistence'
 import { executeTool } from '../../lib/tools'
+import { ReviewPanel } from '../review/ReviewPanel'
+import { QuickReviewPanel } from '../review/QuickReviewPanel'
+import { SideBySideDiffPanel } from '../review/SideBySideDiffPanel'
+import { useReviewStore } from '../../stores/reviewStore'
+
+function ReviewPanelOverlay() {
+  const reviewMode = useReviewStore((s) => s.reviewMode)
+  const setReviewMode = useReviewStore((s) => s.setReviewMode)
+  const handleClose = useCallback(() => setReviewMode(null), [setReviewMode])
+
+  if (!reviewMode) return null
+
+  if (reviewMode === 'quick') {
+    return (
+      <ReviewPanel open onClose={handleClose} width="w-80">
+        <QuickReviewPanel />
+      </ReviewPanel>
+    )
+  }
+
+  if (reviewMode === 'side-by-side') {
+    return (
+      <ReviewPanel open onClose={handleClose} width="w-[60vw] max-w-[800px]">
+        <SideBySideDiffPanel />
+      </ReviewPanel>
+    )
+  }
+
+  return null
+}
 
 export function App() {
   const { describeDocument } = useChat()
@@ -754,6 +784,9 @@ export function App() {
           onOpenChange={setModelPickerOpen}
         />
         <DefaultHandlerPrompt />
+
+        {/* Review Panel Overlay */}
+        <ReviewPanelOverlay />
 
         {/* Google Docs Import Dialog */}
         <AlertDialog open={importDialogOpen} onOpenChange={(open) => {

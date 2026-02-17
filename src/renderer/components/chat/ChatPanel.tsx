@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useMemo } from 'react'
 import { useChat } from '../../hooks/useChat'
 import { ChatMessage } from './ChatMessage'
 import { ChatInput } from './ChatInput'
@@ -10,9 +10,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '../ui/dropdown-menu'
-import { MessageSquare, History, Plus, Trash2 } from 'lucide-react'
+import { MessageSquare, History, Plus, Trash2, Sparkles } from 'lucide-react'
 import { useChatStore } from '../../stores/chatStore'
 import { useEditorStore } from '../../stores/editorStore'
+import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
+import { useReviewStore } from '../../stores/reviewStore'
+import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 
 export function ChatPanel() {
@@ -28,6 +31,14 @@ export function ChatPanel() {
   } = useChatStore()
   const document = useEditorStore((state) => state.document)
   const documentId = document.documentId
+  const editor = useEditorInstanceStore((state) => state.editor)
+
+  // Track pending suggestion count
+  const suggestionCount = useMemo(() => {
+    if (!editor) return 0
+    return getAISuggestions(editor).length
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, editor?.state.doc])
 
   // Filter out hidden messages for display
   const visibleMessages = messages.filter((m) => !m.hidden)
@@ -203,6 +214,19 @@ export function ChatPanel() {
           </div>
         )}
       </div>
+
+      {/* Suggestion review chip */}
+      {suggestionCount > 0 && (
+        <div className="px-4 pt-2">
+          <button
+            onClick={() => useReviewStore.getState().setReviewMode('quick')}
+            className="w-full flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/30 text-violet-600 dark:text-violet-400 transition-colors"
+          >
+            <Sparkles className="h-3 w-3" />
+            Review {suggestionCount} suggestion{suggestionCount !== 1 ? 's' : ''}
+          </button>
+        </div>
+      )}
 
       {/* Input */}
       <ChatInput

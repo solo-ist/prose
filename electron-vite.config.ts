@@ -13,7 +13,15 @@ const getGitHash = () => {
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()]
+    plugins: [externalizeDepsPlugin()],
+    build: {
+      rollupOptions: {
+        external: [
+          /^@modelcontextprotocol\/sdk/,
+          'zod-to-json-schema'
+        ]
+      }
+    }
   },
   preload: {
     plugins: [externalizeDepsPlugin()]

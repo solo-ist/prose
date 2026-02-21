@@ -473,6 +473,7 @@
   border-bottom-color: transparent !important;
   cursor: text !important;
   animation: none !important;
+  pointer-events: none !important;
 }
 
 /* AI Suggestion Popover */

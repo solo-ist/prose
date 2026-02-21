@@ -46,6 +46,7 @@ import {
   Check,
   Timer,
   CircleUserRound,
+  Bug,
   MessageSquarePlus,
   MessagesSquare
 } from 'lucide-react'
@@ -434,6 +435,10 @@ export function Toolbar() {
                 Settings
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => window.open('https://github.com/solo-ist/prose/issues/new?template=bug-report.yml', '_blank', 'noopener,noreferrer')}>
+                <Bug className="mr-2 h-4 w-4" />
+                Report a Bug
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => window.open('https://github.com/solo-ist/prose/issues/new?template=feature-request.yml', '_blank', 'noopener,noreferrer')}>
                 <MessageSquarePlus className="mr-2 h-4 w-4" />
                 Request a Feature

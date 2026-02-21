@@ -48,6 +48,7 @@ import {
   loadConversations,
   deleteConversations
 } from '../../lib/persistence'
+import { extractFirstH1 } from '../../lib/markdown'
 import type { DraftState, SessionState } from '../../lib/persistence'
 import { executeTool } from '../../lib/tools'
 
@@ -84,11 +85,18 @@ export function App() {
 
   // Update window title based on document state
   const isAutoSaving = settings.autosave?.mode === 'auto' && autosaveActive && !!documentPath
+  const documentContent = useEditorStore((state) => state.document.content)
   useEffect(() => {
-    const fileName = documentPath ? documentPath.split('/').pop() : 'Untitled'
+    let fileName: string
+    if (documentPath) {
+      fileName = documentPath.split('/').pop() || 'Untitled'
+    } else {
+      // For untitled documents, use the first H1 heading if present
+      fileName = extractFirstH1(documentContent) ?? 'Untitled'
+    }
     const dirtyIndicator = isDirty && !isAutoSaving ? ' *' : ''
     document.title = `${fileName}${dirtyIndicator} — Prose`
-  }, [documentPath, isDirty, isAutoSaving])
+  }, [documentPath, documentContent, isDirty, isAutoSaving])
 
   // Recover draft and associated conversations
   const recoverDraft = useCallback(
@@ -167,6 +175,7 @@ export function App() {
           documentId: tabDraft.documentId,
           path: tabDraft.path,
           title: tabDraft.title,
+          baseTitle: tabDraft.baseTitle,
           isDirty: tabDraft.isDirty,
           content: tabDraft.content,
           frontmatter: tabDraft.frontmatter,

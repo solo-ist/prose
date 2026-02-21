@@ -8,7 +8,8 @@ export interface Tab {
   id: string              // Unique tab ID
   documentId: string      // Links to chat/annotations
   path: string | null     // File path (null = untitled)
-  title: string           // Display name
+  title: string           // Display name (may be H1 text for untitled docs)
+  baseTitle?: string      // Original 'Untitled N' title for untitled docs (for H1 revert)
   isDirty: boolean        // Unsaved changes
   // Cached state for when tab is not active
   content?: string
@@ -121,21 +122,25 @@ export const useTabStore = create<TabState>()(
 
     getNextUntitledNumber: () => {
       const state = get()
-      const untitledTabs = state.tabs.filter(t =>
-        !t.path && t.title.startsWith('Untitled')
-      )
+      // Include tabs whose baseTitle starts with 'Untitled' (even if title was set to H1 text)
+      const untitledTabs = state.tabs.filter(t => {
+        if (t.path) return false
+        const checkTitle = t.baseTitle ?? t.title
+        return checkTitle.startsWith('Untitled')
+      })
 
       if (untitledTabs.length === 0) {
         return 1
       }
 
-      // Find the next available number
+      // Find the next available number using baseTitle (original 'Untitled N') when present
       const usedNumbers = new Set<number>()
       for (const tab of untitledTabs) {
-        if (tab.title === 'Untitled') {
+        const checkTitle = tab.baseTitle ?? tab.title
+        if (checkTitle === 'Untitled') {
           usedNumbers.add(1)
         } else {
-          const match = tab.title.match(/^Untitled (\d+)$/)
+          const match = checkTitle.match(/^Untitled (\d+)$/)
           if (match) {
             usedNumbers.add(parseInt(match[1], 10))
           }
@@ -214,6 +219,7 @@ export async function persistSession(): Promise<void> {
     documentId: tab.documentId,
     path: tab.path,
     title: tab.title,
+    baseTitle: tab.baseTitle,
     content: tab.content ?? '',
     isDirty: tab.isDirty,
     frontmatter: tab.frontmatter,

@@ -445,6 +445,7 @@ export const browserApi: ElectronAPI = {
   },
 
   // Google Docs integration - not available in browser mode
+  googleIsConfigured: async () => false,
   googleStartAuth: async () => ({
     success: false,
     error: 'Google Docs sync is not available in browser mode. Please use the Electron app.'

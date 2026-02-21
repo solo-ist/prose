@@ -229,6 +229,7 @@ export interface ElectronAPI {
   // File association (default markdown editor)
   fileAssociationIsDefault: () => Promise<boolean | null>
   // Google Docs integration
+  googleIsConfigured: () => Promise<boolean>
   googleStartAuth: () => Promise<GoogleAuthResult>
   googleDisconnect: () => Promise<void>
   googleGetConnectionStatus: () => Promise<GoogleConnectionStatus>
@@ -441,6 +442,7 @@ const api: ElectronAPI = {
   // File association
   fileAssociationIsDefault: () => ipcRenderer.invoke('fileAssociation:isDefault'),
   // Google Docs integration
+  googleIsConfigured: () => ipcRenderer.invoke('google:isConfigured'),
   googleStartAuth: () => ipcRenderer.invoke('google:startAuth'),
   googleDisconnect: () => ipcRenderer.invoke('google:disconnect'),
   googleGetConnectionStatus: () => ipcRenderer.invoke('google:getConnectionStatus'),

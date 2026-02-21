@@ -3,7 +3,12 @@ import { join } from 'path'
 import { writeFileSync, unlinkSync, existsSync } from 'fs'
 
 // Load environment variables from .env file
-config()
+// Use explicit path since Electron's CWD may differ from project root
+const dotenvResult = config({ path: join(__dirname, '../../.env') })
+if (dotenvResult.error) {
+  // Fallback: try CWD (works in production)
+  config()
+}
 
 import { app, shell, BrowserWindow, session } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -13,6 +18,7 @@ import { getMcpHttpServer, getMcpBridge, getMcpSocketServer } from './mcp'
 import { initializeSpellcheck, setupContextMenu } from './spellcheck'
 
 console.log('[Main] Environment loaded. OCR URL:', process.env.REMARKABLE_OCR_URL ? 'set' : 'not set')
+console.log('[Main] Google configured:', process.env.GOOGLE_CLIENT_ID ? 'ID set' : 'ID missing', process.env.GOOGLE_CLIENT_SECRET ? 'Secret set' : 'Secret missing')
 
 // Enable remote debugging in dev mode for QA automation (Circuit Electron, Playwright)
 if (is.dev) {

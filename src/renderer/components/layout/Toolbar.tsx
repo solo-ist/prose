@@ -48,7 +48,12 @@ import {
   CircleUserRound,
   Bug,
   MessageSquarePlus,
-  MessagesSquare
+  MessagesSquare,
+  FilePlus,
+  FolderOpen,
+  Save,
+  FileDown,
+  X
 } from 'lucide-react'
 
 export function Toolbar() {
@@ -418,15 +423,19 @@ export function Toolbar() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={handleNewFile}>
+                <FilePlus className="mr-2 h-4 w-4" />
                 New Document
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => openFile()}>
+                <FolderOpen className="mr-2 h-4 w-4" />
                 Open...
               </DropdownMenuItem>
               <DropdownMenuItem onClick={saveFile}>
+                <Save className="mr-2 h-4 w-4" />
                 Save
               </DropdownMenuItem>
               <DropdownMenuItem onClick={saveFileAs}>
+                <FileDown className="mr-2 h-4 w-4" />
                 Save as...
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -449,6 +458,7 @@ export function Toolbar() {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleClose}>
+                <X className="mr-2 h-4 w-4" />
                 Close
               </DropdownMenuItem>
             </DropdownMenuContent>

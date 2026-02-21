@@ -45,7 +45,7 @@ export class McpHttpServer {
     // Create MCP server
     this.mcpServer = new Server(
       {
-        name: 'prose',
+        name: 'Prose',
         version: '1.0.0'
       },
       {

@@ -1,9 +1,28 @@
 /**
- * Shared word-level diff utilities
+ * Shared word-level diff utilities and editor scroll helpers.
  *
  * Extracted from diff-suggestions/nodeview.ts for reuse across
  * inline diff nodeviews and review panels.
  */
+
+import type { Editor } from '@tiptap/core'
+
+/**
+ * Scroll the editor so the current selection is centered in the viewport.
+ * Matches the behavior of FindBar's search result scrolling.
+ */
+export function scrollSelectionIntoCenter(editor: Editor): void {
+  const { from } = editor.state.selection
+  const coords = editor.view.coordsAtPos(from)
+  const editorElement = editor.view.dom.closest('.overflow-auto')
+  if (editorElement && coords) {
+    const rect = editorElement.getBoundingClientRect()
+    editorElement.scrollTo({
+      top: editorElement.scrollTop + coords.top - rect.top - rect.height / 2,
+      behavior: 'smooth',
+    })
+  }
+}
 
 export interface DiffSegment {
   text: string

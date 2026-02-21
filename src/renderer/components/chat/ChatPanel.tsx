@@ -14,13 +14,15 @@ import { MessageSquare, History, Plus, Trash2, Sparkles } from 'lucide-react'
 import { useChatStore } from '../../stores/chatStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
-import { useReviewStore } from '../../stores/reviewStore'
+import { useReviewStore, useReviewMode } from '../../stores/reviewStore'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
+import { ReviewContainer } from '../review/ReviewContainer'
 
 export function ChatPanel() {
   const { messages, isLoading, isStreaming, sendMessage, stopGeneration, clearMessages } = useChat()
   const scrollRef = useRef<HTMLDivElement>(null)
+  const reviewMode = useReviewMode()
 
   const {
     conversations,
@@ -67,6 +69,14 @@ export function ChatPanel() {
   ) => {
     e.stopPropagation()
     deleteConversation(conversationId)
+  }
+
+  if (reviewMode) {
+    return (
+      <div className="flex h-full flex-col bg-muted/20">
+        <ReviewContainer />
+      </div>
+    )
   }
 
   return (
@@ -217,7 +227,7 @@ export function ChatPanel() {
 
       {/* Suggestion review chip */}
       {suggestionCount > 0 && (
-        <div className="px-4 pt-2">
+        <div className="px-4 py-3">
           <button
             onClick={() => useReviewStore.getState().setReviewMode('quick')}
             className="w-full flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/30 text-violet-600 dark:text-violet-400 transition-colors"

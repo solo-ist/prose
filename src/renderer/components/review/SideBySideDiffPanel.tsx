@@ -1,9 +1,9 @@
-import { useState, useMemo, useCallback } from 'react'
-import { Check, X, CheckCheck, XCircle } from 'lucide-react'
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import { Check, X, CheckCheck, XCircle, MessageSquare } from 'lucide-react'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useReviewStore } from '../../stores/reviewStore'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
-import { computeWordDiff, type DiffSegment } from '../../lib/diffUtils'
+import { computeWordDiff, scrollSelectionIntoCenter, type DiffSegment } from '../../lib/diffUtils'
 import type { AISuggestionData } from '../../extensions/ai-suggestions/types'
 import { cn } from '../../lib/utils'
 
@@ -16,14 +16,34 @@ export function SideBySideDiffPanel() {
   const editor = useEditorInstanceStore((state) => state.editor)
   const setReviewMode = useReviewStore((s) => s.setReviewMode)
   const [reviewed, setReviewed] = useState<Set<string>>(new Set())
+  const [suggestions, setSuggestions] = useState<AISuggestionData[]>([])
 
-  const suggestions = useMemo(() => {
-    if (!editor) return []
-    return getAISuggestions(editor)
-  }, [editor, editor?.state.doc])
+  // Subscribe to editor transactions for reactive updates (e.g., after setAISuggestionReply)
+  useEffect(() => {
+    if (!editor) {
+      setSuggestions([])
+      return
+    }
+    setSuggestions(getAISuggestions(editor))
+    const handler = () => setSuggestions(getAISuggestions(editor))
+    editor.on('transaction', handler)
+    return () => { editor.off('transaction', handler) }
+  }, [editor])
 
   const total = suggestions.length
   const reviewedCount = reviewed.size
+
+  // Auto-close review when all suggestions have been handled
+  useEffect(() => {
+    if (total === 0) {
+      setReviewMode(null)
+      return
+    }
+    const allHaveFeedback = suggestions.every((s) => s.userReply && s.userReply.trim() !== '')
+    if (allHaveFeedback) {
+      setReviewMode(null)
+    }
+  }, [suggestions, total, setReviewMode])
 
   const markReviewed = useCallback((id: string) => {
     setReviewed(prev => new Set(prev).add(id))
@@ -62,8 +82,9 @@ export function SideBySideDiffPanel() {
 
   const scrollToSuggestion = useCallback((suggestion: AISuggestionData) => {
     if (!editor) return
+    editor.commands.focus()
     editor.commands.setTextSelection(suggestion.from)
-    editor.commands.scrollIntoView()
+    scrollSelectionIntoCenter(editor)
   }, [editor])
 
   if (total === 0) {
@@ -105,6 +126,7 @@ export function SideBySideDiffPanel() {
           <DiffHunk
             key={suggestion.id}
             suggestion={suggestion}
+            editor={editor}
             onAccept={() => handleAccept(suggestion)}
             onReject={() => handleReject(suggestion)}
             onScrollTo={() => scrollToSuggestion(suggestion)}
@@ -117,11 +139,13 @@ export function SideBySideDiffPanel() {
 
 function DiffHunk({
   suggestion,
+  editor,
   onAccept,
   onReject,
   onScrollTo,
 }: {
   suggestion: AISuggestionData
+  editor: ReturnType<typeof useEditorInstanceStore.getState>['editor']
   onAccept: () => void
   onReject: () => void
   onScrollTo: () => void
@@ -131,7 +155,29 @@ function DiffHunk({
     [suggestion.originalText, suggestion.suggestedText]
   )
 
-  // Dynamic context: show a snippet of surrounding text via explanation
+  const [feedbackInput, setFeedbackInput] = useState(suggestion.userReply ?? '')
+  const [showFeedbackForm, setShowFeedbackForm] = useState(false)
+  const feedbackInputRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    if (showFeedbackForm && feedbackInputRef.current) {
+      feedbackInputRef.current.focus()
+    }
+  }, [showFeedbackForm])
+
+  const handleSubmitFeedback = useCallback(() => {
+    if (!editor || !feedbackInput.trim()) return
+    editor.commands.setAISuggestionReply(suggestion.id, feedbackInput.trim())
+    setShowFeedbackForm(false)
+  }, [editor, suggestion.id, feedbackInput])
+
+  const handleFeedbackKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      handleSubmitFeedback()
+    }
+  }, [handleSubmitFeedback])
+
   return (
     <div
       className="border-b border-border hover:bg-muted/20 transition-colors cursor-pointer"
@@ -139,7 +185,7 @@ function DiffHunk({
     >
       {/* Explanation header */}
       {suggestion.explanation && (
-        <div className="px-4 pt-3 text-xs text-muted-foreground italic">
+        <div className="mx-4 mt-3 text-xs text-muted-foreground bg-muted/40 rounded-md px-3 py-2 leading-relaxed">
           {suggestion.explanation}
         </div>
       )}
@@ -163,6 +209,50 @@ function DiffHunk({
         </div>
       </div>
 
+      {/* Feedback */}
+      {showFeedbackForm ? (
+        <div className="mx-4 mb-3 space-y-2" onClick={(e) => e.stopPropagation()}>
+          <div className="text-xs font-medium text-muted-foreground">Your feedback</div>
+          <textarea
+            ref={feedbackInputRef}
+            className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+            value={feedbackInput}
+            onChange={(e) => setFeedbackInput(e.target.value)}
+            onKeyDown={handleFeedbackKeyDown}
+            placeholder="Tell the AI what to change..."
+            rows={2}
+          />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={(e) => { e.stopPropagation(); handleSubmitFeedback() }}
+              disabled={!feedbackInput.trim()}
+              className="rounded-md px-2.5 py-1 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-30 transition-colors"
+            >
+              Submit
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowFeedbackForm(false) }}
+              className="rounded-md px-2.5 py-1 text-xs font-medium border border-border hover:bg-muted transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : suggestion.userReply ? (
+        <div className="mx-4 mb-3 space-y-1" onClick={(e) => e.stopPropagation()}>
+          <div className="text-xs font-medium text-muted-foreground">Your feedback</div>
+          <div className="text-xs text-muted-foreground bg-muted/30 rounded-md px-3 py-2 leading-relaxed">
+            {suggestion.userReply}
+          </div>
+          <button
+            onClick={(e) => { e.stopPropagation(); setFeedbackInput(suggestion.userReply ?? ''); setShowFeedbackForm(true) }}
+            className="text-xs text-muted-foreground hover:text-foreground underline transition-colors"
+          >
+            Edit
+          </button>
+        </div>
+      ) : null}
+
       {/* Per-hunk actions */}
       <div className="flex items-center gap-2 px-4 pb-3">
         <button
@@ -172,6 +262,14 @@ function DiffHunk({
           <X className="h-3 w-3" />
           Reject
         </button>
+        {!showFeedbackForm && !suggestion.userReply && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowFeedbackForm(true) }}
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium border border-border hover:bg-muted transition-colors"
+          >
+            <MessageSquare className="h-3 w-3" />
+          </button>
+        )}
         <button
           onClick={(e) => { e.stopPropagation(); onAccept() }}
           className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
@@ -192,7 +290,7 @@ function DiffText({ segments, mode }: { segments: DiffSegment[]; mode: 'old' | '
           return (
             <span
               key={i}
-              className="bg-red-500/15 text-red-700 dark:text-red-400 line-through rounded-sm px-0.5"
+              className="bg-red-500/20 text-red-700 dark:text-red-400 line-through rounded-sm px-0.5"
             >
               {seg.text}
             </span>
@@ -202,13 +300,13 @@ function DiffText({ segments, mode }: { segments: DiffSegment[]; mode: 'old' | '
           return (
             <span
               key={i}
-              className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 rounded-sm px-0.5"
+              className="bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 rounded-sm px-0.5"
             >
               {seg.text}
             </span>
           )
         }
-        return <span key={i}>{seg.text}</span>
+        return <span key={i} className="opacity-50">{seg.text}</span>
       })}
     </span>
   )

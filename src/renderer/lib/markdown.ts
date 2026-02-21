@@ -36,3 +36,23 @@ export function serializeMarkdown(content: string, frontmatter: Record<string, u
 export function hasFrontmatter(raw: string): boolean {
   return raw.trimStart().startsWith('---')
 }
+
+/**
+ * Extract the text of the first H1 heading from markdown content.
+ * Skips frontmatter if present. Returns null if no H1 is found.
+ */
+export function extractFirstH1(content: string): string | null {
+  // Skip frontmatter block if present
+  let text = content
+  const fmMatch = text.match(FRONTMATTER_REGEX)
+  if (fmMatch) {
+    text = text.slice(fmMatch[0].length)
+  }
+  // Strip fenced code blocks to avoid matching `# comment` inside them
+  text = text.replace(/^(`{3,}|~{3,}).*\n[\s\S]*?\n\1\s*$/gm, '')
+  // Match the first ATX H1 heading: a line starting with exactly one `#`
+  const match = text.match(/^#[ \t]+(.+)$/m)
+  if (!match) return null
+  // Strip trailing heading markers (e.g., "# Title #") and trim
+  return match[1].replace(/\s+#+\s*$/, '').trim() || null
+}

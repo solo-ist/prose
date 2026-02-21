@@ -98,10 +98,11 @@ export const browserApi: ElectronAPI = {
     URL.revokeObjectURL(url)
   },
 
-  saveFileAs: async (content: string): Promise<string | null> => {
+  saveFileAs: async (content: string, defaultFilename?: string): Promise<string | null> => {
     if ('showSaveFilePicker' in window) {
       try {
         const fileHandle = await (window as Window & { showSaveFilePicker: (options?: object) => Promise<FileSystemFileHandle> }).showSaveFilePicker({
+          suggestedName: defaultFilename,
           types: [
             {
               description: 'Markdown files',
@@ -121,8 +122,9 @@ export const browserApi: ElectronAPI = {
       }
     }
     // Fallback: download
-    await browserApi.saveFile('document.md', content)
-    return 'document.md'
+    const fallbackName = defaultFilename ?? 'document.md'
+    await browserApi.saveFile(fallbackName, content)
+    return fallbackName
   },
 
   readFile: async (_path: string): Promise<string> => {

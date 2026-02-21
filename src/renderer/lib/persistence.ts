@@ -38,6 +38,7 @@ export interface TabDraft {
   documentId: string
   path: string | null
   title: string
+  baseTitle?: string      // Original 'Untitled N' title, preserved for H1-driven title revert
   content: string
   isDirty: boolean
   frontmatter?: Record<string, unknown>

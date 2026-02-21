@@ -3,7 +3,7 @@ import { useEditorStore } from '../stores/editorStore'
 import { useChatStore, setCurrentDocumentId } from '../stores/chatStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFileListStore } from '../stores/fileListStore'
-import { parseMarkdown, serializeMarkdown } from '../lib/markdown'
+import { parseMarkdown, serializeMarkdown, extractFirstH1 } from '../lib/markdown'
 import {
   generateId,
   generateIdFromPath,
@@ -15,7 +15,7 @@ import { useAnnotationStore } from '../extensions/ai-annotations'
 
 // Sanitize filename by removing invalid characters
 function sanitizeFilename(name: string): string {
-  return name.replace(/[/\\:*?"<>|]/g, '-').trim()
+  return name.replace(/[/\\:*?"<>|]/g, '-').trim().slice(0, 100)
 }
 
 export function useEditor() {
@@ -158,7 +158,10 @@ export function useEditor() {
       await window.api.saveFile(document.path, content)
       setDirty(false)
     } else {
-      const path = await window.api.saveFileAs(content)
+      // Pre-fill the Save As dialog with the H1 heading (sanitized) if available
+      const h1 = extractFirstH1(document.content)
+      const defaultFilename = h1 ? sanitizeFilename(h1) + '.md' : undefined
+      const path = await window.api.saveFileAs(content, defaultFilename)
       if (path) {
         // Migrate chat history to path-based ID
         const newDocumentId = await generateIdFromPath(path)
@@ -197,7 +200,10 @@ export function useEditor() {
   const saveFileAs = useCallback(async () => {
     if (!window.api) return
     const content = serializeMarkdown(document.content, document.frontmatter)
-    const path = await window.api.saveFileAs(content)
+    // Pre-fill the Save As dialog with the H1 heading (sanitized) if the document is untitled
+    const h1 = !document.path ? extractFirstH1(document.content) : null
+    const defaultFilename = h1 ? sanitizeFilename(h1) + '.md' : undefined
+    const path = await window.api.saveFileAs(content, defaultFilename)
     if (path) {
       // Migrate chat history to path-based ID
       const newDocumentId = await generateIdFromPath(path)

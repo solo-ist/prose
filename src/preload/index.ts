@@ -169,7 +169,7 @@ export interface McpInstallResult {
 export interface ElectronAPI {
   openFile: () => Promise<FileResult | null>
   saveFile: (path: string, content: string) => Promise<void>
-  saveFileAs: (content: string) => Promise<string | null>
+  saveFileAs: (content: string, defaultFilename?: string) => Promise<string | null>
   readFile: (path: string) => Promise<string>
   loadSettings: () => Promise<Settings>
   saveSettings: (settings: Settings) => Promise<void>
@@ -307,7 +307,7 @@ export interface RemarkableSyncState {
 const api: ElectronAPI = {
   openFile: () => ipcRenderer.invoke('file:open'),
   saveFile: (path: string, content: string) => ipcRenderer.invoke('file:save', path, content),
-  saveFileAs: (content: string) => ipcRenderer.invoke('file:saveAs', content),
+  saveFileAs: (content: string, defaultFilename?: string) => ipcRenderer.invoke('file:saveAs', content, defaultFilename),
   readFile: (path: string) => ipcRenderer.invoke('file:read', path),
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (settings: Settings) => ipcRenderer.invoke('settings:save', settings),

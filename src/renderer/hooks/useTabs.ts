@@ -177,6 +177,7 @@ export function useTabs() {
       documentId: newDocumentId,
       path: null,
       title,
+      baseTitle: title,
       isDirty: false,
       content: '',
       cursorPosition: { line: 1, column: 1 }
@@ -483,15 +484,18 @@ export function useTabs() {
       activeTab.path !== document.path ||
       activeTab.content !== document.content
     ) {
-      const title = document.path
-        ? (() => {
-            const fullFileName = document.path.split('/').pop() || 'Untitled'
-            const hasExtension = fullFileName.includes('.')
-            return hasExtension
-              ? fullFileName.substring(0, fullFileName.lastIndexOf('.'))
-              : fullFileName
-          })()
-        : activeTab.title
+      let title: string
+      if (document.path) {
+        // Named file: derive title from filename (no extension)
+        const fullFileName = document.path.split('/').pop() || 'Untitled'
+        const hasExtension = fullFileName.includes('.')
+        title = hasExtension
+          ? fullFileName.substring(0, fullFileName.lastIndexOf('.'))
+          : fullFileName
+      } else {
+        // Untitled document: keep existing title (user renames via double-click, which suggests H1)
+        title = activeTab.title
+      }
 
       updateTab(activeTab.id, {
         isDirty: document.isDirty,

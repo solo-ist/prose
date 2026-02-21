@@ -467,13 +467,34 @@
   background: hsl(270 70% 40% / 0.5);
 }
 
-/* Hide AI suggestion marks when annotations are toggled off */
-.hide-annotations .ai-suggestion-mark {
+/* Hide AI annotations when toggled off */
+.hide-annotations .ai-annotation {
+  --annotation-opacity: 0 !important;
   background: transparent !important;
   border-bottom-color: transparent !important;
+  color: inherit !important;
   cursor: text !important;
   animation: none !important;
   pointer-events: none !important;
+  box-shadow: none !important;
+}
+
+.hide-annotations .ai-annotation-insertion {
+  color: inherit !important;
+  background: transparent !important;
+}
+
+.hide-annotations .ai-annotation-replacement {
+  background: transparent !important;
+}
+
+.hide-annotations .ai-annotation-pending {
+  border-bottom-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.hide-annotations .ai-annotation-tooltip {
+  display: none !important;
 }
 
 /* AI Suggestion Popover */

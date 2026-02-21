@@ -467,6 +467,14 @@
   background: hsl(270 70% 40% / 0.5);
 }
 
+/* Hide AI suggestion marks when annotations are toggled off */
+.hide-annotations .ai-suggestion-mark {
+  background: transparent !important;
+  border-bottom-color: transparent !important;
+  cursor: text !important;
+  animation: none !important;
+}
+
 /* AI Suggestion Popover */
 .ai-suggestion-popover {
   background: hsl(var(--popover));

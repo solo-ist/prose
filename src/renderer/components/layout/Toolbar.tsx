@@ -53,7 +53,9 @@ import {
   FolderOpen,
   Save,
   FileDown,
-  X
+  X,
+  Eye,
+  EyeOff
 } from 'lucide-react'
 
 export function Toolbar() {
@@ -72,6 +74,8 @@ export function Toolbar() {
   const { settings, isLoaded, effectiveTheme, autosaveActive, setTheme, setDialogOpen, toggleAutosaveActive } = useSettings()
   const { isChatOpen, isFileListOpen, toggleChat, toggleFileList } = usePanelLayoutContext()
   const isEditing = useEditorStore((state) => state.isEditing)
+  const annotationsVisible = useEditorStore((state) => state.annotationsVisible)
+  const toggleAnnotationsVisible = useEditorStore((state) => state.toggleAnnotationsVisible)
   const isGoogleSyncing = useFileListStore((state) => state.isGoogleSyncing)
 
   const [hasCopied, setHasCopied] = useState(false)
@@ -281,6 +285,27 @@ export function Toolbar() {
               <TooltipContent>{autosaveActive ? 'Autosave on' : 'Autosave paused'}</TooltipContent>
             </Tooltip>
           )}
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleAnnotationsVisible}
+                aria-label={annotationsVisible ? 'Hide AI annotations' : 'Show AI annotations'}
+                className={annotationsVisible ? '' : 'text-muted-foreground'}
+              >
+                {annotationsVisible ? (
+                  <Eye className="h-4 w-4" />
+                ) : (
+                  <EyeOff className="h-4 w-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {annotationsVisible ? 'Hide' : 'Show'} AI annotations ({isMacOS() ? '⌘⇧A' : 'Ctrl+Shift+A'})
+            </TooltipContent>
+          </Tooltip>
 
           <Tooltip>
             <TooltipTrigger asChild>

@@ -36,6 +36,8 @@ export function Editor() {
   const { document, setContent, openFile, saveFile } = useEditor()
   const isEditing = useEditorStore((state) => state.isEditing)
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
+  const annotationsVisible = useEditorStore((state) => state.annotationsVisible)
+  const toggleAnnotationsVisible = useEditorStore((state) => state.toggleAnnotationsVisible)
   const { settings, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen } = useSettings()
   const { setContext, agentMode, setAgentMode, includeDocument, setIncludeDocument } = useChat()
   const { isChatOpen, isFileListOpen, toggleChat, setChatOpen, setFileListOpen } = usePanelLayoutContext()
@@ -498,6 +500,10 @@ export function Editor() {
       if (editor) {
         editor.chain().focus().toggleStrike().run()
       }
+    } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'a') {
+      // Cmd+Shift+A: Toggle AI annotation visibility
+      e.preventDefault()
+      toggleAnnotationsVisible()
     } else if (e.altKey && !isMod && e.key === 'ArrowUp') {
       // Alt+Up: Move line up
       e.preventDefault()
@@ -551,7 +557,7 @@ export function Editor() {
         }
       }
     }
-  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen, editor, setContext, setChatOpen, setFileListOpen, toggleChat, isChatOpen, isFileListOpen, isFindOpen, openAddCommentDialog, agentMode, setAgentMode, includeDocument, setIncludeDocument])
+  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen, editor, setContext, setChatOpen, setFileListOpen, toggleChat, isChatOpen, isFileListOpen, isFindOpen, openAddCommentDialog, agentMode, setAgentMode, includeDocument, setIncludeDocument, toggleAnnotationsVisible])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
@@ -715,7 +721,7 @@ export function Editor() {
             </div>
           )}
           <TransformAnimation isTransforming={isTransforming} onComplete={completeTransform}>
-            <div className={`max-w-3xl mx-auto prose-editor ${isRemarkableReadOnly && !isTransforming ? 'opacity-80 select-none' : ''}`}>
+            <div className={`max-w-3xl mx-auto prose-editor ${isRemarkableReadOnly && !isTransforming ? 'opacity-80 select-none' : ''} ${!annotationsVisible ? 'hide-annotations' : ''}`}>
               {showFrontmatter && (
                 <FrontmatterDisplay content={document.content} frontmatter={document.frontmatter} />
               )}

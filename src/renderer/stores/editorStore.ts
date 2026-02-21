@@ -30,6 +30,8 @@ interface EditorState {
   lastSelection: SelectionCache | null
   // Autosave in-progress flag (true only during the actual save call)
   isAutosaving: boolean
+  // AI annotation visibility toggle
+  annotationsVisible: boolean
   setDocument: (doc: Partial<Document>) => void
   setContent: (content: string) => void
   setPath: (path: string | null) => void
@@ -49,6 +51,7 @@ interface EditorState {
   setLastSelection: (sel: SelectionCache | null) => void
   getLastSelection: () => SelectionCache | null
   setAutosaving: (isAutosaving: boolean) => void
+  toggleAnnotationsVisible: () => void
 }
 
 function createInitialDocument(): Document {
@@ -72,6 +75,7 @@ export const useEditorStore = create<EditorState>()(
     readCache: { content: null, documentId: null },
     lastSelection: null,
     isAutosaving: false,
+    annotationsVisible: true,
 
     setDocument: (doc) =>
       set((state) => ({
@@ -183,7 +187,10 @@ export const useEditorStore = create<EditorState>()(
 
     getLastSelection: () => get().lastSelection,
 
-    setAutosaving: (isAutosaving) => set({ isAutosaving })
+    setAutosaving: (isAutosaving) => set({ isAutosaving }),
+
+    toggleAnnotationsVisible: () =>
+      set((state) => ({ annotationsVisible: !state.annotationsVisible }))
   }))
 )
 

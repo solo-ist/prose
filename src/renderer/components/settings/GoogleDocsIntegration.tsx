@@ -14,12 +14,22 @@ export function GoogleDocsIntegration({ settings, setGoogleConfig }: Props) {
   const [isValidating, setIsValidating] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<GoogleConnectionStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [isConfigured, setIsConfigured] = useState<boolean | null>(null)
 
   const googleSettings = settings.google
 
-  // Check connection status on mount
+  // Check if Google OAuth credentials are configured, then check connection status
   useEffect(() => {
-    async function checkConnection() {
+    async function checkConfig() {
+      if (window.api?.googleIsConfigured) {
+        const configured = await window.api.googleIsConfigured()
+        setIsConfigured(configured)
+        if (!configured) return
+      } else {
+        setIsConfigured(false)
+        return
+      }
+
       if (!window.api?.googleGetConnectionStatus) return
 
       setIsValidating(true)
@@ -51,7 +61,7 @@ export function GoogleDocsIntegration({ settings, setGoogleConfig }: Props) {
       }
     }
 
-    checkConnection()
+    checkConfig()
   }, [])
 
   const handleConnect = async () => {
@@ -109,6 +119,20 @@ export function GoogleDocsIntegration({ settings, setGoogleConfig }: Props) {
 
   const isConnected = connectionStatus?.connected ?? false
   const displayEmail = connectionStatus?.email || googleSettings?.email
+
+  // When credentials aren't configured, show a coming soon placeholder
+  if (isConfigured === false) {
+    return (
+      <div className="space-y-4">
+        <div className="space-y-0.5">
+          <Label>Google Docs</Label>
+          <p className="text-xs text-muted-foreground">
+            Google Docs sync — coming in v1.1
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">

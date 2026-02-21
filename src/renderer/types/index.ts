@@ -367,6 +367,7 @@ export interface ElectronAPI {
   // Returns: true (is default), false (not default), null (can't detect)
   fileAssociationIsDefault: () => Promise<boolean | null>
   // Google Docs integration
+  googleIsConfigured: () => Promise<boolean>
   googleStartAuth: () => Promise<GoogleAuthResult>
   googleDisconnect: () => Promise<void>
   googleGetConnectionStatus: () => Promise<GoogleConnectionStatus>

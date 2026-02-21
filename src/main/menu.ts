@@ -1,5 +1,4 @@
 import { Menu, BrowserWindow, app } from 'electron'
-import { existsSync } from 'fs'
 import { basename } from 'path'
 import { loadRecentFiles, clearRecentFiles } from './recentFiles'
 
@@ -19,7 +18,7 @@ export function createMenu(mainWindow: BrowserWindow): void {
   const isMac = process.platform === 'darwin'
 
   // Build "Open Recent" submenu from persisted recent files
-  const recentFiles = loadRecentFiles().filter(f => existsSync(f)).slice(0, 10)
+  const recentFiles = loadRecentFiles().slice(0, 10)
   const openRecentSubmenu: Electron.MenuItemConstructorOptions[] = recentFiles.length > 0
     ? [
         ...recentFiles.map((filePath) => ({
@@ -39,6 +38,7 @@ export function createMenu(mainWindow: BrowserWindow): void {
           label: 'Clear Recent Files',
           click: (): void => {
             clearRecentFiles()
+            app.clearRecentDocuments()
             refreshMenu()
           }
         }

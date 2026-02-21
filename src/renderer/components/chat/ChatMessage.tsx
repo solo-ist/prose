@@ -10,13 +10,20 @@ import { useEditorStore } from '../../stores/editorStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { CopyButton } from '../ui/copy-button'
 import { jumpToLine } from '../../lib/lineNavigation'
+import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import avatarDark from '../../assets/avatar-dark.png'
 import avatarLight from '../../assets/avatar-light.png'
 
 // Tool call indicator component with AI sparkle styling
-function ToolCallIndicator({ name, status, children }: { name: string; status: 'executing' | 'success' | 'error'; children?: React.ReactNode }) {
+function ToolCallIndicator({ name, status, onClick, children }: { name: string; status: 'executing' | 'success' | 'error'; onClick?: () => void; children?: React.ReactNode }) {
   return (
-    <div className="rounded-md border border-border bg-muted/20 overflow-hidden">
+    <div
+      className={cn(
+        "rounded-md border border-border bg-muted/20 overflow-hidden",
+        onClick && "cursor-pointer hover:border-violet-500/50 transition-colors"
+      )}
+      onClick={onClick}
+    >
       <div className={cn(
         "flex items-center gap-2 px-3 py-2 text-xs font-medium",
         status === 'executing' && "text-violet-600 dark:text-violet-400 bg-violet-500/5",
@@ -380,6 +387,17 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
     }
   }, [llmModel, activeConversationId, message.id])
 
+  // Scroll editor to a suggestion by its ID
+  const scrollToSuggestion = useCallback((suggestionId: string) => {
+    if (!editor) return
+    const suggestions = getAISuggestions(editor)
+    const target = suggestions.find(s => s.id === suggestionId)
+    if (target) {
+      editor.commands.setTextSelection(target.from)
+      editor.commands.scrollIntoView()
+    }
+  }, [editor])
+
   // Auto-apply edits in agent mode when streaming completes
   useEffect(() => {
     if (
@@ -485,11 +503,24 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
                       )
                     }
                     if (part.type === 'tool-result' || part.type === 'tool-inline') {
+                      // For suggest_edit results, parse suggestionId and make clickable
+                      let onClickHandler: (() => void) | undefined
+                      if (part.name === 'suggest_edit' && part.success && part.content) {
+                        try {
+                          const parsed = JSON.parse(part.content.replace(/```json\n?|\n?```/g, '').trim())
+                          if (parsed.suggestionId) {
+                            onClickHandler = () => scrollToSuggestion(parsed.suggestionId)
+                          }
+                        } catch {
+                          // Not JSON, ignore
+                        }
+                      }
                       return (
                         <ToolCallIndicator
                           key={idx}
                           name={part.name || 'tool'}
                           status={part.success ? 'success' : 'error'}
+                          onClick={onClickHandler}
                         >
                           {part.content && renderMarkdown(part.content, editor)}
                         </ToolCallIndicator>

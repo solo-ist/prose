@@ -18,12 +18,12 @@ import { useFileListStore } from '../stores/fileListStore'
 
 const FILE_LIST_MIN_PX = 280
 const FILE_LIST_MAX_PX = 500
-const CHAT_MIN_PX = 280
+export const CHAT_MIN_PX = 280
 const CHAT_MAX_PX = 610
 const EDITOR_MIN_PX = 360
 const BOTH_PANELS_MIN_WIDTH = 1000
 const FILE_LIST_DEFAULT_PCT = 20
-const CHAT_DEFAULT_PCT = 50
+export const CHAT_DEFAULT_PCT = 50
 
 // --- Types ---
 

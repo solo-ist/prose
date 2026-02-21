@@ -50,6 +50,8 @@ import {
 } from '../../lib/persistence'
 import type { DraftState, SessionState } from '../../lib/persistence'
 import { executeTool } from '../../lib/tools'
+import { useReviewMode, useWasChatOpenBeforeReview, usePreviousChatWidth, useReviewStore, type ReviewMode } from '../../stores/reviewStore'
+import { CHAT_DEFAULT_PCT, CHAT_MIN_PX } from '../../hooks/usePanelLayout'
 
 export function App() {
   const { describeDocument } = useChat()
@@ -59,7 +61,7 @@ export function App() {
   const chatPanelRef = useRef<ImperativePanelHandle>(null)
 
   const panelLayout = usePanelLayout({ fileListPanelRef, chatPanelRef })
-  const { isChatOpen, isFileListOpen, toggleChat, toggleFileList, panelSizes } = panelLayout
+  const { isChatOpen, isFileListOpen, toggleChat, toggleFileList, setChatOpen, panelSizes } = panelLayout
 
   const { openFile, openFileFromPath, saveFile, saveFileAs, newFile } = useEditor()
   const { createNewTab, openFileInTab, closeTab } = useTabs()
@@ -81,6 +83,55 @@ export function App() {
 
   // Initialize autosave functionality
   useAutosave()
+
+  // Review mode: auto-open sidebar, resize for mode, restore on exit
+  const reviewMode = useReviewMode()
+  const wasChatOpenBeforeReview = useWasChatOpenBeforeReview()
+  const previousChatWidth = usePreviousChatWidth()
+  const setPreviousChatWidth = useReviewStore((s) => s.setPreviousChatWidth)
+  const activeTabId = useTabStore((s) => s.activeTabId)
+  const prevReviewMode = useRef<ReviewMode | null>(null)
+  const prevTabId = useRef(activeTabId)
+
+  // Quick review target: ~280px as a percentage of window width
+  const quickReviewPct = (CHAT_MIN_PX / window.innerWidth) * 100
+
+  useEffect(() => {
+    const tabChanged = activeTabId !== prevTabId.current
+    const prev = prevReviewMode.current
+    prevReviewMode.current = reviewMode
+    prevTabId.current = activeTabId
+
+    // Tab switch: sync the ref, don't take panel actions
+    if (tabChanged) return
+
+    // Same tab, entering or switching review mode
+    if (reviewMode && reviewMode !== prev) {
+      // Snapshot current width before first resize (entering from null)
+      if (!prev) {
+        const currentWidth = chatPanelRef.current?.getSize()
+        if (currentWidth !== undefined) {
+          setPreviousChatWidth(currentWidth)
+        }
+      }
+      setChatOpen(true)
+      if (reviewMode === 'side-by-side') {
+        chatPanelRef.current?.resize(60)
+      } else {
+        // Quick mode: compact sidebar at ~280px
+        chatPanelRef.current?.resize(quickReviewPct)
+      }
+    } else if (!reviewMode && prev) {
+      // Exiting review: restore previous state
+      if (!wasChatOpenBeforeReview) {
+        setChatOpen(false)
+      } else if (previousChatWidth !== null) {
+        chatPanelRef.current?.resize(previousChatWidth)
+      } else {
+        chatPanelRef.current?.resize(CHAT_DEFAULT_PCT)
+      }
+    }
+  }, [reviewMode, activeTabId, wasChatOpenBeforeReview, previousChatWidth, setChatOpen, chatPanelRef, setPreviousChatWidth, quickReviewPct])
 
   // Update window title based on document state
   const isAutoSaving = settings.autosave?.mode === 'auto' && autosaveActive && !!documentPath
@@ -725,7 +776,7 @@ export function App() {
               order={3}
               defaultSize={0}
               minSize={isChatOpen ? panelSizes.chatMin : 0}
-              maxSize={panelSizes.chatMax}
+              maxSize={reviewMode === 'side-by-side' ? 70 : panelSizes.chatMax}
               className="h-full overflow-hidden"
             >
               {isChatOpen && <ChatPanel />}

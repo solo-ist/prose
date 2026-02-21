@@ -654,11 +654,22 @@ export function App() {
         case 'googleImport':
           handleGoogleImport()
           break
+        case 'showRecentFiles':
+          // Open the file list panel so user can browse files
+          if (!isFileListOpen) toggleFileList()
+          break
+        default:
+          // Handle openRecentFile:${path} actions
+          if (action.startsWith('openRecentFile:')) {
+            const filePath = action.slice('openRecentFile:'.length)
+            openFileInTab(filePath)
+          }
+          break
       }
     })
 
     return unsubscribe
-  }, [openFileInTab, saveFile, saveFileAs, createNewTab, closeTab, setDialogOpen, toggleChat, toggleFileList, setShortcutsDialogOpen, setAboutDialogOpen, editor, handleGoogleSync, handleGoogleImport])
+  }, [openFileInTab, saveFile, saveFileAs, createNewTab, closeTab, setDialogOpen, toggleChat, toggleFileList, isFileListOpen, setShortcutsDialogOpen, setAboutDialogOpen, editor, handleGoogleSync, handleGoogleImport])
 
   // Handle file open from OS (double-click .md file)
   useEffect(() => {

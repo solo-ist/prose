@@ -1,4 +1,10 @@
 import { Menu, BrowserWindow, app } from 'electron'
+import { existsSync } from 'fs'
+import { basename } from 'path'
+import { loadRecentFiles, clearRecentFiles } from './recentFiles'
+
+// Store mainWindow reference so we can rebuild the menu after adding recent files
+let _menuWindow: BrowserWindow | null = null
 
 // Helper to safely send menu actions to the focused window
 function sendMenuAction(action: string): void {
@@ -8,8 +14,40 @@ function sendMenuAction(action: string): void {
   }
 }
 
-export function createMenu(_mainWindow: BrowserWindow): void {
+export function createMenu(mainWindow: BrowserWindow): void {
+  _menuWindow = mainWindow
   const isMac = process.platform === 'darwin'
+
+  // Build "Open Recent" submenu from persisted recent files
+  const recentFiles = loadRecentFiles().filter(f => existsSync(f)).slice(0, 10)
+  const openRecentSubmenu: Electron.MenuItemConstructorOptions[] = recentFiles.length > 0
+    ? [
+        ...recentFiles.map((filePath) => ({
+          label: basename(filePath),
+          click: (): void => {
+            sendMenuAction(`openRecentFile:${filePath}`)
+          }
+        })),
+        { type: 'separator' as const },
+        {
+          label: 'Show More...',
+          click: (): void => {
+            sendMenuAction('showRecentFiles')
+          }
+        },
+        {
+          label: 'Clear Recent Files',
+          click: (): void => {
+            clearRecentFiles()
+            refreshMenu()
+          }
+        }
+      ]
+    : [
+        { label: 'No Recent Files', enabled: false },
+        { type: 'separator' as const },
+        { label: 'Clear Recent Files', enabled: false }
+      ]
 
   const template: Electron.MenuItemConstructorOptions[] = [
     ...(isMac
@@ -59,6 +97,10 @@ export function createMenu(_mainWindow: BrowserWindow): void {
           click: (): void => {
             sendMenuAction('open')
           }
+        },
+        {
+          label: 'Open Recent',
+          submenu: openRecentSubmenu
         },
         { type: 'separator' },
         {
@@ -224,4 +266,14 @@ export function createMenu(_mainWindow: BrowserWindow): void {
 
   const menu = Menu.buildFromTemplate(template)
   Menu.setApplicationMenu(menu)
+}
+
+/**
+ * Rebuild the application menu with updated recent files.
+ * Called after a file is opened or the recent files list is cleared.
+ */
+export function refreshMenu(): void {
+  if (_menuWindow && !_menuWindow.isDestroyed()) {
+    createMenu(_menuWindow)
+  }
 }

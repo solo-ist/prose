@@ -249,6 +249,9 @@ export interface ElectronAPI {
   emojiGenerate: (title: string, contentPreview?: string) => Promise<{ emoji: string | null; error?: string }>
   // Window fullscreen state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => () => void
+  // Recent files
+  getRecentFiles: () => Promise<string[]>
+  clearRecentFiles: () => Promise<void>
 }
 
 export interface FileItem {
@@ -460,6 +463,9 @@ const api: ElectronAPI = {
   mcpUninstall: () => ipcRenderer.invoke('mcp:uninstall'),
   // Emoji generation
   emojiGenerate: (title: string, contentPreview?: string) => ipcRenderer.invoke('emoji:generate', title, contentPreview),
+  // Recent files
+  getRecentFiles: () => ipcRenderer.invoke('recentFiles:get'),
+  clearRecentFiles: () => ipcRenderer.invoke('recentFiles:clear'),
   // Window fullscreen state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, isFullscreen: boolean): void => {

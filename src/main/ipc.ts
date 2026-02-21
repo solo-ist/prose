@@ -4,6 +4,8 @@ import { join, normalize, isAbsolute } from 'path'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
 import { withRetry, getNetworkErrorMessage } from '../shared/utils/retry'
+import { addRecentFile, clearRecentFiles, loadRecentFiles } from './recentFiles'
+import { refreshMenu } from './menu'
 
 // Content block types for Anthropic API tool use
 interface LLMTextBlock {
@@ -123,6 +125,12 @@ export function setupIpcHandlers(): void {
 
     const path = result.filePaths[0]
     const content = await readFile(path, 'utf-8')
+
+    // Track in recent files and macOS Dock recent items
+    app.addRecentDocument(path)
+    addRecentFile(path)
+    refreshMenu()
+
     return { path, content }
   })
 
@@ -152,6 +160,12 @@ export function setupIpcHandlers(): void {
     }
 
     await writeFile(result.filePath, content, 'utf-8')
+
+    // Track in recent files and macOS Dock recent items
+    app.addRecentDocument(result.filePath)
+    addRecentFile(result.filePath)
+    refreshMenu()
+
     return result.filePath
   })
 
@@ -934,6 +948,18 @@ export function setupIpcHandlers(): void {
     if (window?.isFullScreen()) {
       window.setFullScreen(false)
     }
+  })
+
+  // Recent Files: Get list of recent files (filtered to existing ones)
+  ipcMain.handle('recentFiles:get', async () => {
+    return loadRecentFiles()
+  })
+
+  // Recent Files: Clear all recent files
+  ipcMain.handle('recentFiles:clear', async () => {
+    clearRecentFiles()
+    refreshMenu()
+    app.clearRecentDocuments()
   })
 
   // Shell: Open external URL (for CMD+Click on links)

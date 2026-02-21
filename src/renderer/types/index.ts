@@ -383,6 +383,9 @@ export interface ElectronAPI {
   emojiGenerate: (title: string, contentPreview?: string) => Promise<{ emoji: string | null; error?: string }>
   // Window fullscreen state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => () => void
+  // Recent files
+  getRecentFiles: () => Promise<string[]>
+  clearRecentFiles: () => Promise<void>
 }
 
 declare global {

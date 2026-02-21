@@ -8,7 +8,7 @@ import { useSuggestionStore } from '../extensions/ai-suggestions/store'
 import { getAISuggestions } from '../extensions/ai-suggestions'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFileListStore } from '../stores/fileListStore'
-import { parseMarkdown, serializeMarkdown, extractFirstH1 } from '../lib/markdown'
+import { parseMarkdown, serializeMarkdown } from '../lib/markdown'
 import {
   generateId,
   generateIdFromPath,
@@ -493,16 +493,8 @@ export function useTabs() {
           ? fullFileName.substring(0, fullFileName.lastIndexOf('.'))
           : fullFileName
       } else {
-        // Untitled document: use first H1 heading if present, else fall back to base title
-        const h1 = extractFirstH1(document.content)
-        if (h1) {
-          title = h1
-        } else {
-          // Revert to the original 'Untitled N' title
-          title = activeTab.baseTitle ?? activeTab.title
-          // If the stored title is no longer an 'Untitled' style (edge case: session
-          // restored without baseTitle and H1 was removed), keep the existing title
-        }
+        // Untitled document: keep existing title (user renames via double-click, which suggests H1)
+        title = activeTab.title
       }
 
       updateTab(activeTab.id, {

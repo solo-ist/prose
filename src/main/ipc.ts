@@ -45,10 +45,77 @@ interface LLMStreamRequest extends LLMRequest {
   streamId: string
   tools?: LLMToolDefinition[]
   maxToolRoundtrips?: number
+  maxTokens?: number
 }
 
 // Track active streams for abort support
 const activeStreams = new Map<string, AbortController>()
+
+/**
+ * Convert messages from Anthropic API format to Vercel AI SDK CoreMessage format.
+ * The renderer builds tool call/result messages using Anthropic-specific types:
+ * - tool_use blocks (type: 'tool_use') in assistant messages
+ * - role: 'tool' messages with a string content and tool_call_id
+ *
+ * Vercel AI SDK expects:
+ * - tool-call parts (type: 'tool-call') in assistant messages
+ * - role: 'tool' messages with content array containing tool-result parts
+ */
+function convertToAISDKMessages(messages: LLMMessage[]): Array<Record<string, unknown>> {
+  // First pass: build a map of tool call IDs → tool names from assistant messages
+  const toolCallNameMap = new Map<string, string>()
+  for (const msg of messages) {
+    if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+      for (const block of msg.content as LLMContentBlock[]) {
+        if (block.type === 'tool_use') {
+          toolCallNameMap.set(block.id, block.name)
+        }
+      }
+    }
+  }
+
+  return messages.map(msg => {
+    // Tool result: { role: 'tool', content: string, tool_call_id }
+    // → Vercel AI SDK: { role: 'tool', content: [{ type: 'tool-result', toolCallId, toolName, result }] }
+    if (msg.role === 'tool') {
+      return {
+        role: 'tool',
+        content: [{
+          type: 'tool-result',
+          toolCallId: msg.tool_call_id || '',
+          toolName: toolCallNameMap.get(msg.tool_call_id || '') || 'unknown',
+          result: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+        }]
+      }
+    }
+
+    // Assistant message with Anthropic tool_use blocks
+    // → Vercel AI SDK: { role: 'assistant', content: [{ type: 'tool-call', toolCallId, toolName, args }] }
+    if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+      const content = (msg.content as LLMContentBlock[]).flatMap(block => {
+        if (block.type === 'tool_use') {
+          return [{
+            type: 'tool-call',
+            toolCallId: block.id,
+            toolName: block.name,
+            args: block.input
+          }]
+        }
+        if (block.type === 'text') {
+          return [{ type: 'text', text: block.text }]
+        }
+        return []
+      })
+      return { role: 'assistant', content }
+    }
+
+    // Regular string messages (user or assistant)
+    return {
+      role: msg.role,
+      content: typeof msg.content === 'string' ? msg.content : ''
+    }
+  })
+}
 
 const SETTINGS_DIR = join(homedir(), '.prose')
 const SETTINGS_PATH = join(SETTINGS_DIR, 'settings.json')
@@ -623,7 +690,7 @@ export function setupIpcHandlers(): void {
     const { createOpenAI } = await import('@ai-sdk/openai')
     const { createOpenRouter } = await import('@openrouter/ai-sdk-provider')
     const { createOllama } = await import('ollama-ai-provider')
-    const { streamText } = await import('ai')
+    const { streamText, jsonSchema } = await import('ai')
 
     let model
     switch (request.provider) {
@@ -656,16 +723,36 @@ export function setupIpcHandlers(): void {
         throw new Error(`Unknown provider: ${request.provider}`)
     }
 
+    // Build tools in Vercel AI SDK format if provided
+    const aiSdkTools = toolDefinitions && toolDefinitions.length > 0
+      ? Object.fromEntries(
+          toolDefinitions.map(toolDef => [
+            toolDef.name,
+            {
+              description: toolDef.description,
+              parameters: jsonSchema(toolDef.input_schema)
+            }
+          ])
+        )
+      : undefined
+
+    // Convert messages from Anthropic format to Vercel AI SDK CoreMessage format
+    const aiSdkMessages = convertToAISDKMessages(request.messages)
+
     try {
-      console.log('[LLM:stream] Calling streamText with model:', request.model)
+      console.log('[LLM:stream] Calling streamText with model:', request.model, 'tools:', toolDefinitions?.length || 0)
       const result = streamText({
         model,
         system: request.system,
-        messages: request.messages,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        messages: aiSdkMessages as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        tools: aiSdkTools as any,
         abortSignal: abortController.signal
       })
 
       let fullContent = ''
+      const streamToolCalls: Array<{ id: string; name: string; args: unknown }> = []
 
       for await (const part of result.fullStream) {
         if (abortController.signal.aborted) {
@@ -677,13 +764,26 @@ export function setupIpcHandlers(): void {
                         (part as { text?: string; textDelta?: string }).textDelta ?? ''
           fullContent += delta
           event.sender.send('llm:stream:chunk', { streamId, delta })
+        } else if (part.type === 'tool-call') {
+          const toolCallPart = part as { toolCallId: string; toolName: string; args: unknown }
+          const toolCall = {
+            id: toolCallPart.toolCallId,
+            name: toolCallPart.toolName,
+            args: toolCallPart.args
+          }
+          streamToolCalls.push(toolCall)
+          event.sender.send('llm:stream:tool-call', { streamId, toolCall })
         } else if (part.type === 'error') {
           throw (part as { error: unknown }).error
         }
       }
 
-      console.log('[LLM:stream] Sending complete:', fullContent.length, 'chars')
-      event.sender.send('llm:stream:complete', { streamId, content: fullContent })
+      console.log('[LLM:stream] Sending complete:', fullContent.length, 'chars', 'toolCalls:', streamToolCalls.length)
+      event.sender.send('llm:stream:complete', {
+        streamId,
+        content: fullContent,
+        toolCalls: streamToolCalls.length > 0 ? streamToolCalls : undefined
+      })
 
       return { success: true }
     } catch (error) {

@@ -40,6 +40,7 @@ const TOOL_TIMEOUTS: Record<string, number> = {
   read_document: 30000,
   get_outline: 30000,
   open_file: 30000,
+  create_and_open_file: 30000,
   suggest_edit: 60000 // May involve LLM calls
 }
 

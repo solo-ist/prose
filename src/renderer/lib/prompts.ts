@@ -53,6 +53,9 @@ const PLAN_MODE_INSTRUCTIONS = `
 
 - \`read_document\` — Returns document nodes with unique IDs
 - \`suggest_edit\` — Creates an inline diff the user can accept or reject
+- \`open_file\` — Open a file by path (e.g., ~/Documents/file.md)
+- \`list_files\` — List files and directories at a path
+- \`read_file\` — Read file contents without opening in editor
 
 ### Workflow
 1. **Always** call \`read_document\` first — node IDs change between sessions and cannot be guessed
@@ -68,6 +71,10 @@ const FULL_MODE_INSTRUCTIONS = `
 - \`read_document\` — Returns document nodes with unique IDs
 - \`suggest_edit\` — Creates an inline diff the user can accept or reject (use when the user should review)
 - \`edit\` — Directly replaces a node's content (use for unambiguous fixes: typos, formatting)
+- \`open_file\` — Open a file by path (e.g., ~/Documents/file.md)
+- \`list_files\` — List files and directories at a path
+- \`read_file\` — Read file contents without opening in editor
+- \`save_file\` — Save the current document (optionally to a new path)
 
 ### Workflow
 1. **Always** call \`read_document\` first — node IDs change between sessions and cannot be guessed

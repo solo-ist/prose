@@ -307,7 +307,7 @@ async function main(): Promise<void> {
   // Create MCP server
   const server = new Server(
     {
-      name: 'prose',
+      name: 'Prose',
       version: '1.0.0'
     },
     {

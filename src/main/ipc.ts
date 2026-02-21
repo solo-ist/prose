@@ -1140,8 +1140,13 @@ export function setupIpcHandlers(): void {
         config.mcpServers = {}
       }
 
+      // Migrate old lowercase 'prose' key to 'Prose' if present
+      if (config.mcpServers.prose) {
+        delete config.mcpServers.prose
+      }
+
       // Add Prose entry
-      config.mcpServers.prose = {
+      config.mcpServers.Prose = {
         command: 'node',
         args: [MCP_SERVER_PATH]
       }
@@ -1170,8 +1175,17 @@ export function setupIpcHandlers(): void {
       try {
         const configContent = await readFile(CONFIG_PATH, 'utf-8')
         const config = JSON.parse(configContent)
+        let changed = false
+        if (config.mcpServers?.Prose) {
+          delete config.mcpServers.Prose
+          changed = true
+        }
+        // Also remove old lowercase key if present
         if (config.mcpServers?.prose) {
           delete config.mcpServers.prose
+          changed = true
+        }
+        if (changed) {
           await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8')
         }
       } catch {

@@ -485,7 +485,11 @@ export const browserApi: ElectronAPI = {
   // Window fullscreen - not available in browser
   onFullscreenChange: (_callback: (isFullscreen: boolean) => void) => {
     return () => {}
-  }
+  },
+
+  // Recent files - not available in browser
+  refreshRecentMenu: async (): Promise<void> => {},
+  clearRecentFiles: async (): Promise<void> => {}
 }
 
 /**

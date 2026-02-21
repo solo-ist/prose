@@ -48,6 +48,8 @@ export function extractFirstH1(content: string): string | null {
   if (fmMatch) {
     text = text.slice(fmMatch[0].length)
   }
+  // Strip fenced code blocks to avoid matching `# comment` inside them
+  text = text.replace(/^(`{3,}|~{3,}).*\n[\s\S]*?\n\1\s*$/gm, '')
   // Match the first ATX H1 heading: a line starting with exactly one `#`
   const match = text.match(/^#[ \t]+(.+)$/m)
   if (!match) return null

@@ -15,7 +15,7 @@ import { useAnnotationStore } from '../extensions/ai-annotations'
 
 // Sanitize filename by removing invalid characters
 function sanitizeFilename(name: string): string {
-  return name.replace(/[/\\:*?"<>|]/g, '-').trim()
+  return name.replace(/[/\\:*?"<>|]/g, '-').trim().slice(0, 100)
 }
 
 export function useEditor() {

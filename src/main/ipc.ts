@@ -141,7 +141,7 @@ export function setupIpcHandlers(): void {
   // File: Save As dialog
   ipcMain.handle('file:saveAs', async (_event, content: string, defaultFilename?: string) => {
     const result = await dialog.showSaveDialog({
-      defaultPath: defaultFilename ? defaultFilename : undefined,
+      defaultPath: defaultFilename,
       filters: [
         { name: 'Markdown', extensions: ['md'] },
         { name: 'All Files', extensions: ['*'] }

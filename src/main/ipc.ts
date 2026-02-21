@@ -973,7 +973,7 @@ export function setupIpcHandlers(): void {
 
   // Google: Check if credentials are configured (env vars present)
   ipcMain.handle('google:isConfigured', () => {
-    return !!process.env.GOOGLE_CLIENT_ID
+    return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
   })
 
   // Google: Start OAuth flow

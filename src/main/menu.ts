@@ -10,7 +10,7 @@ function sendMenuAction(action: string): void {
 
 export function createMenu(_mainWindow: BrowserWindow): void {
   const isMac = process.platform === 'darwin'
-  const isGoogleConfigured = !!process.env.GOOGLE_CLIENT_ID
+  const isGoogleConfigured = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
 
   const template: Electron.MenuItemConstructorOptions[] = [
     ...(isMac

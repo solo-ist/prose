@@ -120,14 +120,15 @@ export function GoogleDocsIntegration({ settings, setGoogleConfig }: Props) {
   const isConnected = connectionStatus?.connected ?? false
   const displayEmail = connectionStatus?.email || googleSettings?.email
 
-  // When credentials aren't configured, show a coming soon placeholder
-  if (isConfigured === false) {
+  // While loading or when credentials aren't configured, show placeholder
+  if (isConfigured !== true) {
+    if (isConfigured === null) return null // Still checking
     return (
       <div className="space-y-4">
         <div className="space-y-0.5">
           <Label>Google Docs</Label>
           <p className="text-xs text-muted-foreground">
-            Google Docs sync — coming in v1.1
+            Google Docs sync — coming soon
           </p>
         </div>
       </div>

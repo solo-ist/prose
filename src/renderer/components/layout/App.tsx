@@ -41,6 +41,7 @@ import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useChatStore, setCurrentDocumentId } from '../../stores/chatStore'
 import { useTabStore, createTab, restoreSession, clearSavedSession, hasUnsavedTabs } from '../../stores/tabStore'
 import { useFileListStore } from '../../stores/fileListStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import { useAutosave } from '../../hooks/useAutosave'
 import {
   loadDraft,
@@ -655,8 +656,15 @@ export function App() {
           handleGoogleImport()
           break
         case 'showRecentFiles':
-          // Open the file list panel so user can browse files
+          // Open the file list panel and switch to recent view
+          useFileListStore.getState().setViewMode('recent')
           if (!isFileListOpen) toggleFileList()
+          break
+        case 'clearRecentFiles':
+          // Main process already cleared settings.json — just update in-memory state
+          useSettingsStore.setState((state) => ({
+            settings: { ...state.settings, recentFiles: [] }
+          }))
           break
         default:
           // Handle openRecentFile:${path} actions

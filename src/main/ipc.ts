@@ -4,7 +4,7 @@ import { join, normalize, isAbsolute } from 'path'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
 import { withRetry, getNetworkErrorMessage } from '../shared/utils/retry'
-import { addRecentFile, clearRecentFiles, loadRecentFiles } from './recentFiles'
+import { clearRecentFiles } from './recentFiles'
 import { refreshMenu } from './menu'
 
 // Content block types for Anthropic API tool use
@@ -126,10 +126,8 @@ export function setupIpcHandlers(): void {
     const path = result.filePaths[0]
     const content = await readFile(path, 'utf-8')
 
-    // Track in recent files and macOS Dock recent items
+    // Track in macOS Dock recent items (renderer handles settingsStore tracking)
     app.addRecentDocument(path)
-    addRecentFile(path)
-    refreshMenu()
 
     return { path, content }
   })
@@ -161,10 +159,8 @@ export function setupIpcHandlers(): void {
 
     await writeFile(result.filePath, content, 'utf-8')
 
-    // Track in recent files and macOS Dock recent items
+    // Track in macOS Dock recent items (renderer handles settingsStore tracking)
     app.addRecentDocument(result.filePath)
-    addRecentFile(result.filePath)
-    refreshMenu()
 
     return result.filePath
   })
@@ -950,9 +946,9 @@ export function setupIpcHandlers(): void {
     }
   })
 
-  // Recent Files: Get list of recent files (filtered to existing ones)
-  ipcMain.handle('recentFiles:get', async () => {
-    return loadRecentFiles()
+  // Recent Files: Refresh the native menu (called by renderer after settingsStore.addRecentFile)
+  ipcMain.handle('recentFiles:refreshMenu', async () => {
+    refreshMenu()
   })
 
   // Recent Files: Clear all recent files

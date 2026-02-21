@@ -487,7 +487,7 @@ export const browserApi: ElectronAPI = {
   },
 
   // Recent files - not available in browser
-  getRecentFiles: async (): Promise<string[]> => [],
+  refreshRecentMenu: async (): Promise<void> => {},
   clearRecentFiles: async (): Promise<void> => {}
 }
 

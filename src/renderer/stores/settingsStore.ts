@@ -290,8 +290,10 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
         settings: { ...state.settings, recentFiles: updated }
       }
     })
-    // Auto-save after adding recent file
-    get().saveSettings()
+    // Auto-save after adding recent file, then refresh the native menu
+    get().saveSettings().then(() => {
+      window.api?.refreshRecentMenu()
+    })
   },
 
   removeRecentFile: (path) => {

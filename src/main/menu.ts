@@ -40,6 +40,8 @@ export function createMenu(mainWindow: BrowserWindow): void {
             clearRecentFiles()
             app.clearRecentDocuments()
             refreshMenu()
+            // Notify renderer to update in-memory state
+            sendMenuAction('clearRecentFiles')
           }
         }
       ]

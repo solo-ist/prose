@@ -250,7 +250,7 @@ export interface ElectronAPI {
   // Window fullscreen state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => () => void
   // Recent files
-  getRecentFiles: () => Promise<string[]>
+  refreshRecentMenu: () => Promise<void>
   clearRecentFiles: () => Promise<void>
 }
 
@@ -464,7 +464,7 @@ const api: ElectronAPI = {
   // Emoji generation
   emojiGenerate: (title: string, contentPreview?: string) => ipcRenderer.invoke('emoji:generate', title, contentPreview),
   // Recent files
-  getRecentFiles: () => ipcRenderer.invoke('recentFiles:get'),
+  refreshRecentMenu: () => ipcRenderer.invoke('recentFiles:refreshMenu'),
   clearRecentFiles: () => ipcRenderer.invoke('recentFiles:clear'),
   // Window fullscreen state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => {

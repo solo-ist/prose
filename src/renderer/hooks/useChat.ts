@@ -584,28 +584,6 @@ export function useChat() {
     return getSuggestionsWithFeedback(editor).length
   }, [])
 
-  // Auto-describe document on open (hidden message triggers AI summary)
-  const describeDocument = useCallback(async () => {
-    const state = useChatStore.getState()
-
-    // Guard: don't describe if already active or has history
-    if (state.isLoading || state.isStreaming) return
-    if (state.messages.length > 0) return
-    if (!state.includeDocument) return
-
-    // Only describe if there's content
-    const content = useEditorStore.getState().document.content
-    if (!content || content.trim().length === 0) return
-
-    // Open chat panel to show the description
-    setPanelOpen(true)
-
-    await sendMessage(
-      'Summarize this document in 1-2 sentences. State what it is and its purpose. No hedging.',
-      { hidden: true }
-    )
-  }, [sendMessage, setPanelOpen])
-
   return {
     messages,
     isLoading,
@@ -622,7 +600,6 @@ export function useChat() {
     getCommentCount,
     processSuggestionReplies,
     getSuggestionFeedbackCount,
-    describeDocument,
     updateMessage,
     clearMessages,
     togglePanel,

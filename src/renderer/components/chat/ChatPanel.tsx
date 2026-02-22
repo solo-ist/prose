@@ -81,100 +81,94 @@ export function ChatPanel() {
 
   return (
     <div className="flex h-full flex-col bg-muted/20">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-border pl-4 pr-3 py-3">
-        <div className="flex items-center gap-2">
-          <MessageSquare className="h-4 w-4 text-muted-foreground" />
-          <h2 className="text-sm font-medium">Chat</h2>
-        </div>
-        <div className="flex items-center gap-1">
-          {conversations.length > 0 && (
-            <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
+      {/* Action bar */}
+      <div className="flex items-center justify-end border-b border-border px-2 py-1">
+        {conversations.length > 0 && (
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    aria-label="Chat history"
+                  >
+                    <History className="h-3.5 w-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Chat history</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" className="w-64">
+              {conversations.map((conversation) => (
+                <DropdownMenuItem
+                  key={conversation.id}
+                  className="flex items-center justify-between gap-2 cursor-pointer"
+                  onClick={() => handleSelectConversation(conversation.id)}
+                >
+                  <span
+                    className={`truncate flex-1 ${
+                      conversation.id === activeConversationId
+                        ? 'font-medium'
+                        : ''
+                    }`}
+                  >
+                    {conversation.title ?? 'New Chat'}
+                  </span>
+                  {conversations.length > 1 && (
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8"
-                      aria-label="Chat history"
+                      className="h-6 w-6 shrink-0 opacity-50 hover:opacity-100"
+                      onClick={(e) =>
+                        handleDeleteConversation(e, conversation.id)
+                      }
+                      aria-label="Delete conversation"
                     >
-                      <History className="h-4 w-4" />
+                      <Trash2 className="h-3 w-3" />
                     </Button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent>Chat history</TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent align="end" className="w-64">
-                {conversations.map((conversation) => (
-                  <DropdownMenuItem
-                    key={conversation.id}
-                    className="flex items-center justify-between gap-2 cursor-pointer"
-                    onClick={() => handleSelectConversation(conversation.id)}
-                  >
-                    <span
-                      className={`truncate flex-1 ${
-                        conversation.id === activeConversationId
-                          ? 'font-medium'
-                          : ''
-                      }`}
-                    >
-                      {conversation.title ?? 'New Chat'}
-                    </span>
-                    {conversations.length > 1 && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 shrink-0 opacity-50 hover:opacity-100"
-                        onClick={(e) =>
-                          handleDeleteConversation(e, conversation.id)
-                        }
-                        aria-label="Delete conversation"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    )}
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleNewChat} className="cursor-pointer">
-                  <Plus className="h-4 w-4 mr-2" />
-                  New Chat
+                  )}
                 </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleNewChat} className="cursor-pointer">
+                <Plus className="h-4 w-4 mr-2" />
+                New Chat
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={handleNewChat}
+              aria-label="New chat"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>New chat</TooltipContent>
+        </Tooltip>
+        {visibleMessages.length > 0 && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8"
-                onClick={handleNewChat}
-                aria-label="New chat"
+                className="h-7 w-7"
+                onClick={clearMessages}
+                aria-label="Clear chat"
               >
-                <Plus className="h-4 w-4" />
+                <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>New chat</TooltipContent>
+            <TooltipContent>Clear messages</TooltipContent>
           </Tooltip>
-          {visibleMessages.length > 0 && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={clearMessages}
-                  aria-label="Clear chat"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Clear messages</TooltipContent>
-            </Tooltip>
-          )}
-        </div>
+        )}
       </div>
 
       {/* Messages */}

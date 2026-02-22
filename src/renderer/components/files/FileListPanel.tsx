@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useFileList } from '../../hooks/useFileList'
 import { useEditor } from '../../hooks/useEditor'
@@ -6,9 +6,11 @@ import { useTabs } from '../../hooks/useTabs'
 import { useChat } from '../../hooks/useChat'
 import { useRemarkableSync } from '../../hooks/useRemarkableSync'
 import { useGoogleDocsSync } from '../../hooks/useGoogleDocsSync'
+import { useExplorerActions } from '../../hooks/useExplorerActions'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useFileListStore } from '../../stores/fileListStore'
+import { useTabStore } from '../../stores/tabStore'
 import { FileTree } from './FileTree'
 import { ScrollArea } from '../ui/scroll-area'
 import { Button } from '../ui/button'
@@ -17,6 +19,8 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
   ContextMenuTrigger
 } from '../ui/context-menu'
 import {
@@ -29,7 +33,7 @@ import {
 } from '../ui/dialog'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
-import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, Folder, FolderOpen, Download, Trash2, FilePlus, ExternalLink, X, Globe, Edit3 } from 'lucide-react'
+import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, Folder, FolderOpen, Download, Trash2, FilePlus, ClipboardPaste, ExternalLink, X, Globe, Edit3 } from 'lucide-react'
 import { useSettings } from '../../hooks/useSettings'
 import { cn } from '../../lib/utils'
 import { getApi } from '../../lib/browserApi'
@@ -63,7 +67,7 @@ export function FileListPanel() {
   } = useFileList()
 
   const { openFileFromPath } = useEditor()
-  const { openFileInTab } = useTabs()
+  const { openFileInTab, openFileInPreviewTab, forceCloseTab } = useTabs()
   const { describeDocument } = useChat()
   const { isSyncing, sync, error: syncError } = useRemarkableSync()
   const { isSyncing: isGoogleSyncing, sync: googleSync, error: googleSyncError } = useGoogleDocsSync()
@@ -71,6 +75,11 @@ export function FileListPanel() {
   const remarkableEnabled = useSettingsStore((state) => state.settings.remarkable?.enabled)
   const googleConnected = useSettingsStore((state) => !!state.settings.google)
   const googleSyncDirectory = useSettingsStore((state) => state.settings.google?.syncDirectory)
+
+  // Explorer panel ref for scoped keyboard shortcuts
+  const containerRef = useRef<HTMLDivElement>(null)
+  const renamingPath = useFileListStore((s) => s.renamingPath)
+  const setRenamingPath = useFileListStore((s) => s.setRenamingPath)
 
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -94,7 +103,7 @@ export function FileListPanel() {
 
   const api = getApi()
 
-  // Handle file delete request (opens confirmation dialog)
+  // Handle file delete request (opens confirmation dialog) — must be before useExplorerActions
   const handleFileDeleteRequest = async (path: string) => {
     const fileName = path.split('/').pop() || path
 
@@ -106,6 +115,38 @@ export function FileListPanel() {
 
     setDeleteTarget({ path, fileName, linkedNotebookId })
   }
+
+  // New file dialog state (context-aware: stores target directory)
+  const [newFileTargetDir, setNewFileTargetDir] = useState<string | null>(null)
+
+  // Context-aware new file handler
+  const handleNewFileInDir = useCallback((targetDir: string) => {
+    setNewFileTargetDir(targetDir)
+    setNewFileName('')
+    setOperationError(null)
+    setNewFileDialogOpen(true)
+  }, [])
+
+  // Explorer actions hook (keyboard shortcuts + operations)
+  const { copySelected, pasteFile, clipboardPath } = useExplorerActions({
+    containerRef,
+    onNewFile: handleNewFileInDir,
+    onFileOpen: async (path) => {
+      selectFile(path)
+      const shouldDescribe = await openFileInPreviewTab(path)
+      if (shouldDescribe) {
+        describeDocument()
+      }
+    },
+    onFilePreview: async (path) => {
+      const shouldDescribe = await openFileInPreviewTab(path)
+      if (shouldDescribe) {
+        describeDocument()
+      }
+    },
+    onFileTrash: handleFileDeleteRequest,
+    closeTab: forceCloseTab
+  })
 
   // Confirm and execute file deletion
   const handleConfirmDelete = async () => {
@@ -121,8 +162,8 @@ export function FileListPanel() {
         )
       }
 
-      // Delete the file
-      await window.api.deleteFile(deleteTarget.path)
+      // Move to trash (recoverable)
+      await window.api.trashFile(deleteTarget.path)
 
       // If this file is tracked in Google Docs metadata, remove its entry
       if (googleDocsMetadata && window.api.googleRemoveSyncMetadataEntry) {
@@ -135,10 +176,10 @@ export function FileListPanel() {
         }
       }
 
-      // If the deleted file was currently open, clear the editor
-      const currentPath = useEditorStore.getState().document.path
-      if (currentPath === deleteTarget.path) {
-        useEditorStore.getState().resetDocument()
+      // Close the tab if the trashed file was open (full close flow)
+      const tab = useTabStore.getState().getTabByPath(deleteTarget.path)
+      if (tab) {
+        await forceCloseTab(tab.id)
       }
 
       // Refresh file list
@@ -156,18 +197,20 @@ export function FileListPanel() {
 
   // New file handlers
   const handleNewFile = () => {
+    setNewFileTargetDir(rootPath)
     setNewFileName('')
     setOperationError(null)
     setNewFileDialogOpen(true)
   }
 
   const handleCreateNewFile = async () => {
-    if (!newFileName.trim() || !rootPath) return
+    const targetDir = newFileTargetDir || rootPath
+    if (!newFileName.trim() || !targetDir) return
 
     setOperationError(null)
     try {
       const fileName = newFileName.endsWith('.md') ? newFileName : `${newFileName}.md`
-      const fullPath = `${rootPath}/${fileName}`
+      const fullPath = `${targetDir}/${fileName}`
 
       // Check if file already exists
       const exists = await api.fileExists(fullPath)
@@ -176,9 +219,10 @@ export function FileListPanel() {
         return
       }
 
-      const savedPath = await api.saveToFolder(rootPath, fileName, '')
+      const savedPath = await api.saveToFolder(targetDir, fileName, '')
       setNewFileDialogOpen(false)
       setNewFileName('')
+      setNewFileTargetDir(null)
 
       // Refresh file list and open the new file
       await loadFiles()
@@ -190,7 +234,71 @@ export function FileListPanel() {
     }
   }
 
-  // Rename handlers
+  // Inline rename handler (for file tree) — triggers inline edit via store
+  const handleFileRenameInline = useCallback((path: string) => {
+    selectFile(path)
+    setRenamingPath(path)
+  }, [selectFile, setRenamingPath])
+
+  // Inline rename complete handler
+  const handleRenameComplete = useCallback(async (oldPath: string, newName: string) => {
+    setRenamingPath(null)
+    if (!newName.trim()) return
+
+    try {
+      const dir = oldPath.substring(0, oldPath.lastIndexOf('/'))
+      const oldExt = oldPath.match(/\.(md|markdown|txt)$/)?.[0] || '.md'
+      const finalName = newName.endsWith(oldExt) ? newName : `${newName}${oldExt}`
+      const newPath = `${dir}/${finalName}`
+
+      // Same name? No-op
+      if (newPath === oldPath) return
+
+      // Check conflict
+      const exists = await api.fileExists(newPath)
+      if (exists) {
+        console.error(`File "${finalName}" already exists`)
+        return
+      }
+
+      await api.renameFile(oldPath, newPath)
+
+      // Tab sync: update tab if file was open
+      const tab = useTabStore.getState().getTabByPath(oldPath)
+      if (tab) {
+        const newTitle = finalName.replace(/\.(md|markdown|txt)$/, '')
+        useTabStore.getState().updateTab(tab.id, { path: newPath, title: newTitle })
+      }
+
+      // If this file is tracked in Google Docs metadata, update its localPath
+      if (googleDocsMetadata && window.api?.googleUpdateSyncMetadataEntry) {
+        const trackedEntry = Object.values(googleDocsMetadata.documents).find(
+          (e) => e.localPath === oldPath
+        )
+        if (trackedEntry) {
+          const newTitle = finalName.replace(/\.(md|markdown|txt)$/, '')
+          await window.api.googleUpdateSyncMetadataEntry({
+            ...trackedEntry,
+            localPath: newPath,
+            title: newTitle
+          })
+          await loadGoogleDocsMetadata()
+        }
+      }
+
+      // Refresh file list and select the renamed file
+      await loadFiles()
+      selectFile(newPath)
+    } catch (error) {
+      console.error('Error renaming file:', error)
+    }
+  }, [api, googleDocsMetadata, loadGoogleDocsMetadata, loadFiles, selectFile, setRenamingPath])
+
+  const handleRenameCancel = useCallback(() => {
+    setRenamingPath(null)
+  }, [setRenamingPath])
+
+  // Dialog-based rename (for Google Docs view where inline isn't available)
   const handleFileRename = (path: string) => {
     const fileName = path.split('/').pop() || ''
     const nameWithoutExt = fileName.replace(/\.(md|markdown|txt)$/, '')
@@ -210,7 +318,6 @@ export function FileListPanel() {
       const newName = renameFileName.endsWith(oldExt) ? renameFileName : `${renameFileName}${oldExt}`
       const newPath = `${dir}/${newName}`
 
-      // Check if target file already exists (and it's not the same file)
       if (newPath !== renameFilePath) {
         const exists = await api.fileExists(newPath)
         if (exists) {
@@ -221,7 +328,13 @@ export function FileListPanel() {
 
       await api.renameFile(renameFilePath, newPath)
 
-      // If this file is tracked in Google Docs metadata, update its localPath
+      // Tab sync
+      const tab = useTabStore.getState().getTabByPath(renameFilePath)
+      if (tab) {
+        const newTitle = newName.replace(/\.(md|markdown|txt)$/, '')
+        useTabStore.getState().updateTab(tab.id, { path: newPath, title: newTitle })
+      }
+
       if (googleDocsMetadata && window.api?.googleUpdateSyncMetadataEntry) {
         const trackedEntry = Object.values(googleDocsMetadata.documents).find(
           (e) => e.localPath === renameFilePath
@@ -241,15 +354,8 @@ export function FileListPanel() {
       setRenameFilePath(null)
       setRenameFileName('')
 
-      // Refresh file list and select the renamed file
       await loadFiles()
       selectFile(newPath)
-
-      // If the renamed file was open in the editor, update the path
-      const currentPath = useEditorStore.getState().document.path
-      if (currentPath === renameFilePath) {
-        await openFileFromPath(newPath)
-      }
     } catch (error) {
       console.error('Error renaming file:', error)
       setOperationError('Failed to rename file. Please try again.')
@@ -289,6 +395,14 @@ export function FileListPanel() {
   }, [viewMode, googleConnected]) // Intentionally exclude googleSync and isGoogleSyncing to only trigger on view change
 
   const handleFileClick = async (path: string) => {
+    selectFile(path)
+    const shouldDescribe = await openFileInPreviewTab(path)
+    if (shouldDescribe) {
+      describeDocument()
+    }
+  }
+
+  const handleFileDoubleClick = async (path: string) => {
     selectFile(path)
     const shouldDescribe = await openFileInTab(path)
     if (shouldDescribe) {
@@ -531,7 +645,7 @@ export function FileListPanel() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-muted/20">
+    <div ref={containerRef} className="flex h-full flex-col bg-muted/20" tabIndex={-1}>
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex items-center gap-2">
@@ -841,12 +955,21 @@ export function FileListPanel() {
                       expandedFolders={expandedFolders}
                       selectedPath={selectedPath}
                       loadingFolders={loadingFolders}
+                      renamingPath={renamingPath}
+                      clipboardPath={clipboardPath}
                       onFileClick={handleFileClick}
+                      onFileDoubleClick={handleFileDoubleClick}
                       onFolderToggle={toggleFolder}
                       onFolderDoubleClick={setRootPath}
-                      onFileDelete={handleFileDeleteRequest}
-                      onFileRename={handleFileRename}
+                      onFileTrash={handleFileDeleteRequest}
+                      onFileRename={handleFileRenameInline}
                       onFileShowInFolder={handleFileShowInFolder}
+                      onFileCopy={(path: string) => useFileListStore.getState().setClipboardPath(path)}
+                      onFilePaste={pasteFile}
+                      onFileOpen={handleFileDoubleClick}
+                      onRenameComplete={handleRenameComplete}
+                      onRenameCancel={handleRenameCancel}
+                      onNewFile={handleNewFileInDir}
                     />
                   )}
                 </div>
@@ -854,7 +977,13 @@ export function FileListPanel() {
               <ContextMenuContent>
                 <ContextMenuItem onClick={handleNewFile}>
                   <FilePlus className="h-4 w-4 mr-2" />
-                  New file
+                  New File
+                  <ContextMenuShortcut>⌘N</ContextMenuShortcut>
+                </ContextMenuItem>
+                <ContextMenuItem onClick={() => pasteFile()} disabled={!clipboardPath}>
+                  <ClipboardPaste className="h-4 w-4 mr-2" />
+                  Paste
+                  <ContextMenuShortcut>⌘V</ContextMenuShortcut>
                 </ContextMenuItem>
               </ContextMenuContent>
             </ContextMenu>
@@ -866,17 +995,17 @@ export function FileListPanel() {
       <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete file?</DialogTitle>
+            <DialogTitle>Move to Trash?</DialogTitle>
             <DialogDescription>
               {deleteTarget?.linkedNotebookId ? (
                 <>
-                  This will delete <strong>{deleteTarget?.fileName}</strong> and unlink it from its reMarkable notebook.
+                  This will move <strong>{deleteTarget?.fileName}</strong> to the Trash and unlink it from its reMarkable notebook.
                   The original OCR content will be preserved and you can re-create an editable version later.
                 </>
               ) : (
                 <>
-                  Are you sure you want to delete <strong>{deleteTarget?.fileName}</strong>?
-                  This action cannot be undone.
+                  Are you sure you want to move <strong>{deleteTarget?.fileName}</strong> to the Trash?
+                  You can restore it from the Trash if needed.
                 </>
               )}
             </DialogDescription>
@@ -894,7 +1023,7 @@ export function FileListPanel() {
               onClick={handleConfirmDelete}
               disabled={isDeleting}
             >
-              {isDeleting ? 'Deleting...' : 'Delete'}
+              {isDeleting ? 'Moving...' : 'Move to Trash'}
             </Button>
           </DialogFooter>
         </DialogContent>

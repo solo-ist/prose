@@ -375,6 +375,14 @@ export const browserApi: ElectronAPI = {
     throw new Error('Cannot delete files in browser mode')
   },
 
+  trashFile: async (_path: string): Promise<void> => {
+    throw new Error('Cannot trash files in browser mode')
+  },
+
+  duplicateFile: async (_path: string): Promise<string> => {
+    throw new Error('Cannot duplicate files in browser mode')
+  },
+
   closeWindow: async (): Promise<void> => {
     // Try to close the window/tab in browser mode
     window.close()

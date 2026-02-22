@@ -24,6 +24,8 @@ import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useFileListStore } from '../../stores/fileListStore'
+import { useTabStore } from '../../stores/tabStore'
+import { promoteCurrentPreview } from '../../hooks/useTabs'
 import { FindBar } from './FindBar'
 import { SelectionPopover } from './SelectionPopover'
 import { AddCommentDialog } from './AddCommentDialog'
@@ -36,6 +38,7 @@ export function Editor() {
   const { document, setContent, openFile, saveFile } = useEditor()
   const isEditing = useEditorStore((state) => state.isEditing)
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
+  const isPreviewReadOnly = useEditorStore((state) => state.isPreviewReadOnly)
   const annotationsVisible = useEditorStore((state) => state.annotationsVisible)
   const toggleAnnotationsVisible = useEditorStore((state) => state.toggleAnnotationsVisible)
   const { settings, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen } = useSettings()
@@ -113,6 +116,15 @@ export function Editor() {
     editorProps: {
       attributes: {
         class: 'outline-none min-h-full'
+      },
+      handleDOMEvents: {
+        mousedown: () => {
+          // Clicking the editor while in preview mode promotes the tab
+          if (useEditorStore.getState().isPreviewReadOnly) {
+            promoteCurrentPreview()
+          }
+          return false
+        }
       }
     },
     // Note: No onCreate needed - editor is created with initial content,
@@ -231,11 +243,11 @@ export function Editor() {
     }
   }, [editor])
 
-  // Update editor editability when reMarkable read-only mode changes
+  // Update editor editability when read-only mode changes (reMarkable or preview tab)
   useEffect(() => {
     if (!editor) return
-    editor.setEditable(!isRemarkableReadOnly)
-  }, [editor, isRemarkableReadOnly])
+    editor.setEditable(!isRemarkableReadOnly && !isPreviewReadOnly)
+  }, [editor, isRemarkableReadOnly, isPreviewReadOnly])
 
   // Check if current file is linked to a reMarkable notebook
   useEffect(() => {
@@ -325,6 +337,8 @@ export function Editor() {
   useEffect(() => {
     // Only focus once per document load
     if (hasFocusedRef.current) return
+    // Don't steal focus during preview tab navigation
+    if (useEditorStore.getState().isPreviewReadOnly) return
 
     const shouldShowEmptyState = !isEditing && !document.path && !document.content && !document.isDirty
     if (editor && !shouldShowEmptyState) {
@@ -590,14 +604,15 @@ export function Editor() {
   }, [document.content, document.frontmatter])
 
   // Focus editor when transitioning from empty state to editing
+  // (skip during preview tab navigation — editor is non-editable)
   useEffect(() => {
-    if (!showEmptyState && editor) {
+    if (!showEmptyState && editor && !isPreviewReadOnly) {
       // Small delay to ensure editor is mounted and ready
       requestAnimationFrame(() => {
         editor.commands.focus()
       })
     }
-  }, [showEmptyState, editor])
+  }, [showEmptyState, editor, isPreviewReadOnly])
 
   return (
     <div className="h-full flex flex-col relative">

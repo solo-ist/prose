@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, type MouseEvent, type KeyboardEvent } from 'react'
 import { Reorder } from 'framer-motion'
-import { X, FileText } from 'lucide-react'
+import { X, FileText, Eye } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useTabStore, type Tab } from '../../stores/tabStore'
 import { useEditorStore } from '../../stores/editorStore'
@@ -78,6 +78,12 @@ export function TabBar({ onTabClick, onTabClose, onTabCloseOthers, onTabCloseAll
   }
 
   const handleDoubleClick = (tab: Tab) => {
+    // If preview tab, promote to permanent instead of renaming
+    if (tab.isPreview) {
+      useTabStore.getState().promotePreviewTab(tab.id)
+      return
+    }
+
     // For existing files, pre-fill with filename; for untitled, suggest H1 heading if available
     let fileName = ''
     if (tab.path) {
@@ -292,6 +298,8 @@ function TabItem({
                   >
                     {emoji}
                   </span>
+                ) : tab.isPreview ? (
+                  <Eye className="h-3.5 w-3.5 shrink-0 opacity-60" />
                 ) : (
                   tab.path ? (
                     <div
@@ -331,7 +339,8 @@ function TabItem({
                   <span
                     className={cn(
                       'truncate min-w-0',
-                      tier === 0 ? 'max-w-[180px]' : 'flex-1'
+                      tier === 0 ? 'max-w-[180px]' : 'flex-1',
+                      tab.isPreview && 'italic'
                     )}
                     onDoubleClick={(e) => {
                       e.stopPropagation()

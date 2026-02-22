@@ -66,7 +66,7 @@ export function App() {
   const { isChatOpen, isFileListOpen, toggleChat, toggleFileList, setChatOpen, panelSizes } = panelLayout
 
   const { openFile, openFileFromPath, saveFile, saveFileAs, newFile } = useEditor()
-  const { createNewTab, openFileInTab, closeTab } = useTabs()
+  const { createNewTab, openFileInTab } = useTabs()
   const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, isAboutDialogOpen, setAboutDialogOpen, isModelPickerOpen, setModelPickerOpen, settings, autosaveActive, isLoaded: settingsLoaded } = useSettings()
   const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false)
   const [pendingDraft, setPendingDraft] = useState<DraftState | null>(null)
@@ -703,11 +703,8 @@ export function App() {
           editor?.commands.redo()
           break
         case 'closeTab':
-          // Close the active tab
-          const activeTab = useTabStore.getState().getActiveTab()
-          if (activeTab) {
-            closeTab(activeTab.id)
-          }
+          // Delegate to Toolbar which handles the dirty-state confirmation dialog
+          window.dispatchEvent(new CustomEvent('menu:closeTab'))
           break
         case 'googleSync':
           handleGoogleSync()
@@ -737,7 +734,7 @@ export function App() {
     })
 
     return unsubscribe
-  }, [openFileInTab, saveFile, saveFileAs, createNewTab, closeTab, setDialogOpen, toggleChat, toggleFileList, isFileListOpen, setShortcutsDialogOpen, setAboutDialogOpen, editor, handleGoogleSync, handleGoogleImport])
+  }, [openFileInTab, saveFile, saveFileAs, createNewTab, setDialogOpen, toggleChat, toggleFileList, isFileListOpen, setShortcutsDialogOpen, setAboutDialogOpen, editor, handleGoogleSync, handleGoogleImport])
 
   // Handle file open from OS (double-click .md file)
   useEffect(() => {

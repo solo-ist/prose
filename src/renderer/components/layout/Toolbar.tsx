@@ -206,6 +206,14 @@ export function Toolbar() {
     }
   }
 
+  // Handle Cmd+W / menu "Close Tab" action — delegates to handleClose so the
+  // dirty-state confirmation dialog is shown when needed
+  useEffect(() => {
+    const onMenuCloseTab = () => handleClose()
+    window.addEventListener('menu:closeTab', onMenuCloseTab)
+    return () => window.removeEventListener('menu:closeTab', onMenuCloseTab)
+  }, [handleClose])
+
   const handleNewFile = async () => {
     await createNewTab()
   }

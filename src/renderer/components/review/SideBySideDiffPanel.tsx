@@ -15,7 +15,6 @@ import { cn } from '../../lib/utils'
 export function SideBySideDiffPanel() {
   const editor = useEditorInstanceStore((state) => state.editor)
   const setReviewMode = useReviewStore((s) => s.setReviewMode)
-  const [reviewed, setReviewed] = useState<Set<string>>(new Set())
   const [suggestions, setSuggestions] = useState<AISuggestionData[]>([])
 
   // Subscribe to editor transactions for reactive updates (e.g., after setAISuggestionReply)
@@ -31,7 +30,6 @@ export function SideBySideDiffPanel() {
   }, [editor])
 
   const total = suggestions.length
-  const reviewedCount = reviewed.size
 
   // Auto-close review when all suggestions have been handled
   useEffect(() => {
@@ -45,21 +43,15 @@ export function SideBySideDiffPanel() {
     }
   }, [suggestions, total, setReviewMode])
 
-  const markReviewed = useCallback((id: string) => {
-    setReviewed(prev => new Set(prev).add(id))
-  }, [])
-
   const handleAccept = useCallback((suggestion: AISuggestionData) => {
     if (!editor) return
     editor.commands.acceptAISuggestion(suggestion.id)
-    markReviewed(suggestion.id)
-  }, [editor, markReviewed])
+  }, [editor])
 
   const handleReject = useCallback((suggestion: AISuggestionData) => {
     if (!editor) return
     editor.commands.rejectAISuggestion(suggestion.id)
-    markReviewed(suggestion.id)
-  }, [editor, markReviewed])
+  }, [editor])
 
   const handleAcceptAll = useCallback(() => {
     if (!editor) return
@@ -100,7 +92,7 @@ export function SideBySideDiffPanel() {
       {/* Header with bulk actions */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-border shrink-0">
         <span className="text-xs text-muted-foreground">
-          {reviewedCount} of {total} reviewed
+          {total} suggestion{total !== 1 ? 's' : ''} remaining
         </span>
         <div className="flex items-center gap-2">
           <button

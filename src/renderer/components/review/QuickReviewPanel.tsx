@@ -204,7 +204,7 @@ export function QuickReviewPanel() {
     <div className="flex flex-col h-full">
       {/* Progress */}
       <div className="flex items-center justify-between px-4 py-2 text-xs text-muted-foreground border-b border-border">
-        <span>{currentSuggestionIndex + 1} of {total} suggestions</span>
+        <span>{total} suggestion{total !== 1 ? 's' : ''} remaining</span>
         <div className="flex items-center gap-1">
           <button
             onClick={goPrev}

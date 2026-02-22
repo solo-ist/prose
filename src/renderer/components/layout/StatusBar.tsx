@@ -201,7 +201,7 @@ export function StatusBar() {
             </button>
           </TooltipTrigger>
           <TooltipContent side="top">
-            <p>{includeDocument ? "Full document as context" : "No document context"}</p>
+            <p>{includeDocument ? "Full document as context (⌘.)" : "No document context (⌘.)"}</p>
           </TooltipContent>
         </Tooltip>
       </div>

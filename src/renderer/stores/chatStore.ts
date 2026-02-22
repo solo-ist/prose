@@ -266,7 +266,8 @@ export const useChatStore = create<ChatState>()(
         conversations,
         activeConversationId: mostRecent?.id ?? null,
         messages: mostRecent?.messages ?? [],
-        context: null // Clear context when switching documents
+        context: null, // Clear context when switching documents
+        includeDocument: true // Re-enable document context for new document
       })
     },
 

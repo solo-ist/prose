@@ -71,7 +71,7 @@ export function useExplorerActions({
     } catch (error) {
       console.error('Failed to trash file:', error)
     }
-  }, [selectedPath, api])
+  }, [selectedPath, api, closeTab])
 
   const copySelected = useCallback(() => {
     if (!selectedPath) return

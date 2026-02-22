@@ -297,8 +297,8 @@ function FileTreeItem({
           Open
         </ContextMenuItem>
       )}
-      {(onFileRename || onRenameComplete) && (
-        <ContextMenuItem onClick={() => onFileRename ? onFileRename(item.path) : onRenameComplete?.(item.path, '')}>
+      {onFileRename && (
+        <ContextMenuItem onClick={() => onFileRename(item.path)}>
           <Edit3 className="h-4 w-4 mr-2" />
           Rename
           <ContextMenuShortcut>↵</ContextMenuShortcut>

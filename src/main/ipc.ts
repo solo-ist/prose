@@ -265,6 +265,15 @@ export function setupIpcHandlers(): void {
       }
     } while (copyNum < 100)
 
+    // Guard: if all 100 names are taken, don't overwrite
+    try {
+      await access(newPath)
+      throw new Error('Could not find available name for duplicate (100 copies exist)')
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith('Could not find')) throw e
+      // access() threw = file doesn't exist = safe to use
+    }
+
     await copyFile(safePath, newPath)
     return newPath
   })

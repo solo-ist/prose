@@ -11,6 +11,7 @@ export interface Tab {
   title: string           // Display name (may be H1 text for untitled docs)
   baseTitle?: string      // Original 'Untitled N' title for untitled docs (for H1 revert)
   isDirty: boolean        // Unsaved changes
+  isPreview?: boolean     // Preview tab (transient, replaced on next single-click)
   // Cached state for when tab is not active
   content?: string
   frontmatter?: Record<string, unknown>
@@ -29,6 +30,8 @@ interface TabState {
   getActiveTab: () => Tab | null
   getTabByPath: (path: string) => Tab | null
   getTabById: (tabId: string) => Tab | null
+  getPreviewTab: () => Tab | null
+  promotePreviewTab: (tabId: string) => void
 
   // Utility
   getNextUntitledNumber: () => number
@@ -118,6 +121,19 @@ export const useTabStore = create<TabState>()(
     getTabById: (tabId) => {
       const state = get()
       return state.tabs.find(t => t.id === tabId) ?? null
+    },
+
+    getPreviewTab: () => {
+      const state = get()
+      return state.tabs.find(t => t.isPreview) ?? null
+    },
+
+    promotePreviewTab: (tabId) => {
+      set((state) => ({
+        tabs: state.tabs.map(t =>
+          t.id === tabId ? { ...t, isPreview: false } : t
+        )
+      }))
     },
 
     getNextUntitledNumber: () => {

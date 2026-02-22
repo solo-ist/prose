@@ -328,9 +328,11 @@ export interface ElectronAPI {
   fileStat: (path: string) => Promise<{ createdAt: string; modifiedAt: string; size: number }>
   // File reveal
   showInFolder: (path: string) => Promise<void>
-  // File rename/delete
+  // File rename/delete/trash/duplicate
   renameFile: (oldPath: string, newPath: string) => Promise<void>
   deleteFile: (path: string) => Promise<void>
+  trashFile: (path: string) => Promise<void>
+  duplicateFile: (path: string) => Promise<string>
   // Window operations
   closeWindow: () => Promise<void>
   // External URL opening (for CMD+Click on links)

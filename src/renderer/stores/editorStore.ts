@@ -30,6 +30,8 @@ interface EditorState {
   lastSelection: SelectionCache | null
   // Autosave in-progress flag (true only during the actual save call)
   isAutosaving: boolean
+  // Preview tab read-only mode (prevents editor from stealing focus)
+  isPreviewReadOnly: boolean
   // AI annotation visibility toggle
   annotationsVisible: boolean
   setDocument: (doc: Partial<Document>) => void
@@ -51,6 +53,7 @@ interface EditorState {
   setLastSelection: (sel: SelectionCache | null) => void
   getLastSelection: () => SelectionCache | null
   setAutosaving: (isAutosaving: boolean) => void
+  setPreviewReadOnly: (val: boolean) => void
   toggleAnnotationsVisible: () => void
 }
 
@@ -75,6 +78,7 @@ export const useEditorStore = create<EditorState>()(
     readCache: { content: null, documentId: null },
     lastSelection: null,
     isAutosaving: false,
+    isPreviewReadOnly: false,
     annotationsVisible: true,
 
     setDocument: (doc) =>
@@ -188,6 +192,7 @@ export const useEditorStore = create<EditorState>()(
     getLastSelection: () => get().lastSelection,
 
     setAutosaving: (isAutosaving) => set({ isAutosaving }),
+    setPreviewReadOnly: (val) => set({ isPreviewReadOnly: val }),
 
     toggleAnnotationsVisible: () =>
       set((state) => ({ annotationsVisible: !state.annotationsVisible }))

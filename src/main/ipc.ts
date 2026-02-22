@@ -237,6 +237,47 @@ export function setupIpcHandlers(): void {
     await unlink(safePath)
   })
 
+  // File: Move to trash (recoverable delete)
+  ipcMain.handle('file:trash', async (_event, path: string) => {
+    const safePath = validatePath(path)
+    await shell.trashItem(safePath)
+  })
+
+  // File: Duplicate file (returns new path)
+  ipcMain.handle('file:duplicate', async (_event, path: string): Promise<string> => {
+    const safePath = validatePath(path)
+    const dir = safePath.substring(0, safePath.lastIndexOf('/'))
+    const ext = safePath.match(/\.[^.]+$/)?.[0] || ''
+    const baseName = safePath.substring(safePath.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '')
+
+    // Find available name: "foo copy.md", "foo copy 2.md", etc.
+    let copyNum = 0
+    let newPath: string
+    do {
+      const suffix = copyNum === 0 ? ' copy' : ` copy ${copyNum + 1}`
+      newPath = join(dir, `${baseName}${suffix}${ext}`)
+      copyNum++
+      try {
+        await access(newPath)
+        // File exists, try next number
+      } catch {
+        break // File doesn't exist, use this name
+      }
+    } while (copyNum < 100)
+
+    // Guard: if all 100 names are taken, don't overwrite
+    try {
+      await access(newPath)
+      throw new Error('Could not find available name for duplicate (100 copies exist)')
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith('Could not find')) throw e
+      // access() threw = file doesn't exist = safe to use
+    }
+
+    await copyFile(safePath, newPath)
+    return newPath
+  })
+
   // File: List directory contents (with lazy loading support)
   ipcMain.handle('file:listDirectory', async (_event, dirPath: string, maxDepth: number = 1) => {
     interface FileItem {

@@ -196,6 +196,8 @@ export interface ElectronAPI {
   showInFolder: (path: string) => Promise<void>
   renameFile: (oldPath: string, newPath: string) => Promise<void>
   deleteFile: (path: string) => Promise<void>
+  trashFile: (path: string) => Promise<void>
+  duplicateFile: (path: string) => Promise<string>
   // Window operations
   closeWindow: () => Promise<void>
   isFullScreen: () => Promise<boolean>
@@ -347,6 +349,8 @@ const api: ElectronAPI = {
   showInFolder: (path: string) => ipcRenderer.invoke('file:showInFolder', path),
   renameFile: (oldPath: string, newPath: string) => ipcRenderer.invoke('file:rename', oldPath, newPath),
   deleteFile: (path: string) => ipcRenderer.invoke('file:delete', path),
+  trashFile: (path: string) => ipcRenderer.invoke('file:trash', path),
+  duplicateFile: (path: string) => ipcRenderer.invoke('file:duplicate', path),
   closeWindow: () => ipcRenderer.invoke('window:close'),
   isFullScreen: () => ipcRenderer.invoke('window:isFullScreen'),
   exitFullScreen: () => ipcRenderer.invoke('window:exitFullScreen'),

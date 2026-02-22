@@ -150,6 +150,18 @@ function FileTreeItem({
   // Inline rename state
   const [renameValue, setRenameValue] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const wasRenamingRef = useRef(false)
+
+  // Refocus the button (and thus the explorer container) after rename ends
+  useEffect(() => {
+    if (!isRenaming && wasRenamingRef.current) {
+      requestAnimationFrame(() => {
+        buttonRef.current?.focus({ preventScroll: true })
+      })
+    }
+    wasRenamingRef.current = isRenaming
+  }, [isRenaming])
 
   useEffect(() => {
     if (isRenaming) {
@@ -158,8 +170,14 @@ function FileTreeItem({
       // Wait for Radix context menu close animation before focusing
       requestAnimationFrame(() => {
         setTimeout(() => {
-          inputRef.current?.focus()
-          inputRef.current?.select()
+          const input = inputRef.current
+          if (!input) return
+          input.focus({ preventScroll: true })
+          input.select()
+          // Reset scroll caused by select() showing cursor at end
+          input.scrollLeft = 0
+          // Also reset parent scroll container if it shifted
+          input.closest('[data-radix-scroll-area-viewport]')?.scrollTo(0, 0)
         }, 50)
       })
     }
@@ -210,10 +228,11 @@ function FileTreeItem({
   const buttonElement = (
     <div className={cn("group flex items-center", !item.isDirectory && onFileLinkClick && "relative")}>
       <button
+        ref={buttonRef}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         className={cn(
-          'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm text-left transition-colors',
+          'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm text-left transition-colors outline-none',
           'hover:bg-accent hover:text-accent-foreground',
           isSelected && 'bg-accent text-accent-foreground'
         )}
@@ -249,7 +268,7 @@ function FileTreeItem({
             onKeyDown={handleRenameKeyDown}
             onBlur={handleRenameSubmit}
             onClick={(e) => e.stopPropagation()}
-            className="flex-1 min-w-0 bg-transparent text-sm outline-none border-none p-0 text-foreground selection:bg-accent-foreground/20"
+            className="flex-1 min-w-0 bg-transparent text-sm leading-5 outline-none border-none p-0 m-0 h-5 text-foreground selection:bg-accent-foreground/20"
           />
         ) : (
           <span className="truncate flex-1 min-w-0">{displayName}</span>

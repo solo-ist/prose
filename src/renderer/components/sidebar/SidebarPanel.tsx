@@ -20,7 +20,7 @@ export function SidebarPanel() {
       <TabsContent value="info" className="flex-1 min-h-0 overflow-hidden mt-0">
         <InfoPanel />
       </TabsContent>
-      <TabsContent value="chat" className="flex-1 min-h-0 overflow-hidden mt-0" forceMount>
+      <TabsContent value="chat" className="flex-1 min-h-0 overflow-hidden mt-0 data-[state=inactive]:hidden" forceMount>
         <ChatPanel />
       </TabsContent>
     </Tabs>

@@ -77,7 +77,6 @@ const FULL_MODE_INSTRUCTIONS = `
 Keep edit comments under 20 words. You have a budget of 5 tool roundtrips per response.`
 
 export function buildSystemPrompt(
-  includeDocument: boolean,
   documentContent?: string,
   toolMode?: ToolMode,
   documentPath?: string | null
@@ -93,20 +92,16 @@ export function buildSystemPrompt(
     prompt += FULL_MODE_INSTRUCTIONS
   }
 
-  // Document context
-  if (includeDocument && documentContent) {
+  // Document context — always include full document regardless of tool mode
+  if (documentContent) {
     const cleanContent = stripCommentMarkup(documentContent)
-    if (!toolMode || toolMode === 'suggestions') {
-      // No tools — full document needed in prompt
-      prompt += `\n\nThe user is currently working on the following document:\n\n---\n${cleanContent}\n---`
+    prompt += `\n\nThe user is currently working on the following document:\n\n---\n${cleanContent}\n---`
 
-      // Line references only when document is in prompt
+    if (!toolMode || toolMode === 'suggestions') {
+      // Line references only when no tools available
       prompt += `\n\n## Referencing Line Numbers\nFormat: [Line N](line:N) — these render as clickable links that navigate to that line.`
     } else {
-      // Tool modes — short preview, model uses read_document for full content + node IDs
-      const preview =
-        cleanContent.length > 500 ? cleanContent.slice(0, 500) + '\n\n[...]' : cleanContent
-      prompt += `\n\nDocument preview:\n\n---\n${preview}\n---\n\nCall \`read_document\` for full content with node IDs.`
+      prompt += `\n\nCall \`read_document\` for node IDs needed by editing tools.`
     }
   }
 

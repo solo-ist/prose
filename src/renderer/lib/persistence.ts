@@ -63,14 +63,15 @@ export interface EmojiCacheEntry {
 
 // Database constants
 const DB_NAME = 'prose-db'
-const DB_VERSION = 6
+const DB_VERSION = 7
 const STORES = {
   DRAFTS: 'drafts',
   CONVERSATIONS: 'conversations',
   ANNOTATIONS: 'annotations',
   COMMAND_HISTORY: 'command_history',
   SUGGESTIONS: 'suggestions',
-  EMOJI_CACHE: 'emoji_cache'
+  EMOJI_CACHE: 'emoji_cache',
+  SUMMARIES: 'summaries'
 } as const
 
 // Recovery types
@@ -100,6 +101,7 @@ export interface DatabaseBackup {
  * v4: Added suggestions store (persists AI suggestions across tab switches)
  * v5: (no schema change, version alignment)
  * v6: Added emoji_cache store (LLM-generated emoji icons for tabs)
+ * v7: Added summaries store (AI-generated document summaries)
  *
  * When bumping version:
  * 1. Update DB_VERSION above
@@ -355,6 +357,9 @@ function getDB(): Promise<IDBDatabase> {
               if (!db.objectStoreNames.contains(STORES.EMOJI_CACHE)) {
                 db.createObjectStore(STORES.EMOJI_CACHE)
               }
+              if (!db.objectStoreNames.contains(STORES.SUMMARIES)) {
+                db.createObjectStore(STORES.SUMMARIES)
+              }
             }
           })
 
@@ -434,6 +439,9 @@ function getDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORES.EMOJI_CACHE)) {
         db.createObjectStore(STORES.EMOJI_CACHE)
+      }
+      if (!db.objectStoreNames.contains(STORES.SUMMARIES)) {
+        db.createObjectStore(STORES.SUMMARIES)
       }
     }
   })
@@ -998,5 +1006,93 @@ export async function deleteEmojiCache(key: string): Promise<void> {
     })
   } catch (error) {
     console.error('Failed to delete emoji cache:', error)
+  }
+}
+
+// ============ Summary Operations ============
+
+export interface DocumentSummary {
+  summary: string
+  generatedAt: string     // ISO timestamp
+  contentHash: number     // djb2 hash of full content at generation time
+}
+
+/**
+ * Fast djb2 hash for staleness detection.
+ */
+export function simpleHash(str: string): number {
+  let hash = 5381
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0
+  }
+  return hash
+}
+
+/**
+ * Save a document summary
+ */
+export async function saveSummary(
+  documentId: string,
+  summary: DocumentSummary
+): Promise<void> {
+  try {
+    const db = await getDB()
+    if (!db.objectStoreNames.contains(STORES.SUMMARIES)) return
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORES.SUMMARIES, 'readwrite')
+      const store = transaction.objectStore(STORES.SUMMARIES)
+      const request = store.put(summary, documentId)
+
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve()
+    })
+  } catch (error) {
+    console.error('Failed to save summary:', error)
+  }
+}
+
+/**
+ * Load a document summary
+ */
+export async function loadSummary(
+  documentId: string
+): Promise<DocumentSummary | null> {
+  try {
+    const db = await getDB()
+    if (!db.objectStoreNames.contains(STORES.SUMMARIES)) return null
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORES.SUMMARIES, 'readonly')
+      const store = transaction.objectStore(STORES.SUMMARIES)
+      const request = store.get(documentId)
+
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve(request.result ?? null)
+    })
+  } catch (error) {
+    console.error('Failed to load summary:', error)
+    return null
+  }
+}
+
+/**
+ * Delete a document summary
+ */
+export async function deleteSummary(documentId: string): Promise<void> {
+  try {
+    const db = await getDB()
+    if (!db.objectStoreNames.contains(STORES.SUMMARIES)) return
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORES.SUMMARIES, 'readwrite')
+      const store = transaction.objectStore(STORES.SUMMARIES)
+      const request = store.delete(documentId)
+
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve()
+    })
+  } catch (error) {
+    console.error('Failed to delete summary:', error)
   }
 }

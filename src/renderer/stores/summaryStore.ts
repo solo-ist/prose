@@ -14,6 +14,8 @@ interface SummaryState {
   generatedAt: string | null
   isStale: boolean
   error: string | null
+  /** Tracks which document is currently being generated to prevent race conditions */
+  generatingForDocumentId: string | null
 
   loadForDocument: (documentId: string, content: string) => Promise<void>
   generateSummary: (documentId: string, content: string) => Promise<void>
@@ -26,6 +28,7 @@ export const useSummaryStore = create<SummaryState>()((set, get) => ({
   generatedAt: null,
   isStale: false,
   error: null,
+  generatingForDocumentId: null,
 
   loadForDocument: async (documentId: string, content: string) => {
     const cached = await loadSummary(documentId)
@@ -56,7 +59,7 @@ export const useSummaryStore = create<SummaryState>()((set, get) => ({
     const { settings } = useSettingsStore.getState()
     if (!settings.llm.apiKey) return
 
-    set({ isGenerating: true, error: null })
+    set({ isGenerating: true, error: null, generatingForDocumentId: documentId })
 
     try {
       const api = getApi()
@@ -74,6 +77,9 @@ export const useSummaryStore = create<SummaryState>()((set, get) => ({
         system: content
       })
 
+      // Bail if user switched documents during generation
+      if (get().generatingForDocumentId !== documentId) return
+
       const summaryData: DocumentSummary = {
         summary: response.content,
         generatedAt: new Date().toISOString(),
@@ -82,16 +88,21 @@ export const useSummaryStore = create<SummaryState>()((set, get) => ({
 
       await saveSummary(documentId, summaryData)
 
+      // Check again after async save
+      if (get().generatingForDocumentId !== documentId) return
+
       set({
         summary: summaryData.summary,
         generatedAt: summaryData.generatedAt,
         isStale: false,
         isGenerating: false,
+        generatingForDocumentId: null,
         error: null
       })
     } catch (error) {
       set({
         isGenerating: false,
+        generatingForDocumentId: null,
         error: error instanceof Error ? error.message : 'Failed to generate summary'
       })
     }
@@ -103,7 +114,8 @@ export const useSummaryStore = create<SummaryState>()((set, get) => ({
       isGenerating: false,
       generatedAt: null,
       isStale: false,
-      error: null
+      error: null,
+      generatingForDocumentId: null
     })
   }
 }))

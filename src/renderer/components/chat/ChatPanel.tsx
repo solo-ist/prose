@@ -49,17 +49,21 @@ export function ChatPanel() {
 
   // Load cached summary when panel opens or document changes
   useEffect(() => {
-    if (!infoOpen || !document.documentId || !document.content?.trim()) return
-    loadSummary(document.documentId, document.content)
-  }, [infoOpen, document.documentId, loadSummary, document.content])
+    if (!infoOpen || !document.documentId) return
+    const content = useEditorStore.getState().document.content
+    if (!content?.trim()) return
+    loadSummary(document.documentId, content)
+  }, [infoOpen, document.documentId, loadSummary])
 
   // Auto-generate if panel is open and no summary or stale
   useEffect(() => {
-    if (!infoOpen || isGenerating || !hasApiKey || !document.content?.trim()) return
+    if (!infoOpen || isGenerating || !hasApiKey) return
     if (!summary || isStale) {
-      generateSummary(document.documentId, document.content)
+      const content = useEditorStore.getState().document.content
+      if (!content?.trim()) return
+      generateSummary(document.documentId, content)
     }
-  }, [infoOpen, summary, isStale, isGenerating, hasApiKey, document.documentId, document.content, generateSummary])
+  }, [infoOpen, summary, isStale, isGenerating, hasApiKey, document.documentId, generateSummary])
 
   // Track pending suggestion count
   const suggestionCount = useMemo(() => {

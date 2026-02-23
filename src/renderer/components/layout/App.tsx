@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Toolbar } from './Toolbar'
 import { StatusBar } from './StatusBar'
 import { Editor } from '../editor/Editor'
-import { ChatPanel } from '../chat/ChatPanel'
+import { SidebarPanel } from '../sidebar/SidebarPanel'
 import { FileListPanel } from '../files/FileListPanel'
 import { SettingsDialog } from '../settings/SettingsDialog'
 import { RecoveryDialog } from './RecoveryDialog'
@@ -31,6 +31,7 @@ import { Input } from '../ui/input'
 import { Label } from '../ui/label'
 import { Checkbox } from '../ui/checkbox'
 import { useChat } from '../../hooks/useChat'
+import { useSummaryStore } from '../../stores/summaryStore'
 import { useEditor } from '../../hooks/useEditor'
 import { useTabs } from '../../hooks/useTabs'
 import { useSettings } from '../../hooks/useSettings'
@@ -56,7 +57,7 @@ import { useReviewMode, useWasChatOpenBeforeReview, usePreviousChatWidth, useRev
 import { CHAT_DEFAULT_PCT, CHAT_MIN_PX } from '../../hooks/usePanelLayout'
 
 export function App() {
-  const { describeDocument } = useChat()
+  useChat() // Initialize stream listeners
 
   // Panel refs for imperative collapse/expand
   const fileListPanelRef = useRef<ImperativePanelHandle>(null)
@@ -747,11 +748,12 @@ export function App() {
       const shouldDescribe = await openFileInTab(path)
       tabsInitialized.current = true
       if (shouldDescribe) {
-        describeDocument()
+        const { document } = useEditorStore.getState()
+        useSummaryStore.getState().generateSummary(document.documentId, document.content)
       }
     })
     return unsubscribe
-  }, [openFileInTab, describeDocument])
+  }, [openFileInTab])
 
   // Handle MCP tool invocations (only active in MCP server mode)
   useEffect(() => {
@@ -807,7 +809,7 @@ export function App() {
               maxSize={reviewMode === 'side-by-side' ? 70 : panelSizes.chatMax}
               className="h-full overflow-hidden"
             >
-              {isChatOpen && <ChatPanel />}
+              {isChatOpen && <SidebarPanel />}
             </ResizablePanel>
           </ResizablePanelGroup>
         </div>

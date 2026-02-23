@@ -70,7 +70,6 @@ export function useChat() {
     isLoading,
     isPanelOpen,
     context,
-    includeDocument,
     agentMode,
     toolMode,
     activeConversationId,
@@ -85,7 +84,6 @@ export function useChat() {
     togglePanel,
     setPanelOpen,
     setContext,
-    setIncludeDocument,
     setAgentMode,
     setToolMode,
     startStreaming,
@@ -286,7 +284,7 @@ export function useChat() {
             apiKey: settingsState.settings.llm.apiKey,
             baseUrl: settingsState.settings.llm.baseUrl,
             messages: updatedMessages,
-            system: buildSystemPrompt(state.includeDocument, editorState.document.content, state.toolMode, editorState.document.path),
+            system: buildSystemPrompt(editorState.document.content, state.toolMode, editorState.document.path),
             streamId: newStreamId,
             tools,
             maxToolRoundtrips: 5,
@@ -468,7 +466,7 @@ export function useChat() {
           apiKey: settings.llm.apiKey,
           baseUrl: settings.llm.baseUrl,
           messages: apiMessages,
-          system: buildSystemPrompt(includeDocument, useEditorStore.getState().document.content, toolMode, useEditorStore.getState().document.path),
+          system: buildSystemPrompt(useEditorStore.getState().document.content, toolMode, useEditorStore.getState().document.path),
           streamId,
           tools,
           maxToolRoundtrips: 5,
@@ -506,7 +504,6 @@ export function useChat() {
       context,
       isLoading,
       messages,
-      includeDocument,
       toolMode,
       document.documentId,
       settings.llm,
@@ -584,28 +581,6 @@ export function useChat() {
     return getSuggestionsWithFeedback(editor).length
   }, [])
 
-  // Auto-describe document on open (hidden message triggers AI summary)
-  const describeDocument = useCallback(async () => {
-    const state = useChatStore.getState()
-
-    // Guard: don't describe if already active or has history
-    if (state.isLoading || state.isStreaming) return
-    if (state.messages.length > 0) return
-    if (!state.includeDocument) return
-
-    // Only describe if there's content
-    const content = useEditorStore.getState().document.content
-    if (!content || content.trim().length === 0) return
-
-    // Open chat panel to show the description
-    setPanelOpen(true)
-
-    await sendMessage(
-      'Summarize this document in 1-2 sentences. State what it is and its purpose. No hedging.',
-      { hidden: true }
-    )
-  }, [sendMessage, setPanelOpen])
-
   return {
     messages,
     isLoading,
@@ -613,7 +588,6 @@ export function useChat() {
     isInitializing,
     isPanelOpen,
     context,
-    includeDocument,
     agentMode,
     toolMode,
     sendMessage,
@@ -622,13 +596,11 @@ export function useChat() {
     getCommentCount,
     processSuggestionReplies,
     getSuggestionFeedbackCount,
-    describeDocument,
     updateMessage,
     clearMessages,
     togglePanel,
     setPanelOpen,
     setContext,
-    setIncludeDocument,
     setAgentMode,
     setToolMode
   }

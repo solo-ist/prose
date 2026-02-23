@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { useFileList } from '../../hooks/useFileList'
 import { useEditor } from '../../hooks/useEditor'
 import { useTabs } from '../../hooks/useTabs'
-import { useChat } from '../../hooks/useChat'
+import { useSummaryStore } from '../../stores/summaryStore'
 import { useRemarkableSync } from '../../hooks/useRemarkableSync'
 import { useGoogleDocsSync } from '../../hooks/useGoogleDocsSync'
 import { useExplorerActions } from '../../hooks/useExplorerActions'
@@ -68,7 +68,6 @@ export function FileListPanel() {
 
   const { openFileFromPath } = useEditor()
   const { openFileInTab, openFileInPreviewTab, forceCloseTab } = useTabs()
-  const { describeDocument } = useChat()
   const { isSyncing, sync, error: syncError } = useRemarkableSync()
   const { isSyncing: isGoogleSyncing, sync: googleSync, error: googleSyncError } = useGoogleDocsSync()
   const { setDialogOpen } = useSettings()
@@ -135,13 +134,15 @@ export function FileListPanel() {
       selectFile(path)
       const shouldDescribe = await openFileInPreviewTab(path)
       if (shouldDescribe) {
-        describeDocument()
+        const { document } = useEditorStore.getState()
+        useSummaryStore.getState().generateSummary(document.documentId, document.content)
       }
     },
     onFilePreview: async (path) => {
       const shouldDescribe = await openFileInPreviewTab(path)
       if (shouldDescribe) {
-        describeDocument()
+        const { document } = useEditorStore.getState()
+        useSummaryStore.getState().generateSummary(document.documentId, document.content)
       }
     },
     onFileTrash: handleFileDeleteRequest,
@@ -398,7 +399,8 @@ export function FileListPanel() {
     selectFile(path)
     const shouldDescribe = await openFileInPreviewTab(path)
     if (shouldDescribe) {
-      describeDocument()
+      const { document } = useEditorStore.getState()
+      useSummaryStore.getState().generateSummary(document.documentId, document.content)
     }
   }
 
@@ -406,7 +408,8 @@ export function FileListPanel() {
     selectFile(path)
     const shouldDescribe = await openFileInTab(path)
     if (shouldDescribe) {
-      describeDocument()
+      const { document } = useEditorStore.getState()
+      useSummaryStore.getState().generateSummary(document.documentId, document.content)
     }
   }
 
@@ -524,7 +527,8 @@ export function FileListPanel() {
         // Pass true for isRemarkableOCR so openFileFromPath doesn't clear read-only state
         const shouldDescribe = await openFileFromPath(ocrFullPath, true)
         if (shouldDescribe) {
-          describeDocument()
+          const { document } = useEditorStore.getState()
+          useSummaryStore.getState().generateSummary(document.documentId, document.content)
         }
       }
     }

@@ -121,7 +121,7 @@ export function usePanelLayout({ fileListPanelRef, chatPanelRef }: UsePanelLayou
 
   // --- Reactive sync: store → imperative resize ---
   // Fires after React re-renders (so minSize is already updated), before browser paint.
-  // Handles both direct callers (toggleChat) and external callers (describeDocument).
+  // Handles both direct callers (toggleChat) and external callers.
 
   const prevChatOpen = useRef(isChatOpen)
   const prevFileListOpen = useRef(isFileListOpen)

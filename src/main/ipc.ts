@@ -6,6 +6,10 @@ import type { Settings } from '../renderer/types'
 import { withRetry, getNetworkErrorMessage } from '../shared/utils/retry'
 import { clearRecentFiles } from './recentFiles'
 import { refreshMenu } from './menu'
+import { credentialStore } from './credentialStore'
+
+// Credential store key for the LLM provider API key
+const LLM_API_KEY = 'llm-api-key'
 
 // Content block types for Anthropic API tool use
 interface LLMTextBlock {
@@ -368,7 +372,29 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('settings:load', async () => {
     try {
       const content = await readFile(SETTINGS_PATH, 'utf-8')
-      return { ...defaultSettings, ...JSON.parse(content) }
+      const rawSettings = { ...defaultSettings, ...JSON.parse(content) }
+
+      // Migration: if plaintext API key exists in JSON, migrate to secure storage
+      if (credentialStore.isAvailable() && rawSettings.llm?.apiKey) {
+        try {
+          await credentialStore.set(LLM_API_KEY, rawSettings.llm.apiKey)
+          rawSettings.llm = { ...rawSettings.llm, apiKey: '' }
+          await writeFile(SETTINGS_PATH, JSON.stringify(rawSettings, null, 2), 'utf-8')
+          console.log('[settings:load] Migrated plaintext API key to secure storage')
+        } catch (err) {
+          console.error('[settings:load] Migration failed:', err)
+        }
+      }
+
+      // Inject API key from secure storage
+      if (credentialStore.isAvailable()) {
+        const storedKey = await credentialStore.get(LLM_API_KEY)
+        if (storedKey) {
+          rawSettings.llm = { ...rawSettings.llm, apiKey: storedKey }
+        }
+      }
+
+      return rawSettings
     } catch {
       return defaultSettings
     }
@@ -378,7 +404,22 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('settings:save', async (_event, settings: Settings) => {
     try {
       await mkdir(SETTINGS_DIR, { recursive: true })
-      await writeFile(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf-8')
+
+      if (credentialStore.isAvailable()) {
+        // Store API key securely; save settings without it
+        const { apiKey, ...llmWithoutKey } = settings.llm
+        if (apiKey) {
+          await credentialStore.set(LLM_API_KEY, apiKey)
+        }
+        // Don't delete stored key when apiKey is empty — preserves the
+        // credential if the field is momentarily cleared during editing
+        const settingsToSave = { ...settings, llm: { ...llmWithoutKey, apiKey: '' } }
+        await writeFile(SETTINGS_PATH, JSON.stringify(settingsToSave, null, 2), 'utf-8')
+      } else {
+        // Fallback: save with plaintext key (non-MAS platforms without secure storage)
+        console.warn('[settings:save] Secure storage unavailable, saving API key in plaintext')
+        await writeFile(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf-8')
+      }
     } catch (error) {
       console.error('Failed to save settings:', error)
       throw error
@@ -783,20 +824,26 @@ export function setupIpcHandlers(): void {
     async (_event, deviceToken: string, syncDirectory: string) => {
       const { syncAll } = await import('./remarkable/sync')
 
-      // Get Anthropic API key - first from LLM settings if using Anthropic provider,
-      // then fall back to separate secure storage
+      // Get Anthropic API key - first from credentialStore (LLM key if provider is Anthropic),
+      // then fall back to the reMarkable-specific secure storage
       let anthropicApiKey: string | undefined
       try {
         const content = await readFile(SETTINGS_PATH, 'utf-8')
         const settings = JSON.parse(content) as Settings
-        if (settings.llm?.provider === 'anthropic' && settings.llm?.apiKey) {
-          anthropicApiKey = settings.llm.apiKey
+        if (settings.llm?.provider === 'anthropic') {
+          // API key is now in credentialStore after migration
+          if (credentialStore.isAvailable()) {
+            anthropicApiKey = (await credentialStore.get(LLM_API_KEY)) ?? undefined
+          } else if (settings.llm?.apiKey) {
+            // Fallback for non-MAS platforms without secure storage
+            anthropicApiKey = settings.llm.apiKey
+          }
         }
       } catch {
         // Settings not found or invalid
       }
 
-      // If no key from LLM settings, try separate secure storage
+      // If no key from LLM settings, try reMarkable-specific secure storage
       if (!anthropicApiKey && safeStorage.isEncryptionAvailable()) {
         try {
           const encryptedKey = await readFile(ANTHROPIC_KEY_PATH)
@@ -925,7 +972,7 @@ export function setupIpcHandlers(): void {
   // Emoji: Generate emoji for a tab title (runs in main process to avoid CORS)
   ipcMain.handle('emoji:generate', async (_event, title: string, contentPreview?: string): Promise<{ emoji: string | null; error?: string }> => {
     try {
-      // Read settings to check for Anthropic API key
+      // Read settings to check provider, then get API key from secure storage
       let settings: Settings
       try {
         const content = await readFile(SETTINGS_PATH, 'utf-8')
@@ -934,12 +981,22 @@ export function setupIpcHandlers(): void {
         settings = defaultSettings
       }
 
-      if (settings.llm.provider !== 'anthropic' || !settings.llm.apiKey) {
+      if (settings.llm.provider !== 'anthropic') {
+        return { emoji: null, error: 'no-api-key' }
+      }
+
+      // Get API key from credentialStore (primary) or settings.json (fallback for non-MAS)
+      let apiKey = settings.llm.apiKey
+      if (!apiKey && credentialStore.isAvailable()) {
+        apiKey = (await credentialStore.get(LLM_API_KEY)) || ''
+      }
+
+      if (!apiKey) {
         return { emoji: null, error: 'no-api-key' }
       }
 
       const Anthropic = (await import('@anthropic-ai/sdk')).default
-      const client = new Anthropic({ apiKey: settings.llm.apiKey })
+      const client = new Anthropic({ apiKey })
 
       // Build prompt with optional content preview for better context
       let prompt = title

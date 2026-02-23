@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo } from 'react'
+import { useRef, useEffect, useMemo, useState } from 'react'
 import { useChat } from '../../hooks/useChat'
 import { ChatMessage } from './ChatMessage'
 import { ChatInput } from './ChatInput'
@@ -10,19 +10,23 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '../ui/dropdown-menu'
-import { MessageSquare, History, Plus, Trash2, Sparkles } from 'lucide-react'
+import { MessageSquare, History, Plus, Trash2, Sparkles, Info, Loader2 } from 'lucide-react'
 import { useChatStore } from '../../stores/chatStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import { useReviewStore, useReviewMode } from '../../stores/reviewStore'
+import { useSummaryStore } from '../../stores/summaryStore'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { ReviewContainer } from '../review/ReviewContainer'
+import { cn } from '../../lib/utils'
 
 export function ChatPanel() {
   const { messages, isLoading, isStreaming, sendMessage, stopGeneration, clearMessages } = useChat()
   const scrollRef = useRef<HTMLDivElement>(null)
   const reviewMode = useReviewMode()
+  const [infoOpen, setInfoOpen] = useState(false)
 
   const {
     conversations,
@@ -34,6 +38,28 @@ export function ChatPanel() {
   const document = useEditorStore((state) => state.document)
   const documentId = document.documentId
   const editor = useEditorInstanceStore((state) => state.editor)
+
+  // Summary store
+  const { summary, isGenerating, isStale, error, loadForDocument: loadSummary, generateSummary } = useSummaryStore()
+  const hasApiKey = useSettingsStore((s) => !!s.settings.llm.apiKey)
+
+  // Reading time
+  const wordCount = document.content.split(/\s+/).filter((w: string) => w.length > 0).length
+  const readingTime = Math.max(1, Math.round(wordCount / 200))
+
+  // Load cached summary when panel opens or document changes
+  useEffect(() => {
+    if (!infoOpen || !document.documentId || !document.content?.trim()) return
+    loadSummary(document.documentId, document.content)
+  }, [infoOpen, document.documentId, loadSummary, document.content])
+
+  // Auto-generate if panel is open and no summary or stale
+  useEffect(() => {
+    if (!infoOpen || isGenerating || !hasApiKey || !document.content?.trim()) return
+    if (!summary || isStale) {
+      generateSummary(document.documentId, document.content)
+    }
+  }, [infoOpen, summary, isStale, isGenerating, hasApiKey, document.documentId, document.content, generateSummary])
 
   // Track pending suggestion count
   const suggestionCount = useMemo(() => {
@@ -54,6 +80,8 @@ export function ChatPanel() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [messages, isLoading, isStreaming, lastMessageContent])
+
+
 
   const handleNewChat = () => {
     addConversation(documentId)
@@ -83,92 +111,131 @@ export function ChatPanel() {
     <div className="flex h-full flex-col bg-muted/20">
       {/* Action bar */}
       <div className="flex items-center justify-end border-b border-border px-2 py-1">
-        {conversations.length > 0 && (
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    aria-label="Chat history"
-                  >
-                    <History className="h-3.5 w-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>Chat history</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end" className="w-64">
-              {conversations.map((conversation) => (
-                <DropdownMenuItem
-                  key={conversation.id}
-                  className="flex items-center justify-between gap-2 cursor-pointer"
-                  onClick={() => handleSelectConversation(conversation.id)}
-                >
-                  <span
-                    className={`truncate flex-1 ${
-                      conversation.id === activeConversationId
-                        ? 'font-medium'
-                        : ''
-                    }`}
-                  >
-                    {conversation.title ?? 'New Chat'}
-                  </span>
-                  {conversations.length > 1 && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 shrink-0 opacity-50 hover:opacity-100"
-                      onClick={(e) =>
-                        handleDeleteConversation(e, conversation.id)
-                      }
-                      aria-label="Delete conversation"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  )}
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleNewChat} className="cursor-pointer">
-                <Plus className="h-4 w-4 mr-2" />
-                New Chat
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-7"
-              onClick={handleNewChat}
-              aria-label="New chat"
+              className={cn("h-7 w-7", infoOpen && "bg-accent")}
+              onClick={() => setInfoOpen(!infoOpen)}
+              aria-label="Document info"
             >
-              <Plus className="h-3.5 w-3.5" />
+              <Info className="h-3.5 w-3.5" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>New chat</TooltipContent>
+          <TooltipContent>Document info</TooltipContent>
         </Tooltip>
-        {visibleMessages.length > 0 && (
+        {conversations.length > 0 && (
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      aria-label="Chat history"
+                    >
+                      <History className="h-3.5 w-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>Chat history</TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="end" className="w-64">
+                {conversations.map((conversation) => (
+                  <DropdownMenuItem
+                    key={conversation.id}
+                    className="flex items-center justify-between gap-2 cursor-pointer"
+                    onClick={() => handleSelectConversation(conversation.id)}
+                  >
+                    <span
+                      className={`truncate flex-1 ${
+                        conversation.id === activeConversationId
+                          ? 'font-medium'
+                          : ''
+                      }`}
+                    >
+                      {conversation.title ?? 'New Chat'}
+                    </span>
+                    {conversations.length > 1 && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 shrink-0 opacity-50 hover:opacity-100"
+                        onClick={(e) =>
+                          handleDeleteConversation(e, conversation.id)
+                        }
+                        aria-label="Delete conversation"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleNewChat} className="cursor-pointer">
+                  <Plus className="h-4 w-4 mr-2" />
+                  New Chat
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7"
-                onClick={clearMessages}
-                aria-label="Clear chat"
+                onClick={handleNewChat}
+                aria-label="New chat"
               >
-                <Trash2 className="h-3.5 w-3.5" />
+                <Plus className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Clear messages</TooltipContent>
+            <TooltipContent>New chat</TooltipContent>
           </Tooltip>
-        )}
+          {visibleMessages.length > 0 && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={clearMessages}
+                  aria-label="Clear chat"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Clear messages</TooltipContent>
+            </Tooltip>
+          )}
+      </div>
+
+      {/* Collapsible summary panel */}
+      <div className={cn(
+        "overflow-hidden transition-all duration-200 ease-in-out",
+        infoOpen ? "max-h-60 border-b border-border" : "max-h-0"
+      )}>
+        <div className="mx-2 my-2 rounded-md bg-muted/50 border border-border/60 px-3 py-2">
+          <div className="flex items-center justify-between mb-1.5">
+            <h3 className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Summary</h3>
+            <span className="text-[10px] text-muted-foreground/70">~{readingTime} min read</span>
+          </div>
+          {isGenerating ? (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              <span>Generating...</span>
+            </div>
+          ) : error ? (
+            <p className="text-xs text-destructive">{error}</p>
+          ) : summary ? (
+            <p className="text-xs leading-relaxed">{summary}</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">No summary yet</p>
+          )}
+        </div>
       </div>
 
       {/* Messages */}

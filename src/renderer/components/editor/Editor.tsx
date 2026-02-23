@@ -42,7 +42,7 @@ export function Editor() {
   const annotationsVisible = useEditorStore((state) => state.annotationsVisible)
   const toggleAnnotationsVisible = useEditorStore((state) => state.toggleAnnotationsVisible)
   const { settings, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen } = useSettings()
-  const { setContext, agentMode, setAgentMode, includeDocument, setIncludeDocument } = useChat()
+  const { setContext, agentMode, setAgentMode } = useChat()
   const { isChatOpen, isFileListOpen, toggleChat, setChatOpen, setFileListOpen } = usePanelLayoutContext()
   const setEditorInstance = useEditorInstanceStore((state) => state.setEditor)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -481,10 +481,6 @@ export function Editor() {
       // Cmd+Shift+M: Open model picker
       e.preventDefault()
       setModelPickerOpen(true)
-    } else if (isMod && e.key === '.' && !e.shiftKey) {
-      // Cmd+.: Toggle document context
-      e.preventDefault()
-      setIncludeDocument(!includeDocument)
     } else if (e.shiftKey && e.key === 'Tab' && !isMod) {
       // Shift+Tab: Toggle agent mode
       e.preventDefault()
@@ -571,7 +567,7 @@ export function Editor() {
         }
       }
     }
-  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen, editor, setContext, setChatOpen, setFileListOpen, toggleChat, isChatOpen, isFileListOpen, isFindOpen, openAddCommentDialog, agentMode, setAgentMode, includeDocument, setIncludeDocument, toggleAnnotationsVisible])
+  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen, editor, setContext, setChatOpen, setFileListOpen, toggleChat, isChatOpen, isFileListOpen, isFindOpen, openAddCommentDialog, agentMode, setAgentMode, toggleAnnotationsVisible])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)

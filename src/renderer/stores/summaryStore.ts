@@ -68,7 +68,7 @@ export const useSummaryStore = create<SummaryState>()((set, get) => ({
         messages: [
           {
             role: 'user',
-            content: 'Summarize this document in 2-3 sentences. State what it is and its purpose. Be specific and direct. No hedging or filler.'
+            content: 'Summarize this document in 1-3 concise sentences (under 200 characters total). State what it is and its main point. Be specific, accurate, and direct. No hedging or filler.'
           }
         ],
         system: content

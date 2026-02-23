@@ -77,7 +77,6 @@ const FULL_MODE_INSTRUCTIONS = `
 Keep edit comments under 20 words. You have a budget of 5 tool roundtrips per response.`
 
 export function buildSystemPrompt(
-  includeDocument: boolean,
   documentContent?: string,
   toolMode?: ToolMode,
   documentPath?: string | null
@@ -94,7 +93,7 @@ export function buildSystemPrompt(
   }
 
   // Document context — always include full document regardless of tool mode
-  if (includeDocument && documentContent) {
+  if (documentContent) {
     const cleanContent = stripCommentMarkup(documentContent)
     prompt += `\n\nThe user is currently working on the following document:\n\n---\n${cleanContent}\n---`
 

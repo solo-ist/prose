@@ -27,7 +27,6 @@ interface ChatState {
   isLoading: boolean
   isPanelOpen: boolean
   context: string | null
-  includeDocument: boolean
   agentMode: boolean // Legacy - kept for backwards compatibility
   toolMode: ToolMode // New mode system
 
@@ -55,7 +54,6 @@ interface ChatState {
   togglePanel: () => void
   setPanelOpen: (open: boolean) => void
   setContext: (context: string | null) => void
-  setIncludeDocument: (include: boolean) => void
   setAgentMode: (enabled: boolean) => void
   setToolMode: (mode: ToolMode) => void
 
@@ -84,7 +82,6 @@ export const useChatStore = create<ChatState>()(
     isLoading: false,
     isPanelOpen: false,
     context: null,
-    includeDocument: true,
     agentMode: true, // Legacy - maps to toolMode
     toolMode: 'full', // Default to full for backwards compatibility with agentMode: true
     isInitializing: true, // Start as true, will be set to false after app init
@@ -204,8 +201,6 @@ export const useChatStore = create<ChatState>()(
 
     setContext: (context) => set({ context }),
 
-    setIncludeDocument: (include) => set({ includeDocument: include }),
-
     setAgentMode: (enabled) => set({
       agentMode: enabled,
       // Sync toolMode with agentMode for backwards compatibility
@@ -266,8 +261,7 @@ export const useChatStore = create<ChatState>()(
         conversations,
         activeConversationId: mostRecent?.id ?? null,
         messages: mostRecent?.messages ?? [],
-        context: null, // Clear context when switching documents
-        includeDocument: true // Re-enable document context for new document
+        context: null // Clear context when switching documents
       })
     },
 

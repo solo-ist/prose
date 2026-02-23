@@ -17,13 +17,12 @@ import {
   DropdownMenuLabel
 } from '../ui/dropdown-menu'
 import type { ToolMode } from '../../stores/chatStore'
-import { cn } from '../../lib/utils'
 import { getModelsForProvider, type LLMProvider } from '../../../shared/llm/models'
 
 export function StatusBar() {
   const { document, cursorPosition } = useEditor()
   const { settings, autosaveActive, setLLMConfig, saveSettings } = useSettings()
-  const { toolMode, setToolMode, includeDocument, setIncludeDocument } = useChat()
+  const { toolMode, setToolMode } = useChat()
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
   const isAutosaving = useEditorStore((state) => state.isAutosaving)
   const hoveredUrl = useLinkHoverStore((state) => state.hoveredUrl)
@@ -184,26 +183,6 @@ export function StatusBar() {
             )}
           </DropdownMenuContent>
         </DropdownMenu>
-
-        <span className="text-muted-foreground/40 mx-1">|</span>
-
-        {/* Full context toggle */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => setIncludeDocument(!includeDocument)}
-              className={cn(
-                "hover:text-foreground transition-colors cursor-pointer",
-                includeDocument && "text-foreground"
-              )}
-            >
-              {includeDocument ? "ctx" : "no ctx"}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <p>{includeDocument ? "Full document as context (⌘.)" : "No document context (⌘.)"}</p>
-          </TooltipContent>
-        </Tooltip>
       </div>
     </div>
   )

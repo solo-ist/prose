@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type KeyboardEvent } from 'react'
+import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from 'react'
 import { useEditor } from '../../hooks/useEditor'
 import { useTabs } from '../../hooks/useTabs'
 import { useEditorStore } from '../../stores/editorStore'
@@ -142,7 +142,7 @@ export function Toolbar() {
     }
   }
 
-  const handleTabClose = async (tabId: string) => {
+  const handleTabClose = useCallback(async (tabId: string) => {
     const tab = useTabStore.getState().getTabById(tabId)
     if (!tab) return
 
@@ -152,7 +152,7 @@ export function Toolbar() {
     } else {
       await closeTab(tabId)
     }
-  }
+  }, [closeTab])
 
   const handleSaveAndClose = async () => {
     if (!pendingCloseTabId) return
@@ -196,7 +196,7 @@ export function Toolbar() {
     await closeAllTabs()
   }
 
-  const handleClose = async () => {
+  const handleClose = useCallback(async () => {
     // Close the active tab if there is one
     if (activeTabId) {
       await handleTabClose(activeTabId)
@@ -204,7 +204,7 @@ export function Toolbar() {
       // No tabs, close the window
       getApi().closeWindow()
     }
-  }
+  }, [activeTabId, tabs.length, handleTabClose])
 
   // Handle Cmd+W / menu "Close Tab" action — delegates to handleClose so the
   // dirty-state confirmation dialog is shown when needed

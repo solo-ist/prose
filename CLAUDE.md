@@ -157,9 +157,9 @@ Client-side persistence uses IndexedDB (`src/renderer/lib/persistence.ts`). When
 
 ### LLM Integration
 
-LLM calls flow: `useChat` hook → `window.api.llmChat()` → IPC → main process → Vercel AI SDK
+**Anthropic is the only supported provider.** The codebase has legacy multi-provider code (OpenAI, OpenRouter, Ollama) but Anthropic is the only provider that matters. Don't invest effort in other providers.
 
-The main process (`src/main/ipc.ts`) handles all provider switching (Anthropic, OpenAI, OpenRouter, Ollama) using the Vercel AI SDK's provider-specific packages.
+LLM calls flow: `useChat` hook → `window.api.llmChat()` → IPC → main process → Vercel AI SDK
 
 ### Settings
 

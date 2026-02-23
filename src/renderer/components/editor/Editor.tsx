@@ -134,12 +134,23 @@ export function Editor() {
 
       console.log('[Editor:onUpdate] Content changed, scheduling save')
 
+      // Capture the current document ID so we can discard the update if the
+      // user switches tabs before the debounce fires (prevents cross-tab dirty state)
+      const capturedDocumentId = useEditorStore.getState().document.documentId
+
       // Debounce content updates to store
       if (debounceRef.current) {
         clearTimeout(debounceRef.current)
       }
 
       debounceRef.current = setTimeout(() => {
+        // If the active document changed since this was scheduled (tab switch),
+        // discard the update to avoid marking the wrong tab as dirty
+        if (useEditorStore.getState().document.documentId !== capturedDocumentId) {
+          console.log('[Editor:onUpdate] Document changed, discarding stale content update')
+          return
+        }
+
         const markdown = editor.storage.markdown.getMarkdown()
         // Prepend frontmatter if present
         const fullContent = frontmatterRef.current + markdown

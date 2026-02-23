@@ -41,6 +41,11 @@ export interface Settings {
     mode: 'off' | 'auto' | 'custom'
     intervalSeconds: number  // only used when mode === 'custom'
   }
+  aiConsent?: {
+    consented: boolean      // User explicitly agreed to AI data disclosure
+    consentedAt?: string    // ISO timestamp of consent
+    version: number         // Consent version (bump when disclosure text changes materially)
+  }
 }
 
 export interface Document {

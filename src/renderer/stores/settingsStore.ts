@@ -6,6 +6,8 @@ const MAX_RECENT_FILES = 15
 
 type SettingsTab = 'general' | 'editor' | 'llm' | 'integrations' | 'account'
 
+export const AI_CONSENT_VERSION = 1
+
 // Helper to apply theme to document
 function applyTheme(theme: Settings['theme']): void {
   // Remove all theme classes first
@@ -55,6 +57,9 @@ interface SettingsState {
   toggleAutosaveActive: () => void
   addRecentFile: (path: string) => void
   removeRecentFile: (path: string) => void
+  setAIConsent: (consented: boolean) => void
+  isAIConsentDialogOpen: boolean
+  setAIConsentDialogOpen: (open: boolean) => void
 }
 
 const defaultSettings: Settings = {
@@ -130,6 +135,7 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
   isShortcutsDialogOpen: false,
   isAboutDialogOpen: false,
   isModelPickerOpen: false,
+  isAIConsentDialogOpen: false,
   dialogTab: 'general' as SettingsTab,
   effectiveTheme: 'dark',
   autosaveActive: true, // Runtime toggle, starts active
@@ -305,5 +311,22 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
       }
     })
     get().saveSettings()
-  }
+  },
+
+  setAIConsent: (consented) => {
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        aiConsent: {
+          consented,
+          consentedAt: new Date().toISOString(),
+          version: AI_CONSENT_VERSION
+        }
+      },
+      isAIConsentDialogOpen: false
+    }))
+    get().saveSettings()
+  },
+
+  setAIConsentDialogOpen: (open) => set({ isAIConsentDialogOpen: open })
 })))

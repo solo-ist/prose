@@ -16,6 +16,7 @@ export function SideBySideDiffPanel() {
   const editor = useEditorInstanceStore((state) => state.editor)
   const setReviewMode = useReviewStore((s) => s.setReviewMode)
   const [suggestions, setSuggestions] = useState<AISuggestionData[]>([])
+  const [hasLoaded, setHasLoaded] = useState(false)
 
   // Subscribe to editor transactions for reactive updates (e.g., after setAISuggestionReply)
   useEffect(() => {
@@ -24,6 +25,7 @@ export function SideBySideDiffPanel() {
       return
     }
     setSuggestions(getAISuggestions(editor))
+    setHasLoaded(true)
     const handler = () => setSuggestions(getAISuggestions(editor))
     editor.on('transaction', handler)
     return () => { editor.off('transaction', handler) }
@@ -32,7 +34,9 @@ export function SideBySideDiffPanel() {
   const total = suggestions.length
 
   // Auto-close review when all suggestions have been handled
+  // Skip if suggestions haven't loaded yet to prevent premature exit on mode switch
   useEffect(() => {
+    if (!hasLoaded) return
     if (total === 0) {
       setReviewMode(null)
       return

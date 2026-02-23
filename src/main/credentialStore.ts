@@ -7,8 +7,9 @@ const SETTINGS_DIR = join(homedir(), '.prose')
 const CREDENTIALS_DIR = join(SETTINGS_DIR, 'credentials')
 
 function keyToFilename(key: string): string {
-  // Convert key to a safe filename (alphanumeric, dashes, dots, underscores only)
-  return key.replace(/[^a-z0-9\-_.]/gi, '-')
+  // Convert key to a safe filename (alphanumeric, dashes, underscores only)
+  // Dots are stripped to prevent path traversal (e.g. '..' escaping CREDENTIALS_DIR)
+  return key.replace(/[^a-z0-9\-_]/gi, '-')
 }
 
 export const credentialStore = {

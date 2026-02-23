@@ -410,9 +410,9 @@ export function setupIpcHandlers(): void {
         const { apiKey, ...llmWithoutKey } = settings.llm
         if (apiKey) {
           await credentialStore.set(LLM_API_KEY, apiKey)
-        } else {
-          await credentialStore.delete(LLM_API_KEY)
         }
+        // Don't delete stored key when apiKey is empty — preserves the
+        // credential if the field is momentarily cleared during editing
         const settingsToSave = { ...settings, llm: { ...llmWithoutKey, apiKey: '' } }
         await writeFile(SETTINGS_PATH, JSON.stringify(settingsToSave, null, 2), 'utf-8')
       } else {

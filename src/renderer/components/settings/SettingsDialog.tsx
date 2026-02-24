@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useSettings } from '../../hooks/useSettings'
+import { useSettingsStore } from '../../stores/settingsStore'
 import {
   Dialog,
   DialogContent,
@@ -45,6 +46,20 @@ export function SettingsDialog() {
     setAutosaveConfig,
     saveSettings
   } = useSettings()
+
+  const setAIConsent = useSettingsStore((s) => s.setAIConsent)
+  const setAIConsentDialogOpen = useSettingsStore((s) => s.setAIConsentDialogOpen)
+
+  const aiEnabled = settings.aiConsent?.consented === true
+
+  const handleAIToggle = (enabled: boolean) => {
+    if (enabled && !settings.aiConsent?.consented) {
+      // Show consent dialog if not yet consented
+      setAIConsentDialogOpen(true)
+    } else {
+      setAIConsent(enabled)
+    }
+  }
 
   // null = unknown/can't detect, true = is default, false = not default
   const [isDefaultHandler, setIsDefaultHandler] = useState<boolean | null>(null)
@@ -401,6 +416,24 @@ export function SettingsDialog() {
           </TabsContent>
 
           <TabsContent value="llm" className="space-y-4 mt-4 overflow-y-auto flex-1" ref={llmTabRef}>
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1 flex-1">
+                <Label htmlFor="aiEnabled">Enable AI Features</Label>
+                <p className="text-xs text-muted-foreground">
+                  When active, text and document content is sent to your configured AI provider.
+                  Requires your own API key — no data is stored by Prose.
+                </p>
+              </div>
+              <Switch
+                id="aiEnabled"
+                checked={aiEnabled}
+                onCheckedChange={handleAIToggle}
+              />
+            </div>
+
+            <Separator />
+
+            <div className={!aiEnabled ? 'opacity-50 pointer-events-none' : ''}>
             <div className="space-y-2">
               <Label htmlFor="provider">Provider</Label>
               <Select
@@ -561,6 +594,7 @@ export function SettingsDialog() {
                 disabled={settings.llm.provider !== 'anthropic' || !settings.llm.apiKey}
               />
             </div>
+            </div>{/* end AI features wrapper */}
 
           </TabsContent>
 

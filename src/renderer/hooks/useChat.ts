@@ -356,6 +356,18 @@ export function useChat() {
         addConversation(document.documentId)
       }
 
+      // Check AI consent before making any API calls
+      if (!settings.aiConsent?.consented) {
+        const consentMsgId = createMessageId()
+        addMessage({
+          id: consentMsgId,
+          role: 'assistant',
+          content: 'AI features are not enabled. Enable them in Settings → LLM to use the assistant.',
+          timestamp: new Date()
+        })
+        return
+      }
+
       // Validate config first
       console.log('[useChat] Validating config:', settings.llm?.provider, settings.llm?.model)
       const configError = validateConfig(settings.llm)

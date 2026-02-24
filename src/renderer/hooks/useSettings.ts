@@ -9,6 +9,7 @@ export function useSettings() {
     isShortcutsDialogOpen,
     isAboutDialogOpen,
     isModelPickerOpen,
+    isAIConsentDialogOpen,
     dialogTab,
     effectiveTheme,
     autosaveActive,
@@ -29,7 +30,9 @@ export function useSettings() {
     setGoogleConfig,
     setFileAssociationConfig,
     setAutosaveConfig,
-    toggleAutosaveActive
+    toggleAutosaveActive,
+    setAIConsent,
+    setAIConsentDialogOpen
   } = useSettingsStore()
 
   useEffect(() => {
@@ -45,6 +48,7 @@ export function useSettings() {
     isShortcutsDialogOpen,
     isAboutDialogOpen,
     isModelPickerOpen,
+    isAIConsentDialogOpen,
     dialogTab,
     effectiveTheme,
     autosaveActive,
@@ -64,6 +68,8 @@ export function useSettings() {
     setGoogleConfig,
     setFileAssociationConfig,
     setAutosaveConfig,
-    toggleAutosaveActive
+    toggleAutosaveActive,
+    setAIConsent,
+    setAIConsentDialogOpen
   }
 }

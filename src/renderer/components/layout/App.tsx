@@ -11,6 +11,7 @@ import { DefaultHandlerPrompt } from './DefaultHandlerPrompt'
 import { KeyboardShortcutsDialog } from '../settings/KeyboardShortcutsDialog'
 import { AboutDialog } from '../settings/AboutDialog'
 import { ModelPickerDialog } from '../ModelPickerDialog'
+import { AIConsentDialog } from '../AIConsentDialog'
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -42,7 +43,7 @@ import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useChatStore, setCurrentDocumentId } from '../../stores/chatStore'
 import { useTabStore, createTab, restoreSession, clearSavedSession, hasUnsavedTabs } from '../../stores/tabStore'
 import { useFileListStore } from '../../stores/fileListStore'
-import { useSettingsStore } from '../../stores/settingsStore'
+import { useSettingsStore, AI_CONSENT_VERSION } from '../../stores/settingsStore'
 import { useAutosave } from '../../hooks/useAutosave'
 import {
   loadDraft,
@@ -563,6 +564,16 @@ export function App() {
     }
   }, [importDocId, importAsAI, createNewTab, openFileInTab])
 
+  // Auto-show AI consent dialog on first launch or when disclosure version changes
+  const setAIConsentDialogOpen = useSettingsStore((s) => s.setAIConsentDialogOpen)
+  useEffect(() => {
+    if (!settingsLoaded) return
+    const aiConsent = settings.aiConsent
+    if (!aiConsent || aiConsent.version < AI_CONSENT_VERSION) {
+      setAIConsentDialogOpen(true)
+    }
+  }, [settingsLoaded, settings.aiConsent, setAIConsentDialogOpen])
+
   // Check for session/draft recovery after settings are loaded
   useEffect(() => {
     if (!settingsLoaded) return
@@ -832,6 +843,7 @@ export function App() {
           onOpenChange={setModelPickerOpen}
         />
         <DefaultHandlerPrompt />
+        <AIConsentDialog />
 
         {/* Google Docs Import Dialog */}
         <AlertDialog open={importDialogOpen} onOpenChange={(open) => {

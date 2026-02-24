@@ -30,6 +30,8 @@ function getApi() {
 
 /**
  * open_file - Open a file by path in the editor.
+ * Opens in a new tab unless the current tab is an empty untitled document.
+ * If the file is already open in a tab, switches to that tab.
  */
 export async function executeOpenFile(args: {
   path: string
@@ -47,30 +49,99 @@ export async function executeOpenFile(args: {
   }
 
   try {
-    // Save current conversations before switching
+    const tabStore = useTabStore.getState()
+
+    // Check if file is already open in a tab — switch to it
+    const existingTab = tabStore.getTabByPath(path)
+    if (existingTab) {
+      tabStore.setActiveTab(existingTab.id)
+
+      // Load the document into editorStore for the active editor
+      const content = await api.readFile(path)
+      const parsed = parseMarkdown(content)
+      const docId = await generateIdFromPath(path)
+
+      useEditorStore.getState().setDocument({
+        documentId: docId,
+        path,
+        content: parsed.content,
+        frontmatter: parsed.frontmatter,
+        isDirty: false
+      })
+      setCurrentDocumentId(docId)
+      await useChatStore.getState().loadForDocument(docId)
+      await useAnnotationStore.getState().loadAnnotations(docId)
+      await useSuggestionStore.getState().loadSuggestions(docId)
+      useEditorStore.getState().setEditing(true)
+
+      return toolSuccess({ opened: true, path })
+    }
+
+    // Save current tab state before switching
     const { document } = useEditorStore.getState()
     await useChatStore.getState().saveCurrentConversation(document.documentId)
+
+    // Pause annotation position updates during document loading
+    useAnnotationStore.getState().setLoadingDocument(true)
 
     // Read the file
     const content = await api.readFile(path)
     const parsed = parseMarkdown(content)
     const newDocumentId = await generateIdFromPath(path)
 
-    // Update editor store
+    // Extract title from path
+    const fullFileName = path.split('/').pop() || 'Untitled'
+    const hasExtension = fullFileName.includes('.')
+    const title = hasExtension
+      ? fullFileName.substring(0, fullFileName.lastIndexOf('.'))
+      : fullFileName
+
+    // Check if current tab is empty untitled — reuse it instead of creating new
+    const activeTab = tabStore.tabs.find(t => t.id === tabStore.activeTabId)
+    const isEmptyUntitled = activeTab && !activeTab.path &&
+      (!activeTab.content || activeTab.content.trim() === '' ||
+       activeTab.content.replace(/<[^>]*>/g, '').trim() === '')
+
+    if (isEmptyUntitled && activeTab) {
+      tabStore.updateTab(activeTab.id, {
+        documentId: newDocumentId,
+        path,
+        title,
+        isDirty: false,
+        content: parsed.content,
+        frontmatter: parsed.frontmatter
+      })
+    } else {
+      tabStore.addTab({
+        documentId: newDocumentId,
+        path,
+        title,
+        isDirty: false,
+        content: parsed.content,
+        frontmatter: parsed.frontmatter,
+        cursorPosition: { line: 1, column: 1 }
+      })
+    }
+
+    // Set up document in editorStore
     useEditorStore.getState().setDocument({
       documentId: newDocumentId,
-      path: path,
+      path,
       content: parsed.content,
       frontmatter: parsed.frontmatter,
       isDirty: false
     })
 
-    // Load conversations and annotations for the document
+    useEditorStore.getState().setCursorPosition(1, 1)
+    setCurrentDocumentId(newDocumentId)
+
+    // Load conversations, annotations, and suggestions for the document
     await useChatStore.getState().loadForDocument(newDocumentId)
     await useAnnotationStore.getState().loadAnnotations(newDocumentId)
+    await useSuggestionStore.getState().loadSuggestions(newDocumentId)
 
-    // Clear draft since we opened a file
-    await clearDraft()
+    // Clear reMarkable read-only state
+    useEditorStore.getState().setRemarkableReadOnly(false, null)
 
     // Mark as editing
     useEditorStore.getState().setEditing(true)
@@ -80,6 +151,11 @@ export async function executeOpenFile(args: {
 
     // Highlight file in sidebar
     useFileListStore.getState().revealAndSelectPath(path)
+
+    // Resume annotation position updates
+    setTimeout(() => {
+      useAnnotationStore.getState().setLoadingDocument(false)
+    }, 100)
 
     return toolSuccess({ opened: true, path })
   } catch (e) {
@@ -349,8 +425,13 @@ export async function executeCreateAndOpenFile(args: {
 
   const { content = '' } = args
 
-  // Sanitize filename: strip path separators and leading dots to prevent traversal
-  const rawFilename = (args.filename || 'Untitled.md').replace(/[/\\]/g, '').replace(/^\.+/, '')
+  // Sanitize filename: replace forbidden chars and strip leading dots
+  // Context-aware colon handling: "example: one" → "example - one", "example:two" → "example-two"
+  const rawFilename = (args.filename || 'Untitled.md')
+    .replace(/\s*:\s+/g, ' - ')  // colon with trailing space → spaced dash
+    .replace(/:/g, '-')           // remaining colons → dash
+    .replace(/[/\\\0]/g, '-')     // path separators and null bytes
+    .replace(/^\.+/, '')          // strip leading dots
   const sanitizedFilename = rawFilename || 'Untitled.md'
 
   try {

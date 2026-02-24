@@ -1,8 +1,12 @@
+import { useMemo } from 'react'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
 import { useEditorStore } from '../../stores/editorStore'
+import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useLinkHoverStore } from '../../stores/linkHoverStore'
+import { useReviewStore } from '../../stores/reviewStore'
+import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import {
   DropdownMenu,
@@ -13,16 +17,23 @@ import {
   DropdownMenuLabel
 } from '../ui/dropdown-menu'
 import type { ToolMode } from '../../stores/chatStore'
-import { cn } from '../../lib/utils'
 import { getModelsForProvider, type LLMProvider } from '../../../shared/llm/models'
 
 export function StatusBar() {
   const { document, cursorPosition } = useEditor()
   const { settings, autosaveActive, setLLMConfig, saveSettings } = useSettings()
-  const { toolMode, setToolMode, includeDocument, setIncludeDocument } = useChat()
+  const { toolMode, setToolMode } = useChat()
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
   const isAutosaving = useEditorStore((state) => state.isAutosaving)
   const hoveredUrl = useLinkHoverStore((state) => state.hoveredUrl)
+  const editor = useEditorInstanceStore((state) => state.editor)
+
+  // Track pending suggestion count
+  const suggestionCount = useMemo(() => {
+    if (!editor) return 0
+    return getAISuggestions(editor).length
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, editor?.state.doc])
 
   const wordCount = document.content
     .split(/\s+/)
@@ -79,6 +90,26 @@ export function StatusBar() {
             <span className="text-muted-foreground/40 mx-1">|</span>
           </>
         ) : null}
+
+        {/* Suggestion count */}
+        {suggestionCount > 0 && (
+          <>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => useReviewStore.getState().setReviewMode('quick')}
+                  className="text-violet-600 dark:text-violet-400 hover:text-violet-500 transition-colors cursor-pointer"
+                >
+                  {suggestionCount} suggestion{suggestionCount !== 1 ? 's' : ''}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                <p>Review pending suggestions</p>
+              </TooltipContent>
+            </Tooltip>
+            <span className="text-muted-foreground/40 mx-1">|</span>
+          </>
+        )}
 
         {/* Model selector */}
         <DropdownMenu>
@@ -152,26 +183,6 @@ export function StatusBar() {
             )}
           </DropdownMenuContent>
         </DropdownMenu>
-
-        <span className="text-muted-foreground/40 mx-1">|</span>
-
-        {/* Full context toggle */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => setIncludeDocument(!includeDocument)}
-              className={cn(
-                "hover:text-foreground transition-colors cursor-pointer",
-                includeDocument && "text-foreground"
-              )}
-            >
-              {includeDocument ? "ctx" : "no ctx"}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <p>{includeDocument ? "Full document as context" : "No document context"}</p>
-          </TooltipContent>
-        </Tooltip>
       </div>
     </div>
   )

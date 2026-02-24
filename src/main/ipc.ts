@@ -4,6 +4,12 @@ import { join, normalize, isAbsolute } from 'path'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
 import { withRetry, getNetworkErrorMessage } from '../shared/utils/retry'
+import { clearRecentFiles } from './recentFiles'
+import { refreshMenu } from './menu'
+import { credentialStore } from './credentialStore'
+
+// Credential store key for the LLM provider API key
+const LLM_API_KEY = 'llm-api-key'
 
 // Content block types for Anthropic API tool use
 interface LLMTextBlock {
@@ -123,6 +129,10 @@ export function setupIpcHandlers(): void {
 
     const path = result.filePaths[0]
     const content = await readFile(path, 'utf-8')
+
+    // Track in macOS Dock recent items (renderer handles settingsStore tracking)
+    app.addRecentDocument(path)
+
     return { path, content }
   })
 
@@ -139,8 +149,9 @@ export function setupIpcHandlers(): void {
   })
 
   // File: Save As dialog
-  ipcMain.handle('file:saveAs', async (_event, content: string) => {
+  ipcMain.handle('file:saveAs', async (_event, content: string, defaultFilename?: string) => {
     const result = await dialog.showSaveDialog({
+      defaultPath: defaultFilename,
       filters: [
         { name: 'Markdown', extensions: ['md'] },
         { name: 'All Files', extensions: ['*'] }
@@ -152,6 +163,10 @@ export function setupIpcHandlers(): void {
     }
 
     await writeFile(result.filePath, content, 'utf-8')
+
+    // Track in macOS Dock recent items (renderer handles settingsStore tracking)
+    app.addRecentDocument(result.filePath)
+
     return result.filePath
   })
 
@@ -224,6 +239,47 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('file:delete', async (_event, path: string) => {
     const safePath = validatePath(path)
     await unlink(safePath)
+  })
+
+  // File: Move to trash (recoverable delete)
+  ipcMain.handle('file:trash', async (_event, path: string) => {
+    const safePath = validatePath(path)
+    await shell.trashItem(safePath)
+  })
+
+  // File: Duplicate file (returns new path)
+  ipcMain.handle('file:duplicate', async (_event, path: string): Promise<string> => {
+    const safePath = validatePath(path)
+    const dir = safePath.substring(0, safePath.lastIndexOf('/'))
+    const ext = safePath.match(/\.[^.]+$/)?.[0] || ''
+    const baseName = safePath.substring(safePath.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '')
+
+    // Find available name: "foo copy.md", "foo copy 2.md", etc.
+    let copyNum = 0
+    let newPath: string
+    do {
+      const suffix = copyNum === 0 ? ' copy' : ` copy ${copyNum + 1}`
+      newPath = join(dir, `${baseName}${suffix}${ext}`)
+      copyNum++
+      try {
+        await access(newPath)
+        // File exists, try next number
+      } catch {
+        break // File doesn't exist, use this name
+      }
+    } while (copyNum < 100)
+
+    // Guard: if all 100 names are taken, don't overwrite
+    try {
+      await access(newPath)
+      throw new Error('Could not find available name for duplicate (100 copies exist)')
+    } catch (e) {
+      if (e instanceof Error && e.message.startsWith('Could not find')) throw e
+      // access() threw = file doesn't exist = safe to use
+    }
+
+    await copyFile(safePath, newPath)
+    return newPath
   })
 
   // File: List directory contents (with lazy loading support)
@@ -316,7 +372,29 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('settings:load', async () => {
     try {
       const content = await readFile(SETTINGS_PATH, 'utf-8')
-      return { ...defaultSettings, ...JSON.parse(content) }
+      const rawSettings = { ...defaultSettings, ...JSON.parse(content) }
+
+      // Migration: if plaintext API key exists in JSON, migrate to secure storage
+      if (credentialStore.isAvailable() && rawSettings.llm?.apiKey) {
+        try {
+          await credentialStore.set(LLM_API_KEY, rawSettings.llm.apiKey)
+          rawSettings.llm = { ...rawSettings.llm, apiKey: '' }
+          await writeFile(SETTINGS_PATH, JSON.stringify(rawSettings, null, 2), 'utf-8')
+          console.log('[settings:load] Migrated plaintext API key to secure storage')
+        } catch (err) {
+          console.error('[settings:load] Migration failed:', err)
+        }
+      }
+
+      // Inject API key from secure storage
+      if (credentialStore.isAvailable()) {
+        const storedKey = await credentialStore.get(LLM_API_KEY)
+        if (storedKey) {
+          rawSettings.llm = { ...rawSettings.llm, apiKey: storedKey }
+        }
+      }
+
+      return rawSettings
     } catch {
       return defaultSettings
     }
@@ -326,7 +404,22 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('settings:save', async (_event, settings: Settings) => {
     try {
       await mkdir(SETTINGS_DIR, { recursive: true })
-      await writeFile(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf-8')
+
+      if (credentialStore.isAvailable()) {
+        // Store API key securely; save settings without it
+        const { apiKey, ...llmWithoutKey } = settings.llm
+        if (apiKey) {
+          await credentialStore.set(LLM_API_KEY, apiKey)
+        }
+        // Don't delete stored key when apiKey is empty — preserves the
+        // credential if the field is momentarily cleared during editing
+        const settingsToSave = { ...settings, llm: { ...llmWithoutKey, apiKey: '' } }
+        await writeFile(SETTINGS_PATH, JSON.stringify(settingsToSave, null, 2), 'utf-8')
+      } else {
+        // Fallback: save with plaintext key (non-MAS platforms without secure storage)
+        console.warn('[settings:save] Secure storage unavailable, saving API key in plaintext')
+        await writeFile(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf-8')
+      }
     } catch (error) {
       console.error('Failed to save settings:', error)
       throw error
@@ -731,20 +824,26 @@ export function setupIpcHandlers(): void {
     async (_event, deviceToken: string, syncDirectory: string) => {
       const { syncAll } = await import('./remarkable/sync')
 
-      // Get Anthropic API key - first from LLM settings if using Anthropic provider,
-      // then fall back to separate secure storage
+      // Get Anthropic API key - first from credentialStore (LLM key if provider is Anthropic),
+      // then fall back to the reMarkable-specific secure storage
       let anthropicApiKey: string | undefined
       try {
         const content = await readFile(SETTINGS_PATH, 'utf-8')
         const settings = JSON.parse(content) as Settings
-        if (settings.llm?.provider === 'anthropic' && settings.llm?.apiKey) {
-          anthropicApiKey = settings.llm.apiKey
+        if (settings.llm?.provider === 'anthropic') {
+          // API key is now in credentialStore after migration
+          if (credentialStore.isAvailable()) {
+            anthropicApiKey = (await credentialStore.get(LLM_API_KEY)) ?? undefined
+          } else if (settings.llm?.apiKey) {
+            // Fallback for non-MAS platforms without secure storage
+            anthropicApiKey = settings.llm.apiKey
+          }
         }
       } catch {
         // Settings not found or invalid
       }
 
-      // If no key from LLM settings, try separate secure storage
+      // If no key from LLM settings, try reMarkable-specific secure storage
       if (!anthropicApiKey && safeStorage.isEncryptionAvailable()) {
         try {
           const encryptedKey = await readFile(ANTHROPIC_KEY_PATH)
@@ -873,7 +972,7 @@ export function setupIpcHandlers(): void {
   // Emoji: Generate emoji for a tab title (runs in main process to avoid CORS)
   ipcMain.handle('emoji:generate', async (_event, title: string, contentPreview?: string): Promise<{ emoji: string | null; error?: string }> => {
     try {
-      // Read settings to check for Anthropic API key
+      // Read settings to check provider, then get API key from secure storage
       let settings: Settings
       try {
         const content = await readFile(SETTINGS_PATH, 'utf-8')
@@ -882,12 +981,22 @@ export function setupIpcHandlers(): void {
         settings = defaultSettings
       }
 
-      if (settings.llm.provider !== 'anthropic' || !settings.llm.apiKey) {
+      if (settings.llm.provider !== 'anthropic') {
+        return { emoji: null, error: 'no-api-key' }
+      }
+
+      // Get API key from credentialStore (primary) or settings.json (fallback for non-MAS)
+      let apiKey = settings.llm.apiKey
+      if (!apiKey && credentialStore.isAvailable()) {
+        apiKey = (await credentialStore.get(LLM_API_KEY)) || ''
+      }
+
+      if (!apiKey) {
         return { emoji: null, error: 'no-api-key' }
       }
 
       const Anthropic = (await import('@anthropic-ai/sdk')).default
-      const client = new Anthropic({ apiKey: settings.llm.apiKey })
+      const client = new Anthropic({ apiKey })
 
       // Build prompt with optional content preview for better context
       let prompt = title
@@ -936,6 +1045,18 @@ export function setupIpcHandlers(): void {
     }
   })
 
+  // Recent Files: Refresh the native menu (called by renderer after settingsStore.addRecentFile)
+  ipcMain.handle('recentFiles:refreshMenu', async () => {
+    refreshMenu()
+  })
+
+  // Recent Files: Clear all recent files
+  ipcMain.handle('recentFiles:clear', async () => {
+    clearRecentFiles()
+    refreshMenu()
+    app.clearRecentDocuments()
+  })
+
   // Shell: Open external URL (for CMD+Click on links)
   ipcMain.handle('shell:openExternal', async (_event, url: string) => {
     // Validate URL before opening
@@ -969,6 +1090,11 @@ export function setupIpcHandlers(): void {
     } catch {
       return null // Can't determine - that's fine
     }
+  })
+
+  // Google: Check if credentials are configured (env vars present)
+  ipcMain.handle('google:isConfigured', () => {
+    return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
   })
 
   // Google: Start OAuth flow
@@ -1140,12 +1266,12 @@ export function setupIpcHandlers(): void {
         config.mcpServers = {}
       }
 
-      // Migrate old lowercase 'prose' key to 'Prose' if present
+      // Remove old lowercase key if present (migration)
       if (config.mcpServers.prose) {
         delete config.mcpServers.prose
       }
 
-      // Add Prose entry
+      // Add Prose entry (capitalized key)
       config.mcpServers.Prose = {
         command: 'node',
         args: [MCP_SERVER_PATH]
@@ -1175,17 +1301,17 @@ export function setupIpcHandlers(): void {
       try {
         const configContent = await readFile(CONFIG_PATH, 'utf-8')
         const config = JSON.parse(configContent)
-        let changed = false
+        // Remove both capitalized and legacy lowercase keys
+        let removed = false
         if (config.mcpServers?.Prose) {
           delete config.mcpServers.Prose
-          changed = true
+          removed = true
         }
-        // Also remove old lowercase key if present
         if (config.mcpServers?.prose) {
           delete config.mcpServers.prose
-          changed = true
+          removed = true
         }
-        if (changed) {
+        if (removed) {
           await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8')
         }
       } catch {

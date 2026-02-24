@@ -26,6 +26,25 @@ import {
 } from '../lib/persistence'
 import type { DraftState } from '../lib/persistence'
 
+// Track chat panel state before preview mode so we can restore on promote
+let chatPanelStateBeforePreview: boolean | null = null
+
+/**
+ * Promote the current preview tab to permanent and restore UI state.
+ * Can be called from outside the hook (e.g., Editor mousedown handler).
+ */
+export function promoteCurrentPreview(): void {
+  const previewTab = useTabStore.getState().getPreviewTab()
+  if (previewTab) {
+    useTabStore.getState().promotePreviewTab(previewTab.id)
+  }
+  useEditorStore.getState().setPreviewReadOnly(false)
+  if (chatPanelStateBeforePreview !== null) {
+    useChatStore.getState().setPanelOpen(chatPanelStateBeforePreview)
+    chatPanelStateBeforePreview = null
+  }
+}
+
 export function useTabs() {
   const tabs = useTabStore((state) => state.tabs)
   const activeTabId = useTabStore((state) => state.activeTabId)
@@ -177,6 +196,7 @@ export function useTabs() {
       documentId: newDocumentId,
       path: null,
       title,
+      baseTitle: title,
       isDirty: false,
       content: '',
       cursorPosition: { line: 1, column: 1 }
@@ -253,6 +273,10 @@ export function useTabs() {
     // Check if file is already open
     const existingTab = getTabByPath(filePath)
     if (existingTab) {
+      // Promote preview tab to permanent, or clear preview browsing mode
+      if (existingTab.isPreview || useEditorStore.getState().isPreviewReadOnly) {
+        promoteCurrentPreview()
+      }
       await switchToTab(existingTab.id)
       return true
     }
@@ -354,6 +378,167 @@ export function useTabs() {
     return parsed.content.trim().length > 0 && conversations.length === 0
 
   }, [getTabByPath, switchToTab, saveCurrentTabState, addTab, setDocument, setCursorPosition, loadChatForDocument, setEditing])
+
+  /**
+   * Open a file in a preview tab (transient, replaced on next preview)
+   * - If file already open in a permanent tab, switch to it
+   * - If file is already the current preview tab, no-op
+   * - If a different preview tab exists, replace it
+   * - Otherwise create a new preview tab
+   */
+  const openFileInPreviewTab = useCallback(async (filePath: string): Promise<boolean> => {
+    // Set editor to non-editable so ProseMirror can't steal focus
+    useEditorStore.getState().setPreviewReadOnly(true)
+
+    // Close chat panel during preview (save state so we can restore on promote)
+    if (chatPanelStateBeforePreview === null) {
+      chatPanelStateBeforePreview = useChatStore.getState().isPanelOpen
+    }
+    useChatStore.getState().setPanelOpen(false)
+
+    // Check if file is already open in a permanent tab
+    const existingTab = getTabByPath(filePath)
+    if (existingTab && !existingTab.isPreview) {
+      // Keep preview read-only — user is just browsing via single-click/arrow keys
+      await switchToTab(existingTab.id)
+      return true
+    }
+
+    // Check if file is already the current preview tab
+    const previewTab = useTabStore.getState().getPreviewTab()
+    if (previewTab && previewTab.path === filePath) {
+      // Already previewing this file — just ensure it's active
+      if (previewTab.id !== activeTabId) {
+        await switchToTab(previewTab.id)
+      }
+      return true
+    }
+
+    // Read file content
+    if (!window.api) {
+      useEditorStore.getState().setPreviewReadOnly(false)
+      return false
+    }
+    const content = await window.api.readFile(filePath)
+    const parsed = parseMarkdown(content)
+    const newDocumentId = await generateIdFromPath(filePath)
+
+    const fullFileName = filePath.split('/').pop() || 'Untitled'
+    const hasExtension = fullFileName.includes('.')
+    const title = hasExtension
+      ? fullFileName.substring(0, fullFileName.lastIndexOf('.'))
+      : fullFileName
+
+    if (previewTab) {
+      // Replace existing preview tab's content
+      await saveCurrentTabState()
+
+      // Pause annotation position updates
+      useAnnotationStore.getState().setLoadingDocument(true)
+
+      updateTab(previewTab.id, {
+        documentId: newDocumentId,
+        path: filePath,
+        title,
+        isDirty: false,
+        isPreview: true,
+        content: parsed.content,
+        frontmatter: parsed.frontmatter,
+        cursorPosition: { line: 1, column: 1 }
+      })
+
+      setActiveTab(previewTab.id)
+
+      // Load document into editor
+      setDocument({
+        documentId: newDocumentId,
+        path: filePath,
+        content: parsed.content,
+        frontmatter: parsed.frontmatter,
+        isDirty: false
+      })
+
+      setCursorPosition(1, 1)
+      setCurrentDocumentId(newDocumentId)
+
+      await loadChatForDocument(newDocumentId)
+      await useAnnotationStore.getState().loadAnnotations(newDocumentId)
+      await useSuggestionStore.getState().loadSuggestions(newDocumentId)
+      useEditorStore.getState().setRemarkableReadOnly(false, null)
+      setEditing(true)
+
+      useSettingsStore.getState().addRecentFile(filePath)
+      useFileListStore.getState().revealAndSelectPath(filePath)
+
+      setTimeout(() => {
+        useAnnotationStore.getState().setLoadingDocument(false)
+      }, 100)
+
+      const conversations = useChatStore.getState().conversations
+      return parsed.content.trim().length > 0 && conversations.length === 0
+    }
+
+    // No preview tab exists — check if current tab is empty untitled
+    const currentTab = getActiveTab()
+    const shouldReplace = isEmptyUntitled(currentTab)
+
+    if (!shouldReplace) {
+      await saveCurrentTabState()
+    }
+
+    useAnnotationStore.getState().setLoadingDocument(true)
+
+    if (shouldReplace && currentTab) {
+      updateTab(currentTab.id, {
+        documentId: newDocumentId,
+        path: filePath,
+        title,
+        isDirty: false,
+        isPreview: true,
+        content: parsed.content,
+        frontmatter: parsed.frontmatter,
+        cursorPosition: { line: 1, column: 1 }
+      })
+    } else {
+      addTab({
+        documentId: newDocumentId,
+        path: filePath,
+        title,
+        isDirty: false,
+        isPreview: true,
+        content: parsed.content,
+        frontmatter: parsed.frontmatter,
+        cursorPosition: { line: 1, column: 1 }
+      })
+    }
+
+    setDocument({
+      documentId: newDocumentId,
+      path: filePath,
+      content: parsed.content,
+      frontmatter: parsed.frontmatter,
+      isDirty: false
+    })
+
+    setCursorPosition(1, 1)
+    setCurrentDocumentId(newDocumentId)
+
+    await loadChatForDocument(newDocumentId)
+    await useAnnotationStore.getState().loadAnnotations(newDocumentId)
+    await useSuggestionStore.getState().loadSuggestions(newDocumentId)
+    useEditorStore.getState().setRemarkableReadOnly(false, null)
+    setEditing(true)
+
+    useSettingsStore.getState().addRecentFile(filePath)
+    useFileListStore.getState().revealAndSelectPath(filePath)
+
+    setTimeout(() => {
+      useAnnotationStore.getState().setLoadingDocument(false)
+    }, 100)
+
+    const conversations = useChatStore.getState().conversations
+    return parsed.content.trim().length > 0 && conversations.length === 0
+  }, [getTabByPath, switchToTab, activeTabId, saveCurrentTabState, getActiveTab, isEmptyUntitled, addTab, updateTab, setActiveTab, setDocument, setCursorPosition, loadChatForDocument, setEditing])
 
   /**
    * Close a tab with confirmation if dirty
@@ -477,21 +662,29 @@ export function useTabs() {
     const activeTab = getActiveTab()
     if (!activeTab) return
 
+    // Auto-promote preview tab when content becomes dirty (user edited)
+    if (activeTab.isPreview && document.isDirty) {
+      promoteCurrentPreview()
+    }
+
     // Only update if values actually changed
     if (
       activeTab.isDirty !== document.isDirty ||
       activeTab.path !== document.path ||
       activeTab.content !== document.content
     ) {
-      const title = document.path
-        ? (() => {
-            const fullFileName = document.path.split('/').pop() || 'Untitled'
-            const hasExtension = fullFileName.includes('.')
-            return hasExtension
-              ? fullFileName.substring(0, fullFileName.lastIndexOf('.'))
-              : fullFileName
-          })()
-        : activeTab.title
+      let title: string
+      if (document.path) {
+        // Named file: derive title from filename (no extension)
+        const fullFileName = document.path.split('/').pop() || 'Untitled'
+        const hasExtension = fullFileName.includes('.')
+        title = hasExtension
+          ? fullFileName.substring(0, fullFileName.lastIndexOf('.'))
+          : fullFileName
+      } else {
+        // Untitled document: keep existing title (user renames via double-click, which suggests H1)
+        title = activeTab.title
+      }
 
       updateTab(activeTab.id, {
         isDirty: document.isDirty,
@@ -572,6 +765,7 @@ export function useTabs() {
     activeTabId,
     createNewTab,
     openFileInTab,
+    openFileInPreviewTab,
     switchToTab,
     closeTab,
     forceCloseTab,

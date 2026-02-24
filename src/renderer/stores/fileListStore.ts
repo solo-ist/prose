@@ -18,6 +18,10 @@ interface FileListState {
   selectedPath: string | null
   loadingFolders: Set<string> // Track which folders are currently loading children
 
+  // Explorer clipboard and inline rename
+  clipboardPath: string | null
+  renamingPath: string | null
+
   // Google Docs sync state
   isGoogleSyncing: boolean
 
@@ -33,6 +37,8 @@ interface FileListState {
   togglePanel: () => void
   setPanelOpen: (open: boolean) => void
   setViewMode: (mode: ViewMode) => void
+  setClipboardPath: (path: string | null) => void
+  setRenamingPath: (path: string | null) => void
   setGoogleSyncing: (syncing: boolean) => void
   setRootPath: (path: string | null) => void
   initializeDefaultPath: () => Promise<void>
@@ -60,12 +66,16 @@ export const useFileListStore = create<FileListState>()(
     expandedFolders: new Set<string>(),
     selectedPath: null,
     loadingFolders: new Set<string>(),
+    clipboardPath: null,
+    renamingPath: null,
     isGoogleSyncing: false,
     googleDocsMetadata: null,
     notebookMetadata: null,
     cloudNotebooks: [],
     syncState: null,
 
+    setClipboardPath: (path) => set({ clipboardPath: path }),
+    setRenamingPath: (path) => set({ renamingPath: path }),
     setGoogleSyncing: (syncing) => set({ isGoogleSyncing: syncing }),
 
     togglePanel: () => set((state) => ({ isPanelOpen: !state.isPanelOpen })),

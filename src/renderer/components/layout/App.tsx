@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Toolbar } from './Toolbar'
 import { StatusBar } from './StatusBar'
 import { Editor } from '../editor/Editor'
-import { ChatPanel } from '../chat/ChatPanel'
+import { SidebarPanel } from '../sidebar/SidebarPanel'
 import { FileListPanel } from '../files/FileListPanel'
 import { SettingsDialog } from '../settings/SettingsDialog'
 import { RecoveryDialog } from './RecoveryDialog'
@@ -31,6 +31,7 @@ import { Input } from '../ui/input'
 import { Label } from '../ui/label'
 import { Checkbox } from '../ui/checkbox'
 import { useChat } from '../../hooks/useChat'
+import { useSummaryStore } from '../../stores/summaryStore'
 import { useEditor } from '../../hooks/useEditor'
 import { useTabs } from '../../hooks/useTabs'
 import { useSettings } from '../../hooks/useSettings'
@@ -41,6 +42,7 @@ import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useChatStore, setCurrentDocumentId } from '../../stores/chatStore'
 import { useTabStore, createTab, restoreSession, clearSavedSession, hasUnsavedTabs } from '../../stores/tabStore'
 import { useFileListStore } from '../../stores/fileListStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import { useAutosave } from '../../hooks/useAutosave'
 import {
   loadDraft,
@@ -48,21 +50,24 @@ import {
   loadConversations,
   deleteConversations
 } from '../../lib/persistence'
+import { extractFirstH1 } from '../../lib/markdown'
 import type { DraftState, SessionState } from '../../lib/persistence'
 import { executeTool } from '../../lib/tools'
+import { useReviewMode, useWasChatOpenBeforeReview, usePreviousChatWidth, useReviewStore, type ReviewMode } from '../../stores/reviewStore'
+import { CHAT_DEFAULT_PCT, CHAT_MIN_PX } from '../../hooks/usePanelLayout'
 
 export function App() {
-  const { describeDocument } = useChat()
+  useChat() // Initialize stream listeners
 
   // Panel refs for imperative collapse/expand
   const fileListPanelRef = useRef<ImperativePanelHandle>(null)
   const chatPanelRef = useRef<ImperativePanelHandle>(null)
 
   const panelLayout = usePanelLayout({ fileListPanelRef, chatPanelRef })
-  const { isChatOpen, isFileListOpen, toggleChat, toggleFileList, panelSizes } = panelLayout
+  const { isChatOpen, isFileListOpen, toggleChat, toggleFileList, setChatOpen, panelSizes } = panelLayout
 
   const { openFile, openFileFromPath, saveFile, saveFileAs, newFile } = useEditor()
-  const { createNewTab, openFileInTab, closeTab } = useTabs()
+  const { createNewTab, openFileInTab } = useTabs()
   const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, isAboutDialogOpen, setAboutDialogOpen, isModelPickerOpen, setModelPickerOpen, settings, autosaveActive, isLoaded: settingsLoaded } = useSettings()
   const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false)
   const [pendingDraft, setPendingDraft] = useState<DraftState | null>(null)
@@ -82,13 +87,69 @@ export function App() {
   // Initialize autosave functionality
   useAutosave()
 
+  // Review mode: auto-open sidebar, resize for mode, restore on exit
+  const reviewMode = useReviewMode()
+  const wasChatOpenBeforeReview = useWasChatOpenBeforeReview()
+  const previousChatWidth = usePreviousChatWidth()
+  const setPreviousChatWidth = useReviewStore((s) => s.setPreviousChatWidth)
+  const activeTabId = useTabStore((s) => s.activeTabId)
+  const prevReviewMode = useRef<ReviewMode | null>(null)
+  const prevTabId = useRef(activeTabId)
+
+  // Quick review target: ~280px as a percentage of window width
+  const quickReviewPct = (CHAT_MIN_PX / window.innerWidth) * 100
+
+  useEffect(() => {
+    const tabChanged = activeTabId !== prevTabId.current
+    const prev = prevReviewMode.current
+    prevReviewMode.current = reviewMode
+    prevTabId.current = activeTabId
+
+    // Tab switch: sync the ref, don't take panel actions
+    if (tabChanged) return
+
+    // Same tab, entering or switching review mode
+    if (reviewMode && reviewMode !== prev) {
+      // Snapshot current width before first resize (entering from null)
+      if (!prev) {
+        const currentWidth = chatPanelRef.current?.getSize()
+        if (currentWidth !== undefined) {
+          setPreviousChatWidth(currentWidth)
+        }
+      }
+      setChatOpen(true)
+      if (reviewMode === 'side-by-side') {
+        chatPanelRef.current?.resize(60)
+      } else {
+        // Quick mode: compact sidebar at ~280px
+        chatPanelRef.current?.resize(quickReviewPct)
+      }
+    } else if (!reviewMode && prev) {
+      // Exiting review: restore previous state
+      if (!wasChatOpenBeforeReview) {
+        setChatOpen(false)
+      } else if (previousChatWidth !== null) {
+        chatPanelRef.current?.resize(previousChatWidth)
+      } else {
+        chatPanelRef.current?.resize(CHAT_DEFAULT_PCT)
+      }
+    }
+  }, [reviewMode, activeTabId, wasChatOpenBeforeReview, previousChatWidth, setChatOpen, chatPanelRef, setPreviousChatWidth, quickReviewPct])
+
   // Update window title based on document state
   const isAutoSaving = settings.autosave?.mode === 'auto' && autosaveActive && !!documentPath
+  const documentContent = useEditorStore((state) => state.document.content)
   useEffect(() => {
-    const fileName = documentPath ? documentPath.split('/').pop() : 'Untitled'
+    let fileName: string
+    if (documentPath) {
+      fileName = documentPath.split('/').pop() || 'Untitled'
+    } else {
+      // For untitled documents, use the first H1 heading if present
+      fileName = extractFirstH1(documentContent) ?? 'Untitled'
+    }
     const dirtyIndicator = isDirty && !isAutoSaving ? ' *' : ''
     document.title = `${fileName}${dirtyIndicator} — Prose`
-  }, [documentPath, isDirty, isAutoSaving])
+  }, [documentPath, documentContent, isDirty, isAutoSaving])
 
   // Recover draft and associated conversations
   const recoverDraft = useCallback(
@@ -167,6 +228,7 @@ export function App() {
           documentId: tabDraft.documentId,
           path: tabDraft.path,
           title: tabDraft.title,
+          baseTitle: tabDraft.baseTitle,
           isDirty: tabDraft.isDirty,
           content: tabDraft.content,
           frontmatter: tabDraft.frontmatter,
@@ -642,11 +704,8 @@ export function App() {
           editor?.commands.redo()
           break
         case 'closeTab':
-          // Close the active tab
-          const activeTab = useTabStore.getState().getActiveTab()
-          if (activeTab) {
-            closeTab(activeTab.id)
-          }
+          // Delegate to Toolbar which handles the dirty-state confirmation dialog
+          window.dispatchEvent(new CustomEvent('menu:closeTab'))
           break
         case 'googleSync':
           handleGoogleSync()
@@ -654,11 +713,29 @@ export function App() {
         case 'googleImport':
           handleGoogleImport()
           break
+        case 'showRecentFiles':
+          // Open the file list panel and switch to recent view
+          useFileListStore.getState().setViewMode('recent')
+          if (!isFileListOpen) toggleFileList()
+          break
+        case 'clearRecentFiles':
+          // Main process already cleared settings.json — just update in-memory state
+          useSettingsStore.setState((state) => ({
+            settings: { ...state.settings, recentFiles: [] }
+          }))
+          break
+        default:
+          // Handle openRecentFile:${path} actions
+          if (action.startsWith('openRecentFile:')) {
+            const filePath = action.slice('openRecentFile:'.length)
+            openFileInTab(filePath)
+          }
+          break
       }
     })
 
     return unsubscribe
-  }, [openFileInTab, saveFile, saveFileAs, createNewTab, closeTab, setDialogOpen, toggleChat, toggleFileList, setShortcutsDialogOpen, setAboutDialogOpen, editor, handleGoogleSync, handleGoogleImport])
+  }, [openFileInTab, saveFile, saveFileAs, createNewTab, setDialogOpen, toggleChat, toggleFileList, isFileListOpen, setShortcutsDialogOpen, setAboutDialogOpen, editor, handleGoogleSync, handleGoogleImport])
 
   // Handle file open from OS (double-click .md file)
   useEffect(() => {
@@ -668,11 +745,12 @@ export function App() {
       const shouldDescribe = await openFileInTab(path)
       tabsInitialized.current = true
       if (shouldDescribe) {
-        describeDocument()
+        const { document } = useEditorStore.getState()
+        useSummaryStore.getState().generateSummary(document.documentId, document.content)
       }
     })
     return unsubscribe
-  }, [openFileInTab, describeDocument])
+  }, [openFileInTab])
 
   // Handle MCP tool invocations (only active in MCP server mode)
   useEffect(() => {
@@ -725,10 +803,10 @@ export function App() {
               order={3}
               defaultSize={0}
               minSize={isChatOpen ? panelSizes.chatMin : 0}
-              maxSize={panelSizes.chatMax}
+              maxSize={reviewMode === 'side-by-side' ? 70 : panelSizes.chatMax}
               className="h-full overflow-hidden"
             >
-              {isChatOpen && <ChatPanel />}
+              {isChatOpen && <SidebarPanel />}
             </ResizablePanel>
           </ResizablePanelGroup>
         </div>

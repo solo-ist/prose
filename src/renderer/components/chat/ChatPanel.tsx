@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useMemo, useState } from 'react'
 import { useChat } from '../../hooks/useChat'
 import { ChatMessage } from './ChatMessage'
 import { ChatInput } from './ChatInput'
@@ -10,14 +10,23 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '../ui/dropdown-menu'
-import { MessageSquare, History, Plus, Trash2 } from 'lucide-react'
+import { MessageSquare, History, Plus, Trash2, Sparkles, Info, Loader2 } from 'lucide-react'
 import { useChatStore } from '../../stores/chatStore'
 import { useEditorStore } from '../../stores/editorStore'
+import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
+import { useSettingsStore } from '../../stores/settingsStore'
+import { useReviewStore, useReviewMode } from '../../stores/reviewStore'
+import { useSummaryStore } from '../../stores/summaryStore'
+import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
+import { ReviewContainer } from '../review/ReviewContainer'
+import { cn } from '../../lib/utils'
 
 export function ChatPanel() {
   const { messages, isLoading, isStreaming, sendMessage, stopGeneration, clearMessages } = useChat()
   const scrollRef = useRef<HTMLDivElement>(null)
+  const reviewMode = useReviewMode()
+  const [infoOpen, setInfoOpen] = useState(false)
 
   const {
     conversations,
@@ -28,6 +37,40 @@ export function ChatPanel() {
   } = useChatStore()
   const document = useEditorStore((state) => state.document)
   const documentId = document.documentId
+  const editor = useEditorInstanceStore((state) => state.editor)
+
+  // Summary store
+  const { summary, isGenerating, isStale, error, loadForDocument: loadSummary, generateSummary } = useSummaryStore()
+  const hasApiKey = useSettingsStore((s) => !!s.settings.llm.apiKey)
+
+  // Reading time
+  const wordCount = document.content.split(/\s+/).filter((w: string) => w.length > 0).length
+  const readingTime = Math.max(1, Math.round(wordCount / 200))
+
+  // Load cached summary when panel opens or document changes
+  useEffect(() => {
+    if (!infoOpen || !document.documentId) return
+    const content = useEditorStore.getState().document.content
+    if (!content?.trim()) return
+    loadSummary(document.documentId, content)
+  }, [infoOpen, document.documentId, loadSummary])
+
+  // Auto-generate if panel is open and no summary or stale
+  useEffect(() => {
+    if (!infoOpen || isGenerating || !hasApiKey) return
+    if (!summary || isStale) {
+      const content = useEditorStore.getState().document.content
+      if (!content?.trim()) return
+      generateSummary(document.documentId, content)
+    }
+  }, [infoOpen, summary, isStale, isGenerating, hasApiKey, document.documentId, generateSummary])
+
+  // Track pending suggestion count
+  const suggestionCount = useMemo(() => {
+    if (!editor) return 0
+    return getAISuggestions(editor).length
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, editor?.state.doc])
 
   // Filter out hidden messages for display
   const visibleMessages = messages.filter((m) => !m.hidden)
@@ -41,6 +84,8 @@ export function ChatPanel() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [messages, isLoading, isStreaming, lastMessageContent])
+
+
 
   const handleNewChat = () => {
     addConversation(documentId)
@@ -58,16 +103,33 @@ export function ChatPanel() {
     deleteConversation(conversationId)
   }
 
+  if (reviewMode) {
+    return (
+      <div className="flex h-full flex-col bg-muted/20">
+        <ReviewContainer />
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full flex-col bg-muted/20">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-border pl-4 pr-3 py-3">
-        <div className="flex items-center gap-2">
-          <MessageSquare className="h-4 w-4 text-muted-foreground" />
-          <h2 className="text-sm font-medium">Chat</h2>
-        </div>
-        <div className="flex items-center gap-1">
-          {conversations.length > 0 && (
+      {/* Action bar */}
+      <div className="flex items-center justify-end border-b border-border px-2 py-1">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn("h-7 w-7", infoOpen && "bg-accent")}
+              onClick={() => setInfoOpen(!infoOpen)}
+              aria-label="Document info"
+            >
+              <Info className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Document info</TooltipContent>
+        </Tooltip>
+        {conversations.length > 0 && (
             <DropdownMenu>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -75,10 +137,10 @@ export function ChatPanel() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8"
+                      className="h-7 w-7"
                       aria-label="Chat history"
                     >
-                      <History className="h-4 w-4" />
+                      <History className="h-3.5 w-3.5" />
                     </Button>
                   </DropdownMenuTrigger>
                 </TooltipTrigger>
@@ -128,11 +190,11 @@ export function ChatPanel() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8"
+                className="h-7 w-7"
                 onClick={handleNewChat}
                 aria-label="New chat"
               >
-                <Plus className="h-4 w-4" />
+                <Plus className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>New chat</TooltipContent>
@@ -143,15 +205,39 @@ export function ChatPanel() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8"
+                  className="h-7 w-7"
                   onClick={clearMessages}
                   aria-label="Clear chat"
                 >
-                  <Trash2 className="h-4 w-4" />
+                  <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Clear messages</TooltipContent>
             </Tooltip>
+          )}
+      </div>
+
+      {/* Collapsible summary panel */}
+      <div className={cn(
+        "overflow-hidden transition-all duration-200 ease-in-out",
+        infoOpen ? "max-h-60 border-b border-border" : "max-h-0"
+      )}>
+        <div className="mx-2 my-2 rounded-md bg-muted/50 border border-border/60 px-3 py-2">
+          <div className="flex items-center justify-between mb-1.5">
+            <h3 className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Summary</h3>
+            <span className="text-[10px] text-muted-foreground/70">~{readingTime} min read</span>
+          </div>
+          {isGenerating ? (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              <span>Generating...</span>
+            </div>
+          ) : error ? (
+            <p className="text-xs text-destructive">{error}</p>
+          ) : summary ? (
+            <p className="text-xs leading-relaxed">{summary}</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">No summary yet</p>
           )}
         </div>
       </div>
@@ -203,6 +289,19 @@ export function ChatPanel() {
           </div>
         )}
       </div>
+
+      {/* Suggestion review chip */}
+      {suggestionCount > 0 && (
+        <div className="px-4 py-3">
+          <button
+            onClick={() => useReviewStore.getState().setReviewMode('quick')}
+            className="w-full flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/30 text-violet-600 dark:text-violet-400 transition-colors"
+          >
+            <Sparkles className="h-3 w-3" />
+            Review {suggestionCount} suggestion{suggestionCount !== 1 ? 's' : ''}
+          </button>
+        </div>
+      )}
 
       {/* Input */}
       <ChatInput

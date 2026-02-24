@@ -1,10 +1,13 @@
+import { useState, useRef, useEffect } from 'react'
 import type { FileItem } from '../../types'
-import { ChevronRight, ChevronDown, FileText, Folder, Loader2, Trash2, Edit3, ExternalLink } from 'lucide-react'
+import { ChevronRight, ChevronDown, FileText, Folder, Loader2, Trash2, Edit3, ExternalLink, Copy, ClipboardPaste, FilePlus } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
   ContextMenuTrigger
 } from '../ui/context-menu'
 
@@ -13,13 +16,23 @@ interface FileTreeProps {
   expandedFolders: Set<string>
   selectedPath: string | null
   loadingFolders?: Set<string>
+  renamingPath?: string | null
+  clipboardPath?: string | null
   onFileClick: (path: string) => void
   onFolderToggle: (path: string) => void
   onFolderDoubleClick?: (path: string) => void
+  onFileDoubleClick?: (path: string) => void
   onFileDelete?: (path: string) => void
   onFileRename?: (path: string) => void
   onFileShowInFolder?: (path: string) => void
   onFileLinkClick?: (path: string) => void
+  onFileCopy?: (path: string) => void
+  onFilePaste?: () => void
+  onFileTrash?: (path: string) => void
+  onFileOpen?: (path: string) => void
+  onRenameComplete?: (oldPath: string, newName: string) => void
+  onRenameCancel?: () => void
+  onNewFile?: (dirPath: string) => void
   depth?: number
 }
 
@@ -28,13 +41,23 @@ export function FileTree({
   expandedFolders,
   selectedPath,
   loadingFolders,
+  renamingPath,
+  clipboardPath,
   onFileClick,
   onFolderToggle,
   onFolderDoubleClick,
+  onFileDoubleClick,
   onFileDelete,
   onFileRename,
   onFileShowInFolder,
   onFileLinkClick,
+  onFileCopy,
+  onFilePaste,
+  onFileTrash,
+  onFileOpen,
+  onRenameComplete,
+  onRenameCancel,
+  onNewFile,
   depth = 0
 }: FileTreeProps) {
   return (
@@ -46,13 +69,23 @@ export function FileTree({
           expandedFolders={expandedFolders}
           selectedPath={selectedPath}
           loadingFolders={loadingFolders}
+          renamingPath={renamingPath}
+          clipboardPath={clipboardPath}
           onFileClick={onFileClick}
           onFolderToggle={onFolderToggle}
           onFolderDoubleClick={onFolderDoubleClick}
+          onFileDoubleClick={onFileDoubleClick}
           onFileDelete={onFileDelete}
           onFileRename={onFileRename}
           onFileShowInFolder={onFileShowInFolder}
           onFileLinkClick={onFileLinkClick}
+          onFileCopy={onFileCopy}
+          onFilePaste={onFilePaste}
+          onFileTrash={onFileTrash}
+          onFileOpen={onFileOpen}
+          onRenameComplete={onRenameComplete}
+          onRenameCancel={onRenameCancel}
+          onNewFile={onNewFile}
           depth={depth}
         />
       ))}
@@ -65,13 +98,23 @@ interface FileTreeItemProps {
   expandedFolders: Set<string>
   selectedPath: string | null
   loadingFolders?: Set<string>
+  renamingPath?: string | null
+  clipboardPath?: string | null
   onFileClick: (path: string) => void
   onFolderToggle: (path: string) => void
   onFolderDoubleClick?: (path: string) => void
+  onFileDoubleClick?: (path: string) => void
   onFileDelete?: (path: string) => void
   onFileRename?: (path: string) => void
   onFileShowInFolder?: (path: string) => void
   onFileLinkClick?: (path: string) => void
+  onFileCopy?: (path: string) => void
+  onFilePaste?: () => void
+  onFileTrash?: (path: string) => void
+  onFileOpen?: (path: string) => void
+  onRenameComplete?: (oldPath: string, newName: string) => void
+  onRenameCancel?: () => void
+  onNewFile?: (dirPath: string) => void
   depth: number
 }
 
@@ -80,20 +123,85 @@ function FileTreeItem({
   expandedFolders,
   selectedPath,
   loadingFolders,
+  renamingPath,
+  clipboardPath,
   onFileClick,
   onFolderToggle,
   onFolderDoubleClick,
+  onFileDoubleClick,
   onFileDelete,
   onFileRename,
   onFileShowInFolder,
   onFileLinkClick,
+  onFileCopy,
+  onFilePaste,
+  onFileTrash,
+  onFileOpen,
+  onRenameComplete,
+  onRenameCancel,
+  onNewFile,
   depth
 }: FileTreeItemProps) {
   const isExpanded = expandedFolders.has(item.path)
   const isSelected = selectedPath === item.path
   const isLoading = loadingFolders?.has(item.path) ?? false
+  const isRenaming = renamingPath === item.path
+
+  // Inline rename state
+  const [renameValue, setRenameValue] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const wasRenamingRef = useRef(false)
+
+  // Refocus the button (and thus the explorer container) after rename ends
+  useEffect(() => {
+    if (!isRenaming && wasRenamingRef.current) {
+      requestAnimationFrame(() => {
+        buttonRef.current?.focus({ preventScroll: true })
+      })
+    }
+    wasRenamingRef.current = isRenaming
+  }, [isRenaming])
+
+  useEffect(() => {
+    if (isRenaming) {
+      const nameWithoutExt = item.name.replace(/\.(md|markdown|txt)$/, '')
+      setRenameValue(nameWithoutExt)
+      // Wait for Radix context menu close animation before focusing
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          const input = inputRef.current
+          if (!input) return
+          input.focus({ preventScroll: true })
+          input.select()
+          // Reset scroll caused by select() showing cursor at end
+          input.scrollLeft = 0
+          // Also reset parent scroll container if it shifted
+          input.closest('[data-radix-scroll-area-viewport]')?.scrollTo(0, 0)
+        }, 50)
+      })
+    }
+  }, [isRenaming, item.name])
+
+  const handleRenameSubmit = () => {
+    if (!renameValue.trim() || !onRenameComplete) return
+    onRenameComplete(item.path, renameValue.trim())
+  }
+
+  const handleRenameKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleRenameSubmit()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      onRenameCancel?.()
+    }
+    // Stop all key events from bubbling during rename
+    e.stopPropagation()
+  }
 
   const handleClick = () => {
+    if (isRenaming) return
     if (item.isDirectory) {
       onFolderToggle(item.path)
     } else {
@@ -104,6 +212,8 @@ function FileTreeItem({
   const handleDoubleClick = () => {
     if (item.isDirectory && onFolderDoubleClick) {
       onFolderDoubleClick(item.path)
+    } else if (!item.isDirectory && onFileDoubleClick) {
+      onFileDoubleClick(item.path)
     }
   }
 
@@ -118,12 +228,13 @@ function FileTreeItem({
   const buttonElement = (
     <div className={cn("group flex items-center", !item.isDirectory && onFileLinkClick && "relative")}>
       <button
+        ref={buttonRef}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         className={cn(
-          'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm text-left transition-colors',
+          'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm text-left transition-colors outline-none',
           'hover:bg-accent hover:text-accent-foreground',
-          isSelected && !item.isDirectory && 'bg-accent text-accent-foreground'
+          isSelected && 'bg-accent text-accent-foreground'
         )}
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
         title={item.path}
@@ -139,19 +250,31 @@ function FileTreeItem({
                 <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               )
             ) : (
-              <span className="w-3.5" /> // Empty folder spacer
+              <span className="w-3.5" />
             )}
             <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
           </>
         ) : (
           <>
-            <span className="w-3.5" /> {/* Spacer for alignment */}
+            <span className="w-3.5" />
             <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
           </>
         )}
-        <span className="truncate">{displayName}</span>
+        {isRenaming ? (
+          <input
+            ref={inputRef}
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={handleRenameKeyDown}
+            onBlur={handleRenameSubmit}
+            onClick={(e) => e.stopPropagation()}
+            className="flex-1 min-w-0 bg-transparent text-sm leading-5 outline-none border-none p-0 m-0 h-5 text-foreground selection:bg-accent-foreground/20"
+          />
+        ) : (
+          <span className="truncate flex-1 min-w-0">{displayName}</span>
+        )}
       </button>
-      {!item.isDirectory && onFileLinkClick && (
+      {!item.isDirectory && onFileLinkClick && !isRenaming && (
         <button
           onClick={(e) => {
             e.stopPropagation()
@@ -166,40 +289,96 @@ function FileTreeItem({
     </div>
   )
 
+  const fileContextMenu = (
+    <ContextMenuContent>
+      {onFileOpen && (
+        <ContextMenuItem onClick={() => onFileOpen(item.path)}>
+          <FileText className="h-4 w-4 mr-2" />
+          Open
+        </ContextMenuItem>
+      )}
+      {onFileRename && (
+        <ContextMenuItem onClick={() => onFileRename(item.path)}>
+          <Edit3 className="h-4 w-4 mr-2" />
+          Rename
+          <ContextMenuShortcut>↵</ContextMenuShortcut>
+        </ContextMenuItem>
+      )}
+      {onFileCopy && (
+        <ContextMenuItem onClick={() => onFileCopy(item.path)}>
+          <Copy className="h-4 w-4 mr-2" />
+          Copy
+          <ContextMenuShortcut>⌘C</ContextMenuShortcut>
+        </ContextMenuItem>
+      )}
+      {onFilePaste && (
+        <ContextMenuItem onClick={() => onFilePaste()} disabled={!clipboardPath}>
+          <ClipboardPaste className="h-4 w-4 mr-2" />
+          Paste
+          <ContextMenuShortcut>⌘V</ContextMenuShortcut>
+        </ContextMenuItem>
+      )}
+      {onFileShowInFolder && (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={() => onFileShowInFolder(item.path)}>
+            <ExternalLink className="h-4 w-4 mr-2" />
+            Show in Finder
+          </ContextMenuItem>
+        </>
+      )}
+      {(onFileTrash || onFileDelete) && (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            className="text-destructive focus:text-destructive"
+            onClick={() => onFileTrash ? onFileTrash(item.path) : onFileDelete?.(item.path)}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Move to Trash
+            <ContextMenuShortcut>⌘⌫</ContextMenuShortcut>
+          </ContextMenuItem>
+        </>
+      )}
+    </ContextMenuContent>
+  )
+
+  const folderContextMenu = (
+    <ContextMenuContent>
+      {onNewFile && (
+        <ContextMenuItem onClick={() => onNewFile(item.path)}>
+          <FilePlus className="h-4 w-4 mr-2" />
+          New File
+          <ContextMenuShortcut>⌘N</ContextMenuShortcut>
+        </ContextMenuItem>
+      )}
+      {onFilePaste && (
+        <ContextMenuItem onClick={() => onFilePaste()} disabled={!clipboardPath}>
+          <ClipboardPaste className="h-4 w-4 mr-2" />
+          Paste
+          <ContextMenuShortcut>⌘V</ContextMenuShortcut>
+        </ContextMenuItem>
+      )}
+      {onFileShowInFolder && (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={() => onFileShowInFolder(item.path)}>
+            <ExternalLink className="h-4 w-4 mr-2" />
+            Show in Finder
+          </ContextMenuItem>
+        </>
+      )}
+    </ContextMenuContent>
+  )
+
   return (
     <div>
-      {item.isDirectory ? (
-        buttonElement
-      ) : (
-        <ContextMenu>
-          <ContextMenuTrigger asChild>
-            {buttonElement}
-          </ContextMenuTrigger>
-          <ContextMenuContent>
-            {onFileRename && (
-              <ContextMenuItem onClick={() => onFileRename(item.path)}>
-                <Edit3 className="h-4 w-4 mr-2" />
-                Rename
-              </ContextMenuItem>
-            )}
-            {onFileShowInFolder && (
-              <ContextMenuItem onClick={() => onFileShowInFolder(item.path)}>
-                <ExternalLink className="h-4 w-4 mr-2" />
-                Show in Folder
-              </ContextMenuItem>
-            )}
-            {onFileDelete && (
-              <ContextMenuItem
-                className="text-destructive focus:text-destructive"
-                onClick={() => onFileDelete(item.path)}
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete
-              </ContextMenuItem>
-            )}
-          </ContextMenuContent>
-        </ContextMenu>
-      )}
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          {buttonElement}
+        </ContextMenuTrigger>
+        {item.isDirectory ? folderContextMenu : fileContextMenu}
+      </ContextMenu>
 
       {item.isDirectory && isExpanded && item.children && (
         <FileTree
@@ -207,13 +386,23 @@ function FileTreeItem({
           expandedFolders={expandedFolders}
           selectedPath={selectedPath}
           loadingFolders={loadingFolders}
+          renamingPath={renamingPath}
+          clipboardPath={clipboardPath}
           onFileClick={onFileClick}
           onFolderToggle={onFolderToggle}
           onFolderDoubleClick={onFolderDoubleClick}
+          onFileDoubleClick={onFileDoubleClick}
           onFileDelete={onFileDelete}
           onFileRename={onFileRename}
           onFileShowInFolder={onFileShowInFolder}
           onFileLinkClick={onFileLinkClick}
+          onFileCopy={onFileCopy}
+          onFilePaste={onFilePaste}
+          onFileTrash={onFileTrash}
+          onFileOpen={onFileOpen}
+          onRenameComplete={onRenameComplete}
+          onRenameCancel={onRenameCancel}
+          onNewFile={onNewFile}
           depth={depth + 1}
         />
       )}

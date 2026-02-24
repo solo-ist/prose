@@ -24,6 +24,8 @@ import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useFileListStore } from '../../stores/fileListStore'
+import { useTabStore } from '../../stores/tabStore'
+import { promoteCurrentPreview } from '../../hooks/useTabs'
 import { FindBar } from './FindBar'
 import { SelectionPopover } from './SelectionPopover'
 import { AddCommentDialog } from './AddCommentDialog'
@@ -36,8 +38,11 @@ export function Editor() {
   const { document, setContent, openFile, saveFile } = useEditor()
   const isEditing = useEditorStore((state) => state.isEditing)
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
+  const isPreviewReadOnly = useEditorStore((state) => state.isPreviewReadOnly)
+  const annotationsVisible = useEditorStore((state) => state.annotationsVisible)
+  const toggleAnnotationsVisible = useEditorStore((state) => state.toggleAnnotationsVisible)
   const { settings, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen } = useSettings()
-  const { setContext, agentMode, setAgentMode, includeDocument, setIncludeDocument } = useChat()
+  const { setContext, agentMode, setAgentMode } = useChat()
   const { isChatOpen, isFileListOpen, toggleChat, setChatOpen, setFileListOpen } = usePanelLayoutContext()
   const setEditorInstance = useEditorInstanceStore((state) => state.setEditor)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -111,6 +116,15 @@ export function Editor() {
     editorProps: {
       attributes: {
         class: 'outline-none min-h-full'
+      },
+      handleDOMEvents: {
+        mousedown: () => {
+          // Clicking the editor while in preview mode promotes the tab
+          if (useEditorStore.getState().isPreviewReadOnly) {
+            promoteCurrentPreview()
+          }
+          return false
+        }
       }
     },
     // Note: No onCreate needed - editor is created with initial content,
@@ -120,12 +134,23 @@ export function Editor() {
 
       console.log('[Editor:onUpdate] Content changed, scheduling save')
 
+      // Capture the current document ID so we can discard the update if the
+      // user switches tabs before the debounce fires (prevents cross-tab dirty state)
+      const capturedDocumentId = useEditorStore.getState().document.documentId
+
       // Debounce content updates to store
       if (debounceRef.current) {
         clearTimeout(debounceRef.current)
       }
 
       debounceRef.current = setTimeout(() => {
+        // If the active document changed since this was scheduled (tab switch),
+        // discard the update to avoid marking the wrong tab as dirty
+        if (useEditorStore.getState().document.documentId !== capturedDocumentId) {
+          console.log('[Editor:onUpdate] Document changed, discarding stale content update')
+          return
+        }
+
         const markdown = editor.storage.markdown.getMarkdown()
         // Prepend frontmatter if present
         const fullContent = frontmatterRef.current + markdown
@@ -229,11 +254,11 @@ export function Editor() {
     }
   }, [editor])
 
-  // Update editor editability when reMarkable read-only mode changes
+  // Update editor editability when read-only mode changes (reMarkable or preview tab)
   useEffect(() => {
     if (!editor) return
-    editor.setEditable(!isRemarkableReadOnly)
-  }, [editor, isRemarkableReadOnly])
+    editor.setEditable(!isRemarkableReadOnly && !isPreviewReadOnly)
+  }, [editor, isRemarkableReadOnly, isPreviewReadOnly])
 
   // Check if current file is linked to a reMarkable notebook
   useEffect(() => {
@@ -323,6 +348,8 @@ export function Editor() {
   useEffect(() => {
     // Only focus once per document load
     if (hasFocusedRef.current) return
+    // Don't steal focus during preview tab navigation
+    if (useEditorStore.getState().isPreviewReadOnly) return
 
     const shouldShowEmptyState = !isEditing && !document.path && !document.content && !document.isDirty
     if (editor && !shouldShowEmptyState) {
@@ -465,10 +492,6 @@ export function Editor() {
       // Cmd+Shift+M: Open model picker
       e.preventDefault()
       setModelPickerOpen(true)
-    } else if (isMod && e.key === '.' && !e.shiftKey) {
-      // Cmd+.: Toggle document context
-      e.preventDefault()
-      setIncludeDocument(!includeDocument)
     } else if (e.shiftKey && e.key === 'Tab' && !isMod) {
       // Shift+Tab: Toggle agent mode
       e.preventDefault()
@@ -498,6 +521,10 @@ export function Editor() {
       if (editor) {
         editor.chain().focus().toggleStrike().run()
       }
+    } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'a') {
+      // Cmd+Shift+A: Toggle AI annotation visibility
+      e.preventDefault()
+      toggleAnnotationsVisible()
     } else if (e.altKey && !isMod && e.key === 'ArrowUp') {
       // Alt+Up: Move line up
       e.preventDefault()
@@ -551,7 +578,7 @@ export function Editor() {
         }
       }
     }
-  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen, editor, setContext, setChatOpen, setFileListOpen, toggleChat, isChatOpen, isFileListOpen, isFindOpen, openAddCommentDialog, agentMode, setAgentMode, includeDocument, setIncludeDocument])
+  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen, editor, setContext, setChatOpen, setFileListOpen, toggleChat, isChatOpen, isFileListOpen, isFindOpen, openAddCommentDialog, agentMode, setAgentMode, toggleAnnotationsVisible])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
@@ -584,14 +611,15 @@ export function Editor() {
   }, [document.content, document.frontmatter])
 
   // Focus editor when transitioning from empty state to editing
+  // (skip during preview tab navigation — editor is non-editable)
   useEffect(() => {
-    if (!showEmptyState && editor) {
+    if (!showEmptyState && editor && !isPreviewReadOnly) {
       // Small delay to ensure editor is mounted and ready
       requestAnimationFrame(() => {
         editor.commands.focus()
       })
     }
-  }, [showEmptyState, editor])
+  }, [showEmptyState, editor, isPreviewReadOnly])
 
   return (
     <div className="h-full flex flex-col relative">
@@ -604,7 +632,7 @@ export function Editor() {
         <EmptyState />
       ) : (
         <div
-          className="flex-1 overflow-auto px-8 py-6"
+          className="flex-1 overflow-auto pl-8 pr-10 py-6"
           style={{
             fontSize: `${settings.editor.fontSize}px`,
             lineHeight: settings.editor.lineHeight,
@@ -715,7 +743,7 @@ export function Editor() {
             </div>
           )}
           <TransformAnimation isTransforming={isTransforming} onComplete={completeTransform}>
-            <div className={`max-w-3xl mx-auto prose-editor ${isRemarkableReadOnly && !isTransforming ? 'opacity-80 select-none' : ''}`}>
+            <div className={`max-w-3xl mx-auto prose-editor ${isRemarkableReadOnly && !isTransforming ? 'opacity-80 select-none' : ''} ${!annotationsVisible ? 'hide-annotations' : ''}`}>
               {showFrontmatter && (
                 <FrontmatterDisplay content={document.content} frontmatter={document.frontmatter} />
               )}

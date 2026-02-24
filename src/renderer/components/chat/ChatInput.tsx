@@ -8,6 +8,7 @@ import { useChatStore, createMessageId } from '../../stores/chatStore'
 import { useCommandHistoryStore } from '../../stores/commandHistoryStore'
 import { executeTool, getAvailableTools } from '../../lib/tools'
 import { cn } from '../../lib/utils'
+import { useReviewStore } from '../../stores/reviewStore'
 
 // Tool descriptions for autocomplete
 const toolDescriptions: Record<string, string> = {
@@ -29,7 +30,9 @@ const toolDescriptions: Record<string, string> = {
   read_file: 'Read file contents',
   help: 'Show available commands',
   clear: 'Start a new chat',
-  new: 'New blank tab'
+  new: 'New blank tab',
+  'quick-review': 'Review suggestions one at a time',
+  'review-diff': 'Side-by-side diff of all suggestions'
 }
 
 // Commands that require arguments (no-arg will show echo)
@@ -62,7 +65,9 @@ const directExecCommands = [
   'reject_diff',
   'outline',
   'list_files',
-  'new_file'
+  'new_file',
+  'quick-review',
+  'review-diff'
 ]
 
 // Auto-execute commands: commands that execute with a default prompt when selected from dropdown
@@ -134,7 +139,7 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
     ...getAvailableTools()
       .filter(t => t !== 'create_and_open_file')
       .map(t => t === 'get_outline' ? 'outline' : t),
-    'help', 'clear', 'new'
+    'help', 'clear', 'new', 'quick-review', 'review-diff'
   ], [])
 
   // Parse the current command from input (e.g., "/list_files " -> "list_files")
@@ -197,6 +202,18 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
 
   // Execute direct commands (help, clear, new_file, list_files, outline, etc.)
   const handleDirectExec = async (command: { toolName: string; args: unknown; rawArg?: string }) => {
+    // Handle /quick-review - open quick review panel
+    if (command.toolName === 'quick-review') {
+      useReviewStore.getState().setReviewMode('quick')
+      return
+    }
+
+    // Handle /review-diff - open side-by-side diff panel
+    if (command.toolName === 'review-diff') {
+      useReviewStore.getState().setReviewMode('side-by-side')
+      return
+    }
+
     // Handle /help specially
     if (command.toolName === 'help') {
       const { addMessage } = useChatStore.getState()
@@ -214,6 +231,8 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
 
 • **/clear** — Start a new chat
 • **/suggest_edit** — Suggest high-impact improvements
+• **/quick-review** — Review suggestions one at a time
+• **/review-diff** — Side-by-side diff of all suggestions
 • **/new_file** — Create new file in new tab
 • **/list_files** — List files in current directory
 • **/outline** — Get document outline/summary

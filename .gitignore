@@ -29,3 +29,6 @@ electron-screenshot-*.jpeg
 .dev.pid
 qa-screenshots/
 *.code-workspace
+
+# Claude Code
+.claude/settings.local.json

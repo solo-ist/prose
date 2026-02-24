@@ -1,4 +1,9 @@
 import { Menu, BrowserWindow, app } from 'electron'
+import { basename } from 'path'
+import { loadRecentFiles, clearRecentFiles } from './recentFiles'
+
+// Store mainWindow reference so we can rebuild the menu after adding recent files
+let _menuWindow: BrowserWindow | null = null
 
 // Helper to safely send menu actions to the focused window
 function sendMenuAction(action: string): void {
@@ -8,8 +13,44 @@ function sendMenuAction(action: string): void {
   }
 }
 
-export function createMenu(_mainWindow: BrowserWindow): void {
+export function createMenu(mainWindow: BrowserWindow): void {
+  _menuWindow = mainWindow
   const isMac = process.platform === 'darwin'
+  const isGoogleConfigured = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
+
+  // Build "Open Recent" submenu from persisted recent files
+  const recentFiles = loadRecentFiles().slice(0, 10)
+  const openRecentSubmenu: Electron.MenuItemConstructorOptions[] = recentFiles.length > 0
+    ? [
+        ...recentFiles.map((filePath) => ({
+          label: basename(filePath),
+          click: (): void => {
+            sendMenuAction(`openRecentFile:${filePath}`)
+          }
+        })),
+        { type: 'separator' as const },
+        {
+          label: 'Show More...',
+          click: (): void => {
+            sendMenuAction('showRecentFiles')
+          }
+        },
+        {
+          label: 'Clear Recent Files',
+          click: (): void => {
+            clearRecentFiles()
+            app.clearRecentDocuments()
+            refreshMenu()
+            // Notify renderer to update in-memory state
+            sendMenuAction('clearRecentFiles')
+          }
+        }
+      ]
+    : [
+        { label: 'No Recent Files', enabled: false },
+        { type: 'separator' as const },
+        { label: 'Clear Recent Files', enabled: false }
+      ]
 
   const template: Electron.MenuItemConstructorOptions[] = [
     ...(isMac
@@ -60,6 +101,10 @@ export function createMenu(_mainWindow: BrowserWindow): void {
             sendMenuAction('open')
           }
         },
+        {
+          label: 'Open Recent',
+          submenu: openRecentSubmenu
+        },
         { type: 'separator' },
         {
           label: 'Close Tab',
@@ -83,21 +128,25 @@ export function createMenu(_mainWindow: BrowserWindow): void {
             sendMenuAction('saveAs')
           }
         },
-        { type: 'separator' },
-        {
-          label: 'Sync with Google Docs',
-          accelerator: 'CmdOrCtrl+Shift+G',
-          click: (): void => {
-            sendMenuAction('googleSync')
-          }
-        },
-        {
-          label: 'Import from Google Docs...',
-          accelerator: 'CmdOrCtrl+Shift+I',
-          click: (): void => {
-            sendMenuAction('googleImport')
-          }
-        },
+        ...(isGoogleConfigured
+          ? [
+              { type: 'separator' as const },
+              {
+                label: 'Sync with Google Docs',
+                accelerator: 'CmdOrCtrl+Shift+G',
+                click: (): void => {
+                  sendMenuAction('googleSync')
+                }
+              },
+              {
+                label: 'Import from Google Docs...',
+                accelerator: 'CmdOrCtrl+Shift+I',
+                click: (): void => {
+                  sendMenuAction('googleImport')
+                }
+              }
+            ]
+          : []),
         ...(isMac
           ? []
           : [{ type: 'separator' as const }, { role: 'quit' as const }])
@@ -224,4 +273,14 @@ export function createMenu(_mainWindow: BrowserWindow): void {
 
   const menu = Menu.buildFromTemplate(template)
   Menu.setApplicationMenu(menu)
+}
+
+/**
+ * Rebuild the application menu with updated recent files.
+ * Called after a file is opened or the recent files list is cleared.
+ */
+export function refreshMenu(): void {
+  if (_menuWindow && !_menuWindow.isDestroyed()) {
+    createMenu(_menuWindow)
+  }
 }

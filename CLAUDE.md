@@ -34,6 +34,10 @@ Before presenting completed work for user review, ensure a clean environment:
 
 This prevents LevelDB lock conflicts and ensures the user sees the latest changes.
 
+### Verification Instructions
+
+Always include human-readable verification steps when presenting completed work. These should let the user independently confirm the changes work. Format as numbered steps with exact commands to run and what to look for in the output. Prefer verification against the locally running dev server; only use `npm run build:mac` + the built app when the change specifically requires a production build to verify.
+
 ## QA Testing
 
 The app supports automated QA testing via Circuit Electron MCP (configured at parent level).
@@ -157,9 +161,9 @@ Client-side persistence uses IndexedDB (`src/renderer/lib/persistence.ts`). When
 
 ### LLM Integration
 
-LLM calls flow: `useChat` hook → `window.api.llmChat()` → IPC → main process → Vercel AI SDK
+**Anthropic is the only supported provider.** The codebase has legacy multi-provider code (OpenAI, OpenRouter, Ollama) but Anthropic is the only provider that matters. Don't invest effort in other providers.
 
-The main process (`src/main/ipc.ts`) handles all provider switching (Anthropic, OpenAI, OpenRouter, Ollama) using the Vercel AI SDK's provider-specific packages.
+LLM calls flow: `useChat` hook → `window.api.llmChat()` → IPC → main process → Vercel AI SDK
 
 ### Settings
 

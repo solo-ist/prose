@@ -98,10 +98,11 @@ export const browserApi: ElectronAPI = {
     URL.revokeObjectURL(url)
   },
 
-  saveFileAs: async (content: string): Promise<string | null> => {
+  saveFileAs: async (content: string, defaultFilename?: string): Promise<string | null> => {
     if ('showSaveFilePicker' in window) {
       try {
         const fileHandle = await (window as Window & { showSaveFilePicker: (options?: object) => Promise<FileSystemFileHandle> }).showSaveFilePicker({
+          suggestedName: defaultFilename,
           types: [
             {
               description: 'Markdown files',
@@ -121,8 +122,9 @@ export const browserApi: ElectronAPI = {
       }
     }
     // Fallback: download
-    await browserApi.saveFile('document.md', content)
-    return 'document.md'
+    const fallbackName = defaultFilename ?? 'document.md'
+    await browserApi.saveFile(fallbackName, content)
+    return fallbackName
   },
 
   readFile: async (_path: string): Promise<string> => {
@@ -373,6 +375,14 @@ export const browserApi: ElectronAPI = {
     throw new Error('Cannot delete files in browser mode')
   },
 
+  trashFile: async (_path: string): Promise<void> => {
+    throw new Error('Cannot trash files in browser mode')
+  },
+
+  duplicateFile: async (_path: string): Promise<string> => {
+    throw new Error('Cannot duplicate files in browser mode')
+  },
+
   closeWindow: async (): Promise<void> => {
     // Try to close the window/tab in browser mode
     window.close()
@@ -445,6 +455,7 @@ export const browserApi: ElectronAPI = {
   },
 
   // Google Docs integration - not available in browser mode
+  googleIsConfigured: async () => false,
   googleStartAuth: async () => ({
     success: false,
     error: 'Google Docs sync is not available in browser mode. Please use the Electron app.'
@@ -484,7 +495,11 @@ export const browserApi: ElectronAPI = {
   // Window fullscreen - not available in browser
   onFullscreenChange: (_callback: (isFullscreen: boolean) => void) => {
     return () => {}
-  }
+  },
+
+  // Recent files - not available in browser
+  refreshRecentMenu: async (): Promise<void> => {},
+  clearRecentFiles: async (): Promise<void> => {}
 }
 
 /**

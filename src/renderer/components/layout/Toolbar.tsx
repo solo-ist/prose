@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type KeyboardEvent } from 'react'
+import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from 'react'
 import { useEditor } from '../../hooks/useEditor'
 import { useTabs } from '../../hooks/useTabs'
 import { useEditorStore } from '../../stores/editorStore'
@@ -46,8 +46,16 @@ import {
   Check,
   Timer,
   CircleUserRound,
+  Bug,
   MessageSquarePlus,
-  MessagesSquare
+  MessagesSquare,
+  FilePlus,
+  FolderOpen,
+  Save,
+  FileDown,
+  X,
+  Eye,
+  EyeOff
 } from 'lucide-react'
 
 export function Toolbar() {
@@ -66,6 +74,8 @@ export function Toolbar() {
   const { settings, isLoaded, effectiveTheme, autosaveActive, setTheme, setDialogOpen, toggleAutosaveActive } = useSettings()
   const { isChatOpen, isFileListOpen, toggleChat, toggleFileList } = usePanelLayoutContext()
   const isEditing = useEditorStore((state) => state.isEditing)
+  const annotationsVisible = useEditorStore((state) => state.annotationsVisible)
+  const toggleAnnotationsVisible = useEditorStore((state) => state.toggleAnnotationsVisible)
   const isGoogleSyncing = useFileListStore((state) => state.isGoogleSyncing)
 
   const [hasCopied, setHasCopied] = useState(false)
@@ -132,7 +142,7 @@ export function Toolbar() {
     }
   }
 
-  const handleTabClose = async (tabId: string) => {
+  const handleTabClose = useCallback(async (tabId: string) => {
     const tab = useTabStore.getState().getTabById(tabId)
     if (!tab) return
 
@@ -142,7 +152,7 @@ export function Toolbar() {
     } else {
       await closeTab(tabId)
     }
-  }
+  }, [closeTab])
 
   const handleSaveAndClose = async () => {
     if (!pendingCloseTabId) return
@@ -186,7 +196,7 @@ export function Toolbar() {
     await closeAllTabs()
   }
 
-  const handleClose = async () => {
+  const handleClose = useCallback(async () => {
     // Close the active tab if there is one
     if (activeTabId) {
       await handleTabClose(activeTabId)
@@ -194,7 +204,15 @@ export function Toolbar() {
       // No tabs, close the window
       getApi().closeWindow()
     }
-  }
+  }, [activeTabId, tabs.length, handleTabClose])
+
+  // Handle Cmd+W / menu "Close Tab" action — delegates to handleClose so the
+  // dirty-state confirmation dialog is shown when needed
+  useEffect(() => {
+    const onMenuCloseTab = () => handleClose()
+    window.addEventListener('menu:closeTab', onMenuCloseTab)
+    return () => window.removeEventListener('menu:closeTab', onMenuCloseTab)
+  }, [handleClose])
 
   const handleNewFile = async () => {
     await createNewTab()
@@ -275,6 +293,27 @@ export function Toolbar() {
               <TooltipContent>{autosaveActive ? 'Autosave on' : 'Autosave paused'}</TooltipContent>
             </Tooltip>
           )}
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleAnnotationsVisible}
+                aria-label={annotationsVisible ? 'Hide AI annotations' : 'Show AI annotations'}
+                className={annotationsVisible ? '' : 'text-muted-foreground'}
+              >
+                {annotationsVisible ? (
+                  <Eye className="h-4 w-4" />
+                ) : (
+                  <EyeOff className="h-4 w-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {annotationsVisible ? 'Hide' : 'Show'} AI annotations ({isMacOS() ? '⌘⇧A' : 'Ctrl+Shift+A'})
+            </TooltipContent>
+          </Tooltip>
 
           <Tooltip>
             <TooltipTrigger asChild>
@@ -417,15 +456,19 @@ export function Toolbar() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={handleNewFile}>
+                <FilePlus className="mr-2 h-4 w-4" />
                 New Document
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => openFile()}>
+                <FolderOpen className="mr-2 h-4 w-4" />
                 Open...
               </DropdownMenuItem>
               <DropdownMenuItem onClick={saveFile}>
+                <Save className="mr-2 h-4 w-4" />
                 Save
               </DropdownMenuItem>
               <DropdownMenuItem onClick={saveFileAs}>
+                <FileDown className="mr-2 h-4 w-4" />
                 Save as...
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -434,6 +477,10 @@ export function Toolbar() {
                 Settings
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => window.open('https://github.com/solo-ist/prose/issues/new?template=bug-report.yml', '_blank', 'noopener,noreferrer')}>
+                <Bug className="mr-2 h-4 w-4" />
+                Report a Bug
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => window.open('https://github.com/solo-ist/prose/issues/new?template=feature-request.yml', '_blank', 'noopener,noreferrer')}>
                 <MessageSquarePlus className="mr-2 h-4 w-4" />
                 Request a Feature
@@ -444,6 +491,7 @@ export function Toolbar() {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleClose}>
+                <X className="mr-2 h-4 w-4" />
                 Close
               </DropdownMenuItem>
             </DropdownMenuContent>

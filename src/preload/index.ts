@@ -169,7 +169,7 @@ export interface McpInstallResult {
 export interface ElectronAPI {
   openFile: () => Promise<FileResult | null>
   saveFile: (path: string, content: string) => Promise<void>
-  saveFileAs: (content: string) => Promise<string | null>
+  saveFileAs: (content: string, defaultFilename?: string) => Promise<string | null>
   readFile: (path: string) => Promise<string>
   loadSettings: () => Promise<Settings>
   saveSettings: (settings: Settings) => Promise<void>
@@ -196,6 +196,8 @@ export interface ElectronAPI {
   showInFolder: (path: string) => Promise<void>
   renameFile: (oldPath: string, newPath: string) => Promise<void>
   deleteFile: (path: string) => Promise<void>
+  trashFile: (path: string) => Promise<void>
+  duplicateFile: (path: string) => Promise<string>
   // Window operations
   closeWindow: () => Promise<void>
   isFullScreen: () => Promise<boolean>
@@ -229,6 +231,7 @@ export interface ElectronAPI {
   // File association (default markdown editor)
   fileAssociationIsDefault: () => Promise<boolean | null>
   // Google Docs integration
+  googleIsConfigured: () => Promise<boolean>
   googleStartAuth: () => Promise<GoogleAuthResult>
   googleDisconnect: () => Promise<void>
   googleGetConnectionStatus: () => Promise<GoogleConnectionStatus>
@@ -249,6 +252,9 @@ export interface ElectronAPI {
   emojiGenerate: (title: string, contentPreview?: string) => Promise<{ emoji: string | null; error?: string }>
   // Window fullscreen state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => () => void
+  // Recent files
+  refreshRecentMenu: () => Promise<void>
+  clearRecentFiles: () => Promise<void>
 }
 
 export interface FileItem {
@@ -303,7 +309,7 @@ export interface RemarkableSyncState {
 const api: ElectronAPI = {
   openFile: () => ipcRenderer.invoke('file:open'),
   saveFile: (path: string, content: string) => ipcRenderer.invoke('file:save', path, content),
-  saveFileAs: (content: string) => ipcRenderer.invoke('file:saveAs', content),
+  saveFileAs: (content: string, defaultFilename?: string) => ipcRenderer.invoke('file:saveAs', content, defaultFilename),
   readFile: (path: string) => ipcRenderer.invoke('file:read', path),
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (settings: Settings) => ipcRenderer.invoke('settings:save', settings),
@@ -343,6 +349,8 @@ const api: ElectronAPI = {
   showInFolder: (path: string) => ipcRenderer.invoke('file:showInFolder', path),
   renameFile: (oldPath: string, newPath: string) => ipcRenderer.invoke('file:rename', oldPath, newPath),
   deleteFile: (path: string) => ipcRenderer.invoke('file:delete', path),
+  trashFile: (path: string) => ipcRenderer.invoke('file:trash', path),
+  duplicateFile: (path: string) => ipcRenderer.invoke('file:duplicate', path),
   closeWindow: () => ipcRenderer.invoke('window:close'),
   isFullScreen: () => ipcRenderer.invoke('window:isFullScreen'),
   exitFullScreen: () => ipcRenderer.invoke('window:exitFullScreen'),
@@ -441,6 +449,7 @@ const api: ElectronAPI = {
   // File association
   fileAssociationIsDefault: () => ipcRenderer.invoke('fileAssociation:isDefault'),
   // Google Docs integration
+  googleIsConfigured: () => ipcRenderer.invoke('google:isConfigured'),
   googleStartAuth: () => ipcRenderer.invoke('google:startAuth'),
   googleDisconnect: () => ipcRenderer.invoke('google:disconnect'),
   googleGetConnectionStatus: () => ipcRenderer.invoke('google:getConnectionStatus'),
@@ -460,6 +469,9 @@ const api: ElectronAPI = {
   mcpUninstall: () => ipcRenderer.invoke('mcp:uninstall'),
   // Emoji generation
   emojiGenerate: (title: string, contentPreview?: string) => ipcRenderer.invoke('emoji:generate', title, contentPreview),
+  // Recent files
+  refreshRecentMenu: () => ipcRenderer.invoke('recentFiles:refreshMenu'),
+  clearRecentFiles: () => ipcRenderer.invoke('recentFiles:clear'),
   // Window fullscreen state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, isFullscreen: boolean): void => {

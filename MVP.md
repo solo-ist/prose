@@ -1,174 +1,129 @@
-# Prose MVP Specification
+# Prose MVP
 
-A minimal AI chat app with integrated todo list functionality, invoked via tool calls and rendered as interactive React components.
+A cross-platform markdown editor with integrated AI, cloud sync, and handwriting import.
 
-## Core Concept
-
-Think: Claude meets Todoist. A persistent chat interface where the AI can create, manage, and display todo lists through tool calls. The UI renders these as interactive components users can manipulate directly.
-
----
-
-## MVP Scope
-
-### 1. Persistent Chat Sessions
-
-- **Session storage**: Chat history persisted locally (IndexedDB or file-based via Electron)
-- **Session list**: Sidebar showing past conversations
-- **New/delete sessions**: Basic session management
-- **Context preservation**: Full conversation history sent to LLM (with reasonable token limits)
-
-### 2. Todo List via Tool Calls
-
-The AI has access to todo tools that render as interactive React components:
-
-#### Tools
-
-| Tool | Description |
-|------|-------------|
-| `create_todo` | Create a new todo item |
-| `list_todos` | Display current todos as a component |
-| `update_todo` | Mark complete, edit text, change priority |
-| `delete_todo` | Remove a todo |
-
-#### Todo Schema
-
-```typescript
-interface Todo {
-  id: string
-  text: string
-  completed: boolean
-  priority?: 'low' | 'medium' | 'high'
-  dueDate?: string
-  createdAt: Date
-  updatedAt: Date
-}
-```
-
-#### Rendered Components
-
-When the AI calls `list_todos` or `create_todo`, the message includes an interactive `<TodoList>` component:
-- Checkboxes to toggle completion
-- Inline editing
-- Delete buttons
-- Priority badges
-- Due date display
-
-User interactions on these components update the todo store directly (no need to ask the AI).
-
-### 3. Command System
-
-#### Slash Commands (`/`)
-
-Quick actions the user types directly:
-
-| Command | Action |
-|---------|--------|
-| `/new` | Start a new chat session |
-| `/clear` | Clear current session |
-| `/todos` | Show all todos (renders component) |
-| `/help` | Show available commands |
-
-#### @ Mentions (Future - Out of MVP)
-
-Plugin system for context injection:
-- `@doc` - Include current document
-- `@web` - Web search
-- `@file` - Attach a file
-
-*Note: @ commands are OUT OF SCOPE for MVP. Documenting for future reference.*
+**Version**: 0.1.0-alpha.4
+**Platform**: macOS (primary), Windows/Linux (infrastructure ready)
+**Model**: BYOK (bring your own key) -- Anthropic only
 
 ---
 
-## Architecture
+## What Ships
 
-### State Management
+### Editor
 
-```
-stores/
-├── chatStore.ts      # Messages, sessions, active session
-├── todoStore.ts      # Todo items, CRUD operations
-└── settingsStore.ts  # LLM config, preferences (existing)
-```
+- TipTap-based markdown editor with live rendering
+- Multi-tab interface with session persistence and preview tabs
+- Find & replace
+- Frontmatter display
+- Autosave (off / on every change / custom interval)
+- Crash recovery with session restore
+- Configurable font, size, and line height (IBM Plex Mono default)
 
-### Tool Call Flow
+### File Management
 
-1. User sends message
-2. LLM responds with tool calls (e.g., `create_todo`)
-3. Tool calls are executed against `todoStore`
-4. Results rendered as React components in the message
-5. User can interact with components directly
+- Native open/save/save-as dialogs (`.md`, `.markdown`, `.txt`)
+- File explorer sidebar with lazy-loaded directory tree
+- File rename, duplicate, delete/trash, reveal in Finder
+- Recent files menu (macOS Dock integration)
+- Register as default markdown editor
 
-### Data Persistence
+### AI Chat
 
-- **Chat sessions**: `~/.prose/sessions/` (JSON files per session)
-- **Todos**: `~/.prose/todos.json`
-- **Settings**: `~/.prose/settings.json` (existing)
+- Streaming chat panel with full document context
+- Multi-conversation threads per document, persisted to IndexedDB
+- Three tool modes:
+  - **Suggestions** -- read-only; AI proposes edits via `suggest_edit`
+  - **Full** -- AI can directly modify the document
+  - **Plan** -- AI proposes changes, user approves before apply
+- Inline suggestion popover on text selection (rewrite, expand, condense, tone)
+- Annotation visibility toggle
+
+### Document Review
+
+- Quick review (inline diff)
+- Side-by-side diff
+- Per-change navigation with accept/reject controls
+
+### Google Docs Integration
+
+- OAuth 2.0 authentication
+- Push, pull, and import (HTML-to-markdown with nested list handling)
+- Batch sync across linked documents
+- Auto-creates `~/Documents/Google Docs/` folder
+
+### reMarkable Integration
+
+- Device registration and notebook sync
+- OCR via Claude Vision (reuses Anthropic API key)
+- Dual output: read-only OCR in `.remarkable/`, editable markdown alongside
+- Selective notebook sync with cloud-native picker
+
+### MCP Server
+
+- Auto-install stdio server for Claude Desktop
+- Version tracking and uninstall
+
+### Settings & Theming
+
+- 5 themes: dark (default), light, system, terminal green dark/light
+- Settings dialog with tabs: General, Editor, LLM, Integrations, Account
+- API key storage via OS Keychain (safeStorage) with plaintext fallback
+- Keyboard shortcuts reference dialog
 
 ---
 
-## UI Layout
+## What's Broken (Do First)
 
-```
-┌─────────────────────────────────────────────────────┐
-│  Prose                                    [Settings] │
-├──────────────┬──────────────────────────────────────┤
-│              │                                      │
-│  Sessions    │   Chat Messages                      │
-│              │                                      │
-│  > Today     │   ┌────────────────────────────────┐ │
-│    Yesterday │   │ User: Add a todo to buy milk   │ │
-│    Project X │   └────────────────────────────────┘ │
-│              │   ┌────────────────────────────────┐ │
-│  [+ New]     │   │ Assistant: Created!            │ │
-│              │   │ ┌──────────────────────────┐   │ │
-│              │   │ │ ☐ Buy milk         [x]   │   │ │
-│              │   │ └──────────────────────────┘   │ │
-│              │   └────────────────────────────────┘ │
-│              │                                      │
-│              ├──────────────────────────────────────┤
-│              │  [Type a message... ]      [Send]    │
-└──────────────┴──────────────────────────────────────┘
-```
+Issues that must be fixed before the MVP can ship. Current "Do First" column on the [project board](https://github.com/orgs/solo-ist/projects/5/views/1).
+
+| # | Issue | Type |
+|---|-------|------|
+| 229 | Word diff uses set-membership instead of proper LCS | bug |
+| 230 | Side-by-side review counter shows confusing "X of Y" | bug |
+| 208 | macOS app fails to launch due to code signing | bug |
+| 211 | reMarkable sync broken on fresh install | bug |
+| 212 | Prose MCP error | bug |
+| 132 | Insert and delete operations stream incorrectly | bug |
+| 227 | Cmd+W doesn't work | bug |
+| 206 | Info panel summary + context fix | bug |
+| 143 | Reconcile "Preview Mode" and "Markdown Mode" states | enhancement |
+| 55 | Investigate frontmatter editing support | spike |
+| 214 | Make reMarkable notebook folders collapsible | feature |
+| 215 | reMarkable folder file movements update cloud location | feature |
+| 217 | Capitalize "P" in app name | feature |
+| 237 | Migrate API key storage to safeStorage/Keychain | enhancement |
+| 238 | AI consent/disclosure flow for MAS compliance | enhancement |
 
 ---
 
-## Out of Scope (MVP)
+## What Ships Next (Launch Blockers)
 
-- Markdown editor (defer TipTap integration)
-- @ mention plugins
-- File attachments
-- Web search
-- Suggested edits / diff view
-- Streaming responses (collect full response first)
-- Multiple todo lists / projects
-- Todo sync across devices
+Required for public release but not for feature-complete MVP. Current "Do Next" column.
+
+| # | Issue | Type |
+|---|-------|------|
+| 127 | Complete security audit | launch |
+| 26 | Packaging, signing, auto-update | launch |
+| 120 | Google Cloud OAuth verification | launch |
+| 191 | Auto-update via GitHub Releases | launch |
+| 138 | Mac App Store v1.0 ($0.99 BYOK) | release |
+| 197 | Open-source preparation (make repo public) | chore |
 
 ---
 
-## GitHub Issues Breakdown
+## Not MVP (Later)
 
-### Milestone: MVP v0.1
+Acknowledged ideas, explicitly deferred.
 
-#### Chat Infrastructure
-1. **Persistent chat sessions** - Store/load sessions from disk
-2. **Session sidebar** - List, create, delete sessions
-3. **Chat UI refinements** - Polish existing chat components
-
-#### Todo System
-4. **Todo store** - Zustand store with CRUD operations
-5. **Todo persistence** - Save/load todos to disk
-6. **Todo components** - `<TodoList>`, `<TodoItem>` interactive components
-7. **Todo tools** - Define `create_todo`, `list_todos`, `update_todo`, `delete_todo`
-8. **Wire up tool calls** - Execute tools in IPC, render results in UI
-
-#### Commands
-9. **Slash command parser** - Parse `/command` from input
-10. **Implement core commands** - `/new`, `/clear`, `/todos`, `/help`
-
-#### Polish
-11. **Error handling** - Graceful failures for LLM/storage errors
-12. **Loading states** - Proper loading indicators
-13. **Keyboard shortcuts** - Cmd+N (new session), Cmd+K (command palette?)
+- Tables, images, txt export (#23)
+- SpecScript block integration (#168)
+- Audio transcription with speaker diarization (#190)
+- Bash CMS plugin (#219)
+- Platform architecture / SpecScript as universal layer (#232)
+- Integrated terminal (#233)
+- SpecScript versioning research (#234)
+- Enterprise infrastructure (#235)
 
 ---
 
@@ -176,8 +131,9 @@ stores/
 
 MVP is complete when a user can:
 
-1. Start a new chat session
-2. Ask the AI to "create a todo for buying groceries"
-3. See an interactive todo component rendered in the chat
-4. Check off the todo directly in the UI
-5. Close the app, reopen, and see their session + todos preserved
+1. Open the app, create or open a markdown document, and edit with full formatting
+2. Open the AI chat, have a multi-turn conversation about their document, and accept/reject suggested edits
+3. Sync a document to Google Docs and pull changes back
+4. Import handwritten notes from a reMarkable tablet via OCR
+5. Close the app, reopen, and find all tabs, conversations, and settings preserved
+6. Do all of the above without hitting any of the "Do First" bugs

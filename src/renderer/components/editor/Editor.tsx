@@ -632,7 +632,7 @@ export function Editor() {
         <EmptyState />
       ) : (
         <div
-          className="flex-1 overflow-auto px-8 py-6"
+          className="flex-1 overflow-auto pl-8 pr-10 py-6"
           style={{
             fontSize: `${settings.editor.fontSize}px`,
             lineHeight: settings.editor.lineHeight,

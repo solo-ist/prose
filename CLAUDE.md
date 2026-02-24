@@ -36,7 +36,7 @@ This prevents LevelDB lock conflicts and ensures the user sees the latest change
 
 ### Verification Instructions
 
-Always include human-readable verification steps when presenting completed work. These should let the user independently confirm the changes work. Format as numbered steps with exact commands to run and what to look for in the output.
+Always include human-readable verification steps when presenting completed work. These should let the user independently confirm the changes work. Format as numbered steps with exact commands to run and what to look for in the output. Prefer verification against the locally running dev server; only use `npm run build:mac` + the built app when the change specifically requires a production build to verify.
 
 ## QA Testing
 

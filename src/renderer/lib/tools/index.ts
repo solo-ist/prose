@@ -24,7 +24,8 @@ import {
   executeSuggestEdit,
   executeAcceptDiff,
   executeRejectDiff,
-  executeListDiffs
+  executeListDiffs,
+  resolveToolPosition
 } from './executors/editor'
 
 // File executors
@@ -141,5 +142,6 @@ export function getAvailableTools(): string[] {
  * Re-export types and utilities.
  */
 export { checkToolAccess, getDefaultMode } from './modes'
+export { resolveToolPosition }
 export type { ToolResult, ToolMode } from '../../../shared/tools/types'
 export { toolSuccess, toolError } from '../../../shared/tools/types'

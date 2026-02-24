@@ -320,7 +320,8 @@ export async function syncAll(
       notebooks: {}
     }
 
-    // Ensure directories exist (visibleDir is same as baseDir, created with hiddenDir's parent)
+    // Ensure directories exist - create baseDir first, then hiddenDir
+    await mkdir(baseDir, { recursive: true })
     await mkdir(hiddenDir, { recursive: true })
 
     // Load sync state to see which notebooks are selected

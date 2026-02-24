@@ -38,7 +38,7 @@ export function promoteCurrentPreview(): void {
   if (previewTab) {
     useTabStore.getState().promotePreviewTab(previewTab.id)
   }
-  useEditorStore.getState().setPreviewReadOnly(false)
+  useEditorStore.getState().setPreviewTab(false)
   if (chatPanelStateBeforePreview !== null) {
     useChatStore.getState().setPanelOpen(chatPanelStateBeforePreview)
     chatPanelStateBeforePreview = null
@@ -274,7 +274,7 @@ export function useTabs() {
     const existingTab = getTabByPath(filePath)
     if (existingTab) {
       // Promote preview tab to permanent, or clear preview browsing mode
-      if (existingTab.isPreview || useEditorStore.getState().isPreviewReadOnly) {
+      if (existingTab.isPreview || useEditorStore.getState().isPreviewTab) {
         promoteCurrentPreview()
       }
       await switchToTab(existingTab.id)
@@ -388,7 +388,7 @@ export function useTabs() {
    */
   const openFileInPreviewTab = useCallback(async (filePath: string): Promise<boolean> => {
     // Set editor to non-editable so ProseMirror can't steal focus
-    useEditorStore.getState().setPreviewReadOnly(true)
+    useEditorStore.getState().setPreviewTab(true)
 
     // Close chat panel during preview (save state so we can restore on promote)
     if (chatPanelStateBeforePreview === null) {
@@ -416,7 +416,7 @@ export function useTabs() {
 
     // Read file content
     if (!window.api) {
-      useEditorStore.getState().setPreviewReadOnly(false)
+      useEditorStore.getState().setPreviewTab(false)
       return false
     }
     const content = await window.api.readFile(filePath)

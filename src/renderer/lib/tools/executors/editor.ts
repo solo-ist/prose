@@ -20,6 +20,15 @@ function getEditor(): Editor | null {
 }
 
 /**
+ * Check if the editor is in a read-only mode (reMarkable OCR or preview tab).
+ * AI tools should not mutate the document in these modes.
+ */
+function isEditorReadOnly(): boolean {
+  const state = useEditorStore.getState()
+  return state.isRemarkableReadOnly || state.isPreviewTab
+}
+
+/**
  * edit - Replace the content of a node by its ID.
  * Falls back to content matching if the nodeId is stale.
  */
@@ -32,6 +41,10 @@ export function executeEdit(args: {
 
   if (!editor) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
+  }
+
+  if (isEditorReadOnly()) {
+    return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
   const { nodeId, content, search } = args
@@ -86,6 +99,10 @@ export function executeInsert(args: {
 
   if (!editor) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
+  }
+
+  if (isEditorReadOnly()) {
+    return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
   const { text, position = 'cursor' } = args
@@ -148,6 +165,10 @@ export function executeSuggestEdit(
 
   if (!editor) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
+  }
+
+  if (isEditorReadOnly()) {
+    return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
   const { nodeId, content, comment, search } = args

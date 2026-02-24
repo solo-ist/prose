@@ -38,7 +38,7 @@ export function Editor() {
   const { document, setContent, openFile, saveFile } = useEditor()
   const isEditing = useEditorStore((state) => state.isEditing)
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
-  const isPreviewReadOnly = useEditorStore((state) => state.isPreviewReadOnly)
+  const isPreviewTab = useEditorStore((state) => state.isPreviewTab)
   const annotationsVisible = useEditorStore((state) => state.annotationsVisible)
   const toggleAnnotationsVisible = useEditorStore((state) => state.toggleAnnotationsVisible)
   const { settings, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen } = useSettings()
@@ -120,7 +120,7 @@ export function Editor() {
       handleDOMEvents: {
         mousedown: () => {
           // Clicking the editor while in preview mode promotes the tab
-          if (useEditorStore.getState().isPreviewReadOnly) {
+          if (useEditorStore.getState().isPreviewTab) {
             promoteCurrentPreview()
           }
           return false
@@ -257,8 +257,8 @@ export function Editor() {
   // Update editor editability when read-only mode changes (reMarkable or preview tab)
   useEffect(() => {
     if (!editor) return
-    editor.setEditable(!isRemarkableReadOnly && !isPreviewReadOnly)
-  }, [editor, isRemarkableReadOnly, isPreviewReadOnly])
+    editor.setEditable(!isRemarkableReadOnly && !isPreviewTab)
+  }, [editor, isRemarkableReadOnly, isPreviewTab])
 
   // Check if current file is linked to a reMarkable notebook
   useEffect(() => {
@@ -349,7 +349,7 @@ export function Editor() {
     // Only focus once per document load
     if (hasFocusedRef.current) return
     // Don't steal focus during preview tab navigation
-    if (useEditorStore.getState().isPreviewReadOnly) return
+    if (useEditorStore.getState().isPreviewTab) return
 
     const shouldShowEmptyState = !isEditing && !document.path && !document.content && !document.isDirty
     if (editor && !shouldShowEmptyState) {
@@ -613,13 +613,13 @@ export function Editor() {
   // Focus editor when transitioning from empty state to editing
   // (skip during preview tab navigation — editor is non-editable)
   useEffect(() => {
-    if (!showEmptyState && editor && !isPreviewReadOnly) {
+    if (!showEmptyState && editor && !isPreviewTab) {
       // Small delay to ensure editor is mounted and ready
       requestAnimationFrame(() => {
         editor.commands.focus()
       })
     }
-  }, [showEmptyState, editor, isPreviewReadOnly])
+  }, [showEmptyState, editor, isPreviewTab])
 
   return (
     <div className="h-full flex flex-col relative">

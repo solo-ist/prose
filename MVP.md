@@ -77,23 +77,17 @@ A cross-platform markdown editor with integrated AI, cloud sync, and handwriting
 
 Issues that must be fixed before the MVP can ship. Current "Do First" column on the [project board](https://github.com/orgs/solo-ist/projects/5/views/1).
 
-| # | Issue | Type |
-|---|-------|------|
-| 229 | Word diff uses set-membership instead of proper LCS | bug |
-| 230 | Side-by-side review counter shows confusing "X of Y" | bug |
-| 208 | macOS app fails to launch due to code signing | bug |
-| 211 | reMarkable sync broken on fresh install | bug |
-| 212 | Prose MCP error | bug |
-| 132 | Insert and delete operations stream incorrectly | bug |
-| 227 | Cmd+W doesn't work | bug |
-| 206 | Info panel summary + context fix | bug |
-| 143 | Reconcile "Preview Mode" and "Markdown Mode" states | enhancement |
-| 55 | Investigate frontmatter editing support | spike |
-| 214 | Make reMarkable notebook folders collapsible | feature |
-| 215 | reMarkable folder file movements update cloud location | feature |
-| 217 | Capitalize "P" in app name | feature |
-| 237 | Migrate API key storage to safeStorage/Keychain | enhancement |
-| 238 | AI consent/disclosure flow for MAS compliance | enhancement |
+| # | Issue | Type | Status |
+|---|-------|------|--------|
+| 229 | Word diff uses set-membership instead of proper LCS | bug | PR #251 |
+| 132 | Insert and delete operations stream incorrectly | bug | PR #254 |
+| 143 | Reconcile "Preview Mode" and "Markdown Mode" states | enhancement | PR #255 |
+| 211 | reMarkable sync broken on fresh install | bug | PR #252 |
+| 214 | Make reMarkable notebook folders collapsible | feature | PR #253 |
+| 55 | Investigate frontmatter editing support | spike | PR #256 |
+
+**Resolved (closed):**
+~~230, 208, 212, 227, 206~~ (bugs), ~~217~~ (capitalize app name), ~~237~~ (safeStorage migration), ~~238~~ (AI consent flow)
 
 ---
 
@@ -119,6 +113,7 @@ Acknowledged ideas, explicitly deferred.
 - Tables, images, txt export (#23)
 - SpecScript block integration (#168)
 - Audio transcription with speaker diarization (#190)
+- reMarkable cloud write-back (#215) -- read-only sync is sufficient for v1
 - Bash CMS plugin (#219)
 - Platform architecture / SpecScript as universal layer (#232)
 - Integrated terminal (#233)

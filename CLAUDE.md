@@ -34,6 +34,10 @@ Before presenting completed work for user review, ensure a clean environment:
 
 This prevents LevelDB lock conflicts and ensures the user sees the latest changes.
 
+### Verification Instructions
+
+Always include human-readable verification steps when presenting completed work. These should let the user independently confirm the changes work. Format as numbered steps with exact commands to run and what to look for in the output.
+
 ## QA Testing
 
 The app supports automated QA testing via Circuit Electron MCP (configured at parent level).

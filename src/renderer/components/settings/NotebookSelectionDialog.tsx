@@ -10,7 +10,7 @@ import {
 import { Button } from '../ui/button'
 import { Checkbox } from '../ui/checkbox'
 import { ScrollArea } from '../ui/scroll-area'
-import { Loader2, Folder, FileText } from 'lucide-react'
+import { Loader2, Folder, FileText, ChevronRight, ChevronDown } from 'lucide-react'
 import type { RemarkableCloudNotebook } from '../../types'
 
 interface Props {
@@ -33,6 +33,7 @@ export function NotebookSelectionDialog({
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
 
   // Load notebooks from cloud and existing sync state when dialog opens
   useEffect(() => {
@@ -89,6 +90,18 @@ export function NotebookSelectionDialog({
     setSelectedIds(new Set())
   }
 
+  const toggleFolder = (folderId: string) => {
+    setExpandedFolders(prev => {
+      const next = new Set(prev)
+      if (next.has(folderId)) {
+        next.delete(folderId)
+      } else {
+        next.add(folderId)
+      }
+      return next
+    })
+  }
+
   const handleSave = async () => {
     if (!window.api) return
 
@@ -138,13 +151,24 @@ export function NotebookSelectionDialog({
         const hasDescendants = itemsByParent.has(item.id)
         if (!hasDescendants) return null
 
+        const isExpanded = expandedFolders.has(item.id)
+
         return (
           <div key={item.id} className="space-y-1" style={{ paddingLeft: depth > 0 ? '1.5rem' : 0 }}>
-            <div className="flex items-center gap-2 py-1 text-muted-foreground">
-              <Folder className="h-4 w-4" />
+            <button
+              type="button"
+              className="flex items-center gap-1 py-1 text-muted-foreground hover:text-foreground transition-colors w-full text-left"
+              onClick={() => toggleFolder(item.id)}
+            >
+              {isExpanded ? (
+                <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+              )}
+              <Folder className="h-4 w-4 shrink-0" />
               <span className="text-sm font-medium">{item.name}</span>
-            </div>
-            {renderItems(item.id, depth + 1)}
+            </button>
+            {isExpanded && renderItems(item.id, depth + 1)}
           </div>
         )
       } else {

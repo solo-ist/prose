@@ -31,20 +31,27 @@ export interface DiffSegment {
 
 /**
  * Compute word-level diff between two strings using LCS (Longest Common Subsequence).
+ * LCS runs on words only (whitespace excluded) to prevent identical space tokens
+ * from dominating the subsequence and hiding word-level reordering.
  * Returns arrays of segments with change types for both old and new text.
  */
 export function computeWordDiff(original: string, suggested: string): { old: DiffSegment[]; new: DiffSegment[] } {
+  // Split into alternating [word, space, word, space, ...] tokens, preserving whitespace
   const oldTokens = original.split(/(\s+)/).filter(t => t)
   const newTokens = suggested.split(/(\s+)/).filter(t => t)
 
-  // Compute LCS table
-  const m = oldTokens.length
-  const n = newTokens.length
+  // Extract only non-whitespace (word) tokens for LCS
+  const oldWords = oldTokens.filter(t => t.trim())
+  const newWords = newTokens.filter(t => t.trim())
+
+  // Compute LCS table on words only
+  const m = oldWords.length
+  const n = newWords.length
   const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
 
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
-      if (oldTokens[i - 1] === newTokens[j - 1]) {
+      if (oldWords[i - 1] === newWords[j - 1]) {
         dp[i][j] = dp[i - 1][j - 1] + 1
       } else {
         dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1])
@@ -56,8 +63,8 @@ export function computeWordDiff(original: string, suggested: string): { old: Dif
   const lcs: string[] = []
   let i = m, j = n
   while (i > 0 && j > 0) {
-    if (oldTokens[i - 1] === newTokens[j - 1]) {
-      lcs.push(oldTokens[i - 1])
+    if (oldWords[i - 1] === newWords[j - 1]) {
+      lcs.push(oldWords[i - 1])
       i--
       j--
     } else if (dp[i - 1][j] >= dp[i][j - 1]) {
@@ -68,11 +75,13 @@ export function computeWordDiff(original: string, suggested: string): { old: Dif
   }
   lcs.reverse()
 
-  // Walk old tokens against LCS to build old segments
+  // Walk old tokens against LCS to build old segments (whitespace always unchanged)
   const oldSegments: DiffSegment[] = []
   let li = 0
   for (const token of oldTokens) {
-    if (li < lcs.length && token === lcs[li]) {
+    if (!token.trim()) {
+      oldSegments.push({ text: token, type: 'unchanged' })
+    } else if (li < lcs.length && token === lcs[li]) {
       oldSegments.push({ text: token, type: 'unchanged' })
       li++
     } else {
@@ -80,11 +89,13 @@ export function computeWordDiff(original: string, suggested: string): { old: Dif
     }
   }
 
-  // Walk new tokens against LCS to build new segments
+  // Walk new tokens against LCS to build new segments (whitespace always unchanged)
   const newSegments: DiffSegment[] = []
   li = 0
   for (const token of newTokens) {
-    if (li < lcs.length && token === lcs[li]) {
+    if (!token.trim()) {
+      newSegments.push({ text: token, type: 'unchanged' })
+    } else if (li < lcs.length && token === lcs[li]) {
       newSegments.push({ text: token, type: 'unchanged' })
       li++
     } else {

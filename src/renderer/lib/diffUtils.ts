@@ -52,12 +52,12 @@ export function computeWordDiff(original: string, suggested: string): { old: Dif
     }
   }
 
-  // Backtrack to find LCS
+  // Backtrack to find LCS (push + reverse to avoid O(n²) unshift)
   const lcs: string[] = []
   let i = m, j = n
   while (i > 0 && j > 0) {
     if (oldTokens[i - 1] === newTokens[j - 1]) {
-      lcs.unshift(oldTokens[i - 1])
+      lcs.push(oldTokens[i - 1])
       i--
       j--
     } else if (dp[i - 1][j] >= dp[i][j - 1]) {
@@ -66,6 +66,7 @@ export function computeWordDiff(original: string, suggested: string): { old: Dif
       j--
     }
   }
+  lcs.reverse()
 
   // Walk old tokens against LCS to build old segments
   const oldSegments: DiffSegment[] = []

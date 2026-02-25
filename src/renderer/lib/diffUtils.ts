@@ -30,43 +30,76 @@ export interface DiffSegment {
 }
 
 /**
- * Compute word-level diff between two strings.
+ * Compute word-level diff between two strings using LCS (Longest Common Subsequence).
+ * LCS runs on words only (whitespace excluded) to prevent identical space tokens
+ * from dominating the subsequence and hiding word-level reordering.
  * Returns arrays of segments with change types for both old and new text.
  */
 export function computeWordDiff(original: string, suggested: string): { old: DiffSegment[]; new: DiffSegment[] } {
-  const oldWords = original.split(/(\s+)/)
-  const newWords = suggested.split(/(\s+)/)
+  // Split into alternating [word, space, word, space, ...] tokens, preserving whitespace
+  const oldTokens = original.split(/(\s+)/).filter(t => t)
+  const newTokens = suggested.split(/(\s+)/).filter(t => t)
 
-  // Simple LCS-based diff for word-level changes
-  const oldSegments: DiffSegment[] = []
-  const newSegments: DiffSegment[] = []
+  // Extract only non-whitespace (word) tokens for LCS
+  const oldWords = oldTokens.filter(t => t.trim())
+  const newWords = newTokens.filter(t => t.trim())
 
-  // Build a set of words in new text for quick lookup
-  const newWordSet = new Set(newWords.filter(w => w.trim()))
-  const oldWordSet = new Set(oldWords.filter(w => w.trim()))
+  // Compute LCS table on words only
+  const m = oldWords.length
+  const n = newWords.length
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
 
-  // Mark words in old text
-  for (const word of oldWords) {
-    if (!word) continue
-    if (word.trim() === '') {
-      // Whitespace - keep as unchanged
-      oldSegments.push({ text: word, type: 'unchanged' })
-    } else if (newWordSet.has(word)) {
-      oldSegments.push({ text: word, type: 'unchanged' })
-    } else {
-      oldSegments.push({ text: word, type: 'removed' })
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (oldWords[i - 1] === newWords[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1])
+      }
     }
   }
 
-  // Mark words in new text
-  for (const word of newWords) {
-    if (!word) continue
-    if (word.trim() === '') {
-      newSegments.push({ text: word, type: 'unchanged' })
-    } else if (oldWordSet.has(word)) {
-      newSegments.push({ text: word, type: 'unchanged' })
+  // Backtrack to find LCS (push + reverse to avoid O(n²) unshift)
+  const lcs: string[] = []
+  let i = m, j = n
+  while (i > 0 && j > 0) {
+    if (oldWords[i - 1] === newWords[j - 1]) {
+      lcs.push(oldWords[i - 1])
+      i--
+      j--
+    } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+      i--
     } else {
-      newSegments.push({ text: word, type: 'added' })
+      j--
+    }
+  }
+  lcs.reverse()
+
+  // Walk old tokens against LCS to build old segments (whitespace always unchanged)
+  const oldSegments: DiffSegment[] = []
+  let li = 0
+  for (const token of oldTokens) {
+    if (!token.trim()) {
+      oldSegments.push({ text: token, type: 'unchanged' })
+    } else if (li < lcs.length && token === lcs[li]) {
+      oldSegments.push({ text: token, type: 'unchanged' })
+      li++
+    } else {
+      oldSegments.push({ text: token, type: 'removed' })
+    }
+  }
+
+  // Walk new tokens against LCS to build new segments (whitespace always unchanged)
+  const newSegments: DiffSegment[] = []
+  li = 0
+  for (const token of newTokens) {
+    if (!token.trim()) {
+      newSegments.push({ text: token, type: 'unchanged' })
+    } else if (li < lcs.length && token === lcs[li]) {
+      newSegments.push({ text: token, type: 'unchanged' })
+      li++
+    } else {
+      newSegments.push({ text: token, type: 'added' })
     }
   }
 

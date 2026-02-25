@@ -25,6 +25,8 @@ export function StatusBar() {
   const { toolMode, setToolMode } = useChat()
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
   const isAutosaving = useEditorStore((state) => state.isAutosaving)
+  const sourceMode = useEditorStore((state) => state.sourceMode)
+  const toggleSourceMode = useEditorStore((state) => state.toggleSourceMode)
   const hoveredUrl = useLinkHoverStore((state) => state.hoveredUrl)
   const editor = useEditorInstanceStore((state) => state.editor)
 
@@ -79,6 +81,14 @@ export function StatusBar() {
       </div>
 
       <div className="flex items-center gap-1">
+        <button
+          onClick={toggleSourceMode}
+          className="hover:text-foreground transition-colors cursor-pointer"
+        >
+          {sourceMode ? 'source' : 'wysiwyg'}
+        </button>
+        <span className="text-muted-foreground/40 mx-1">|</span>
+
         {isAutosaving ? (
           <>
             <span className="text-yellow-500">saving...</span>

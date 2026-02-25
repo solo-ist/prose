@@ -8,14 +8,18 @@ import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useEditorStore } from '../../../stores/editorStore'
 import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
 import { useAnnotationStore } from '../../../extensions/ai-annotations'
-import { findNodeById, findNodeByContent } from '../../../extensions/node-ids'
+import { findNodeById, findNodeByContent, getNodesWithIds } from '../../../extensions/node-ids'
 import { generateId } from '../../persistence'
 import { getAISuggestions } from '../../../extensions/ai-suggestions'
 
 /**
  * Get the TipTap editor instance.
+ * Returns null if editor is not available or source mode is active.
  */
 function getEditor(): Editor | null {
+  if (useEditorStore.getState().sourceMode) {
+    return null
+  }
   return useEditorInstanceStore.getState().editor
 }
 
@@ -48,8 +52,10 @@ export function executeEdit(args: {
   }
 
   if (!found) {
+    const available = getNodesWithIds(editor.state.doc)
+    const nodeList = available.map(n => `${n.nodeId} (${n.type}: "${n.textContent.substring(0, 40)}")`).join(', ')
     return toolError(
-      `Node with ID "${nodeId}" not found. Use read_document to get current node IDs.`,
+      `Node with ID "${nodeId}" not found. Available nodes: [${nodeList}]`,
       'NODE_NOT_FOUND'
     )
   }
@@ -164,8 +170,10 @@ export function executeSuggestEdit(
   }
 
   if (!found) {
+    const available = getNodesWithIds(editor.state.doc)
+    const nodeList = available.map(n => `${n.nodeId} (${n.type}: "${n.textContent.substring(0, 40)}")`).join(', ')
     return toolError(
-      `Node with ID "${nodeId}" not found. Use read_document to get current node IDs.`,
+      `Node with ID "${nodeId}" not found. Available nodes: [${nodeList}]`,
       'NODE_NOT_FOUND'
     )
   }

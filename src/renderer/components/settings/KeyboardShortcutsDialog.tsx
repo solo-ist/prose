@@ -63,6 +63,7 @@ const shortcutSections: ShortcutSection[] = [
   {
     title: 'View',
     shortcuts: [
+      { keys: [modKey, '⇧', 'E'], description: 'Toggle source view' },
       { keys: [modKey, '⇧', 'H'], description: 'Toggle file list' },
       { keys: [modKey, '⇧', 'L'], description: 'Toggle chat panel' },
     ]

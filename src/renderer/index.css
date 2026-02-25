@@ -140,6 +140,20 @@
   -webkit-app-region: no-drag;
 }
 
+/* Source editor (CodeMirror) — match app native theme */
+.source-editor {
+  margin-left: -2.5em;
+}
+.source-editor .cm-editor {
+  background: transparent;
+}
+.source-editor .cm-gutters {
+  border-right: none;
+}
+.source-editor .cm-focused {
+  outline: none;
+}
+
 /* Editor typography */
 .prose-editor {
   font-variant-ligatures: none;

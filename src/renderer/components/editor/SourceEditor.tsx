@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react'
 import { EditorView, basicSetup } from 'codemirror'
 import { markdown } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
@@ -8,6 +8,10 @@ import { EditorState } from '@codemirror/state'
 import { keymap } from '@codemirror/view'
 import { indentWithTab } from '@codemirror/commands'
 import { useEditorStore } from '../../stores/editorStore'
+
+export interface SourceEditorHandle {
+  getContent: () => string
+}
 
 interface SourceEditorProps {
   content: string
@@ -95,7 +99,7 @@ const appHighlightStyle = HighlightStyle.define([
   { tag: tags.list, color: 'hsl(var(--muted-foreground))' },
 ])
 
-export function SourceEditor({
+export const SourceEditor = forwardRef<SourceEditorHandle, SourceEditorProps>(function SourceEditor({
   content,
   onChange,
   fontSize,
@@ -103,9 +107,13 @@ export function SourceEditor({
   fontFamily,
   isDark,
   readOnly
-}: SourceEditorProps) {
+}, ref) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
+
+  useImperativeHandle(ref, () => ({
+    getContent: () => viewRef.current?.state.doc.toString() ?? content,
+  }))
   const onChangeRef = useRef(onChange)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Track whether we're programmatically updating the doc (to skip onChange)
@@ -202,4 +210,4 @@ export function SourceEditor({
       className="source-editor h-full [&_.cm-editor]:h-full [&_.cm-editor]:outline-none"
     />
   )
-}
+})

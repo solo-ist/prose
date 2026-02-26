@@ -35,7 +35,7 @@ import { TransformAnimation, useTransformAnimation } from './TransformAnimation'
 import { AISuggestionPopover } from '../AISuggestionPopover'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import type { AISuggestionData } from '../../extensions/ai-suggestions/types'
-import { SourceEditor } from './SourceEditor'
+import { SourceEditor, SourceEditorHandle } from './SourceEditor'
 
 export function Editor() {
   const { document, setContent, openFile, saveFile } = useEditor()
@@ -67,6 +67,7 @@ export function Editor() {
   const [sourceContent, setSourceContent] = useState<string>('')
   // Preserve AI suggestions across source mode round-trips
   const savedSuggestionsRef = useRef<AISuggestionData[]>([])
+  const sourceEditorRef = useRef<SourceEditorHandle>(null)
 
   // Track if current file is linked to a reMarkable notebook (for showing "View Original" button)
   const [linkedNotebookId, setLinkedNotebookId] = useState<string | null>(null)
@@ -390,8 +391,9 @@ export function Editor() {
       const md = editor.storage.markdown.getMarkdown()
       setSourceContent(md)
     } else if (!sourceMode && prev) {
-      // Source → WYSIWYG: parse markdown back into TipTap, then restore suggestions
-      editor.commands.setContent(sourceContent)
+      // Source → WYSIWYG: read live content from CodeMirror (avoids 500ms debounce lag)
+      const liveContent = sourceEditorRef.current?.getContent() ?? sourceContent
+      editor.commands.setContent(liveContent)
       if (savedSuggestionsRef.current.length > 0) {
         // Small delay to ensure content is fully parsed before restoring marks
         setTimeout(() => {
@@ -705,6 +707,7 @@ export function Editor() {
           )}
           <div className="max-w-3xl mx-auto">
             <SourceEditor
+              ref={sourceEditorRef}
               content={sourceContent}
               onChange={handleSourceChange}
               fontSize={settings.editor.fontSize}

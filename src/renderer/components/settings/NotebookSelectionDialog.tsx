@@ -52,7 +52,20 @@ export function NotebookSelectionDialog({
 
         // Use existing selection if available, otherwise select none (first time)
         if (existingSyncState?.selectedNotebooks) {
-          setSelectedIds(new Set(existingSyncState.selectedNotebooks))
+          const selectedSet = new Set(existingSyncState.selectedNotebooks)
+          setSelectedIds(selectedSet)
+          // Auto-expand folders containing selected notebooks
+          const foldersToExpand = new Set<string>()
+          for (const notebook of cloudNotebooks) {
+            if (notebook.type === 'notebook' && selectedSet.has(notebook.id) && notebook.parent) {
+              let current: string | null = notebook.parent
+              while (current) {
+                foldersToExpand.add(current)
+                current = cloudNotebooks.find(n => n.id === current)?.parent ?? null
+              }
+            }
+          }
+          setExpandedFolders(foldersToExpand)
         } else {
           // First time - start with nothing selected so user explicitly chooses
           setSelectedIds(new Set())

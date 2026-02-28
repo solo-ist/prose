@@ -34,6 +34,8 @@ interface EditorState {
   isPreviewReadOnly: boolean
   // AI annotation visibility toggle
   annotationsVisible: boolean
+  // Source view mode (CodeMirror raw markdown vs TipTap WYSIWYG)
+  sourceMode: boolean
   setDocument: (doc: Partial<Document>) => void
   setContent: (content: string) => void
   setPath: (path: string | null) => void
@@ -55,6 +57,8 @@ interface EditorState {
   setAutosaving: (isAutosaving: boolean) => void
   setPreviewReadOnly: (val: boolean) => void
   toggleAnnotationsVisible: () => void
+  setSourceMode: (val: boolean) => void
+  toggleSourceMode: () => void
 }
 
 function createInitialDocument(): Document {
@@ -80,6 +84,7 @@ export const useEditorStore = create<EditorState>()(
     isAutosaving: false,
     isPreviewReadOnly: false,
     annotationsVisible: true,
+    sourceMode: false,
 
     setDocument: (doc) =>
       set((state) => ({
@@ -195,7 +200,10 @@ export const useEditorStore = create<EditorState>()(
     setPreviewReadOnly: (val) => set({ isPreviewReadOnly: val }),
 
     toggleAnnotationsVisible: () =>
-      set((state) => ({ annotationsVisible: !state.annotationsVisible }))
+      set((state) => ({ annotationsVisible: !state.annotationsVisible })),
+
+    setSourceMode: (val) => set({ sourceMode: val }),
+    toggleSourceMode: () => set((state) => ({ sourceMode: !state.sourceMode }))
   }))
 )
 

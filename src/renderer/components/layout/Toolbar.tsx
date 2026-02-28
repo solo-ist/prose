@@ -55,7 +55,9 @@ import {
   FileDown,
   X,
   Eye,
-  EyeOff
+  EyeOff,
+  Code,
+  FileText
 } from 'lucide-react'
 
 export function Toolbar() {
@@ -76,6 +78,8 @@ export function Toolbar() {
   const isEditing = useEditorStore((state) => state.isEditing)
   const annotationsVisible = useEditorStore((state) => state.annotationsVisible)
   const toggleAnnotationsVisible = useEditorStore((state) => state.toggleAnnotationsVisible)
+  const sourceMode = useEditorStore((state) => state.sourceMode)
+  const toggleSourceMode = useEditorStore((state) => state.toggleSourceMode)
   const isGoogleSyncing = useFileListStore((state) => state.isGoogleSyncing)
 
   const [hasCopied, setHasCopied] = useState(false)
@@ -265,7 +269,7 @@ export function Toolbar() {
                 size="icon"
                 onClick={handleCopy}
                 disabled={!document.content}
-                aria-label="Copy document"
+                aria-label="Copy Markdown"
               >
                 {hasCopied ? (
                   <Check className="h-4 w-4 text-green-500" />
@@ -274,7 +278,7 @@ export function Toolbar() {
                 )}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{hasCopied ? 'Copied!' : 'Copy document'}</TooltipContent>
+            <TooltipContent>{hasCopied ? 'Copied!' : `Copy Markdown (${isMacOS() ? '⌘⇧C' : 'Ctrl+Shift+C'})`}</TooltipContent>
           </Tooltip>
 
           {settings.autosave?.enabled && (
@@ -299,6 +303,26 @@ export function Toolbar() {
               <Button
                 variant="ghost"
                 size="icon"
+                onClick={toggleSourceMode}
+                aria-label={sourceMode ? 'WYSIWYG mode' : 'Source mode'}
+              >
+                {sourceMode ? (
+                  <FileText className="h-4 w-4" />
+                ) : (
+                  <Code className="h-4 w-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {sourceMode ? 'WYSIWYG mode' : 'Source mode'} ({isMacOS() ? '⌘⇧E' : 'Ctrl+Shift+E'})
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={toggleAnnotationsVisible}
                 aria-label={annotationsVisible ? 'Hide AI annotations' : 'Show AI annotations'}
                 className={annotationsVisible ? '' : 'text-muted-foreground'}
@@ -311,7 +335,7 @@ export function Toolbar() {
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              {annotationsVisible ? 'Hide' : 'Show'} AI annotations ({isMacOS() ? '⌘⇧A' : 'Ctrl+Shift+A'})
+              {annotationsVisible ? 'Hide' : 'Show'} AI annotations
             </TooltipContent>
           </Tooltip>
 

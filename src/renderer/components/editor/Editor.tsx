@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState, useMemo } from 'react'
+import { useEffect, useLayoutEffect, useRef, useCallback, useState, useMemo } from 'react'
 import { useEditor as useTipTapEditor, EditorContent } from '@tiptap/react'
 import { EditorState } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
@@ -33,6 +33,9 @@ import { EmptyState } from '../layout/EmptyState'
 import { FrontmatterDisplay, hasFrontmatter, getContentWithoutFrontmatter, getFrontmatterRaw } from './FrontmatterDisplay'
 import { TransformAnimation, useTransformAnimation } from './TransformAnimation'
 import { AISuggestionPopover } from '../AISuggestionPopover'
+import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
+import type { AISuggestionData } from '../../extensions/ai-suggestions/types'
+import { SourceEditor, SourceEditorHandle } from './SourceEditor'
 
 export function Editor() {
   const { document, setContent, openFile, saveFile } = useEditor()
@@ -41,6 +44,8 @@ export function Editor() {
   const isPreviewReadOnly = useEditorStore((state) => state.isPreviewReadOnly)
   const annotationsVisible = useEditorStore((state) => state.annotationsVisible)
   const toggleAnnotationsVisible = useEditorStore((state) => state.toggleAnnotationsVisible)
+  const sourceMode = useEditorStore((state) => state.sourceMode)
+  const setSourceMode = useEditorStore((state) => state.setSourceMode)
   const { settings, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen } = useSettings()
   const { setContext, agentMode, setAgentMode } = useChat()
   const { isChatOpen, isFileListOpen, toggleChat, setChatOpen, setFileListOpen } = usePanelLayoutContext()
@@ -57,6 +62,12 @@ export function Editor() {
     text: string
   } | null>(null)
   const { isTransforming, startTransform, completeTransform } = useTransformAnimation()
+
+  // Source mode: holds markdown content while CodeMirror is mounted
+  const [sourceContent, setSourceContent] = useState<string>('')
+  // Preserve AI suggestions across source mode round-trips
+  const savedSuggestionsRef = useRef<AISuggestionData[]>([])
+  const sourceEditorRef = useRef<SourceEditorHandle>(null)
 
   // Track if current file is linked to a reMarkable notebook (for showing "View Original" button)
   const [linkedNotebookId, setLinkedNotebookId] = useState<string | null>(null)
@@ -367,6 +378,37 @@ export function Editor() {
     }
   }, [editor, isEditing, document.path, document.content, document.isDirty])
 
+  // Sync content when toggling source mode (layout effect to avoid flash of empty content)
+  const prevSourceModeRef = useRef(sourceMode)
+  useLayoutEffect(() => {
+    if (!editor) return
+    const prev = prevSourceModeRef.current
+    prevSourceModeRef.current = sourceMode
+
+    if (sourceMode && !prev) {
+      // WYSIWYG → Source: save suggestions then serialize to markdown
+      savedSuggestionsRef.current = getAISuggestions(editor)
+      const md = editor.storage.markdown.getMarkdown()
+      setSourceContent(md)
+    } else if (!sourceMode && prev) {
+      // Source → WYSIWYG: read live content from CodeMirror (avoids 500ms debounce lag)
+      const liveContent = sourceEditorRef.current?.getContent() ?? sourceContent
+      editor.commands.setContent(liveContent)
+      if (savedSuggestionsRef.current.length > 0) {
+        // Small delay to ensure content is fully parsed before restoring marks
+        setTimeout(() => {
+          editor.commands.restoreAISuggestions(savedSuggestionsRef.current)
+          savedSuggestionsRef.current = []
+        }, 50)
+      }
+    }
+  }, [sourceMode, editor])
+
+  // Reset source mode when switching documents
+  useEffect(() => {
+    setSourceMode(false)
+  }, [document.documentId, setSourceMode])
+
   // Cleanup debounce on unmount
   useEffect(() => {
     return () => {
@@ -403,9 +445,12 @@ export function Editor() {
         }
       }
     } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'c') {
-      // Cmd+Shift+C: Add comment to selection
+      // Cmd+Shift+C: Copy Markdown
       e.preventDefault()
-      openAddCommentDialog()
+      const content = useEditorStore.getState().document.content
+      if (content) {
+        navigator.clipboard.writeText(content)
+      }
     } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'l') {
       // Cmd+Shift+L: Toggle chat panel
       e.preventDefault()
@@ -422,7 +467,8 @@ export function Editor() {
         window.api.exitFullScreen()
       }
     } else if (isMod && e.key === 'f' && !e.shiftKey) {
-      // Cmd+F: Open find bar
+      // Cmd+F: Open find bar (skip in source mode — CodeMirror handles its own)
+      if (useEditorStore.getState().sourceMode) return
       e.preventDefault()
       setIsFindOpen(true)
     } else if (isMod && e.key === 'l' && !e.shiftKey) {
@@ -521,10 +567,14 @@ export function Editor() {
       if (editor) {
         editor.chain().focus().toggleStrike().run()
       }
-    } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'a') {
-      // Cmd+Shift+A: Toggle AI annotation visibility
+    } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'e') {
+      // Cmd+Shift+E: Toggle source view
       e.preventDefault()
-      toggleAnnotationsVisible()
+      useEditorStore.getState().toggleSourceMode()
+    } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'a') {
+      // Cmd+Shift+A: Add comment to selection
+      e.preventDefault()
+      openAddCommentDialog()
     } else if (e.altKey && !isMod && e.key === 'ArrowUp') {
       // Alt+Up: Move line up
       e.preventDefault()
@@ -592,6 +642,13 @@ export function Editor() {
     return () => window.removeEventListener('menu:find', handleMenuFind)
   }, [])
 
+  // Listen for menu:addComment event from main process (via App.tsx)
+  useEffect(() => {
+    const handleMenuAddComment = () => openAddCommentDialog()
+    window.addEventListener('menu:addComment', handleMenuAddComment)
+    return () => window.removeEventListener('menu:addComment', handleMenuAddComment)
+  }, [openAddCommentDialog])
+
   // Listen for search:show event from tools (e.g., search_document)
   useEffect(() => {
     const handleSearchShow = () => setIsFindOpen(true)
@@ -621,18 +678,59 @@ export function Editor() {
     }
   }, [showEmptyState, editor, isPreviewReadOnly])
 
+  // Source mode onChange handler: update state + store
+  const handleSourceChange = useCallback((newContent: string) => {
+    setSourceContent(newContent)
+    // Prepend frontmatter and save to store (same as TipTap debounced save)
+    const fullContent = frontmatterRef.current + newContent
+    setContent(fullContent)
+  }, [setContent])
+
+  const effectiveTheme = settings.theme === 'system'
+    ? (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : settings.theme
+
   return (
     <div className="h-full flex flex-col relative">
-      <FindBar
-        editor={editor}
-        isOpen={isFindOpen}
-        onClose={() => setIsFindOpen(false)}
-      />
+      {/* Hide FindBar in source mode — CodeMirror has built-in Ctrl+F */}
+      {!sourceMode && (
+        <FindBar
+          editor={editor}
+          isOpen={isFindOpen}
+          onClose={() => setIsFindOpen(false)}
+        />
+      )}
       {showEmptyState ? (
         <EmptyState />
+      ) : sourceMode ? (
+        <div className="flex-1 overflow-auto px-12 py-6"
+          style={{
+            fontSize: `${settings.editor.fontSize}px`,
+            lineHeight: settings.editor.lineHeight,
+            fontFamily: settings.editor.fontFamily
+          }}
+        >
+          {showFrontmatter && (
+            <div className="max-w-3xl mx-auto">
+              <FrontmatterDisplay content={document.content} frontmatter={document.frontmatter} />
+            </div>
+          )}
+          <div className="max-w-3xl mx-auto">
+            <SourceEditor
+              ref={sourceEditorRef}
+              content={sourceContent}
+              onChange={handleSourceChange}
+              fontSize={settings.editor.fontSize}
+              lineHeight={settings.editor.lineHeight}
+              fontFamily={settings.editor.fontFamily}
+              isDark={effectiveTheme === 'dark'}
+              readOnly={isRemarkableReadOnly || isPreviewReadOnly}
+            />
+          </div>
+        </div>
       ) : (
         <div
-          className="flex-1 overflow-auto pl-8 pr-10 py-6"
+          className="flex-1 overflow-auto px-12 py-6"
           style={{
             fontSize: `${settings.editor.fontSize}px`,
             lineHeight: settings.editor.lineHeight,
@@ -755,10 +853,12 @@ export function Editor() {
           </TransformAnimation>
         </div>
       )}
-      <SelectionPopover
-        editor={editor}
-        onAddComment={openAddCommentDialog}
-      />
+      {!sourceMode && (
+        <SelectionPopover
+          editor={editor}
+          onAddComment={openAddCommentDialog}
+        />
+      )}
       <AddCommentDialog
         editor={editor}
         isOpen={isAddCommentOpen}

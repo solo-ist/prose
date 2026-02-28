@@ -130,7 +130,7 @@ export function SelectionPopover({ editor, onAddComment }: SelectionPopoverProps
           e.stopPropagation()
           onAddComment()
         }}
-        title="Add comment (Cmd+Shift+C)"
+        title="Add comment (Cmd+Shift+A)"
       >
         <MessageSquarePlus className="h-4 w-4" />
       </Button>

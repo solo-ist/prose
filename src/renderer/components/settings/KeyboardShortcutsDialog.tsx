@@ -45,6 +45,7 @@ const shortcutSections: ShortcutSection[] = [
       { keys: [modKey, '/'], description: 'Toggle comment' },
       { keys: [altKey, '↑'], description: 'Move line up' },
       { keys: [altKey, '↓'], description: 'Move line down' },
+      { keys: [modKey, '⇧', 'C'], description: 'Copy Markdown' },
       { keys: [modKey, 'Z'], description: 'Undo' },
       { keys: isMac ? [modKey, '⇧', 'Z'] : ['Ctrl', 'Y'], description: 'Redo' },
     ]
@@ -63,6 +64,7 @@ const shortcutSections: ShortcutSection[] = [
   {
     title: 'View',
     shortcuts: [
+      { keys: [modKey, '⇧', 'E'], description: 'Toggle source view' },
       { keys: [modKey, '⇧', 'H'], description: 'Toggle file list' },
       { keys: [modKey, '⇧', 'L'], description: 'Toggle chat panel' },
     ]
@@ -73,7 +75,7 @@ const shortcutSections: ShortcutSection[] = [
       { keys: ['⇧', 'Tab'], description: 'Toggle edit mode' },
       { keys: [modKey, '.'], description: 'Toggle document context' },
       { keys: [modKey, '⇧', 'K'], description: 'Add selection as context' },
-      { keys: [modKey, '⇧', 'C'], description: 'Add comment to selection' },
+      { keys: [modKey, '⇧', 'A'], description: 'Add comment to selection' },
       { keys: [modKey, '↵'], description: 'Send message' },
       { keys: ['Esc'], description: 'Close chat panel' },
     ]

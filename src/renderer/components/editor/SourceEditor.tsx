@@ -1,11 +1,11 @@
-import { useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react'
+import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from 'react'
 import { EditorView, basicSetup } from 'codemirror'
 import { markdown } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
-import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
+import { HighlightStyle, syntaxHighlighting, unfoldAll, foldEffect } from '@codemirror/language'
 import { tags } from '@lezer/highlight'
 import { EditorState } from '@codemirror/state'
-import { keymap } from '@codemirror/view'
+import { keymap, ViewPlugin, type ViewUpdate } from '@codemirror/view'
 import { indentWithTab } from '@codemirror/commands'
 import { useEditorStore } from '../../stores/editorStore'
 
@@ -38,7 +38,6 @@ function createAppTheme(fontSize: number, lineHeight: number, fontFamily: string
       fontFamily,
       lineHeight: String(lineHeight),
       caretColor: 'hsl(var(--foreground))',
-      padding: '0',
     },
     '.cm-cursor, .cm-dropCursor': {
       borderLeftColor: 'hsl(var(--foreground))',
@@ -47,9 +46,9 @@ function createAppTheme(fontSize: number, lineHeight: number, fontFamily: string
       fontFamily,
       fontSize: `${fontSize}px`,
       backgroundColor: 'transparent',
-      color: 'hsl(var(--muted-foreground) / 0.4)',
+      color: 'hsl(var(--muted-foreground) / 0.2)',
       borderRight: 'none',
-      minWidth: '2em',
+      minWidth: '3em',
     },
     '.cm-activeLineGutter': {
       backgroundColor: 'transparent',
@@ -110,6 +109,9 @@ export const SourceEditor = forwardRef<SourceEditorHandle, SourceEditorProps>(fu
 }, ref) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
+  const foldButtonRef = useRef<HTMLButtonElement | null>(null)
+  const foldToggleRef = useRef<(() => void) | null>(null)
+  const [allFolded, setAllFolded] = useState(false)
 
   useImperativeHandle(ref, () => ({
     getContent: () => viewRef.current?.state.doc.toString() ?? content,
@@ -137,9 +139,53 @@ export const SourceEditor = forwardRef<SourceEditorHandle, SourceEditorProps>(fu
 
     const appTheme = createAppTheme(fontSize, lineHeight, fontFamily)
 
+    // Block folding on line 1 when it's an H1 — folding the title hides the entire doc.
+    // foldService can't veto other services, so we intercept the transaction instead.
+    const blockLine1H1Fold = EditorState.transactionFilter.of((tr) => {
+      if (!tr.effects.length) return tr
+      const doc = tr.startState.doc
+      if (doc.lines < 1 || !/^#\s/.test(doc.line(1).text)) return tr
+      const line1End = doc.line(1).to
+      const hasLine1Fold = tr.effects.some(
+        (e) => e.is(foldEffect) && e.value.from === line1End
+      )
+      if (!hasLine1Fold) return tr
+      // Strip fold effects targeting line 1's H1, keep everything else
+      const kept = tr.effects.filter(
+        (e) => !(e.is(foldEffect) && e.value.from === line1End)
+      )
+      // Return a replacement spec — NOT [tr, spec] which would apply both
+      return { effects: kept }
+    })
+
+    // Hide the fold gutter chevron on line 1 when it's an H1.
+    // Both gutters render elements in the same order, so we match by index.
+    const hideLine1FoldMarker = ViewPlugin.fromClass(class {
+      update(update: ViewUpdate) {
+        const doc = update.state.doc
+        if (doc.lines < 1 || !/^#\s/.test(doc.line(1).text)) return
+        const lineNumGutter = update.view.dom.querySelector('.cm-gutter.cm-lineNumbers')
+        const foldGutter = update.view.dom.querySelector('.cm-gutter.cm-foldGutter')
+        if (!lineNumGutter || !foldGutter) return
+        const lineNumEls = lineNumGutter.querySelectorAll('.cm-gutterElement')
+        const foldEls = foldGutter.querySelectorAll('.cm-gutterElement')
+        // Find which index corresponds to line number "1"
+        for (let i = 0; i < lineNumEls.length; i++) {
+          if (lineNumEls[i].textContent?.trim() === '1') {
+            if (i < foldEls.length) {
+              (foldEls[i] as HTMLElement).style.visibility = 'hidden'
+            }
+            break
+          }
+        }
+      }
+    })
+
     const extensions = [
       basicSetup,
       markdown({ codeLanguages: languages }),
+      blockLine1H1Fold,
+      hideLine1FoldMarker,
       keymap.of([indentWithTab]),
       appTheme,
       syntaxHighlighting(appHighlightStyle),
@@ -174,6 +220,20 @@ export const SourceEditor = forwardRef<SourceEditorHandle, SourceEditorProps>(fu
 
     viewRef.current = view
 
+    // Insert fold-all button into .cm-editor before .cm-scroller
+    const foldBtn = document.createElement('button')
+    foldBtn.className = 'fold-all-toggle'
+    foldBtn.type = 'button'
+    foldBtn.textContent = '▾'
+    foldBtn.title = 'Fold all'
+    foldBtn.ariaLabel = 'Fold all'
+    foldBtn.addEventListener('click', () => {
+      foldToggleRef.current?.()
+    })
+    const scroller = view.dom.querySelector('.cm-scroller')
+    if (scroller) view.dom.insertBefore(foldBtn, scroller)
+    foldButtonRef.current = foldBtn
+
     return () => {
       if (debounceRef.current) {
         clearTimeout(debounceRef.current)
@@ -204,10 +264,71 @@ export const SourceEditor = forwardRef<SourceEditorHandle, SourceEditorProps>(fu
     }
   }, [content])
 
+  /**
+   * Outline fold: collapse body content under each heading so only
+   * heading lines remain visible, like a document outline.
+   * Skips line 1 if it's an H1 — folding that would hide the whole doc.
+   */
+  const handleToggleFoldAll = useCallback(() => {
+    const view = viewRef.current
+    if (!view) return
+
+    if (allFolded) {
+      unfoldAll(view)
+      setAllFolded(false)
+      return
+    }
+
+    const doc = view.state.doc
+    const headingPattern = /^#{1,6}\s/
+    const headingLines: number[] = []
+
+    for (let i = 1; i <= doc.lines; i++) {
+      if (headingPattern.test(doc.line(i).text)) {
+        headingLines.push(i)
+      }
+    }
+
+    if (headingLines.length === 0) return
+
+    const effects: ReturnType<typeof foldEffect.of>[] = []
+
+    // Skip line-1 H1: folding it collapses the entire document
+    const line1IsH1 = headingLines[0] === 1 && /^#\s/.test(doc.line(1).text)
+
+    for (let i = 0; i < headingLines.length; i++) {
+      if (i === 0 && line1IsH1) continue // skip the title heading
+
+      const headingLine = doc.line(headingLines[i])
+      const nextHeadingLineNum = headingLines[i + 1]
+      const foldEnd = nextHeadingLineNum
+        ? doc.line(nextHeadingLineNum - 1).to
+        : doc.line(doc.lines).to
+
+      if (headingLine.to < foldEnd) {
+        effects.push(foldEffect.of({ from: headingLine.to, to: foldEnd }))
+      }
+    }
+
+    if (effects.length > 0) {
+      view.dispatch({ effects })
+      setAllFolded(true)
+    }
+  }, [allFolded])
+
+  // Keep fold toggle ref current for the imperative button's click handler
+  foldToggleRef.current = handleToggleFoldAll
+
+  // Sync button text/title with allFolded state
+  useEffect(() => {
+    if (foldButtonRef.current) {
+      foldButtonRef.current.textContent = allFolded ? '▸' : '▾'
+      foldButtonRef.current.title = allFolded ? 'Unfold all' : 'Fold all'
+      foldButtonRef.current.ariaLabel = allFolded ? 'Unfold all' : 'Fold all'
+    }
+  }, [allFolded])
+
   return (
-    <div
-      ref={containerRef}
-      className="source-editor h-full [&_.cm-editor]:h-full [&_.cm-editor]:outline-none"
-    />
+    <div ref={containerRef} className="source-editor h-full [&_.cm-editor]:h-full [&_.cm-editor]:outline-none" />
   )
 })

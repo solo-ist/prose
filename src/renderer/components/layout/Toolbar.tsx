@@ -269,7 +269,7 @@ export function Toolbar() {
                 size="icon"
                 onClick={handleCopy}
                 disabled={!document.content}
-                aria-label="Copy document"
+                aria-label="Copy Markdown"
               >
                 {hasCopied ? (
                   <Check className="h-4 w-4 text-green-500" />
@@ -278,7 +278,7 @@ export function Toolbar() {
                 )}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>{hasCopied ? 'Copied!' : 'Copy document'}</TooltipContent>
+            <TooltipContent>{hasCopied ? 'Copied!' : `Copy Markdown (${isMacOS() ? '⌘⇧C' : 'Ctrl+Shift+C'})`}</TooltipContent>
           </Tooltip>
 
           {settings.autosave?.enabled && (
@@ -335,7 +335,7 @@ export function Toolbar() {
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              {annotationsVisible ? 'Hide' : 'Show'} AI annotations ({isMacOS() ? '⌘⇧A' : 'Ctrl+Shift+A'})
+              {annotationsVisible ? 'Hide' : 'Show'} AI annotations
             </TooltipContent>
           </Tooltip>
 

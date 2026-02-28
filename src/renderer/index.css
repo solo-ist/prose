@@ -142,7 +142,7 @@
 
 /* Source editor (CodeMirror) — match app native theme */
 .source-editor {
-  margin-left: -2.5em;
+  margin-left: -48px;
 }
 .source-editor .cm-editor {
   background: transparent;
@@ -152,6 +152,31 @@
 }
 .source-editor .cm-focused {
   outline: none;
+}
+
+/* Fold all/unfold all toggle — flex child of .cm-editor, above .cm-scroller */
+.source-editor .fold-all-toggle {
+  height: 32px;
+  width: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: hsl(var(--muted-foreground) / 0.4);
+  font-size: 22px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+.source-editor:hover .fold-all-toggle {
+  opacity: 1;
+}
+.source-editor .fold-all-toggle:hover {
+  color: hsl(var(--muted-foreground) / 0.7);
 }
 
 /* Editor typography */

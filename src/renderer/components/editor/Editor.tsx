@@ -445,9 +445,12 @@ export function Editor() {
         }
       }
     } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'c') {
-      // Cmd+Shift+C: Add comment to selection
+      // Cmd+Shift+C: Copy Markdown
       e.preventDefault()
-      openAddCommentDialog()
+      const content = useEditorStore.getState().document.content
+      if (content) {
+        navigator.clipboard.writeText(content)
+      }
     } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'l') {
       // Cmd+Shift+L: Toggle chat panel
       e.preventDefault()
@@ -569,9 +572,9 @@ export function Editor() {
       e.preventDefault()
       useEditorStore.getState().toggleSourceMode()
     } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'a') {
-      // Cmd+Shift+A: Toggle AI annotation visibility
+      // Cmd+Shift+A: Add comment to selection
       e.preventDefault()
-      toggleAnnotationsVisible()
+      openAddCommentDialog()
     } else if (e.altKey && !isMod && e.key === 'ArrowUp') {
       // Alt+Up: Move line up
       e.preventDefault()
@@ -639,6 +642,13 @@ export function Editor() {
     return () => window.removeEventListener('menu:find', handleMenuFind)
   }, [])
 
+  // Listen for menu:addComment event from main process (via App.tsx)
+  useEffect(() => {
+    const handleMenuAddComment = () => openAddCommentDialog()
+    window.addEventListener('menu:addComment', handleMenuAddComment)
+    return () => window.removeEventListener('menu:addComment', handleMenuAddComment)
+  }, [openAddCommentDialog])
+
   // Listen for search:show event from tools (e.g., search_document)
   useEffect(() => {
     const handleSearchShow = () => setIsFindOpen(true)
@@ -693,7 +703,7 @@ export function Editor() {
       {showEmptyState ? (
         <EmptyState />
       ) : sourceMode ? (
-        <div className="flex-1 overflow-auto pl-8 pr-10 py-6"
+        <div className="flex-1 overflow-auto px-12 py-6"
           style={{
             fontSize: `${settings.editor.fontSize}px`,
             lineHeight: settings.editor.lineHeight,
@@ -720,7 +730,7 @@ export function Editor() {
         </div>
       ) : (
         <div
-          className="flex-1 overflow-auto pl-8 pr-10 py-6"
+          className="flex-1 overflow-auto px-12 py-6"
           style={{
             fontSize: `${settings.editor.fontSize}px`,
             lineHeight: settings.editor.lineHeight,

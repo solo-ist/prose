@@ -186,6 +186,21 @@ export function createMenu(mainWindow: BrowserWindow): void {
             ]),
         { type: 'separator' },
         {
+          label: 'Copy Markdown',
+          accelerator: 'CmdOrCtrl+Shift+C',
+          click: (): void => {
+            sendMenuAction('copyMarkdown')
+          }
+        },
+        {
+          label: 'Add Comment',
+          accelerator: 'CmdOrCtrl+Shift+A',
+          click: (): void => {
+            sendMenuAction('addComment')
+          }
+        },
+        { type: 'separator' },
+        {
           label: 'Find',
           accelerator: 'CmdOrCtrl+F',
           click: (): void => {
@@ -207,6 +222,13 @@ export function createMenu(mainWindow: BrowserWindow): void {
         { type: 'separator' },
         { role: 'togglefullscreen' },
         { type: 'separator' },
+        {
+          label: 'Toggle Source View',
+          accelerator: 'Shift+CmdOrCtrl+E',
+          click: (): void => {
+            sendMenuAction('toggleSourceView')
+          }
+        },
         {
           label: 'Toggle File List',
           accelerator: 'Shift+CmdOrCtrl+H',

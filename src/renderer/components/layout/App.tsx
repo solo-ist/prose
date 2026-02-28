@@ -698,6 +698,17 @@ export function App() {
         case 'toggleFileList':
           toggleFileList()
           break
+        case 'copyMarkdown': {
+          const content = useEditorStore.getState().document.content
+          if (content) navigator.clipboard.writeText(content)
+          break
+        }
+        case 'addComment':
+          window.dispatchEvent(new CustomEvent('menu:addComment'))
+          break
+        case 'toggleSourceView':
+          useEditorStore.getState().toggleSourceMode()
+          break
         case 'find':
           // Dispatch custom event for Editor to handle
           window.dispatchEvent(new CustomEvent('menu:find'))

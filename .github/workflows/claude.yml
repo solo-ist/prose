@@ -73,3 +73,14 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Follow the instructions in CLAUDE.md for commit conventions and branch naming.
+
+            When you complete implementation work on an issue, always open a pull request
+            using `gh pr create`. The PR should:
+            - Reference the issue (e.g., "Fixes #<number>") in the body
+            - Use conventional commit format for the title
+            - Include a brief summary and test plan in the body
+
+            If the trigger is just a question or discussion (not implementation), respond
+            with a comment instead.

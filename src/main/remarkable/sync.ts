@@ -784,22 +784,16 @@ export async function clearNotebookMarkdownPath(
 }
 
 /**
- * Purge all sync data: hidden directory and visible synced files
- * Called on disconnect to ensure a clean slate for reconnection
+ * Purge sync state and cached data (hidden .remarkable/ directory only).
+ * Does NOT delete user-visible markdown files — those belong to the user.
+ * Called on disconnect to ensure a clean slate for reconnection.
  */
 export async function purgeSync(syncDirectory: string): Promise<void> {
   const baseDir = expandPath(syncDirectory)
   const hiddenDir = join(baseDir, HIDDEN_DIR)
-  await rm(hiddenDir, { recursive: true, force: true })
-
-  // Delete visible synced files (markdown, folders) but not hidden items
   try {
-    const entries = await readdir(baseDir, { withFileTypes: true })
-    for (const entry of entries) {
-      if (entry.name.startsWith('.')) continue
-      await rm(join(baseDir, entry.name), { recursive: true, force: true })
-    }
+    await rm(hiddenDir, { recursive: true, force: true })
   } catch {
-    // Directory doesn't exist
+    // Directory doesn't exist or permission error
   }
 }

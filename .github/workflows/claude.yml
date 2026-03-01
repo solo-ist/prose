@@ -73,14 +73,23 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          max_turns: 50
+          show_full_output: true
           prompt: |
-            Follow the instructions in CLAUDE.md for commit conventions and branch naming.
+            You are an autonomous coding agent. Read the issue and implement the requested changes.
 
-            When you complete implementation work on an issue, always open a pull request
-            using `gh pr create`. The PR should:
-            - Reference the issue (e.g., "Fixes #<number>") in the body
-            - Use conventional commit format for the title
-            - Include a brief summary and test plan in the body
+            ## Instructions
+            1. Read CLAUDE.md for project conventions (commit format, branch naming)
+            2. Create a feature branch from the current HEAD
+            3. Implement the changes described in the issue
+            4. Commit your work with conventional commit messages
+            5. Push the branch and open a pull request using `gh pr create`
 
-            If the trigger is just a question or discussion (not implementation), respond
-            with a comment instead.
+            ## PR requirements
+            - Title: conventional commit format (e.g., "feat(editor): add table support")
+            - Body: reference the issue with "Fixes #<number>", include summary and test plan
+
+            ## Important
+            - You MUST use tools to read files, write code, and run commands
+            - Do NOT just describe what you would do — actually do it
+            - If the issue is a question (not implementation work), post a comment with your answer using `gh issue comment`

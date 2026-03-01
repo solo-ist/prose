@@ -3,7 +3,7 @@ name: Claude Code
 on:
   # Automatic review on initial PR creation only
   pull_request:
-    types: [opened]
+    types: [opened, reopened]
   # Manual invocation via @claude mentions
   issue_comment:
     types: [created]

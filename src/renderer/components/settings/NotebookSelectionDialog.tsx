@@ -97,6 +97,8 @@ export function NotebookSelectionDialog({
       .filter(n => n.type === 'notebook')
       .map(n => n.id)
     setSelectedIds(new Set(allNotebookIds))
+    // Expand all folders so selections are visible
+    setExpandedFolders(new Set(notebooks.filter(n => n.type === 'folder').map(n => n.id)))
   }
 
   const handleSelectNone = () => {
@@ -147,6 +149,14 @@ export function NotebookSelectionDialog({
   const selectedCount = selectedIds.size
   const totalCount = notebooksOnly.length
 
+  // Check if a folder has any notebook descendants (not just direct children)
+  const hasNotebookDescendants = (folderId: string): boolean => {
+    const children = itemsByParent.get(folderId) || []
+    return children.some(child =>
+      child.type === 'notebook' || (child.type === 'folder' && hasNotebookDescendants(child.id))
+    )
+  }
+
   // Recursive function to render folder tree
   const renderItems = (parentId: string | null, depth: number = 0): React.ReactNode => {
     const children = itemsByParent.get(parentId) || []
@@ -160,9 +170,8 @@ export function NotebookSelectionDialog({
 
     return sorted.map(item => {
       if (item.type === 'folder') {
-        // Recursively check if this folder has any descendants
-        const hasDescendants = itemsByParent.has(item.id)
-        if (!hasDescendants) return null
+        // Skip folders with no notebook descendants
+        if (!hasNotebookDescendants(item.id)) return null
 
         const isExpanded = expandedFolders.has(item.id)
 

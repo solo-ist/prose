@@ -33,6 +33,41 @@ function isEditorReadOnly(): boolean {
 }
 
 /**
+ * Resolve the target document position for an editor-mutating tool call.
+ * Used to sort tool calls by position (descending) before batch execution,
+ * so bottom-of-document edits don't shift positions of earlier edits.
+ * Returns Infinity for tools that don't target a specific position.
+ */
+export function resolveToolPosition(toolName: string, args: Record<string, unknown>): number {
+  const editor = getEditor()
+  if (!editor) return Infinity
+
+  if (toolName === 'edit' || toolName === 'suggest_edit') {
+    const nodeId = args.nodeId as string
+    const search = args.search as string | undefined
+    if (!nodeId) return Infinity
+
+    let found = findNodeById(editor.state.doc, nodeId)
+    if (!found && search) {
+      found = findNodeByContent(editor.state.doc, search)
+    }
+    return found ? found.pos : Infinity
+  }
+
+  if (toolName === 'insert') {
+    const position = (args.position as string) || 'cursor'
+    switch (position) {
+      case 'start': return 0
+      case 'end': return editor.state.doc.content.size
+      case 'cursor': return editor.state.selection.from
+      default: return Infinity
+    }
+  }
+
+  return Infinity
+}
+
+/**
  * edit - Replace the content of a node by its ID.
  * Falls back to content matching if the nodeId is stale.
  */

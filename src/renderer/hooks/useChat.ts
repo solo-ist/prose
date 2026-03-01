@@ -8,7 +8,7 @@ import { buildSystemPrompt, buildCommentsPrompt, buildSuggestionRepliesPrompt } 
 import { getApi } from '../lib/browserApi'
 import { getComments } from '../extensions/comments'
 import { getSuggestionsWithFeedback } from '../extensions/ai-suggestions'
-import { executeTool } from '../lib/tools'
+import { executeTool, resolveToolPosition } from '../lib/tools'
 import { getToolsForClaudeAPI } from '../../shared/tools/registry'
 import type { LLMMessage, LLMStreamToolCall, LLMContentBlock } from '../types'
 
@@ -214,11 +214,38 @@ export function useChat() {
           documentId: useEditorStore.getState().document.documentId || '',
         }
 
+        // Sort editor-mutating tool calls by document position (descending)
+        // so bottom-of-document edits execute first and don't shift positions above
+        const EDITOR_MUTATING_TOOLS = new Set(['edit', 'insert', 'suggest_edit'])
+        const sortedToolCalls = [...toolCalls]
+        if (sortedToolCalls.some(tc => EDITOR_MUTATING_TOOLS.has(tc.name))) {
+          // Pre-resolve positions before any edits execute
+          const positions = sortedToolCalls.map(tc =>
+            EDITOR_MUTATING_TOOLS.has(tc.name)
+              ? resolveToolPosition(tc.name, tc.args as Record<string, unknown>)
+              : -1
+          )
+          // Stable sort: editor tools by position descending, non-editor tools keep original order
+          const indexed = sortedToolCalls.map((tc, i) => ({ tc, pos: positions[i], origIdx: i }))
+          indexed.sort((a, b) => {
+            const aIsEditor = EDITOR_MUTATING_TOOLS.has(a.tc.name)
+            const bIsEditor = EDITOR_MUTATING_TOOLS.has(b.tc.name)
+            if (aIsEditor && bIsEditor) {
+              if (a.pos === b.pos) return 0
+              return b.pos > a.pos ? 1 : -1 // descending position
+            }
+            if (aIsEditor && !bIsEditor) return 1 // editor tools after non-editor
+            if (!aIsEditor && bIsEditor) return -1 // non-editor tools first
+            return a.origIdx - b.origIdx // preserve original order for non-editor
+          })
+          sortedToolCalls.splice(0, sortedToolCalls.length, ...indexed.map(x => x.tc))
+        }
+
         // Execute each tool and collect results
         const toolResults: Array<{ id: string; name: string; result: unknown }> = []
         let currentErrorSignature: string | null = null
 
-        for (const toolCall of toolCalls) {
+        for (const toolCall of sortedToolCalls) {
           const result = await executeTool(toolCall.name, toolCall.args, state.toolMode, provenance)
           toolResults.push({ id: toolCall.id, name: toolCall.name, result })
 

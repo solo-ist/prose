@@ -97,9 +97,9 @@ export async function executeTool(
 
       // Editor tools
       case 'edit':
-        return executeEdit(validatedArgs)
+        return executeEdit(validatedArgs, provenance)
       case 'insert':
-        return executeInsert(validatedArgs)
+        return executeInsert(validatedArgs, provenance)
       case 'suggest_edit':
         return executeSuggestEdit(validatedArgs, provenance)
       case 'accept_diff':

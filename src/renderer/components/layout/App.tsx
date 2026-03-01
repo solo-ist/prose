@@ -689,6 +689,18 @@ export function App() {
         case 'saveAs':
           saveFileAs()
           break
+        case 'exportTxt': {
+          if (!window.api) break
+          const editorInstance = useEditorInstanceStore.getState().editor
+          if (!editorInstance) break
+          const plainText = editorInstance.getText({ blockSeparator: '\n\n' })
+          const docPath = useEditorStore.getState().document.path
+          const defaultFilename = docPath
+            ? docPath.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, '') + '.txt'
+            : undefined
+          window.api.exportTxt(plainText, defaultFilename)
+          break
+        }
         case 'settings':
           setDialogOpen(true)
           break

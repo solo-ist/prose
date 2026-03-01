@@ -128,6 +128,13 @@ export function createMenu(mainWindow: BrowserWindow): void {
             sendMenuAction('saveAs')
           }
         },
+        {
+          label: 'Export as Plain Text...',
+          accelerator: 'CmdOrCtrl+Shift+T',
+          click: (): void => {
+            sendMenuAction('exportTxt')
+          }
+        },
         ...(isGoogleConfigured
           ? [
               { type: 'separator' as const },

@@ -98,6 +98,18 @@ export const browserApi: ElectronAPI = {
     URL.revokeObjectURL(url)
   },
 
+  exportTxt: async (content: string, defaultFilename?: string): Promise<string | null> => {
+    const fallbackName = defaultFilename ?? 'document.txt'
+    const blob = new Blob([content], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fallbackName
+    a.click()
+    URL.revokeObjectURL(url)
+    return fallbackName
+  },
+
   saveFileAs: async (content: string, defaultFilename?: string): Promise<string | null> => {
     if ('showSaveFilePicker' in window) {
       try {

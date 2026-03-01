@@ -76,20 +76,21 @@ jobs:
           show_full_output: true
           claude_args: '--allowedTools "Read,Write,Edit,Glob,Grep,Bash,TodoWrite"'
           prompt: |
-            You are an autonomous coding agent. Read the issue and implement the requested changes.
+            You are an autonomous coding agent. Implement the changes described in the
+            GitHub issue or comment that triggered this workflow. Do NOT list or browse
+            other issues — the action has already provided the relevant context.
 
             ## Instructions
             1. Read CLAUDE.md for project conventions (commit format, branch naming)
-            2. Create a feature branch from the current HEAD
-            3. Implement the changes described in the issue
-            4. Commit your work with conventional commit messages
-            5. Push the branch and open a pull request using `gh pr create`
+            2. Create a feature branch: `git checkout -b issue-<number>-<description>`
+            3. Implement the requested changes
+            4. Commit with conventional commit messages
+            5. Push and open a PR: `gh pr create`
 
-            ## PR requirements
-            - Title: conventional commit format (e.g., "feat(editor): add table support")
-            - Body: reference the issue with "Fixes #<number>", include summary and test plan
+            ## PR format
+            - Title: conventional commit (e.g., "feat(editor): add table support")
+            - Body: "Fixes #<issue-number>", summary, and test plan
 
             ## Important
-            - You MUST use tools to read files, write code, and run commands
-            - Do NOT just describe what you would do — actually do it
-            - If the issue is a question (not implementation work), post a comment with your answer using `gh issue comment`
+            - You MUST use tools (Read, Edit, Write, Bash) — do not just describe work
+            - If the trigger is a question (not implementation), reply with `gh issue comment`

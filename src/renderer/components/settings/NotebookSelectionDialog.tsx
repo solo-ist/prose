@@ -10,7 +10,7 @@ import {
 import { Button } from '../ui/button'
 import { Checkbox } from '../ui/checkbox'
 import { ScrollArea } from '../ui/scroll-area'
-import { Loader2, Folder, FileText } from 'lucide-react'
+import { Loader2, Folder, FileText, ChevronRight, ChevronDown } from 'lucide-react'
 import type { RemarkableCloudNotebook } from '../../types'
 
 interface Props {
@@ -33,6 +33,7 @@ export function NotebookSelectionDialog({
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
 
   // Load notebooks from cloud and existing sync state when dialog opens
   useEffect(() => {
@@ -51,7 +52,20 @@ export function NotebookSelectionDialog({
 
         // Use existing selection if available, otherwise select none (first time)
         if (existingSyncState?.selectedNotebooks) {
-          setSelectedIds(new Set(existingSyncState.selectedNotebooks))
+          const selectedSet = new Set(existingSyncState.selectedNotebooks)
+          setSelectedIds(selectedSet)
+          // Auto-expand folders containing selected notebooks
+          const foldersToExpand = new Set<string>()
+          for (const notebook of cloudNotebooks) {
+            if (notebook.type === 'notebook' && selectedSet.has(notebook.id) && notebook.parent) {
+              let current: string | null = notebook.parent
+              while (current) {
+                foldersToExpand.add(current)
+                current = cloudNotebooks.find(n => n.id === current)?.parent ?? null
+              }
+            }
+          }
+          setExpandedFolders(foldersToExpand)
         } else {
           // First time - start with nothing selected so user explicitly chooses
           setSelectedIds(new Set())
@@ -83,10 +97,24 @@ export function NotebookSelectionDialog({
       .filter(n => n.type === 'notebook')
       .map(n => n.id)
     setSelectedIds(new Set(allNotebookIds))
+    // Expand all folders so selections are visible
+    setExpandedFolders(new Set(notebooks.filter(n => n.type === 'folder').map(n => n.id)))
   }
 
   const handleSelectNone = () => {
     setSelectedIds(new Set())
+  }
+
+  const toggleFolder = (folderId: string) => {
+    setExpandedFolders(prev => {
+      const next = new Set(prev)
+      if (next.has(folderId)) {
+        next.delete(folderId)
+      } else {
+        next.add(folderId)
+      }
+      return next
+    })
   }
 
   const handleSave = async () => {
@@ -121,6 +149,14 @@ export function NotebookSelectionDialog({
   const selectedCount = selectedIds.size
   const totalCount = notebooksOnly.length
 
+  // Check if a folder has any notebook descendants (not just direct children)
+  const hasNotebookDescendants = (folderId: string): boolean => {
+    const children = itemsByParent.get(folderId) || []
+    return children.some(child =>
+      child.type === 'notebook' || (child.type === 'folder' && hasNotebookDescendants(child.id))
+    )
+  }
+
   // Recursive function to render folder tree
   const renderItems = (parentId: string | null, depth: number = 0): React.ReactNode => {
     const children = itemsByParent.get(parentId) || []
@@ -134,17 +170,27 @@ export function NotebookSelectionDialog({
 
     return sorted.map(item => {
       if (item.type === 'folder') {
-        // Recursively check if this folder has any descendants
-        const hasDescendants = itemsByParent.has(item.id)
-        if (!hasDescendants) return null
+        // Skip folders with no notebook descendants
+        if (!hasNotebookDescendants(item.id)) return null
+
+        const isExpanded = expandedFolders.has(item.id)
 
         return (
           <div key={item.id} className="space-y-1" style={{ paddingLeft: depth > 0 ? '1.5rem' : 0 }}>
-            <div className="flex items-center gap-2 py-1 text-muted-foreground">
-              <Folder className="h-4 w-4" />
+            <button
+              type="button"
+              className="flex items-center gap-1 py-1 text-muted-foreground hover:text-foreground transition-colors w-full text-left"
+              onClick={() => toggleFolder(item.id)}
+            >
+              {isExpanded ? (
+                <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+              )}
+              <Folder className="h-4 w-4 shrink-0" />
               <span className="text-sm font-medium">{item.name}</span>
-            </div>
-            {renderItems(item.id, depth + 1)}
+            </button>
+            {isExpanded && renderItems(item.id, depth + 1)}
           </div>
         )
       } else {

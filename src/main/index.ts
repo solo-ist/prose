@@ -128,8 +128,12 @@ function createWindow(): BrowserWindow {
     }
   })
 
+  let hasBeenShown = false
   mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+    if (!hasBeenShown) {
+      mainWindow.show()
+      hasBeenShown = true
+    }
   })
 
   // Notify renderer of fullscreen changes (for traffic light padding)

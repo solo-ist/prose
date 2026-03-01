@@ -984,6 +984,20 @@
   background: hsl(262 65% 50% / 0.35);
 }
 
+/* Images */
+.prose-editor .editor-image {
+  max-width: 100%;
+  height: auto;
+  display: inline-block;
+  border-radius: 0.25em;
+  margin: 0.25em 0;
+}
+
+.prose-editor .editor-image.ProseMirror-selectednode {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
 /* Search Highlight - FindBar multi-match highlighting */
 .prose-editor .search-match {
   background-color: hsl(45 100% 50% / 0.3);

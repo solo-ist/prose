@@ -33,7 +33,7 @@ import {
 } from '../ui/dialog'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
-import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, Folder, FolderOpen, Download, Trash2, FilePlus, ClipboardPaste, ExternalLink, X, Globe, Edit3 } from 'lucide-react'
+import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, Folder, FolderOpen, Download, Trash2, FilePlus, ClipboardPaste, ExternalLink, X, Globe, Edit3, RefreshCw, Loader2 } from 'lucide-react'
 import { useSettings } from '../../hooks/useSettings'
 import { cn } from '../../lib/utils'
 import { getApi } from '../../lib/browserApi'
@@ -71,9 +71,16 @@ export function FileListPanel() {
   const { isSyncing, sync, error: syncError } = useRemarkableSync()
   const { isSyncing: isGoogleSyncing, sync: googleSync, error: googleSyncError } = useGoogleDocsSync()
   const { setDialogOpen } = useSettings()
-  const remarkableEnabled = useSettingsStore((state) => state.settings.remarkable?.enabled)
+  const remarkableEnabled = useSettingsStore((state) => state.settings.remarkable?.enabled && !!state.settings.remarkable?.deviceToken)
   const googleConnected = useSettingsStore((state) => !!state.settings.google)
   const googleSyncDirectory = useSettingsStore((state) => state.settings.google?.syncDirectory)
+
+  // Switch away from notebooks view if reMarkable becomes disconnected
+  useEffect(() => {
+    if (!remarkableEnabled && viewMode === 'notebooks') {
+      setViewMode('folder')
+    }
+  }, [remarkableEnabled, viewMode, setViewMode])
 
   // Explorer panel ref for scoped keyboard shortcuts
   const containerRef = useRef<HTMLDivElement>(null)
@@ -374,7 +381,7 @@ export function FileListPanel() {
 
   // Auto-sync when switching to notebooks view
   useEffect(() => {
-    if (viewMode === 'notebooks' && remarkableEnabled && !isSyncing) {
+    if (viewMode === 'notebooks' && remarkableEnabled && deviceToken && syncState && !isSyncing) {
       sync().catch((err) => {
         console.error('[FileListPanel] Auto-sync failed:', err)
       })
@@ -656,6 +663,55 @@ export function FileListPanel() {
           <h2 className="text-sm font-medium truncate" title={viewMode === 'folder' ? rootPath || undefined : undefined}>
             {viewMode === 'recent' ? 'Recent' : viewMode === 'notebooks' ? 'Notebooks' : viewMode === 'googledocs' ? 'Google Docs' : folderName}
           </h2>
+          {viewMode === 'notebooks' && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => {
+                    if (!syncState) {
+                      // No notebook selection yet — open Settings → Integrations
+                      setDialogOpen(true, 'integrations')
+                      return
+                    }
+                    sync().catch((err) => console.error('[FileListPanel] Manual sync failed:', err))
+                  }}
+                  disabled={isSyncing}
+                  aria-label="Sync notebooks"
+                >
+                  {isSyncing ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Sync notebooks</TooltipContent>
+            </Tooltip>
+          )}
+          {viewMode === 'googledocs' && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => googleSync().catch((err) => console.error('[FileListPanel] Manual Google sync failed:', err))}
+                  disabled={isGoogleSyncing}
+                  aria-label="Sync Google Docs"
+                >
+                  {isGoogleSyncing ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Sync Google Docs</TooltipContent>
+            </Tooltip>
+          )}
         </div>
         <div className="flex items-center gap-1">
           {/* View toggle buttons */}
@@ -907,6 +963,17 @@ export function FileListPanel() {
             <div className="p-4 text-sm text-muted-foreground">
               {isLoading ? 'Loading notebooks...' : syncError ? (
                 <span className="text-red-500">{syncError}</span>
+              ) : !syncState ? (
+                <span>
+                  Select notebooks to sync in{' '}
+                  <button
+                    className="text-primary hover:underline"
+                    onClick={() => setDialogOpen(true, 'integrations')}
+                  >
+                    Settings
+                  </button>
+                  .
+                </span>
               ) : 'No notebooks synced yet. Click sync to download.'}
             </div>
           ) : allNotebooks.length === 0 && itemsByParent.size === 0 ? (

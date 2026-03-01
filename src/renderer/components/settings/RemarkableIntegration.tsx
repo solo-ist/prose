@@ -6,6 +6,7 @@ import { Separator } from '../ui/separator'
 import { Switch } from '../ui/switch'
 import { Loader2, ExternalLink, CheckCircle, XCircle, RefreshCw, Settings2, Key, Eye, EyeOff } from 'lucide-react'
 import { NotebookSelectionDialog } from './NotebookSelectionDialog'
+import { useSettingsStore } from '../../stores/settingsStore'
 import type { Settings } from '../../types'
 
 interface Props {
@@ -21,6 +22,7 @@ function hasAnthropicLLMKey(settings: Settings): boolean {
 }
 
 export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) {
+  const { saveSettings } = useSettingsStore()
   const [code, setCode] = useState('')
   const [isRegistering, setIsRegistering] = useState(false)
   const [isValidating, setIsValidating] = useState(false)
@@ -117,11 +119,12 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
         deviceToken: response.deviceToken
       }
       if (!remarkableSettings?.syncDirectory) {
-        config.syncDirectory = '~/Documents/Remarkable'
+        config.syncDirectory = '~/Documents/reMarkable'
       }
       setRemarkableConfig(config)
       setIsConnected(true)
       setCode('')
+      setShowSelectionDialog(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed')
     } finally {
@@ -133,20 +136,27 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
     if (!window.api) return
 
     try {
-      await window.api.remarkableDisconnect()
+      await window.api.remarkableDisconnect(remarkableSettings?.syncDirectory)
     } catch {
       // Ignore disconnect errors
     }
 
-    setRemarkableConfig({ deviceToken: undefined })
+    setRemarkableConfig({
+      deviceToken: undefined,
+      lastSyncedAt: undefined,
+      hasAnthropicKey: false,
+    })
+    setHasSyncState(false)
     setIsConnected(false)
     setError(null)
+    setSyncStatus(null)
+    await saveSettings()
   }
 
   const handleSync = async () => {
     if (!window.api || !remarkableSettings?.deviceToken) return
 
-    const syncDir = remarkableSettings.syncDirectory || '~/Documents/Remarkable'
+    const syncDir = remarkableSettings.syncDirectory || '~/Documents/reMarkable'
 
     // If no sync state exists, show selection dialog first
     if (!hasSyncState) {
@@ -183,7 +193,7 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
   }
 
   const handleSelectionComplete = async () => {
-    const syncDir = remarkableSettings?.syncDirectory || '~/Documents/Remarkable'
+    const syncDir = remarkableSettings?.syncDirectory || '~/Documents/reMarkable'
     await performSync(syncDir)
   }
 
@@ -237,7 +247,7 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
             const config: Partial<NonNullable<Settings['remarkable']>> = { enabled: checked }
             // Set default sync directory when enabling for the first time
             if (checked && !remarkableSettings?.syncDirectory) {
-              config.syncDirectory = '~/Documents/Remarkable'
+              config.syncDirectory = '~/Documents/reMarkable'
             }
             setRemarkableConfig(config)
           }}
@@ -325,9 +335,9 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
             <div className="flex gap-2">
               <Input
                 id="remarkable-syncdir"
-                value={remarkableSettings?.syncDirectory || '~/Documents/Remarkable'}
+                value={remarkableSettings?.syncDirectory || '~/Documents/reMarkable'}
                 onChange={(e) => setRemarkableConfig({ syncDirectory: e.target.value })}
-                placeholder="~/Documents/Remarkable"
+                placeholder="~/Documents/reMarkable"
                 className="flex-1"
               />
               <Button
@@ -347,97 +357,87 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
             </p>
           </div>
 
-          {/* Anthropic API Key for OCR */}
-          <div className="space-y-2">
-            <Label htmlFor="remarkable-apikey">Anthropic API Key</Label>
-            {hasAnthropicLLMKey(settings) ? (
-              // User is using Anthropic as their LLM provider - reuse that key
-              <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-border bg-muted/30">
-                <Key className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">Using your LLM API key</span>
-                <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400 ml-auto" />
-              </div>
-            ) : hasStoredApiKey ? (
-              // User has a separate stored key for OCR
-              <div className="flex items-center gap-2">
-                <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-md border border-border bg-muted/30">
-                  <Key className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">API key configured</span>
-                  <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400 ml-auto" />
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleClearApiKey}
-                  className="text-destructive hover:text-destructive"
-                >
-                  Remove
-                </Button>
-              </div>
-            ) : (
-              // User needs to enter a separate key for OCR
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Input
-                    id="remarkable-apikey"
-                    type={showApiKey ? 'text' : 'password'}
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="sk-ant-..."
-                    className="pr-10 font-mono"
-                    disabled={isSavingApiKey}
-                  />
+          {/* Anthropic API Key for OCR — only shown when not using Anthropic as LLM provider */}
+          {hasAnthropicLLMKey(settings) ? (
+            <p className="text-xs text-muted-foreground">
+              Handwriting recognition uses your Anthropic API key from LLM settings.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              <Label htmlFor="remarkable-apikey">Anthropic API Key</Label>
+              {hasStoredApiKey ? (
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-md border border-border bg-muted/30">
+                    <Key className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">API key configured</span>
+                    <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400 ml-auto" />
+                  </div>
                   <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
-                    onClick={() => setShowApiKey(!showApiKey)}
+                    variant="outline"
+                    size="sm"
+                    onClick={handleClearApiKey}
+                    className="text-destructive hover:text-destructive"
                   >
-                    {showApiKey ? (
-                      <EyeOff className="h-4 w-4 text-muted-foreground" />
+                    Remove
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Input
+                      id="remarkable-apikey"
+                      type={showApiKey ? 'text' : 'password'}
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder="sk-ant-..."
+                      className="pr-10 font-mono"
+                      disabled={isSavingApiKey}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                    >
+                      {showApiKey ? (
+                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </Button>
+                  </div>
+                  <Button
+                    onClick={handleSaveApiKey}
+                    disabled={isSavingApiKey || !apiKey.trim()}
+                  >
+                    {isSavingApiKey ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Saving...
+                      </>
                     ) : (
-                      <Eye className="h-4 w-4 text-muted-foreground" />
+                      'Save'
                     )}
                   </Button>
                 </div>
-                <Button
-                  onClick={handleSaveApiKey}
-                  disabled={isSavingApiKey || !apiKey.trim()}
+              )}
+              <p className="text-xs text-muted-foreground">
+                Required for handwriting recognition (OCR). Get your key from{' '}
+                <a
+                  href="https://console.anthropic.com/settings/keys"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
                 >
-                  {isSavingApiKey ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      Saving...
-                    </>
-                  ) : (
-                    'Save'
-                  )}
-                </Button>
-              </div>
-            )}
-            <p className="text-xs text-muted-foreground">
-              {hasAnthropicLLMKey(settings)
-                ? 'Your Anthropic API key from the LLM tab will be used for handwriting recognition.'
-                : (
-                  <>
-                    Required for handwriting recognition (OCR). Get your key from{' '}
-                    <a
-                      href="https://console.anthropic.com/settings/keys"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary hover:underline"
-                    >
-                      console.anthropic.com
-                    </a>
-                  </>
-                )
-              }
-            </p>
-            {apiKeyError && (
-              <p className="text-sm text-destructive">{apiKeyError}</p>
-            )}
-          </div>
+                  console.anthropic.com
+                </a>
+              </p>
+              {apiKeyError && (
+                <p className="text-sm text-destructive">{apiKeyError}</p>
+              )}
+            </div>
+          )}
 
           {/* Sync status */}
           {syncStatus && (
@@ -498,7 +498,7 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
           open={showSelectionDialog}
           onOpenChange={setShowSelectionDialog}
           deviceToken={remarkableSettings.deviceToken}
-          syncDirectory={remarkableSettings.syncDirectory || '~/Documents/Remarkable'}
+          syncDirectory={remarkableSettings.syncDirectory || '~/Documents/reMarkable'}
           onComplete={handleSelectionComplete}
         />
       )}

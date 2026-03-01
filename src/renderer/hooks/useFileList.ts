@@ -43,22 +43,20 @@ export function useFileList() {
   useEffect(() => {
     // Only initialize if no rootPath is set yet
     if (!rootPath) {
-      if (settings.remarkable?.enabled && syncDirectory) {
-        // If remarkable is enabled, start at sync directory
-        setRootPath(syncDirectory)
+      if (settings.defaultSaveDirectory) {
+        setRootPath(settings.defaultSaveDirectory)
       } else {
-        // Otherwise, initialize to ~/Documents
         initializeDefaultPath()
       }
     }
-  }, [settings.remarkable?.enabled, syncDirectory, rootPath, setRootPath, initializeDefaultPath])
+  }, [settings.defaultSaveDirectory, rootPath, setRootPath, initializeDefaultPath])
 
   // Load local notebook metadata when in notebooks view (no cloud API calls)
   useEffect(() => {
-    if (viewMode === 'notebooks' && settings.remarkable?.enabled && syncDirectory) {
+    if (viewMode === 'notebooks' && settings.remarkable?.enabled && settings.remarkable?.deviceToken && syncDirectory) {
       loadNotebooks(syncDirectory)
     }
-  }, [viewMode, settings.remarkable?.enabled, syncDirectory, loadNotebooks])
+  }, [viewMode, settings.remarkable?.enabled, settings.remarkable?.deviceToken, syncDirectory, loadNotebooks])
 
   // Auto-refresh files when switching to folder view
   useEffect(() => {

@@ -206,7 +206,7 @@ export interface ElectronAPI {
   remarkableRegister: (code: string) => Promise<RemarkableRegisterResponse>
   remarkableValidate: (deviceToken: string) => Promise<boolean>
   remarkableSync: (deviceToken: string, syncDirectory: string) => Promise<RemarkableSyncResult>
-  remarkableDisconnect: () => Promise<void>
+  remarkableDisconnect: (syncDirectory?: string) => Promise<void>
   remarkableGetMetadata: (syncDirectory: string) => Promise<RemarkableSyncMetadata | null>
   remarkableListCloudNotebooks: (deviceToken: string) => Promise<RemarkableCloudNotebook[]>
   remarkableGetSyncState: (syncDirectory: string) => Promise<RemarkableSyncState | null>
@@ -360,7 +360,7 @@ const api: ElectronAPI = {
   remarkableValidate: (deviceToken: string) => ipcRenderer.invoke('remarkable:validate', deviceToken),
   remarkableSync: (deviceToken: string, syncDirectory: string) =>
     ipcRenderer.invoke('remarkable:sync', deviceToken, syncDirectory),
-  remarkableDisconnect: () => ipcRenderer.invoke('remarkable:disconnect'),
+  remarkableDisconnect: (syncDirectory?: string) => ipcRenderer.invoke('remarkable:disconnect', syncDirectory),
   remarkableGetMetadata: (syncDirectory: string) => ipcRenderer.invoke('remarkable:getMetadata', syncDirectory),
   remarkableListCloudNotebooks: (deviceToken: string) =>
     ipcRenderer.invoke('remarkable:listCloudNotebooks', deviceToken),

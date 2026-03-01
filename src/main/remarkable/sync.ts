@@ -1,7 +1,7 @@
 /**
  * reMarkable sync logic - downloads notebooks to local filesystem
  */
-import { mkdir, writeFile, readFile, readdir, access } from 'fs/promises'
+import { mkdir, writeFile, readFile, readdir, access, rm } from 'fs/promises'
 import { join, dirname, resolve, sep } from 'path'
 import { homedir } from 'os'
 import { connect, disconnect, type RemarkableNotebook } from './client'
@@ -396,7 +396,7 @@ export async function syncAll(
           console.log(`[reMarkable] OCR result for ${doc.name}: ${markdown ? 'got markdown' : 'null'}`)
           if (markdown) {
             // Save OCR output to hidden folder (read-only source of truth)
-            const ocrFileName = 'ocr.md'
+            const ocrFileName = `${sanitizeName(doc.name)}.md`
             const ocrDir = join(hiddenDir, doc.id)
             const ocrFullPath = join(ocrDir, ocrFileName)
 
@@ -456,7 +456,7 @@ export async function syncAll(
           console.log(`[reMarkable] OCR result for ${doc.name}: ${markdown ? 'got markdown' : 'null'}`)
           if (markdown) {
             // Save OCR output to hidden folder (read-only source of truth)
-            const ocrFileName = 'ocr.md'
+            const ocrFileName = `${sanitizeName(doc.name)}.md`
             const ocrDir = join(hiddenDir, doc.id)
             const ocrFullPath = join(ocrDir, ocrFileName)
 
@@ -781,4 +781,25 @@ export async function clearNotebookMarkdownPath(
   await saveMetadata(baseDir, metadata)
   console.log(`[reMarkable] Cleared markdownPath for notebook ${notebookId}`)
   return true
+}
+
+/**
+ * Purge all sync data: hidden directory and visible synced files
+ * Called on disconnect to ensure a clean slate for reconnection
+ */
+export async function purgeSync(syncDirectory: string): Promise<void> {
+  const baseDir = expandPath(syncDirectory)
+  const hiddenDir = join(baseDir, HIDDEN_DIR)
+  await rm(hiddenDir, { recursive: true, force: true })
+
+  // Delete visible synced files (markdown, folders) but not hidden items
+  try {
+    const entries = await readdir(baseDir, { withFileTypes: true })
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue
+      await rm(join(baseDir, entry.name), { recursive: true, force: true })
+    }
+  } catch {
+    // Directory doesn't exist
+  }
 }

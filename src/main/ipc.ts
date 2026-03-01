@@ -857,10 +857,20 @@ export function setupIpcHandlers(): void {
     }
   )
 
-  // reMarkable: Disconnect (clear cached connection)
-  ipcMain.handle('remarkable:disconnect', async () => {
+  // reMarkable: Disconnect (clear cached connection + purge sync data)
+  ipcMain.handle('remarkable:disconnect', async (_event, syncDirectory?: string) => {
+    console.log('[reMarkable] Disconnect called, syncDirectory:', syncDirectory)
     const { disconnect } = await import('./remarkable/client')
     disconnect()
+
+    if (syncDirectory) {
+      const { purgeSync } = await import('./remarkable/sync')
+      await purgeSync(syncDirectory)
+      console.log('[reMarkable] Purge complete')
+    }
+
+    try { await unlink(ANTHROPIC_KEY_PATH) } catch { /* doesn't exist */ }
+    console.log('[reMarkable] Disconnect complete')
   })
 
   // reMarkable: Get sync metadata (notebook list with status)

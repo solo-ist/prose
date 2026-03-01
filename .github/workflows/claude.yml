@@ -73,9 +73,8 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          max_turns: 50
           show_full_output: true
-          claude_args: '--allowedTools "Read,Write,Edit,Glob,Grep,Bash,TodoWrite"'
+          claude_args: '--max-turns 50 --allowedTools "Read,Write,Edit,Glob,Grep,Bash,TodoWrite"'
           prompt: |
             You are an autonomous coding agent. Read the issue and implement the requested changes.
 

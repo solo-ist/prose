@@ -351,7 +351,8 @@ export function useChat() {
             guidance = ' Check your internet connection.'
           }
           state.updateMessage(state.streamingMessageId, {
-            content: (currentMsg?.content || '') + `\n\n*Error: ${error.error}${guidance}*`
+            content: (currentMsg?.content || '') + `\n\nError: ${error.error}${guidance}`,
+            isError: true
           })
         }
         state.completeStreaming()
@@ -533,7 +534,8 @@ export function useChat() {
 
         // Update the assistant message with error and guidance
         updateMessage(assistantMsgId, {
-          content: `Error: ${errorMessage}. ${guidance}`
+          content: `Error: ${errorMessage}. ${guidance}`,
+          isError: true
         })
         completeStreaming()
         clearStreamRefs()

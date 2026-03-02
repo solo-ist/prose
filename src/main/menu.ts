@@ -129,10 +129,17 @@ export function createMenu(mainWindow: BrowserWindow): void {
           }
         },
         {
-          label: 'Export as Plain Text...',
+          label: 'Convert to Plain Text',
           accelerator: 'CmdOrCtrl+Shift+T',
           click: (): void => {
-            sendMenuAction('exportTxt')
+            sendMenuAction('convertToTxt')
+          }
+        },
+        {
+          label: 'Convert to Markdown',
+          accelerator: 'CmdOrCtrl+Shift+M',
+          click: (): void => {
+            sendMenuAction('convertToMarkdown')
           }
         },
         ...(isGoogleConfigured

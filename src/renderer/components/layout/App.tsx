@@ -689,16 +689,75 @@ export function App() {
         case 'saveAs':
           saveFileAs()
           break
-        case 'exportTxt': {
+        case 'convertToTxt': {
           if (!window.api) break
-          const editorInstance = useEditorInstanceStore.getState().editor
-          if (!editorInstance) break
-          const plainText = editorInstance.getText({ blockSeparator: '\n\n' })
-          const docPath = useEditorStore.getState().document.path
-          const defaultFilename = docPath
-            ? docPath.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, '') + '.txt'
-            : undefined
-          window.api.exportTxt(plainText, defaultFilename)
+          const txtCurrentPath = useEditorStore.getState().document.path
+          if (!txtCurrentPath || !txtCurrentPath.endsWith('.md')) break
+          const txtPath = txtCurrentPath.replace(/\.md$/, '.txt')
+          ;(async () => {
+            try {
+              const editorInstance = useEditorInstanceStore.getState().editor
+              if (!editorInstance) return
+              const plainText = editorInstance.getText({ blockSeparator: '\n' })
+              await window.api!.renameFile(txtCurrentPath, txtPath)
+              await window.api!.saveFile(txtPath, plainText)
+              const { generateIdFromPath } = await import('../../lib/persistence')
+              const newDocId = await generateIdFromPath(txtPath)
+              // Keep the current editor content as-is (visual stays the same),
+              // only update the path/metadata so future saves write as .txt
+              const doc = useEditorStore.getState().document
+              useEditorStore.getState().setDocument({
+                documentId: newDocId,
+                path: txtPath,
+                content: doc.content,
+                frontmatter: {},
+                isDirty: false
+              })
+              const activeTab = useTabStore.getState().activeTabId
+              if (activeTab) {
+                useTabStore.getState().updateTab(activeTab, {
+                  path: txtPath,
+                  documentId: newDocId,
+                  frontmatter: {}
+                })
+              }
+              useFileListStore.getState().loadFiles()
+            } catch (e) {
+              console.error('Failed to convert to plain text:', e)
+            }
+          })()
+          break
+        }
+        case 'convertToMarkdown': {
+          if (!window.api) break
+          const currentPath = useEditorStore.getState().document.path
+          if (!currentPath || !currentPath.endsWith('.txt')) break
+          const mdPath = currentPath.replace(/\.txt$/, '.md')
+          ;(async () => {
+            try {
+              await window.api!.renameFile(currentPath, mdPath)
+              const { serializeMarkdown } = await import('../../lib/markdown')
+              const doc = useEditorStore.getState().document
+              const mdContent = serializeMarkdown(doc.content, doc.frontmatter)
+              await window.api!.saveFile(mdPath, mdContent)
+              const { generateIdFromPath } = await import('../../lib/persistence')
+              const newDocId = await generateIdFromPath(mdPath)
+              useEditorStore.getState().setDocument({
+                documentId: newDocId,
+                path: mdPath,
+                content: doc.content,
+                frontmatter: doc.frontmatter,
+                isDirty: false
+              })
+              const activeTab = useTabStore.getState().activeTabId
+              if (activeTab) {
+                useTabStore.getState().updateTab(activeTab, { path: mdPath, documentId: newDocId })
+              }
+              useFileListStore.getState().loadFiles()
+            } catch (e) {
+              console.error('Failed to convert to markdown:', e)
+            }
+          })()
           break
         }
         case 'settings':

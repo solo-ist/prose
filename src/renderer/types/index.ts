@@ -63,6 +63,7 @@ export interface ChatMessage {
   context?: string
   timestamp: Date
   hidden?: boolean
+  isError?: boolean
 }
 
 export interface FileResult {

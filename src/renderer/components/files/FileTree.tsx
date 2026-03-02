@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import type { FileItem } from '../../types'
-import { ChevronRight, ChevronDown, FileText, Folder, Loader2, Trash2, Edit3, ExternalLink, Copy, ClipboardPaste, FilePlus } from 'lucide-react'
+import { ChevronRight, ChevronDown, FileText, FileType, Folder, Loader2, Trash2, Edit3, ExternalLink, Copy, ClipboardPaste, FilePlus } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import {
   ContextMenu,
@@ -257,7 +257,11 @@ function FileTreeItem({
         ) : (
           <>
             <span className="w-3.5" />
-            <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+            {item.name.endsWith('.txt') ? (
+              <FileType className="h-4 w-4 shrink-0 text-muted-foreground" />
+            ) : (
+              <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+            )}
           </>
         )}
         {isRenaming ? (

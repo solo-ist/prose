@@ -47,6 +47,7 @@ interface ChatState {
   // Message actions
   addMessage: (message: ChatMessage) => void
   updateMessage: (id: string, updates: Partial<ChatMessage>) => void
+  removeMessage: (id: string) => void
   clearMessages: () => void
 
   // UI actions
@@ -168,6 +169,21 @@ export const useChatStore = create<ChatState>()(
         )
 
         // Update the active conversation
+        if (state.activeConversationId) {
+          const updatedConversations = state.conversations.map((c) =>
+            c.id === state.activeConversationId
+              ? { ...c, messages: newMessages, updatedAt: Date.now() }
+              : c
+          )
+          return { messages: newMessages, conversations: updatedConversations }
+        }
+        return { messages: newMessages }
+      }),
+
+    removeMessage: (id) =>
+      set((state) => {
+        const newMessages = state.messages.filter((msg) => msg.id !== id)
+
         if (state.activeConversationId) {
           const updatedConversations = state.conversations.map((c) =>
             c.id === state.activeConversationId

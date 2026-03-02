@@ -217,7 +217,8 @@ export function FileListPanel() {
 
     setOperationError(null)
     try {
-      const fileName = newFileName.endsWith('.md') ? newFileName : `${newFileName}.md`
+      const hasKnownExt = /\.(md|markdown|txt)$/.test(newFileName)
+      const fileName = hasKnownExt ? newFileName : `${newFileName}.md`
       const fullPath = `${targetDir}/${fileName}`
 
       // Check if file already exists

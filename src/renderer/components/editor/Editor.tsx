@@ -16,6 +16,7 @@ import { AIAnnotations, useAnnotationStore } from '../../extensions/ai-annotatio
 import { NodeIds } from '../../extensions/node-ids'
 import { SearchHighlight } from '../../extensions/search-highlight'
 import { LinkHover } from '../../extensions/link-hover'
+import { PlainTextMode } from '../../extensions/plain-text-mode'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
@@ -122,6 +123,7 @@ export function Editor() {
       NodeIds,
       SearchHighlight,
       LinkHover,
+      PlainTextMode,
     ],
     content: initialContent,
     editorProps: {
@@ -349,6 +351,13 @@ export function Editor() {
     }
   }, [editor, document.documentId, pendingSuggestions, suggestionStoreDocumentId])
 
+  // Toggle plain text mode for .txt files
+  useEffect(() => {
+    if (!editor) return
+    const isPlainText = !!document.path?.endsWith('.txt')
+    editor.storage.plainTextMode.enabled = isPlainText
+  }, [editor, document.path])
+
   // Auto-focus editor once when document loads (not on every content change)
   const hasFocusedRef = useRef(false)
   useEffect(() => {
@@ -534,10 +543,6 @@ export function Editor() {
       // F1: Show keyboard shortcuts
       e.preventDefault()
       setShortcutsDialogOpen(true)
-    } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'm') {
-      // Cmd+Shift+M: Open model picker
-      e.preventDefault()
-      setModelPickerOpen(true)
     } else if (e.shiftKey && e.key === 'Tab' && !isMod) {
       // Shift+Tab: Toggle agent mode
       e.preventDefault()

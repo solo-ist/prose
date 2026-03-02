@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo, useState } from 'react'
+import { useRef, useEffect, useMemo, useState, useCallback } from 'react'
 import { useChat } from '../../hooks/useChat'
 import { ChatMessage } from './ChatMessage'
 import { ChatInput } from './ChatInput'
@@ -86,6 +86,35 @@ export function ChatPanel() {
   }, [messages, isLoading, isStreaming, lastMessageContent])
 
 
+
+  const handleRetry = useCallback((errorMessageId: string) => {
+    // Find the last user message before this error
+    const msgIndex = messages.findIndex(m => m.id === errorMessageId)
+    if (msgIndex < 0) return
+
+    // Walk backwards to find the user message
+    let userMessageId = ''
+    let userContent = ''
+    for (let i = msgIndex - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        userMessageId = messages[i].id
+        userContent = messages[i].content
+        break
+      }
+    }
+    if (!userContent) return
+
+    // Remove both the error message and the original user message
+    // (sendMessage will re-add the user message)
+    const { removeMessage } = useChatStore.getState()
+    removeMessage(errorMessageId)
+    if (userMessageId) {
+      removeMessage(userMessageId)
+    }
+
+    // Resend
+    sendMessage(userContent)
+  }, [messages, sendMessage])
 
   const handleNewChat = () => {
     addConversation(documentId)
@@ -271,6 +300,7 @@ export function ChatPanel() {
                   index === visibleMessages.length - 1 &&
                   message.role === 'assistant'
                 }
+                onRetry={message.isError ? () => handleRetry(message.id) : undefined}
               />
             ))}
             {/* Show "Thinking..." only when loading but not yet streaming */}

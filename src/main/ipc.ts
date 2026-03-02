@@ -204,8 +204,9 @@ export function setupIpcHandlers(): void {
   ipcMain.handle(
     'file:saveToFolder',
     async (_event, folder: string, filename: string, content: string) => {
-      // Ensure .md extension
-      const finalFilename = filename.endsWith('.md') ? filename : `${filename}.md`
+      // Preserve known extensions (.md, .markdown, .txt), default to .md
+      const hasKnownExt = /\.(md|markdown|txt)$/.test(filename)
+      const finalFilename = hasKnownExt ? filename : `${filename}.md`
       const fullPath = join(folder, finalFilename)
       await writeFile(fullPath, content, 'utf-8')
       return fullPath

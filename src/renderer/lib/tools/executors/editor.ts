@@ -71,11 +71,14 @@ export function resolveToolPosition(toolName: string, args: Record<string, unkno
  * edit - Replace the content of a node by its ID.
  * Falls back to content matching if the nodeId is stale.
  */
-export function executeEdit(args: {
-  nodeId: string
-  content: string
-  search?: string
-}): ToolResult<{ applied: boolean; nodeId: string }> {
+export function executeEdit(
+  args: {
+    nodeId: string
+    content: string
+    search?: string
+  },
+  provenance?: ToolProvenance
+): ToolResult<{ applied: boolean; nodeId: string }> {
   const editor = getEditor()
 
   if (!editor) {
@@ -123,6 +126,22 @@ export function executeEdit(args: {
     .insertContent(content)
     .run()
 
+  // Create AI annotation for provenance tracking
+  if (provenance && provenance.documentId && content.length > 0) {
+    useAnnotationStore.getState().addAnnotation({
+      documentId: provenance.documentId,
+      type: 'replacement',
+      from: contentStart,
+      to: contentStart + content.length,
+      content,
+      provenance: {
+        model: provenance.model,
+        conversationId: provenance.conversationId,
+        messageId: provenance.messageId,
+      },
+    })
+  }
+
   return toolSuccess({
     applied: true,
     nodeId
@@ -132,10 +151,13 @@ export function executeEdit(args: {
 /**
  * insert - Insert text at the specified position.
  */
-export function executeInsert(args: {
-  text: string
-  position?: 'cursor' | 'start' | 'end'
-}): ToolResult<{ inserted: boolean; position: string }> {
+export function executeInsert(
+  args: {
+    text: string
+    position?: 'cursor' | 'start' | 'end'
+  },
+  provenance?: ToolProvenance
+): ToolResult<{ inserted: boolean; position: string }> {
   const editor = getEditor()
 
   if (!editor) {
@@ -150,6 +172,21 @@ export function executeInsert(args: {
 
   if (!text) {
     return toolError('Text to insert is required', 'INVALID_INPUT')
+  }
+
+  // Capture insertion position before modifying the document
+  let insertPos: number
+  switch (position) {
+    case 'start':
+      insertPos = 0
+      break
+    case 'end':
+      insertPos = editor.state.doc.content.size
+      break
+    case 'cursor':
+    default:
+      insertPos = editor.state.selection.from
+      break
   }
 
   try {
@@ -169,6 +206,22 @@ export function executeInsert(args: {
       default:
         editor.chain().focus().insertContent(text).run()
         break
+    }
+
+    // Create AI annotation for provenance tracking
+    if (provenance && provenance.documentId && text.length > 0) {
+      useAnnotationStore.getState().addAnnotation({
+        documentId: provenance.documentId,
+        type: 'insertion',
+        from: insertPos,
+        to: insertPos + text.length,
+        content: text,
+        provenance: {
+          model: provenance.model,
+          conversationId: provenance.conversationId,
+          messageId: provenance.messageId,
+        },
+      })
     }
 
     return toolSuccess({

@@ -117,6 +117,7 @@ export function SelectionPopover({ editor, onAddComment }: SelectionPopoverProps
     } else {
       const url = window.prompt('Enter URL:')
       if (!url) return
+      if (!/^https?:\/\//i.test(url) && !/^mailto:/i.test(url)) return
       editor.chain().focus().setLink({ href: url }).run()
     }
   }, [editor])

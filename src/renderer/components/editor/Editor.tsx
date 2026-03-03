@@ -577,8 +577,8 @@ export function Editor() {
       if (editor) {
         editor.chain().focus().toggleUnderline().run()
       }
-    } else if (isMod && e.shiftKey && e.key.toLowerCase() === 't') {
-      // Cmd+Shift+T: Insert 3x3 table
+    } else if (isMod && e.altKey && e.key.toLowerCase() === 't') {
+      // Cmd+Option+T: Insert 3x3 table
       e.preventDefault()
       if (editor) {
         editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Editor } from '@tiptap/react'
-import { MessageSquarePlus, Bot } from 'lucide-react'
+import { MessageSquarePlus, Bot, Bold, Italic, Link, Code } from 'lucide-react'
 import { Button } from '../ui/button'
 import { useAnnotationStore, getAnnotationsInRange } from '../../extensions/ai-annotations'
 import { useEditorStore } from '../../stores/editorStore'
@@ -110,16 +110,81 @@ export function SelectionPopover({ editor, onAddComment }: SelectionPopoverProps
     }
   }, [editor, selectionRange, documentId, hasAIAnnotation])
 
+  const handleToggleLink = useCallback(() => {
+    if (!editor) return
+    if (editor.isActive('link')) {
+      editor.chain().focus().unsetLink().run()
+    } else {
+      const url = window.prompt('Enter URL:')
+      if (!url) return
+      if (!/^https?:\/\//i.test(url) && !/^mailto:/i.test(url)) return
+      editor.chain().focus().setLink({ href: url }).run()
+    }
+  }, [editor])
+
   if (!isVisible || !position) return null
 
   return (
     <div
-      className="fixed z-50 animate-in fade-in-0 zoom-in-95 flex gap-1"
+      className="fixed z-50 animate-in fade-in-0 zoom-in-95 flex gap-1 items-center"
       style={{
         top: position.top,
         left: position.left
       }}
     >
+      <Button
+        size="sm"
+        variant={editor?.isActive('bold') ? 'default' : 'secondary'}
+        className="h-8 px-2 shadow-md border"
+        onMouseDown={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          editor?.chain().focus().toggleBold().run()
+        }}
+        title="Bold (Cmd+B)"
+      >
+        <Bold className="h-4 w-4" />
+      </Button>
+      <Button
+        size="sm"
+        variant={editor?.isActive('italic') ? 'default' : 'secondary'}
+        className="h-8 px-2 shadow-md border"
+        onMouseDown={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          editor?.chain().focus().toggleItalic().run()
+        }}
+        title="Italic (Cmd+I)"
+      >
+        <Italic className="h-4 w-4" />
+      </Button>
+      <Button
+        size="sm"
+        variant={editor?.isActive('link') ? 'default' : 'secondary'}
+        className="h-8 px-2 shadow-md border"
+        onMouseDown={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          handleToggleLink()
+        }}
+        title="Link (Cmd+K)"
+      >
+        <Link className="h-4 w-4" />
+      </Button>
+      <Button
+        size="sm"
+        variant={editor?.isActive('code') ? 'default' : 'secondary'}
+        className="h-8 px-2 shadow-md border"
+        onMouseDown={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          editor?.chain().focus().toggleCode().run()
+        }}
+        title="Code"
+      >
+        <Code className="h-4 w-4" />
+      </Button>
+      <div className="w-px h-5 bg-border mx-0.5" />
       <Button
         size="sm"
         variant="secondary"

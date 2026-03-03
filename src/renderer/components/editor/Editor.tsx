@@ -5,6 +5,10 @@ import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import Link from '@tiptap/extension-link'
 import Underline from '@tiptap/extension-underline'
+import Table from '@tiptap/extension-table'
+import TableRow from '@tiptap/extension-table-row'
+import TableCell from '@tiptap/extension-table-cell'
+import TableHeader from '@tiptap/extension-table-header'
 import { Markdown } from 'tiptap-markdown'
 import { FocusMode } from '../../lib/focusMode'
 import { DiffSuggestion } from '../../extensions/diff-suggestions'
@@ -99,6 +103,15 @@ export function Editor() {
         }
       }),
       Underline,
+      Table.configure({
+        resizable: false,
+        HTMLAttributes: {
+          class: 'prose-table'
+        }
+      }),
+      TableRow,
+      TableHeader,
+      TableCell,
       Markdown.configure({
         html: true,
         tightLists: true,
@@ -563,6 +576,12 @@ export function Editor() {
       e.preventDefault()
       if (editor) {
         editor.chain().focus().toggleUnderline().run()
+      }
+    } else if (isMod && e.altKey && e.key.toLowerCase() === 't') {
+      // Cmd+Option+T: Insert 3x3 table
+      e.preventDefault()
+      if (editor) {
+        editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
       }
     } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'x') {
       // Cmd+Shift+X: Strikethrough

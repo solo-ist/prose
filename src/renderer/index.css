@@ -1003,3 +1003,54 @@
   background-color: hsl(45 100% 50% / 0.55);
   box-shadow: 0 0 0 1px hsl(45 100% 60% / 0.7);
 }
+
+/* Table styles */
+.prose-editor table.prose-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+  table-layout: fixed;
+  overflow: hidden;
+}
+
+.prose-editor table.prose-table td,
+.prose-editor table.prose-table th {
+  border: 1px solid hsl(var(--border));
+  padding: 0.5rem 0.75rem;
+  position: relative;
+  vertical-align: top;
+  min-width: 6rem;
+}
+
+.prose-editor table.prose-table th {
+  font-weight: 600;
+  background-color: hsl(var(--muted) / 0.5);
+  text-align: left;
+}
+
+.prose-editor table.prose-table .selectedCell::after {
+  background: hsl(var(--primary) / 0.1);
+  content: '';
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 2;
+}
+
+.prose-editor table.prose-table .column-resize-handle {
+  background-color: hsl(var(--primary) / 0.4);
+  bottom: -2px;
+  pointer-events: none;
+  position: absolute;
+  right: -2px;
+  top: 0;
+  width: 4px;
+}
+
+.tableWrapper {
+  overflow-x: auto;
+  margin: 1em 0;
+}

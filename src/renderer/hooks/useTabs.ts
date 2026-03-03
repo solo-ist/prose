@@ -8,7 +8,7 @@ import { useSuggestionStore } from '../extensions/ai-suggestions/store'
 import { getAISuggestions } from '../extensions/ai-suggestions'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFileListStore } from '../stores/fileListStore'
-import { parseMarkdown, serializeMarkdown } from '../lib/markdown'
+import { parseMarkdown, serializeMarkdown, prepareTextContent } from '../lib/markdown'
 import {
   generateId,
   generateIdFromPath,
@@ -295,8 +295,9 @@ export function useTabs() {
 
     // Read file content
     if (!window.api) return false
-    const content = await window.api.readFile(filePath)
-    const parsed = parseMarkdown(content)
+    const rawContent = await window.api.readFile(filePath)
+    const isTxt = filePath.endsWith('.txt')
+    const parsed = parseMarkdown(isTxt ? prepareTextContent(rawContent) : rawContent)
 
     // Generate document ID from path for persistent chat history
     const newDocumentId = await generateIdFromPath(filePath)
@@ -419,8 +420,9 @@ export function useTabs() {
       useEditorStore.getState().setPreviewTab(false)
       return false
     }
-    const content = await window.api.readFile(filePath)
-    const parsed = parseMarkdown(content)
+    const rawContent = await window.api.readFile(filePath)
+    const isTxt = filePath.endsWith('.txt')
+    const parsed = parseMarkdown(isTxt ? prepareTextContent(rawContent) : rawContent)
     const newDocumentId = await generateIdFromPath(filePath)
 
     const fullFileName = filePath.split('/').pop() || 'Untitled'

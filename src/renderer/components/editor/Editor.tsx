@@ -16,6 +16,7 @@ import { AIAnnotations, useAnnotationStore } from '../../extensions/ai-annotatio
 import { NodeIds } from '../../extensions/node-ids'
 import { SearchHighlight } from '../../extensions/search-highlight'
 import { LinkHover } from '../../extensions/link-hover'
+import { PlainTextMode } from '../../extensions/plain-text-mode'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
@@ -122,6 +123,7 @@ export function Editor() {
       NodeIds,
       SearchHighlight,
       LinkHover,
+      PlainTextMode,
     ],
     content: initialContent,
     editorProps: {
@@ -206,6 +208,11 @@ export function Editor() {
     if (newBody !== currentMarkdown) {
       isUpdatingFromStore.current = true
       frontmatterRef.current = newFrontmatter
+
+      // Sync plain text mode BEFORE setContent so appendTransaction
+      // doesn't flatten markdown content on tab switches
+      const isPlainText = !!document.path?.endsWith('.txt')
+      editor.storage.plainTextMode.enabled = isPlainText
 
       if (isNewDocument) {
         // Create a fresh EditorState when loading a new document.
@@ -534,10 +541,6 @@ export function Editor() {
       // F1: Show keyboard shortcuts
       e.preventDefault()
       setShortcutsDialogOpen(true)
-    } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'm') {
-      // Cmd+Shift+M: Open model picker
-      e.preventDefault()
-      setModelPickerOpen(true)
     } else if (e.shiftKey && e.key === 'Tab' && !isMod) {
       // Shift+Tab: Toggle agent mode
       e.preventDefault()
@@ -724,7 +727,7 @@ export function Editor() {
               lineHeight={settings.editor.lineHeight}
               fontFamily={settings.editor.fontFamily}
               isDark={effectiveTheme === 'dark'}
-              readOnly={isRemarkableReadOnly || isPreviewReadOnly}
+              readOnly={isRemarkableReadOnly || isPreviewTab}
             />
           </div>
         </div>

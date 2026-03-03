@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { cn } from '../../lib/utils'
 import type { ChatMessage as ChatMessageType } from '../../types'
-import { User, Wand2, Check, AlertCircle, ArrowRight, Sparkles, CheckCircle2, XCircle } from 'lucide-react'
+import { User, Wand2, Check, AlertCircle, ArrowRight, Sparkles, CheckCircle2, XCircle, RotateCcw } from 'lucide-react'
 import { parseEditBlocks, hasEditBlocks, stripEditBlocks, type EditBlock } from '../../lib/editBlocks'
 import { applyEditsAsDiffs, applyEditsDirect, type ApplyResult, type EditProvenance } from '../../lib/applyEdit'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
@@ -113,6 +113,7 @@ function parseToolTags(content: string): { type: 'text' | 'tool-executing' | 'to
 interface ChatMessageProps {
   message: ChatMessageType
   isStreaming?: boolean
+  onRetry?: () => void
 }
 
 // Process inline formatting for a line
@@ -360,7 +361,7 @@ function EditBlockPreview({ blocks }: { blocks: EditBlock[] }) {
 }
 
 
-export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
+export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps) {
   const [showTimestamp, setShowTimestamp] = useState(false)
   const [applyState, setApplyState] = useState<'idle' | 'applied' | 'error'>('idle')
   const [applyResults, setApplyResults] = useState<ApplyResult[]>([])
@@ -488,6 +489,22 @@ export function ChatMessage({ message, isStreaming }: ChatMessageProps) {
         <div className="text-sm leading-relaxed">
           {isUser ? (
             <p className="whitespace-pre-wrap break-words font-mono">{message.content}</p>
+          ) : message.isError ? (
+            <div className="space-y-2">
+              <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive dark:text-red-400">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span className="break-words">{displayContent}</span>
+              </div>
+              {onRetry && (
+                <button
+                  onClick={onRetry}
+                  className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Retry
+                </button>
+              )}
+            </div>
           ) : (() => {
             // Parse tool tags for assistant messages
             const toolParts = parseToolTags(displayContent)

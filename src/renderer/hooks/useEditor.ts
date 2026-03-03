@@ -3,7 +3,7 @@ import { useEditorStore } from '../stores/editorStore'
 import { useChatStore, setCurrentDocumentId } from '../stores/chatStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFileListStore } from '../stores/fileListStore'
-import { parseMarkdown, serializeMarkdown, extractFirstH1 } from '../lib/markdown'
+import { parseMarkdown, serializeMarkdown, extractFirstH1, prepareTextContent } from '../lib/markdown'
 import {
   generateId,
   generateIdFromPath,
@@ -16,6 +16,18 @@ import { useAnnotationStore } from '../extensions/ai-annotations'
 // Sanitize filename by removing invalid characters
 function sanitizeFilename(name: string): string {
   return name.replace(/[/\\:*?"<>|]/g, '-').trim().slice(0, 100)
+}
+
+// Build save content — skip frontmatter for .txt files
+function buildSaveContent(
+  content: string,
+  frontmatter: Record<string, unknown>,
+  path?: string | null
+): string {
+  if (path?.endsWith('.txt')) {
+    return content
+  }
+  return serializeMarkdown(content, frontmatter)
 }
 
 export function useEditor() {
@@ -57,8 +69,9 @@ export function useEditor() {
     await saveCurrentConversation(document.documentId)
 
     try {
-      const content = await window.api.readFile(filePath)
-      const parsed = parseMarkdown(content)
+      const raw = await window.api.readFile(filePath)
+      const isTxt = filePath.endsWith('.txt')
+      const parsed = parseMarkdown(isTxt ? prepareTextContent(raw) : raw)
       const newDocumentId = await generateIdFromPath(filePath)
 
       setDocument({
@@ -110,7 +123,8 @@ export function useEditor() {
 
     const result = await window.api.openFile()
     if (result) {
-      const parsed = parseMarkdown(result.content)
+      const isTxt = result.path.endsWith('.txt')
+      const parsed = parseMarkdown(isTxt ? prepareTextContent(result.content) : result.content)
       // Use path-based ID for saved files so chat history persists
       const newDocumentId = await generateIdFromPath(result.path)
 
@@ -152,7 +166,7 @@ export function useEditor() {
 
   const saveFile = useCallback(async () => {
     if (!window.api) return
-    const content = serializeMarkdown(document.content, document.frontmatter)
+    const content = buildSaveContent(document.content, document.frontmatter, document.path)
 
     if (document.path) {
       await window.api.saveFile(document.path, content)
@@ -199,7 +213,7 @@ export function useEditor() {
 
   const saveFileAs = useCallback(async () => {
     if (!window.api) return
-    const content = serializeMarkdown(document.content, document.frontmatter)
+    const content = buildSaveContent(document.content, document.frontmatter, document.path)
     // Pre-fill the Save As dialog with the H1 heading (sanitized) if the document is untitled
     const h1 = !document.path ? extractFirstH1(document.content) : null
     const defaultFilename = h1 ? sanitizeFilename(h1) + '.md' : undefined
@@ -266,9 +280,11 @@ export function useEditor() {
     const sanitizedTitle = sanitizeFilename(title)
     if (!sanitizedTitle) return false
 
-    const content = serializeMarkdown(document.content, document.frontmatter)
+    const content = buildSaveContent(document.content, document.frontmatter, document.path)
     const settings = useSettingsStore.getState().settings
-    const filename = sanitizedTitle.endsWith('.md') ? sanitizedTitle : `${sanitizedTitle}.md`
+    const currentExt = document.path?.endsWith('.txt') ? '.txt' : '.md'
+    const hasKnownExt = /\.(md|markdown|txt)$/.test(sanitizedTitle)
+    const filename = hasKnownExt ? sanitizedTitle : `${sanitizedTitle}${currentExt}`
 
     let targetFolder: string
     let newPath: string

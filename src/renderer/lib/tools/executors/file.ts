@@ -10,7 +10,7 @@ import { useChatStore, setCurrentDocumentId } from '../../../stores/chatStore'
 import { useSettingsStore } from '../../../stores/settingsStore'
 import { useFileListStore } from '../../../stores/fileListStore'
 import { useAnnotationStore } from '../../../extensions/ai-annotations'
-import { parseMarkdown, serializeMarkdown } from '../../markdown'
+import { parseMarkdown, serializeMarkdown, prepareTextContent } from '../../markdown'
 import {
   generateId,
   generateIdFromPath,
@@ -58,7 +58,8 @@ export async function executeOpenFile(args: {
 
       // Load the document into editorStore for the active editor
       const content = await api.readFile(path)
-      const parsed = parseMarkdown(content)
+      const isTxt = path.endsWith('.txt')
+      const parsed = parseMarkdown(isTxt ? prepareTextContent(content) : content)
       const docId = await generateIdFromPath(path)
 
       useEditorStore.getState().setDocument({
@@ -86,7 +87,8 @@ export async function executeOpenFile(args: {
 
     // Read the file
     const content = await api.readFile(path)
-    const parsed = parseMarkdown(content)
+    const isTxt = path.endsWith('.txt')
+    const parsed = parseMarkdown(isTxt ? prepareTextContent(content) : content)
     const newDocumentId = await generateIdFromPath(path)
 
     // Extract title from path

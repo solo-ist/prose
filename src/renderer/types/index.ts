@@ -63,6 +63,7 @@ export interface ChatMessage {
   context?: string
   timestamp: Date
   hidden?: boolean
+  isError?: boolean
 }
 
 export interface FileResult {
@@ -308,6 +309,7 @@ export interface ElectronAPI {
   openFile: () => Promise<FileResult | null>
   saveFile: (path: string, content: string) => Promise<void>
   saveFileAs: (content: string) => Promise<string | null>
+  exportTxt: (content: string, defaultFilename?: string) => Promise<string | null>
   readFile: (path: string) => Promise<string>
   loadSettings: () => Promise<Settings>
   saveSettings: (settings: Settings) => Promise<void>

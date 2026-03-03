@@ -128,6 +128,20 @@ export function createMenu(mainWindow: BrowserWindow): void {
             sendMenuAction('saveAs')
           }
         },
+        {
+          label: 'Convert to Plain Text',
+          accelerator: 'CmdOrCtrl+Shift+T',
+          click: (): void => {
+            sendMenuAction('convertToTxt')
+          }
+        },
+        {
+          label: 'Convert to Markdown',
+          accelerator: 'CmdOrCtrl+Shift+M',
+          click: (): void => {
+            sendMenuAction('convertToMarkdown')
+          }
+        },
         ...(isGoogleConfigured
           ? [
               { type: 'separator' as const },

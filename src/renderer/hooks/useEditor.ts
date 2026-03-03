@@ -282,7 +282,9 @@ export function useEditor() {
 
     const content = buildSaveContent(document.content, document.frontmatter, document.path)
     const settings = useSettingsStore.getState().settings
-    const filename = sanitizedTitle.endsWith('.md') ? sanitizedTitle : `${sanitizedTitle}.md`
+    const currentExt = document.path?.endsWith('.txt') ? '.txt' : '.md'
+    const hasKnownExt = /\.(md|markdown|txt)$/.test(sanitizedTitle)
+    const filename = hasKnownExt ? sanitizedTitle : `${sanitizedTitle}${currentExt}`
 
     let targetFolder: string
     let newPath: string

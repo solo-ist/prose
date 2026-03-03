@@ -702,14 +702,16 @@ export function App() {
               await window.api!.renameFile(txtCurrentPath, txtPath)
               await window.api!.saveFile(txtPath, plainText)
               const { generateIdFromPath } = await import('../../lib/persistence')
+              const { prepareTextContent } = await import('../../lib/markdown')
               const newDocId = await generateIdFromPath(txtPath)
-              // Keep the current editor content as-is (visual stays the same),
-              // only update the path/metadata so future saves write as .txt
-              const doc = useEditorStore.getState().document
+              // Reload plain text into the editor so the store content
+              // matches what's on disk (prevents stale markdown on next save)
+              const editorContent = prepareTextContent(plainText)
+              editorInstance.commands.setContent(editorContent)
               useEditorStore.getState().setDocument({
                 documentId: newDocId,
                 path: txtPath,
-                content: doc.content,
+                content: plainText,
                 frontmatter: {},
                 isDirty: false
               })

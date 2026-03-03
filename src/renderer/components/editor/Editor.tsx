@@ -209,6 +209,11 @@ export function Editor() {
       isUpdatingFromStore.current = true
       frontmatterRef.current = newFrontmatter
 
+      // Sync plain text mode BEFORE setContent so appendTransaction
+      // doesn't flatten markdown content on tab switches
+      const isPlainText = !!document.path?.endsWith('.txt')
+      editor.storage.plainTextMode.enabled = isPlainText
+
       if (isNewDocument) {
         // Create a fresh EditorState when loading a new document.
         // This resets the undo history so users can't undo past the initial document state.
@@ -350,13 +355,6 @@ export function Editor() {
       return () => clearTimeout(timer)
     }
   }, [editor, document.documentId, pendingSuggestions, suggestionStoreDocumentId])
-
-  // Toggle plain text mode for .txt files
-  useEffect(() => {
-    if (!editor) return
-    const isPlainText = !!document.path?.endsWith('.txt')
-    editor.storage.plainTextMode.enabled = isPlainText
-  }, [editor, document.path])
 
   // Auto-focus editor once when document loads (not on every content change)
   const hasFocusedRef = useRef(false)
@@ -729,7 +727,7 @@ export function Editor() {
               lineHeight={settings.editor.lineHeight}
               fontFamily={settings.editor.fontFamily}
               isDark={effectiveTheme === 'dark'}
-              readOnly={isRemarkableReadOnly || isPreviewReadOnly}
+              readOnly={isRemarkableReadOnly || isPreviewTab}
             />
           </div>
         </div>

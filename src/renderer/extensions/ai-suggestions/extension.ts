@@ -331,13 +331,20 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           const docId = attrs.documentId || annotationStore.documentId
           const model = attrs.provenanceModel || 'unknown'
 
+          dispatch(tr)
+
+          // Create annotation after dispatch so positions reference the updated document.
+          // Use transaction mapping: replaceWith(markFrom, markTo, text) places the new
+          // text at [markFrom, markFrom + text.nodeSize) in the new state.
           if (docId && suggestedText.length > 0) {
-            console.log('[AISuggestion] Creating annotation:', { docId, model, from: markFrom, to: markFrom + suggestedText.length })
+            const newFrom = tr.mapping.map(markFrom, -1)
+            const newTo = tr.mapping.map(markTo, 1)
+            console.log('[AISuggestion] Creating annotation:', { docId, model, from: newFrom, to: newTo })
             annotationStore.addAnnotation({
               documentId: docId,
               type: 'insertion',
-              from: markFrom,
-              to: markFrom + suggestedText.length,
+              from: newFrom,
+              to: newTo,
               content: suggestedText,
               provenance: {
                 model,
@@ -348,8 +355,6 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           } else {
             console.warn('[AISuggestion] Cannot create annotation - missing docId:', { docId, suggestedText: suggestedText.length })
           }
-
-          dispatch(tr)
 
           if (this.options.onSuggestionAccepted) {
             this.options.onSuggestionAccepted(id)

@@ -119,12 +119,14 @@ export function executeEdit(
   const contentStart = pos + 1
   const contentEnd = pos + node.nodeSize - 1
 
+  const sizeBefore = editor.state.doc.content.size
   editor
     .chain()
     .focus()
     .setTextSelection({ from: contentStart, to: contentEnd })
     .insertContent(content)
     .run()
+  const sizeAfter = editor.state.doc.content.size
 
   // Create AI annotation for provenance tracking
   if (provenance && provenance.documentId && content.length > 0) {
@@ -132,7 +134,10 @@ export function executeEdit(
       documentId: provenance.documentId,
       type: 'replacement',
       from: contentStart,
-      to: contentStart + content.length,
+      // Map the old contentEnd through the edit using the doc size delta.
+      // insertContent() may produce multi-paragraph PM nodes where string length
+      // does not equal PM position delta, so we use the actual size change.
+      to: contentEnd + (sizeAfter - sizeBefore),
       content,
       provenance: {
         model: provenance.model,
@@ -190,6 +195,7 @@ export function executeInsert(
   }
 
   try {
+    const sizeBefore = editor.state.doc.content.size
     switch (position) {
       case 'start':
         editor.chain().focus().setTextSelection(0).insertContent(text).run()
@@ -207,6 +213,7 @@ export function executeInsert(
         editor.chain().focus().insertContent(text).run()
         break
     }
+    const sizeAfter = editor.state.doc.content.size
 
     // Create AI annotation for provenance tracking
     if (provenance && provenance.documentId && text.length > 0) {
@@ -214,7 +221,9 @@ export function executeInsert(
         documentId: provenance.documentId,
         type: 'insertion',
         from: insertPos,
-        to: insertPos + text.length,
+        // Use the actual PM size delta instead of string length: insertContent()
+        // may produce multi-paragraph nodes where string length != PM position delta.
+        to: insertPos + (sizeAfter - sizeBefore),
         content: text,
         provenance: {
           model: provenance.model,

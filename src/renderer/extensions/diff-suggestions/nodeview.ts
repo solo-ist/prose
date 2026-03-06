@@ -217,11 +217,19 @@ export class DiffSuggestionNodeView implements NodeView {
         this.view.state.schema.text(suggestedText)
       )
     }
+
+    // Capture doc size before dispatch to compute accurate PM position deltas.
+    // Relying on string length is wrong when the replacement produces nodes with
+    // PM positions that differ from character count (e.g. multi-paragraph content).
+    const sizeBefore = this.view.state.doc.content.size
     this.view.dispatch(transaction)
+    const sizeAfter = this.view.state.doc.content.size
+    const delta = sizeAfter - sizeBefore
 
     console.log('[DiffSuggestion:accept] Position AFTER dispatch:', {
       originalPos: pos,
       mappedPos: transaction.mapping.map(pos, 1),
+      delta,
       newDocSize: this.view.state.doc.nodeSize
     })
 
@@ -236,10 +244,12 @@ export class DiffSuggestionNodeView implements NodeView {
     if (provenanceModel && documentId && suggestedText.length > 0) {
       const annotationType: AnnotationType = originalText.trim() === '' ? 'insertion' : 'replacement'
 
-      // Compute word-level diff to annotate only changed portions
+      // Compute word-level diff to annotate only changed portions.
+      // After replaceWith(pos, pos+nodeSize, text), the new text starts at `pos`
+      // in the updated document, so charOffset from `pos` gives correct PM positions.
       const diff = computeWordDiff(originalText, suggestedText)
 
-      // Find added segments and their positions
+      // Find added segments and their positions in the new document state
       const addedSegments: { from: number; to: number; content: string }[] = []
       let charOffset = 0
       for (const segment of diff.new) {
@@ -258,7 +268,7 @@ export class DiffSuggestionNodeView implements NodeView {
         segments: addedSegments.map(s => ({ from: s.from, to: s.to, content: s.content.substring(0, 20) })),
         docSizeAfterDispatch: this.view.state.doc.nodeSize,
         posUsed: pos,
-        note: 'Positions are relative to PRE-dispatch doc state (may be stale!)'
+        delta
       })
 
       // If we found added segments, annotate only those; otherwise fall back to full text
@@ -284,12 +294,13 @@ export class DiffSuggestionNodeView implements NodeView {
           })
         }
       } else {
-        // Fallback: annotate the entire suggested text
+        // Fallback: annotate the entire suggested text.
+        // Map the old node end through the size delta to get the new end position.
         useAnnotationStore.getState().addAnnotation({
           documentId,
           type: annotationType,
           from: pos,
-          to: pos + suggestedText.length,
+          to: pos + this.node.nodeSize + delta,
           content: suggestedText,
           provenance: {
             model: provenanceModel,

@@ -363,6 +363,11 @@ export const browserApi: ElectronAPI = {
     return '~/Documents'
   },
 
+  saveImage: async (_documentDir: string, _base64Data: string, _mimeType: string, _originalName?: string): Promise<{ relativePath: string; localFileUrl: string }> => {
+    // Browser mode can't save images to disk — caller should fall back to data URL
+    throw new Error('Cannot save images in browser mode')
+  },
+
   fileExists: async (_path: string): Promise<boolean> => {
     // Can't check in browser mode
     return false

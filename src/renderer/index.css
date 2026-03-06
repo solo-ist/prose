@@ -984,6 +984,90 @@
   background: hsl(262 65% 50% / 0.35);
 }
 
+/* Images */
+.editor-image-wrapper {
+  display: inline-block;
+  position: relative;
+  line-height: 0;
+}
+
+.prose-editor .editor-image {
+  max-width: 100%;
+  height: auto;
+  display: inline-block;
+  border-radius: 0.25em;
+  margin: 0.25em 0;
+  cursor: default;
+}
+
+.prose-editor .editor-image.ProseMirror-selectednode,
+.editor-image-wrapper.ProseMirror-selectednode .editor-image {
+  outline: none;
+}
+
+/* Editable caption below image */
+.editor-image-alt {
+  display: block;
+  width: 100%;
+  padding: 0.375em 0;
+  font-size: 0.8125rem;
+  font-style: italic;
+  font-family: inherit;
+  color: hsl(var(--muted-foreground) / 0.7);
+  background: transparent;
+  border: none;
+  outline: none;
+  text-align: center;
+  transition: color 0.15s ease;
+}
+
+.editor-image-alt::placeholder {
+  font-style: italic;
+  color: hsl(var(--muted-foreground) / 0.4);
+}
+
+.editor-image-alt:hover {
+  color: hsl(var(--muted-foreground));
+}
+
+.editor-image-alt:focus {
+  color: hsl(var(--foreground));
+}
+
+/* Image context menu */
+.image-context-menu {
+  z-index: 50;
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5em;
+  padding: 0.25em 0;
+  min-width: 160px;
+  box-shadow: 0 4px 12px hsl(var(--foreground) / 0.15);
+  animation: annotation-tooltip-fade-in 0.1s ease-out;
+}
+
+.image-context-menu-item {
+  padding: 0.375em 0.75em;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.image-context-menu-item:hover {
+  background: hsl(var(--accent));
+}
+
+.image-context-menu-item-destructive {
+  color: hsl(var(--destructive));
+}
+
+.image-context-menu-separator {
+  height: 1px;
+  background: hsl(var(--border));
+  margin: 0.25em 0;
+}
+
 /* Search Highlight - FindBar multi-match highlighting */
 .prose-editor .search-match {
   background-color: hsl(45 100% 50% / 0.3);

@@ -21,6 +21,7 @@ import { NodeIds } from '../../extensions/node-ids'
 import { SearchHighlight } from '../../extensions/search-highlight'
 import { LinkHover } from '../../extensions/link-hover'
 import { PlainTextMode } from '../../extensions/plain-text-mode'
+import { ImageWithUpload } from '../../extensions/image'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
@@ -40,6 +41,7 @@ import { TransformAnimation, useTransformAnimation } from './TransformAnimation'
 import { AISuggestionPopover } from '../AISuggestionPopover'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import type { AISuggestionData } from '../../extensions/ai-suggestions/types'
+import { LinkPopover } from './LinkPopover'
 import { SourceEditor, SourceEditorHandle } from './SourceEditor'
 
 export function Editor() {
@@ -76,6 +78,13 @@ export function Editor() {
 
   // Track if current file is linked to a reMarkable notebook (for showing "View Original" button)
   const [linkedNotebookId, setLinkedNotebookId] = useState<string | null>(null)
+
+  // Link popover state
+  const [linkPopover, setLinkPopover] = useState<{
+    isOpen: boolean
+    position: { top: number; left: number }
+    initialUrl?: string
+  }>({ isOpen: false, position: { top: 0, left: 0 } })
 
   // Extract and store frontmatter on initial load
   const initialContent = useMemo(() => {
@@ -137,6 +146,12 @@ export function Editor() {
       SearchHighlight,
       LinkHover,
       PlainTextMode,
+      ImageWithUpload.configure({
+        allowBase64: true,
+        HTMLAttributes: {
+          class: 'editor-image'
+        }
+      }),
     ],
     content: initialContent,
     editorProps: {
@@ -198,6 +213,19 @@ export function Editor() {
     const text = editor.state.doc.textBetween(from, to, ' ')
     setPendingCommentSelection({ from, to, text })
     setIsAddCommentOpen(true)
+  }, [editor])
+
+  // Helper to open inline link popover
+  const openLinkPopover = useCallback(() => {
+    if (!editor) return
+    const { to } = editor.state.selection
+    const coords = editor.view.coordsAtPos(to)
+    const previousUrl = editor.getAttributes('link').href || ''
+    setLinkPopover({
+      isOpen: true,
+      position: { top: coords.bottom + 4, left: coords.left },
+      initialUrl: previousUrl,
+    })
   }, [editor])
 
   // Sync content from store to editor when document changes externally
@@ -562,14 +590,7 @@ export function Editor() {
       // Cmd+K: Insert/edit link
       e.preventDefault()
       if (editor) {
-        const previousUrl = editor.getAttributes('link').href
-        const url = window.prompt('URL', previousUrl || '')
-        if (url === null) return
-        if (url === '') {
-          editor.chain().focus().extendMarkRange('link').unsetLink().run()
-        } else {
-          editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
-        }
+        openLinkPopover()
       }
     } else if (isMod && e.key === 'u' && !e.shiftKey) {
       // Cmd+U: Underline
@@ -650,7 +671,7 @@ export function Editor() {
         }
       }
     }
-  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen, editor, setContext, setChatOpen, setFileListOpen, toggleChat, isChatOpen, isFileListOpen, isFindOpen, openAddCommentDialog, agentMode, setAgentMode, toggleAnnotationsVisible])
+  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen, editor, setContext, setChatOpen, setFileListOpen, toggleChat, isChatOpen, isFileListOpen, isFindOpen, openAddCommentDialog, openLinkPopover, agentMode, setAgentMode, toggleAnnotationsVisible])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
@@ -879,6 +900,7 @@ export function Editor() {
         <SelectionPopover
           editor={editor}
           onAddComment={openAddCommentDialog}
+          onToggleLink={openLinkPopover}
         />
       )}
       <AddCommentDialog
@@ -891,6 +913,15 @@ export function Editor() {
         }}
       />
       {editor && <AISuggestionPopover editor={editor} />}
+      {editor && (
+        <LinkPopover
+          editor={editor}
+          isOpen={linkPopover.isOpen}
+          onClose={() => setLinkPopover(prev => ({ ...prev, isOpen: false }))}
+          position={linkPopover.position}
+          initialUrl={linkPopover.initialUrl}
+        />
+      )}
     </div>
   )
 }

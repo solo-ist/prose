@@ -346,6 +346,8 @@ const api: ElectronAPI = {
   saveToFolder: (folder: string, filename: string, content: string) =>
     ipcRenderer.invoke('file:saveToFolder', folder, filename, content),
   getDocumentsPath: () => ipcRenderer.invoke('file:documentsPath'),
+  saveImage: (documentDir: string, base64Data: string, mimeType: string, originalName?: string) =>
+    ipcRenderer.invoke('file:saveImage', documentDir, base64Data, mimeType, originalName),
   fileExists: (path: string) => ipcRenderer.invoke('file:exists', path),
   fileStat: (path: string) => ipcRenderer.invoke('file:stat', path),
   showInFolder: (path: string) => ipcRenderer.invoke('file:showInFolder', path),

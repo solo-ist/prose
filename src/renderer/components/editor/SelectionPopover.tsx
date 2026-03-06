@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Editor } from '@tiptap/react'
+import { NodeSelection } from '@tiptap/pm/state'
 import { MessageSquarePlus, Bot, Bold, Italic, Link, Code } from 'lucide-react'
 import { Button } from '../ui/button'
 import { useAnnotationStore, getAnnotationsInRange } from '../../extensions/ai-annotations'
@@ -8,12 +9,14 @@ import { useEditorStore } from '../../stores/editorStore'
 interface SelectionPopoverProps {
   editor: Editor | null
   onAddComment: () => void
+  onToggleLink: () => void
 }
 
-export function SelectionPopover({ editor, onAddComment }: SelectionPopoverProps) {
+export function SelectionPopover({ editor, onAddComment, onToggleLink }: SelectionPopoverProps) {
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
   const [isVisible, setIsVisible] = useState(false)
   const [selectionRange, setSelectionRange] = useState<{ from: number; to: number } | null>(null)
+  const [isNodeSelection, setIsNodeSelection] = useState(false)
   const documentId = useEditorStore((state) => state.document.documentId)
   const annotations = useAnnotationStore((state) => state.annotations)
 
@@ -47,6 +50,7 @@ export function SelectionPopover({ editor, onAddComment }: SelectionPopoverProps
 
     // Store selection range for annotation check
     setSelectionRange({ from, to })
+    setIsNodeSelection(editor.state.selection instanceof NodeSelection)
 
     // Get the DOM coordinates of the selection
     const coords = editor.view.coordsAtPos(to)
@@ -115,12 +119,9 @@ export function SelectionPopover({ editor, onAddComment }: SelectionPopoverProps
     if (editor.isActive('link')) {
       editor.chain().focus().unsetLink().run()
     } else {
-      const url = window.prompt('Enter URL:')
-      if (!url) return
-      if (!/^https?:\/\//i.test(url) && !/^mailto:/i.test(url)) return
-      editor.chain().focus().setLink({ href: url }).run()
+      onToggleLink()
     }
-  }, [editor])
+  }, [editor, onToggleLink])
 
   if (!isVisible || !position) return null
 
@@ -132,32 +133,36 @@ export function SelectionPopover({ editor, onAddComment }: SelectionPopoverProps
         left: position.left
       }}
     >
-      <Button
-        size="sm"
-        variant={editor?.isActive('bold') ? 'default' : 'secondary'}
-        className="h-8 px-2 shadow-md border"
-        onMouseDown={(e) => {
-          e.preventDefault()
-          e.stopPropagation()
-          editor?.chain().focus().toggleBold().run()
-        }}
-        title="Bold (Cmd+B)"
-      >
-        <Bold className="h-4 w-4" />
-      </Button>
-      <Button
-        size="sm"
-        variant={editor?.isActive('italic') ? 'default' : 'secondary'}
-        className="h-8 px-2 shadow-md border"
-        onMouseDown={(e) => {
-          e.preventDefault()
-          e.stopPropagation()
-          editor?.chain().focus().toggleItalic().run()
-        }}
-        title="Italic (Cmd+I)"
-      >
-        <Italic className="h-4 w-4" />
-      </Button>
+      {!isNodeSelection && (
+        <>
+          <Button
+            size="sm"
+            variant={editor?.isActive('bold') ? 'default' : 'secondary'}
+            className="h-8 px-2 shadow-md border"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              editor?.chain().focus().toggleBold().run()
+            }}
+            title="Bold (Cmd+B)"
+          >
+            <Bold className="h-4 w-4" />
+          </Button>
+          <Button
+            size="sm"
+            variant={editor?.isActive('italic') ? 'default' : 'secondary'}
+            className="h-8 px-2 shadow-md border"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              editor?.chain().focus().toggleItalic().run()
+            }}
+            title="Italic (Cmd+I)"
+          >
+            <Italic className="h-4 w-4" />
+          </Button>
+        </>
+      )}
       <Button
         size="sm"
         variant={editor?.isActive('link') ? 'default' : 'secondary'}
@@ -171,47 +176,51 @@ export function SelectionPopover({ editor, onAddComment }: SelectionPopoverProps
       >
         <Link className="h-4 w-4" />
       </Button>
-      <Button
-        size="sm"
-        variant={editor?.isActive('code') ? 'default' : 'secondary'}
-        className="h-8 px-2 shadow-md border"
-        onMouseDown={(e) => {
-          e.preventDefault()
-          e.stopPropagation()
-          editor?.chain().focus().toggleCode().run()
-        }}
-        title="Code"
-      >
-        <Code className="h-4 w-4" />
-      </Button>
-      <div className="w-px h-5 bg-border mx-0.5" />
-      <Button
-        size="sm"
-        variant="secondary"
-        className="h-8 px-2 shadow-md border"
-        onMouseDown={(e) => {
-          // Prevent blur so selection is preserved when dialog opens
-          e.preventDefault()
-          e.stopPropagation()
-          onAddComment()
-        }}
-        title="Add comment (Cmd+Shift+A)"
-      >
-        <MessageSquarePlus className="h-4 w-4" />
-      </Button>
-      <Button
-        size="sm"
-        variant={hasAIAnnotation ? "default" : "secondary"}
-        className="h-8 px-2 shadow-md border"
-        onMouseDown={(e) => {
-          e.preventDefault()
-          e.stopPropagation()
-          handleToggleAIAnnotation()
-        }}
-        title={hasAIAnnotation ? "Remove AI authorship" : "Mark as AI authored"}
-      >
-        <Bot className="h-4 w-4" />
-      </Button>
+      {!isNodeSelection && (
+        <>
+          <Button
+            size="sm"
+            variant={editor?.isActive('code') ? 'default' : 'secondary'}
+            className="h-8 px-2 shadow-md border"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              editor?.chain().focus().toggleCode().run()
+            }}
+            title="Code"
+          >
+            <Code className="h-4 w-4" />
+          </Button>
+          <div className="w-px h-5 bg-border mx-0.5" />
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-8 px-2 shadow-md border"
+            onMouseDown={(e) => {
+              // Prevent blur so selection is preserved when dialog opens
+              e.preventDefault()
+              e.stopPropagation()
+              onAddComment()
+            }}
+            title="Add comment (Cmd+Shift+A)"
+          >
+            <MessageSquarePlus className="h-4 w-4" />
+          </Button>
+          <Button
+            size="sm"
+            variant={hasAIAnnotation ? "default" : "secondary"}
+            className="h-8 px-2 shadow-md border"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              handleToggleAIAnnotation()
+            }}
+            title={hasAIAnnotation ? "Remove AI authorship" : "Mark as AI authored"}
+          >
+            <Bot className="h-4 w-4" />
+          </Button>
+        </>
+      )}
     </div>
   )
 }

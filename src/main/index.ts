@@ -10,7 +10,7 @@ if (dotenvResult.error) {
   config()
 }
 
-import { app, shell, BrowserWindow, session } from 'electron'
+import { app, shell, BrowserWindow, session, protocol, net } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { setupIpcHandlers } from './ipc'
 import { createMenu } from './menu'
@@ -158,8 +158,21 @@ function createWindow(): BrowserWindow {
   return mainWindow
 }
 
+// Register custom protocol for serving local image files
+// Must be called before app.whenReady()
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'local-file', privileges: { bypassCSP: true, stream: true, supportFetchAPI: true } }
+])
+
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.prose.app')
+
+  // Handle local-file:// protocol to serve images from the filesystem
+  protocol.handle('local-file', (request) => {
+    // URL format: local-file:///absolute/path/to/image.png
+    const filePath = decodeURIComponent(new URL(request.url).pathname)
+    return net.fetch('file://' + filePath)
+  })
 
   // Configure Content Security Policy
   // In development, we need 'unsafe-eval' for Vite HMR to work
@@ -170,7 +183,7 @@ app.whenReady().then(async () => {
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
     "connect-src 'self' https://api.anthropic.com https://api.openai.com https://openrouter.ai https://generativelanguage.googleapis.com https://accounts.google.com https://www.googleapis.com https://docs.googleapis.com https://oauth2.googleapis.com",
-    "img-src 'self' data: https:",
+    "img-src 'self' data: https: local-file:",
     "media-src 'none'",
     "object-src 'none'",
     "frame-src 'none'"

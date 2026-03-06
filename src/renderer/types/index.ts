@@ -331,6 +331,7 @@ export interface ElectronAPI {
   selectFolder: () => Promise<string | null>
   saveToFolder: (folder: string, filename: string, content: string) => Promise<string>
   getDocumentsPath: () => Promise<string>
+  saveImage: (documentDir: string, base64Data: string, mimeType: string, originalName?: string) => Promise<{ relativePath: string; localFileUrl: string }>
   fileExists: (path: string) => Promise<boolean>
   fileStat: (path: string) => Promise<{ createdAt: string; modifiedAt: string; size: number }>
   // File reveal

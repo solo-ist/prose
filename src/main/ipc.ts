@@ -1,6 +1,7 @@
 import { ipcMain, dialog, app, shell, safeStorage, BrowserWindow } from 'electron'
 import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat, copyFile } from 'fs/promises'
-import { join, normalize, isAbsolute } from 'path'
+import { join, dirname, normalize, isAbsolute } from 'path'
+import { randomUUID } from 'crypto'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
 import { withRetry, getNetworkErrorMessage } from '../shared/utils/retry'
@@ -210,6 +211,61 @@ export function setupIpcHandlers(): void {
       const fullPath = join(folder, finalFilename)
       await writeFile(fullPath, content, 'utf-8')
       return fullPath
+    }
+  )
+
+  // File: Save image to disk alongside document
+  // Returns { relativePath, localFileUrl } so the editor can display
+  // via the local-file:// protocol while markdown uses relative paths.
+  // Preserves original filename when available, adding a numeric suffix on conflict.
+  ipcMain.handle(
+    'file:saveImage',
+    async (_event, documentDir: string, base64Data: string, mimeType: string, originalName?: string) => {
+      const safeDir = validatePath(documentDir)
+      const extMap: Record<string, string> = {
+        'image/png': '.png',
+        'image/jpeg': '.jpg',
+        'image/gif': '.gif',
+        'image/webp': '.webp',
+        'image/svg+xml': '.svg',
+      }
+      const ext = extMap[mimeType] || '.png'
+
+      // Use original filename if meaningful, otherwise generate one
+      let baseName: string
+      if (originalName && originalName !== 'image.png' && originalName !== 'image.jpeg') {
+        // Strip extension from original name — we'll use the mime-based one
+        baseName = originalName.replace(/\.[^.]+$/, '')
+      } else {
+        baseName = randomUUID()
+      }
+
+      // Sanitize: remove path separators and problematic chars
+      baseName = baseName.replace(/[/\\:*?"<>|]/g, '-').trim()
+
+      // Find a unique filename, adding numeric suffix on conflict
+      let filename = `${baseName}${ext}`
+      let fullPath = join(safeDir, filename)
+      let counter = 1
+      while (true) {
+        try {
+          await access(fullPath)
+          // File exists — try next suffix
+          filename = `${baseName}-${counter}${ext}`
+          fullPath = join(safeDir, filename)
+          counter++
+        } catch {
+          // File doesn't exist — good to use
+          break
+        }
+      }
+
+      const buffer = Buffer.from(base64Data, 'base64')
+      await writeFile(fullPath, buffer)
+      return {
+        relativePath: filename,
+        localFileUrl: `local-file://${fullPath}`,
+      }
     }
   )
 

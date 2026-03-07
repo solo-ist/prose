@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.node.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "moduleResolution": "node",
+    "allowImportingTsExtensions": false
+  },
+  "include": ["e2e/**/*"]
+}

@@ -16,7 +16,10 @@
     "build:linux": "npm run build && electron-builder --linux",
     "dev:web": "vite --config vite.web.config.ts",
     "build:web": "vite build --config vite.web.config.ts",
-    "preview:web": "vite preview --config vite.web.config.ts --open"
+    "preview:web": "vite preview --config vite.web.config.ts --open",
+    "test:e2e": "npm run build && npx playwright test",
+    "test:e2e:dev": "npx playwright test",
+    "typecheck:e2e": "tsc --project tsconfig.e2e.json --noEmit"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.1",
@@ -76,6 +79,7 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.17",
     "@types/react-dom": "^18.3.5",
@@ -84,6 +88,7 @@
     "autoprefixer": "^10.4.20",
     "electron": "^40.4.0",
     "electron-builder": "^26.8.1",
+    "electron-playwright-helpers": "^2.1.0",
     "electron-vite": "^5.0.0",
     "postcss": "^8.4.49",
     "react": "^18.3.1",

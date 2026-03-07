@@ -20,6 +20,7 @@ interface FileListState {
 
   // Explorer clipboard and inline rename
   clipboardPath: string | null
+  clipboardOperation: 'copy' | 'cut' | null
   renamingPath: string | null
 
   // Google Docs sync state
@@ -37,7 +38,7 @@ interface FileListState {
   togglePanel: () => void
   setPanelOpen: (open: boolean) => void
   setViewMode: (mode: ViewMode) => void
-  setClipboardPath: (path: string | null) => void
+  setClipboardPath: (path: string | null, operation?: 'copy' | 'cut') => void
   setRenamingPath: (path: string | null) => void
   setGoogleSyncing: (syncing: boolean) => void
   setRootPath: (path: string | null) => void
@@ -67,6 +68,7 @@ export const useFileListStore = create<FileListState>()(
     selectedPath: null,
     loadingFolders: new Set<string>(),
     clipboardPath: null,
+    clipboardOperation: null,
     renamingPath: null,
     isGoogleSyncing: false,
     googleDocsMetadata: null,
@@ -74,7 +76,7 @@ export const useFileListStore = create<FileListState>()(
     cloudNotebooks: [],
     syncState: null,
 
-    setClipboardPath: (path) => set({ clipboardPath: path }),
+    setClipboardPath: (path, operation = 'copy') => set({ clipboardPath: path, clipboardOperation: path ? operation : null }),
     setRenamingPath: (path) => set({ renamingPath: path }),
     setGoogleSyncing: (syncing) => set({ isGoogleSyncing: syncing }),
 

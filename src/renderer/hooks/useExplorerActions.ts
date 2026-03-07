@@ -47,6 +47,7 @@ export function useExplorerActions({
 }: UseExplorerActionsOptions) {
   const selectedPath = useFileListStore((s) => s.selectedPath)
   const clipboardPath = useFileListStore((s) => s.clipboardPath)
+  const clipboardOperation = useFileListStore((s) => s.clipboardOperation)
   const rootPath = useFileListStore((s) => s.rootPath)
   const setClipboardPath = useFileListStore((s) => s.setClipboardPath)
   const setRenamingPath = useFileListStore((s) => s.setRenamingPath)
@@ -75,85 +76,120 @@ export function useExplorerActions({
 
   const copySelected = useCallback(() => {
     if (!selectedPath) return
-    setClipboardPath(selectedPath)
+    setClipboardPath(selectedPath, 'copy')
   }, [selectedPath, setClipboardPath])
+
+  const cutSelected = useCallback(() => {
+    if (!selectedPath) return
+    setClipboardPath(selectedPath, 'cut')
+  }, [selectedPath, setClipboardPath])
+
+  const moveFile = useCallback(async (sourcePath: string, targetDir: string) => {
+    const fileName = sourcePath.split('/').pop()!
+    const newPath = `${targetDir}/${fileName}`
+    if (newPath === sourcePath) return
+
+    try {
+      await api.renameFile(sourcePath, newPath)
+      await useFileListStore.getState().loadFiles()
+      useFileListStore.getState().selectFile(newPath)
+    } catch (error) {
+      console.error('Failed to move file:', error)
+    }
+  }, [api])
 
   const pasteFile = useCallback(async (targetDir?: string) => {
     if (!clipboardPath) return
 
     try {
-      // Determine destination directory:
-      // 1. Explicit targetDir argument
-      // 2. Selected path (if it's a folder)
-      // 3. Parent of selected path (if it's a file)
-      // 4. Fall back to duplicateFile (same dir as source)
-      let destDir = targetDir
-      if (!destDir) {
-        const { selectedPath: selPath, files } = useFileListStore.getState()
-        if (selPath) {
-          const findItem = (items: typeof files): typeof files[0] | null => {
-            for (const item of items) {
-              if (item.path === selPath) return item
-              if (item.children) {
-                const found = findItem(item.children)
-                if (found) return found
-              }
-            }
-            return null
-          }
-          const sel = findItem(files)
-          if (sel?.isDirectory) {
-            destDir = sel.path
-          } else {
-            destDir = selPath.substring(0, selPath.lastIndexOf('/'))
-          }
-        }
-      }
-
-      let newPath: string
-      if (destDir) {
+      if (clipboardOperation === 'cut') {
+        // Move: rename to target directory (or same dir if no target)
+        const destDir = targetDir || clipboardPath.substring(0, clipboardPath.lastIndexOf('/'))
         const fileName = clipboardPath.split('/').pop()!
-        const ext = fileName.match(/\.[^.]+$/)?.[0] || ''
-        const baseName = fileName.replace(/\.[^.]+$/, '')
-        const sourceDir = clipboardPath.substring(0, clipboardPath.lastIndexOf('/'))
-
-        if (destDir === sourceDir) {
-          // Same directory — use duplicateFile to get a "copy" name
-          newPath = await api.duplicateFile(clipboardPath)
-        } else {
-          // Different directory — move a copy there, preserving the filename
-          const candidate = `${destDir}/${fileName}`
-          const exists = await api.fileExists(candidate)
-          if (exists) {
-            // Find an available name: "foo copy.md", "foo copy 2.md", etc.
-            let available = candidate
-            for (let copyNum = 0; copyNum < 100; copyNum++) {
-              const suffix = copyNum === 0 ? ' copy' : ` copy ${copyNum + 1}`
-              available = `${destDir}/${baseName}${suffix}${ext}`
-              const taken = await api.fileExists(available)
-              if (!taken) break
-            }
-            newPath = available
-          } else {
-            newPath = candidate
-          }
-          const content = await api.readFile(clipboardPath)
-          await api.saveToFolder(destDir, newPath.split('/').pop()!, content)
+        const newPath = `${destDir}/${fileName}`
+        if (newPath !== clipboardPath) {
+          await api.renameFile(clipboardPath, newPath)
+          await useFileListStore.getState().loadFiles()
+          useFileListStore.getState().selectFile(newPath)
+          onFileOpen?.(newPath)
         }
+        // Clear clipboard after cut-paste
+        setClipboardPath(null)
       } else {
-        newPath = await api.duplicateFile(clipboardPath)
+        // Copy: duplicate or copy to target directory
+        // Determine destination directory:
+        // 1. Explicit targetDir argument
+        // 2. Selected path (if it's a folder)
+        // 3. Parent of selected path (if it's a file)
+        // 4. Fall back to duplicateFile (same dir as source)
+        let destDir = targetDir
+        if (!destDir) {
+          const { selectedPath: selPath, files } = useFileListStore.getState()
+          if (selPath) {
+            const findItem = (items: typeof files): typeof files[0] | null => {
+              for (const item of items) {
+                if (item.path === selPath) return item
+                if (item.children) {
+                  const found = findItem(item.children)
+                  if (found) return found
+                }
+              }
+              return null
+            }
+            const sel = findItem(files)
+            if (sel?.isDirectory) {
+              destDir = sel.path
+            } else {
+              destDir = selPath.substring(0, selPath.lastIndexOf('/'))
+            }
+          }
+        }
+
+        let newPath: string
+        if (destDir) {
+          const fileName = clipboardPath.split('/').pop()!
+          const ext = fileName.match(/\.[^.]+$/)?.[0] || ''
+          const baseName = fileName.replace(/\.[^.]+$/, '')
+          const sourceDir = clipboardPath.substring(0, clipboardPath.lastIndexOf('/'))
+
+          if (destDir === sourceDir) {
+            // Same directory — use duplicateFile to get a "copy" name
+            newPath = await api.duplicateFile(clipboardPath)
+          } else {
+            // Different directory — copy there, preserving the filename
+            const candidate = `${destDir}/${fileName}`
+            const exists = await api.fileExists(candidate)
+            if (exists) {
+              // Find an available name: "foo copy.md", "foo copy 2.md", etc.
+              let available = candidate
+              for (let copyNum = 0; copyNum < 100; copyNum++) {
+                const suffix = copyNum === 0 ? ' copy' : ` copy ${copyNum + 1}`
+                available = `${destDir}/${baseName}${suffix}${ext}`
+                const taken = await api.fileExists(available)
+                if (!taken) break
+              }
+              newPath = available
+            } else {
+              newPath = candidate
+            }
+            const content = await api.readFile(clipboardPath)
+            await api.saveToFolder(destDir, newPath.split('/').pop()!, content)
+          }
+        } else {
+          newPath = await api.duplicateFile(clipboardPath)
+        }
+
+        // Refresh file list
+        await useFileListStore.getState().loadFiles()
+
+        // Select and open the new file
+        useFileListStore.getState().selectFile(newPath)
+        onFileOpen?.(newPath)
       }
-
-      // Refresh file list
-      await useFileListStore.getState().loadFiles()
-
-      // Select and open the new file
-      useFileListStore.getState().selectFile(newPath)
-      onFileOpen?.(newPath)
     } catch (error) {
       console.error('Failed to paste file:', error)
     }
-  }, [clipboardPath, api, onFileOpen])
+  }, [clipboardPath, clipboardOperation, api, onFileOpen, setClipboardPath])
 
   const startRename = useCallback(() => {
     if (!selectedPath) return
@@ -236,6 +272,14 @@ export function useExplorerActions({
         e.preventDefault()
         e.stopPropagation()
         copySelected()
+        return
+      }
+
+      // Cmd+X → cut
+      if (e.key === 'x' && isMeta && selectedPath) {
+        e.preventDefault()
+        e.stopPropagation()
+        cutSelected()
         return
       }
 
@@ -330,14 +374,17 @@ export function useExplorerActions({
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [containerRef, selectedPath, clipboardPath, renamingPath, startRename, trashSelected, copySelected, pasteFile, newFileInContext, onFilePreview, onFileTrash])
+  }, [containerRef, selectedPath, clipboardPath, renamingPath, startRename, trashSelected, copySelected, cutSelected, pasteFile, newFileInContext, onFilePreview, onFileTrash])
 
   return {
     trashSelected,
     copySelected,
+    cutSelected,
+    moveFile,
     pasteFile,
     startRename,
     newFileInContext,
-    clipboardPath
+    clipboardPath,
+    clipboardOperation
   }
 }

@@ -134,7 +134,7 @@ export function FileListPanel() {
   }, [])
 
   // Explorer actions hook (keyboard shortcuts + operations)
-  const { copySelected, pasteFile, clipboardPath } = useExplorerActions({
+  const { moveFile, pasteFile, clipboardPath, clipboardOperation } = useExplorerActions({
     containerRef,
     onNewFile: handleNewFileInDir,
     onFileOpen: async (path) => {
@@ -1062,6 +1062,7 @@ export function FileListPanel() {
                       loadingFolders={loadingFolders}
                       renamingPath={renamingPath}
                       clipboardPath={clipboardPath}
+                      clipboardOperation={clipboardOperation}
                       onFileClick={handleFileClick}
                       onFileDoubleClick={handleFileDoubleClick}
                       onFolderToggle={toggleFolder}
@@ -1069,8 +1070,10 @@ export function FileListPanel() {
                       onFileTrash={handleFileDeleteRequest}
                       onFileRename={handleFileRenameInline}
                       onFileShowInFolder={handleFileShowInFolder}
-                      onFileCopy={(path: string) => useFileListStore.getState().setClipboardPath(path)}
+                      onFileCopy={(path: string) => useFileListStore.getState().setClipboardPath(path, 'copy')}
+                      onFileCut={(path: string) => useFileListStore.getState().setClipboardPath(path, 'cut')}
                       onFilePaste={pasteFile}
+                      onFileMove={moveFile}
                       onFileOpen={handleFileDoubleClick}
                       onRenameComplete={handleRenameComplete}
                       onRenameCancel={handleRenameCancel}

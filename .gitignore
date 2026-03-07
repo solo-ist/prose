@@ -33,6 +33,7 @@ qa-screenshots/
 # Playwright
 test-results/
 test-results.json
+test-results-web.json
 playwright-report/
 
 # Claude Code

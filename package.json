@@ -19,6 +19,8 @@
     "preview:web": "vite preview --config vite.web.config.ts --open",
     "test:e2e": "npm run build && npx playwright test",
     "test:e2e:dev": "npx playwright test",
+    "test:web": "npm run build:web && npx playwright test --config playwright.web.config.ts",
+    "test:web:dev": "npx playwright test --config playwright.web.config.ts",
     "typecheck:e2e": "tsc --project tsconfig.e2e.json --noEmit"
   },
   "dependencies": {

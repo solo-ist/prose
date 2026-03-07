@@ -1,9 +1,7 @@
 /**
- * Shared test helpers for Playwright Electron tests.
+ * Electron test helpers — re-exports shared helpers and adds Electron-specific launch.
  *
- * These helpers are consumed by both CI (Playwright CLI) and local dev
- * (Circuit Electron MCP). They wrap common patterns for interacting with
- * the TipTap editor, toolbar, and app chrome.
+ * Smoke tests import from here; web tests import from './shared' directly.
  */
 
 import { type ElectronApplication, type Page, _electron as electron } from '@playwright/test'
@@ -11,21 +9,11 @@ import { findLatestBuild, parseElectronApp } from 'electron-playwright-helpers'
 import { existsSync } from 'fs'
 import { resolve } from 'path'
 
-// ---------------------------------------------------------------------------
-// Selectors — single source of truth for both tiers
-// ---------------------------------------------------------------------------
-
-export const selectors = {
-  editor: '.ProseMirror',
-  editorContent: '.prose-editor',
-  emptyState: '[data-testid="empty-state"]',
-  chatInput: 'textarea',
-  fileList: '[data-testid="file-list"]',
-  toolbar: '[data-testid="toolbar"]',
-} as const
+// Re-export all shared helpers so existing imports remain valid
+export * from './shared'
 
 // ---------------------------------------------------------------------------
-// Launch helpers
+// Electron launch helper
 // ---------------------------------------------------------------------------
 
 /**
@@ -74,74 +62,4 @@ export async function launchApp(): Promise<{ app: ElectronApplication; page: Pag
   await page.waitForLoadState('domcontentloaded')
 
   return { app, page }
-}
-
-// ---------------------------------------------------------------------------
-// Editor interaction helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Wait for the TipTap editor to be mounted and ready.
- *
- * The editor instance is exposed as `window.__prose_editor` by the renderer.
- * Note: this reference becomes `null` after a file close, so callers should
- * re-call `waitForEditor` if they reopen a document.
- */
-export async function waitForEditor(page: Page): Promise<void> {
-  await page.waitForSelector(selectors.editor, { state: 'attached', timeout: 10_000 })
-}
-
-/** Get the editor's JSON document via window.editor. */
-export async function getEditorJSON(page: Page): Promise<unknown> {
-  return page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const editor = (window as any).__prose_editor
-    return editor?.getJSON() ?? null
-  })
-}
-
-/** Get the editor's markdown content. */
-export async function getEditorMarkdown(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const editor = (window as any).__prose_editor
-    return editor?.storage?.markdown?.getMarkdown() ?? ''
-  })
-}
-
-/** Set the editor content via TipTap commands (bypasses input pipeline). */
-export async function setEditorContent(page: Page, html: string): Promise<void> {
-  await page.evaluate((content) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const editor = (window as any).__prose_editor
-    editor?.commands.setContent(content)
-  }, html)
-}
-
-/** Type into the editor using real keyboard events (goes through ProseMirror). */
-export async function typeInEditor(page: Page, text: string): Promise<void> {
-  await page.click(selectors.editor)
-  await page.keyboard.type(text)
-}
-
-/** Check if the editor is in the empty state (no document open). */
-export async function isEmptyState(page: Page): Promise<boolean> {
-  const placeholder = await page.locator(selectors.editor).getAttribute('data-placeholder')
-  // When empty, TipTap shows the placeholder "Start writing..."
-  const text = await page.locator(selectors.editor).innerText()
-  return text.trim() === '' && placeholder !== null
-}
-
-/** Run a TipTap chain command (e.g., toggleBold, toggleItalic). */
-export async function runEditorCommand(page: Page, command: string): Promise<void> {
-  await page.evaluate((cmd) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const editor = (window as any).__prose_editor
-    if (editor) {
-      const chain = editor.chain().focus()
-      if (typeof chain[cmd] === 'function') {
-        chain[cmd]().run()
-      }
-    }
-  }, command)
 }

@@ -255,6 +255,12 @@ export function Editor() {
       const isPlainText = !!document.path?.endsWith('.txt')
       editor.storage.plainTextMode.enabled = isPlainText
 
+      // If source mode is active, sync content directly to the source editor
+      // (the TipTap editor is hidden, so we update sourceContent too)
+      if (useEditorStore.getState().sourceMode) {
+        setSourceContent(newBody)
+      }
+
       if (isNewDocument) {
         // Create a fresh EditorState when loading a new document.
         // This resets the undo history so users can't undo past the initial document state.
@@ -436,7 +442,7 @@ export function Editor() {
     if (sourceMode && !prev) {
       // WYSIWYG → Source: save suggestions then serialize to markdown
       savedSuggestionsRef.current = getAISuggestions(editor)
-      const md = editor.storage.markdown.getMarkdown()
+      const md = editor.storage.markdown?.getMarkdown?.() ?? ''
       setSourceContent(md)
     } else if (!sourceMode && prev) {
       // Source → WYSIWYG: read live content from CodeMirror (avoids 500ms debounce lag)
@@ -470,7 +476,12 @@ export function Editor() {
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     const isMod = e.metaKey || e.ctrlKey
 
-    if (isMod && e.key === 'o' && !e.shiftKey) {
+    if (isMod && e.key === 'n' && !e.shiftKey) {
+      // Cmd+N: New document — prevent browser's "new window" in web mode
+      e.preventDefault()
+      // Dispatch to useTabs via a custom event (Toolbar/App owns createNewTab)
+      window.dispatchEvent(new CustomEvent('menu:new'))
+    } else if (isMod && e.key === 'o' && !e.shiftKey) {
       e.preventDefault()
       openFile()
     } else if (isMod && e.key === 's' && !e.shiftKey) {

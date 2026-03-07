@@ -4,8 +4,7 @@
 
 import type { Editor } from '@tiptap/core'
 import type { EditBlock } from './editBlocks'
-import type { AnnotationType } from '../types/annotations'
-import { useAnnotationStore } from '../extensions/ai-annotations/store'
+import { createWordDiffAnnotations } from './diffUtils'
 
 export interface ApplyResult {
   success: boolean
@@ -308,7 +307,7 @@ export function applyEditDirect(
 
   // Calculate the position where the new text will be
   const insertFrom = match.from
-  const insertTo = match.from + replace.length
+  const sizeBefore = editor.state.doc.content.size
 
   // Replace directly
   editor
@@ -318,16 +317,19 @@ export function applyEditDirect(
     .insertContent(replace)
     .run()
 
-  // Create annotation for AI provenance tracking
-  if (provenance && documentId && replace.length > 0) {
-    const annotationType: AnnotationType = search.trim() === '' ? 'insertion' : 'replacement'
+  // Map the old match.to through the edit using the actual PM size delta.
+  // insertContent() may produce multi-paragraph nodes where string length != PM position delta.
+  const sizeAfter = editor.state.doc.content.size
+  const insertTo = match.to + (sizeAfter - sizeBefore)
 
-    useAnnotationStore.getState().addAnnotation({
+  // Create word-level annotations for AI provenance tracking
+  if (provenance && documentId && replace.length > 0) {
+    createWordDiffAnnotations({
       documentId,
-      type: annotationType,
-      from: insertFrom,
-      to: insertTo,
-      content: replace,
+      originalText: search,
+      newText: replace,
+      rangeFrom: insertFrom,
+      rangeTo: insertTo,
       provenance: {
         model: provenance.model,
         conversationId: provenance.conversationId,

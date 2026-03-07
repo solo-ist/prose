@@ -15,19 +15,36 @@ on:
     types: [submitted]
 
 jobs:
-  # Automatic code review on PR open
+  # Automatic code review on PR open, or on-demand via /review comment
   auto-review:
-    if: github.event_name == 'pull_request'
+    if: |
+      github.event_name == 'pull_request' ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        contains(github.event.comment.body, '/review') &&
+        !contains(github.event.comment.body, '@claude')
+      )
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
+      issues: write
       id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
           fetch-depth: 1
+
+      - name: Determine PR number
+        id: pr
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Run Claude Code Review
         uses: anthropics/claude-code-action@v1
@@ -37,7 +54,7 @@ jobs:
           claude_args: '--allowedTools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Read,Glob,Grep"'
           prompt: |
             REPO: ${{ github.repository }}
-            PR NUMBER: ${{ github.event.pull_request.number }}
+            PR NUMBER: ${{ steps.pr.outputs.number }}
 
             Review this pull request. Focus on:
             - Code correctness and potential bugs
@@ -46,7 +63,7 @@ jobs:
 
             Be concise. Only comment on significant issues - if the code looks good, say so briefly.
 
-            IMPORTANT: Post your review as a PR comment using `gh pr comment ${{ github.event.pull_request.number }}`
+            IMPORTANT: Post your review as a PR comment using `gh pr comment ${{ steps.pr.outputs.number }}`
             Do not just output text - you must use the gh command to post your feedback.
 
   # Manual invocation via @claude mentions

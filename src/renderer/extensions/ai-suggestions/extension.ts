@@ -9,6 +9,7 @@ import { Mark, mergeAttributes } from '@tiptap/core'
 import type { MarkSerializerSpec } from 'prosemirror-markdown'
 import type { AISuggestionOptions, AISuggestionData, SuggestionType } from './types'
 import { useAnnotationStore } from '../ai-annotations'
+import { createWordDiffAnnotations } from '../../lib/diffUtils'
 
 /**
  * Markdown serializer for AI suggestion marks - outputs just the text content
@@ -324,21 +325,28 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             provenanceConversationId?: string
             provenanceMessageId?: string
             documentId?: string
+            originalText?: string
           }
 
           // Use fallbacks: store's documentId, or 'unknown' for model
           const annotationStore = useAnnotationStore.getState()
           const docId = attrs.documentId || annotationStore.documentId
           const model = attrs.provenanceModel || 'unknown'
+          const originalText = attrs.originalText || ''
 
+          dispatch(tr)
+
+          // Create word-level annotations after dispatch so positions reference the updated document.
           if (docId && suggestedText.length > 0) {
-            console.log('[AISuggestion] Creating annotation:', { docId, model, from: markFrom, to: markFrom + suggestedText.length })
-            annotationStore.addAnnotation({
+            const newFrom = tr.mapping.map(markFrom, -1)
+            const newTo = tr.mapping.map(markTo, 1)
+            console.log('[AISuggestion] Creating annotation:', { docId, model, from: newFrom, to: newTo })
+            createWordDiffAnnotations({
               documentId: docId,
-              type: 'insertion',
-              from: markFrom,
-              to: markFrom + suggestedText.length,
-              content: suggestedText,
+              originalText,
+              newText: suggestedText,
+              rangeFrom: newFrom,
+              rangeTo: newTo,
               provenance: {
                 model,
                 conversationId: attrs.provenanceConversationId || '',
@@ -348,8 +356,6 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           } else {
             console.warn('[AISuggestion] Cannot create annotation - missing docId:', { docId, suggestedText: suggestedText.length })
           }
-
-          dispatch(tr)
 
           if (this.options.onSuggestionAccepted) {
             this.options.onSuggestionAccepted(id)

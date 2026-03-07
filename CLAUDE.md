@@ -109,6 +109,8 @@ When a PR is opened, Claude auto-reviews it (via `claude.yml`). A second workflo
 3. **Output**: Posts structured triage comment with severity, effort, and MERGE / FIX REQUIRED / NEEDS DISCUSSION recommendation
 4. **Loop prevention**: Analysis comments include a `<!-- review-feedback-analysis -->` sentinel excluded from detection
 
+**On-demand review**: Comment `/review` on a PR to trigger a fresh code review. Use this after pushing meaningful changes to an existing PR. The auto-review only fires on PR open — subsequent pushes require an explicit `/review` comment.
+
 **Manual trigger**: Run `workflow_dispatch` on `review-feedback.yml` with a PR number to re-analyze any PR.
 
 **Local deep-dive**: For code-level validation of review concerns, use `/review-feedback <pr-number>` locally. The cloud version is a quick triage; the local skill reads actual source files.

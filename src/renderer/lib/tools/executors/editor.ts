@@ -8,6 +8,7 @@ import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useEditorStore } from '../../../stores/editorStore'
 import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
 import { useAnnotationStore } from '../../../extensions/ai-annotations'
+import { createWordDiffAnnotations } from '../../diffUtils'
 import { findNodeById, findNodeByContent, getNodesWithIds } from '../../../extensions/node-ids'
 import { generateId } from '../../persistence'
 import { getAISuggestions } from '../../../extensions/ai-suggestions'
@@ -119,21 +120,23 @@ export function executeEdit(
   const contentStart = pos + 1
   const contentEnd = pos + node.nodeSize - 1
 
+  const sizeBefore = editor.state.doc.content.size
   editor
     .chain()
     .focus()
     .setTextSelection({ from: contentStart, to: contentEnd })
     .insertContent(content)
     .run()
+  const sizeAfter = editor.state.doc.content.size
 
-  // Create AI annotation for provenance tracking
+  // Create word-level AI annotations for provenance tracking
   if (provenance && provenance.documentId && content.length > 0) {
-    useAnnotationStore.getState().addAnnotation({
+    createWordDiffAnnotations({
       documentId: provenance.documentId,
-      type: 'replacement',
-      from: contentStart,
-      to: contentStart + content.length,
-      content,
+      originalText: node.textContent,
+      newText: content,
+      rangeFrom: contentStart,
+      rangeTo: contentEnd + (sizeAfter - sizeBefore),
       provenance: {
         model: provenance.model,
         conversationId: provenance.conversationId,
@@ -190,6 +193,7 @@ export function executeInsert(
   }
 
   try {
+    const sizeBefore = editor.state.doc.content.size
     switch (position) {
       case 'start':
         editor.chain().focus().setTextSelection(0).insertContent(text).run()
@@ -207,6 +211,7 @@ export function executeInsert(
         editor.chain().focus().insertContent(text).run()
         break
     }
+    const sizeAfter = editor.state.doc.content.size
 
     // Create AI annotation for provenance tracking
     if (provenance && provenance.documentId && text.length > 0) {
@@ -214,7 +219,9 @@ export function executeInsert(
         documentId: provenance.documentId,
         type: 'insertion',
         from: insertPos,
-        to: insertPos + text.length,
+        // Use the actual PM size delta instead of string length: insertContent()
+        // may produce multi-paragraph nodes where string length != PM position delta.
+        to: insertPos + (sizeAfter - sizeBefore),
         content: text,
         provenance: {
           model: provenance.model,

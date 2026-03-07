@@ -379,26 +379,42 @@ export function FileListPanel() {
     // Already in this folder — nothing to do
     if (sourceDir === targetDirPath) return
 
-    const newPath = `${targetDirPath}/${fileName}`
+    const ext = fileName.match(/\.[^.]+$/)?.[0] || ''
+    const baseName = fileName.replace(/\.[^.]+$/, '')
 
-    try {
-      const exists = await api.fileExists(newPath)
-      if (exists) {
-        console.error(`A file named "${fileName}" already exists in the destination folder.`)
+    // Find an available destination path, auto-appending " copy N" on collision
+    let destPath = `${targetDirPath}/${fileName}`
+    const exists = await api.fileExists(destPath)
+    if (exists) {
+      let found = false
+      for (let copyNum = 0; copyNum < 100; copyNum++) {
+        const suffix = copyNum === 0 ? ' copy' : ` copy ${copyNum + 1}`
+        const candidate = `${targetDirPath}/${baseName}${suffix}${ext}`
+        const taken = await api.fileExists(candidate)
+        if (!taken) {
+          destPath = candidate
+          found = true
+          break
+        }
+      }
+      if (!found) {
+        console.error('Could not find available name after 100 attempts')
         return
       }
+    }
 
-      await api.renameFile(sourcePath, newPath)
+    try {
+      await api.renameFile(sourcePath, destPath)
 
       // Update tab if the moved file was open
       const tab = useTabStore.getState().getTabByPath(sourcePath)
       if (tab) {
-        const newTitle = fileName.replace(/\.(md|markdown|txt)$/, '')
-        useTabStore.getState().updateTab(tab.id, { path: newPath, title: newTitle })
+        const newTitle = destPath.split('/').pop()!.replace(/\.[^.]+$/, '')
+        useTabStore.getState().updateTab(tab.id, { path: destPath, title: newTitle })
       }
 
       await loadFiles()
-      selectFile(newPath)
+      selectFile(destPath)
     } catch (error) {
       console.error('Error moving file:', error)
     }

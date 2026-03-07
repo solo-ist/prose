@@ -162,11 +162,16 @@ export function useExplorerActions({
             if (exists) {
               // Find an available name: "foo copy.md", "foo copy 2.md", etc.
               let available = candidate
+              let found = false
               for (let copyNum = 0; copyNum < 100; copyNum++) {
                 const suffix = copyNum === 0 ? ' copy' : ` copy ${copyNum + 1}`
                 available = `${destDir}/${baseName}${suffix}${ext}`
                 const taken = await api.fileExists(available)
-                if (!taken) break
+                if (!taken) { found = true; break }
+              }
+              if (!found) {
+                console.error('Could not find available name after 100 attempts')
+                return
               }
               newPath = available
             } else {

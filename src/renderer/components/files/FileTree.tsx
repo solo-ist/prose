@@ -174,13 +174,20 @@ function FileTreeItem({
   const dragCounterRef = useRef(0)
 
   const handleDragStart = useCallback((e: React.DragEvent) => {
-    e.dataTransfer.setData('text/plain', item.path)
+    // Use a custom MIME type to ensure only internal drags are handled
+    e.dataTransfer.setData('application/prose-file-path', item.path)
     e.dataTransfer.effectAllowed = 'move'
   }, [item.path])
 
+  const handleDragEnd = useCallback(() => {
+    // Reset drag-over state in case drag was cancelled (e.g. Escape key)
+    dragCounterRef.current = 0
+    setIsDragOver(false)
+  }, [])
+
   const handleDragOver = useCallback((e: React.DragEvent) => {
     if (!item.isDirectory) return
-    if (e.dataTransfer.types.includes('text/plain')) {
+    if (e.dataTransfer.types.includes('application/prose-file-path')) {
       e.preventDefault()
       e.stopPropagation()
       e.dataTransfer.dropEffect = 'move'
@@ -208,7 +215,8 @@ function FileTreeItem({
     e.stopPropagation()
     dragCounterRef.current = 0
     setIsDragOver(false)
-    const sourcePath = e.dataTransfer.getData('text/plain')
+    // Only accept internal drags from within this app
+    const sourcePath = e.dataTransfer.getData('application/prose-file-path')
     if (sourcePath && sourcePath !== item.path) {
       onFileDrop?.(sourcePath, item.path)
     }
@@ -298,6 +306,7 @@ function FileTreeItem({
         ref={buttonRef}
         draggable={!item.isDirectory}
         onDragStart={!item.isDirectory ? handleDragStart : undefined}
+        onDragEnd={!item.isDirectory ? handleDragEnd : undefined}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         className={cn(

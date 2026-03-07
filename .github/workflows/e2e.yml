@@ -1,0 +1,48 @@
+name: E2E Tests
+
+on:
+  pull_request:
+  issue_comment:
+    types: [created]
+
+jobs:
+  e2e:
+    # Only run on PRs, or on /test comments (but not @claude mentions)
+    if: |
+      github.event_name == 'pull_request' ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        contains(github.event.comment.body, '/test') &&
+        !contains(github.event.comment.body, '@claude')
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Install Playwright system deps
+        run: npx playwright install --with-deps
+
+      - name: Build Electron app
+        run: npm run build
+
+      - name: Run E2E tests
+        uses: coactions/setup-xvfb@v1
+        with:
+          run: npx playwright test
+          options: -screen 0 1280x1024x24
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-results
+          path: |
+            test-results.json
+            test-results/

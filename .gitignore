@@ -30,5 +30,10 @@ electron-screenshot-*.jpeg
 qa-screenshots/
 *.code-workspace
 
+# Playwright
+test-results/
+test-results.json
+playwright-report/
+
 # Claude Code
 .claude/settings.local.json

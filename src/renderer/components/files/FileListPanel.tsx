@@ -371,6 +371,39 @@ export function FileListPanel() {
     }
   }
 
+  // Drag-and-drop move handler
+  const handleFileDrop = useCallback(async (sourcePath: string, targetDirPath: string) => {
+    const fileName = sourcePath.split('/').pop()!
+    const sourceDir = sourcePath.substring(0, sourcePath.lastIndexOf('/'))
+
+    // Already in this folder — nothing to do
+    if (sourceDir === targetDirPath) return
+
+    const newPath = `${targetDirPath}/${fileName}`
+
+    try {
+      const exists = await api.fileExists(newPath)
+      if (exists) {
+        console.error(`A file named "${fileName}" already exists in the destination folder.`)
+        return
+      }
+
+      await api.renameFile(sourcePath, newPath)
+
+      // Update tab if the moved file was open
+      const tab = useTabStore.getState().getTabByPath(sourcePath)
+      if (tab) {
+        const newTitle = fileName.replace(/\.(md|markdown|txt)$/, '')
+        useTabStore.getState().updateTab(tab.id, { path: newPath, title: newTitle })
+      }
+
+      await loadFiles()
+      selectFile(newPath)
+    } catch (error) {
+      console.error('Error moving file:', error)
+    }
+  }, [api, loadFiles, selectFile])
+
   // Show in folder handler
   const handleFileShowInFolder = async (path: string) => {
     try {
@@ -1042,6 +1075,7 @@ export function FileListPanel() {
                       onRenameComplete={handleRenameComplete}
                       onRenameCancel={handleRenameCancel}
                       onNewFile={handleNewFileInDir}
+                      onFileDrop={handleFileDrop}
                     />
                   )}
                 </div>

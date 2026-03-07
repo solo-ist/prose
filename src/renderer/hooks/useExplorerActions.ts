@@ -78,11 +78,71 @@ export function useExplorerActions({
     setClipboardPath(selectedPath)
   }, [selectedPath, setClipboardPath])
 
-  const pasteFile = useCallback(async () => {
+  const pasteFile = useCallback(async (targetDir?: string) => {
     if (!clipboardPath) return
 
     try {
-      const newPath = await api.duplicateFile(clipboardPath)
+      // Determine destination directory:
+      // 1. Explicit targetDir argument
+      // 2. Selected path (if it's a folder)
+      // 3. Parent of selected path (if it's a file)
+      // 4. Fall back to duplicateFile (same dir as source)
+      let destDir = targetDir
+      if (!destDir) {
+        const { selectedPath: selPath, files } = useFileListStore.getState()
+        if (selPath) {
+          const findItem = (items: typeof files): typeof files[0] | null => {
+            for (const item of items) {
+              if (item.path === selPath) return item
+              if (item.children) {
+                const found = findItem(item.children)
+                if (found) return found
+              }
+            }
+            return null
+          }
+          const sel = findItem(files)
+          if (sel?.isDirectory) {
+            destDir = sel.path
+          } else {
+            destDir = selPath.substring(0, selPath.lastIndexOf('/'))
+          }
+        }
+      }
+
+      let newPath: string
+      if (destDir) {
+        const fileName = clipboardPath.split('/').pop()!
+        const ext = fileName.match(/\.[^.]+$/)?.[0] || ''
+        const baseName = fileName.replace(/\.[^.]+$/, '')
+        const sourceDir = clipboardPath.substring(0, clipboardPath.lastIndexOf('/'))
+
+        if (destDir === sourceDir) {
+          // Same directory — use duplicateFile to get a "copy" name
+          newPath = await api.duplicateFile(clipboardPath)
+        } else {
+          // Different directory — move a copy there, preserving the filename
+          const candidate = `${destDir}/${fileName}`
+          const exists = await api.fileExists(candidate)
+          if (exists) {
+            // Find an available name: "foo copy.md", "foo copy 2.md", etc.
+            let available = candidate
+            for (let copyNum = 0; copyNum < 100; copyNum++) {
+              const suffix = copyNum === 0 ? ' copy' : ` copy ${copyNum + 1}`
+              available = `${destDir}/${baseName}${suffix}${ext}`
+              const taken = await api.fileExists(available)
+              if (!taken) break
+            }
+            newPath = available
+          } else {
+            newPath = candidate
+          }
+          const content = await api.readFile(clipboardPath)
+          await api.saveToFolder(destDir, newPath.split('/').pop()!, content)
+        }
+      } else {
+        newPath = await api.duplicateFile(clipboardPath)
+      }
 
       // Refresh file list
       await useFileListStore.getState().loadFiles()

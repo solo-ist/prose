@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import type { FileItem } from '../../types'
 import { ChevronRight, ChevronDown, FileText, FileType, Folder, Loader2, Trash2, Edit3, ExternalLink, Copy, ClipboardPaste, FilePlus } from 'lucide-react'
 import { cn } from '../../lib/utils'
@@ -27,12 +27,13 @@ interface FileTreeProps {
   onFileShowInFolder?: (path: string) => void
   onFileLinkClick?: (path: string) => void
   onFileCopy?: (path: string) => void
-  onFilePaste?: () => void
+  onFilePaste?: (targetDir?: string) => void
   onFileTrash?: (path: string) => void
   onFileOpen?: (path: string) => void
   onRenameComplete?: (oldPath: string, newName: string) => void
   onRenameCancel?: () => void
   onNewFile?: (dirPath: string) => void
+  onFileDrop?: (sourcePath: string, targetDirPath: string) => void
   depth?: number
 }
 
@@ -58,6 +59,7 @@ export function FileTree({
   onRenameComplete,
   onRenameCancel,
   onNewFile,
+  onFileDrop,
   depth = 0
 }: FileTreeProps) {
   return (
@@ -86,6 +88,7 @@ export function FileTree({
           onRenameComplete={onRenameComplete}
           onRenameCancel={onRenameCancel}
           onNewFile={onNewFile}
+          onFileDrop={onFileDrop}
           depth={depth}
         />
       ))}
@@ -109,12 +112,13 @@ interface FileTreeItemProps {
   onFileShowInFolder?: (path: string) => void
   onFileLinkClick?: (path: string) => void
   onFileCopy?: (path: string) => void
-  onFilePaste?: () => void
+  onFilePaste?: (targetDir?: string) => void
   onFileTrash?: (path: string) => void
   onFileOpen?: (path: string) => void
   onRenameComplete?: (oldPath: string, newName: string) => void
   onRenameCancel?: () => void
   onNewFile?: (dirPath: string) => void
+  onFileDrop?: (sourcePath: string, targetDirPath: string) => void
   depth: number
 }
 
@@ -140,6 +144,7 @@ function FileTreeItem({
   onRenameComplete,
   onRenameCancel,
   onNewFile,
+  onFileDrop,
   depth
 }: FileTreeItemProps) {
   const isExpanded = expandedFolders.has(item.path)
@@ -152,6 +157,51 @@ function FileTreeItem({
   const inputRef = useRef<HTMLInputElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const wasRenamingRef = useRef(false)
+
+  // Drag-and-drop state (for folder drop targets)
+  const [isDragOver, setIsDragOver] = useState(false)
+  const dragCounterRef = useRef(0)
+
+  const handleDragStart = useCallback((e: React.DragEvent) => {
+    e.dataTransfer.setData('text/plain', item.path)
+    e.dataTransfer.effectAllowed = 'move'
+  }, [item.path])
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!item.isDirectory) return
+    if (e.dataTransfer.types.includes('text/plain')) {
+      e.preventDefault()
+      e.stopPropagation()
+      e.dataTransfer.dropEffect = 'move'
+    }
+  }, [item.isDirectory])
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    if (!item.isDirectory) return
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current++
+    if (dragCounterRef.current === 1) setIsDragOver(true)
+  }, [item.isDirectory])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (!item.isDirectory) return
+    e.stopPropagation()
+    dragCounterRef.current--
+    if (dragCounterRef.current === 0) setIsDragOver(false)
+  }, [item.isDirectory])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    if (!item.isDirectory) return
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current = 0
+    setIsDragOver(false)
+    const sourcePath = e.dataTransfer.getData('text/plain')
+    if (sourcePath && sourcePath !== item.path) {
+      onFileDrop?.(sourcePath, item.path)
+    }
+  }, [item.isDirectory, item.path, onFileDrop])
 
   // Refocus the button (and thus the explorer container) after rename ends
   useEffect(() => {
@@ -226,15 +276,24 @@ function FileTreeItem({
   const showChevron = item.isDirectory && (item.children?.length || item.hasChildren)
 
   const buttonElement = (
-    <div className={cn("group flex items-center", !item.isDirectory && onFileLinkClick && "relative")}>
+    <div
+      className={cn("group flex items-center", !item.isDirectory && onFileLinkClick && "relative")}
+      onDragOver={handleDragOver}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <button
         ref={buttonRef}
+        draggable={!item.isDirectory}
+        onDragStart={!item.isDirectory ? handleDragStart : undefined}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         className={cn(
           'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm text-left transition-colors outline-none',
           'hover:bg-accent hover:text-accent-foreground',
-          isSelected && 'bg-accent text-accent-foreground'
+          isSelected && 'bg-accent text-accent-foreground',
+          isDragOver && 'ring-1 ring-primary bg-primary/10'
         )}
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
         title={item.path}
@@ -357,7 +416,7 @@ function FileTreeItem({
         </ContextMenuItem>
       )}
       {onFilePaste && (
-        <ContextMenuItem onClick={() => onFilePaste()} disabled={!clipboardPath}>
+        <ContextMenuItem onClick={() => onFilePaste(item.path)} disabled={!clipboardPath}>
           <ClipboardPaste className="h-4 w-4 mr-2" />
           Paste
           <ContextMenuShortcut>⌘V</ContextMenuShortcut>
@@ -407,6 +466,7 @@ function FileTreeItem({
           onRenameComplete={onRenameComplete}
           onRenameCancel={onRenameCancel}
           onNewFile={onNewFile}
+          onFileDrop={onFileDrop}
           depth={depth + 1}
         />
       )}

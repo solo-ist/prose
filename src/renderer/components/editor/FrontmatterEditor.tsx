@@ -8,6 +8,8 @@ const PROTECTED_FIELDS = new Set(['google_doc_id', 'google_synced_at'])
 interface Field {
   key: string
   value: string
+  readonly: boolean
+  originalValue: unknown
 }
 
 interface FrontmatterEditorProps {
@@ -16,16 +18,21 @@ interface FrontmatterEditorProps {
 }
 
 function frontmatterToFields(frontmatter: Record<string, unknown>): Field[] {
-  return Object.entries(frontmatter).map(([key, value]) => ({
-    key,
-    value: String(value ?? '')
-  }))
+  return Object.entries(frontmatter).map(([key, value]) => {
+    const isSimple = typeof value === 'string' || value === null || value === undefined
+    return {
+      key,
+      value: isSimple ? String(value ?? '') : JSON.stringify(value),
+      readonly: !isSimple,
+      originalValue: value
+    }
+  })
 }
 
 function fieldsToFrontmatter(fields: Field[]): Record<string, unknown> {
   const result: Record<string, unknown> = {}
-  for (const { key, value } of fields) {
-    if (key.trim()) result[key.trim()] = value
+  for (const { key, value, readonly: isReadonly, originalValue } of fields) {
+    if (key.trim()) result[key.trim()] = isReadonly ? originalValue : value
   }
   return result
 }
@@ -57,7 +64,7 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
   }, [onSave])
 
   const handleAdd = useCallback(() => {
-    setFields(prev => [...prev, { key: '', value: '' }])
+    setFields(prev => [...prev, { key: '', value: '', readonly: false, originalValue: '' }])
   }, [])
 
   if (Object.keys(frontmatter).length === 0 && fields.length === 0) return null
@@ -117,13 +124,14 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
       <div className="space-y-1.5">
         {fields.map((field, index) => {
           const isProtected = PROTECTED_FIELDS.has(field.key)
+          const isDisabled = isProtected || field.readonly
           return (
             <div key={index} className="flex items-center gap-1.5">
               <Input
                 value={field.key}
                 onChange={e => handleFieldChange(index, { key: e.target.value })}
                 placeholder="key"
-                disabled={isProtected}
+                disabled={isDisabled}
                 className="h-6 px-2 py-0 text-xs font-mono w-32 shrink-0 bg-background/50 border-border/50 disabled:opacity-60 disabled:cursor-default"
               />
               <span className="text-muted-foreground/40 shrink-0">:</span>
@@ -131,10 +139,10 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
                 value={field.value}
                 onChange={e => handleFieldChange(index, { value: e.target.value })}
                 placeholder="value"
-                disabled={isProtected}
+                disabled={isDisabled}
                 className="h-6 px-2 py-0 text-xs font-mono flex-1 bg-background/50 border-border/50 disabled:opacity-60 disabled:cursor-default"
               />
-              {isProtected ? (
+              {isProtected || field.readonly ? (
                 <Lock className="w-3 h-3 text-muted-foreground/40 shrink-0" aria-label="Protected field" />
               ) : (
                 <button

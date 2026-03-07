@@ -733,12 +733,14 @@ export function Editor() {
   // Frontmatter editor save handler: update store and content
   const setFrontmatter = useEditorStore((state) => state.setFrontmatter)
   const handleFrontmatterSave = useCallback((newFrontmatter: Record<string, unknown>) => {
+    if (!editor) return
     const newFrontmatterRaw = serializeFrontmatter(newFrontmatter)
     frontmatterRef.current = newFrontmatterRaw
     setFrontmatter(newFrontmatter)
-    // Rebuild full content: new frontmatter + current body
-    const currentBody = editor?.storage.markdown?.getMarkdown() ?? ''
-    setContent(newFrontmatterRaw + currentBody)
+    // Store body only — serializeMarkdown in buildSaveContent
+    // prepends frontmatter from the store on save
+    const currentBody = editor.storage.markdown?.getMarkdown() ?? ''
+    setContent(currentBody)
   }, [setFrontmatter, setContent, editor])
 
   const effectiveTheme = settings.theme === 'system'
@@ -900,7 +902,7 @@ export function Editor() {
               {showFrontmatter && (
                 isRemarkableReadOnly || isPreviewTab
                   ? <FrontmatterDisplay content={document.content} frontmatter={document.frontmatter} />
-                  : <FrontmatterEditor frontmatter={document.frontmatter ?? {}} onSave={handleFrontmatterSave} />
+                  : <FrontmatterEditor key={document.path || 'new'} frontmatter={document.frontmatter ?? {}} onSave={handleFrontmatterSave} />
               )}
               <EditorContent
                 editor={editor}

@@ -8,6 +8,7 @@ import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useEditorStore } from '../../../stores/editorStore'
 import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
 import { useAnnotationStore } from '../../../extensions/ai-annotations'
+import { createWordDiffAnnotations } from '../../diffUtils'
 import { findNodeById, findNodeByContent, getNodesWithIds } from '../../../extensions/node-ids'
 import { generateId } from '../../persistence'
 import { getAISuggestions } from '../../../extensions/ai-suggestions'
@@ -128,17 +129,14 @@ export function executeEdit(
     .run()
   const sizeAfter = editor.state.doc.content.size
 
-  // Create AI annotation for provenance tracking
+  // Create word-level AI annotations for provenance tracking
   if (provenance && provenance.documentId && content.length > 0) {
-    useAnnotationStore.getState().addAnnotation({
+    createWordDiffAnnotations({
       documentId: provenance.documentId,
-      type: 'replacement',
-      from: contentStart,
-      // Map the old contentEnd through the edit using the doc size delta.
-      // insertContent() may produce multi-paragraph PM nodes where string length
-      // does not equal PM position delta, so we use the actual size change.
-      to: contentEnd + (sizeAfter - sizeBefore),
-      content,
+      originalText: node.textContent,
+      newText: content,
+      rangeFrom: contentStart,
+      rangeTo: contentEnd + (sizeAfter - sizeBefore),
       provenance: {
         model: provenance.model,
         conversationId: provenance.conversationId,

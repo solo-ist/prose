@@ -9,6 +9,7 @@ import { Mark, mergeAttributes } from '@tiptap/core'
 import type { MarkSerializerSpec } from 'prosemirror-markdown'
 import type { AISuggestionOptions, AISuggestionData, SuggestionType } from './types'
 import { useAnnotationStore } from '../ai-annotations'
+import { createWordDiffAnnotations } from '../../lib/diffUtils'
 
 /**
  * Markdown serializer for AI suggestion marks - outputs just the text content
@@ -324,28 +325,28 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             provenanceConversationId?: string
             provenanceMessageId?: string
             documentId?: string
+            originalText?: string
           }
 
           // Use fallbacks: store's documentId, or 'unknown' for model
           const annotationStore = useAnnotationStore.getState()
           const docId = attrs.documentId || annotationStore.documentId
           const model = attrs.provenanceModel || 'unknown'
+          const originalText = attrs.originalText || ''
 
           dispatch(tr)
 
-          // Create annotation after dispatch so positions reference the updated document.
-          // Use transaction mapping: replaceWith(markFrom, markTo, text) places the new
-          // text at [markFrom, markFrom + text.nodeSize) in the new state.
+          // Create word-level annotations after dispatch so positions reference the updated document.
           if (docId && suggestedText.length > 0) {
             const newFrom = tr.mapping.map(markFrom, -1)
             const newTo = tr.mapping.map(markTo, 1)
             console.log('[AISuggestion] Creating annotation:', { docId, model, from: newFrom, to: newTo })
-            annotationStore.addAnnotation({
+            createWordDiffAnnotations({
               documentId: docId,
-              type: 'insertion',
-              from: newFrom,
-              to: newTo,
-              content: suggestedText,
+              originalText,
+              newText: suggestedText,
+              rangeFrom: newFrom,
+              rangeTo: newTo,
               provenance: {
                 model,
                 conversationId: attrs.provenanceConversationId || '',

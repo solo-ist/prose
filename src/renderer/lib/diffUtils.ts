@@ -6,6 +6,8 @@
  */
 
 import type { Editor } from '@tiptap/core'
+import { useAnnotationStore } from '../extensions/ai-annotations/store'
+import type { AnnotationType } from '../types/annotations'
 
 /**
  * Scroll the editor so the current selection is centered in the viewport.
@@ -104,4 +106,74 @@ export function computeWordDiff(original: string, suggested: string): { old: Dif
   }
 
   return { old: oldSegments, new: newSegments }
+}
+
+/**
+ * Create word-level AI annotations for a text replacement.
+ * Uses computeWordDiff to annotate only the changed words instead of the entire range.
+ * Falls back to a single full-range annotation for multi-paragraph replacements
+ * (PM positions diverge from string offsets across paragraph boundaries).
+ */
+export function createWordDiffAnnotations(params: {
+  documentId: string
+  originalText: string
+  newText: string
+  rangeFrom: number
+  rangeTo: number
+  provenance: { model: string; conversationId: string; messageId: string }
+}): void {
+  const { documentId, originalText, newText, rangeFrom, rangeTo, provenance } = params
+  const annotationType: AnnotationType = originalText.trim() === '' ? 'insertion' : 'replacement'
+  const store = useAnnotationStore.getState()
+
+  // Multi-paragraph: fall back to full-range annotation
+  if (newText.includes('\n')) {
+    store.addAnnotation({
+      documentId,
+      type: annotationType,
+      from: rangeFrom,
+      to: rangeTo,
+      content: newText,
+      provenance,
+    })
+    return
+  }
+
+  const diff = computeWordDiff(originalText, newText)
+
+  const addedSegments: { from: number; to: number; content: string }[] = []
+  let charOffset = 0
+  for (const segment of diff.new) {
+    if (segment.type === 'added') {
+      addedSegments.push({
+        from: rangeFrom + charOffset,
+        to: rangeFrom + charOffset + segment.text.length,
+        content: segment.text,
+      })
+    }
+    charOffset += segment.text.length
+  }
+
+  if (addedSegments.length > 0) {
+    for (const seg of addedSegments) {
+      store.addAnnotation({
+        documentId,
+        type: annotationType,
+        from: seg.from,
+        to: seg.to,
+        content: seg.content,
+        provenance,
+      })
+    }
+  } else {
+    // No word-level diff found (e.g. pure whitespace change), annotate full range
+    store.addAnnotation({
+      documentId,
+      type: annotationType,
+      from: rangeFrom,
+      to: rangeTo,
+      content: newText,
+      provenance,
+    })
+  }
 }

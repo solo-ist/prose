@@ -16,9 +16,7 @@ import type {
   DiffSuggestionOptions,
   DiffSuggestionActionMeta,
 } from './types'
-import { useAnnotationStore } from '../ai-annotations/store'
-import type { AnnotationType } from '../../types/annotations'
-import { computeWordDiff } from '../../lib/diffUtils'
+import { computeWordDiff, createWordDiffAnnotations } from '../../lib/diffUtils'
 
 export class DiffSuggestionNodeView implements NodeView {
   dom: HTMLElement
@@ -242,73 +240,18 @@ export class DiffSuggestionNodeView implements NodeView {
     } = this.node.attrs
 
     if (provenanceModel && documentId && suggestedText.length > 0) {
-      const annotationType: AnnotationType = originalText.trim() === '' ? 'insertion' : 'replacement'
-
-      // Compute word-level diff to annotate only changed portions.
-      // After replaceWith(pos, pos+nodeSize, text), the new text starts at `pos`
-      // in the updated document, so charOffset from `pos` gives correct PM positions.
-      const diff = computeWordDiff(originalText, suggestedText)
-
-      // Find added segments and their positions in the new document state
-      const addedSegments: { from: number; to: number; content: string }[] = []
-      let charOffset = 0
-      for (const segment of diff.new) {
-        if (segment.type === 'added') {
-          addedSegments.push({
-            from: pos + charOffset,
-            to: pos + charOffset + segment.text.length,
-            content: segment.text,
-          })
-        }
-        charOffset += segment.text.length
-      }
-
-      console.log('[DiffSuggestion:accept] Computed annotation segments:', {
-        addedSegmentsCount: addedSegments.length,
-        segments: addedSegments.map(s => ({ from: s.from, to: s.to, content: s.content.substring(0, 20) })),
-        docSizeAfterDispatch: this.view.state.doc.nodeSize,
-        posUsed: pos,
-        delta
+      createWordDiffAnnotations({
+        documentId,
+        originalText,
+        newText: suggestedText,
+        rangeFrom: pos,
+        rangeTo: pos + this.node.nodeSize + delta,
+        provenance: {
+          model: provenanceModel,
+          conversationId: provenanceConversationId || '',
+          messageId: provenanceMessageId || '',
+        },
       })
-
-      // If we found added segments, annotate only those; otherwise fall back to full text
-      if (addedSegments.length > 0) {
-        for (const seg of addedSegments) {
-          console.log('[DiffSuggestion:accept] Creating annotation:', {
-            from: seg.from,
-            to: seg.to,
-            content: seg.content.substring(0, 30),
-            currentDocSize: this.view.state.doc.nodeSize
-          })
-          useAnnotationStore.getState().addAnnotation({
-            documentId,
-            type: annotationType,
-            from: seg.from,
-            to: seg.to,
-            content: seg.content,
-            provenance: {
-              model: provenanceModel,
-              conversationId: provenanceConversationId || '',
-              messageId: provenanceMessageId || '',
-            },
-          })
-        }
-      } else {
-        // Fallback: annotate the entire suggested text.
-        // Map the old node end through the size delta to get the new end position.
-        useAnnotationStore.getState().addAnnotation({
-          documentId,
-          type: annotationType,
-          from: pos,
-          to: pos + this.node.nodeSize + delta,
-          content: suggestedText,
-          provenance: {
-            model: provenanceModel,
-            conversationId: provenanceConversationId || '',
-            messageId: provenanceMessageId || '',
-          },
-        })
-      }
     }
 
     this.options.onAccept?.(meta)

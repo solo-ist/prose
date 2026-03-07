@@ -4,8 +4,7 @@
 
 import type { Editor } from '@tiptap/core'
 import type { EditBlock } from './editBlocks'
-import type { AnnotationType } from '../types/annotations'
-import { useAnnotationStore } from '../extensions/ai-annotations/store'
+import { createWordDiffAnnotations } from './diffUtils'
 
 export interface ApplyResult {
   success: boolean
@@ -323,16 +322,14 @@ export function applyEditDirect(
   const sizeAfter = editor.state.doc.content.size
   const insertTo = match.to + (sizeAfter - sizeBefore)
 
-  // Create annotation for AI provenance tracking
+  // Create word-level annotations for AI provenance tracking
   if (provenance && documentId && replace.length > 0) {
-    const annotationType: AnnotationType = search.trim() === '' ? 'insertion' : 'replacement'
-
-    useAnnotationStore.getState().addAnnotation({
+    createWordDiffAnnotations({
       documentId,
-      type: annotationType,
-      from: insertFrom,
-      to: insertTo,
-      content: replace,
+      originalText: search,
+      newText: replace,
+      rangeFrom: insertFrom,
+      rangeTo: insertTo,
       provenance: {
         model: provenance.model,
         conversationId: provenance.conversationId,

@@ -19,7 +19,8 @@
     "preview:web": "vite preview --config vite.web.config.ts --open",
     "test:e2e": "npm run build && npx playwright test",
     "test:e2e:dev": "npx playwright test",
-    "typecheck:e2e": "tsc --project tsconfig.e2e.json --noEmit"
+    "typecheck:e2e": "tsc --project tsconfig.e2e.json --noEmit",
+    "test:web": "playwright test --config playwright.config.web.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.1",

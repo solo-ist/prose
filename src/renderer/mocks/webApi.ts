@@ -63,8 +63,7 @@ const defaultSettings: Settings = {
   editor: {
     fontSize: 16,
     lineHeight: 1.6,
-    fontFamily:
-      "'IBM Plex Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
+    fontFamily: '"IBM Plex Mono", monospace',
   },
 }
 
@@ -140,10 +139,43 @@ export function createMockApi(): ElectronAPI {
     // ---- File operations --------------------------------------------------
 
     openFile: async (): Promise<FileResult | null> => {
-      // Return the first fixture file as a simulated "pick"
-      const first = Array.from(fs.entries()).find(([p]) => !p.endsWith('/'))
-      if (!first) return null
-      return { path: first[0], content: first[1] }
+      if ('showOpenFilePicker' in window) {
+        try {
+          const [fileHandle] = await (window as Window & { showOpenFilePicker: (options?: object) => Promise<FileSystemFileHandle[]> }).showOpenFilePicker({
+            types: [
+              { description: 'Markdown files', accept: { 'text/markdown': ['.md', '.markdown'] } },
+              { description: 'Text files', accept: { 'text/plain': ['.txt'] } },
+            ],
+          })
+          const file = await fileHandle.getFile()
+          const content = await file.text()
+          // Also store in in-memory fs so readFile/saveFile work
+          const path = `${DOCUMENTS_ROOT}/${file.name}`
+          fs.set(path, content)
+          return { path, content }
+        } catch (e) {
+          if ((e as Error).name !== 'AbortError') console.error('Error opening file:', e)
+          return null
+        }
+      }
+      // Fallback: <input type="file">
+      return new Promise((resolve) => {
+        const input = document.createElement('input')
+        input.type = 'file'
+        input.accept = '.md,.markdown,.txt'
+        input.onchange = async (e) => {
+          const file = (e.target as HTMLInputElement).files?.[0]
+          if (file) {
+            const content = await file.text()
+            const path = `${DOCUMENTS_ROOT}/${file.name}`
+            fs.set(path, content)
+            resolve({ path, content })
+          } else {
+            resolve(null)
+          }
+        }
+        input.click()
+      })
     },
 
     saveFile: async (path: string, content: string): Promise<void> => {
@@ -151,7 +183,32 @@ export function createMockApi(): ElectronAPI {
     },
 
     saveFileAs: async (content: string, defaultFilename?: string): Promise<string | null> => {
+      if ('showSaveFilePicker' in window) {
+        try {
+          const fileHandle = await (window as Window & { showSaveFilePicker: (options?: object) => Promise<FileSystemFileHandle> }).showSaveFilePicker({
+            suggestedName: defaultFilename ?? 'Untitled.md',
+            types: [{ description: 'Markdown files', accept: { 'text/markdown': ['.md'] } }],
+          })
+          const writable = await fileHandle.createWritable()
+          await writable.write(content)
+          await writable.close()
+          const path = `${DOCUMENTS_ROOT}/${fileHandle.name}`
+          fs.set(path, content)
+          return path
+        } catch (e) {
+          if ((e as Error).name !== 'AbortError') console.error('Error saving file:', e)
+          return null
+        }
+      }
+      // Fallback: <a download>
       const filename = defaultFilename ?? 'Untitled.md'
+      const blob = new Blob([content], { type: 'text/markdown' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
       const path = `${DOCUMENTS_ROOT}/${filename}`
       fs.set(path, content)
       return path

@@ -37,6 +37,7 @@ import { SelectionPopover } from './SelectionPopover'
 import { AddCommentDialog } from './AddCommentDialog'
 import { EmptyState } from '../layout/EmptyState'
 import { FrontmatterDisplay, hasFrontmatter, getContentWithoutFrontmatter, getFrontmatterRaw } from './FrontmatterDisplay'
+import { FrontmatterEditor, serializeFrontmatter } from './FrontmatterEditor'
 import { TransformAnimation, useTransformAnimation } from './TransformAnimation'
 import { AISuggestionPopover } from '../AISuggestionPopover'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
@@ -729,6 +730,17 @@ export function Editor() {
     setContent(fullContent)
   }, [setContent])
 
+  // Frontmatter editor save handler: update store and content
+  const setFrontmatter = useEditorStore((state) => state.setFrontmatter)
+  const handleFrontmatterSave = useCallback((newFrontmatter: Record<string, unknown>) => {
+    const newFrontmatterRaw = serializeFrontmatter(newFrontmatter)
+    frontmatterRef.current = newFrontmatterRaw
+    setFrontmatter(newFrontmatter)
+    // Rebuild full content: new frontmatter + current body
+    const currentBody = editor?.storage.markdown?.getMarkdown() ?? ''
+    setContent(newFrontmatterRaw + currentBody)
+  }, [setFrontmatter, setContent, editor])
+
   const effectiveTheme = settings.theme === 'system'
     ? (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
     : settings.theme
@@ -886,7 +898,9 @@ export function Editor() {
           <TransformAnimation isTransforming={isTransforming} onComplete={completeTransform}>
             <div className={`max-w-3xl mx-auto prose-editor ${isRemarkableReadOnly && !isTransforming ? 'opacity-80 select-none' : ''} ${!annotationsVisible ? 'hide-annotations' : ''}`}>
               {showFrontmatter && (
-                <FrontmatterDisplay content={document.content} frontmatter={document.frontmatter} />
+                isRemarkableReadOnly || isPreviewTab
+                  ? <FrontmatterDisplay content={document.content} frontmatter={document.frontmatter} />
+                  : <FrontmatterEditor frontmatter={document.frontmatter ?? {}} onSave={handleFrontmatterSave} />
               )}
               <EditorContent
                 editor={editor}

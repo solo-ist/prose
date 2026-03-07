@@ -119,6 +119,7 @@ export function executeEdit(
   const contentStart = pos + 1
   const contentEnd = pos + node.nodeSize - 1
 
+  const sizeBeforeEdit = editor.state.doc.content.size
   editor
     .chain()
     .focus()
@@ -128,11 +129,12 @@ export function executeEdit(
 
   // Create AI annotation for provenance tracking
   if (provenance && provenance.documentId && content.length > 0) {
+    const sizeAfterEdit = editor.state.doc.content.size
     useAnnotationStore.getState().addAnnotation({
       documentId: provenance.documentId,
       type: 'replacement',
       from: contentStart,
-      to: contentStart + content.length,
+      to: contentEnd + (sizeAfterEdit - sizeBeforeEdit),
       content,
       provenance: {
         model: provenance.model,
@@ -189,6 +191,7 @@ export function executeInsert(
       break
   }
 
+  const sizeBeforeInsert = editor.state.doc.content.size
   try {
     switch (position) {
       case 'start':
@@ -210,11 +213,12 @@ export function executeInsert(
 
     // Create AI annotation for provenance tracking
     if (provenance && provenance.documentId && text.length > 0) {
+      const sizeAfterInsert = editor.state.doc.content.size
       useAnnotationStore.getState().addAnnotation({
         documentId: provenance.documentId,
         type: 'insertion',
         from: insertPos,
-        to: insertPos + text.length,
+        to: insertPos + (sizeAfterInsert - sizeBeforeInsert),
         content: text,
         provenance: {
           model: provenance.model,

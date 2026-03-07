@@ -332,12 +332,15 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           const model = attrs.provenanceModel || 'unknown'
 
           if (docId && suggestedText.length > 0) {
-            console.log('[AISuggestion] Creating annotation:', { docId, model, from: markFrom, to: markFrom + suggestedText.length })
+            // Use transaction mapping to get the actual post-dispatch end position,
+            // since markTo shifts to markFrom + PM-node-size of the replacement text.
+            const annotationTo = tr.mapping.map(markTo)
+            console.log('[AISuggestion] Creating annotation:', { docId, model, from: markFrom, to: annotationTo })
             annotationStore.addAnnotation({
               documentId: docId,
               type: 'insertion',
               from: markFrom,
-              to: markFrom + suggestedText.length,
+              to: annotationTo,
               content: suggestedText,
               provenance: {
                 model,

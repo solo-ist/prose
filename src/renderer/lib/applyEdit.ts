@@ -306,17 +306,22 @@ export function applyEditDirect(
     }
   }
 
-  // Calculate the position where the new text will be
   const insertFrom = match.from
-  const insertTo = match.from + replace.length
+  const matchTo = match.to
 
   // Replace directly
+  const sizeBefore = editor.state.doc.content.size
   editor
     .chain()
     .focus()
     .setTextSelection(match)
     .insertContent(replace)
     .run()
+
+  // Compute the actual end position using the doc-size delta, because
+  // insertContent parses markdown and the PM node size may differ from
+  // replace.length when multi-paragraph content or markup is involved.
+  const insertTo = matchTo + (editor.state.doc.content.size - sizeBefore)
 
   // Create annotation for AI provenance tracking
   if (provenance && documentId && replace.length > 0) {

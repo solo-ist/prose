@@ -197,14 +197,6 @@ export class DiffSuggestionNodeView implements NodeView {
     const suggestedText = this.node.attrs.suggestedText || ''
     const originalText = this.node.attrs.originalText || ''
 
-    console.log('[DiffSuggestion:accept] Position BEFORE dispatch:', {
-      pos,
-      nodeSize: this.node.nodeSize,
-      docSize: this.view.state.doc.nodeSize,
-      originalText: originalText.substring(0, 50),
-      suggestedText: suggestedText.substring(0, 50)
-    })
-
     // Handle empty replacement (deletion) vs text replacement
     let transaction
     if (suggestedText.length === 0) {
@@ -219,11 +211,9 @@ export class DiffSuggestionNodeView implements NodeView {
     }
     this.view.dispatch(transaction)
 
-    console.log('[DiffSuggestion:accept] Position AFTER dispatch:', {
-      originalPos: pos,
-      mappedPos: transaction.mapping.map(pos, 1),
-      newDocSize: this.view.state.doc.nodeSize
-    })
+    // Use transaction mapping to get the post-dispatch start position.
+    // For a replaceWith the start is stable, but mapping is the principled approach.
+    const mappedPos = transaction.mapping.map(pos, 1)
 
     // Create AI annotation for provenance tracking if provenance data exists
     const {
@@ -239,37 +229,23 @@ export class DiffSuggestionNodeView implements NodeView {
       // Compute word-level diff to annotate only changed portions
       const diff = computeWordDiff(originalText, suggestedText)
 
-      // Find added segments and their positions
+      // Find added segments and their positions relative to mappedPos
       const addedSegments: { from: number; to: number; content: string }[] = []
       let charOffset = 0
       for (const segment of diff.new) {
         if (segment.type === 'added') {
           addedSegments.push({
-            from: pos + charOffset,
-            to: pos + charOffset + segment.text.length,
+            from: mappedPos + charOffset,
+            to: mappedPos + charOffset + segment.text.length,
             content: segment.text,
           })
         }
         charOffset += segment.text.length
       }
 
-      console.log('[DiffSuggestion:accept] Computed annotation segments:', {
-        addedSegmentsCount: addedSegments.length,
-        segments: addedSegments.map(s => ({ from: s.from, to: s.to, content: s.content.substring(0, 20) })),
-        docSizeAfterDispatch: this.view.state.doc.nodeSize,
-        posUsed: pos,
-        note: 'Positions are relative to PRE-dispatch doc state (may be stale!)'
-      })
-
       // If we found added segments, annotate only those; otherwise fall back to full text
       if (addedSegments.length > 0) {
         for (const seg of addedSegments) {
-          console.log('[DiffSuggestion:accept] Creating annotation:', {
-            from: seg.from,
-            to: seg.to,
-            content: seg.content.substring(0, 30),
-            currentDocSize: this.view.state.doc.nodeSize
-          })
           useAnnotationStore.getState().addAnnotation({
             documentId,
             type: annotationType,
@@ -288,8 +264,8 @@ export class DiffSuggestionNodeView implements NodeView {
         useAnnotationStore.getState().addAnnotation({
           documentId,
           type: annotationType,
-          from: pos,
-          to: pos + suggestedText.length,
+          from: mappedPos,
+          to: mappedPos + suggestedText.length,
           content: suggestedText,
           provenance: {
             model: provenanceModel,

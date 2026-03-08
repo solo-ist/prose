@@ -537,6 +537,13 @@ export function isElectron(): boolean {
 }
 
 /**
+ * Check if running in web mode (browser with mock API, not real Electron)
+ */
+export function isWebMode(): boolean {
+  return typeof window !== 'undefined' && !!(window as Window & { __webMode?: boolean }).__webMode
+}
+
+/**
  * Check if running in Electron on macOS
  */
 export function isMacOS(): boolean {

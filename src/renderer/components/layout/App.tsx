@@ -832,6 +832,13 @@ export function App() {
     return unsubscribe
   }, [openFileInTab, saveFile, saveFileAs, createNewTab, setDialogOpen, toggleChat, toggleFileList, isFileListOpen, setShortcutsDialogOpen, setAboutDialogOpen, editor, handleGoogleSync, handleGoogleImport])
 
+  // Handle menu:new custom event (dispatched by Editor keyboard handler for Cmd+N in web mode)
+  useEffect(() => {
+    const handleMenuNew = () => createNewTab()
+    window.addEventListener('menu:new', handleMenuNew)
+    return () => window.removeEventListener('menu:new', handleMenuNew)
+  }, [createNewTab])
+
   // Handle file open from OS (double-click .md file)
   useEffect(() => {
     if (!window.api) return

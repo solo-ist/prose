@@ -36,11 +36,19 @@ function showTooltip(annotation: AIAnnotation, event: MouseEvent) {
   const ageString = formatAge(annotation.createdAt)
   const typeLabel = annotation.type === 'insertion' ? 'AI Insertion' : 'AI Replacement'
 
-  tooltip.innerHTML = `
-    <div class="ai-annotation-tooltip-header">${typeLabel}</div>
-    <div class="ai-annotation-tooltip-model">${annotation.provenance.model}</div>
-    <div class="ai-annotation-tooltip-time">${ageString}</div>
-  `
+  const header = document.createElement('div')
+  header.className = 'ai-annotation-tooltip-header'
+  header.textContent = typeLabel
+
+  const model = document.createElement('div')
+  model.className = 'ai-annotation-tooltip-model'
+  model.textContent = annotation.provenance.model
+
+  const time = document.createElement('div')
+  time.className = 'ai-annotation-tooltip-time'
+  time.textContent = ageString
+
+  tooltip.append(header, model, time)
 
   // Position near cursor
   tooltip.style.left = `${event.clientX + 10}px`

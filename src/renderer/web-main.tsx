@@ -7,6 +7,9 @@ import { seedEmojiCache } from './lib/emojiService'
 import { createMockApi } from './mocks/webApi'
 import './index.css'
 
+// Mark as web mode so components can distinguish from Electron
+;(window as Window & { __webMode?: boolean }).__webMode = true
+
 // Inject mock API before anything accesses window.api
 window.api = createMockApi()
 

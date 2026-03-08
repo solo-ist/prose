@@ -205,10 +205,13 @@ export function setupIpcHandlers(): void {
   ipcMain.handle(
     'file:saveToFolder',
     async (_event, folder: string, filename: string, content: string) => {
+      const safeFolder = validatePath(folder)
       // Preserve known extensions (.md, .markdown, .txt), default to .md
       const hasKnownExt = /\.(md|markdown|txt)$/.test(filename)
       const finalFilename = hasKnownExt ? filename : `${filename}.md`
-      const fullPath = join(folder, finalFilename)
+      // Strip path separators from filename to prevent directory traversal
+      const safeFilename = finalFilename.replace(/[/\\]/g, '-')
+      const fullPath = join(safeFolder, safeFilename)
       await writeFile(fullPath, content, 'utf-8')
       return fullPath
     }

@@ -657,7 +657,7 @@ export function FileListPanel() {
   }
 
   return (
-    <div ref={containerRef} className="flex h-full flex-col bg-muted/20" tabIndex={-1}>
+    <div ref={containerRef} className="flex h-full flex-col bg-muted/20" data-testid="file-list-panel" tabIndex={-1}>
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex items-center gap-2">

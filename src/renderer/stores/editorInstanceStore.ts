@@ -14,5 +14,10 @@ interface EditorInstanceState {
 
 export const useEditorInstanceStore = create<EditorInstanceState>()(subscribeWithSelector((set) => ({
   editor: null,
-  setEditor: (editor) => set({ editor }),
+  setEditor: (editor) => {
+    // Expose editor on window for Playwright / Circuit Electron testing
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).__prose_editor = editor
+    set({ editor })
+  },
 })))

@@ -38,6 +38,7 @@ import { AddCommentDialog } from './AddCommentDialog'
 import { EmptyState } from '../layout/EmptyState'
 import { FrontmatterDisplay, hasFrontmatter, getContentWithoutFrontmatter, getFrontmatterRaw } from './FrontmatterDisplay'
 import { FrontmatterEditor, serializeFrontmatter } from './FrontmatterEditor'
+import { serializeMarkdown, parseMarkdown } from '../../lib/markdown'
 import { TransformAnimation, useTransformAnimation } from './TransformAnimation'
 import { AISuggestionPopover } from '../AISuggestionPopover'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
@@ -441,14 +442,17 @@ export function Editor() {
     prevSourceModeRef.current = sourceMode
 
     if (sourceMode && !prev) {
-      // WYSIWYG → Source: save suggestions then serialize to markdown
+      // WYSIWYG → Source: save suggestions then serialize with frontmatter
       savedSuggestionsRef.current = getAISuggestions(editor)
       const md = editor.storage.markdown?.getMarkdown?.() ?? ''
-      setSourceContent(md)
+      const fm = useEditorStore.getState().document.frontmatter ?? {}
+      setSourceContent(serializeMarkdown(md, fm))
     } else if (!sourceMode && prev) {
-      // Source → WYSIWYG: read live content from CodeMirror (avoids 500ms debounce lag)
+      // Source → WYSIWYG: parse frontmatter back out from raw source
       const liveContent = sourceEditorRef.current?.getContent() ?? sourceContent
-      editor.commands.setContent(liveContent)
+      const { content: bodyOnly, frontmatter: parsedFm } = parseMarkdown(liveContent)
+      useEditorStore.getState().setFrontmatter(parsedFm)
+      editor.commands.setContent(bodyOnly)
       if (savedSuggestionsRef.current.length > 0) {
         // Small delay to ensure content is fully parsed before restoring marks
         setTimeout(() => {
@@ -736,9 +740,10 @@ export function Editor() {
   // Source mode onChange handler: update state + store
   const handleSourceChange = useCallback((newContent: string) => {
     setSourceContent(newContent)
-    // Prepend frontmatter and save to store (same as TipTap debounced save)
-    const fullContent = frontmatterRef.current + newContent
-    setContent(fullContent)
+    // Source mode includes frontmatter — parse it out before saving to store
+    const { content: body, frontmatter: fm } = parseMarkdown(newContent)
+    setContent(body)
+    useEditorStore.getState().setDocument({ frontmatter: fm })
   }, [setContent])
 
   // Frontmatter editor save handler: update store and content
@@ -779,11 +784,6 @@ export function Editor() {
             fontFamily: settings.editor.fontFamily
           }}
         >
-          {showFrontmatter && (
-            <div className="max-w-3xl mx-auto">
-              <FrontmatterDisplay content={document.content} frontmatter={document.frontmatter} />
-            </div>
-          )}
           <div className="max-w-3xl mx-auto">
             <SourceEditor
               ref={sourceEditorRef}

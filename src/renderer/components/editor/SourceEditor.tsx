@@ -5,7 +5,7 @@ import { languages } from '@codemirror/language-data'
 import { HighlightStyle, syntaxHighlighting, unfoldAll, foldEffect } from '@codemirror/language'
 import { tags } from '@lezer/highlight'
 import { EditorState } from '@codemirror/state'
-import { keymap, ViewPlugin, type ViewUpdate } from '@codemirror/view'
+import { keymap, ViewPlugin, type ViewUpdate, Decoration, type DecorationSet } from '@codemirror/view'
 import { indentWithTab } from '@codemirror/commands'
 import { useEditorStore } from '../../stores/editorStore'
 
@@ -22,6 +22,42 @@ interface SourceEditorProps {
   isDark: boolean
   readOnly: boolean
 }
+
+/**
+ * Marks lines within YAML frontmatter (between opening and closing ---) with
+ * a CSS class so they can be styled smaller than body content.
+ */
+const frontmatterDeco = Decoration.line({ class: 'cm-frontmatter' })
+
+function buildFrontmatterDecorations(doc: { lines: number; line: (n: number) => { text: string; from: number } }): DecorationSet {
+  const widgets: ReturnType<typeof Decoration.line>[] = []
+  const ranges: { from: number }[] = []
+  if (doc.lines < 1) return Decoration.none
+  // Frontmatter must start on line 1 with ---
+  if (doc.line(1).text.trim() !== '---') return Decoration.none
+  ranges.push({ from: doc.line(1).from })
+  for (let i = 2; i <= doc.lines; i++) {
+    const line = doc.line(i)
+    ranges.push({ from: line.from })
+    if (line.text.trim() === '---') break
+  }
+  for (const r of ranges) {
+    widgets.push(frontmatterDeco.range(r.from))
+  }
+  return Decoration.set(widgets)
+}
+
+const frontmatterPlugin = ViewPlugin.fromClass(class {
+  decorations: DecorationSet
+  constructor(view: { state: { doc: { lines: number; line: (n: number) => { text: string; from: number } } } }) {
+    this.decorations = buildFrontmatterDecorations(view.state.doc)
+  }
+  update(update: ViewUpdate) {
+    if (update.docChanged) {
+      this.decorations = buildFrontmatterDecorations(update.state.doc)
+    }
+  }
+}, { decorations: (v) => v.decorations })
 
 /**
  * Custom CodeMirror theme that matches the app's native look.
@@ -65,6 +101,11 @@ function createAppTheme(fontSize: number, lineHeight: number, fontFamily: string
     },
     '.cm-foldGutter': {
       color: 'hsl(var(--muted-foreground) / 0.3)',
+    },
+    // Frontmatter lines: smaller, muted, mono — distinct from body content
+    '.cm-line.cm-frontmatter': {
+      fontSize: '0.75em',
+      color: 'hsl(var(--muted-foreground))',
     },
   })
 }
@@ -186,6 +227,7 @@ export const SourceEditor = forwardRef<SourceEditorHandle, SourceEditorProps>(fu
       markdown({ codeLanguages: languages }),
       blockLine1H1Fold,
       hideLine1FoldMarker,
+      frontmatterPlugin,
       keymap.of([indentWithTab]),
       appTheme,
       syntaxHighlighting(appHighlightStyle),

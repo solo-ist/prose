@@ -136,7 +136,7 @@ export function FileListPanel() {
   }, [])
 
   // Explorer actions hook (keyboard shortcuts + operations)
-  const { copySelected, pasteFile, clipboardPath } = useExplorerActions({
+  const { moveFile, pasteFile, clipboardPath, clipboardOperation } = useExplorerActions({
     containerRef,
     onNewFile: handleNewFileInDir,
     onFileOpen: async (path) => {
@@ -372,6 +372,55 @@ export function FileListPanel() {
       setOperationError('Failed to rename file. Please try again.')
     }
   }
+
+  // Drag-and-drop move handler
+  const handleFileDrop = useCallback(async (sourcePath: string, targetDirPath: string) => {
+    const fileName = sourcePath.split('/').pop()!
+    const sourceDir = sourcePath.substring(0, sourcePath.lastIndexOf('/'))
+
+    // Already in this folder — nothing to do
+    if (sourceDir === targetDirPath) return
+
+    const ext = fileName.match(/\.[^.]+$/)?.[0] || ''
+    const baseName = fileName.replace(/\.[^.]+$/, '')
+
+    // Find an available destination path, auto-appending " copy N" on collision
+    let destPath = `${targetDirPath}/${fileName}`
+    const exists = await api.fileExists(destPath)
+    if (exists) {
+      let found = false
+      for (let copyNum = 0; copyNum < 100; copyNum++) {
+        const suffix = copyNum === 0 ? ' copy' : ` copy ${copyNum + 1}`
+        const candidate = `${targetDirPath}/${baseName}${suffix}${ext}`
+        const taken = await api.fileExists(candidate)
+        if (!taken) {
+          destPath = candidate
+          found = true
+          break
+        }
+      }
+      if (!found) {
+        console.error('Could not find available name after 100 attempts')
+        return
+      }
+    }
+
+    try {
+      await api.renameFile(sourcePath, destPath)
+
+      // Update tab if the moved file was open
+      const tab = useTabStore.getState().getTabByPath(sourcePath)
+      if (tab) {
+        const newTitle = destPath.split('/').pop()!.replace(/\.[^.]+$/, '')
+        useTabStore.getState().updateTab(tab.id, { path: destPath, title: newTitle })
+      }
+
+      await loadFiles()
+      selectFile(destPath)
+    } catch (error) {
+      console.error('Error moving file:', error)
+    }
+  }, [api, loadFiles, selectFile])
 
   // Show in folder handler
   const handleFileShowInFolder = async (path: string) => {
@@ -1049,6 +1098,7 @@ export function FileListPanel() {
                       loadingFolders={loadingFolders}
                       renamingPath={renamingPath}
                       clipboardPath={clipboardPath}
+                      clipboardOperation={clipboardOperation}
                       onFileClick={handleFileClick}
                       onFileDoubleClick={handleFileDoubleClick}
                       onFolderToggle={toggleFolder}
@@ -1056,12 +1106,15 @@ export function FileListPanel() {
                       onFileTrash={handleFileDeleteRequest}
                       onFileRename={handleFileRenameInline}
                       onFileShowInFolder={handleFileShowInFolder}
-                      onFileCopy={(path: string) => useFileListStore.getState().setClipboardPath(path)}
+                      onFileCopy={(path: string) => useFileListStore.getState().setClipboardPath(path, 'copy')}
+                      onFileCut={(path: string) => useFileListStore.getState().setClipboardPath(path, 'cut')}
                       onFilePaste={pasteFile}
+                      onFileMove={moveFile}
                       onFileOpen={handleFileDoubleClick}
                       onRenameComplete={handleRenameComplete}
                       onRenameCancel={handleRenameCancel}
                       onNewFile={handleNewFileInDir}
+                      onFileDrop={handleFileDrop}
                     />
                   )}
                 </div>

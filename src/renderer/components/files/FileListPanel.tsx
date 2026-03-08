@@ -33,7 +33,7 @@ import {
 } from '../ui/dialog'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
-import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, Folder, FolderOpen, Download, Trash2, FilePlus, ClipboardPaste, ExternalLink, X, Globe, Edit3, RefreshCw, Loader2 } from 'lucide-react'
+import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, ChevronRight, ChevronDown, Folder, FolderOpen, Download, Trash2, FilePlus, ClipboardPaste, ExternalLink, X, Globe, Edit3, RefreshCw, Loader2 } from 'lucide-react'
 import { useSettings } from '../../hooks/useSettings'
 import { cn } from '../../lib/utils'
 import { getApi } from '../../lib/browserApi'
@@ -124,6 +124,8 @@ export function FileListPanel() {
 
   // New file dialog state (context-aware: stores target directory)
   const [newFileTargetDir, setNewFileTargetDir] = useState<string | null>(null)
+  // Notebook folder expand/collapse state — synced folders default open, unsynced default closed
+  const [expandedNotebookFolders, setExpandedNotebookFolders] = useState<Set<string>>(new Set())
 
   // Context-aware new file handler
   const handleNewFileInDir = useCallback((targetDir: string) => {
@@ -559,24 +561,42 @@ export function FileListPanel() {
         const hasSyncedContent = isFolderSynced(folderId)
         const hasDescendants = itemsByParent.has(item.id)
         if (!hasDescendants) return null
+        // Synced folders default open, unsynced default closed
+        const isExpanded = hasSyncedContent
+          ? !expandedNotebookFolders.has(folderId) // synced: open unless toggled closed
+          : expandedNotebookFolders.has(folderId)   // unsynced: closed unless toggled open
+        const toggleFolder = () => {
+          setExpandedNotebookFolders(prev => {
+            const next = new Set(prev)
+            if (next.has(folderId)) next.delete(folderId)
+            else next.add(folderId)
+            return next
+          })
+        }
 
         return (
           <div key={folderId} className="space-y-0.5" style={{ paddingLeft: depth > 0 ? '1rem' : 0 }}>
-            <div
+            <button
+              onClick={toggleFolder}
               className={cn(
-                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground",
                 hasSyncedContent ? "text-foreground" : "text-muted-foreground opacity-30"
               )}
               title={hasSyncedContent ? item.name : `${item.name} (no synced notebooks)`}
             >
-              {hasSyncedContent ? (
+              {isExpanded ? (
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              )}
+              {isExpanded ? (
                 <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
               ) : (
                 <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
               )}
               <span className="truncate">{item.name}</span>
-            </div>
-            {renderNotebookItems(item.id, depth + 1)}
+            </button>
+            {isExpanded && renderNotebookItems(item.id, depth + 1)}
           </div>
         )
       } else {

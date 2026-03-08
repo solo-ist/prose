@@ -122,7 +122,7 @@ export const useEditorStore = create<EditorState>()(
 
     setFrontmatter: (frontmatter) =>
       set((state) => ({
-        document: { ...state.document, frontmatter }
+        document: { ...state.document, frontmatter, isDirty: true }
       })),
 
     setCursorPosition: (line, column) =>

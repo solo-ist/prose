@@ -308,10 +308,6 @@ function FileTreeItem({
   const buttonElement = (
     <div
       className={cn("group flex items-center", !item.isDirectory && onFileLinkClick && "relative")}
-      onDragOver={handleDragOver}
-      onDragEnter={handleDragEnter}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
     >
       <button
         ref={buttonRef}
@@ -478,7 +474,12 @@ function FileTreeItem({
   )
 
   return (
-    <div>
+    <div
+      onDragOver={handleDragOver}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <ContextMenu>
         <ContextMenuTrigger asChild>
           {buttonElement}

@@ -124,6 +124,8 @@ export function FileListPanel() {
 
   // New file dialog state (context-aware: stores target directory)
   const [newFileTargetDir, setNewFileTargetDir] = useState<string | null>(null)
+  // Drop-over highlight for the ".." (root directory) drop target
+  const [rootDropOver, setRootDropOver] = useState(false)
   // Notebook folder expand/collapse state — synced folders default open, unsynced default closed
   const [expandedNotebookFolders, setExpandedNotebookFolders] = useState<Set<string>>(new Set())
 
@@ -1076,7 +1078,31 @@ export function FileListPanel() {
           ) : (
             <ContextMenu>
               <ContextMenuTrigger asChild>
-                <div className="p-2 min-h-full">
+                <div
+                  className="p-2 min-h-full"
+                  onDragOver={(e) => {
+                    if (e.dataTransfer.types.includes('application/prose-file-path')) {
+                      e.preventDefault()
+                      e.dataTransfer.dropEffect = 'move'
+                    }
+                  }}
+                  onDragEnter={(e) => {
+                    e.preventDefault()
+                    setRootDropOver(true)
+                  }}
+                  onDragLeave={(e) => {
+                    // Only clear when leaving the container itself, not children
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                      setRootDropOver(false)
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    setRootDropOver(false)
+                    const sourcePath = e.dataTransfer.getData('application/prose-file-path')
+                    if (sourcePath && rootPath) handleFileDrop(sourcePath, rootPath)
+                  }}
+                >
                   {/* Parent directory navigation */}
                   <button
                     className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50 text-muted-foreground mb-1"

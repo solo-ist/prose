@@ -745,11 +745,12 @@ export function Editor() {
   const setFrontmatter = useEditorStore((state) => state.setFrontmatter)
   const handleFrontmatterSave = useCallback((newFrontmatter: Record<string, unknown>) => {
     if (!editor) return
-    const newFrontmatterRaw = serializeFrontmatter(newFrontmatter)
-    frontmatterRef.current = newFrontmatterRaw
     setFrontmatter(newFrontmatter)
-    // Store body only — serializeMarkdown in buildSaveContent
-    // prepends frontmatter from the store on save
+    // Clear frontmatterRef so onUpdate doesn't re-prepend raw frontmatter.
+    // The store's document.frontmatter is the source of truth now;
+    // buildSaveContent/serializeMarkdown adds the --- block on save.
+    frontmatterRef.current = ''
+    // Store body only
     const currentBody = editor.storage.markdown?.getMarkdown() ?? ''
     setContent(currentBody)
   }, [setFrontmatter, setContent, editor])

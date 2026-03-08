@@ -222,6 +222,17 @@ function FileTreeItem({
     }
   }, [item.isDirectory, item.path, onFileDrop])
 
+  // Listen for global dragend to clear highlight when drag is cancelled (e.g. Escape key)
+  useEffect(() => {
+    if (!item.isDirectory) return
+    const handleGlobalDragEnd = () => {
+      dragCounterRef.current = 0
+      setIsDragOver(false)
+    }
+    document.addEventListener('dragend', handleGlobalDragEnd)
+    return () => document.removeEventListener('dragend', handleGlobalDragEnd)
+  }, [item.isDirectory])
+
   // Refocus the button (and thus the explorer container) after rename ends
   useEffect(() => {
     if (!isRenaming && wasRenamingRef.current) {

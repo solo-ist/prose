@@ -21,6 +21,14 @@ test.beforeAll(async () => {
   const launched = await launchApp()
   app = launched.app
   page = launched.page
+
+  // If the app opens to the empty "Start Writing" state, create a new document
+  const newDocButton = page.getByRole('button', { name: 'New Document' })
+  const isEmptyState = await newDocButton.isVisible({ timeout: 3_000 }).catch(() => false)
+  if (isEmptyState) {
+    await newDocButton.click()
+    await waitForEditor(page)
+  }
 })
 
 test.afterAll(async () => {

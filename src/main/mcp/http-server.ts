@@ -116,10 +116,16 @@ export class McpHttpServer {
 
     // Create HTTP server
     this.httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-      // Handle CORS for browser-based clients
-      res.setHeader('Access-Control-Allow-Origin', '*')
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, mcp-session-id')
+      // Restrict CORS to the Electron app origin only.
+      // Wildcard (*) would allow any web page the user visits to invoke MCP tools.
+      // Claude Desktop uses stdio transport, not HTTP, so it is unaffected by this header.
+      const origin = req.headers['origin'] as string | undefined
+      const allowedOrigin = 'app://'
+      if (origin === allowedOrigin) {
+        res.setHeader('Access-Control-Allow-Origin', allowedOrigin)
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, mcp-session-id')
+      }
 
       if (req.method === 'OPTIONS') {
         res.writeHead(204)

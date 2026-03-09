@@ -1,6 +1,7 @@
 import { config } from 'dotenv'
 import { join } from 'path'
 import { writeFileSync, unlinkSync, existsSync } from 'fs'
+import { homedir } from 'os'
 
 // Load environment variables from .env file
 // Use explicit path since Electron's CWD may differ from project root
@@ -122,7 +123,8 @@ function createWindow(): BrowserWindow {
     trafficLightPosition: { x: 16, y: 16 },
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      // sandbox: true is the default in Electron 20+ and is safe here because the preload
+      // script only uses contextBridge and ipcRenderer — no Node.js APIs.
       contextIsolation: true,
       nodeIntegration: false
     }
@@ -160,18 +162,28 @@ function createWindow(): BrowserWindow {
 
 // Register custom protocol for serving local image files
 // Must be called before app.whenReady()
+// bypassCSP is not needed because the CSP already permits local-file: in img-src.
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'local-file', privileges: { bypassCSP: true, stream: true, supportFetchAPI: true } }
+  { scheme: 'local-file', privileges: { stream: true, supportFetchAPI: true } }
 ])
 
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.prose.app')
 
-  // Handle local-file:// protocol to serve images from the filesystem
+  // Handle local-file:// protocol to serve images from the filesystem.
+  // Path validation restricts access to the user's home directory, preventing
+  // a crafted local-file:// URL from reading arbitrary files (e.g. /etc/passwd).
+  const homeDir = homedir()
   protocol.handle('local-file', (request) => {
     // URL format: local-file:///absolute/path/to/image.png
     const filePath = decodeURIComponent(new URL(request.url).pathname)
-    return net.fetch('file://' + filePath)
+    // Normalize the path to remove any traversal sequences (../../)
+    const resolvedPath = join(filePath)
+    // Only serve files that live under the user's home directory
+    if (!resolvedPath.startsWith(homeDir + '/') && resolvedPath !== homeDir) {
+      return new Response('Forbidden', { status: 403 })
+    }
+    return net.fetch('file://' + resolvedPath)
   })
 
   // Configure Content Security Policy

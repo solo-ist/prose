@@ -516,7 +516,10 @@ export const browserApi: ElectronAPI = {
 
   // Recent files - not available in browser
   refreshRecentMenu: async (): Promise<void> => {},
-  clearRecentFiles: async (): Promise<void> => {}
+  clearRecentFiles: async (): Promise<void> => {},
+
+  // Secure storage - not available in browser
+  isSecureStorageAvailable: async (): Promise<boolean> => false
 }
 
 /**

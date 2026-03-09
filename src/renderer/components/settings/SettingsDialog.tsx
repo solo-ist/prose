@@ -71,6 +71,15 @@ export function SettingsDialog() {
   const [testingApiKey, setTestingApiKey] = useState(false)
   const [apiKeyTestResult, setApiKeyTestResult] = useState<{ success: boolean; message: string } | null>(null)
 
+  // Secure storage availability check
+  const [secureStorageAvailable, setSecureStorageAvailable] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    if (window.api?.isSecureStorageAvailable) {
+      window.api.isSecureStorageAvailable().then(setSecureStorageAvailable)
+    }
+  }, [])
+
   // Custom model input (for when user wants to enter a model not in the list)
   const [customModel, setCustomModel] = useState(false)
 
@@ -574,6 +583,12 @@ export function SettingsDialog() {
                 {settings.llm.apiKey && !showApiKey && !apiKeyFormatError && (
                   <p className="text-xs text-muted-foreground">
                     Current key: {maskApiKey(settings.llm.apiKey)}
+                  </p>
+                )}
+                {secureStorageAvailable === false && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3 shrink-0" />
+                    Secure storage is unavailable on this system. Your API key will be stored without encryption.
                   </p>
                 )}
               </div>

@@ -477,6 +477,11 @@ export function setupIpcHandlers(): void {
     }
   })
 
+  // Settings: Check if secure storage is available
+  ipcMain.handle('settings:isSecureStorageAvailable', () => {
+    return credentialStore.isAvailable()
+  })
+
   // Settings: Save to ~/.prose/settings.json
   ipcMain.handle('settings:save', async (_event, settings: Settings) => {
     try {

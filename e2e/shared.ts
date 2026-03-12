@@ -19,6 +19,24 @@ export const selectors = {
   toolbar: '[data-testid="toolbar"]',
   fileListPanel: '[data-testid="file-list-panel"]',
   showFilesButton: '[aria-label="Show files"], [aria-label="Hide files"]',
+
+  // File explorer tabs
+  recentFilesButton: '[aria-label="Recent files"]',
+  filesButton: '[aria-label="Files"]',
+  googleDocsButton: '[aria-label="Google Docs"]',
+  notebooksButton: '[aria-label="reMarkable notebooks"]',
+
+  // Toolbar buttons
+  toggleTheme: '[aria-label="Toggle theme"]',
+  copyMarkdown: '[aria-label="Copy Markdown"]',
+  sourceMode: '[aria-label="Source mode"], [aria-label="WYSIWYG mode"]',
+  hideAnnotations:
+    '[aria-label="Hide AI annotations"], [aria-label="Show AI annotations"]',
+  moreOptions: '[aria-label="More options"]',
+  toggleChat: '[aria-label="Show chat"], [aria-label="Hide chat"]',
+
+  // Editor modes
+  sourceEditor: '.cm-editor',
 } as const
 
 // ---------------------------------------------------------------------------
@@ -88,4 +106,32 @@ export async function runEditorCommand(page: Page, command: string): Promise<voi
       }
     }
   }, command)
+}
+
+// ---------------------------------------------------------------------------
+// File explorer helpers
+// ---------------------------------------------------------------------------
+
+/** Ensure the file list panel is visible, opening it if necessary. */
+export async function ensureFileListOpen(page: Page): Promise<void> {
+  const panel = page.locator(selectors.fileListPanel)
+  if (!(await panel.isVisible())) {
+    await page.click(selectors.showFilesButton)
+    await page.waitForSelector(selectors.fileListPanel, { timeout: 5_000 })
+  }
+}
+
+/** Switch the file explorer to a specific tab. */
+export async function switchExplorerTab(
+  page: Page,
+  tab: 'recent' | 'files' | 'googledocs' | 'notebooks',
+): Promise<void> {
+  await ensureFileListOpen(page)
+  const buttonMap = {
+    recent: selectors.recentFilesButton,
+    files: selectors.filesButton,
+    googledocs: selectors.googleDocsButton,
+    notebooks: selectors.notebooksButton,
+  }
+  await page.click(buttonMap[tab])
 }

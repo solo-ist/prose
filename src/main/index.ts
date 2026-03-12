@@ -122,7 +122,7 @@ function createWindow(): BrowserWindow {
     trafficLightPosition: { x: 16, y: 16 },
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: true,
+      sandbox: false, // Requires preload ESM migration to enable (see #127 SEC-02)
       contextIsolation: true,
       nodeIntegration: false
     }

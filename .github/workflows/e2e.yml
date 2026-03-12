@@ -35,6 +35,8 @@ jobs:
 
       - name: Run E2E tests
         uses: coactions/setup-xvfb@v1
+        env:
+          ELECTRON_DISABLE_SANDBOX: 1
         with:
           run: npx playwright test
           options: -screen 0 1280x1024x24

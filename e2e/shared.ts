@@ -22,6 +22,27 @@ export const selectors = {
 } as const
 
 // ---------------------------------------------------------------------------
+// App-level helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Dismiss the AI consent dialog that appears on first launch (no settings).
+ * Clicks "Use Without AI" if the dialog is visible; does nothing otherwise.
+ */
+export async function dismissConsentDialog(page: Page): Promise<void> {
+  const btn = page.getByRole('button', { name: 'Use Without AI' })
+  const visible = await btn.isVisible({ timeout: 3_000 }).catch(() => false)
+  if (visible) {
+    await btn.click()
+    // Wait for the overlay to disappear
+    await page.waitForSelector('[data-state="open"][aria-hidden="true"]', {
+      state: 'detached',
+      timeout: 3_000,
+    }).catch(() => {})
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Editor interaction helpers
 // ---------------------------------------------------------------------------
 

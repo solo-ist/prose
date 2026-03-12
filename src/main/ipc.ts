@@ -493,9 +493,12 @@ export function setupIpcHandlers(): void {
         const settingsToSave = { ...settings, llm: { ...llmWithoutKey, apiKey: '' } }
         await writeFile(SETTINGS_PATH, JSON.stringify(settingsToSave, null, 2), 'utf-8')
       } else {
-        // Fallback: save with plaintext key (non-MAS platforms without secure storage)
-        console.warn('[settings:save] Secure storage unavailable, saving API key in plaintext')
-        await writeFile(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf-8')
+        // Secure storage unavailable — save settings but strip the API key
+        // to avoid storing credentials in plaintext on disk
+        console.warn('[settings:save] Secure storage unavailable, API key will not be persisted')
+        const { apiKey: _stripped, ...llmWithoutKey } = settings.llm
+        const settingsToSave = { ...settings, llm: { ...llmWithoutKey, apiKey: '' } }
+        await writeFile(SETTINGS_PATH, JSON.stringify(settingsToSave, null, 2), 'utf-8')
       }
     } catch (error) {
       console.error('Failed to save settings:', error)

@@ -116,8 +116,11 @@ export class McpHttpServer {
 
     // Create HTTP server
     this.httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-      // Handle CORS for browser-based clients
-      res.setHeader('Access-Control-Allow-Origin', '*')
+      // Restrict CORS to localhost origins only
+      const origin = req.headers.origin
+      if (origin && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin)
+      }
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, mcp-session-id')
 

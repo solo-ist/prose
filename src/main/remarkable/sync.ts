@@ -407,6 +407,19 @@ export async function syncAll(
             onProgress?.(`Saved OCR: ${ocrPath}`)
           }
 
+          // If OCR failed but a previous OCR file exists on disk, reuse it
+          if (!ocrPath) {
+            const ocrFileName = `${sanitizeName(doc.name)}.md`
+            const existingOcrFile = join(hiddenDir, doc.id, ocrFileName)
+            try {
+              await access(existingOcrFile)
+              ocrPath = join(doc.id, ocrFileName)
+              console.log(`[reMarkable] Reusing existing OCR file: ${ocrPath}`)
+            } catch {
+              // No existing file on disk either
+            }
+          }
+
           newMeta.notebooks[doc.id] = {
             ...existingEntry!,
             ocrPath,
@@ -465,6 +478,19 @@ export async function syncAll(
             await writeFile(ocrFullPath, markdown, 'utf-8')
             ocrPath = join(doc.id, ocrFileName)
             onProgress?.(`Saved OCR: ${ocrPath}`)
+          }
+
+          // If OCR failed but a previous OCR file exists on disk, reuse it
+          if (!ocrPath) {
+            const ocrFileName = `${sanitizeName(doc.name)}.md`
+            const existingOcrFile = join(hiddenDir, doc.id, ocrFileName)
+            try {
+              await access(existingOcrFile)
+              ocrPath = join(doc.id, ocrFileName)
+              console.log(`[reMarkable] Reusing existing OCR file: ${ocrPath}`)
+            } catch {
+              // No existing file on disk either
+            }
           }
         }
 

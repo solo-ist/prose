@@ -31,6 +31,12 @@ export function SelectionPopover({ editor, onAddComment, onToggleLink }: Selecti
       return
     }
 
+    // Don't show toolbar when editor is not editable (e.g. reMarkable read-only, preview tab)
+    if (!editor.isEditable) {
+      setIsVisible(false)
+      return
+    }
+
     const { from, to } = editor.state.selection
 
     // Only show if there's a text selection (not just cursor)

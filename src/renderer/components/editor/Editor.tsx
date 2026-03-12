@@ -627,9 +627,12 @@ export function Editor() {
         editor.chain().focus().toggleStrike().run()
       }
     } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'e') {
-      // Cmd+Shift+E: Toggle source view
+      // Cmd+Shift+E: Toggle source view (disabled in read-only mode)
       e.preventDefault()
-      useEditorStore.getState().toggleSourceMode()
+      const { isRemarkableReadOnly: rmReadOnly, isPreviewTab: previewTab } = useEditorStore.getState()
+      if (!rmReadOnly && !previewTab) {
+        useEditorStore.getState().toggleSourceMode()
+      }
     } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'a') {
       // Cmd+Shift+A: Add comment to selection
       e.preventDefault()

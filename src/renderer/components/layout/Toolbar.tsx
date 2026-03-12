@@ -80,6 +80,8 @@ export function Toolbar() {
   const toggleAnnotationsVisible = useEditorStore((state) => state.toggleAnnotationsVisible)
   const sourceMode = useEditorStore((state) => state.sourceMode)
   const toggleSourceMode = useEditorStore((state) => state.toggleSourceMode)
+  const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
+  const isPreviewTab = useEditorStore((state) => state.isPreviewTab)
   const isGoogleSyncing = useFileListStore((state) => state.isGoogleSyncing)
 
   const [hasCopied, setHasCopied] = useState(false)
@@ -304,6 +306,7 @@ export function Toolbar() {
                 variant="ghost"
                 size="icon"
                 onClick={toggleSourceMode}
+                disabled={isRemarkableReadOnly || isPreviewTab}
                 aria-label={sourceMode ? 'WYSIWYG mode' : 'Source mode'}
               >
                 {sourceMode ? (

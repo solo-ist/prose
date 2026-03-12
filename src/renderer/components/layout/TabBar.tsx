@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, type MouseEvent, type KeyboardEvent } from 'react'
 import { Reorder } from 'framer-motion'
-import { X, FileText, Eye } from 'lucide-react'
+import { X, FileText, Eye, Plus } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useTabStore, type Tab } from '../../stores/tabStore'
 import { useEditorStore } from '../../stores/editorStore'
@@ -31,6 +31,7 @@ interface TabBarProps {
   onTabCloseAll: () => void
   onTabRename: (tabId: string, newTitle: string) => Promise<string | null>
   onNewFileSave: (title: string) => Promise<boolean>
+  onNewTab: () => void
   tier: TabTier
   containerWidth: number
 }
@@ -44,7 +45,7 @@ const MAX_TAB_WIDTH: Record<TabTier, number> = {
   4: 40
 }
 
-export function TabBar({ onTabClick, onTabClose, onTabCloseOthers, onTabCloseAll, onTabRename, onNewFileSave, tier, containerWidth }: TabBarProps) {
+export function TabBar({ onTabClick, onTabClose, onTabCloseOthers, onTabCloseAll, onTabRename, onNewFileSave, onNewTab, tier, containerWidth }: TabBarProps) {
   const tabs = useTabStore((state) => state.tabs)
   const activeTabId = useTabStore((state) => state.activeTabId)
   const setTabOrder = useTabStore((state) => state.setTabOrder)
@@ -145,44 +146,62 @@ export function TabBar({ onTabClick, onTabClose, onTabCloseOthers, onTabCloseAll
     window.api?.showInFolder(path)
   }
 
+  const newTabButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={onNewTab}
+          className="app-region-no-drag flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground opacity-50 hover:opacity-100 hover:bg-accent/50 transition-opacity shrink-0"
+          aria-label="New tab"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">New tab</TooltipContent>
+    </Tooltip>
+  )
+
   if (tabs.length === 0) {
-    return null
+    return newTabButton
   }
 
   return (
-    <Reorder.Group
-      ref={scrollContainerRef}
-      axis="x"
-      values={tabs}
-      onReorder={setTabOrder}
-      className="flex items-center gap-0.5 app-region-no-drag overflow-hidden"
-    >
-      {tabs.map((tab) => (
-        <TabItem
-          key={tab.id}
-          tab={tab}
-          isActive={tab.id === activeTabId}
-          isEditing={editingTabId === tab.id}
-          editedTitle={editedTitle}
-          hasError={editingTabId === tab.id && renameError !== null}
-          tier={editingTabId === tab.id ? Math.min(tier, 2) as TabTier : tier}
-          tabWidth={tabWidth}
-          onClick={() => onTabClick(tab.id)}
-          onMiddleClick={(e) => handleMiddleClick(e, tab.id)}
-          onClose={(e) => handleCloseClick(e, tab.id)}
-          onCloseOthers={() => onTabCloseOthers(tab.id)}
-          onCloseAll={onTabCloseAll}
-          onDoubleClick={() => handleDoubleClick(tab)}
-          onEditChange={(value) => {
-            setEditedTitle(value)
-            setRenameError(null) // Clear error on edit
-          }}
-          onEditKeyDown={(e) => handleKeyDown(e, tab)}
-          onEditBlur={() => handleRename(tab)}
-          onShowInFolder={(e) => tab.path && handleShowInFolder(e, tab.path)}
-        />
-      ))}
-    </Reorder.Group>
+    <>
+      <Reorder.Group
+        ref={scrollContainerRef}
+        axis="x"
+        values={tabs}
+        onReorder={setTabOrder}
+        className="flex items-center gap-0.5 app-region-no-drag overflow-hidden"
+      >
+        {tabs.map((tab) => (
+          <TabItem
+            key={tab.id}
+            tab={tab}
+            isActive={tab.id === activeTabId}
+            isEditing={editingTabId === tab.id}
+            editedTitle={editedTitle}
+            hasError={editingTabId === tab.id && renameError !== null}
+            tier={editingTabId === tab.id ? Math.min(tier, 2) as TabTier : tier}
+            tabWidth={tabWidth}
+            onClick={() => onTabClick(tab.id)}
+            onMiddleClick={(e) => handleMiddleClick(e, tab.id)}
+            onClose={(e) => handleCloseClick(e, tab.id)}
+            onCloseOthers={() => onTabCloseOthers(tab.id)}
+            onCloseAll={onTabCloseAll}
+            onDoubleClick={() => handleDoubleClick(tab)}
+            onEditChange={(value) => {
+              setEditedTitle(value)
+              setRenameError(null) // Clear error on edit
+            }}
+            onEditKeyDown={(e) => handleKeyDown(e, tab)}
+            onEditBlur={() => handleRename(tab)}
+            onShowInFolder={(e) => tab.path && handleShowInFolder(e, tab.path)}
+          />
+        ))}
+      </Reorder.Group>
+      {newTabButton}
+    </>
   )
 }
 

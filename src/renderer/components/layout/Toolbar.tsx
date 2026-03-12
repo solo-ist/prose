@@ -257,6 +257,7 @@ export function Toolbar() {
             onTabCloseAll={handleCloseAll}
             onTabRename={renameTab}
             onNewFileSave={quickSaveWithTitle}
+            onNewTab={handleNewFile}
             tier={tier}
             containerWidth={containerWidth}
           />

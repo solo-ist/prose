@@ -171,12 +171,7 @@ app.whenReady().then(async () => {
   protocol.handle('local-file', (request) => {
     // URL format: local-file:///absolute/path/to/image.png
     const filePath = decodeURIComponent(new URL(request.url).pathname)
-
-    // Block path traversal
     const normalized = normalize(filePath)
-    if (normalized.includes('..')) {
-      return new Response('Path traversal not allowed', { status: 403 })
-    }
 
     // Only serve image files
     const ext = normalized.split('.').pop()?.toLowerCase() || ''

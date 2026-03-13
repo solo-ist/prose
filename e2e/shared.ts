@@ -109,6 +109,28 @@ export async function runEditorCommand(page: Page, command: string): Promise<voi
 }
 
 // ---------------------------------------------------------------------------
+// Onboarding helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Dismiss onboarding dialogs that appear on first launch (or after reload).
+ *
+ * 1. DefaultHandlerPrompt ("Make Prose Your Default Markdown Editor") — 1 s delay
+ * 2. AIConsentDialog   ("AI Writing Assistance")
+ */
+export async function dismissOnboarding(page: Page): Promise<void> {
+  const gotIt = page.getByRole('button', { name: 'Got It' })
+  if (await gotIt.isVisible({ timeout: 3_000 }).catch(() => false)) {
+    await gotIt.click()
+  }
+
+  const useWithoutAI = page.getByRole('button', { name: 'Use Without AI' })
+  if (await useWithoutAI.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    await useWithoutAI.click()
+  }
+}
+
+// ---------------------------------------------------------------------------
 // File explorer helpers
 // ---------------------------------------------------------------------------
 

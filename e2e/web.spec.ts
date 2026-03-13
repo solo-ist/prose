@@ -11,6 +11,7 @@ import {
   waitForEditor,
   typeInEditor,
   getEditorMarkdown,
+  dismissOnboarding,
   ensureFileListOpen,
   switchExplorerTab,
 } from './shared'
@@ -21,19 +22,7 @@ test.beforeAll(async ({ browser }) => {
   page = await browser.newPage()
   await page.goto('/web-index.html')
   await page.waitForLoadState('domcontentloaded')
-
-  // Dismiss onboarding dialogs that appear on first launch
-  // 1. DefaultHandlerPrompt ("Make Prose Your Default Markdown Editor") — appears after 1s delay
-  const gotItButton = page.getByRole('button', { name: 'Got It' })
-  if (await gotItButton.isVisible({ timeout: 3_000 }).catch(() => false)) {
-    await gotItButton.click()
-  }
-
-  // 2. AIConsentDialog ("AI Writing Assistance")
-  const useWithoutAI = page.getByRole('button', { name: 'Use Without AI' })
-  if (await useWithoutAI.isVisible({ timeout: 2_000 }).catch(() => false)) {
-    await useWithoutAI.click()
-  }
+  await dismissOnboarding(page)
 })
 
 test.afterAll(async () => {
@@ -51,6 +40,7 @@ test('app loads without console errors', async () => {
   // Reload to capture errors from a clean load
   await page.reload()
   await page.waitForLoadState('domcontentloaded')
+  await dismissOnboarding(page)
 
   expect(errors).toEqual([])
 })
@@ -86,7 +76,6 @@ test('navigate: open file from file explorer', async () => {
 
   // Wait for editor to load the file content
   await waitForEditor(page)
-  await page.waitForTimeout(500) // allow content to settle
 
   const markdown = await getEditorMarkdown(page)
   expect(markdown).toContain('Welcome to Prose')
@@ -105,7 +94,6 @@ test.describe('File Explorer — Navigation', () => {
 
     // Click the Meeting Notes folder to expand it
     await panel.getByText('Meeting Notes').click()
-    await page.waitForTimeout(500)
 
     // Verify children are visible
     await expect(panel.getByText('Weekly Standup')).toBeVisible({ timeout: 5_000 })
@@ -118,7 +106,6 @@ test.describe('File Explorer — Navigation', () => {
 
     // Click the Blog Drafts folder to expand it
     await panel.getByText('Blog Drafts').click()
-    await page.waitForTimeout(500)
 
     // Verify children are visible
     await expect(panel.getByText('AI Writing Tools')).toBeVisible({ timeout: 5_000 })
@@ -132,13 +119,12 @@ test.describe('File Explorer — Navigation', () => {
     const weeklyStandup = panel.getByText('Weekly Standup')
     if (!(await weeklyStandup.isVisible().catch(() => false))) {
       await panel.getByText('Meeting Notes').click()
-      await page.waitForTimeout(500)
+      await expect(weeklyStandup).toBeVisible({ timeout: 5_000 })
     }
 
     // Open Weekly Standup file
     await weeklyStandup.click()
     await waitForEditor(page)
-    await page.waitForTimeout(500)
 
     const markdown = await getEditorMarkdown(page)
     expect(markdown).toContain('Weekly Standup')
@@ -151,13 +137,11 @@ test.describe('File Explorer — Navigation', () => {
     // Open Formatting Examples
     await panel.getByText('Formatting Examples').click()
     await waitForEditor(page)
-    await page.waitForTimeout(500)
 
     // Type new content at the end
     await page.click(selectors.editor)
     await page.keyboard.press('End')
     await page.keyboard.type('hello, world')
-    await page.waitForTimeout(300)
 
     const markdown = await getEditorMarkdown(page)
     expect(markdown).toContain('hello, world')
@@ -184,8 +168,7 @@ test.describe('File Explorer — Tabs', () => {
 
     // Verify the header shows folder name (not "Recent")
     const panel = page.locator(selectors.fileListPanel)
-    const headerText = await panel.locator('h2').textContent()
-    expect(headerText).not.toBe('Recent')
+    await expect(panel.locator('h2')).not.toHaveText('Recent', { timeout: 3_000 })
 
     // Verify file listing is visible
     await expect(panel.getByText('Welcome to Prose')).toBeVisible({ timeout: 5_000 })
@@ -217,13 +200,12 @@ test.describe('Editor Features', () => {
     const q1Planning = panel.getByText('Q1 Planning')
     if (!(await q1Planning.isVisible().catch(() => false))) {
       await panel.getByText('Meeting Notes').click()
-      await page.waitForTimeout(500)
+      await expect(q1Planning).toBeVisible({ timeout: 5_000 })
     }
 
     // Open Q1 Planning (has frontmatter with title, date, status, tags)
     await q1Planning.click()
     await waitForEditor(page)
-    await page.waitForTimeout(500)
 
     // Verify frontmatter metadata is displayed (the FrontmatterDisplay component
     // renders key-value pairs from the YAML)
@@ -231,42 +213,35 @@ test.describe('Editor Features', () => {
   })
 
   test('toggle source mode', async () => {
-    // Ensure a file is open
     await ensureFileListOpen(page)
     const panel = page.locator(selectors.fileListPanel)
     await panel.getByText('Welcome to Prose').click()
     await waitForEditor(page)
-    await page.waitForTimeout(500)
 
     // Click source mode button
     await page.click(selectors.sourceMode)
-    await page.waitForTimeout(500)
 
     // Verify CodeMirror editor appears
     await expect(page.locator(selectors.sourceEditor)).toBeVisible({ timeout: 5_000 })
 
     // Toggle back to WYSIWYG
     await page.click(selectors.sourceMode)
-    await page.waitForTimeout(500)
 
     // Verify ProseMirror editor is back
     await expect(page.locator(selectors.editor)).toBeVisible({ timeout: 5_000 })
   })
 
   test('copy markdown button shows success state', async () => {
-    // Ensure a file with content is open
     await ensureFileListOpen(page)
     const panel = page.locator(selectors.fileListPanel)
     await panel.getByText('Welcome to Prose').click()
     await waitForEditor(page)
-    await page.waitForTimeout(500)
 
     // Click Copy Markdown button
     const copyButton = page.locator(selectors.copyMarkdown)
     await copyButton.click()
 
     // The button should briefly show a check icon (success state)
-    // The Check icon replaces Copy icon for ~2 seconds
     const checkIcon = copyButton.locator('svg.lucide-check')
     await expect(checkIcon).toBeVisible({ timeout: 2_000 })
   })
@@ -285,53 +260,48 @@ test.describe('Toolbar Actions', () => {
 
     // Click theme toggle
     await page.click(selectors.toggleTheme)
-    await page.waitForTimeout(300)
 
     // Verify theme changed
-    const afterToggleIsDark = await page.evaluate(() =>
-      document.documentElement.classList.contains('dark')
+    await expect(page.locator('html')).toHaveClass(
+      initialIsDark ? /^(?!.*\bdark\b)/ : /\bdark\b/,
+      { timeout: 2_000 },
     )
-    expect(afterToggleIsDark).toBe(!initialIsDark)
 
     // Toggle back to restore original state
     await page.click(selectors.toggleTheme)
-    await page.waitForTimeout(300)
 
-    const restoredIsDark = await page.evaluate(() =>
-      document.documentElement.classList.contains('dark')
+    await expect(page.locator('html')).toHaveClass(
+      initialIsDark ? /\bdark\b/ : /^(?!.*\bdark\b)/,
+      { timeout: 2_000 },
     )
-    expect(restoredIsDark).toBe(initialIsDark)
   })
 
   test('toggle AI annotations button', async () => {
-    // Ensure a file is open so the button is enabled
     await ensureFileListOpen(page)
     const panel = page.locator(selectors.fileListPanel)
     await panel.getByText('Welcome to Prose').click()
     await waitForEditor(page)
-    await page.waitForTimeout(500)
 
     // Get initial aria-label
     const annotationsButton = page.locator(selectors.hideAnnotations)
     const initialLabel = await annotationsButton.getAttribute('aria-label')
 
-    // Click the button
+    // Click the button and verify aria-label changed
     await annotationsButton.click()
-    await page.waitForTimeout(300)
-
-    // Verify aria-label changed
-    const newLabel = await annotationsButton.getAttribute('aria-label')
-    expect(newLabel).not.toBe(initialLabel)
+    await expect(annotationsButton).not.toHaveAttribute('aria-label', initialLabel!, {
+      timeout: 2_000,
+    })
 
     // Toggle back
     await annotationsButton.click()
-    await page.waitForTimeout(300)
+    await expect(annotationsButton).toHaveAttribute('aria-label', initialLabel!, {
+      timeout: 2_000,
+    })
   })
 
   test('more options menu renders all items', async () => {
     // Click the More Options button
     await page.click(selectors.moreOptions)
-    await page.waitForTimeout(300)
 
     // Verify all expected menu items are visible
     const expectedItems = [
@@ -352,24 +322,18 @@ test.describe('Toolbar Actions', () => {
 
     // Close the menu by pressing Escape
     await page.keyboard.press('Escape')
-    await page.waitForTimeout(200)
   })
 
   test('open settings from more options menu', async () => {
-    // Open More Options menu
     await page.click(selectors.moreOptions)
-    await page.waitForTimeout(300)
-
-    // Click Settings
     await page.getByRole('menuitem', { name: 'Settings' }).click()
-    await page.waitForTimeout(500)
 
-    // Verify settings dialog opened (has tab triggers)
+    // Verify settings dialog opened
     await expect(page.getByRole('tab', { name: 'General' })).toBeVisible({ timeout: 3_000 })
 
     // Close settings
     await page.keyboard.press('Escape')
-    await page.waitForTimeout(300)
+    await expect(page.getByRole('tab', { name: 'General' })).not.toBeVisible({ timeout: 3_000 })
   })
 })
 
@@ -381,7 +345,6 @@ test.describe('Chat Panel', () => {
   test('open and close chat panel', async () => {
     // Open chat panel
     await page.click(selectors.toggleChat)
-    await page.waitForTimeout(500)
 
     // Verify chat textarea is visible
     const textarea = page.locator('textarea').first()
@@ -389,7 +352,6 @@ test.describe('Chat Panel', () => {
 
     // Close chat panel
     await page.click(selectors.toggleChat)
-    await page.waitForTimeout(500)
 
     // Verify textarea is no longer visible
     await expect(textarea).not.toBeVisible({ timeout: 3_000 })
@@ -398,12 +360,11 @@ test.describe('Chat Panel', () => {
   test('chat input accepts text', async () => {
     // Open chat panel
     await page.click(selectors.toggleChat)
-    await page.waitForTimeout(500)
 
     // Type into the chat textarea
     const textarea = page.locator('textarea').first()
+    await expect(textarea).toBeVisible({ timeout: 3_000 })
     await textarea.fill('Hello from the test')
-    await page.waitForTimeout(200)
 
     // Verify text was entered
     await expect(textarea).toHaveValue('Hello from the test')
@@ -411,7 +372,6 @@ test.describe('Chat Panel', () => {
     // Clear and close
     await textarea.fill('')
     await page.click(selectors.toggleChat)
-    await page.waitForTimeout(300)
   })
 })
 
@@ -420,59 +380,54 @@ test.describe('Chat Panel', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('Settings Dialog', () => {
-  test('open settings dialog', async () => {
-    // Open via More Options menu
+  /** Open the settings dialog if not already open. */
+  async function openSettings(): Promise<void> {
+    const generalTab = page.getByRole('tab', { name: 'General' })
+    if (await generalTab.isVisible().catch(() => false)) return
     await page.click(selectors.moreOptions)
-    await page.waitForTimeout(300)
     await page.getByRole('menuitem', { name: 'Settings' }).click()
-    await page.waitForTimeout(500)
+    await expect(generalTab).toBeVisible({ timeout: 3_000 })
+  }
+
+  test('open settings dialog', async () => {
+    await openSettings()
 
     // Verify all tabs are visible
     const tabs = ['General', 'Editor', 'LLM', 'Integrations', 'Account']
     for (const tab of tabs) {
       await expect(page.getByRole('tab', { name: tab })).toBeVisible({ timeout: 3_000 })
     }
+
+    // Teardown
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('tab', { name: 'General' })).not.toBeVisible({ timeout: 3_000 })
   })
 
   test('settings tabs are clickable', async () => {
-    // Settings dialog should already be open from previous test
-    // If not, open it
-    const generalTab = page.getByRole('tab', { name: 'General' })
-    if (!(await generalTab.isVisible().catch(() => false))) {
-      await page.click(selectors.moreOptions)
-      await page.waitForTimeout(300)
-      await page.getByRole('menuitem', { name: 'Settings' }).click()
-      await page.waitForTimeout(500)
-    }
+    await openSettings()
 
     // Click through each tab and verify it becomes selected
     const tabs = ['General', 'Editor', 'LLM', 'Integrations', 'Account']
     for (const tab of tabs) {
       await page.getByRole('tab', { name: tab }).click()
-      await page.waitForTimeout(300)
 
-      // Verify the tab is now selected (aria-selected="true")
       await expect(page.getByRole('tab', { name: tab })).toHaveAttribute(
         'data-state',
         'active',
         { timeout: 2_000 },
       )
     }
+
+    // Teardown
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('tab', { name: 'General' })).not.toBeVisible({ timeout: 3_000 })
   })
 
   test('close settings dialog', async () => {
-    // Settings dialog should already be open from previous test
-    const generalTab = page.getByRole('tab', { name: 'General' })
-    if (!(await generalTab.isVisible().catch(() => false))) {
-      await page.click(selectors.moreOptions)
-      await page.waitForTimeout(300)
-      await page.getByRole('menuitem', { name: 'Settings' }).click()
-      await page.waitForTimeout(500)
-    }
+    await openSettings()
 
     // Close via Escape
     await page.keyboard.press('Escape')
-    await page.waitForTimeout(500)
 
     // Verify dialog is gone
     await expect(page.getByRole('tab', { name: 'General' })).not.toBeVisible({ timeout: 3_000 })

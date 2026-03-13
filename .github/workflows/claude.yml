@@ -76,7 +76,6 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           show_full_output: true
-          claude_args: '--allowedTools "Read,Write,Edit,Glob,Grep,Bash,TodoWrite"'
           prompt: |
             You are an autonomous coding agent. Implement the changes described in the
             GitHub issue or comment that triggered this workflow. Do NOT list or browse

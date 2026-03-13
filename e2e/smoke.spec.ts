@@ -6,6 +6,7 @@
 import { test, expect } from '@playwright/test'
 import {
   launchApp,
+  dismissConsentDialog,
   waitForEditor,
   typeInEditor,
   getEditorMarkdown,
@@ -18,9 +19,20 @@ let app: ElectronApplication
 let page: Page
 
 test.beforeAll(async () => {
+  test.setTimeout(60_000)
+
   const launched = await launchApp()
   app = launched.app
   page = launched.page
+
+  // Dismiss onboarding dialogs shown on fresh installs
+  await dismissConsentDialog(page)
+
+  // DefaultHandlerPrompt ("Make Prose Your Default Markdown Editor") — appears after 1s delay
+  const gotItButton = page.getByRole('button', { name: 'Got It' })
+  if (await gotItButton.isVisible({ timeout: 3_000 }).catch(() => false)) {
+    await gotItButton.click()
+  }
 
   // If the app opens to the empty "Start Writing" state, create a new document
   const newDocButton = page.getByRole('button', { name: 'New Document' })

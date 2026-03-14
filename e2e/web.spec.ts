@@ -2,6 +2,8 @@
  * Web e2e tests — verifies browser-mode build loads, renders fixture files,
  * supports editor interaction, file explorer navigation, toolbar actions,
  * chat panel, and settings dialog.
+ *
+ * CI validation: confirms workflow checkout, status, and comment steps work.
  */
 
 import { test, expect } from '@playwright/test'

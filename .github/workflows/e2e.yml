@@ -5,6 +5,10 @@ on:
   issue_comment:
     types: [created]
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   e2e:
     # Only run on PRs, or on /test comments (but not @claude mentions)

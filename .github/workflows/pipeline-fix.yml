@@ -1,0 +1,130 @@
+name: Pipeline Auto-Fix
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to auto-fix'
+        required: true
+        type: number
+
+jobs:
+  auto-fix:
+    # Auto-trigger: orchestrator posted auto-fix verdict
+    # Guard: only one fix attempt allowed (prevent infinite loops)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        (github.event.comment.user.login == 'github-actions[bot]' || github.event.comment.user.login == 'claude[bot]') &&
+        contains(github.event.comment.body, '<!-- orchestrator-verdict: auto-fix -->') &&
+        !contains(github.event.comment.body, '<!-- agent-fix-attempt:')
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - name: Determine PR number
+        id: pr
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "number=${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check fix attempt count
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          ATTEMPTS=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+            --jq '[.[] | select(.body | contains("<!-- agent-fix-attempt:"))] | length')
+          echo "attempts=$ATTEMPTS" >> "$GITHUB_OUTPUT"
+          if [ "$ATTEMPTS" -ge 1 ]; then
+            echo "::warning::Fix already attempted $ATTEMPTS time(s). Escalating to human review."
+            gh pr comment "$PR_NUMBER" --repo "$REPO" \
+              --body "<!-- agent-fix-escalation -->
+          ## Auto-Fix Escalated
+
+          A fix was already attempted for this PR. Escalating to human review to avoid infinite fix loops.
+
+          **Label applied:** \`needs-review\`"
+            gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "needs-review"
+            exit 0
+          fi
+
+      - name: Checkout PR branch
+        if: steps.guard.outputs.attempts == '0'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.ref || '' }}
+          fetch-depth: 0
+
+      - name: Checkout PR branch (from comment context)
+        if: steps.guard.outputs.attempts == '0' && github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          PR_BRANCH=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefName -q '.headRefName')
+          git checkout "$PR_BRANCH"
+
+      - name: Gather context for fix
+        if: steps.guard.outputs.attempts == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Collect all pipeline analysis comments for context
+          gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+            --jq '.[] | select(
+              (.body | contains("<!-- review-verdict:")) or
+              (.body | contains("<!-- scorer-output:")) or
+              (.body | contains("<!-- pe-output:"))
+            ) | .body' > /tmp/pipeline-context.txt
+
+      - name: Run Claude Code Fix
+        if: steps.guard.outputs.attempts == '0'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          allowed_bots: 'claude,github-actions'
+          claude_args: '--dangerously-skip-permissions'
+          prompt: |
+            You are an auto-fix agent. A code review found issues in this PR that have been
+            triaged as low-complexity and suitable for automated fixing.
+
+            Read the pipeline analysis context below, then fix ONLY the issues identified
+            in the review. Do not make unrelated changes.
+
+            ## Pipeline Context
+
+            The following analysis comments were posted on this PR:
+
+            $(cat /tmp/pipeline-context.txt)
+
+            ## Rules
+
+            1. Fix ONLY the issues identified in the review — no drive-by improvements
+            2. Never modify test files — only production code
+            3. Keep changes minimal and focused
+            4. Commit with format: `fix: agent-fix for PR #${{ steps.pr.outputs.number }} — <description>`
+            5. Push the fix commit to the current branch
+
+            ## After fixing
+
+            Post a comment with this exact sentinel on its own line:
+            <!-- agent-fix-attempt: 1 -->
+
+            Then summarize what you fixed in a brief list.

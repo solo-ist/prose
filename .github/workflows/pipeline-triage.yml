@@ -1,0 +1,220 @@
+name: Pipeline Triage
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to triage'
+        required: true
+        type: number
+
+jobs:
+  run-scorer:
+    # Auto-trigger: claude[bot] review with issues-found verdict
+    # Skip if scorer already ran (prevent loops)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        github.event.comment.user.login == 'claude[bot]' &&
+        contains(github.event.comment.body, '<!-- review-verdict: issues-found -->') &&
+        !contains(github.event.comment.body, '<!-- scorer-output:')
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Determine PR number
+        id: pr
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "number=${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch review comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+              --jq '[.[] | select(.user.login == "claude[bot]" and (.body | contains("<!-- review-verdict: issues-found -->")))] | last | .body' \
+              > /tmp/review-comment.txt
+          else
+            printf '%s' "$COMMENT_BODY" > /tmp/review-comment.txt
+          fi
+
+      - name: Run scorer
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPO: ${{ github.repository }}
+        run: node .github/scripts/run-scorer.mjs
+
+      - name: Post scorer comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment "${{ steps.pr.outputs.number }}" \
+            --body-file /tmp/scorer-output.md
+
+  run-pe-analysis:
+    # Same trigger conditions as scorer — runs in parallel
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        github.event.comment.user.login == 'claude[bot]' &&
+        contains(github.event.comment.body, '<!-- review-verdict: issues-found -->') &&
+        !contains(github.event.comment.body, '<!-- pe-output:')
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Determine PR number
+        id: pr
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "number=${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch review comment and changed files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+              --jq '[.[] | select(.user.login == "claude[bot]" and (.body | contains("<!-- review-verdict: issues-found -->")))] | last | .body' \
+              > /tmp/review-comment.txt
+          else
+            printf '%s' "$COMMENT_BODY" > /tmp/review-comment.txt
+          fi
+
+          # Fetch changed files with patches for PE analysis
+          gh api "repos/$REPO/pulls/$PR_NUMBER/files" \
+            --jq '.[] | "--- " + .filename + " (" + .status + ") ---\n" + (.patch // "(binary or too large)")' \
+            > /tmp/changed-files.txt
+
+      - name: Run PE analysis
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPO: ${{ github.repository }}
+        run: node .github/scripts/run-pe-analysis.mjs
+
+      - name: Post PE analysis comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment "${{ steps.pr.outputs.number }}" \
+            --body-file /tmp/pe-output.md
+
+  orchestrate:
+    needs: [run-scorer, run-pe-analysis]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Determine PR number
+        id: pr
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "number=${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch scorer and PE outputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Get all comments and extract scorer + PE outputs
+          gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+            --jq '[.[] | select(.user.login == "github-actions[bot]" or .user.login == "claude[bot]")] | .[] | .body' \
+            > /tmp/all-comments.txt
+
+      - name: Run orchestrator
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPO: ${{ github.repository }}
+        run: node .github/scripts/run-orchestrator.mjs
+
+      - name: Post orchestrator verdict
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment "${{ steps.pr.outputs.number }}" \
+            --body-file /tmp/orchestrator-output.md
+
+      - name: Apply labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          VERDICT=$(cat /tmp/orchestrator-verdict.txt)
+          case "$VERDICT" in
+            auto-fix)
+              gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "auto-fix-queued"
+              ;;
+            hitl-light)
+              gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "needs-review"
+              ;;
+            hitl-full)
+              gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "complex,needs-review"
+              ;;
+          esac

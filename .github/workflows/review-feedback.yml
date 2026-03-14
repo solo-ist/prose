@@ -14,6 +14,8 @@ jobs:
   analyze-feedback:
     # Auto-trigger: only for claude[bot] code review comments on PRs
     # Manual trigger: always run
+    # Skip: clean verdicts (clean-gate handles those) and issues-found verdicts
+    #        (pipeline-triage.yml handles those with scorer + PE + orchestrator)
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (
@@ -21,7 +23,9 @@ jobs:
         github.event.issue.pull_request &&
         github.event.comment.user.login == 'claude[bot]' &&
         contains(github.event.comment.body, '## Code Review') &&
-        !contains(github.event.comment.body, '<!-- review-feedback-analysis -->')
+        !contains(github.event.comment.body, '<!-- review-feedback-analysis -->') &&
+        !contains(github.event.comment.body, '<!-- review-verdict: clean -->') &&
+        !contains(github.event.comment.body, '<!-- review-verdict: issues-found -->')
       )
     runs-on: ubuntu-latest
     permissions:
@@ -77,3 +81,26 @@ jobs:
         run: |
           gh pr comment "${{ steps.pr.outputs.number }}" \
             --body-file /tmp/analysis-output.md
+
+  clean-gate:
+    # Fast-path: clean review verdict — skip analysis, post ready-to-merge
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      github.event.comment.user.login == 'claude[bot]' &&
+      contains(github.event.comment.body, '<!-- review-verdict: clean -->') &&
+      !contains(github.event.comment.body, '<!-- review-feedback-analysis -->')
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Post ready-to-merge comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --body "<!-- review-feedback-analysis -->
+          ## ✅ Ready to Merge
+
+          Code review found no significant issues. This PR is ready for human approval and merge."

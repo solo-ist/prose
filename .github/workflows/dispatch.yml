@@ -1,0 +1,87 @@
+name: Pipeline Dispatch
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  dispatch:
+    # Route pipeline slash commands on PRs — only for human comments (not bots)
+    # /review is handled directly by claude.yml — this workflow adds /triage, /fix, /pipeline
+    # Guard: never fire on @claude mentions (claude.yml owns those)
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      !contains(github.event.comment.user.login, '[bot]') &&
+      !contains(github.event.comment.body, '@claude') &&
+      (
+        contains(github.event.comment.body, '/triage') ||
+        contains(github.event.comment.body, '/fix') ||
+        contains(github.event.comment.body, '/pipeline')
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      pull-requests: read
+      issues: write
+    steps:
+      - name: Determine PR number
+        id: pr
+        run: |
+          echo "number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Parse command
+        id: cmd
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          # Extract the first recognized command from the comment
+          # /pipeline takes priority — it runs the full flow
+          if echo "$COMMENT_BODY" | grep -q '/pipeline'; then
+            echo "command=pipeline" >> "$GITHUB_OUTPUT"
+          elif echo "$COMMENT_BODY" | grep -q '/triage'; then
+            echo "command=triage" >> "$GITHUB_OUTPUT"
+          elif echo "$COMMENT_BODY" | grep -q '/fix'; then
+            echo "command=fix" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dispatch /triage
+        if: steps.cmd.outputs.command == 'triage'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh workflow run pipeline-triage.yml \
+            --repo "$REPO" \
+            -f pr_number=${{ steps.pr.outputs.number }}
+
+      - name: Dispatch /fix
+        if: steps.cmd.outputs.command == 'fix'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh workflow run pipeline-fix.yml \
+            --repo "$REPO" \
+            -f pr_number=${{ steps.pr.outputs.number }}
+
+      - name: Dispatch /pipeline
+        if: steps.cmd.outputs.command == 'pipeline'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          # /pipeline runs the full flow: review → triage → route
+          # Step 1: Trigger a review (same as /review, handled by claude.yml)
+          # The review comment will contain a verdict sentinel that auto-triggers
+          # pipeline-triage.yml, which runs scorer + PE + orchestrator.
+          # The orchestrator verdict then auto-triggers pipeline-fix.yml if routed.
+          #
+          # We just need to acknowledge — claude.yml picks up the /pipeline comment
+          # because it also contains the word "pipeline" but its if: checks for /review.
+          # So we post a /review comment to trigger it.
+          gh pr comment "$PR_NUMBER" --repo "$REPO" \
+            --body "/review
+
+          *Triggered by \`/pipeline\` — full pipeline will run: review → triage → route*"

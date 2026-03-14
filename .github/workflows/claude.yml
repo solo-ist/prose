@@ -68,7 +68,32 @@ jobs:
             - **Selectors use `aria-label` and `data-testid`.** Multi-state buttons use comma-separated
               selectors (e.g., `'[aria-label="Show chat"], [aria-label="Hide chat"]'`). This is correct.
 
+            ## Electron Security Checklist
+
+            As part of your review, check for these Electron-specific security concerns:
+            - [ ] `nodeIntegration` must remain `false` in all BrowserWindow configs
+            - [ ] `contextIsolation` must remain `true` in all BrowserWindow configs
+            - [ ] No new APIs exposed through preload without input validation
+            - [ ] `shell.openExternal()` calls validate URLs (no arbitrary protocol handlers)
+            - [ ] IPC handlers validate and sanitize all arguments from renderer
+            - [ ] No secrets, API keys, or tokens hardcoded in source
+            - [ ] Dependencies checked for known CVEs (if new deps added)
+            - [ ] Content Security Policy not weakened
+
+            If the PR touches privilege-boundary files (`src/main/**`, `src/preload/**`, `electron-builder.*`, `electron.vite.config.*`), prepend your review with:
+
+            > **[SECURITY GATE]** This PR modifies Electron privilege-boundary code. Requires human review regardless of other findings.
+
             Be concise. Only comment on significant issues - if the code looks good, say so briefly.
+
+            ## Verdict
+
+            After your review, append exactly ONE of these HTML comment trailers on its own line at the very end of your comment:
+
+            - If no significant issues found: `<!-- review-verdict: clean -->`
+            - If any bugs, security issues, or significant concerns found: `<!-- review-verdict: issues-found -->`
+
+            This trailer is machine-readable and drives the downstream triage pipeline. Always include it.
 
   # Manual invocation via @claude mentions
   claude:

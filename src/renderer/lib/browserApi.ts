@@ -530,6 +530,14 @@ export function getApi(): ElectronAPI {
 }
 
 /**
+ * Get the display name for the current API provider.
+ */
+export function getApiProviderName(): string {
+  const settings = JSON.parse(localStorage.getItem(SETTINGS_KEY))
+  return settings.llm.provider.charAt(0).toUpperCase() + settings.llm.provider.slice(1)
+}
+
+/**
  * Check if running in Electron
  */
 export function isElectron(): boolean {

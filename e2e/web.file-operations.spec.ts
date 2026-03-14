@@ -211,15 +211,16 @@ test.describe('File Operations', () => {
   test('close file returns to empty state', async () => {
     await openFileFromExplorer(page, 'Welcome to Prose')
 
-    const closeButton = page.locator('[aria-label="Close tab"]')
-    if (await closeButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    // Close all open tabs to reach the empty state
+    const closeButton = page.locator(selectors.closeTab).first()
+    while (await closeButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
       await closeButton.click()
-      await expect(page.locator('#root')).toBeVisible({ timeout: 3_000 })
-    } else {
-      await createNewDocument(page)
-      const markdown = await getEditorMarkdown(page)
-      expect(markdown.trim().length).toBeLessThan(20)
     }
+
+    // Verify the app shows the empty state or "New Document" prompt
+    const emptyState = page.locator(selectors.emptyState)
+    const newDocButton = page.getByRole('button', { name: 'New Document' })
+    await expect(emptyState.or(newDocButton)).toBeVisible({ timeout: 5_000 })
   })
 
   test('new document naming', async () => {

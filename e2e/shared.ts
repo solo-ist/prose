@@ -177,6 +177,23 @@ export async function dismissOnboarding(page: Page): Promise<void> {
   }
 }
 
+/**
+ * Dismiss any stale Radix UI dialog overlays blocking the page.
+ *
+ * On CI, onboarding dialogs and settings dialogs occasionally leave behind
+ * a `data-state="open"` overlay that intercepts pointer events on toolbar
+ * buttons. This helper presses Escape until the overlay detaches.
+ */
+export async function dismissOverlay(page: Page): Promise<void> {
+  const overlay = page.locator('[data-state="open"].fixed.inset-0')
+  let attempts = 0
+  while (attempts < 3 && await overlay.first().isVisible({ timeout: 500 }).catch(() => false)) {
+    await page.keyboard.press('Escape')
+    await overlay.first().waitFor({ state: 'detached', timeout: 2_000 }).catch(() => {})
+    attempts++
+  }
+}
+
 // ---------------------------------------------------------------------------
 // File explorer helpers
 // ---------------------------------------------------------------------------

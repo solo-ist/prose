@@ -232,14 +232,16 @@ test.describe('Editor Features', () => {
     await panel.getByText('Welcome to Prose').dblclick()
     await waitForEditor(page)
 
-    // Click source mode button
-    await page.click(selectors.sourceMode)
+    // Wait for source mode button to be enabled (disabled for preview tabs)
+    const sourceModeBtn = page.locator(selectors.sourceMode)
+    await expect(sourceModeBtn).toBeEnabled({ timeout: 5_000 })
+    await sourceModeBtn.click()
 
     // Verify CodeMirror editor appears
     await expect(page.locator(selectors.sourceEditor)).toBeVisible({ timeout: 5_000 })
 
     // Toggle back to WYSIWYG
-    await page.click(selectors.sourceMode)
+    await sourceModeBtn.click()
 
     // Verify ProseMirror editor is back
     await expect(page.locator(selectors.editor)).toBeVisible({ timeout: 5_000 })

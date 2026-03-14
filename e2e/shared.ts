@@ -219,8 +219,14 @@ export async function openFileFromExplorer(page: Page, filename: string): Promis
 
 /** Create a new document via More Options → New Document. */
 export async function createNewDocument(page: Page): Promise<void> {
+  // Dismiss any open menus/dialogs first
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(100)
+
   await page.click(selectors.moreOptions)
-  await page.getByRole('menuitem', { name: 'New Document' }).click()
+  const menuItem = page.getByRole('menuitem', { name: 'New Document' })
+  await menuItem.waitFor({ state: 'visible', timeout: 5_000 })
+  await menuItem.click()
   await waitForEditor(page)
 }
 

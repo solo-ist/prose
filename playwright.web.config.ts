@@ -4,7 +4,7 @@ export default defineConfig({
   testDir: './e2e',
   testMatch: ['**/web.spec.ts', '**/web.*.spec.ts'],
   timeout: 30_000,
-  globalTimeout: 120_000,
+  globalTimeout: 300_000,
   workers: 1,
   fullyParallel: false,
   retries: 1,

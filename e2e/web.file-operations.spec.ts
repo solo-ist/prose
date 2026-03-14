@@ -49,6 +49,10 @@ test.describe('File Operations', () => {
   })
 
   test('create new document reflects in tab bar', async () => {
+    // Ensure any previous menu/dialog is closed
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(200)
+
     await createNewDocument(page)
 
     const editor = page.locator(selectors.editor)
@@ -83,6 +87,11 @@ test.describe('File Operations', () => {
 
     await rightClickFile(page, 'Formatting Examples')
     await page.getByRole('menuitem', { name: 'Move to Trash' }).click()
+
+    // A confirmation dialog appears — click the confirm button
+    const confirmBtn = page.getByRole('button', { name: 'Move to Trash' })
+    await expect(confirmBtn).toBeVisible({ timeout: 3_000 })
+    await confirmBtn.click()
 
     await expect(panel.getByText('Formatting Examples')).not.toBeVisible({ timeout: 5_000 })
   })

@@ -108,12 +108,14 @@ test.describe('Editor — Advanced Formatting', () => {
     expect(active).toBe(true)
   })
 
-  test('task list via - [ ] shortcut', async () => {
-    await setEditorContent(page, '<p></p>')
+  test('underline via command', async () => {
+    // Task list extension not installed — test underline instead
+    await setEditorContent(page, '<p>Underline this</p>')
     await page.click(selectors.editor)
-    await page.keyboard.type('- [ ] Task')
+    await page.keyboard.press('ControlOrMeta+A')
+    await page.keyboard.press('ControlOrMeta+U')
     await page.waitForTimeout(100)
-    const active = await isNodeActive(page, 'taskList')
+    const active = await isMarkActive(page, 'underline')
     expect(active).toBe(true)
   })
 

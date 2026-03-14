@@ -13,7 +13,6 @@ import {
   waitForEditor,
   typeInEditor,
   getEditorMarkdown,
-  dismissOnboarding,
   ensureFileListOpen,
   switchExplorerTab,
 } from './shared'
@@ -22,9 +21,20 @@ let page: Page
 
 test.beforeAll(async ({ browser }) => {
   page = await browser.newPage()
+
+  // Pre-seed settings to suppress onboarding dialogs entirely.
+  // This avoids race conditions where dialogs appear mid-test on slow CI.
   await page.goto('/web-index.html')
+  await page.evaluate(() => {
+    const settings = {
+      fileAssociation: { hasBeenPrompted: true },
+      aiConsent: { consented: false, consentedAt: new Date().toISOString(), version: 1 },
+    }
+    localStorage.setItem('prose:web-mode-settings', JSON.stringify(settings))
+  })
+  // Reload so the app reads the pre-seeded settings on boot
+  await page.reload()
   await page.waitForLoadState('networkidle')
-  await dismissOnboarding(page)
 })
 
 test.afterAll(async () => {
@@ -40,9 +50,9 @@ test('app loads without console errors', async () => {
   page.on('pageerror', (err) => errors.push(err.message))
 
   // Reload to capture errors from a clean load
+  // (localStorage persists, so onboarding dialogs stay suppressed)
   await page.reload()
   await page.waitForLoadState('networkidle')
-  await dismissOnboarding(page)
 
   expect(errors).toEqual([])
 })

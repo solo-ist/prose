@@ -228,7 +228,8 @@ test.describe('Editor Features', () => {
   test('toggle source mode', async () => {
     await ensureFileListOpen(page)
     const panel = page.locator(selectors.fileListPanel)
-    await panel.getByText('Welcome to Prose').click()
+    // Double-click to open as permanent tab (source mode is disabled for preview tabs)
+    await panel.getByText('Welcome to Prose').dblclick()
     await waitForEditor(page)
 
     // Click source mode button

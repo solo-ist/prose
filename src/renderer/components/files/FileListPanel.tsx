@@ -67,7 +67,7 @@ export function FileListPanel() {
   } = useFileList()
 
   const { openFileFromPath } = useEditor()
-  const { openFileInTab, openFileInPreviewTab, forceCloseTab } = useTabs()
+  const { openFileInTab, openFileInPreviewTab, forceCloseTab, createNewTab } = useTabs()
   const { isSyncing, sync, error: syncError } = useRemarkableSync()
   const { isSyncing: isGoogleSyncing, sync: googleSync, error: googleSyncError } = useGoogleDocsSync()
   const { setDialogOpen } = useSettings()
@@ -1111,6 +1111,15 @@ export function FileListPanel() {
                   >
                     <ChevronUp className="h-4 w-4 shrink-0" />
                     <span className="truncate">..</span>
+                  </button>
+                  {/* New untitled document */}
+                  <button
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50 text-muted-foreground mb-1"
+                    onClick={createNewTab}
+                    title="Create new untitled document"
+                  >
+                    <Plus className="h-4 w-4 shrink-0" />
+                    <span className="truncate">Untitled.md</span>
                   </button>
                   {files.length === 0 && !isLoading ? (
                     <div className="px-2 py-4 text-sm text-muted-foreground">

@@ -15,6 +15,7 @@ import {
   getEditorMarkdown,
   ensureFileListOpen,
   switchExplorerTab,
+  dismissOverlay,
 } from './shared'
 
 let page: Page
@@ -228,11 +229,12 @@ test.describe('Editor Features', () => {
   test('toggle source mode', async () => {
     await ensureFileListOpen(page)
     const panel = page.locator(selectors.fileListPanel)
-    // Double-click to open as permanent tab (source mode is disabled for preview tabs)
-    await panel.getByText('Welcome to Prose').dblclick()
+    await panel.getByText('Welcome to Prose').click()
     await waitForEditor(page)
 
-    // Wait for source mode button to be enabled (disabled for preview tabs)
+    // Click the editor to promote the preview tab to permanent
+    // (source mode is disabled for preview tabs)
+    await page.click(selectors.editor)
     const sourceModeBtn = page.locator(selectors.sourceMode)
     await expect(sourceModeBtn).toBeEnabled({ timeout: 5_000 })
     await sourceModeBtn.click()
@@ -339,6 +341,7 @@ test.describe('Toolbar Actions', () => {
   })
 
   test('open settings from more options menu', async () => {
+    await dismissOverlay(page)
     await page.click(selectors.moreOptions)
     await page.getByRole('menuitem', { name: 'Settings' }).click()
 

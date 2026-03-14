@@ -217,10 +217,8 @@ test.describe('File Operations', () => {
       await closeButton.click()
     }
 
-    // Verify the app shows the empty state or "New Document" prompt
-    const emptyState = page.locator(selectors.emptyState)
-    const newDocButton = page.getByRole('button', { name: 'New Document' })
-    await expect(emptyState.or(newDocButton)).toBeVisible({ timeout: 5_000 })
+    // Verify the app shows the "Start Writing" empty state
+    await expect(page.getByText('Start Writing')).toBeVisible({ timeout: 5_000 })
   })
 
   test('new document naming', async () => {

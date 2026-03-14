@@ -51,7 +51,9 @@ export async function dismissConsentDialog(page: Page): Promise<void> {
   const btn = page.getByRole('button', { name: 'Use Without AI' })
   const visible = await btn.isVisible({ timeout: 3_000 }).catch(() => false)
   if (visible) {
-    await btn.click()
+    // Use force: true because DefaultHandlerPrompt's overlay may stack on top
+    // and intercept pointer events before the consent dialog's button.
+    await btn.click({ force: true })
     // Wait for the overlay to disappear
     await page.waitForSelector('[data-state="open"][aria-hidden="true"]', {
       state: 'detached',

@@ -201,20 +201,28 @@ test.describe('Editor Features', () => {
     await switchExplorerTab(page, 'files')
     const panel = page.locator(selectors.fileListPanel)
 
-    // Expand Meeting Notes if needed
+    // Wait for file list to be fully loaded after tab switch
+    const meetingNotes = panel.getByText('Meeting Notes')
+    await expect(meetingNotes).toBeVisible({ timeout: 5_000 })
+
+    // Expand Meeting Notes folder — click to expand, then verify child is visible.
+    // If clicking collapses an already-expanded folder, click again to re-expand.
     const q1Planning = panel.getByText('Q1 Planning')
-    if (!(await q1Planning.isVisible().catch(() => false))) {
-      await panel.getByText('Meeting Notes').click()
-      await expect(q1Planning).toBeVisible({ timeout: 5_000 })
+    await meetingNotes.click()
+    if (!(await q1Planning.isVisible({ timeout: 3_000 }).catch(() => false))) {
+      await meetingNotes.click()
     }
+    await expect(q1Planning).toBeVisible({ timeout: 5_000 })
 
     // Open Q1 Planning (has frontmatter with title, date, status, tags)
     await q1Planning.click()
     await waitForEditor(page)
 
     // Verify frontmatter metadata is displayed (the FrontmatterDisplay component
-    // renders key-value pairs from the YAML)
-    await expect(page.getByText('Q1 2026 Planning')).toBeVisible({ timeout: 10_000 })
+    // renders key-value pairs from the YAML).
+    // Check for a field unique to frontmatter — "status:" label won't appear
+    // in the document body, avoiding strict-mode violations from duplicate text.
+    await expect(page.getByText('status:')).toBeVisible({ timeout: 10_000 })
   })
 
   test('toggle source mode', async () => {

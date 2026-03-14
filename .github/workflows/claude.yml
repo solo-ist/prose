@@ -42,6 +42,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           allowed_bots: 'claude'
+          show_full_output: true
           claude_args: '--dangerously-skip-permissions'
           prompt: |
             Review this pull request. Focus on:

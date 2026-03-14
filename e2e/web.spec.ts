@@ -21,7 +21,7 @@ let page: Page
 test.beforeAll(async ({ browser }) => {
   page = await browser.newPage()
   await page.goto('/web-index.html')
-  await page.waitForLoadState('domcontentloaded')
+  await page.waitForLoadState('networkidle')
   await dismissOnboarding(page)
 })
 
@@ -39,7 +39,7 @@ test('app loads without console errors', async () => {
 
   // Reload to capture errors from a clean load
   await page.reload()
-  await page.waitForLoadState('domcontentloaded')
+  await page.waitForLoadState('networkidle')
   await dismissOnboarding(page)
 
   expect(errors).toEqual([])

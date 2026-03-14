@@ -136,18 +136,29 @@ export async function runEditorCommand(page: Page, command: string): Promise<voi
 /**
  * Dismiss onboarding dialogs that appear on first launch (or after reload).
  *
- * 1. DefaultHandlerPrompt ("Make Prose Your Default Markdown Editor") — 1 s delay
+ * 1. DefaultHandlerPrompt ("Make Prose Your Default Markdown Editor") — 1 s delay after React mount
  * 2. AIConsentDialog   ("AI Writing Assistance")
+ *
+ * On CI, React can take 2-3 s to mount after domcontentloaded, so the first
+ * dialog may not appear until 3-4 s in. Use generous timeouts and verify the
+ * overlay is fully gone before returning.
  */
 export async function dismissOnboarding(page: Page): Promise<void> {
   const gotIt = page.getByRole('button', { name: 'Got It' })
-  if (await gotIt.isVisible({ timeout: 3_000 }).catch(() => false)) {
+  if (await gotIt.isVisible({ timeout: 5_000 }).catch(() => false)) {
     await gotIt.click()
   }
 
   const useWithoutAI = page.getByRole('button', { name: 'Use Without AI' })
-  if (await useWithoutAI.isVisible({ timeout: 2_000 }).catch(() => false)) {
+  if (await useWithoutAI.isVisible({ timeout: 3_000 }).catch(() => false)) {
     await useWithoutAI.click()
+  }
+
+  // Ensure no dialog overlay remains (catches slow animations or unexpected dialogs)
+  const overlay = page.locator('[data-state="open"].fixed.inset-0')
+  if (await overlay.isVisible({ timeout: 1_000 }).catch(() => false)) {
+    await page.keyboard.press('Escape')
+    await overlay.waitFor({ state: 'detached', timeout: 2_000 }).catch(() => {})
   }
 }
 

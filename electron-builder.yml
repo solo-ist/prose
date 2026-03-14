@@ -4,6 +4,8 @@ directories:
   buildResources: build
   output: dist
 
+afterPack: build/afterPack.js
+
 files:
   - out/**/*
 

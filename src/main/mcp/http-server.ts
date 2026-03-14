@@ -30,6 +30,14 @@ export class McpHttpServer {
   private mcpServer: Server | null = null
   private transport: StreamableHTTPServerTransport | null = null
   private onToolInvoke: ((name: string, args: unknown) => Promise<ToolResult>) | null = null
+  private authToken: string | null = null
+
+  /**
+   * Set the authentication token for bearer auth.
+   */
+  setAuthToken(token: string): void {
+    this.authToken = token
+  }
 
   /**
    * Set the tool invocation handler.
@@ -123,7 +131,7 @@ export class McpHttpServer {
       }
       res.setHeader('Vary', 'Origin')
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, mcp-session-id')
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, mcp-session-id, Authorization')
 
       if (req.method === 'OPTIONS') {
         res.writeHead(204)
@@ -133,11 +141,21 @@ export class McpHttpServer {
 
       const url = new URL(req.url || '/', `http://localhost:${HTTP_PORT}`)
 
-      // Health check endpoint
+      // Health check endpoint (no auth required)
       if (url.pathname === '/health') {
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ status: 'ok', server: 'prose-mcp' }))
         return
+      }
+
+      // Verify bearer token authentication on all other endpoints
+      if (this.authToken) {
+        const authHeader = req.headers.authorization
+        if (!authHeader || authHeader !== `Bearer ${this.authToken}`) {
+          res.writeHead(401, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'Unauthorized' }))
+          return
+        }
       }
 
       // MCP endpoint

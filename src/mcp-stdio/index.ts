@@ -31,6 +31,7 @@ import { getToolsForMCP } from '../shared/tools/registry'
 
 // Socket path must match the one in socket-server.ts
 const SOCKET_PATH = path.join(os.homedir(), 'Library', 'Application Support', 'Prose', 'prose.sock')
+const AUTH_TOKEN_PATH = path.join(os.homedir(), 'Library', 'Application Support', 'Prose', 'mcp-auth-token')
 
 // Tool definitions from shared registry (works without Prose running)
 const TOOLS = getToolsForMCP()
@@ -172,9 +173,28 @@ function connectToSocket(): Promise<net.Socket> {
     const socket = net.createConnection(SOCKET_PATH)
     let buffer = ''
 
-    socket.on('connect', () => {
+    socket.on('connect', async () => {
       console.error('[Prose MCP] Connected to Prose')
       socketConnection = socket
+
+      // Send auth handshake if token file exists
+      try {
+        const token = fs.readFileSync(AUTH_TOKEN_PATH, 'utf-8').trim()
+        if (token) {
+          const authRequest = {
+            jsonrpc: '2.0',
+            id: ++requestIdCounter,
+            method: 'auth',
+            params: { token }
+          }
+          socket.write(JSON.stringify(authRequest) + '\n')
+          console.error('[Prose MCP] Auth handshake sent')
+        }
+      } catch {
+        // No auth token file — server may not require auth
+        console.error('[Prose MCP] No auth token found, connecting without auth')
+      }
+
       resolve(socket)
     })
 

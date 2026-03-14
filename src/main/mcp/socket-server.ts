@@ -28,6 +28,15 @@ const MAX_BUFFER_SIZE = 1024 * 1024
 export class McpSocketServer {
   private server: net.Server | null = null
   private onToolInvoke: ((name: string, args: unknown) => Promise<ToolResult>) | null = null
+  private authToken: string | null = null
+  private authenticatedSockets = new WeakSet<net.Socket>()
+
+  /**
+   * Set the authentication token for socket auth.
+   */
+  setAuthToken(token: string): void {
+    this.authToken = token
+  }
 
   /**
    * Get the socket path.
@@ -76,6 +85,12 @@ export class McpSocketServer {
       })
 
       this.server!.listen(SOCKET_PATH, () => {
+        // Restrict socket permissions to owner only
+        try {
+          fs.chmodSync(SOCKET_PATH, 0o600)
+        } catch (err) {
+          console.warn('[MCP Socket] Failed to set socket permissions:', err)
+        }
         console.log(`[MCP Socket] Server listening on ${SOCKET_PATH}`)
         resolve()
       })
@@ -160,6 +175,26 @@ export class McpSocketServer {
     }
 
     const { id, method, params } = request
+
+    // Require authentication before any other method
+    if (method === 'auth') {
+      const { token } = (params as { token?: string }) || {}
+      if (this.authToken && token === this.authToken) {
+        this.authenticatedSockets.add(socket)
+        this.sendResult(socket, id, { authenticated: true })
+      } else {
+        this.sendError(socket, id, -32000, 'Authentication failed')
+        socket.destroy()
+      }
+      return
+    }
+
+    // Reject unauthenticated requests when auth is configured
+    if (this.authToken && !this.authenticatedSockets.has(socket)) {
+      this.sendError(socket, id, -32000, 'Not authenticated. Send auth method first.')
+      socket.destroy()
+      return
+    }
 
     try {
       if (method === 'tools/list') {

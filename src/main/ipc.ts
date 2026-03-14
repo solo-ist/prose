@@ -59,7 +59,8 @@ const activeStreams = new Map<string, AbortController>()
 
 const SETTINGS_DIR = join(homedir(), '.prose')
 const SETTINGS_PATH = join(SETTINGS_DIR, 'settings.json')
-const ANTHROPIC_KEY_PATH = join(SETTINGS_DIR, '.remarkable-anthropic-key')
+const ANTHROPIC_KEY_PATH = join(SETTINGS_DIR, '.remarkable-anthropic-key') // Legacy path for migration
+const REMARKABLE_CREDENTIAL_KEY = 'remarkable-anthropic-key'
 
 /**
  * Expand ~ to home directory
@@ -927,13 +928,22 @@ export function setupIpcHandlers(): void {
         // Settings not found or invalid
       }
 
-      // If no key from LLM settings, try reMarkable-specific secure storage
-      if (!anthropicApiKey && safeStorage.isEncryptionAvailable()) {
-        try {
-          const encryptedKey = await readFile(ANTHROPIC_KEY_PATH)
-          anthropicApiKey = safeStorage.decryptString(encryptedKey)
-        } catch {
-          // File doesn't exist or can't be read
+      // If no key from LLM settings, try reMarkable-specific credential store
+      if (!anthropicApiKey) {
+        const remarkableKey = await credentialStore.get(REMARKABLE_CREDENTIAL_KEY)
+        if (remarkableKey) {
+          anthropicApiKey = remarkableKey
+        } else if (safeStorage.isEncryptionAvailable()) {
+          // One-time migration from legacy file
+          try {
+            const encryptedKey = await readFile(ANTHROPIC_KEY_PATH)
+            anthropicApiKey = safeStorage.decryptString(encryptedKey)
+            await credentialStore.set(REMARKABLE_CREDENTIAL_KEY, anthropicApiKey)
+            try { await unlink(ANTHROPIC_KEY_PATH) } catch { /* ignore */ }
+            console.log('[reMarkable] Migrated API key to credentialStore')
+          } catch {
+            // File doesn't exist or can't be read
+          }
         }
       }
 
@@ -951,7 +961,9 @@ export function setupIpcHandlers(): void {
       await purgeSync(syncDirectory)
     }
 
-    try { await unlink(ANTHROPIC_KEY_PATH) } catch { /* doesn't exist */ }
+    await credentialStore.delete(REMARKABLE_CREDENTIAL_KEY)
+    // Also clean up legacy file if it exists
+    try { await unlink(ANTHROPIC_KEY_PATH) } catch { /* ignore */ }
   })
 
   // reMarkable: Get sync metadata (notebook list with status)
@@ -981,38 +993,36 @@ export function setupIpcHandlers(): void {
     }
   )
 
-  // reMarkable: Store Anthropic API key securely
+  // reMarkable: Store Anthropic API key securely via credentialStore
   ipcMain.handle('remarkable:storeApiKey', async (_event, apiKey: string) => {
-    if (!safeStorage.isEncryptionAvailable()) {
-      throw new Error('Secure storage is not available on this system')
-    }
-
-    await mkdir(SETTINGS_DIR, { recursive: true })
-    const encryptedKey = safeStorage.encryptString(apiKey)
-    await writeFile(ANTHROPIC_KEY_PATH, encryptedKey)
+    await credentialStore.set(REMARKABLE_CREDENTIAL_KEY, apiKey)
   })
 
   ipcMain.handle('remarkable:getApiKey', async () => {
-    if (!safeStorage.isEncryptionAvailable()) {
-      console.warn('[reMarkable] Secure storage not available')
-      return null
+    const key = await credentialStore.get(REMARKABLE_CREDENTIAL_KEY)
+    if (key) return key
+
+    // One-time migration from legacy file
+    if (safeStorage.isEncryptionAvailable()) {
+      try {
+        const encryptedKey = await readFile(ANTHROPIC_KEY_PATH)
+        const legacyKey = safeStorage.decryptString(encryptedKey)
+        await credentialStore.set(REMARKABLE_CREDENTIAL_KEY, legacyKey)
+        try { await unlink(ANTHROPIC_KEY_PATH) } catch { /* ignore */ }
+        console.log('[reMarkable] Migrated API key to credentialStore')
+        return legacyKey
+      } catch {
+        // File doesn't exist or can't be read
+      }
     }
 
-    try {
-      const encryptedKey = await readFile(ANTHROPIC_KEY_PATH)
-      return safeStorage.decryptString(encryptedKey)
-    } catch {
-      // File doesn't exist or can't be read
-      return null
-    }
+    return null
   })
 
   ipcMain.handle('remarkable:clearApiKey', async () => {
-    try {
-      await unlink(ANTHROPIC_KEY_PATH)
-    } catch {
-      // File doesn't exist, ignore
-    }
+    await credentialStore.delete(REMARKABLE_CREDENTIAL_KEY)
+    // Also clean up legacy file if it exists
+    try { await unlink(ANTHROPIC_KEY_PATH) } catch { /* ignore */ }
   })
 
   // reMarkable: Get OCR path (read-only source)

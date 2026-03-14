@@ -38,3 +38,6 @@ playwright-report/
 
 # Claude Code
 .claude/settings.local.json
+
+# MCP config (contains secrets)
+.mcp.json

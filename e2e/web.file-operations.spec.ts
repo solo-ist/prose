@@ -229,15 +229,10 @@ test.describe('File Operations', () => {
   test('new document naming', async () => {
     await createNewDocument(page)
 
-    const untitledTab = page.getByText(/untitled/i)
-    const tabVisible = await untitledTab.isVisible({ timeout: 3_000 }).catch(() => false)
-
-    if (tabVisible) {
-      await expect(untitledTab).toBeVisible()
-    } else {
-      const markdown = await getEditorMarkdown(page)
-      expect(markdown.trim().length).toBeLessThan(20)
-    }
+    // At least one "Untitled" tab should exist (there may be multiple
+    // from previous tests, so use .first() to avoid strict mode violations)
+    const untitledTab = page.getByText(/untitled/i).first()
+    await expect(untitledTab).toBeVisible({ timeout: 3_000 })
   })
 
   test('open file from subfolder', async () => {

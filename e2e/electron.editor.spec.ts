@@ -8,6 +8,7 @@ import type { ElectronApplication, Page } from '@playwright/test'
 import {
   launchApp,
   dismissOnboarding,
+  dismissOverlay,
   waitForEditor,
   typeInEditor,
   getEditorMarkdown,
@@ -44,6 +45,11 @@ test.afterAll(async () => {
 })
 
 test.describe('Electron — Editor', () => {
+  test.beforeEach(async () => {
+    // Dismiss any stale dialog overlays left by previous tests
+    await dismissOverlay(page)
+  })
+
   test('editor loads with content', async () => {
     await waitForEditor(page)
     const editor = page.locator(selectors.editor)

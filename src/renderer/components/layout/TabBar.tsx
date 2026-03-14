@@ -151,10 +151,19 @@ export function TabBar({ onTabClick, onTabClose, onTabCloseOthers, onTabCloseAll
       <TooltipTrigger asChild>
         <button
           onClick={onNewTab}
-          className="app-region-no-drag flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground opacity-50 hover:opacity-100 hover:bg-accent/50 transition-opacity shrink-0"
+          className={cn(
+            'app-region-no-drag group flex items-center gap-1.5 py-1.5 text-sm rounded-md shrink-0 ml-1',
+            'text-muted-foreground hover:bg-accent/50 transition-[colors,opacity] duration-200 ease-in-out',
+            tier >= 4 ? 'px-1.5 justify-center' : 'px-2',
+          )}
           aria-label="New tab"
         >
-          <Plus className="h-3.5 w-3.5" />
+          <FileText className="h-3.5 w-3.5 shrink-0 opacity-30" />
+          {tier < 4 && (
+            <div className="p-0.5 rounded hover:bg-accent shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
+              <Plus className="h-3 w-3" />
+            </div>
+          )}
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom">New tab</TooltipContent>

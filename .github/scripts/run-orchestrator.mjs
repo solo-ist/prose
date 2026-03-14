@@ -22,7 +22,7 @@ const { PR_NUMBER, REPO } = process.env
 const comments = readFileSync('/tmp/all-comments.txt', 'utf-8')
 
 function parseSentinel(prefix, text) {
-  const re = new RegExp(`<!-- ${prefix}: (\\{.*?\\}) -->`)
+  const re = new RegExp(`<!-- ${prefix}: (\\{.*?\\}) -->`, 's')
   const m = text.match(re)
   if (!m) return null
   try {
@@ -65,7 +65,7 @@ function route(score, risk, privileged) {
 
   // Medium score range
   if (score >= 4) {
-    return risk === 'LOW' ? 'auto-fix' : 'hitl-full'
+    return risk === 'LOW' ? 'auto-fix-verify' : 'hitl-full'
   }
 
   // Low score range (1-3)
@@ -82,6 +82,7 @@ console.log(`Verdict: ${verdict}`)
 
 const labelMap = {
   'auto-fix': 'auto-fix-queued',
+  'auto-fix-verify': 'auto-fix-queued,needs-review',
   'hitl-light': 'needs-review',
   'hitl-full': 'complex,needs-review',
 }
@@ -94,6 +95,7 @@ const labels = labelMap[verdict] || 'needs-review'
 
 const routeDescriptions = {
   'auto-fix': 'Automated fix — Claude Code will attempt to push a fix commit.',
+  'auto-fix-verify': 'Automated fix with verification — Claude Code will push a fix, then human reviews.',
   'hitl-light': 'Light human review — analyses posted, awaiting human verification.',
   'hitl-full': 'Full human review — complex or high-risk changes require human attention.',
 }
@@ -126,7 +128,7 @@ ${securityNote}${criticalNote}
 ${pe.privileged ? '- **Security gate triggered** — privilege-boundary files detected\n' : ''}- Applied labels: \`${labels}\`
 
 ---
-*Pipeline triage complete. ${verdict === 'auto-fix' ? 'Auto-fix workflow will be triggered.' : 'Awaiting human action.'}*
+*Pipeline triage complete. ${verdict === 'auto-fix' || verdict === 'auto-fix-verify' ? 'Auto-fix workflow will be triggered.' : 'Awaiting human action.'}*
 `
 
 writeFileSync('/tmp/orchestrator-output.md', output, 'utf-8')

@@ -105,8 +105,8 @@ const response = await fetch('https://api.anthropic.com/v1/messages', {
     'anthropic-version': '2023-06-01',
   },
   body: JSON.stringify({
-    model: 'claude-opus-4-20250514',
-    max_tokens: 4096,
+    model: 'claude-opus-4-6',
+    max_tokens: 8192,
     system: systemPrompt,
     messages: [{ role: 'user', content: userPrompt }],
   }),
@@ -126,5 +126,8 @@ if (!data.content?.[0]?.text) {
 
 const analysis = data.content[0].text
 
-writeFileSync('/tmp/pe-output.md', analysis, 'utf-8')
+// Prepend sentinel marker (invisible in rendered markdown) to prevent loop
+const output = `<!-- pe-output-comment -->\n${analysis}`
+
+writeFileSync('/tmp/pe-output.md', output, 'utf-8')
 console.log('PE analysis written to /tmp/pe-output.md')

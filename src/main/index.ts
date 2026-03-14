@@ -1,5 +1,5 @@
 import { config } from 'dotenv'
-import { join } from 'path'
+import { join, normalize } from 'path'
 import { writeFileSync, unlinkSync, existsSync } from 'fs'
 
 // Load environment variables from .env file
@@ -122,7 +122,7 @@ function createWindow(): BrowserWindow {
     trafficLightPosition: { x: 16, y: 16 },
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      sandbox: false, // Requires preload ESM migration to enable (see #127 SEC-02)
       contextIsolation: true,
       nodeIntegration: false
     }
@@ -161,7 +161,7 @@ function createWindow(): BrowserWindow {
 // Register custom protocol for serving local image files
 // Must be called before app.whenReady()
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'local-file', privileges: { bypassCSP: true, stream: true, supportFetchAPI: true } }
+  { scheme: 'local-file', privileges: { stream: true, supportFetchAPI: true } }
 ])
 
 app.whenReady().then(async () => {
@@ -171,7 +171,16 @@ app.whenReady().then(async () => {
   protocol.handle('local-file', (request) => {
     // URL format: local-file:///absolute/path/to/image.png
     const filePath = decodeURIComponent(new URL(request.url).pathname)
-    return net.fetch('file://' + filePath)
+    const normalized = normalize(filePath)
+
+    // Only serve image files
+    const ext = normalized.split('.').pop()?.toLowerCase() || ''
+    const allowedExts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']
+    if (!allowedExts.includes(ext)) {
+      return new Response('Only image files are allowed', { status: 403 })
+    }
+
+    return net.fetch('file://' + normalized)
   })
 
   // Configure Content Security Policy

@@ -95,6 +95,11 @@ jobs:
 
             This trailer is machine-readable and drives the downstream triage pipeline. Always include it.
 
+            ## Posting
+
+            You MUST post your review as a PR comment. Do not just output text.
+            Use: `gh pr comment <PR_NUMBER> --body "<your review>"`
+
   # Manual invocation via @claude mentions
   claude:
     if: |

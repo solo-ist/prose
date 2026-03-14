@@ -49,6 +49,25 @@ jobs:
             - Security concerns
             - Performance implications
 
+            ## E2E Test Conventions (e2e/*.spec.ts, e2e/shared.ts)
+
+            When reviewing Playwright e2e tests, be aware of these codebase idioms:
+
+            - **Fixture data is hardcoded.** Web-mode tests reference file names ("Welcome to Prose",
+              "Meeting Notes", "Q1 Planning", etc.) defined in `src/renderer/mocks/fixtures/index.ts`.
+              Hardcoded fixture names in tests are expected — do NOT flag them as magic strings.
+            - **Shared page instance.** Tests share a single `Page` via `test.beforeAll`. This is
+              intentional for performance and to test cumulative state. Tests should still be resilient
+              to prior-test failure via guard checks (e.g., `if (!(await el.isVisible())) { open it }`).
+            - **Prefer Playwright auto-waiting over `waitForTimeout`.** Use `expect().toBeVisible()`,
+              `waitForSelector`, or `toHaveAttribute` with timeouts instead of arbitrary `waitForTimeout`
+              calls. Only use `waitForTimeout` when no observable state change exists to wait on.
+            - **Onboarding dialogs.** The app shows onboarding dialogs on first launch AND after
+              `page.reload()`. The `dismissOnboarding()` helper in `shared.ts` must be called in both
+              `beforeAll` and after any reload to prevent overlay-blocked interactions.
+            - **Selectors use `aria-label` and `data-testid`.** Multi-state buttons use comma-separated
+              selectors (e.g., `'[aria-label="Show chat"], [aria-label="Hide chat"]'`). This is correct.
+
             Be concise. Only comment on significant issues - if the code looks good, say so briefly.
 
   # Manual invocation via @claude mentions

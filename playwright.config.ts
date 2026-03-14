@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: './e2e',
-  testMatch: '**/smoke.spec.ts',
+  testMatch: ['**/smoke.spec.ts', '**/electron.*.spec.ts'],
   timeout: 30_000,
   globalTimeout: 120_000,
   workers: 1,

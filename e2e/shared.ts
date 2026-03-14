@@ -37,6 +37,19 @@ export const selectors = {
 
   // Editor modes
   sourceEditor: '.cm-editor',
+
+  // Context menu (Radix UI)
+  contextMenu: '[role="menu"]',
+  contextMenuItem: '[role="menuitem"]',
+
+  // Chat panel
+  chatToggle: '[aria-label="Show chat"], [aria-label="Hide chat"]',
+  newChatButton: '[aria-label="New chat"]',
+  clearChatButton: '[aria-label="Clear chat"]',
+
+  // Tab bar
+  closeTab: '[aria-label="Close tab"]',
+  newTabButton: '[aria-label="New tab"]',
 } as const
 
 // ---------------------------------------------------------------------------
@@ -190,4 +203,109 @@ export async function switchExplorerTab(
     notebooks: selectors.notebooksButton,
   }
   await page.click(buttonMap[tab])
+}
+
+// ---------------------------------------------------------------------------
+// File interaction helpers
+// ---------------------------------------------------------------------------
+
+/** Open a file from the explorer by its display name. */
+export async function openFileFromExplorer(page: Page, filename: string): Promise<void> {
+  await ensureFileListOpen(page)
+  const panel = page.locator(selectors.fileListPanel)
+  await panel.getByText(filename).click()
+  await waitForEditor(page)
+}
+
+/** Create a new document via More Options → New Document. */
+export async function createNewDocument(page: Page): Promise<void> {
+  await page.click(selectors.moreOptions)
+  await page.getByRole('menuitem', { name: 'New Document' }).click()
+  await waitForEditor(page)
+}
+
+/** Right-click on a file in the explorer to open its context menu. */
+export async function rightClickFile(page: Page, filename: string): Promise<void> {
+  await ensureFileListOpen(page)
+  const panel = page.locator(selectors.fileListPanel)
+  await panel.getByText(filename).click({ button: 'right' })
+  await page.waitForSelector(selectors.contextMenu, { timeout: 3_000 })
+}
+
+// ---------------------------------------------------------------------------
+// Chat helpers
+// ---------------------------------------------------------------------------
+
+/** Open the chat panel if not already open. */
+export async function openChat(page: Page): Promise<void> {
+  const showBtn = page.locator('[aria-label="Show chat"]')
+  if (await showBtn.isVisible({ timeout: 1_000 }).catch(() => false)) {
+    await showBtn.click()
+  }
+  // Wait for textarea to appear in the chat panel
+  await page.locator('textarea').first().waitFor({ state: 'visible', timeout: 3_000 })
+}
+
+/** Close the chat panel if open. */
+export async function closeChat(page: Page): Promise<void> {
+  const hideBtn = page.locator('[aria-label="Hide chat"]')
+  if (await hideBtn.isVisible({ timeout: 1_000 }).catch(() => false)) {
+    await hideBtn.click()
+  }
+}
+
+/** Wait for the mock LLM stream to complete. */
+export async function waitForChatResponse(page: Page): Promise<void> {
+  // The mock LLM fires llm:stream:complete after 50ms.
+  // Wait for a message bubble from the assistant to appear.
+  await page.waitForFunction(
+    () => {
+      const msgs = document.querySelectorAll('.prose-chat-message, [class*="chat"] [class*="message"]')
+      return msgs.length > 0
+    },
+    { timeout: 5_000 },
+  ).catch(() => {
+    // Fallback: just wait a reasonable time for the stream to complete
+  })
+  // Give the UI a moment to render the response
+  await page.waitForTimeout(200)
+}
+
+// ---------------------------------------------------------------------------
+// Settings helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Pre-seed web mode settings to suppress onboarding dialogs.
+ * Extracted from web.spec.ts for reuse across test files.
+ */
+export async function preseedSettings(page: Page): Promise<void> {
+  await page.goto('/web-index.html')
+  await page.evaluate(() => {
+    const settings = {
+      fileAssociation: { hasBeenPrompted: true },
+      aiConsent: { consented: false, consentedAt: new Date().toISOString(), version: 1 },
+    }
+    localStorage.setItem('prose:web-mode-settings', JSON.stringify(settings))
+  })
+  await page.reload()
+  await page.waitForLoadState('networkidle')
+}
+
+/** Check if a TipTap mark is currently active. */
+export async function isMarkActive(page: Page, mark: string): Promise<boolean> {
+  return page.evaluate((m) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const editor = (window as any).__prose_editor
+    return editor?.isActive(m) ?? false
+  }, mark)
+}
+
+/** Check if a TipTap node type is currently active. */
+export async function isNodeActive(page: Page, node: string, attrs?: Record<string, unknown>): Promise<boolean> {
+  return page.evaluate(({ n, a }) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const editor = (window as any).__prose_editor
+    return editor?.isActive(n, a) ?? false
+  }, { n: node, a: attrs })
 }

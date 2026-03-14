@@ -165,6 +165,8 @@ export const browserApi: ElectronAPI = {
     }
   },
 
+  isSecureStorageAvailable: async (): Promise<boolean> => false,
+
   onMenuAction: (_callback: (action: string) => void) => {
     // No menu actions in browser mode
     return () => {}

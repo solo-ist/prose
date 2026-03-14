@@ -506,6 +506,10 @@ export function setupIpcHandlers(): void {
     }
   })
 
+  ipcMain.handle('settings:isSecureStorageAvailable', () => {
+    return credentialStore.isAvailable()
+  })
+
   // Settings: Test API key (validates by making a minimal request)
   ipcMain.handle('settings:testApiKey', async (_event, request: {
     provider: string

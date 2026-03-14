@@ -316,6 +316,7 @@ const api: ElectronAPI = {
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (settings: Settings) => ipcRenderer.invoke('settings:save', settings),
   testApiKey: (request: TestApiKeyRequest) => ipcRenderer.invoke('settings:testApiKey', request),
+  isSecureStorageAvailable: () => ipcRenderer.invoke('settings:isSecureStorageAvailable'),
   onMenuAction: (callback: (action: string) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, action: string): void => {
       callback(action)

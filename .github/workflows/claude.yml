@@ -42,12 +42,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           allowed_bots: 'claude'
-          settings: |
-            {
-              "permissions": {
-                "defaultMode": "bypassPermissions"
-              }
-            }
+          claude_args: '--dangerously-skip-permissions'
           prompt: |
             Review this pull request. Focus on:
             - Code correctness and potential bugs
@@ -82,12 +77,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           show_full_output: true
-          settings: |
-            {
-              "permissions": {
-                "defaultMode": "bypassPermissions"
-              }
-            }
+          claude_args: '--dangerously-skip-permissions'
           prompt: |
             You are an autonomous coding agent. Implement the changes described in the
             GitHub issue or comment that triggered this workflow. Do NOT list or browse

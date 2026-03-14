@@ -64,10 +64,8 @@ test.describe('Electron — Editor', () => {
     await setEditorContent(page, '<p></p>')
     await page.click(selectors.editor)
     await page.keyboard.type('# Heading Test')
-    await page.waitForTimeout(100)
 
-    const isHeading = await isNodeActive(page, 'heading', { level: 1 })
-    expect(isHeading).toBe(true)
+    await expect.poll(() => isNodeActive(page, 'heading', { level: 1 })).toBe(true)
   })
 
   test('undo and redo', async () => {
@@ -142,21 +140,13 @@ test.describe('Electron — Editor', () => {
   })
 
   test('Cmd+Shift+L opens and closes chat panel', async () => {
-    // Chat toggle is Cmd+Shift+L (not Cmd+/ which is HTML comment toggle)
     await page.keyboard.press('ControlOrMeta+Shift+L')
 
     const textarea = page.locator('textarea').first()
-    const chatOpened = await textarea.isVisible({ timeout: 3_000 }).catch(() => false)
+    await expect(textarea).toBeVisible({ timeout: 3_000 })
 
-    if (chatOpened) {
-      expect(chatOpened).toBe(true)
-
-      await page.keyboard.press('ControlOrMeta+Shift+L')
-      await expect(textarea).not.toBeVisible({ timeout: 3_000 })
-    } else {
-      // Shortcut may not be wired in all builds
-      expect(true).toBe(true)
-    }
+    await page.keyboard.press('ControlOrMeta+Shift+L')
+    await expect(textarea).not.toBeVisible({ timeout: 3_000 })
   })
 
   test('more options menu shows expected items', async () => {
@@ -173,6 +163,7 @@ test.describe('Electron — Editor', () => {
   test('settings dialog opens via more options menu', async () => {
     // Ensure any previous menu/dialog is dismissed
     await page.keyboard.press('Escape')
+    // Debounce guard: no observable DOM signal after Escape dismissal
     await page.waitForTimeout(100)
 
     await page.click(selectors.moreOptions)

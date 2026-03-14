@@ -40,9 +40,7 @@ test.describe('Editor — Advanced Formatting', () => {
     await page.click(selectors.editor)
     await page.keyboard.press('ControlOrMeta+A')
     await page.keyboard.press('ControlOrMeta+B')
-    await page.waitForTimeout(100)
-    const active = await isMarkActive(page, 'bold')
-    expect(active).toBe(true)
+    await expect.poll(() => isMarkActive(page, 'bold')).toBe(true)
   })
 
   test('italic via Cmd+I', async () => {
@@ -50,9 +48,7 @@ test.describe('Editor — Advanced Formatting', () => {
     await page.click(selectors.editor)
     await page.keyboard.press('ControlOrMeta+A')
     await page.keyboard.press('ControlOrMeta+I')
-    await page.waitForTimeout(100)
-    const active = await isMarkActive(page, 'italic')
-    expect(active).toBe(true)
+    await expect.poll(() => isMarkActive(page, 'italic')).toBe(true)
   })
 
   // -------------------------------------------------------------------------
@@ -63,27 +59,21 @@ test.describe('Editor — Advanced Formatting', () => {
     await setEditorContent(page, '<p></p>')
     await page.click(selectors.editor)
     await page.keyboard.type('# Hello')
-    await page.waitForTimeout(100)
-    const active = await isNodeActive(page, 'heading', { level: 1 })
-    expect(active).toBe(true)
+    await expect.poll(() => isNodeActive(page, 'heading', { level: 1 })).toBe(true)
   })
 
   test('h2 via ## shortcut', async () => {
     await setEditorContent(page, '<p></p>')
     await page.click(selectors.editor)
     await page.keyboard.type('## Hello')
-    await page.waitForTimeout(100)
-    const active = await isNodeActive(page, 'heading', { level: 2 })
-    expect(active).toBe(true)
+    await expect.poll(() => isNodeActive(page, 'heading', { level: 2 })).toBe(true)
   })
 
   test('h3 via ### shortcut', async () => {
     await setEditorContent(page, '<p></p>')
     await page.click(selectors.editor)
     await page.keyboard.type('### Hello')
-    await page.waitForTimeout(100)
-    const active = await isNodeActive(page, 'heading', { level: 3 })
-    expect(active).toBe(true)
+    await expect.poll(() => isNodeActive(page, 'heading', { level: 3 })).toBe(true)
   })
 
   // -------------------------------------------------------------------------
@@ -94,18 +84,14 @@ test.describe('Editor — Advanced Formatting', () => {
     await setEditorContent(page, '<p></p>')
     await page.click(selectors.editor)
     await page.keyboard.type('- Item')
-    await page.waitForTimeout(100)
-    const active = await isNodeActive(page, 'bulletList')
-    expect(active).toBe(true)
+    await expect.poll(() => isNodeActive(page, 'bulletList')).toBe(true)
   })
 
   test('ordered list via 1. shortcut', async () => {
     await setEditorContent(page, '<p></p>')
     await page.click(selectors.editor)
     await page.keyboard.type('1. Item')
-    await page.waitForTimeout(100)
-    const active = await isNodeActive(page, 'orderedList')
-    expect(active).toBe(true)
+    await expect.poll(() => isNodeActive(page, 'orderedList')).toBe(true)
   })
 
   test('underline via command', async () => {
@@ -114,9 +100,7 @@ test.describe('Editor — Advanced Formatting', () => {
     await page.click(selectors.editor)
     await page.keyboard.press('ControlOrMeta+A')
     await page.keyboard.press('ControlOrMeta+U')
-    await page.waitForTimeout(100)
-    const active = await isMarkActive(page, 'underline')
-    expect(active).toBe(true)
+    await expect.poll(() => isMarkActive(page, 'underline')).toBe(true)
   })
 
   // -------------------------------------------------------------------------
@@ -127,9 +111,10 @@ test.describe('Editor — Advanced Formatting', () => {
     await setEditorContent(page, '<p></p>')
     await page.click(selectors.editor)
     await page.keyboard.type('`code`')
-    await page.waitForTimeout(100)
-    const markdown = await getEditorMarkdown(page)
-    expect(markdown).toContain('`code`')
+    await expect.poll(async () => {
+      const markdown = await getEditorMarkdown(page)
+      return markdown.includes('`code`')
+    }).toBe(true)
   })
 
   test('code block via triple backtick', async () => {
@@ -137,9 +122,7 @@ test.describe('Editor — Advanced Formatting', () => {
     await page.click(selectors.editor)
     await page.keyboard.type('```')
     await page.keyboard.press('Enter')
-    await page.waitForTimeout(100)
-    const active = await isNodeActive(page, 'codeBlock')
-    expect(active).toBe(true)
+    await expect.poll(() => isNodeActive(page, 'codeBlock')).toBe(true)
   })
 
   // -------------------------------------------------------------------------
@@ -150,18 +133,17 @@ test.describe('Editor — Advanced Formatting', () => {
     await setEditorContent(page, '<p></p>')
     await page.click(selectors.editor)
     await page.keyboard.type('> Quote')
-    await page.waitForTimeout(100)
-    const active = await isNodeActive(page, 'blockquote')
-    expect(active).toBe(true)
+    await expect.poll(() => isNodeActive(page, 'blockquote')).toBe(true)
   })
 
   test('horizontal rule via ---', async () => {
     await setEditorContent(page, '<p></p>')
     await page.click(selectors.editor)
     await page.keyboard.type('---')
-    await page.waitForTimeout(100)
-    const markdown = await getEditorMarkdown(page)
-    expect(markdown).toContain('---')
+    await expect.poll(async () => {
+      const markdown = await getEditorMarkdown(page)
+      return markdown.includes('---')
+    }).toBe(true)
   })
 
   // -------------------------------------------------------------------------
@@ -173,9 +155,7 @@ test.describe('Editor — Advanced Formatting', () => {
     await page.click(selectors.editor)
     await page.keyboard.press('ControlOrMeta+A')
     await runEditorCommand(page, 'toggleStrike')
-    await page.waitForTimeout(100)
-    const active = await isMarkActive(page, 'strike')
-    expect(active).toBe(true)
+    await expect.poll(() => isMarkActive(page, 'strike')).toBe(true)
   })
 
   // -------------------------------------------------------------------------
@@ -186,37 +166,45 @@ test.describe('Editor — Advanced Formatting', () => {
     await setEditorContent(page, '<p></p>')
     await page.click(selectors.editor)
     await page.keyboard.type('undo me')
-    await page.waitForTimeout(100)
 
-    let markdown = await getEditorMarkdown(page)
-    expect(markdown).toContain('undo me')
+    await expect.poll(async () => {
+      const markdown = await getEditorMarkdown(page)
+      return markdown.includes('undo me')
+    }).toBe(true)
 
     await page.keyboard.press('ControlOrMeta+Z')
-    await page.waitForTimeout(100)
 
-    markdown = await getEditorMarkdown(page)
-    expect(markdown).not.toContain('undo me')
+    await expect.poll(async () => {
+      const markdown = await getEditorMarkdown(page)
+      return !markdown.includes('undo me')
+    }).toBe(true)
   })
 
   test('redo via Cmd+Shift+Z', async () => {
     await setEditorContent(page, '<p></p>')
     await page.click(selectors.editor)
     await page.keyboard.type('redo me')
-    await page.waitForTimeout(100)
+
+    await expect.poll(async () => {
+      const markdown = await getEditorMarkdown(page)
+      return markdown.includes('redo me')
+    }).toBe(true)
 
     // Undo to remove the typed text
     await page.keyboard.press('ControlOrMeta+Z')
-    await page.waitForTimeout(100)
 
-    let markdown = await getEditorMarkdown(page)
-    expect(markdown).not.toContain('redo me')
+    await expect.poll(async () => {
+      const markdown = await getEditorMarkdown(page)
+      return !markdown.includes('redo me')
+    }).toBe(true)
 
     // Redo to restore
     await page.keyboard.press('ControlOrMeta+Shift+Z')
-    await page.waitForTimeout(100)
 
-    markdown = await getEditorMarkdown(page)
-    expect(markdown).toContain('redo me')
+    await expect.poll(async () => {
+      const markdown = await getEditorMarkdown(page)
+      return markdown.includes('redo me')
+    }).toBe(true)
   })
 
   // -------------------------------------------------------------------------
@@ -228,11 +216,12 @@ test.describe('Editor — Advanced Formatting', () => {
     await page.click(selectors.editor)
     await page.keyboard.press('ControlOrMeta+A')
     await page.keyboard.type('replacement text')
-    await page.waitForTimeout(100)
 
-    const markdown = await getEditorMarkdown(page)
-    expect(markdown).toContain('replacement text')
-    expect(markdown).not.toContain('First paragraph')
-    expect(markdown).not.toContain('Second paragraph')
+    await expect.poll(async () => {
+      const markdown = await getEditorMarkdown(page)
+      return markdown.includes('replacement text') &&
+        !markdown.includes('First paragraph') &&
+        !markdown.includes('Second paragraph')
+    }).toBe(true)
   })
 })

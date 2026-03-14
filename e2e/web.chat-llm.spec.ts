@@ -4,8 +4,8 @@
  * Tests the chat panel toggle, message input, mock LLM responses,
  * keyboard shortcuts, and chat controls in web mode.
  *
- * With aiConsent.consented = false, the useChat hook returns an inline
- * "AI features are not enabled" message without calling the mock LLM.
+ * With aiConsent.consented = false, the useChat hook returns exactly:
+ * "AI features are not enabled. Enable them in Settings → AI."
  * Tests verify this consent-gated flow.
  */
 
@@ -86,7 +86,7 @@ test.describe('Chat & LLM', () => {
     await textarea.fill('')
   })
 
-  test('send message shows in chat', async () => {
+  test('send message and receive assistant response', async () => {
     await openChat(page)
 
     // Reset chat state
@@ -99,42 +99,13 @@ test.describe('Chat & LLM', () => {
     await textarea.fill('Hello')
     await page.keyboard.press('Enter')
 
-    // Wait for the message to be processed and rendered
-    await page.waitForTimeout(500)
+    // Wait for the assistant response to render in a .prose-chat element
+    const chatMessage = page.locator('.prose-chat').last()
+    await chatMessage.waitFor({ state: 'visible', timeout: 5_000 })
 
-    // The user message "Hello" should appear in the chat area, plus
-    // an assistant response (either AI-not-enabled or mock LLM response)
-    const bodyText = await page.locator('body').innerText()
-    // With consent=false, the hook returns "AI features are not enabled"
-    // With consent=true but no key, returns "No API key configured"
-    // With consent+key, the mock returns "Web mode" guidance
-    const hasResponse =
-      bodyText.includes('AI features') ||
-      bodyText.includes('not enabled') ||
-      bodyText.includes('API key') ||
-      bodyText.includes('Web mode') ||
-      bodyText.includes('Settings')
-    expect(hasResponse).toBe(true)
-  })
-
-  test('assistant response after message send', async () => {
-    await openChat(page)
-
-    const textarea = page.locator('textarea').first()
-    await textarea.fill('Test message')
-    await page.keyboard.press('Enter')
-
-    await page.waitForTimeout(500)
-
-    // Verify an assistant-generated response appears (any guidance text)
-    const bodyText = await page.locator('body').innerText()
-    const hasGuidance =
-      bodyText.includes('AI features') ||
-      bodyText.includes('not enabled') ||
-      bodyText.includes('API key') ||
-      bodyText.includes('Web mode') ||
-      bodyText.includes('Enable them in Settings')
-    expect(hasGuidance).toBe(true)
+    // With consent=false, the hook returns exactly this message
+    const messageText = await chatMessage.innerText()
+    expect(messageText).toContain('AI features are not enabled')
   })
 
   test('chat keyboard shortcut Cmd+Shift+L', async () => {
@@ -178,7 +149,9 @@ test.describe('Chat & LLM', () => {
     const textarea = page.locator('textarea').first()
     await textarea.fill('Message before new chat')
     await page.keyboard.press('Enter')
-    await page.waitForTimeout(500)
+
+    // Wait for the assistant response
+    await page.locator('.prose-chat').first().waitFor({ state: 'visible', timeout: 5_000 })
 
     const newChatBtn = page.locator('[aria-label="New chat"]')
     await expect(newChatBtn).toBeVisible({ timeout: 3_000 })
@@ -189,23 +162,33 @@ test.describe('Chat & LLM', () => {
     expect(textareaValue).toBe('')
   })
 
-  test('clear chat button', async () => {
+  test('clear chat button removes messages', async () => {
     await openChat(page)
 
-    const textarea = page.locator('textarea').first()
-    await textarea.fill('Some text to clear')
-
-    const clearBtn = page.locator('[aria-label="Clear chat"]')
-    const isClearVisible = await clearBtn.isVisible({ timeout: 2_000 }).catch(() => false)
-
-    if (isClearVisible) {
-      await clearBtn.click()
-      await expect(textarea).toBeVisible({ timeout: 3_000 })
-    } else {
-      await expect(textarea).toBeVisible({ timeout: 3_000 })
+    // Reset chat state first
+    const newChatBtn = page.locator('[aria-label="New chat"]')
+    if (await newChatBtn.isVisible({ timeout: 1_000 }).catch(() => false)) {
+      await newChatBtn.click()
     }
 
-    await textarea.fill('')
+    // Send a message so there's something to clear
+    const textarea = page.locator('textarea').first()
+    await textarea.fill('Message to clear')
+    await page.keyboard.press('Enter')
+
+    // Wait for the assistant response
+    await page.locator('.prose-chat').first().waitFor({ state: 'visible', timeout: 5_000 })
+
+    const clearBtn = page.locator('[aria-label="Clear chat"]')
+    if (!(await clearBtn.isVisible({ timeout: 2_000 }).catch(() => false))) {
+      test.skip()
+      return
+    }
+
+    await clearBtn.click()
+
+    // Verify messages are gone
+    await expect(page.locator('.prose-chat')).toHaveCount(0, { timeout: 3_000 })
   })
 
   test('chat without AI consent shows guidance', async () => {
@@ -220,16 +203,12 @@ test.describe('Chat & LLM', () => {
     await textarea.fill('What can you help me with?')
     await page.keyboard.press('Enter')
 
-    await page.waitForTimeout(500)
+    // Wait for the guidance message to render
+    const chatMessage = page.locator('.prose-chat').last()
+    await chatMessage.waitFor({ state: 'visible', timeout: 5_000 })
 
-    // Without AI consent, the hook returns an inline guidance message
-    const bodyText = await page.locator('body').innerText()
-    const hasGuidanceMessage =
-      bodyText.includes('AI features') ||
-      bodyText.includes('not enabled') ||
-      bodyText.includes('Enable them in Settings') ||
-      bodyText.includes('API key') ||
-      bodyText.includes('Web mode')
-    expect(hasGuidanceMessage).toBe(true)
+    const messageText = await chatMessage.innerText()
+    expect(messageText).toContain('AI features are not enabled')
+    expect(messageText).toContain('Enable them in Settings')
   })
 })

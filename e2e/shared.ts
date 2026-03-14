@@ -221,6 +221,8 @@ export async function openFileFromExplorer(page: Page, filename: string): Promis
 export async function createNewDocument(page: Page): Promise<void> {
   // Dismiss any open menus/dialogs first
   await page.keyboard.press('Escape')
+  // Debounce guard: Escape triggers an animation/state change with no observable
+  // DOM signal to wait for, so a short fixed delay is the pragmatic choice here.
   await page.waitForTimeout(100)
 
   await page.click(selectors.moreOptions)
@@ -258,23 +260,6 @@ export async function closeChat(page: Page): Promise<void> {
   if (await hideBtn.isVisible({ timeout: 1_000 }).catch(() => false)) {
     await hideBtn.click()
   }
-}
-
-/** Wait for the mock LLM stream to complete. */
-export async function waitForChatResponse(page: Page): Promise<void> {
-  // The mock LLM fires llm:stream:complete after 50ms.
-  // Wait for a message bubble from the assistant to appear.
-  await page.waitForFunction(
-    () => {
-      const msgs = document.querySelectorAll('.prose-chat-message, [class*="chat"] [class*="message"]')
-      return msgs.length > 0
-    },
-    { timeout: 5_000 },
-  ).catch(() => {
-    // Fallback: just wait a reasonable time for the stream to complete
-  })
-  // Give the UI a moment to render the response
-  await page.waitForTimeout(200)
 }
 
 // ---------------------------------------------------------------------------

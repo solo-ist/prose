@@ -341,9 +341,14 @@ test.describe('Toolbar Actions', () => {
   })
 
   test('open settings from more options menu', async () => {
+    // Ensure the menu from the previous test is fully closed
+    await expect(page.getByRole('menuitem', { name: 'Settings' })).not.toBeVisible({ timeout: 3_000 })
     await dismissOverlay(page)
+
     await page.click(selectors.moreOptions)
-    await page.getByRole('menuitem', { name: 'Settings' }).click()
+    const settingsItem = page.getByRole('menuitem', { name: 'Settings' })
+    await expect(settingsItem).toBeVisible({ timeout: 3_000 })
+    await settingsItem.click()
 
     // Verify settings dialog opened
     await expect(page.getByRole('tab', { name: 'General' })).toBeVisible({ timeout: 3_000 })

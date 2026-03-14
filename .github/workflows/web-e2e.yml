@@ -29,7 +29,29 @@ jobs:
       )
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve PR ref and SHA
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            if (context.eventName === 'pull_request') {
+              core.setOutput('number', context.payload.pull_request.number);
+              core.setOutput('sha', context.payload.pull_request.head.sha);
+              core.setOutput('ref', context.payload.pull_request.head.ref);
+            } else {
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.issue.number,
+              });
+              core.setOutput('number', pr.number);
+              core.setOutput('sha', pr.head.sha);
+              core.setOutput('ref', pr.head.ref);
+            }
+
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr.outputs.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -56,7 +78,7 @@ jobs:
             test-results/
 
       - name: Post PR comment
-        if: always() && github.event_name == 'pull_request'
+        if: always()
         uses: actions/github-script@v7
         with:
           script: |
@@ -67,12 +89,12 @@ jobs:
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
+              issue_number: ${{ steps.pr.outputs.number }},
               body: `## Web E2E Tests ${emoji}\n\nStatus: **${status}**\n\n[View run](${runUrl})`,
             });
 
       - name: Set commit status
-        if: always() && github.event_name == 'pull_request'
+        if: always()
         uses: actions/github-script@v7
         with:
           script: |
@@ -80,7 +102,7 @@ jobs:
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              sha: context.payload.pull_request.head.sha,
+              sha: '${{ steps.pr.outputs.sha }}',
               state: status,
               target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
               description: `Web E2E tests ${status === 'success' ? 'passed' : 'failed'}`,

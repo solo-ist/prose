@@ -1,10 +1,8 @@
 name: Claude Code
 
 on:
-  # Automatic review on initial PR creation only
-  pull_request:
-    types: [opened, reopened]
-  # Manual invocation via @claude mentions
+  # Auto-review is gated behind E2E tests — see ci-gate.yml
+  # /review comments still trigger auto-review directly (manual override)
   issue_comment:
     types: [created]
   pull_request_review_comment:
@@ -18,13 +16,10 @@ jobs:
   # Automatic code review on PR open, or on-demand via /review comment
   auto-review:
     if: |
-      github.event_name == 'pull_request' ||
-      (
-        github.event_name == 'issue_comment' &&
-        github.event.issue.pull_request &&
-        contains(github.event.comment.body, '/review') &&
-        !contains(github.event.comment.body, '@claude')
-      )
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '/review') &&
+      !contains(github.event.comment.body, '@claude')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -41,7 +36,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          allowed_bots: 'claude'
+          allowed_bots: 'claude,github-actions'
           show_full_output: true
           claude_args: '--dangerously-skip-permissions'
           prompt: |
@@ -127,6 +122,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          allowed_bots: 'github-actions'
           show_full_output: true
           claude_args: '--dangerously-skip-permissions'
           prompt: |

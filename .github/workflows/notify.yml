@@ -1,0 +1,67 @@
+name: Pipeline Notifications
+
+on:
+  pull_request:
+    types: [labeled]
+
+jobs:
+  notify:
+    # Fire when pipeline labels are applied — regardless of which workflow applied them
+    if: contains(fromJSON('["needs-review","complex"]'), github.event.label.name)
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Build payload
+        id: payload
+        env:
+          LABEL: ${{ github.event.label.name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$LABEL" = "complex" ]; then
+            EMOJI="🔴"
+            URGENCY="Complex — full human review required"
+          else
+            EMOJI="🟡"
+            URGENCY="Needs review — human attention requested"
+          fi
+
+          cat > /tmp/slack-payload.json << EOF
+          {
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "$EMOJI PR #$PR_NUMBER needs human review"
+                }
+              },
+              {
+                "type": "section",
+                "fields": [
+                  { "type": "mrkdwn", "text": "*PR:* <$PR_URL|#$PR_NUMBER $PR_TITLE>" },
+                  { "type": "mrkdwn", "text": "*Author:* $PR_AUTHOR" },
+                  { "type": "mrkdwn", "text": "*Label:* \`$LABEL\`" },
+                  { "type": "mrkdwn", "text": "*Status:* $URGENCY" }
+                ]
+              },
+              {
+                "type": "context",
+                "elements": [
+                  { "type": "mrkdwn", "text": "Pipeline triage routed this PR for human review. Check the PR comments for scorer + PE analysis." }
+                ]
+              }
+            ]
+          }
+          EOF
+
+      - name: Send Slack notification
+        uses: slackapi/slack-github-action@v2
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload-file-path: /tmp/slack-payload.json

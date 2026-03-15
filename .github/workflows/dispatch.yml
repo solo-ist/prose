@@ -68,7 +68,7 @@ jobs:
       - name: Dispatch /pipeline
         if: steps.cmd.outputs.command == 'pipeline'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
         run: |

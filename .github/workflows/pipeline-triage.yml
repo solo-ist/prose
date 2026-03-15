@@ -30,7 +30,7 @@ jobs:
       issues: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
@@ -96,7 +96,7 @@ jobs:
       issues: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
@@ -151,6 +151,7 @@ jobs:
 
   orchestrate:
     needs: [run-scorer, run-pe-analysis]
+    if: needs.run-scorer.result == 'success' && needs.run-pe-analysis.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -158,7 +159,7 @@ jobs:
       issues: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
@@ -200,6 +201,15 @@ jobs:
           gh pr comment "${{ steps.pr.outputs.number }}" \
             --body-file /tmp/orchestrator-output.md
 
+      - name: Ensure pipeline labels exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh label create "auto-fix-queued" --repo "$REPO" --color "0E8A16" --description "Queued for automated fix" --force || true
+          gh label create "complex" --repo "$REPO" --color "D93F0B" --description "Complex changes requiring full review" --force || true
+          gh label create "needs-review" --repo "$REPO" --color "FBCA04" --description "Awaiting human review" --force || true
+
       - name: Apply labels
         env:
           GH_TOKEN: ${{ github.token }}
@@ -210,6 +220,9 @@ jobs:
           case "$VERDICT" in
             auto-fix)
               gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "auto-fix-queued"
+              ;;
+            auto-fix-verify)
+              gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "auto-fix-queued,needs-review"
               ;;
             hitl-light)
               gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "needs-review"

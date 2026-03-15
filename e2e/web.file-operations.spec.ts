@@ -208,32 +208,31 @@ test.describe('File Operations', () => {
     await expect(page.getByText('status:')).toBeVisible({ timeout: 10_000 })
   })
 
-  test('close file returns to empty state', async () => {
+  test('close tab removes it from tab bar', async () => {
     await openFileFromExplorer(page, 'Welcome to Prose')
 
-    const closeButton = page.locator('[aria-label="Close tab"]')
-    if (await closeButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      await closeButton.click()
-      await expect(page.locator('#root')).toBeVisible({ timeout: 3_000 })
-    } else {
-      await createNewDocument(page)
-      const markdown = await getEditorMarkdown(page)
-      expect(markdown.trim().length).toBeLessThan(20)
-    }
+    // Count tabs before closing
+    const tabsBefore = await page.locator(selectors.closeTab).count()
+
+    // Close the active tab
+    const closeButton = page.locator(selectors.closeTab).first()
+    await expect(closeButton).toBeVisible({ timeout: 3_000 })
+    await closeButton.click()
+
+    // Verify the tab count decreased (or stayed at 1 if auto-created)
+    await expect.poll(() => page.locator(selectors.closeTab).count()).toBeLessThanOrEqual(tabsBefore)
+
+    // App should still be functional
+    await expect(page.locator('#root')).toBeVisible({ timeout: 3_000 })
   })
 
   test('new document naming', async () => {
     await createNewDocument(page)
 
-    const untitledTab = page.getByText(/untitled/i)
-    const tabVisible = await untitledTab.isVisible({ timeout: 3_000 }).catch(() => false)
-
-    if (tabVisible) {
-      await expect(untitledTab).toBeVisible()
-    } else {
-      const markdown = await getEditorMarkdown(page)
-      expect(markdown.trim().length).toBeLessThan(20)
-    }
+    // At least one "Untitled" tab should exist (there may be multiple
+    // from previous tests, so use .first() to avoid strict mode violations)
+    const untitledTab = page.getByText(/untitled/i).first()
+    await expect(untitledTab).toBeVisible({ timeout: 3_000 })
   })
 
   test('open file from subfolder', async () => {

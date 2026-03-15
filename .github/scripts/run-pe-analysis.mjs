@@ -23,7 +23,7 @@ if (!ANTHROPIC_API_KEY) {
 const reviewComment = readFileSync('/tmp/review-comment.txt', 'utf-8').trim()
 
 if (!reviewComment) {
-  console.error('No review comment found')
+  console.error('No review comment found. Run /review first to generate one, then /triage to re-analyze.')
   process.exit(1)
 }
 
@@ -71,7 +71,7 @@ Analyze the architectural risk of these changes. For each concern, explain:
 3. How severe the impact would be
 
 Determine the PRIVILEGE boundary status:
-- Set "privileged": true if ANY changed file matches: src/main/**, src/preload/**, electron-builder.*, electron.vite.config.*
+- Set "privileged": true if ANY changed file matches: src/main/**, src/preload/**, electron-builder.*, electron.vite.config.* (NOTE: this list is duplicated in claude.yml review prompt — keep both in sync)
 - Set "privileged": false otherwise
 
 Rate the overall risk as exactly one of: LOW, MEDIUM, HIGH, CRITICAL
@@ -105,8 +105,8 @@ const response = await fetch('https://api.anthropic.com/v1/messages', {
     'anthropic-version': '2023-06-01',
   },
   body: JSON.stringify({
-    model: 'claude-opus-4-20250514',
-    max_tokens: 4096,
+    model: 'claude-opus-4-6',
+    max_tokens: 8192,
     system: systemPrompt,
     messages: [{ role: 'user', content: userPrompt }],
   }),
@@ -126,5 +126,8 @@ if (!data.content?.[0]?.text) {
 
 const analysis = data.content[0].text
 
-writeFileSync('/tmp/pe-output.md', analysis, 'utf-8')
+// Prepend sentinel marker (invisible in rendered markdown) to prevent loop
+const output = `<!-- pe-output-comment -->\n${analysis}`
+
+writeFileSync('/tmp/pe-output.md', output, 'utf-8')
 console.log('PE analysis written to /tmp/pe-output.md')

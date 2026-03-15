@@ -26,7 +26,7 @@ if (!ANTHROPIC_API_KEY) {
 const reviewComment = readFileSync('/tmp/review-comment.txt', 'utf-8').trim()
 
 if (!reviewComment) {
-  console.error('No review comment found')
+  console.error('No review comment found. Run /review first to generate one, then /triage to re-analyze.')
   process.exit(1)
 }
 
@@ -90,7 +90,7 @@ const response = await fetch('https://api.anthropic.com/v1/messages', {
     'anthropic-version': '2023-06-01',
   },
   body: JSON.stringify({
-    model: 'claude-sonnet-4-5-20250929',
+    model: 'claude-sonnet-4-6',
     max_tokens: 2048,
     system: systemPrompt,
     messages: [{ role: 'user', content: userPrompt }],

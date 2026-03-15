@@ -68,6 +68,17 @@ jobs:
             printf '%s' "$COMMENT_BODY" > /tmp/review-comment.txt
           fi
 
+      - name: Warn on missing verdict trailer
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh pr comment "$PR_NUMBER" --repo "$REPO" \
+            --body "<!-- pipeline-bypass-warning -->
+          > **Pipeline bypass:** Review from claude[bot] contains \`## Code Review\` but no verdict trailer (\`<!-- review-verdict: ... -->\`). Falling back to legacy triage. If this is unexpected, check the review prompt in \`claude.yml\`."
+
       - name: Analyze review feedback
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

@@ -155,17 +155,16 @@ export class McpHttpServer {
       }
 
       // Verify bearer token authentication on all other endpoints
-      if (this.authToken) {
-        const authHeader = req.headers.authorization
-        const expected = `Bearer ${this.authToken}`
-        const valid = authHeader
-          && authHeader.length === expected.length
-          && timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
-        if (!valid) {
-          res.writeHead(401, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ error: 'Unauthorized' }))
-          return
-        }
+      // (authToken is guaranteed set — start() throws without it)
+      const authHeader = req.headers.authorization
+      const expected = `Bearer ${this.authToken}`
+      const valid = authHeader
+        && authHeader.length === expected.length
+        && timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
+      if (!valid) {
+        res.writeHead(401, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Unauthorized' }))
+        return
       }
 
       // MCP endpoint

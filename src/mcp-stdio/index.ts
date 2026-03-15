@@ -29,9 +29,21 @@ import * as os from 'os'
 import { spawn } from 'child_process'
 import { getToolsForMCP } from '../shared/tools/registry'
 
-// Socket path must match the one in socket-server.ts
-const SOCKET_PATH = path.join(os.homedir(), 'Library', 'Application Support', 'Prose', 'prose.sock')
-const AUTH_TOKEN_PATH = path.join(os.homedir(), 'Library', 'Application Support', 'Prose', 'mcp-auth-token')
+// Platform-aware userData path (must match Electron's app.getPath('userData'))
+function getUserDataPath(): string {
+  switch (process.platform) {
+    case 'darwin':
+      return path.join(os.homedir(), 'Library', 'Application Support', 'Prose')
+    case 'win32':
+      return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Prose')
+    default: // linux, freebsd, etc.
+      return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'Prose')
+  }
+}
+
+const USER_DATA_PATH = getUserDataPath()
+const SOCKET_PATH = path.join(USER_DATA_PATH, 'prose.sock')
+const AUTH_TOKEN_PATH = path.join(USER_DATA_PATH, 'mcp-auth-token')
 
 // Tool definitions from shared registry (works without Prose running)
 const TOOLS = getToolsForMCP()

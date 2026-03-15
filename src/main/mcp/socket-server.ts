@@ -11,6 +11,7 @@
 import * as net from 'net'
 import * as fs from 'fs'
 import * as path from 'path'
+import * as crypto from 'crypto'
 import { app } from 'electron'
 import { getToolsForMCP } from '../../shared/tools/registry'
 import type { ToolResult } from '../../shared/tools/types'
@@ -33,10 +34,12 @@ export class McpSocketServer {
 
   /**
    * Set the authentication token for socket auth.
+   * Must be called before start().
    */
   setAuthToken(token: string): void {
     this.authToken = token
   }
+
 
   /**
    * Get the socket path.
@@ -54,8 +57,13 @@ export class McpSocketServer {
 
   /**
    * Start the socket server.
+   * Requires setAuthToken() to be called first.
    */
   async start(): Promise<void> {
+    if (!this.authToken) {
+      throw new Error('Auth token must be set before starting socket server')
+    }
+
     // Ensure socket directory exists
     if (!fs.existsSync(SOCKET_DIR)) {
       fs.mkdirSync(SOCKET_DIR, { recursive: true })
@@ -179,7 +187,11 @@ export class McpSocketServer {
     // Require authentication before any other method
     if (method === 'auth') {
       const { token } = (params as { token?: string }) || {}
-      if (this.authToken && token === this.authToken) {
+      const expected = this.authToken || ''
+      const valid = token
+        && token.length === expected.length
+        && crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected))
+      if (valid) {
         this.authenticatedSockets.add(socket)
         this.sendResult(socket, id, { authenticated: true })
       } else {

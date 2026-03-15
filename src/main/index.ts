@@ -169,6 +169,7 @@ function createWindow(): BrowserWindow {
 
     try {
       const parsed = new URL(url)
+      // file:// URLs have opaque origin ('null' per URL spec), so we check protocol explicitly
       const origin = parsed.protocol === 'file:' ? 'file://' : parsed.origin
       if (!allowedOrigins.includes(origin)) {
         event.preventDefault()

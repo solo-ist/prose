@@ -47,5 +47,26 @@ export const credentialStore = {
     } catch {
       // File doesn't exist, ignore
     }
+  },
+
+  /**
+   * Migrate a credential from a legacy safeStorage-encrypted file to credentialStore.
+   * Reads the legacy file, re-stores via credentialStore, then deletes the legacy file.
+   * Returns the migrated value, or null if no legacy file exists.
+   */
+  async migrateFromLegacyFile(legacyPath: string, credentialKey: string): Promise<string | null> {
+    if (!safeStorage.isEncryptionAvailable()) return null
+
+    try {
+      const encrypted = await readFile(legacyPath)
+      const value = safeStorage.decryptString(encrypted)
+      await this.set(credentialKey, value)
+      try { await unlink(legacyPath) } catch { /* ignore */ }
+      console.log(`[CredentialStore] Migrated ${credentialKey} from legacy file`)
+      return value
+    } catch {
+      // Legacy file doesn't exist or can't be read
+      return null
+    }
   }
 }

@@ -11,6 +11,7 @@
  */
 
 import { createServer, IncomingMessage, ServerResponse } from 'http'
+import { timingSafeEqual } from 'crypto'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import {
@@ -34,6 +35,7 @@ export class McpHttpServer {
 
   /**
    * Set the authentication token for bearer auth.
+   * Must be called before start().
    */
   setAuthToken(token: string): void {
     this.authToken = token
@@ -48,8 +50,12 @@ export class McpHttpServer {
 
   /**
    * Start the HTTP server.
+   * Requires setAuthToken() to be called first.
    */
   async start(): Promise<void> {
+    if (!this.authToken) {
+      throw new Error('Auth token must be set before starting HTTP server')
+    }
     // Create MCP server
     this.mcpServer = new Server(
       {
@@ -151,7 +157,11 @@ export class McpHttpServer {
       // Verify bearer token authentication on all other endpoints
       if (this.authToken) {
         const authHeader = req.headers.authorization
-        if (!authHeader || authHeader !== `Bearer ${this.authToken}`) {
+        const expected = `Bearer ${this.authToken}`
+        const valid = authHeader
+          && authHeader.length === expected.length
+          && timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
+        if (!valid) {
           res.writeHead(401, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ error: 'Unauthorized' }))
           return

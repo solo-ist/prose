@@ -1,4 +1,4 @@
-import { ipcMain, dialog, app, shell, safeStorage, BrowserWindow } from 'electron'
+import { ipcMain, dialog, app, shell, BrowserWindow } from 'electron'
 import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat, copyFile } from 'fs/promises'
 import { join, dirname, normalize, isAbsolute } from 'path'
 import { randomUUID } from 'crypto'
@@ -931,19 +931,9 @@ export function setupIpcHandlers(): void {
       // If no key from LLM settings, try reMarkable-specific credential store
       if (!anthropicApiKey) {
         const remarkableKey = await credentialStore.get(REMARKABLE_CREDENTIAL_KEY)
+          ?? await credentialStore.migrateFromLegacyFile(ANTHROPIC_KEY_PATH, REMARKABLE_CREDENTIAL_KEY)
         if (remarkableKey) {
           anthropicApiKey = remarkableKey
-        } else if (safeStorage.isEncryptionAvailable()) {
-          // One-time migration from legacy file
-          try {
-            const encryptedKey = await readFile(ANTHROPIC_KEY_PATH)
-            anthropicApiKey = safeStorage.decryptString(encryptedKey)
-            await credentialStore.set(REMARKABLE_CREDENTIAL_KEY, anthropicApiKey)
-            try { await unlink(ANTHROPIC_KEY_PATH) } catch { /* ignore */ }
-            console.log('[reMarkable] Migrated API key to credentialStore')
-          } catch {
-            // File doesn't exist or can't be read
-          }
         }
       }
 
@@ -999,24 +989,8 @@ export function setupIpcHandlers(): void {
   })
 
   ipcMain.handle('remarkable:getApiKey', async () => {
-    const key = await credentialStore.get(REMARKABLE_CREDENTIAL_KEY)
-    if (key) return key
-
-    // One-time migration from legacy file
-    if (safeStorage.isEncryptionAvailable()) {
-      try {
-        const encryptedKey = await readFile(ANTHROPIC_KEY_PATH)
-        const legacyKey = safeStorage.decryptString(encryptedKey)
-        await credentialStore.set(REMARKABLE_CREDENTIAL_KEY, legacyKey)
-        try { await unlink(ANTHROPIC_KEY_PATH) } catch { /* ignore */ }
-        console.log('[reMarkable] Migrated API key to credentialStore')
-        return legacyKey
-      } catch {
-        // File doesn't exist or can't be read
-      }
-    }
-
-    return null
+    return await credentialStore.get(REMARKABLE_CREDENTIAL_KEY)
+      ?? await credentialStore.migrateFromLegacyFile(ANTHROPIC_KEY_PATH, REMARKABLE_CREDENTIAL_KEY)
   })
 
   ipcMain.handle('remarkable:clearApiKey', async () => {

@@ -5,9 +5,6 @@
 
 import { streamText } from 'ai'
 import { createAnthropic } from '@ai-sdk/anthropic'
-import { createOpenAI } from '@ai-sdk/openai'
-import { createOpenRouter } from '@openrouter/ai-sdk-provider'
-import { createOllama } from 'ollama-ai-provider'
 import type {
   Settings,
   FileResult,
@@ -178,40 +175,11 @@ export const browserApi: ElectronAPI = {
   },
 
   llmChat: async (request: LLMRequest): Promise<LLMResponse> => {
-    let model
-    switch (request.provider) {
-      case 'anthropic': {
-        // Note: Anthropic blocks browser requests due to CORS
-        const anthropic = createAnthropic({
-          apiKey: request.apiKey,
-          baseURL: 'https://api.anthropic.com/v1'
-        })
-        model = anthropic(request.model)
-        break
-      }
-      case 'openai': {
-        // Note: OpenAI also blocks browser requests
-        const openai = createOpenAI({ apiKey: request.apiKey })
-        model = openai(request.model)
-        break
-      }
-      case 'openrouter': {
-        // OpenRouter allows browser requests with proper headers
-        const openrouter = createOpenRouter({ apiKey: request.apiKey })
-        model = openrouter(request.model)
-        break
-      }
-      case 'ollama': {
-        // Ollama is local, so CORS depends on configuration
-        const ollama = createOllama({
-          baseURL: request.baseUrl || 'http://localhost:11434/api'
-        })
-        model = ollama(request.model)
-        break
-      }
-      default:
-        throw new Error(`Unknown provider: ${request.provider}`)
-    }
+    const anthropic = createAnthropic({
+      apiKey: request.apiKey,
+      baseURL: 'https://api.anthropic.com/v1'
+    })
+    const model = anthropic(request.model)
 
     try {
       const result = streamText({
@@ -235,17 +203,13 @@ export const browserApi: ElectronAPI = {
 
       return { content: textContent }
     } catch (error) {
-      // Provide helpful error for CORS issues
       if (
         error instanceof Error &&
         (error.message.includes('CORS') || error.message.includes('Failed to fetch'))
       ) {
-        const provider = request.provider
-        if (provider === 'anthropic' || provider === 'openai') {
-          throw new Error(
-            `${provider} blocks browser requests. Please use the Electron app, or switch to OpenRouter or Ollama.`
-          )
-        }
+        throw new Error(
+          'Anthropic blocks browser requests due to CORS. Please use the Electron app.'
+        )
       }
       throw error
     }
@@ -255,36 +219,11 @@ export const browserApi: ElectronAPI = {
   llmChatStream: async (request: LLMStreamRequest): Promise<{ success: boolean }> => {
     const { streamId } = request
 
-    let model
-    switch (request.provider) {
-      case 'anthropic': {
-        const anthropic = createAnthropic({
-          apiKey: request.apiKey,
-          baseURL: 'https://api.anthropic.com/v1'
-        })
-        model = anthropic(request.model)
-        break
-      }
-      case 'openai': {
-        const openai = createOpenAI({ apiKey: request.apiKey })
-        model = openai(request.model)
-        break
-      }
-      case 'openrouter': {
-        const openrouter = createOpenRouter({ apiKey: request.apiKey })
-        model = openrouter(request.model)
-        break
-      }
-      case 'ollama': {
-        const ollama = createOllama({
-          baseURL: request.baseUrl || 'http://localhost:11434/api'
-        })
-        model = ollama(request.model)
-        break
-      }
-      default:
-        throw new Error(`Unknown provider: ${request.provider}`)
-    }
+    const anthropic = createAnthropic({
+      apiKey: request.apiKey,
+      baseURL: 'https://api.anthropic.com/v1'
+    })
+    const model = anthropic(request.model)
 
     try {
       const result = streamText({
@@ -322,16 +261,12 @@ export const browserApi: ElectronAPI = {
 
       return { success: true }
     } catch (error) {
-      // Provide helpful error for CORS issues
       let errorMessage = error instanceof Error ? error.message : 'Unknown error'
       if (
         error instanceof Error &&
         (error.message.includes('CORS') || error.message.includes('Failed to fetch'))
       ) {
-        const provider = request.provider
-        if (provider === 'anthropic' || provider === 'openai') {
-          errorMessage = `${provider} blocks browser requests. Please use the Electron app, or switch to OpenRouter or Ollama.`
-        }
+        errorMessage = 'Anthropic blocks browser requests due to CORS. Please use the Electron app.'
       }
 
       window.dispatchEvent(

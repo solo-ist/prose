@@ -1,7 +1,7 @@
 import { google } from 'googleapis'
-import { BrowserWindow, safeStorage, session } from 'electron'
+import { BrowserWindow, session } from 'electron'
 import { createServer, IncomingMessage, ServerResponse } from 'http'
-import { readFile, unlink } from 'fs/promises'
+import { unlink } from 'fs/promises'
 import { join } from 'path'
 import { homedir } from 'os'
 import { URL } from 'url'
@@ -283,27 +283,11 @@ async function storeRefreshToken(refreshToken: string): Promise<void> {
  * Get stored refresh token, with one-time migration from legacy file
  */
 export async function getRefreshToken(): Promise<string | null> {
-  // Try credentialStore first
+  // Try credentialStore first, then migrate from legacy file if needed
   const token = await credentialStore.get(GOOGLE_CREDENTIAL_KEY)
   if (token) return token
 
-  // One-time migration from legacy file
-  if (safeStorage.isEncryptionAvailable()) {
-    try {
-      const encryptedToken = await readFile(REFRESH_TOKEN_PATH)
-      const legacyToken = safeStorage.decryptString(encryptedToken)
-      // Re-store via credentialStore
-      await credentialStore.set(GOOGLE_CREDENTIAL_KEY, legacyToken)
-      // Delete legacy file
-      try { await unlink(REFRESH_TOKEN_PATH) } catch { /* ignore */ }
-      console.log('[Google] Migrated refresh token to credentialStore')
-      return legacyToken
-    } catch {
-      // Legacy file doesn't exist or can't be read
-    }
-  }
-
-  return null
+  return credentialStore.migrateFromLegacyFile(REFRESH_TOKEN_PATH, GOOGLE_CREDENTIAL_KEY)
 }
 
 /**

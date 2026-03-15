@@ -178,24 +178,51 @@ function connectToSocket(): Promise<net.Socket> {
       socketConnection = socket
 
       // Send auth handshake if token file exists
+      let needsAuth = false
       try {
         const token = fs.readFileSync(AUTH_TOKEN_PATH, 'utf-8').trim()
         if (token) {
+          needsAuth = true
+          const authId = ++requestIdCounter
           const authRequest = {
             jsonrpc: '2.0',
-            id: ++requestIdCounter,
+            id: authId,
             method: 'auth',
             params: { token }
           }
+
+          // Wait for auth response before resolving
+          pendingRequests.set(authId, {
+            resolve: (result) => {
+              console.error('[Prose MCP] Auth handshake confirmed')
+              resolve(socket)
+            },
+            reject: (error) => {
+              console.error('[Prose MCP] Auth handshake failed:', error.message)
+              socketConnection = null
+              socket.destroy()
+              reject(new Error('MCP auth handshake failed'))
+            },
+            timeout: setTimeout(() => {
+              pendingRequests.delete(authId)
+              socketConnection = null
+              socket.destroy()
+              reject(new Error('MCP auth handshake timed out'))
+            }, 5000)
+          })
+
           socket.write(JSON.stringify(authRequest) + '\n')
-          console.error('[Prose MCP] Auth handshake sent')
+          console.error('[Prose MCP] Auth handshake sent, waiting for confirmation')
         }
       } catch {
         // No auth token file — server may not require auth
         console.error('[Prose MCP] No auth token found, connecting without auth')
       }
 
-      resolve(socket)
+      // Only resolve immediately if no auth is needed
+      if (!needsAuth) {
+        resolve(socket)
+      }
     })
 
     socket.on('data', (data) => {

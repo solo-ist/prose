@@ -521,8 +521,7 @@ export function SettingsDialog() {
               )}
             </div>
 
-            {/* API Key - always shown for Anthropic */}
-            {settings.llm.provider === 'anthropic' && (
+            {/* API Key */}
               <div className="space-y-2">
                 <Label htmlFor="apiKey">API Key</Label>
                 <div className="flex gap-2">
@@ -593,7 +592,6 @@ export function SettingsDialog() {
                   </p>
                 )}
               </div>
-            )}
 
             <Separator />
 
@@ -608,7 +606,7 @@ export function SettingsDialog() {
                 id="emojiIcons"
                 checked={settings.llm.emojiIcons ?? false}
                 onCheckedChange={(checked) => setLLMConfig({ emojiIcons: checked })}
-                disabled={settings.llm.provider !== 'anthropic' || !settings.llm.apiKey}
+                disabled={!settings.llm.apiKey}
               />
             </div>
             </div>{/* end AI features wrapper */}

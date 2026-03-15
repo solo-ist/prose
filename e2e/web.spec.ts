@@ -15,6 +15,7 @@ import {
   getEditorMarkdown,
   ensureFileListOpen,
   switchExplorerTab,
+  dismissOverlay,
 } from './shared'
 
 let page: Page
@@ -228,18 +229,21 @@ test.describe('Editor Features', () => {
   test('toggle source mode', async () => {
     await ensureFileListOpen(page)
     const panel = page.locator(selectors.fileListPanel)
-    // Double-click to open as permanent tab (source mode is disabled for preview tabs)
-    await panel.getByText('Welcome to Prose').dblclick()
+    await panel.getByText('Welcome to Prose').click()
     await waitForEditor(page)
 
-    // Click source mode button
-    await page.click(selectors.sourceMode)
+    // Click the editor to promote the preview tab to permanent
+    // (source mode is disabled for preview tabs)
+    await page.click(selectors.editor)
+    const sourceModeBtn = page.locator(selectors.sourceMode)
+    await expect(sourceModeBtn).toBeEnabled({ timeout: 5_000 })
+    await sourceModeBtn.click()
 
     // Verify CodeMirror editor appears
     await expect(page.locator(selectors.sourceEditor)).toBeVisible({ timeout: 5_000 })
 
     // Toggle back to WYSIWYG
-    await page.click(selectors.sourceMode)
+    await sourceModeBtn.click()
 
     // Verify ProseMirror editor is back
     await expect(page.locator(selectors.editor)).toBeVisible({ timeout: 5_000 })
@@ -337,8 +341,14 @@ test.describe('Toolbar Actions', () => {
   })
 
   test('open settings from more options menu', async () => {
+    // Ensure the menu from the previous test is fully closed
+    await expect(page.getByRole('menuitem', { name: 'Settings' })).not.toBeVisible({ timeout: 3_000 })
+    await dismissOverlay(page)
+
     await page.click(selectors.moreOptions)
-    await page.getByRole('menuitem', { name: 'Settings' }).click()
+    const settingsItem = page.getByRole('menuitem', { name: 'Settings' })
+    await expect(settingsItem).toBeVisible({ timeout: 3_000 })
+    await settingsItem.click()
 
     // Verify settings dialog opened
     await expect(page.getByRole('tab', { name: 'General' })).toBeVisible({ timeout: 3_000 })

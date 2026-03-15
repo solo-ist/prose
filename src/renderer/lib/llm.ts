@@ -69,8 +69,8 @@ export function validateConfig(config: Settings['llm']): string | null {
     return 'No model specified'
   }
 
-  if (config.provider !== 'ollama' && !config.apiKey) {
-    return `No API key configured for ${config.provider}`
+  if (!config.apiKey) {
+    return 'No API key configured'
   }
 
   return null
@@ -87,11 +87,11 @@ export function validateConfigFull(config: Settings['llm']): ValidationResult {
     return { valid: false, error: 'No model specified', warnings }
   }
 
-  // Required: API key (except Ollama)
-  if (config.provider !== 'ollama' && !config.apiKey) {
+  // Required: API key
+  if (!config.apiKey) {
     return {
       valid: false,
-      error: `No API key configured for ${config.provider}`,
+      error: 'No API key configured',
       warnings
     }
   }
@@ -112,12 +112,7 @@ export function validateConfigFull(config: Settings['llm']): ValidationResult {
 
   // Check if model is known (warning only, not an error)
   if (!isKnownModel(config.provider, config.model)) {
-    if (config.provider === 'ollama') {
-      // For Ollama, this is just informational
-      warnings.push(`Custom model "${config.model}" - make sure it's installed locally`)
-    } else {
-      warnings.push(`Unknown model "${config.model}" - this may not work with ${config.provider}`)
-    }
+    warnings.push(`Unknown model "${config.model}" - this may not work`)
   }
 
   return { valid: true, error: null, warnings }

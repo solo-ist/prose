@@ -157,18 +157,35 @@ function processInlineFormatting(text: string, keyPrefix: string, editor: any): 
         </button>
       )
     } else {
-      // Regular link
-      parts.push(
-        <a
-          key={`${keyPrefix}-link-${key++}`}
-          href={linkUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-primary hover:underline"
-        >
-          {linkText}
-        </a>
-      )
+      // Regular link — only render as clickable if http/https scheme
+      let isSafeUrl = false
+      try {
+        const parsed = new URL(linkUrl, window.location.href)
+        isSafeUrl = parsed.protocol === 'http:' || parsed.protocol === 'https:'
+      } catch {
+        // Invalid URL
+      }
+
+      if (isSafeUrl) {
+        parts.push(
+          <a
+            key={`${keyPrefix}-link-${key++}`}
+            href={linkUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline"
+          >
+            {linkText}
+          </a>
+        )
+      } else {
+        // Render unsafe URLs (javascript:, data:, etc.) as plain text
+        parts.push(
+          <span key={`${keyPrefix}-link-${key++}`} className="text-primary">
+            {linkText}
+          </span>
+        )
+      }
     }
 
     lastIndex = match.index + match[0].length

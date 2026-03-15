@@ -1,13 +1,16 @@
 import { google } from 'googleapis'
-import { BrowserWindow, safeStorage, session } from 'electron'
+import { BrowserWindow, session } from 'electron'
 import { createServer, IncomingMessage, ServerResponse } from 'http'
-import { readFile, writeFile, unlink, mkdir } from 'fs/promises'
+import { unlink } from 'fs/promises'
 import { join } from 'path'
 import { homedir } from 'os'
 import { URL } from 'url'
+import { randomBytes } from 'crypto'
+import { credentialStore } from '../credentialStore'
 
 const SETTINGS_DIR = join(homedir(), '.prose')
 const REFRESH_TOKEN_PATH = join(SETTINGS_DIR, '.google-refresh-token')
+const GOOGLE_CREDENTIAL_KEY = 'google-refresh-token'
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000 // Refresh 5 min before expiry
 
 // Google OAuth credentials - these are for a desktop app
@@ -79,6 +82,26 @@ export async function startOAuthFlow(): Promise<GoogleAuthResult> {
       if (url.pathname === '/callback') {
         const code = url.searchParams.get('code')
         const error = url.searchParams.get('error')
+        const returnedState = url.searchParams.get('state')
+
+        // Verify CSRF state token
+        if (returnedState !== csrfState) {
+          res.writeHead(200, { 'Content-Type': 'text/html' })
+          res.end(`
+            <html>
+              <head><title>Authentication Failed</title></head>
+              <body style="font-family: -apple-system, system-ui, sans-serif; padding: 40px; text-align: center;">
+                <h1>Authentication Failed</h1>
+                <p>Invalid state parameter. This may indicate a CSRF attack.</p>
+              </body>
+            </html>
+          `)
+          authCompleted = true
+          server.close()
+          if (authWindow && !authWindow.isDestroyed()) authWindow.close()
+          resolve({ success: false, error: 'Invalid state parameter (possible CSRF attack)' })
+          return
+        }
 
         if (error) {
           res.writeHead(200, { 'Content-Type': 'text/html' })
@@ -170,10 +193,14 @@ export async function startOAuthFlow(): Promise<GoogleAuthResult> {
       const redirectUri = `http://localhost:${serverPort}/callback`
       const oauth2Client = createOAuth2Client(redirectUri)
 
+      // Generate CSRF state token to prevent cross-site request forgery
+      const csrfState = randomBytes(16).toString('hex')
+
       const authUrl = oauth2Client.generateAuthUrl({
         access_type: 'offline',
         scope: SCOPES,
-        prompt: 'consent' // Force consent to always get refresh token
+        prompt: 'consent', // Force consent to always get refresh token
+        state: csrfState
       })
 
       // Open auth URL in an embedded BrowserWindow
@@ -246,34 +273,21 @@ async function exchangeCodeForTokens(code: string, redirectUri: string): Promise
 }
 
 /**
- * Store refresh token securely using safeStorage
+ * Store refresh token securely using credentialStore
  */
 async function storeRefreshToken(refreshToken: string): Promise<void> {
-  if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error('Secure storage is not available on this system')
-  }
-
-  await mkdir(SETTINGS_DIR, { recursive: true })
-  const encryptedToken = safeStorage.encryptString(refreshToken)
-  await writeFile(REFRESH_TOKEN_PATH, encryptedToken)
+  await credentialStore.set(GOOGLE_CREDENTIAL_KEY, refreshToken)
 }
 
 /**
- * Get stored refresh token
+ * Get stored refresh token, with one-time migration from legacy file
  */
 export async function getRefreshToken(): Promise<string | null> {
-  if (!safeStorage.isEncryptionAvailable()) {
-    console.warn('[Google] Secure storage not available')
-    return null
-  }
+  // Try credentialStore first, then migrate from legacy file if needed
+  const token = await credentialStore.get(GOOGLE_CREDENTIAL_KEY)
+  if (token) return token
 
-  try {
-    const encryptedToken = await readFile(REFRESH_TOKEN_PATH)
-    return safeStorage.decryptString(encryptedToken)
-  } catch {
-    // File doesn't exist or can't be read
-    return null
-  }
+  return credentialStore.migrateFromLegacyFile(REFRESH_TOKEN_PATH, GOOGLE_CREDENTIAL_KEY)
 }
 
 /**
@@ -341,11 +355,9 @@ export async function clearTokens(): Promise<void> {
   }
 
   cachedTokens = null
-  try {
-    await unlink(REFRESH_TOKEN_PATH)
-  } catch {
-    // File doesn't exist, ignore
-  }
+  await credentialStore.delete(GOOGLE_CREDENTIAL_KEY)
+  // Also clean up legacy file if it exists
+  try { await unlink(REFRESH_TOKEN_PATH) } catch { /* ignore */ }
 
   // Clear auth session cookies so re-auth starts fresh
   try {

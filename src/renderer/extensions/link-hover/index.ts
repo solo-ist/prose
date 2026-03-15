@@ -48,6 +48,16 @@ export const LinkHover = Extension.create({
               if (link && (event.metaKey || event.ctrlKey)) {
                 const href = link.getAttribute('href')
                 if (href) {
+                  // Only allow http/https URLs to prevent javascript: and other dangerous schemes
+                  try {
+                    const url = new URL(href, window.location.href)
+                    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+                      return true
+                    }
+                  } catch {
+                    return true
+                  }
+
                   event.preventDefault()
                   // Use Electron's shell.openExternal for safe external link opening
                   const api = getApi()

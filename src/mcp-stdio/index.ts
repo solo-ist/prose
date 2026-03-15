@@ -29,8 +29,21 @@ import * as os from 'os'
 import { spawn } from 'child_process'
 import { getToolsForMCP } from '../shared/tools/registry'
 
-// Socket path must match the one in socket-server.ts
-const SOCKET_PATH = path.join(os.homedir(), 'Library', 'Application Support', 'Prose', 'prose.sock')
+// Platform-aware userData path (must match Electron's app.getPath('userData'))
+function getUserDataPath(): string {
+  switch (process.platform) {
+    case 'darwin':
+      return path.join(os.homedir(), 'Library', 'Application Support', 'Prose')
+    case 'win32':
+      return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Prose')
+    default: // linux, freebsd, etc.
+      return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'Prose')
+  }
+}
+
+const USER_DATA_PATH = getUserDataPath()
+const SOCKET_PATH = path.join(USER_DATA_PATH, 'prose.sock')
+const AUTH_TOKEN_PATH = path.join(USER_DATA_PATH, 'mcp-auth-token')
 
 // Tool definitions from shared registry (works without Prose running)
 const TOOLS = getToolsForMCP()
@@ -172,10 +185,56 @@ function connectToSocket(): Promise<net.Socket> {
     const socket = net.createConnection(SOCKET_PATH)
     let buffer = ''
 
-    socket.on('connect', () => {
+    socket.on('connect', async () => {
       console.error('[Prose MCP] Connected to Prose')
       socketConnection = socket
-      resolve(socket)
+
+      // Send auth handshake if token file exists
+      let needsAuth = false
+      try {
+        const token = fs.readFileSync(AUTH_TOKEN_PATH, 'utf-8').trim()
+        if (token) {
+          needsAuth = true
+          const authId = ++requestIdCounter
+          const authRequest = {
+            jsonrpc: '2.0',
+            id: authId,
+            method: 'auth',
+            params: { token }
+          }
+
+          // Wait for auth response before resolving
+          pendingRequests.set(authId, {
+            resolve: (result) => {
+              console.error('[Prose MCP] Auth handshake confirmed')
+              resolve(socket)
+            },
+            reject: (error) => {
+              console.error('[Prose MCP] Auth handshake failed:', error.message)
+              socketConnection = null
+              socket.destroy()
+              reject(new Error('MCP auth handshake failed'))
+            },
+            timeout: setTimeout(() => {
+              pendingRequests.delete(authId)
+              socketConnection = null
+              socket.destroy()
+              reject(new Error('MCP auth handshake timed out'))
+            }, 5000)
+          })
+
+          socket.write(JSON.stringify(authRequest) + '\n')
+          console.error('[Prose MCP] Auth handshake sent, waiting for confirmation')
+        }
+      } catch {
+        // No auth token file — server may not require auth
+        console.error('[Prose MCP] No auth token found, connecting without auth')
+      }
+
+      // Only resolve immediately if no auth is needed
+      if (!needsAuth) {
+        resolve(socket)
+      }
     })
 
     socket.on('data', (data) => {

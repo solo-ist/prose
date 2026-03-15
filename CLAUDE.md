@@ -245,7 +245,6 @@ Exposes 5 tools: `read_document`, `get_outline`, `open_file`, `suggest_edit`, `c
 - `tools/` - Tool registry, Zod schemas, type definitions, mode-based access control
 - `llm/models.ts` - LLM model definitions
 - `utils/retry.ts` - Retry with exponential backoff
-
 ## Common Patterns
 
 Step-by-step recipes for common extension tasks (settings tab, IPC channel, TipTap extension, panel, Zustand store, AI tool): see `docs/patterns.md`.

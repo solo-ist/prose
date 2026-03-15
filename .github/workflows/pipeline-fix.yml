@@ -20,7 +20,7 @@ jobs:
         github.event_name == 'issue_comment' &&
         github.event.issue.pull_request &&
         (github.event.comment.user.login == 'github-actions[bot]' || github.event.comment.user.login == 'claude[bot]') &&
-        contains(github.event.comment.body, '<!-- orchestrator-verdict: auto-fix -->') &&
+        (contains(github.event.comment.body, '<!-- orchestrator-verdict: auto-fix -->') || contains(github.event.comment.body, '<!-- orchestrator-verdict: auto-fix-verify -->')) &&
         !contains(github.event.comment.body, '<!-- agent-fix-attempt:')
       )
     runs-on: ubuntu-latest
@@ -138,3 +138,25 @@ jobs:
             <!-- agent-fix-attempt: 1 -->
 
             Then summarize what you fixed in a brief list.
+
+      - name: Request human verification
+        if: steps.guard.outputs.attempts == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Check if this was an auto-fix-verify route (medium complexity, needs human sign-off)
+          VERDICT_COMMENT=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+            --jq '[.[] | select(.body | contains("<!-- orchestrator-verdict: auto-fix-verify -->"))] | length')
+          if [ "$VERDICT_COMMENT" -ge 1 ]; then
+            gh pr comment "$PR_NUMBER" --repo "$REPO" \
+              --body "<!-- human-verification-requested -->
+          ## Human Verification Requested
+
+          An automated fix was pushed for this PR, but the triage pipeline flagged it as
+          **auto-fix-verify** (medium complexity, low risk). Please review the fix commit
+          before merging.
+
+          **Action required:** A human must approve this PR before merge."
+          fi

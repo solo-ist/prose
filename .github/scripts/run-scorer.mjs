@@ -26,7 +26,7 @@ if (!ANTHROPIC_API_KEY) {
 const reviewComment = readFileSync('/tmp/review-comment.txt', 'utf-8').trim()
 
 if (!reviewComment) {
-  console.error('No review comment found')
+  console.error('No review comment found. Run /review first to generate one, then /triage to re-analyze.')
   process.exit(1)
 }
 

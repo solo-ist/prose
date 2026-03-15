@@ -196,7 +196,7 @@ jobs:
 
       - name: Post orchestrator verdict
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
         run: |
           gh pr comment "${{ steps.pr.outputs.number }}" \
             --body-file /tmp/orchestrator-output.md

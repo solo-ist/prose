@@ -1,6 +1,8 @@
 import { config } from 'dotenv'
-import { join, normalize } from 'path'
+import { join, normalize, sep } from 'path'
 import { writeFileSync, unlinkSync, existsSync } from 'fs'
+import { randomBytes } from 'crypto'
+import { homedir } from 'os'
 
 // Load environment variables from .env file
 // Use explicit path since Electron's CWD may differ from project root
@@ -145,8 +147,38 @@ function createWindow(): BrowserWindow {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    // Only allow http/https URLs to prevent javascript: and other dangerous schemes
+    try {
+      const parsed = new URL(details.url)
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        shell.openExternal(details.url)
+      } else {
+        console.warn(`[Security] Blocked window.open with non-http scheme: ${parsed.protocol}`)
+      }
+    } catch {
+      console.warn(`[Security] Blocked window.open with invalid URL: ${details.url}`)
+    }
     return { action: 'deny' }
+  })
+
+  // Prevent in-page navigation to untrusted origins
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const allowedOrigins = is.dev && process.env['ELECTRON_RENDERER_URL']
+      ? [new URL(process.env['ELECTRON_RENDERER_URL']).origin]
+      : ['file://']
+
+    try {
+      const parsed = new URL(url)
+      // file:// URLs have opaque origin ('null' per URL spec), so we check protocol explicitly
+      const origin = parsed.protocol === 'file:' ? 'file://' : parsed.origin
+      if (!allowedOrigins.includes(origin)) {
+        event.preventDefault()
+        console.warn(`[Security] Blocked navigation to: ${url}`)
+      }
+    } catch {
+      event.preventDefault()
+      console.warn(`[Security] Blocked navigation to invalid URL: ${url}`)
+    }
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -164,14 +196,31 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'local-file', privileges: { stream: true, supportFetchAPI: true } }
 ])
 
+// Reject all certificate errors — do not allow connections with invalid certificates
+app.on('certificate-error', (event, _webContents, _url, _error, _certificate, callback) => {
+  event.preventDefault()
+  callback(false)
+})
+
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.prose.app')
+
+  // Deny all permission requests — the app needs no special permissions (camera, mic, geolocation, etc.)
+  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false)
+  })
 
   // Handle local-file:// protocol to serve images from the filesystem
   protocol.handle('local-file', (request) => {
     // URL format: local-file:///absolute/path/to/image.png
     const filePath = decodeURIComponent(new URL(request.url).pathname)
     const normalized = normalize(filePath)
+
+    // Confine to user's home directory to prevent arbitrary filesystem reads
+    const homeDir = homedir()
+    if (!normalized.startsWith(homeDir + sep) && normalized !== homeDir) {
+      return new Response('Access denied: path outside home directory', { status: 403 })
+    }
 
     // Only serve image files
     const ext = normalized.split('.').pop()?.toLowerCase() || ''
@@ -191,7 +240,9 @@ app.whenReady().then(async () => {
     is.dev ? "script-src 'self' 'unsafe-eval'" : "script-src 'self'",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
-    "connect-src 'self' https://api.anthropic.com https://api.openai.com https://openrouter.ai https://generativelanguage.googleapis.com https://accounts.google.com https://www.googleapis.com https://docs.googleapis.com https://oauth2.googleapis.com",
+    "connect-src 'self' https://api.anthropic.com https://accounts.google.com https://www.googleapis.com https://docs.googleapis.com https://oauth2.googleapis.com",
+    // img-src https: is needed for documents with remote images (![](https://...))
+    // Tightening this would require a proxy or URL allowlist
     "img-src 'self' data: https: local-file:",
     "media-src 'none'",
     "object-src 'none'",
@@ -204,8 +255,19 @@ app.whenReady().then(async () => {
     callback({ responseHeaders })
   })
 
+  // Generate MCP auth token for securing local IPC
+  const mcpAuthToken = randomBytes(32).toString('hex')
+  const mcpAuthTokenPath = join(app.getPath('userData'), 'mcp-auth-token')
+  try {
+    writeFileSync(mcpAuthTokenPath, mcpAuthToken, { mode: 0o600 })
+    console.log('[Main] MCP auth token written')
+  } catch (err) {
+    console.warn('[Main] Failed to write MCP auth token:', err)
+  }
+
   // Start HTTP/SSE server for MCP communication (Claude Desktop connects here)
   const mcpServer = getMcpHttpServer()
+  mcpServer.setAuthToken(mcpAuthToken)
   const MCP_PORT = 9877
   let mcpStarted = false
   try {
@@ -280,6 +342,7 @@ app.whenReady().then(async () => {
     // Start MCP socket server now that renderer bridge is ready
     // All MCP tools require renderer, so we can only start after this point
     const socketServer = getMcpSocketServer()
+    socketServer.setAuthToken(mcpAuthToken)
     socketServer.setToolInvokeHandler((name, args) => bridge.executeTool(name, args))
     try {
       await socketServer.start()
@@ -302,8 +365,18 @@ app.on('window-all-closed', () => {
   }
 })
 
-// Clean up socket server on quit
+// Clean up socket server and auth token on quit
 app.on('will-quit', async () => {
   const socketServer = getMcpSocketServer()
   await socketServer.stop()
+
+  // Clean up MCP auth token file
+  try {
+    const tokenPath = join(app.getPath('userData'), 'mcp-auth-token')
+    if (existsSync(tokenPath)) {
+      unlinkSync(tokenPath)
+    }
+  } catch {
+    // Ignore cleanup errors
+  }
 })

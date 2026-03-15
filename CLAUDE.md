@@ -115,6 +115,18 @@ When a PR is opened, Claude auto-reviews it (via `claude.yml`). A second workflo
 
 **Local deep-dive**: For code-level validation of review concerns, use `/review-feedback <pr-number>` locally. The cloud version is a quick triage; the local skill reads actual source files.
 
+### CI/CD Workflows
+
+All workflows in `.github/workflows/`:
+- `claude.yml` - Auto-review on PR open + `@claude` mention handler
+- `review-feedback.yml` - Analyzes claude[bot] review comments, posts structured triage
+- `e2e.yml` - Electron Playwright tests on every PR (or `/test` comment)
+- `web-e2e.yml` - Browser Playwright tests for `accelerated`-labeled or bot PRs
+- `pipeline-triage.yml` - Scores review findings, routes to auto-fix or human review
+- `pipeline-fix.yml` - Claude agent auto-fixes simple review findings
+- `dispatch.yml` - Routes `/triage`, `/fix`, `/pipeline` slash commands to downstream workflows
+- `feature-request-triage.yml` - Adds `feature-request`-labeled issues to project board
+
 ## Architecture
 
 ### Cross-Platform Design
@@ -185,11 +197,23 @@ Settings stored at `~/.prose/settings.json`. Default settings defined in `src/ma
 
 Dark mode by default. Theme controlled via `dark` class on `<html>` element.
 
+### Tabs
+
+Multi-tab interface managed by `tabStore`. Each tab tracks its document path, content, dirty state, and emoji. Session persistence via IndexedDB — tabs survive app restart. Preview tabs (single-click in file explorer) are replaced by the next open; double-click or editing promotes to a permanent tab.
+
 ### Editor
 
 The editor uses TipTap (ProseMirror-based) with markdown support via `tiptap-markdown`. Key files:
 - `src/renderer/components/editor/Editor.tsx` - Main editor component
 - `src/renderer/extensions/` - Custom TipTap extensions (ai-suggestions, diff-suggestions, node-ids, etc.)
+
+### Document Review
+
+AI-generated edits can be reviewed before accepting. Two modes:
+- **Quick review** — inline diff with per-change accept/reject controls
+- **Side-by-side** — full diff view with navigation
+
+Managed by `reviewStore` and components in `src/renderer/components/review/`.
 
 ### reMarkable Integration
 

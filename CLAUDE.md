@@ -14,7 +14,7 @@ npm run build:linux  # Build Linux distributable
 
 **Note**: Always run these commands for the user rather than asking them to run manually. Start dev servers in the background so work can continue.
 
-**No tests**: This project has no test suite. QA is done via Circuit Electron (see below).
+**Testing**: No unit test suite. E2E tests via Playwright (`e2e/`, `playwright.config.ts`). Manual QA via Circuit Electron (see below).
 
 ## Before Implementation
 
@@ -138,20 +138,28 @@ When running as Electron:
 
 ### IPC Channels
 
-Defined in `src/main/ipc.ts`:
-- `file:*` - File operations (open, save, saveAs, read, rename, delete)
-- `settings:load`, `settings:save` - Settings persistence (`~/.prose/settings.json`)
-- `llm:chat`, `llm:chatStream`, `llm:abortStream` - LLM API calls (Vercel AI SDK)
-- `remarkable:*` - reMarkable tablet sync (register, validate, sync, etc.)
+Defined in `src/main/ipc.ts` (64 handlers across 11 namespaces):
+- `file:*` (17) - File operations (open, save, read, rename, delete, trash, duplicate, etc.)
+- `settings:*` (4) - Settings persistence, secure storage check, API key test
+- `llm:chat`, `llm:stream`, `llm:stream:abort` - LLM API calls (streaming via Anthropic SDK)
+- `remarkable:*` (14) - reMarkable tablet sync (register, validate, sync, OCR, etc.)
+- `google:*` (13) - Google Docs OAuth, sync, pull, import, metadata management
+- `mcp:*` (3) - MCP server status, install, uninstall for Claude Desktop
+- `window:*`, `shell:*`, `recentFiles:*`, `emoji:*`, `fileAssociation:*` - Utility handlers
 
 ### State Management
 
 Zustand stores in `src/renderer/stores/`:
+- `tabStore` - Multi-tab session lifecycle, persistence to IndexedDB
 - `editorStore` - Document content, path, dirty state
 - `editorInstanceStore` - TipTap editor instance reference
-- `chatStore` - Chat messages, loading state, panel visibility
+- `chatStore` - Chat messages, conversations, streaming state, panel visibility
 - `settingsStore` - App settings (theme, LLM config, editor preferences)
 - `fileListStore` - File explorer state and directory listing
+- `reviewStore` - AI review mode (quick/side-by-side), suggestion navigation
+- `summaryStore` - AI-generated document summaries, staleness tracking
+- `commandHistoryStore` - Per-tool argument history, persisted to IndexedDB
+- `linkHoverStore` - Currently hovered link URL for tooltip
 
 ### IndexedDB Schema Changes
 
@@ -181,7 +189,7 @@ Dark mode by default. Theme controlled via `dark` class on `<html>` element.
 
 The editor uses TipTap (ProseMirror-based) with markdown support via `tiptap-markdown`. Key files:
 - `src/renderer/components/editor/Editor.tsx` - Main editor component
-- `src/renderer/components/editor/extensions/` - Custom TipTap extensions
+- `src/renderer/extensions/` - Custom TipTap extensions (ai-suggestions, diff-suggestions, node-ids, etc.)
 
 ### reMarkable Integration
 
@@ -191,6 +199,28 @@ Syncs handwritten notebooks from reMarkable tablets. Located in `src/main/remark
 - `ocr.ts` - Handwriting recognition via external OCR service
 
 OCR requires an Anthropic API key. If using Anthropic as the LLM provider, that key is reused; otherwise users can configure a separate key in Settings → Integrations.
+
+### Google Docs Integration
+
+Bidirectional sync with Google Docs. Located in `src/main/google/`:
+- `auth.ts` - OAuth2 flow with local redirect server, tokens stored via `safeStorage`
+- `client.ts` - Google Drive/Docs API client (create, update, import, markdown ↔ HTML conversion)
+- `sync.ts` - Sync logic, folder management (`~/Documents/Google Docs/`), metadata tracking (`.google/sync-metadata.json`)
+
+### MCP Server
+
+Prose exposes itself as an MCP server to Claude Desktop via two components:
+- `src/main/mcp/` - Socket server + HTTP bridge inside the Electron main process. Relays tool calls to the renderer via IPC.
+- `src/mcp-stdio/` - Standalone stdio server that Claude Desktop launches. Connects to the running app via Unix socket; auto-launches Prose if not running.
+
+Exposes 5 tools: `read_document`, `get_outline`, `open_file`, `suggest_edit`, `create_and_open_file`.
+
+### Shared Code
+
+`src/shared/` contains code imported by both main and renderer processes:
+- `tools/` - Tool registry, Zod schemas, type definitions, mode-based access control
+- `llm/models.ts` - LLM model definitions
+- `utils/retry.ts` - Retry with exponential backoff
 
 ## Common Patterns
 

@@ -71,7 +71,7 @@ Analyze the architectural risk of these changes. For each concern, explain:
 3. How severe the impact would be
 
 Determine the PRIVILEGE boundary status:
-- Set "privileged": true if ANY changed file matches: src/main/**, src/preload/**, electron-builder.*, electron.vite.config.* (NOTE: this list is duplicated in claude.yml review prompt — keep both in sync)
+- Set "privileged": true if ANY changed file matches: src/main/**, src/preload/**, electron-builder.*, electron.vite.config.* (NOTE: this list is also in claude.yml review prompt — keep both in sync; claude.yml cannot be modified on PR branches due to app token validation)
 - Set "privileged": false otherwise
 
 Rate the overall risk as exactly one of: LOW, MEDIUM, HIGH, CRITICAL

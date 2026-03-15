@@ -82,7 +82,6 @@ jobs:
             - [ ] Content Security Policy not weakened
 
             If the PR touches privilege-boundary files (`src/main/**`, `src/preload/**`, `electron-builder.*`, `electron.vite.config.*`), prepend your review with:
-            (NOTE: This list is duplicated in run-pe-analysis.mjs — keep both in sync)
 
             > **[SECURITY GATE]** This PR modifies Electron privilege-boundary code. Requires human review regardless of other findings.
 

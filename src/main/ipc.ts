@@ -532,37 +532,6 @@ export function setupIpcHandlers(): void {
           })
           return { success: true, message: 'API key is valid' }
         }
-        case 'openai': {
-          const { createOpenAI } = await import('@ai-sdk/openai')
-          const openai = createOpenAI({ apiKey })
-          const { generateText } = await import('ai')
-          await generateText({
-            model: openai('gpt-4o-mini'),
-            maxTokens: 1,
-            prompt: 'Hi'
-          })
-          return { success: true, message: 'API key is valid' }
-        }
-        case 'openrouter': {
-          const { createOpenRouter } = await import('@openrouter/ai-sdk-provider')
-          const openrouter = createOpenRouter({ apiKey })
-          const { generateText } = await import('ai')
-          await generateText({
-            model: openrouter('openai/gpt-4o-mini'),
-            maxTokens: 1,
-            prompt: 'Hi'
-          })
-          return { success: true, message: 'API key is valid' }
-        }
-        case 'ollama': {
-          // For Ollama, test connectivity to the base URL
-          const url = baseUrl || 'http://localhost:11434'
-          const response = await fetch(`${url}/api/tags`)
-          if (!response.ok) {
-            throw new Error(`Ollama server returned ${response.status}`)
-          }
-          return { success: true, message: 'Connected to Ollama server' }
-        }
         default:
           return { success: false, message: `Unknown provider: ${provider}` }
       }
@@ -595,41 +564,13 @@ export function setupIpcHandlers(): void {
   // LLM: Chat completion (runs in main process to avoid CORS)
   ipcMain.handle('llm:chat', async (_event, request: LLMRequest) => {
     const { createAnthropic } = await import('@ai-sdk/anthropic')
-    const { createOpenAI } = await import('@ai-sdk/openai')
-    const { createOpenRouter } = await import('@openrouter/ai-sdk-provider')
-    const { createOllama } = await import('ollama-ai-provider')
     const { streamText } = await import('ai')
 
-    let model
-    switch (request.provider) {
-      case 'anthropic': {
-        const anthropic = createAnthropic({
-          apiKey: request.apiKey,
-          baseURL: 'https://api.anthropic.com/v1'
-        })
-        model = anthropic(request.model)
-        break
-      }
-      case 'openai': {
-        const openai = createOpenAI({ apiKey: request.apiKey })
-        model = openai(request.model)
-        break
-      }
-      case 'openrouter': {
-        const openrouter = createOpenRouter({ apiKey: request.apiKey })
-        model = openrouter(request.model)
-        break
-      }
-      case 'ollama': {
-        const ollama = createOllama({
-          baseURL: request.baseUrl || 'http://localhost:11434/api'
-        })
-        model = ollama(request.model)
-        break
-      }
-      default:
-        throw new Error(`Unknown provider: ${request.provider}`)
-    }
+    const anthropic = createAnthropic({
+      apiKey: request.apiKey,
+      baseURL: 'https://api.anthropic.com/v1'
+    })
+    const model = anthropic(request.model)
 
     try {
       // Use retry logic for transient network errors
@@ -796,43 +737,15 @@ export function setupIpcHandlers(): void {
       }
     }
 
-    // For other providers or no tools, use AI SDK
+    // Non-tool path: use AI SDK with Anthropic
     const { createAnthropic } = await import('@ai-sdk/anthropic')
-    const { createOpenAI } = await import('@ai-sdk/openai')
-    const { createOpenRouter } = await import('@openrouter/ai-sdk-provider')
-    const { createOllama } = await import('ollama-ai-provider')
     const { streamText } = await import('ai')
 
-    let model
-    switch (request.provider) {
-      case 'anthropic': {
-        const anthropic = createAnthropic({
-          apiKey: request.apiKey,
-          baseURL: 'https://api.anthropic.com/v1'
-        })
-        model = anthropic(request.model)
-        break
-      }
-      case 'openai': {
-        const openai = createOpenAI({ apiKey: request.apiKey })
-        model = openai(request.model)
-        break
-      }
-      case 'openrouter': {
-        const openrouter = createOpenRouter({ apiKey: request.apiKey })
-        model = openrouter(request.model)
-        break
-      }
-      case 'ollama': {
-        const ollama = createOllama({
-          baseURL: request.baseUrl || 'http://localhost:11434/api'
-        })
-        model = ollama(request.model)
-        break
-      }
-      default:
-        throw new Error(`Unknown provider: ${request.provider}`)
-    }
+    const anthropic = createAnthropic({
+      apiKey: request.apiKey,
+      baseURL: 'https://api.anthropic.com/v1'
+    })
+    const model = anthropic(request.model)
 
     try {
       console.log('[LLM:stream] Calling streamText with model:', request.model)
@@ -915,14 +828,12 @@ export function setupIpcHandlers(): void {
       try {
         const content = await readFile(SETTINGS_PATH, 'utf-8')
         const settings = JSON.parse(content) as Settings
-        if (settings.llm?.provider === 'anthropic') {
-          // API key is now in credentialStore after migration
-          if (credentialStore.isAvailable()) {
-            anthropicApiKey = (await credentialStore.get(LLM_API_KEY)) ?? undefined
-          } else if (settings.llm?.apiKey) {
-            // Fallback for non-MAS platforms without secure storage
-            anthropicApiKey = settings.llm.apiKey
-          }
+        // API key is now in credentialStore after migration
+        if (credentialStore.isAvailable()) {
+          anthropicApiKey = (await credentialStore.get(LLM_API_KEY)) ?? undefined
+        } else if (settings.llm?.apiKey) {
+          // Fallback for non-MAS platforms without secure storage
+          anthropicApiKey = settings.llm.apiKey
         }
       } catch {
         // Settings not found or invalid
@@ -1054,10 +965,6 @@ export function setupIpcHandlers(): void {
         settings = { ...defaultSettings, ...JSON.parse(content) }
       } catch {
         settings = defaultSettings
-      }
-
-      if (settings.llm.provider !== 'anthropic') {
-        return { emoji: null, error: 'no-api-key' }
       }
 
       // Get API key from credentialStore (primary) or settings.json (fallback for non-MAS)

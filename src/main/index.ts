@@ -205,10 +205,11 @@ app.on('certificate-error', (event, _webContents, _url, _error, _certificate, ca
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.prose.app')
 
-  // Deny all permission requests — the app needs no special permissions (camera, mic, geolocation, etc.)
+  // Deny all permission requests and checks — the app needs no special permissions (camera, mic, geolocation, etc.)
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false)
   })
+  session.defaultSession.setPermissionCheckHandler(() => false)
 
   // Handle local-file:// protocol to serve images from the filesystem
   protocol.handle('local-file', (request) => {

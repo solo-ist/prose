@@ -165,7 +165,9 @@ Client-side persistence uses IndexedDB (`src/renderer/lib/persistence.ts`). When
 
 **Anthropic is the only supported provider.** The codebase has legacy multi-provider code (OpenAI, OpenRouter, Ollama) but Anthropic is the only provider that matters. Don't invest effort in other providers.
 
-LLM calls flow: `useChat` hook → `window.api.llmChat()` → IPC → main process → Vercel AI SDK
+LLM calls flow: `useChat` hook → `getApi().llmChatStream()` → IPC → main process → Anthropic SDK (with tools) or Vercel AI SDK (without)
+
+Tool pipeline, stream lifecycle, and tool modes: see `docs/architecture/llm-pipeline.md`.
 
 ### Settings
 
@@ -189,6 +191,23 @@ Syncs handwritten notebooks from reMarkable tablets. Located in `src/main/remark
 - `ocr.ts` - Handwriting recognition via external OCR service
 
 OCR requires an Anthropic API key. If using Anthropic as the LLM provider, that key is reused; otherwise users can configure a separate key in Settings → Integrations.
+
+## Common Patterns
+
+Step-by-step recipes for common extension tasks (settings tab, IPC channel, TipTap extension, panel, Zustand store, AI tool): see `docs/patterns.md`.
+
+## Security Rules
+
+- **Path validation** — every filesystem IPC handler must call `validatePath()` (`src/main/ipc.ts`). Rejects paths containing `..` after normalization.
+- **API keys** — store via `credentialStore` (OS `safeStorage`), never in plaintext. If `safeStorage` is unavailable, keys are stripped, not saved.
+- **No `innerHTML` with dynamic data** — use JSX or `textContent`. LLM-generated content must never be inserted as raw HTML.
+- **Sandbox settings** — `contextIsolation: true`, `nodeIntegration: false` — never change these.
+- **External URLs** — `shell.openExternal` only allows `http:` and `https:` protocols. All others are silently dropped.
+- **CORS** — MCP HTTP server only reflects `localhost`/`127.0.0.1` origins. No wildcard `Access-Control-Allow-Origin`.
+
+## Troubleshooting
+
+Common failure recovery (port conflicts, LevelDB locks, build failures, API errors, Circuit Electron, tool execution errors): see `docs/troubleshooting.md`.
 
 ## UI Conventions
 

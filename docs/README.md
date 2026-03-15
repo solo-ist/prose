@@ -1,14 +1,23 @@
 # Prose Documentation
 
-## Structure
+## Source of Truth
 
-- `roadmap.md` - MVP roadmap and task tracking
-- `issues/` - Documentation for GitHub issues (design docs, implementation notes)
-- `QA_feedback.md` - QA feedback and testing notes
+- [CLAUDE.md](../CLAUDE.md) — development guidelines, architecture, security rules, workflow
+- [MVP.md](../MVP.md) — what ships, what's broken, launch blockers
 
-## See Also
+## Guides
 
-- [CLAUDE.md](../CLAUDE.md) - Development guidelines and architecture
-- [MVP.md](../MVP.md) - Original MVP specification (todo-focused, superseded by current direction)
+- [patterns.md](patterns.md) — how to add a settings tab, IPC channel, TipTap extension, panel, Zustand store, AI tool
+- [architecture/llm-pipeline.md](architecture/llm-pipeline.md) — tool modes, stream lifecycle, suggestion pipeline, tool dispatch
+- [troubleshooting.md](troubleshooting.md) — port conflicts, LevelDB locks, build failures, API errors, tool execution errors
 
+## Issue Documentation
 
+- [issues/](issues/) — design docs and implementation notes per issue ([README](issues/README.md))
+- [spikes/](spikes/) — exploratory investigations
+- [research/](research/) — external research (CRDT, etc.)
+
+## Retired
+
+- [roadmap.md](roadmap.md) — superseded by the [project board](https://github.com/orgs/solo-ist/projects/5/views/1)
+- [QA_feedback.md](QA_feedback.md) — superseded by Circuit Electron QA

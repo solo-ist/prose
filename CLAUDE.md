@@ -115,6 +115,27 @@ When a PR is opened, Claude auto-reviews it (via `claude.yml`). A second workflo
 
 **Local deep-dive**: For code-level validation of review concerns, use `/review-feedback <pr-number>` locally. The cloud version is a quick triage; the local skill reads actual source files.
 
+## Common Patterns
+
+Implementation recipes for frequently extended areas of the codebase:
+
+- **How to Add a Settings Tab** — `docs/patterns.md`
+- **How to Add an IPC Channel** — `docs/patterns.md`
+- **How to Add a TipTap Extension** — `docs/patterns.md`
+- **How to Add a Panel** — `docs/patterns.md`
+- **How to Add a Zustand Store** — `docs/patterns.md`
+- **How to Add an AI Tool** — `docs/patterns.md`
+
+See also `docs/troubleshooting.md` for recovery steps when things go wrong.
+
+## Security Rules
+
+- **Never log secrets**: API keys and tokens must not appear in `console.log`, crash reports, or IPC responses. Use `safeStorage` (via `src/main/credentialStore.ts`) for any key material.
+- **Validate IPC input**: Treat all renderer-supplied IPC arguments as untrusted. Validate paths (reject traversal like `../`), sanitize filenames, and never pass renderer strings directly to shell commands.
+- **No `shell: true`**: Do not use `child_process.exec` or `spawn` with `shell: true`. Prefer the `execa` library or `spawn` with argument arrays.
+- **Context isolation is on**: The preload script runs with `contextIsolation: true`. Never disable this. All main-process exposure must go through the `contextBridge` in `src/preload/index.ts`.
+- **No `nodeIntegration`**: Renderer has no direct Node.js access by design. Keep it that way.
+
 ## Architecture
 
 ### Cross-Platform Design
@@ -165,7 +186,11 @@ Client-side persistence uses IndexedDB (`src/renderer/lib/persistence.ts`). When
 
 **Anthropic is the only supported provider.** The codebase has legacy multi-provider code (OpenAI, OpenRouter, Ollama) but Anthropic is the only provider that matters. Don't invest effort in other providers.
 
-LLM calls flow: `useChat` hook → `window.api.llmChat()` → IPC → main process → Vercel AI SDK
+LLM calls flow: `useChat` hook → `getApi().llmStream()` → IPC (`llm:stream`) → main process → Vercel AI SDK (`@ai-sdk/anthropic`) → streamed token events back to renderer.
+
+API keys are stored via Electron `safeStorage` in `src/main/credentialStore.ts` — never in plain text.
+
+See `docs/architecture/llm-pipeline.md` for the full stream lifecycle, tool modes, and suggestion pipeline.
 
 ### Settings
 

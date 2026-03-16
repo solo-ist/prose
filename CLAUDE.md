@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Development Environment
+
+This project uses an **agentic, multi-agent development workflow**:
+
+- **Multiple Claude Code agents** may run simultaneously on the same machine — across terminal sessions, git worktrees, different branches, or different repos. Never assume you're the only agent running.
+- **Prefer Agent Teams and git worktrees** for parallelizing independent work. Use `isolation: "worktree"` when spawning agents that need to make changes without conflicting with the main working tree. This avoids branch conflicts and lets multiple agents write code simultaneously.
+- **Cloud agents** (via GitHub Actions) handle PR reviews, automated fixes, and pipeline triage. Local agents handle implementation, QA, and complex features.
+- **The CI pipeline is self-enhancing** — automated review (`claude.yml`), scoring (`pipeline-triage.yml`), and auto-fix (`ci-gate.yml`) run on every PR. Skills and workflows evolve alongside the codebase.
+- **Be mindful of concurrent sessions.** Other terminal sessions or worktree agents may be running builds, dev servers, or tests at the same time. Check for port conflicts before starting servers. Use PID files (not `pkill` patterns) for process management. Use `gh` CLI (not GitHub MCP) for all GitHub operations. Always `git fetch origin` before comparing branches — another session may have pushed.
+- **The project board** (GitHub Projects #5) tracks priority and in-progress work. Move items to "In Progress" when starting, back to "Do First" if pausing. Never mutate board field definitions — only move items between existing columns.
+
 ## Commands
 
 ```bash
@@ -92,11 +103,12 @@ dist/mac-arm64/prose.app
 
 ## Workflow
 
+- **Use `gh` CLI for all GitHub operations**: Issues, PRs, project board, checks, releases — always use `gh` commands via Bash, never a GitHub MCP server. The `gh` CLI is pre-authenticated and available both locally and in CI.
 - **Track work in GitHub Issues**: Create issues before starting work.
 - **Branching**: Create a branch per issue using format `issue-<number>-<short-description>` (e.g., `issue-42-fix-login-bug`). Branch from `main`.
 - **Commits**: Reference issue numbers in commits (e.g., `Fix login validation (#42)`).
 - **Pull requests**: One PR per issue. Merge to `main` after code review.
-- **Before merging any PR**: Check for unresolved review comments (`/review-feedback <pr-number>` or `get_review_comments` + `get_comments`). Do not merge until all feedback is addressed, dismissed with rationale, or deferred to a follow-up issue.
+- **Before merging any PR**: Check for unresolved review comments (`/review-feedback <pr-number>` or `gh api repos/solo-ist/prose/pulls/<number>/comments`). Do not merge until all feedback is addressed, dismissed with rationale, or deferred to a follow-up issue.
 - **Always output links**: After creating, closing, or commenting on issues or PRs, always output the full URL (e.g., `https://github.com/solo-ist/prose/pull/42`) so the user can Cmd+click from the terminal.
 - **Issue documentation**: For complex issues, create a folder in `docs/issues/<number>/`. See `docs/issues/README.md` for details.
 
@@ -134,7 +146,7 @@ All workflows in `.github/workflows/`:
 The app is designed to run both as an Electron desktop app and as a standalone web app. All platform-specific code is abstracted behind the `ElectronAPI` interface:
 
 - **Electron**: Uses IPC to call main process for file dialogs, settings persistence (`~/.prose/settings.json`), and LLM API calls
-- **Web**: Uses File System Access API (with `<input>` fallback), localStorage for settings, and direct API calls (limited by CORS—only OpenRouter and Ollama work in browser)
+- **Web**: Uses File System Access API (with `<input>` fallback), localStorage for settings, and direct API calls (limited by CORS — Anthropic blocks browser requests, so web mode LLM features are unavailable)
 
 Always use `getApi()` from `src/renderer/lib/browserApi.ts` instead of accessing `window.api` directly. This returns the Electron API when available, or a browser-compatible fallback.
 
@@ -183,7 +195,7 @@ Client-side persistence uses IndexedDB (`src/renderer/lib/persistence.ts`). When
 
 ### LLM Integration
 
-**Anthropic is the only supported provider.** The codebase has legacy multi-provider code (OpenAI, OpenRouter, Ollama) but Anthropic is the only provider that matters. Don't invest effort in other providers.
+**Anthropic is the only provider.** All legacy multi-provider code (OpenAI, OpenRouter, Ollama) has been removed. The `Settings` type defines `provider: 'anthropic'` only.
 
 LLM calls flow: `useChat` hook → `getApi().llmChatStream()` → IPC → main process → Anthropic SDK (with tools) or Vercel AI SDK (without)
 

@@ -37,32 +37,34 @@ Group **open items only** by status column and present the current state:
 
 | Column | Purpose |
 |--------|---------|
-| **Do First** | Current sprint — active priorities |
-| **Do Next** | Queued — next in line after Do First clears |
+| **User Requested** | Feature requests from users — needs triage into another column |
+| **Do First** | Highest priority — work on these now |
+| **In Progress** | Actively being worked on by a human or agent |
+| **Do Next** | Next up after current work completes |
+| **Later** | Backlog — not yet prioritized |
 | **Quick Wins** | Low-effort items that can ship alongside bigger work |
 | **On Hold** | Blocked or waiting on external factors |
-| **Deferred** | Intentionally postponed — revisit later |
-| **User Requested** | Feature requests from users — needs triage into another column |
 
 Flag any column imbalances:
 - "Do First" is empty → refill from "Do Next"
 - "Do First" is overloaded (5+ items) → suggest narrowing focus
+- "In Progress" has items with no recent activity → flag as potentially stale
 - "User Requested" has untriaged items → flag for review
 
 ### 3. Assess Readiness
 
-For each item in "Do First" and "Do Next", evaluate:
+For each item in "Do First", "In Progress", and "Do Next", evaluate:
 
 - **Well-defined?** Has a description with clear scope, or needs decomposition
 - **Blocked?** Dependencies on other issues, external factors, or missing information
 - **In progress?** Has linked open PRs or `issue-<number>-*` branches
-- **Labels** — `bug` (higher urgency), `launch-blocker` (critical path), `enhancement`, `spike`
+- **Labels** — `bug` (higher urgency), `launch-blockers` (critical path), `feature-request`, `security`
 
 ### 4. Weigh Factors
 
 Apply these prioritization heuristics in order:
 
-1. **Board order is primary signal** — "Do First" > "Do Next" > "Quick Wins"
+1. **Board order is primary signal** — "Do First" > "In Progress" > "Do Next" > "Quick Wins"
 2. **Bugs before features** — bugs degrade existing experience
 3. **Launch blockers first** — if release is approaching, these gate shipping
 4. **Quick wins pair well** — a small fix alongside a bigger feature maintains momentum
@@ -80,6 +82,7 @@ Output a structured recommendation:
 | Column | Count | Notes |
 |--------|-------|-------|
 | Do First | 3 | All well-defined |
+| In Progress | 1 | #127 — active |
 | Do Next | 4 | #55 needs decomposition |
 | Quick Wins | 3 | Ready to ship |
 | ... | | |
@@ -107,18 +110,26 @@ Output a structured recommendation:
 
 ### 6. Optional: Update Board
 
-If the user approves changes (e.g., moving items between columns, triaging user requests):
+If the user approves changes (e.g., moving items between columns, triaging user requests), use **only safe item-level operations**:
 
 ```bash
-# Get project item IDs and field IDs
-gh project item-list 5 --owner solo-ist --format json
-gh project field-list 5 --owner solo-ist --format json
-
 # Move an item to a new status
 gh project item-edit --project-id <PROJECT_ID> --id <ITEM_ID> --field-id <STATUS_FIELD_ID> --single-select-option-id <OPTION_ID>
+
+# Add an issue to the board
+gh project item-add 5 --owner solo-ist --url <ISSUE_URL>
+
+# Remove a closed item from the board
+gh project item-delete 5 --owner solo-ist --id <ITEM_ID>
 ```
 
 Never move items without explicit approval.
+
+## Dangerous Operations — DO NOT USE
+
+**NEVER use `updateProjectV2Field` to modify single-select field options.** This GraphQL mutation replaces option IDs, which silently disconnects every board item from its status — effectively wiping the entire board. This has happened before and required manual recovery.
+
+If the board needs a new status column or option changes, tell the user to do it manually in the GitHub UI.
 
 ## Key Principles
 
@@ -127,3 +138,4 @@ Never move items without explicit approval.
 - **Pragmatic sequencing.** Prefer shipping a bug fix + quick win over starting a multi-day feature.
 - **Context-aware.** If there are open PRs or in-progress branches, factor that in.
 - **Opinionated but deferential.** Give a clear recommendation, but the user decides.
+- **Never mutate field definitions.** Only move items between existing columns.

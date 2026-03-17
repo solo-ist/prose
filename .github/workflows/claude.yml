@@ -32,7 +32,12 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Record pre-review timestamp
+        id: pre-review-ts
+        run: echo "ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: Run Claude Code Review
+        id: claude-review
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -92,6 +97,39 @@ jobs:
 
             This trailer is machine-readable and drives the downstream triage pipeline. Always include it.
 
+      - name: Ensure review comment was posted
+        if: steps.claude-review.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PRE_REVIEW_TS: ${{ steps.pre-review-ts.outputs.ts }}
+        run: |
+          # Check if claude[bot] posted a review verdict since this run started
+          HAS_REVIEW=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+            --jq --arg ts "$PRE_REVIEW_TS" \
+            '[.[] | select(.user.login == "claude[bot]" and (.body | contains("review-verdict:")) and .created_at >= $ts)] | length')
+
+          if [ "$HAS_REVIEW" -gt 0 ]; then
+            echo "Claude posted a review comment — no fallback needed."
+            exit 0
+          fi
+
+          echo "No review comment found — posting fallback."
+          BODY="$(cat <<'COMMENT'
+## Code Review
+
+No significant issues found. The changes look good.
+
+[View auto-review run](RUN_URL_PLACEHOLDER)
+
+<!-- review-verdict: clean -->
+COMMENT
+)"
+          BODY="${BODY//RUN_URL_PLACEHOLDER/$RUN_URL}"
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$BODY"
+
   # Manual invocation via @claude mentions
   claude:
     if: |
@@ -138,4 +176,7 @@ jobs:
 
             ## Important
             - You MUST use tools (Read, Edit, Write, Bash) — do not just describe work
+            - ALWAYS post your response using `gh issue comment <number> --body '...'` or
+              `gh pr comment <number> --body '...'`. The action's built-in comment posting
+              is unreliable. Post your own comment explicitly as the last step.
             - If the trigger is a question (not implementation), reply with `gh issue comment`

@@ -2,6 +2,7 @@
   "name": "prose",
   "version": "0.1.0-alpha.4",
   "description": "A minimal markdown editor with AI chat",
+  "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",

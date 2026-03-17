@@ -123,8 +123,8 @@ function createWindow(): BrowserWindow {
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 16 },
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false, // Requires preload ESM migration to enable (see #127 SEC-02)
+      preload: join(__dirname, '../preload/index.mjs'),
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
     }

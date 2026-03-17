@@ -166,7 +166,12 @@ export async function dismissOnboarding(page: Page): Promise<void> {
 
   const useWithoutAI = page.getByRole('button', { name: 'Use Without AI' })
   if (await useWithoutAI.isVisible({ timeout: 3_000 }).catch(() => false)) {
-    await useWithoutAI.click()
+    // Use force: true because the backdrop overlay may intercept pointer events
+    await useWithoutAI.click({ force: true })
+    await page.waitForSelector('[data-state="open"][aria-hidden="true"]', {
+      state: 'detached',
+      timeout: 3_000,
+    }).catch(() => {})
   }
 
   // Ensure no dialog overlay remains (catches slow animations or unexpected dialogs)

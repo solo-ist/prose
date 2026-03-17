@@ -164,4 +164,7 @@ jobs:
 
             ## Important
             - You MUST use tools (Read, Edit, Write, Bash) — do not just describe work
+            - ALWAYS post your response using `gh issue comment <number> --body '...'` or
+              `gh pr comment <number> --body '...'`. The action's built-in comment posting
+              is unreliable. Post your own comment explicitly as the last step.
             - If the trigger is a question (not implementation), reply with `gh issue comment`

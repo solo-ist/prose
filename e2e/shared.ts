@@ -64,8 +64,9 @@ export async function dismissConsentDialog(page: Page): Promise<void> {
   const btn = page.getByRole('button', { name: 'Use Without AI' })
   const visible = await btn.isVisible({ timeout: 3_000 }).catch(() => false)
   if (visible) {
-    // Use force: true because DefaultHandlerPrompt's overlay may stack on top
-    // and intercept pointer events before the consent dialog's button.
+    // Scroll into view first (CI's Xvfb display may be smaller than the dialog),
+    // then force click to bypass any stacked overlay intercepting pointer events.
+    await btn.scrollIntoViewIfNeeded().catch(() => {})
     await btn.click({ force: true })
     // Wait for the overlay to disappear
     await page.waitForSelector('[data-state="open"][aria-hidden="true"]', {
@@ -161,12 +162,14 @@ export async function runEditorCommand(page: Page, command: string): Promise<voi
 export async function dismissOnboarding(page: Page): Promise<void> {
   const gotIt = page.getByRole('button', { name: 'Got It' })
   if (await gotIt.isVisible({ timeout: 5_000 }).catch(() => false)) {
-    await gotIt.click()
+    await gotIt.scrollIntoViewIfNeeded().catch(() => {})
+    await gotIt.click({ force: true })
   }
 
   const useWithoutAI = page.getByRole('button', { name: 'Use Without AI' })
   if (await useWithoutAI.isVisible({ timeout: 3_000 }).catch(() => false)) {
-    // Use force: true because the backdrop overlay may intercept pointer events
+    // Scroll into view (CI Xvfb may be smaller than dialog), then force click
+    await useWithoutAI.scrollIntoViewIfNeeded().catch(() => {})
     await useWithoutAI.click({ force: true })
     await page.waitForSelector('[data-state="open"][aria-hidden="true"]', {
       state: 'detached',

@@ -108,8 +108,7 @@ jobs:
         run: |
           # Check if claude[bot] posted a review verdict since this run started
           HAS_REVIEW=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
-            --jq --arg ts "$PRE_REVIEW_TS" \
-            '[.[] | select(.user.login == "claude[bot]" and (.body | contains("review-verdict:")) and .created_at >= $ts)] | length')
+            --jq "[.[] | select(.user.login == \"claude[bot]\" and (.body | contains(\"review-verdict:\")) and .created_at >= \"$PRE_REVIEW_TS\")] | length")
 
           if [ "$HAS_REVIEW" -gt 0 ]; then
             echo "Claude posted a review comment — no fallback needed."
@@ -117,11 +116,11 @@ jobs:
           fi
 
           echo "No review comment found — posting fallback."
-          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$(printf '%s\n\n%s\n\n%s\n\n%s' \
-            '## Code Review' \
-            'No significant issues found. The changes look good.' \
-            "[View auto-review run]($RUN_URL)" \
-            '<!-- review-verdict: clean -->')"
+          BODY="## Code Review"
+          BODY="$BODY"$'\n\n'"No significant issues found. The changes look good."
+          BODY="$BODY"$'\n\n'"[View auto-review run]($RUN_URL)"
+          BODY="$BODY"$'\n\n'"<!-- review-verdict: clean -->"
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$BODY"
 
   # Manual invocation via @claude mentions
   claude:

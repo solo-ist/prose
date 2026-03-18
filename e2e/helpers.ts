@@ -7,7 +7,10 @@
 import { type ElectronApplication, type Page, _electron as electron } from '@playwright/test'
 import { findLatestBuild, parseElectronApp } from 'electron-playwright-helpers'
 import { existsSync } from 'fs'
-import { resolve } from 'path'
+import { resolve, dirname } from 'path'
+import { fileURLToPath } from 'url'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 // Re-export all shared helpers so existing imports remain valid
 export * from './shared'

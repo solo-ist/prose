@@ -24,7 +24,8 @@ export default defineConfig({
     }
   },
   preload: {
-    plugins: [externalizeDepsPlugin()]
+    // "type": "module" in package.json makes electron-vite output ESM (.mjs)
+    // which works with sandbox: true (CJS require('electron') doesn't)
   },
   renderer: {
     plugins: [react()],

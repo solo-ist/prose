@@ -41,10 +41,11 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          trigger_phrase: '/review'
           allowed_bots: 'claude,github-actions'
           show_full_output: true
           claude_args: '--dangerously-skip-permissions'
-          direct_prompt: |
+          prompt: |
             Review this pull request. Focus on:
             - Code correctness and potential bugs
             - Security concerns

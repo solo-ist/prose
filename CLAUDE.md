@@ -169,6 +169,7 @@ Defined in `src/main/ipc.ts` (64 handlers across 11 namespaces):
 - `remarkable:*` (14) - reMarkable tablet sync (register, validate, sync, OCR, etc.)
 - `google:*` (13) - Google Docs OAuth, sync, pull, import, metadata management
 - `mcp:*` (3) - MCP server status, install, uninstall for Claude Desktop
+- `sentry:setEnabled` - Toggle Sentry error tracking from renderer
 - `window:*`, `shell:*`, `recentFiles:*`, `emoji:*`, `fileAssociation:*` - Utility handlers
 
 ### State Management
@@ -257,6 +258,16 @@ Exposes 5 tools: `read_document`, `get_outline`, `open_file`, `suggest_edit`, `c
 - `tools/` - Tool registry, Zod schemas, type definitions, mode-based access control
 - `llm/models.ts` - LLM model definitions
 - `utils/retry.ts` - Retry with exponential backoff
+### Sentry Error Tracking
+
+Opt-in crash reporting via `@sentry/electron`. Users enable it in Settings > General > "Error Reporting".
+
+- **Main process**: `src/main/sentry.ts` — `initSentry()` called synchronously at startup by reading `~/.prose/settings.json`. `setSentryEnabled()` handles runtime toggle via `sentry:setEnabled` IPC.
+- **Renderer**: `src/renderer/lib/sentry.ts` — `initRendererSentry()` called from `settingsStore.loadSettings()`. `ErrorBoundary` wraps `<App />` in `main.tsx`.
+- **DSN**: Provided via `SENTRY_DSN` env var, baked in at build time as `__SENTRY_DSN__` define.
+- **Privacy**: Sentry never initializes unless `errorTracking.enabled === true` in settings. In dev mode, Sentry is initialized but disabled (`enabled: false`).
+- **Source maps**: Uploaded automatically when `SENTRY_AUTH_TOKEN` is set during build (via `@sentry/vite-plugin`).
+
 ## Common Patterns
 
 Step-by-step recipes for common extension tasks (settings tab, IPC channel, TipTap extension, panel, Zustand store, AI tool): see `docs/patterns.md`.

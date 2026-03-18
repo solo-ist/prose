@@ -453,7 +453,10 @@ export const browserApi: ElectronAPI = {
 
   // Recent files - not available in browser
   refreshRecentMenu: async (): Promise<void> => {},
-  clearRecentFiles: async (): Promise<void> => {}
+  clearRecentFiles: async (): Promise<void> => {},
+
+  // Sentry error tracking - no-op in browser mode
+  sentrySetEnabled: async (): Promise<void> => {}
 }
 
 /**

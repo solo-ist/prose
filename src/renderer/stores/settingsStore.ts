@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import type { Settings } from '../types'
+import { initRendererSentry, setRendererSentryEnabled } from '../lib/sentry'
 
 const MAX_RECENT_FILES = 15
 
@@ -57,6 +58,7 @@ interface SettingsState {
   toggleAutosaveActive: () => void
   addRecentFile: (path: string) => void
   removeRecentFile: (path: string) => void
+  setErrorTracking: (enabled: boolean) => void
   setAIConsent: (consented: boolean) => void
   isAIConsentDialogOpen: boolean
   setAIConsentDialogOpen: (open: boolean) => void
@@ -175,6 +177,9 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
       // Apply theme and set up listener
       applyTheme(theme)
       setupSystemThemeListener(theme, set)
+
+      // Initialize Sentry if user has opted in
+      initRendererSentry(settings?.errorTracking?.enabled === true)
     } catch (error) {
       console.error('Failed to load settings:', error)
       set({ isLoaded: true })
@@ -310,6 +315,23 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
         settings: { ...state.settings, recentFiles: filtered }
       }
     })
+    get().saveSettings()
+  },
+
+  setErrorTracking: (enabled) => {
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        errorTracking: {
+          enabled,
+          enabledAt: enabled ? new Date().toISOString() : state.settings.errorTracking?.enabledAt
+        }
+      }
+    }))
+    // Toggle Sentry in both processes
+    setRendererSentryEnabled(enabled)
+    window.api?.sentrySetEnabled(enabled)
+    // Persist
     get().saveSettings()
   },
 

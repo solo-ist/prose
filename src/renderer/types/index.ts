@@ -46,6 +46,10 @@ export interface Settings {
     consentedAt?: string    // ISO timestamp of consent
     version: number         // Consent version (bump when disclosure text changes materially)
   }
+  errorTracking?: {
+    enabled: boolean
+    enabledAt?: string      // ISO timestamp of when user enabled
+  }
 }
 
 export interface Document {
@@ -398,6 +402,8 @@ export interface ElectronAPI {
   // Recent files
   getRecentFiles: () => Promise<string[]>
   clearRecentFiles: () => Promise<void>
+  // Sentry error tracking
+  sentrySetEnabled: (enabled: boolean) => Promise<void>
 }
 
 declare global {

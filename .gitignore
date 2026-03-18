@@ -41,3 +41,6 @@ playwright-report/
 
 # MCP config (contains secrets)
 .mcp.json
+
+# Sentry Config File
+.env.sentry-build-plugin

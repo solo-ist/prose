@@ -5,10 +5,11 @@
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "npm run build:preload && electron-vite dev",
     "dev:kill": "kill $(cat .dev.pid 2>/dev/null) 2>/dev/null || true; lsof -ti:9222 | xargs kill -9 2>/dev/null || true; lsof -ti:5173 | xargs kill -9 2>/dev/null || true",
     "dev:restart": "npm run dev:kill && sleep 2 && npm run dev",
-    "build": "npm run build:mcp-stdio && electron-vite build",
+    "build": "npm run build:mcp-stdio && electron-vite build && npm run build:preload",
+    "build:preload": "npx esbuild src/preload/index.ts --bundle --platform=node --format=cjs --target=node18 --outfile=out/preload-cjs/index.cjs --external:electron",
     "build:mcp-stdio": "npx esbuild src/mcp-stdio/index.ts --bundle --platform=node --target=node18 --outfile=out/mcp-stdio.js",
     "preview": "electron-vite preview",
     "postinstall": "electron-builder install-app-deps",

@@ -225,7 +225,7 @@ export function Toolbar() {
   }
 
   // Add left padding on macOS to clear traffic lights (less when fullscreen)
-  const leftPadding = isMacOS() ? (isFullscreen ? 'pl-4' : 'pl-20') : 'pl-4'
+  const leftPadding = isMacOS() ? (isFullscreen ? 'pl-4' : 'pl-[88px]') : 'pl-4'
 
   return (
     <>

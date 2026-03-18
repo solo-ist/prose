@@ -495,7 +495,7 @@ export function FileListPanel() {
   }, [loadGoogleDocsMetadata])
 
   // Get folder name from path for display
-  const folderName = rootPath?.split('/').pop() || 'Cloud'
+  const folderName = rootPath?.split('/').pop() || 'Files'
 
   // Get filename from path for recent files display
   const getFileName = (path: string) => path.split('/').pop() || path

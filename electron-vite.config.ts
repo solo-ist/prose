@@ -48,8 +48,9 @@ export default defineConfig(async () => {
       }
     },
     preload: {
-      // "type": "module" in package.json makes electron-vite output ESM (.mjs)
-      // which works with sandbox: true (CJS require('electron') doesn't)
+      // electron-vite v5 forces ESM (.mjs) when package.json has "type": "module",
+      // but Electron's sandboxed preloads require CJS. The preload is built separately
+      // via esbuild (see build:preload script) — this section is intentionally empty.
     },
     renderer: {
       plugins: [react(), ...(sentryPlugin ? [sentryPlugin] : [])],

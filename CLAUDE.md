@@ -282,6 +282,22 @@ Step-by-step recipes for common extension tasks (settings tab, IPC channel, TipT
 - **External URLs** — `shell.openExternal` only allows `http:` and `https:` protocols. All others are silently dropped.
 - **CORS** — MCP HTTP server only reflects `localhost`/`127.0.0.1` origins. No wildcard `Access-Control-Allow-Origin`.
 
+## Sentry Debugging
+
+Prose uses opt-in Sentry error tracking. When investigating production errors, use the Sentry CLI (`npx sentry`) — not MCP.
+
+**Playbook:**
+```bash
+npx sentry issue list                  # List recent unresolved issues
+npx sentry issue list --json | jq      # Machine-readable output
+npx sentry issue explain PROSE-<id>    # Seer AI root cause analysis (takes ~1 min)
+npx sentry issue plan PROSE-<id>       # Generate a fix plan
+```
+
+**First-time setup:** `npx sentry auth login` (browser OAuth, stores token locally).
+
+**Workflow:** `issue list` → `issue explain <id>` → fix in code → verify. Seer provides reproduction steps, suspect lines, and scoping analysis — treat it as a strong lead, not gospel. Always cross-reference against the actual source before committing a fix.
+
 ## Troubleshooting
 
 Common failure recovery (port conflicts, LevelDB locks, build failures, API errors, Circuit Electron, tool execution errors): see `docs/troubleshooting.md`.

@@ -216,7 +216,7 @@ export function SettingsDialog() {
             <TabsTrigger value="account">Account</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="general" className="space-y-4 mt-4 overflow-y-auto flex-1" ref={generalTabRef}>
+          <TabsContent value="general" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={generalTabRef}>
             <div className="space-y-2">
               <Label htmlFor="theme">Theme</Label>
               <Select
@@ -372,7 +372,7 @@ export function SettingsDialog() {
             </div>
           </TabsContent>
 
-          <TabsContent value="editor" className="space-y-6 mt-4 overflow-y-auto flex-1" ref={editorTabRef}>
+          <TabsContent value="editor" className="space-y-6 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={editorTabRef}>
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label htmlFor="fontSize">Font Size</Label>
@@ -444,7 +444,7 @@ export function SettingsDialog() {
             </div>
           </TabsContent>
 
-          <TabsContent value="llm" className="space-y-4 mt-4 overflow-y-auto flex-1" ref={llmTabRef}>
+          <TabsContent value="llm" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={llmTabRef}>
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1 flex-1">
                 <Label htmlFor="aiEnabled">Enable AI Features</Label>
@@ -631,7 +631,7 @@ export function SettingsDialog() {
 
           </TabsContent>
 
-          <TabsContent value="integrations" className="space-y-4 mt-4 overflow-y-auto flex-1" ref={integrationsTabRef}>
+          <TabsContent value="integrations" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={integrationsTabRef}>
             {!isWebMode() && <McpIntegration />}
             {!isWebMode() && <Separator />}
             <RemarkableIntegration
@@ -640,7 +640,7 @@ export function SettingsDialog() {
             />
           </TabsContent>
 
-          <TabsContent value="account" className="space-y-4 mt-4 overflow-y-auto flex-1" ref={accountTabRef}>
+          <TabsContent value="account" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={accountTabRef}>
             <GoogleDocsIntegration
               settings={settings}
               setGoogleConfig={setGoogleConfig}

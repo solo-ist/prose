@@ -57,7 +57,7 @@ export function Editor() {
   const setSourceMode = useEditorStore((state) => state.setSourceMode)
   const { settings, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen } = useSettings()
   const { setContext, agentMode, setAgentMode } = useChat()
-  const { isChatOpen, isFileListOpen, toggleChat, setChatOpen, setFileListOpen } = usePanelLayoutContext()
+  const { isChatOpen, isFileListOpen, toggleChat, toggleFileList, setChatOpen, setFileListOpen } = usePanelLayoutContext()
   const setEditorInstance = useEditorInstanceStore((state) => state.setEditor)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isUpdatingFromStore = useRef(false)
@@ -515,6 +515,10 @@ export function Editor() {
       if (content) {
         navigator.clipboard.writeText(content)
       }
+    } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'h') {
+      // Cmd+Shift+H: Toggle file list (JS fallback for macOS menu accelerator)
+      e.preventDefault()
+      toggleFileList()
     } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'l') {
       // Cmd+Shift+L: Toggle chat panel
       e.preventDefault()
@@ -690,7 +694,7 @@ export function Editor() {
         }
       }
     }
-  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen, editor, setContext, setChatOpen, setFileListOpen, toggleChat, isChatOpen, isFileListOpen, isFindOpen, openAddCommentDialog, openLinkPopover, agentMode, setAgentMode, toggleAnnotationsVisible])
+  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen, editor, setContext, setChatOpen, setFileListOpen, toggleChat, toggleFileList, isChatOpen, isFileListOpen, isFindOpen, openAddCommentDialog, openLinkPopover, agentMode, setAgentMode, toggleAnnotationsVisible])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)

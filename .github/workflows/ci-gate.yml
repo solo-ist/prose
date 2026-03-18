@@ -85,8 +85,29 @@ jobs:
             gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "needs-review"
           fi
 
+      - name: Check if fork PR
+        id: fork
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prs = context.payload.workflow_run.pull_requests;
+            if (prs && prs.length > 0) {
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prs[0].number,
+              });
+              const isFork = pr.head.repo.full_name !== pr.base.repo.full_name;
+              core.setOutput('is_fork', isFork.toString());
+              if (isFork) {
+                core.info('Fork PR detected — skipping @claude auto-fix');
+              }
+            } else {
+              core.setOutput('is_fork', 'false');
+            }
+
       - name: Get failure logs
-        if: steps.guard.outputs.attempts == '0'
+        if: steps.guard.outputs.attempts == '0' && steps.fork.outputs.is_fork != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -95,7 +116,7 @@ jobs:
           gh run view "$RUN_ID" --repo "$REPO" --log-failed 2>/dev/null | tail -150 > /tmp/test-failures.txt || echo "Could not fetch failure logs" > /tmp/test-failures.txt
 
       - name: Post fix request
-        if: steps.guard.outputs.attempts == '0'
+        if: steps.guard.outputs.attempts == '0' && steps.fork.outputs.is_fork != 'true'
         env:
           GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}

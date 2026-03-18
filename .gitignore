@@ -44,3 +44,6 @@ playwright-report/
 
 # Sentry Config File
 .env.sentry-build-plugin
+
+# Apple provisioning profiles (contain Team ID, device UDIDs)
+build/*.provisionprofile

@@ -7,6 +7,13 @@ let initialized = false
 
 const SENTRY_DSN = 'https://fd14a3e064b942f9ec02734f7d26d541@o4511057861476352.ingest.us.sentry.io/4511057863311360'
 
+/** Strip file paths from error messages and breadcrumbs to avoid leaking usernames */
+function stripFilePaths(str: string): string {
+  return str.replace(/\/Users\/[^\s:)"',]+/g, '/Users/[redacted]')
+    .replace(/\/home\/[^\s:)"',]+/g, '/home/[redacted]')
+    .replace(/[A-Z]:\\Users\\[^\s:)"',]+/g, '[redacted-path]')
+}
+
 async function loadSentry(): Promise<SentryModule> {
   if (!sentryModule) {
     sentryModule = await import('@sentry/electron/renderer')
@@ -19,7 +26,28 @@ export async function initRendererSentry(enabled: boolean): Promise<void> {
 
   try {
     const Sentry = await loadSentry()
-    Sentry.init({ dsn: SENTRY_DSN })
+    Sentry.init({
+      dsn: SENTRY_DSN,
+      sampleRate: 0.5,
+      maxBreadcrumbs: 30,
+      beforeSend(event) {
+        if (event.exception?.values) {
+          for (const ex of event.exception.values) {
+            if (ex.value) {
+              ex.value = stripFilePaths(ex.value)
+            }
+          }
+        }
+        if (event.breadcrumbs) {
+          for (const crumb of event.breadcrumbs) {
+            if (crumb.message) {
+              crumb.message = stripFilePaths(crumb.message)
+            }
+          }
+        }
+        return event
+      }
+    })
     initialized = true
     console.log('[Sentry] Renderer initialized')
   } catch (error) {

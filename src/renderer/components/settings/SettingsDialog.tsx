@@ -352,6 +352,24 @@ export function SettingsDialog() {
                 </div>
               )}
             </div>
+
+            <Separator />
+
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1 flex-1">
+                <Label htmlFor="errorTracking">Error Reporting</Label>
+                <p className="text-xs text-muted-foreground">
+                  Send anonymous crash reports to help improve Prose. No document content is included.
+                </p>
+              </div>
+              <Switch
+                id="errorTracking"
+                checked={settings.errorTracking?.enabled ?? false}
+                onCheckedChange={(checked) => {
+                  useSettingsStore.getState().setErrorTracking(checked)
+                }}
+              />
+            </div>
           </TabsContent>
 
           <TabsContent value="editor" className="space-y-6 mt-4 overflow-y-auto flex-1" ref={editorTabRef}>

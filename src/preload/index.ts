@@ -256,6 +256,8 @@ export interface ElectronAPI {
   // Recent files
   refreshRecentMenu: () => Promise<void>
   clearRecentFiles: () => Promise<void>
+  // Sentry error tracking
+  sentrySetEnabled: (enabled: boolean) => Promise<void>
 }
 
 export interface FileItem {
@@ -477,6 +479,8 @@ const api: ElectronAPI = {
   // Recent files
   refreshRecentMenu: () => ipcRenderer.invoke('recentFiles:refreshMenu'),
   clearRecentFiles: () => ipcRenderer.invoke('recentFiles:clear'),
+  // Sentry error tracking
+  sentrySetEnabled: (enabled: boolean) => ipcRenderer.invoke('sentry:setEnabled', enabled),
   // Window fullscreen state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, isFullscreen: boolean): void => {

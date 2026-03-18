@@ -1,6 +1,6 @@
 import { config } from 'dotenv'
 import { join, normalize, sep } from 'path'
-import { writeFileSync, unlinkSync, existsSync } from 'fs'
+import { writeFileSync, unlinkSync, existsSync, readFileSync } from 'fs'
 import { randomBytes } from 'crypto'
 import { homedir } from 'os'
 
@@ -10,6 +10,17 @@ const dotenvResult = config({ path: join(__dirname, '../../.env') })
 if (dotenvResult.error) {
   // Fallback: try CWD (works in production)
   config()
+}
+
+// Initialize Sentry early (before app.whenReady) if user has opted in
+import { initSentry, setSentryEnabled } from './sentry'
+try {
+  const settingsPath = join(homedir(), '.prose', 'settings.json')
+  const raw = readFileSync(settingsPath, 'utf-8')
+  const parsedSettings = JSON.parse(raw)
+  initSentry(parsedSettings?.errorTracking?.enabled === true)
+} catch {
+  // Settings don't exist yet or are invalid — skip Sentry
 }
 
 import { app, shell, BrowserWindow, session, protocol, net } from 'electron'
@@ -241,7 +252,7 @@ app.whenReady().then(async () => {
     is.dev ? "script-src 'self' 'unsafe-eval'" : "script-src 'self'",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
-    "connect-src 'self' https://api.anthropic.com https://accounts.google.com https://www.googleapis.com https://docs.googleapis.com https://oauth2.googleapis.com",
+    "connect-src 'self' https://api.anthropic.com https://accounts.google.com https://www.googleapis.com https://docs.googleapis.com https://oauth2.googleapis.com https://*.ingest.sentry.io",
     // img-src https: is needed for documents with remote images (![](https://...))
     // Tightening this would require a proxy or URL allowlist
     "img-src 'self' data: https: local-file:",
@@ -319,8 +330,13 @@ app.whenReady().then(async () => {
     // This ensures the renderer has initialized its stores and is ready to handle files
   })
 
-  // Handle renderer ready signal - this is called after settings and stores are initialized
+  // Sentry error tracking toggle from renderer
   const { ipcMain } = await import('electron')
+  ipcMain.handle('sentry:setEnabled', (_event, enabled: boolean) => {
+    setSentryEnabled(enabled)
+  })
+
+  // Handle renderer ready signal - this is called after settings and stores are initialized
   ipcMain.handle('renderer:ready', async () => {
     rendererReady = true
     console.log('[Main] Renderer signaled ready')

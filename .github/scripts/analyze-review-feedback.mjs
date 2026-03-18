@@ -83,27 +83,33 @@ Output EXACTLY this markdown format. Omit any section that has zero items:
 ---
 *Automated triage — for code-level validation, run \`/review-feedback ${PR_NUMBER}\` locally.*`
 
-const response = await fetch('https://api.anthropic.com/v1/messages', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'x-api-key': ANTHROPIC_API_KEY,
-    'anthropic-version': '2023-06-01',
-  },
-  body: JSON.stringify({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 2048,
-    system: systemPrompt,
-    messages: [{ role: 'user', content: userPrompt }],
-  }),
+import { withRetry } from './lib/retry.mjs'
+
+const data = await withRetry(async () => {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: process.env.FEEDBACK_MODEL || 'claude-sonnet-4-6',
+      max_tokens: 2048,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }],
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Anthropic API error: ${response.status} ${response.statusText}`)
+  }
+  return response.json()
+}, {
+  maxRetries: 3,
+  onRetry: (attempt, err, delay) =>
+    console.warn(`Retry ${attempt}/3 after ${delay}ms: ${err.message}`)
 })
-
-if (!response.ok) {
-  console.error(`Anthropic API error: ${response.status} ${response.statusText}`)
-  process.exit(1)
-}
-
-const data = await response.json()
 
 if (!data.content?.[0]?.text) {
   console.error(`Unexpected API response structure: ${JSON.stringify(data).substring(0, 200)}`)

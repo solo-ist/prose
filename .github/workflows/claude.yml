@@ -25,7 +25,6 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
-      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -100,7 +99,7 @@ jobs:
       - name: Ensure review comment was posted
         if: steps.claude-review.outcome == 'success'
         env:
-          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.issue.number }}
           REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -134,7 +133,6 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
-      id-token: write
       actions: read
     steps:
       - name: Checkout repository

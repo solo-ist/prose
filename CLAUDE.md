@@ -263,8 +263,8 @@ Exposes 5 tools: `read_document`, `get_outline`, `open_file`, `suggest_edit`, `c
 Opt-in crash reporting via `@sentry/electron`. Users enable it in Settings > General > "Error Reporting".
 
 - **Main process**: `src/main/sentry.ts` — `initSentry()` called synchronously at startup by reading `~/.prose/settings.json`. `setSentryEnabled()` handles runtime toggle via `sentry:setEnabled` IPC.
-- **Renderer**: `src/renderer/lib/sentry.ts` — `initRendererSentry()` called from `settingsStore.loadSettings()`. `ErrorBoundary` wraps `<App />` in `main.tsx`.
-- **DSN**: Provided via `SENTRY_DSN` env var, baked in at build time as `__SENTRY_DSN__` define.
+- **Renderer**: `src/renderer/lib/sentry.ts` — `initRendererSentry()` called from `settingsStore.loadSettings()`. Uses dynamic `import('@sentry/electron/renderer')` to keep the SDK off the critical render path (required for `sandbox: true` compatibility). `ErrorBoundary` wraps `<App />` in `main.tsx`.
+- **DSN**: Hardcoded in `src/renderer/lib/sentry.ts` and `src/main/sentry.ts`.
 - **Privacy**: Sentry never initializes unless `errorTracking.enabled === true` in settings. In dev mode, Sentry is initialized but disabled (`enabled: false`).
 - **Source maps**: Uploaded automatically when `SENTRY_AUTH_TOKEN` is set during build (via `@sentry/vite-plugin`).
 

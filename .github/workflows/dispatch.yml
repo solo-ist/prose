@@ -9,11 +9,13 @@ jobs:
     # Route pipeline slash commands on PRs — only for human comments (not bots)
     # /review is handled directly by claude.yml — this workflow adds /triage, /fix, /pipeline
     # Guard: never fire on @claude mentions (claude.yml owns those)
+    # Guard: never fire on comments this workflow generated (prevent /pipeline loop)
     if: >-
       github.event_name == 'issue_comment' &&
       github.event.issue.pull_request &&
-      !contains(github.event.comment.user.login, '[bot]') &&
+      github.event.comment.user.type != 'Bot' &&
       !contains(github.event.comment.body, '@claude') &&
+      !contains(github.event.comment.body, '<!-- dispatch-generated -->') &&
       (
         contains(github.event.comment.body, '/triage') ||
         contains(github.event.comment.body, '/fix') ||
@@ -84,4 +86,6 @@ jobs:
           gh pr comment "$PR_NUMBER" --repo "$REPO" \
             --body "/review
 
-          *Triggered by \`/pipeline\` — full pipeline will run: review → triage → route*"
+          *Full pipeline triggered. Sequence: review → triage → route → auto-fix (if applicable)*
+
+          <!-- dispatch-generated -->"

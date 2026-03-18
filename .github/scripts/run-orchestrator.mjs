@@ -22,9 +22,10 @@ const { PR_NUMBER, REPO } = process.env
 const comments = readFileSync('/tmp/all-comments.txt', 'utf-8')
 
 function parseSentinel(prefix, text) {
-  const re = new RegExp(`<!-- ${prefix}: (\\{.*?\\}) -->`, 's')
-  const m = text.match(re)
-  if (!m) return null
+  const re = new RegExp(`<!-- ${prefix}: (\\{.*?\\}) -->`, 'g')
+  const matches = [...text.matchAll(re)]
+  if (matches.length === 0) return null
+  const m = matches[matches.length - 1]
   try {
     return JSON.parse(m[1])
   } catch {

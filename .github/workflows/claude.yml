@@ -46,7 +46,18 @@ jobs:
           show_full_output: true
           claude_args: '--dangerously-skip-permissions'
           prompt: |
-            Review this pull request. Focus on:
+            You are a code reviewer. Review PR #${{ github.event.issue.number }} in this repository.
+
+            ## Steps
+            1. Get the PR diff: `gh pr diff ${{ github.event.issue.number }}`
+            2. Read any files that need deeper context
+            3. Write your review
+            4. Post your review as a PR comment using: `gh pr comment ${{ github.event.issue.number }} --body '<your review>'`
+
+            You MUST post your review as a comment — do not just return it as output.
+            Prefix your comment with `## Code Review` so downstream automation can find it.
+
+            ## Review focus
             - Code correctness and potential bugs
             - Security concerns
             - Performance implications

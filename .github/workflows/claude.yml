@@ -117,18 +117,11 @@ jobs:
           fi
 
           echo "No review comment found — posting fallback."
-          BODY="$(cat <<'COMMENT'
-## Code Review
-
-No significant issues found. The changes look good.
-
-[View auto-review run](RUN_URL_PLACEHOLDER)
-
-<!-- review-verdict: clean -->
-COMMENT
-)"
-          BODY="${BODY//RUN_URL_PLACEHOLDER/$RUN_URL}"
-          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$BODY"
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$(printf '%s\n\n%s\n\n%s\n\n%s' \
+            '## Code Review' \
+            'No significant issues found. The changes look good.' \
+            "[View auto-review run]($RUN_URL)" \
+            '<!-- review-verdict: clean -->')"
 
   # Manual invocation via @claude mentions
   claude:

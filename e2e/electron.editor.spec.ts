@@ -7,6 +7,7 @@ import { test, expect } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'
 import {
   launchApp,
+  waitForAppReady,
   dismissOnboarding,
   dismissOverlay,
   waitForEditor,
@@ -28,14 +29,20 @@ test.beforeAll(async () => {
   app = launched.app
   page = launched.page
 
+  // Wait for React to render before interacting with UI
+  await waitForAppReady(page)
+
   // Dismiss onboarding dialogs (Got It + Use Without AI)
   await dismissOnboarding(page)
+
+  // Catch any dialogs that appeared during onboarding dismissal
+  await dismissOverlay(page)
 
   // If the app opens to the empty "Start Writing" state, create a new document
   const newDocButton = page.getByRole('button', { name: 'New Document' })
   const isEmptyState = await newDocButton.isVisible({ timeout: 3_000 }).catch(() => false)
   if (isEmptyState) {
-    await newDocButton.click()
+    await newDocButton.click({ force: true })
     await waitForEditor(page)
   }
 })

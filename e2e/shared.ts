@@ -81,6 +81,23 @@ export async function dismissConsentDialog(page: Page): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /**
+ * Wait for the React app to mount.
+ *
+ * On CI, the renderer bundle may take several seconds to evaluate (especially
+ * with large SDK imports like Sentry). This helper waits for a known UI element
+ * to be attached to the DOM, confirming React has mounted.
+ *
+ * Uses `state: 'attached'` rather than `'visible'` because toolbar elements may
+ * have opacity transitions during initial render that delay visibility.
+ */
+export async function waitForAppReady(page: Page): Promise<void> {
+  await page.waitForSelector(
+    `${selectors.moreOptions}, ${selectors.editor}`,
+    { state: 'attached', timeout: 30_000 },
+  )
+}
+
+/**
  * Wait for the TipTap editor to be mounted and ready.
  *
  * The editor instance is exposed as `window.__prose_editor` by the renderer.
@@ -155,34 +172,31 @@ export async function runEditorCommand(page: Page, command: string): Promise<voi
  * 1. DefaultHandlerPrompt ("Make Prose Your Default Markdown Editor") — 1 s delay after React mount
  * 2. AIConsentDialog   ("AI Writing Assistance")
  *
- * On CI, React can take 2-3 s to mount after domcontentloaded, so the first
- * dialog may not appear until 3-4 s in. Use generous timeouts and verify the
- * overlay is fully gone before returning.
+ * Both are Radix AlertDialogs that can be dismissed with Escape. Rather than
+ * clicking specific buttons (which fails when dialogs stack and intercept each
+ * other's pointer events), we wait for dialogs to appear then press Escape to
+ * dismiss them one at a time.
  */
 export async function dismissOnboarding(page: Page): Promise<void> {
-  const gotIt = page.getByRole('button', { name: 'Got It' })
-  if (await gotIt.isVisible({ timeout: 5_000 }).catch(() => false)) {
-    await gotIt.scrollIntoViewIfNeeded().catch(() => {})
-    await gotIt.click({ force: true })
-  }
+  // Wait for the DefaultHandlerPrompt's 1s delay + settings load time
+  // before starting to dismiss. A short fixed wait is more reliable than
+  // racing against dialog appearance.
+  await page.waitForTimeout(2_000)
 
-  const useWithoutAI = page.getByRole('button', { name: 'Use Without AI' })
-  if (await useWithoutAI.isVisible({ timeout: 3_000 }).catch(() => false)) {
-    // Scroll into view (CI Xvfb may be smaller than dialog), then force click
-    // to bypass any backdrop overlay intercepting pointer events
-    await useWithoutAI.scrollIntoViewIfNeeded().catch(() => {})
-    await useWithoutAI.click({ force: true })
-    await page.waitForSelector('[data-state="open"][aria-hidden="true"]', {
-      state: 'detached',
-      timeout: 3_000,
-    }).catch(() => {})
-  }
-
-  // Ensure no dialog overlay remains (catches slow animations or unexpected dialogs)
-  const overlay = page.locator('[data-state="open"].fixed.inset-0')
-  if (await overlay.isVisible({ timeout: 1_000 }).catch(() => false)) {
+  // Dismiss up to 3 stacked dialogs via Escape key
+  for (let i = 0; i < 3; i++) {
+    const dialog = page.locator('[role="alertdialog"]')
+    if (!await dialog.first().isVisible({ timeout: 2_000 }).catch(() => false)) break
     await page.keyboard.press('Escape')
-    await overlay.waitFor({ state: 'detached', timeout: 2_000 }).catch(() => {})
+    // Wait for dismiss animation to complete
+    await page.waitForTimeout(500)
+  }
+
+  // Final overlay cleanup — catches any remaining backdrop
+  const overlay = page.locator('[data-state="open"].fixed.inset-0')
+  if (await overlay.first().isVisible({ timeout: 500 }).catch(() => false)) {
+    await page.keyboard.press('Escape')
+    await overlay.first().waitFor({ state: 'detached', timeout: 2_000 }).catch(() => {})
   }
 }
 

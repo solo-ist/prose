@@ -1081,6 +1081,10 @@ export function setupIpcHandlers(): void {
 
   // Google: Start OAuth flow
   ipcMain.handle('google:startAuth', async () => {
+    // @ts-expect-error — __IS_MAS_BUILD__ defined by electron-vite
+    if (typeof __IS_MAS_BUILD__ !== 'undefined' && __IS_MAS_BUILD__) {
+      return { success: false, error: 'Google Docs sync is not available in the Mac App Store version.' }
+    }
     const { startOAuthFlow } = await import('./google/auth')
     return await startOAuthFlow()
   })

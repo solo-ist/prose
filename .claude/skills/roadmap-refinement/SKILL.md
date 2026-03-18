@@ -13,7 +13,7 @@ Audit the backlog and project board, then present findings for approval before m
 /roadmap-refinement
 ```
 
-No arguments. Operates on `solo-ist/prose` and the Prose Roadmap project.
+No arguments. Operates on `solo-ist/prose` and the Prose Roadmap project (project #5).
 
 ## Workflow
 
@@ -35,7 +35,7 @@ For each open issue, check if it's likely completed:
 
 - **Linked merged PRs**: Issue referenced in a merged PR's body or commit messages
 - **Closed branches**: An `issue-<number>-*` branch exists but the issue is open
-- **Stale "In Progress"**: On the board as in-progress but no activity in 30+ days
+- **Stale "In Progress"**: On the board as In Progress but no activity in 30+ days
 
 Flag these as candidates for closing. Do NOT close automatically.
 
@@ -87,12 +87,52 @@ Output a structured report:
 
 ### 6. Execute on Approval
 
-Wait for the user to review the report. Then:
+Wait for the user to review the report. Then use **only safe operations**:
 
-1. Close approved issues with the suggested notes
-2. Add missing items to the project board
-3. Fix status assignments
-4. Optionally create follow-up issues for items that need decomposition
+**Closing issues:**
+```
+mcp__github__issue_write (method: "update", owner: "solo-ist", repo: "prose", issueNumber: N, state: "CLOSED", comment: "...")
+```
+
+**Removing closed items from board:**
+```bash
+gh project item-delete 5 --owner solo-ist --id <ITEM_ID>
+```
+
+**Moving items between columns:**
+```bash
+gh project item-edit --project-id <PROJECT_ID> --id <ITEM_ID> --field-id <STATUS_FIELD_ID> --single-select-option-id <OPTION_ID>
+```
+
+**Adding issues to the board:**
+```bash
+gh project item-add 5 --owner solo-ist --url <ISSUE_URL>
+```
+
+## Board Columns
+
+Current status options on the Prose Roadmap board:
+
+| Column | Purpose |
+|--------|---------|
+| **User Requested** | Feature requests from users — needs triage |
+| **Do First** | Highest priority — work on these now |
+| **In Progress** | Actively being worked on by a human or agent |
+| **Do Next** | Next up after current work completes |
+| **Later** | Backlog — not yet prioritized |
+| **Quick Wins** | Low effort, high value — ship alongside bigger work |
+| **On Hold** | Blocked or paused |
+
+## Dangerous Operations — DO NOT USE
+
+**NEVER use `updateProjectV2Field` to modify single-select field options.** This GraphQL mutation replaces option IDs, which silently disconnects every board item from its status — effectively wiping the entire board. This has happened before and required manual recovery.
+
+If the board needs a new status column or option changes, tell the user to do it manually in the GitHub UI.
+
+Safe operations are limited to:
+- `gh project item-edit` — move items between existing columns
+- `gh project item-delete` — remove items from the board
+- `gh project item-add` — add items to the board
 
 ## Key Principles
 
@@ -100,3 +140,4 @@ Wait for the user to review the report. Then:
 - **Evidence over assumptions.** Link to the merged PR or commit that completed the work.
 - **Board is source of truth for priority.** If an issue isn't on the board, it's not prioritized.
 - **Stale != irrelevant.** Flag staleness, but let the user decide disposition.
+- **Never mutate field definitions.** Only move items between existing columns.

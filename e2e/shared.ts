@@ -169,6 +169,7 @@ export async function dismissOnboarding(page: Page): Promise<void> {
   const useWithoutAI = page.getByRole('button', { name: 'Use Without AI' })
   if (await useWithoutAI.isVisible({ timeout: 3_000 }).catch(() => false)) {
     // Scroll into view (CI Xvfb may be smaller than dialog), then force click
+    // to bypass any backdrop overlay intercepting pointer events
     await useWithoutAI.scrollIntoViewIfNeeded().catch(() => {})
     await useWithoutAI.click({ force: true })
     await page.waitForSelector('[data-state="open"][aria-hidden="true"]', {

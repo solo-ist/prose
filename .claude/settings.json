@@ -16,5 +16,18 @@
       "Bash(git branch*)",
       "Bash(ls *)"
     ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/doc-check.sh"
+          }
+        ]
+      }
+    ]
   }
 }

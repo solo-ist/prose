@@ -44,7 +44,7 @@ jobs:
           allowed_bots: 'claude,github-actions'
           show_full_output: true
           claude_args: '--dangerously-skip-permissions'
-          prompt: |
+          direct_prompt: |
             Review this pull request. Focus on:
             - Code correctness and potential bugs
             - Security concerns

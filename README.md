@@ -34,20 +34,17 @@ Part of the [solo.ist](https://solo.ist) family.
 2. Open Settings (⌘,) and add your Anthropic API key
 3. Start writing!
 
-### Unsigned App Warning
+## Privacy
 
-Prose isn't code-signed yet. macOS will show a misleading "damaged" error when you first open it. The app is not actually damaged. To fix this, open Terminal and run:
+- **No data collection** — Prose never phones home. There are no analytics, telemetry, or tracking of any kind.
+- **BYOK** — Bring Your Own Key. Your Anthropic API key stays on your machine, stored via OS `safeStorage` (Keychain on macOS).
+- **API calls on user action only** — The only outbound requests are to `api.anthropic.com`, and only when you explicitly invoke an AI feature.
+- **Local files** — Your documents are plain `.md` files on your filesystem. Prose never uploads them.
+- **Opt-in crash reporting** — Error reporting via Sentry is disabled by default. You can enable it in Settings → General.
 
-```bash
-xattr -cr /Applications/Prose.app
-```
-
-Then open Prose normally. This is only required once after installation.
-
-## Development
+## Build from Source
 
 ```bash
-# Clone and install
 git clone https://github.com/solo-ist/prose.git
 cd prose
 npm install
@@ -55,8 +52,10 @@ npm install
 # Run in development
 npm run dev
 
-# Build for production
-npm run build:mac
+# Build distributable
+npm run build:mac   # macOS
+npm run build:win   # Windows
+npm run build:linux # Linux
 ```
 
 See [CLAUDE.md](CLAUDE.md) for architecture and development guidelines.

@@ -37,6 +37,9 @@ export default defineConfig(async () => {
   return {
     main: {
       plugins: [externalizeDepsPlugin()],
+      define: {
+        __IS_MAS_BUILD__: JSON.stringify(process.env.MAS_BUILD === '1')
+      },
       build: {
         sourcemap: true,
         rollupOptions: {

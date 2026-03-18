@@ -456,7 +456,21 @@ export const browserApi: ElectronAPI = {
   clearRecentFiles: async (): Promise<void> => {},
 
   // Sentry error tracking - no-op in browser mode
-  sentrySetEnabled: async (): Promise<void> => {}
+  sentrySetEnabled: async (): Promise<void> => {},
+
+  // Auto-updater - not available in browser
+  onUpdateAvailable: (_callback: (info: { version: string; releaseNotes?: string }) => void) => {
+    return () => {}
+  },
+  onDownloadProgress: (_callback: (progress: { percent: number }) => void) => {
+    return () => {}
+  },
+  onUpdateDownloaded: (_callback: (info: { version: string }) => void) => {
+    return () => {}
+  },
+  updaterDownload: async () => ({ success: false }),
+  updaterInstall: async () => {},
+  updaterCheck: async () => ({ updateAvailable: false }),
 }
 
 /**

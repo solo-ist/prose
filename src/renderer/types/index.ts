@@ -404,6 +404,13 @@ export interface ElectronAPI {
   clearRecentFiles: () => Promise<void>
   // Sentry error tracking
   sentrySetEnabled: (enabled: boolean) => Promise<void>
+  // Auto-updater
+  onUpdateAvailable?: (callback: (info: { version: string; releaseNotes?: string }) => void) => () => void
+  onDownloadProgress?: (callback: (progress: { percent: number }) => void) => () => void
+  onUpdateDownloaded?: (callback: (info: { version: string }) => void) => () => void
+  updaterDownload?: () => Promise<{ success: boolean }>
+  updaterInstall?: () => Promise<void>
+  updaterCheck?: () => Promise<{ updateAvailable: boolean }>
 }
 
 declare global {

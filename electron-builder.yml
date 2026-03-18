@@ -6,6 +6,11 @@ directories:
 
 afterPack: build/afterPack.js
 
+publish:
+  provider: github
+  owner: solo-ist
+  repo: prose
+
 files:
   - out/**/*
 
@@ -31,6 +36,7 @@ mac:
   identity: null
   target:
     - dmg
+    - zip
     - dir
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:

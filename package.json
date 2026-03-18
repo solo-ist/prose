@@ -66,6 +66,7 @@
     "cmdk": "^1.1.1",
     "codemirror": "^6.0.2",
     "dotenv": "^17.2.3",
+    "electron-updater": "^6.7.3",
     "framer-motion": "^12.25.0",
     "googleapis": "^144.0.0",
     "gray-matter": "^4.0.3",

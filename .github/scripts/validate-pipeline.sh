@@ -146,9 +146,14 @@ fi
 echo ""
 
 # 13. No id-token: write in workflows that don't need it
+# claude.yml and pipeline-fix.yml legitimately need id-token: write for
+# claude-code-action's OIDC token exchange — skip them.
 echo "--- Check: No unnecessary id-token: write ---"
 IDTOKEN_OK=true
-for f in .github/workflows/claude.yml .github/workflows/pipeline-fix.yml; do
+for f in .github/workflows/*.yml; do
+  case "$(basename "$f")" in
+    claude.yml|pipeline-fix.yml) continue ;;
+  esac
   if grep -q "id-token: write" "$f"; then
     echo "FAIL: $f has unnecessary id-token: write permission"
     IDTOKEN_OK=false

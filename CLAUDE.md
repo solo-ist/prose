@@ -139,6 +139,7 @@ All workflows in `.github/workflows/`:
 - `pipeline-fix.yml` - Claude agent auto-fixes simple review findings
 - `dispatch.yml` - Routes `/triage`, `/fix`, `/pipeline` slash commands to downstream workflows
 - `feature-request-triage.yml` - Adds `feature-request`-labeled issues to project board
+- `release.yml` - Builds and publishes macOS distributable to GitHub Releases on version tag push (`v*`)
 
 ## Architecture
 

@@ -490,7 +490,38 @@ const api: ElectronAPI = {
     return () => {
       ipcRenderer.removeListener('window:fullscreen-change', handler)
     }
-  }
+  },
+  // Auto-updater
+  onUpdateAvailable: (callback: (info: { version: string; releaseNotes?: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, info: { version: string; releaseNotes?: string }): void => {
+      callback(info)
+    }
+    ipcRenderer.on('updater:update-available', handler)
+    return () => {
+      ipcRenderer.removeListener('updater:update-available', handler)
+    }
+  },
+  onDownloadProgress: (callback: (progress: { percent: number }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: { percent: number }): void => {
+      callback(progress)
+    }
+    ipcRenderer.on('updater:download-progress', handler)
+    return () => {
+      ipcRenderer.removeListener('updater:download-progress', handler)
+    }
+  },
+  onUpdateDownloaded: (callback: (info: { version: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, info: { version: string }): void => {
+      callback(info)
+    }
+    ipcRenderer.on('updater:update-downloaded', handler)
+    return () => {
+      ipcRenderer.removeListener('updater:update-downloaded', handler)
+    }
+  },
+  updaterDownload: () => ipcRenderer.invoke('updater:download'),
+  updaterInstall: () => ipcRenderer.invoke('updater:install'),
+  updaterCheck: () => ipcRenderer.invoke('updater:check'),
 }
 
 contextBridge.exposeInMainWorld('api', api)

@@ -27,7 +27,7 @@ export function GoogleDocsIntegration({ settings: _settings, setGoogleConfig: _s
       <Button
         variant="outline"
         size="sm"
-        onClick={() => window.open('https://github.com/solo-ist/prose/issues/120', '_blank')}
+        onClick={() => window.open('https://github.com/solo-ist/prose/issues/120', '_blank', 'noopener,noreferrer')}
       >
         <ExternalLink className="h-4 w-4 mr-2" />
         Express interest

@@ -21,6 +21,7 @@ jobs:
         !contains(github.event.comment.body, '@claude')
       )
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Check commenter permissions
         if: github.event_name == 'issue_comment'
@@ -72,6 +73,7 @@ jobs:
       - name: Run E2E tests
         uses: coactions/setup-xvfb@v1
         env:
+          # CI Linux runners lack kernel namespace support for Chrome's sandbox
           ELECTRON_DISABLE_SANDBOX: 1
         with:
           run: npx playwright test

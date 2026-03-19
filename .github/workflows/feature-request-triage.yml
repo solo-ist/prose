@@ -18,7 +18,8 @@ jobs:
         run: |
           set -e
 
-          # Add issue to Prose Roadmap project
+          # Add issue to Prose Roadmap project (project #5)
+          # To look up IDs: gh api graphql -f query='{ organization(login:"solo-ist") { projectsV2(first:10) { nodes { id number title } } } }'
           ITEM_ID=$(gh project item-add 5 --owner solo-ist \
             --url "${{ github.event.issue.html_url }}" \
             --format json --jq '.id')
@@ -28,6 +29,8 @@ jobs:
           fi
 
           # Look up "User Requested" option ID dynamically
+          # Field ID: PVTSSF_lADOC6voP84BPTiXzg9wHj8 = "Status" field on project PVT_kwDOC6voP84BPTiX
+          # To look up field IDs: gh project field-list 5 --owner solo-ist --format json
           OPTION_ID=$(gh api graphql -f query='{
             node(id: "PVTSSF_lADOC6voP84BPTiXzg9wHj8") {
               ... on ProjectV2SingleSelectField {
@@ -41,6 +44,7 @@ jobs:
           fi
 
           # Set status to "User Requested"
+          # Project node ID: PVT_kwDOC6voP84BPTiX = Prose Roadmap (project #5)
           gh project item-edit \
             --project-id PVT_kwDOC6voP84BPTiX \
             --id "$ITEM_ID" \

@@ -31,6 +31,8 @@ jobs:
       - name: Trigger auto-review
         if: steps.pr.outputs.number
         env:
+          # PROJECT_TOKEN required: github.token events don't trigger downstream
+          # issue_comment workflows. claude.yml checks body content, not author.
           GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           REPO: ${{ github.repository }}
@@ -118,6 +120,8 @@ jobs:
       - name: Post fix request
         if: steps.guard.outputs.attempts == '0' && steps.fork.outputs.is_fork != 'true'
         env:
+          # PROJECT_TOKEN required: github.token events don't trigger downstream
+          # issue_comment workflows. claude.yml checks body content, not author.
           GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           REPO: ${{ github.repository }}

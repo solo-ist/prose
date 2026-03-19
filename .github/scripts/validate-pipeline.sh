@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# validate-pipeline.sh — verify pipeline bug fixes for issue #327
+# validate-pipeline.sh — verify pipeline invariants
 set -euo pipefail
 
 ERRORS=0
@@ -57,12 +57,12 @@ else
 fi
 echo ""
 
-# 6. dotAll flag on parseSentinel regex
-echo "--- Check: parseSentinel dotAll flag ---"
-if grep -q "'s'" .github/scripts/run-orchestrator.mjs; then
+# 6. parseSentinel uses matchAll (not single match with dotAll)
+echo "--- Check: parseSentinel uses matchAll ---"
+if grep -q "matchAll" .github/scripts/run-orchestrator.mjs; then
   echo "PASS"
 else
-  echo "FAIL: parseSentinel regex missing dotAll flag"
+  echo "FAIL: parseSentinel should use matchAll for last-match semantics"
   ERRORS=$((ERRORS + 1))
 fi
 echo ""
@@ -97,10 +97,98 @@ else
 fi
 echo ""
 
-# 10. JS syntax check
+# 10. retry.mjs exists
+echo "--- Check: retry utility exists ---"
+if [ -f ".github/scripts/lib/retry.mjs" ]; then
+  echo "PASS"
+else
+  echo "FAIL: .github/scripts/lib/retry.mjs not found"
+  ERRORS=$((ERRORS + 1))
+fi
+echo ""
+
+# 11. All API scripts use withRetry
+echo "--- Check: API scripts use retry ---"
+RETRY_OK=true
+for f in .github/scripts/run-scorer.mjs .github/scripts/run-pe-analysis.mjs .github/scripts/analyze-review-feedback.mjs; do
+  if ! grep -q "withRetry" "$f"; then
+    echo "FAIL: $f does not use withRetry"
+    RETRY_OK=false
+    ERRORS=$((ERRORS + 1))
+  fi
+done
+if $RETRY_OK; then
+  echo "PASS"
+fi
+echo ""
+
+# 12. Model env var overrides exist
+echo "--- Check: Model env var overrides ---"
+MODEL_OK=true
+if ! grep -q "SCORER_MODEL" .github/scripts/run-scorer.mjs; then
+  echo "FAIL: SCORER_MODEL override missing in run-scorer.mjs"
+  MODEL_OK=false
+  ERRORS=$((ERRORS + 1))
+fi
+if ! grep -q "PE_MODEL" .github/scripts/run-pe-analysis.mjs; then
+  echo "FAIL: PE_MODEL override missing in run-pe-analysis.mjs"
+  MODEL_OK=false
+  ERRORS=$((ERRORS + 1))
+fi
+if ! grep -q "FEEDBACK_MODEL" .github/scripts/analyze-review-feedback.mjs; then
+  echo "FAIL: FEEDBACK_MODEL override missing in analyze-review-feedback.mjs"
+  MODEL_OK=false
+  ERRORS=$((ERRORS + 1))
+fi
+if $MODEL_OK; then
+  echo "PASS"
+fi
+echo ""
+
+# 13. No id-token: write in workflows that don't need it
+# claude.yml and pipeline-fix.yml legitimately need id-token: write for
+# claude-code-action's OIDC token exchange — skip them.
+echo "--- Check: No unnecessary id-token: write ---"
+IDTOKEN_OK=true
+for f in .github/workflows/*.yml; do
+  case "$(basename "$f")" in
+    claude.yml|pipeline-fix.yml) continue ;;
+  esac
+  if grep -q "id-token: write" "$f"; then
+    echo "FAIL: $f has unnecessary id-token: write permission"
+    IDTOKEN_OK=false
+    ERRORS=$((ERRORS + 1))
+  fi
+done
+if $IDTOKEN_OK; then
+  echo "PASS"
+fi
+echo ""
+
+# 14. dispatch.yml has loop-prevention sentinel
+echo "--- Check: dispatch.yml loop sentinel ---"
+if grep -q "dispatch-generated" .github/workflows/dispatch.yml; then
+  echo "PASS"
+else
+  echo "FAIL: dispatch.yml missing dispatch-generated sentinel"
+  ERRORS=$((ERRORS + 1))
+fi
+echo ""
+
+# 15. Direct dispatch step in orchestrate job
+echo "--- Check: Direct dispatch in orchestrate ---"
+if grep -q "gh workflow run pipeline-fix.yml" .github/workflows/pipeline-triage.yml; then
+  echo "PASS"
+else
+  echo "FAIL: orchestrate job missing direct dispatch step"
+  ERRORS=$((ERRORS + 1))
+fi
+echo ""
+
+# 16. JS syntax check (includes lib/)
 echo "--- Check: JS syntax ---"
 JS_OK=true
-for f in .github/scripts/*.mjs; do
+for f in $(find .github/scripts -name '*.mjs'); do
   if ! node --check "$f" 2>/dev/null; then
     echo "FAIL: Syntax error in $f"
     JS_OK=false
@@ -112,7 +200,7 @@ if $JS_OK; then
 fi
 echo ""
 
-# 11. YAML syntax check (requires npx js-yaml or similar)
+# 17. YAML syntax check
 echo "--- Check: YAML syntax ---"
 YAML_OK=true
 for f in .github/workflows/*.yml; do

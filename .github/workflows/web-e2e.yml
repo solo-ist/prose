@@ -16,10 +16,7 @@ jobs:
     if: |
       (
         github.event_name == 'pull_request' &&
-        (
-          contains(github.event.pull_request.labels.*.name, 'accelerated') ||
-          github.event.pull_request.user.login == 'claude[bot]'
-        )
+        contains(github.event.pull_request.labels.*.name, 'accelerated')
       ) ||
       (
         github.event_name == 'issue_comment' &&

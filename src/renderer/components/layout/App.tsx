@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { GOOGLE_DOCS_ENABLED } from '../../lib/featureFlags'
 import { Toolbar } from './Toolbar'
 import { UpdateBanner } from './UpdateBanner'
 import { StatusBar } from './StatusBar'
@@ -804,10 +805,10 @@ export function App() {
           window.dispatchEvent(new CustomEvent('menu:closeTab'))
           break
         case 'googleSync':
-          handleGoogleSync()
+          if (GOOGLE_DOCS_ENABLED) handleGoogleSync()
           break
         case 'googleImport':
-          handleGoogleImport()
+          if (GOOGLE_DOCS_ENABLED) handleGoogleImport()
           break
         case 'showRecentFiles':
           // Open the file list panel and switch to recent view
@@ -939,7 +940,7 @@ export function App() {
         <AIConsentDialog />
 
         {/* Google Docs Import Dialog */}
-        <AlertDialog open={importDialogOpen} onOpenChange={(open) => {
+        <AlertDialog open={GOOGLE_DOCS_ENABLED && importDialogOpen} onOpenChange={(open) => {
           if (!open) {
             setImportDialogOpen(false)
             setImportDocId('')

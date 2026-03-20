@@ -6,6 +6,7 @@ import { useTabs } from '../../hooks/useTabs'
 import { useSummaryStore } from '../../stores/summaryStore'
 import { useRemarkableSync } from '../../hooks/useRemarkableSync'
 import { useGoogleDocsSync } from '../../hooks/useGoogleDocsSync'
+import { GOOGLE_DOCS_ENABLED, REMARKABLE_ENABLED } from '../../lib/featureFlags'
 import { useExplorerActions } from '../../hooks/useExplorerActions'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useEditorStore } from '../../stores/editorStore'
@@ -71,8 +72,8 @@ export function FileListPanel() {
   const { isSyncing, sync, error: syncError } = useRemarkableSync()
   const { isSyncing: isGoogleSyncing, sync: googleSync, error: googleSyncError } = useGoogleDocsSync()
   const { setDialogOpen } = useSettings()
-  const remarkableEnabled = useSettingsStore((state) => state.settings.remarkable?.enabled && !!state.settings.remarkable?.deviceToken)
-  const googleConnected = useSettingsStore((state) => !!state.settings.google)
+  const remarkableEnabled = useSettingsStore((state) => REMARKABLE_ENABLED && state.settings.remarkable?.enabled && !!state.settings.remarkable?.deviceToken)
+  const googleConnected = useSettingsStore((state) => GOOGLE_DOCS_ENABLED && !!state.settings.google)
   const googleSyncDirectory = useSettingsStore((state) => state.settings.google?.syncDirectory)
 
   // Switch away from notebooks view if reMarkable becomes disconnected
@@ -81,6 +82,13 @@ export function FileListPanel() {
       setViewMode('folder')
     }
   }, [remarkableEnabled, viewMode, setViewMode])
+
+  // Switch away from Google Docs view if not connected/enabled
+  useEffect(() => {
+    if (!googleConnected && viewMode === 'googledocs') {
+      setViewMode('folder')
+    }
+  }, [googleConnected, viewMode, setViewMode])
 
   // Explorer panel ref for scoped keyboard shortcuts
   const containerRef = useRef<HTMLDivElement>(null)

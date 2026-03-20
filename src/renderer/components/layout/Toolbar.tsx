@@ -8,6 +8,7 @@ import { useSettings } from '../../hooks/useSettings'
 import { usePanelLayoutContext } from '../../hooks/usePanelLayout'
 import { isMacOS, getApi } from '../../lib/browserApi'
 import { useTabTier } from '../../hooks/useTabTier'
+import { GOOGLE_DOCS_ENABLED } from '../../lib/featureFlags'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import {
@@ -100,6 +101,7 @@ export function Toolbar() {
 
   // Check Google connection status on mount and when settings change
   useEffect(() => {
+    if (!GOOGLE_DOCS_ENABLED) return
     // First check settings for cached picture
     if (settings.google?.picture) {
       setGooglePicture(settings.google.picture)
@@ -356,7 +358,7 @@ export function Toolbar() {
             <TooltipContent>Toggle theme</TooltipContent>
           </Tooltip>
 
-          <Tooltip>
+          {GOOGLE_DOCS_ENABLED && <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
@@ -459,7 +461,7 @@ export function Toolbar() {
             <TooltipContent>
               {googlePicture ? 'Open Google Docs' : 'Connect Google account'}
             </TooltipContent>
-          </Tooltip>
+          </Tooltip>}
 
           <Tooltip>
             <TooltipTrigger asChild>

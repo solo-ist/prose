@@ -188,6 +188,21 @@ Zustand stores in `src/renderer/stores/`:
 - `commandHistoryStore` - Per-tool argument history, persisted to IndexedDB
 - `linkHoverStore` - Currently hovered link URL for tooltip
 
+### Feature Flags
+
+`src/renderer/lib/featureFlags.ts` gates features that aren't ready for public release. Flags default to `false` but can be overridden at runtime via `localStorage` without rebuilding:
+
+```js
+localStorage.setItem('ff:google-docs', 'true')  // enable Google Docs
+localStorage.setItem('ff:remarkable', 'true')    // enable reMarkable
+```
+
+Current flags:
+- `GOOGLE_DOCS_ENABLED` — Google Docs bidirectional sync (v1.1)
+- `REMARKABLE_ENABLED` — reMarkable tablet sync (v1.1)
+
+When gating a feature, import the flag and use it to guard UI rendering, background effects, and menu handlers. Preserve all code — gate, don't delete.
+
 ### IndexedDB Schema Changes
 
 Client-side persistence uses IndexedDB (`src/renderer/lib/persistence.ts`). When modifying the schema:

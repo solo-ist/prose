@@ -190,18 +190,18 @@ Zustand stores in `src/renderer/stores/`:
 
 ### Feature Flags
 
-`src/renderer/lib/featureFlags.ts` gates features that aren't ready for public release. Flags default to `false` but can be overridden at runtime via `localStorage` without rebuilding:
+`src/renderer/lib/featureFlags.ts` gates features that aren't ready for public release. Flags are persisted in `~/.prose/settings.json` under the `featureFlags` key and default to `false`.
 
-```js
-localStorage.setItem('ff:google-docs', 'true')  // enable Google Docs
-localStorage.setItem('ff:remarkable', 'true')    // enable reMarkable
+To enable a feature without rebuilding, add to `~/.prose/settings.json`:
+```json
+"featureFlags": { "googleDocs": true, "remarkable": true }
 ```
 
 Current flags:
-- `GOOGLE_DOCS_ENABLED` — Google Docs bidirectional sync (v1.1)
-- `REMARKABLE_ENABLED` — reMarkable tablet sync (v1.1)
+- `googleDocs` — Google Docs bidirectional sync (v1.1)
+- `remarkable` — reMarkable tablet sync (v1.1)
 
-When gating a feature, import the flag and use it to guard UI rendering, background effects, and menu handlers. Preserve all code — gate, don't delete.
+The module exports React hooks (`useGoogleDocsEnabled`, `useRemarkableEnabled`) for use in components and non-hook accessors (`isGoogleDocsEnabled`, `isRemarkableEnabled`) for use in callbacks. When gating a feature, import the appropriate function and use it to guard UI rendering, background effects, and menu handlers. Preserve all code — gate, don't delete.
 
 ### IndexedDB Schema Changes
 

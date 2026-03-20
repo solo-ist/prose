@@ -1,27 +1,34 @@
 /**
  * Feature flags for gating v1.1 features.
  *
- * To enable a feature locally without rebuilding:
- *   localStorage.setItem('ff:google-docs', 'true')
- *   localStorage.setItem('ff:remarkable', 'true')
- * Then reload the app (Cmd+R).
+ * Flags are persisted in ~/.prose/settings.json under `featureFlags`.
+ * To enable a feature without rebuilding, add to settings.json:
  *
- * To disable again:
- *   localStorage.removeItem('ff:google-docs')
+ *   "featureFlags": { "googleDocs": true, "remarkable": true }
+ *
+ * Then relaunch the app.
  */
 
-function isEnabled(key: string, defaultValue: boolean): boolean {
-  try {
-    const override = localStorage.getItem(`ff:${key}`)
-    if (override !== null) return override === 'true'
-  } catch {
-    // localStorage unavailable (e.g., in tests)
-  }
-  return defaultValue
-}
+import { useSettingsStore } from '../stores/settingsStore'
+
+// --- React hooks (for use in components) ---
 
 /** Google Docs bidirectional sync — waitlisted for v1.1 */
-export const GOOGLE_DOCS_ENABLED = isEnabled('google-docs', false)
+export function useGoogleDocsEnabled(): boolean {
+  return useSettingsStore((s) => s.settings.featureFlags?.googleDocs === true)
+}
 
 /** reMarkable tablet sync — waitlisted for v1.1 */
-export const REMARKABLE_ENABLED = isEnabled('remarkable', false)
+export function useRemarkableEnabled(): boolean {
+  return useSettingsStore((s) => s.settings.featureFlags?.remarkable === true)
+}
+
+// --- Non-hook accessors (for use outside React components) ---
+
+export function isGoogleDocsEnabled(): boolean {
+  return useSettingsStore.getState().settings.featureFlags?.googleDocs === true
+}
+
+export function isRemarkableEnabled(): boolean {
+  return useSettingsStore.getState().settings.featureFlags?.remarkable === true
+}

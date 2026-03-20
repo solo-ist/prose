@@ -50,6 +50,10 @@ export interface Settings {
     enabled: boolean
     enabledAt?: string      // ISO timestamp of when user enabled
   }
+  featureFlags?: {
+    googleDocs?: boolean
+    remarkable?: boolean
+  }
 }
 
 export interface Document {

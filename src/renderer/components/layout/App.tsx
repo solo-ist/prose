@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { GOOGLE_DOCS_ENABLED } from '../../lib/featureFlags'
+import { useGoogleDocsEnabled, isGoogleDocsEnabled } from '../../lib/featureFlags'
 import { Toolbar } from './Toolbar'
 import { UpdateBanner } from './UpdateBanner'
 import { StatusBar } from './StatusBar'
@@ -69,6 +69,7 @@ export function App() {
   const panelLayout = usePanelLayout({ fileListPanelRef, chatPanelRef })
   const { isChatOpen, isFileListOpen, toggleChat, toggleFileList, setChatOpen, panelSizes } = panelLayout
 
+  const googleDocsEnabled = useGoogleDocsEnabled()
   const { openFile, openFileFromPath, saveFile, saveFileAs, newFile } = useEditor()
   const { createNewTab, openFileInTab } = useTabs()
   const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, isAboutDialogOpen, setAboutDialogOpen, isModelPickerOpen, setModelPickerOpen, settings, autosaveActive, isLoaded: settingsLoaded } = useSettings()
@@ -805,10 +806,10 @@ export function App() {
           window.dispatchEvent(new CustomEvent('menu:closeTab'))
           break
         case 'googleSync':
-          if (GOOGLE_DOCS_ENABLED) handleGoogleSync()
+          if (isGoogleDocsEnabled()) handleGoogleSync()
           break
         case 'googleImport':
-          if (GOOGLE_DOCS_ENABLED) handleGoogleImport()
+          if (isGoogleDocsEnabled()) handleGoogleImport()
           break
         case 'showRecentFiles':
           // Open the file list panel and switch to recent view
@@ -940,7 +941,7 @@ export function App() {
         <AIConsentDialog />
 
         {/* Google Docs Import Dialog */}
-        <AlertDialog open={GOOGLE_DOCS_ENABLED && importDialogOpen} onOpenChange={(open) => {
+        <AlertDialog open={googleDocsEnabled && importDialogOpen} onOpenChange={(open) => {
           if (!open) {
             setImportDialogOpen(false)
             setImportDocId('')

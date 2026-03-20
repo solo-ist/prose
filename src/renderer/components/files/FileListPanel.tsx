@@ -6,7 +6,7 @@ import { useTabs } from '../../hooks/useTabs'
 import { useSummaryStore } from '../../stores/summaryStore'
 import { useRemarkableSync } from '../../hooks/useRemarkableSync'
 import { useGoogleDocsSync } from '../../hooks/useGoogleDocsSync'
-import { GOOGLE_DOCS_ENABLED, REMARKABLE_ENABLED } from '../../lib/featureFlags'
+import { useGoogleDocsEnabled, useRemarkableEnabled } from '../../lib/featureFlags'
 import { useExplorerActions } from '../../hooks/useExplorerActions'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useEditorStore } from '../../stores/editorStore'
@@ -72,8 +72,10 @@ export function FileListPanel() {
   const { isSyncing, sync, error: syncError } = useRemarkableSync()
   const { isSyncing: isGoogleSyncing, sync: googleSync, error: googleSyncError } = useGoogleDocsSync()
   const { setDialogOpen } = useSettings()
-  const remarkableEnabled = useSettingsStore((state) => REMARKABLE_ENABLED && state.settings.remarkable?.enabled && !!state.settings.remarkable?.deviceToken)
-  const googleConnected = useSettingsStore((state) => GOOGLE_DOCS_ENABLED && !!state.settings.google)
+  const remarkableFlag = useRemarkableEnabled()
+  const googleDocsFlag = useGoogleDocsEnabled()
+  const remarkableEnabled = useSettingsStore((state) => remarkableFlag && state.settings.remarkable?.enabled && !!state.settings.remarkable?.deviceToken)
+  const googleConnected = useSettingsStore((state) => googleDocsFlag && !!state.settings.google)
   const googleSyncDirectory = useSettingsStore((state) => state.settings.google?.syncDirectory)
 
   // Switch away from notebooks view if reMarkable becomes disconnected

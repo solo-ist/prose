@@ -8,7 +8,7 @@ import { useSettings } from '../../hooks/useSettings'
 import { usePanelLayoutContext } from '../../hooks/usePanelLayout'
 import { isMacOS, getApi } from '../../lib/browserApi'
 import { useTabTier } from '../../hooks/useTabTier'
-import { GOOGLE_DOCS_ENABLED } from '../../lib/featureFlags'
+import { useGoogleDocsEnabled } from '../../lib/featureFlags'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import {
@@ -84,6 +84,7 @@ export function Toolbar() {
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
   const isPreviewTab = useEditorStore((state) => state.isPreviewTab)
   const isGoogleSyncing = useFileListStore((state) => state.isGoogleSyncing)
+  const googleDocsEnabled = useGoogleDocsEnabled()
 
   const [hasCopied, setHasCopied] = useState(false)
   const [googlePicture, setGooglePicture] = useState<string | null>(null)
@@ -101,7 +102,7 @@ export function Toolbar() {
 
   // Check Google connection status on mount and when settings change
   useEffect(() => {
-    if (!GOOGLE_DOCS_ENABLED) return
+    if (!googleDocsEnabled) return
     // First check settings for cached picture
     if (settings.google?.picture) {
       setGooglePicture(settings.google.picture)
@@ -121,7 +122,7 @@ export function Toolbar() {
       }
     }
     checkGoogleConnection()
-  }, [settings.google])
+  }, [settings.google, googleDocsEnabled])
 
   // Tab close confirmation state
   const [pendingCloseTabId, setPendingCloseTabId] = useState<string | null>(null)
@@ -358,7 +359,7 @@ export function Toolbar() {
             <TooltipContent>Toggle theme</TooltipContent>
           </Tooltip>
 
-          {GOOGLE_DOCS_ENABLED && <Tooltip>
+          {googleDocsEnabled && <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"

@@ -241,7 +241,7 @@ jobs:
 
       - name: Dispatch auto-fix if routed
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           REPO: ${{ github.repository }}
         run: |
@@ -278,7 +278,7 @@ jobs:
 
       - name: Apply labels
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           REPO: ${{ github.repository }}
         run: |

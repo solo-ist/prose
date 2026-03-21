@@ -4,7 +4,7 @@ directories:
   buildResources: build
   output: dist
 
-afterPack: build/afterPack.js
+afterPack: build/afterPack.cjs
 
 publish:
   provider: github
@@ -33,12 +33,15 @@ fileAssociations:
 
 mac:
   category: public.app-category.productivity
-  identity: null
+  identity: Developer ID Application
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
   target:
     - dmg
     - zip
     - dir
-  entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     UTImportedTypeDeclarations:
       - UTTypeIdentifier: net.daringfireball.markdown

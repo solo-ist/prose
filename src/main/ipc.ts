@@ -1203,6 +1203,10 @@ export function setupIpcHandlers(): void {
 
   // MCP: Install server
   ipcMain.handle('mcp:install', async (): Promise<{ success: boolean; error?: string }> => {
+    // @ts-expect-error — __IS_MAS_BUILD__ defined by electron-vite
+    if (typeof __IS_MAS_BUILD__ !== 'undefined' && __IS_MAS_BUILD__) {
+      return { success: false, error: 'MCP server installation is not available in the Mac App Store version.' }
+    }
     const MCP_SERVER_DIR = join(app.getPath('userData'), 'mcp-server')
     const MCP_SERVER_PATH = join(MCP_SERVER_DIR, 'mcp-stdio.js')
     const VERSION_PATH = join(MCP_SERVER_DIR, 'version.json')

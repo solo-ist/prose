@@ -15,6 +15,7 @@
     "preview": "electron-vite preview",
     "postinstall": "electron-builder install-app-deps",
     "build:mac": "npm run build && electron-builder --mac",
+    "build:mas": "MAS_BUILD=1 npm run build && electron-builder --mac mas",
     "build:win": "npm run build && electron-builder --win",
     "build:linux": "npm run build && electron-builder --linux",
     "dev:web": "vite --config vite.web.config.ts",

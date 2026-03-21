@@ -56,6 +56,14 @@ mac:
             - mkd
           public.mime-type: text/markdown
 
+mas:
+  category: public.app-category.productivity
+  entitlements: build/entitlements.mas.plist
+  entitlementsInherit: build/entitlements.mas.inherit.plist
+  hardenedRuntime: false
+  target:
+    - mas
+
 win:
   target:
     - nsis

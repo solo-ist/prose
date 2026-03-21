@@ -279,17 +279,24 @@ app.whenReady().then(async () => {
   }
 
   // Start HTTP/SSE server for MCP communication (Claude Desktop connects here)
-  const mcpServer = getMcpHttpServer()
-  mcpServer.setAuthToken(mcpAuthToken)
+  // MAS builds use sandbox, which prohibits network.server — skip HTTP server
+  // @ts-expect-error — __IS_MAS_BUILD__ defined by electron-vite
+  const isMAS = typeof __IS_MAS_BUILD__ !== 'undefined' && __IS_MAS_BUILD__
+  const mcpServer = isMAS ? null : getMcpHttpServer()
   const MCP_PORT = 9877
   let mcpStarted = false
-  try {
-    await mcpServer.start()
-    mcpStarted = true
-    console.log(`[Main] MCP HTTP server started on port ${MCP_PORT}`)
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : 'Unknown error'
-    console.warn(`[Main] MCP server unavailable (port ${MCP_PORT} may be in use): ${errorMessage}`)
+  if (mcpServer) {
+    mcpServer.setAuthToken(mcpAuthToken)
+    try {
+      await mcpServer.start()
+      mcpStarted = true
+      console.log(`[Main] MCP HTTP server started on port ${MCP_PORT}`)
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+      console.warn(`[Main] MCP server unavailable (port ${MCP_PORT} may be in use): ${errorMessage}`)
+    }
+  } else {
+    console.log('[Main] MCP HTTP server disabled (MAS build)')
   }
 
   app.on('browser-window-created', (_, window) => {
@@ -315,9 +322,11 @@ app.whenReady().then(async () => {
   bridge.setWindow(mainWindow)
 
   // Connect HTTP MCP server to bridge for tool execution
-  mcpServer.setToolInvokeHandler(async (name, args) => {
-    return bridge.executeTool(name, args)
-  })
+  if (mcpServer) {
+    mcpServer.setToolInvokeHandler(async (name, args) => {
+      return bridge.executeTool(name, args)
+    })
+  }
 
   // Send MCP status to renderer once loaded
   mainWindow.webContents.once('did-finish-load', () => {

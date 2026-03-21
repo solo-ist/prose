@@ -1,10 +1,9 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import { is } from '@electron-toolkit/utils'
 
-declare const __IS_MAS_BUILD__: boolean
-
 export async function initAutoUpdater(mainWindow: BrowserWindow): Promise<void> {
-  if (__IS_MAS_BUILD__) {
+  // @ts-expect-error — __IS_MAS_BUILD__ defined by electron-vite
+  if (typeof __IS_MAS_BUILD__ !== 'undefined' && __IS_MAS_BUILD__) {
     console.log('[Updater] Disabled in Mac App Store build')
     return
   }

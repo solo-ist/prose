@@ -5,7 +5,7 @@ type SentryModule = typeof import('@sentry/electron/renderer')
 let sentryModule: SentryModule | null = null
 let initialized = false
 
-const SENTRY_DSN = 'https://fd14a3e064b942f9ec02734f7d26d541@o4511057861476352.ingest.us.sentry.io/4511057863311360'
+const SENTRY_DSN = __SENTRY_DSN__
 
 async function loadSentry(): Promise<SentryModule> {
   if (!sentryModule) {

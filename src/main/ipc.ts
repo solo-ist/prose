@@ -9,8 +9,9 @@ import { clearRecentFiles } from './recentFiles'
 import { refreshMenu } from './menu'
 import { credentialStore } from './credentialStore'
 
-// Credential store key for the LLM provider API key
+// Credential store keys
 const LLM_API_KEY = 'llm-api-key'
+const REMARKABLE_DEVICE_TOKEN = 'remarkable-device-token'
 
 // Content block types for Anthropic API tool use
 interface LLMTextBlock {
@@ -464,11 +465,27 @@ export function setupIpcHandlers(): void {
         }
       }
 
-      // Inject API key from secure storage
+      // Migration: if plaintext reMarkable device token exists, migrate to secure storage
+      if (credentialStore.isAvailable() && rawSettings.remarkable?.deviceToken) {
+        try {
+          await credentialStore.set(REMARKABLE_DEVICE_TOKEN, rawSettings.remarkable.deviceToken)
+          rawSettings.remarkable = { ...rawSettings.remarkable, deviceToken: '' }
+          await writeFile(SETTINGS_PATH, JSON.stringify(rawSettings, null, 2), 'utf-8')
+          console.log('[settings:load] Migrated plaintext reMarkable device token to secure storage')
+        } catch (err) {
+          console.error('[settings:load] reMarkable token migration failed:', err)
+        }
+      }
+
+      // Inject secrets from secure storage
       if (credentialStore.isAvailable()) {
         const storedKey = await credentialStore.get(LLM_API_KEY)
         if (storedKey) {
           rawSettings.llm = { ...rawSettings.llm, apiKey: storedKey }
+        }
+        const storedToken = await credentialStore.get(REMARKABLE_DEVICE_TOKEN)
+        if (storedToken && rawSettings.remarkable) {
+          rawSettings.remarkable = { ...rawSettings.remarkable, deviceToken: storedToken }
         }
       }
 
@@ -489,16 +506,30 @@ export function setupIpcHandlers(): void {
         if (apiKey) {
           await credentialStore.set(LLM_API_KEY, apiKey)
         }
+
+        // Store reMarkable device token securely
+        if (settings.remarkable?.deviceToken) {
+          await credentialStore.set(REMARKABLE_DEVICE_TOKEN, settings.remarkable.deviceToken)
+        }
+
         // Don't delete stored key when apiKey is empty — preserves the
         // credential if the field is momentarily cleared during editing
-        const settingsToSave = { ...settings, llm: { ...llmWithoutKey, apiKey: '' } }
+        const settingsToSave = {
+          ...settings,
+          llm: { ...llmWithoutKey, apiKey: '' },
+          ...(settings.remarkable ? { remarkable: { ...settings.remarkable, deviceToken: '' } } : {})
+        }
         await writeFile(SETTINGS_PATH, JSON.stringify(settingsToSave, null, 2), 'utf-8')
       } else {
-        // Secure storage unavailable — save settings but strip the API key
+        // Secure storage unavailable — save settings but strip secrets
         // to avoid storing credentials in plaintext on disk
-        console.warn('[settings:save] Secure storage unavailable, API key will not be persisted')
+        console.warn('[settings:save] Secure storage unavailable, secrets will not be persisted')
         const { apiKey: _stripped, ...llmWithoutKey } = settings.llm
-        const settingsToSave = { ...settings, llm: { ...llmWithoutKey, apiKey: '' } }
+        const settingsToSave = {
+          ...settings,
+          llm: { ...llmWithoutKey, apiKey: '' },
+          ...(settings.remarkable ? { remarkable: { ...settings.remarkable, deviceToken: '' } } : {})
+        }
         await writeFile(SETTINGS_PATH, JSON.stringify(settingsToSave, null, 2), 'utf-8')
       }
     } catch (error) {

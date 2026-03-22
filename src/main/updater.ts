@@ -18,7 +18,9 @@ export async function initAutoUpdater(mainWindow: BrowserWindow): Promise<void> 
 
     autoUpdater.autoDownload = false
     autoUpdater.autoInstallOnAppQuit = true
-    autoUpdater.allowPrerelease = true
+    autoUpdater.allowPrerelease = false
+
+    let updateDownloaded = false
 
     autoUpdater.on('update-available', (info) => {
       console.log('[Updater] Update available:', info.version)
@@ -42,6 +44,7 @@ export async function initAutoUpdater(mainWindow: BrowserWindow): Promise<void> 
     })
 
     autoUpdater.on('update-downloaded', (info) => {
+      updateDownloaded = true
       console.log('[Updater] Update downloaded:', info.version)
       if (!mainWindow.isDestroyed()) {
         mainWindow.webContents.send('updater:update-downloaded', {
@@ -61,6 +64,7 @@ export async function initAutoUpdater(mainWindow: BrowserWindow): Promise<void> 
     })
 
     ipcMain.handle('updater:install', () => {
+      if (!updateDownloaded) return
       autoUpdater.quitAndInstall()
     })
 

@@ -24,6 +24,8 @@ jobs:
 
       - name: Build app
         run: npm run build
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
 
       - name: Build, sign, notarize & publish macOS
         run: npx electron-builder --mac --publish always

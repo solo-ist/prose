@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <!-- Required for Electron's V8 JIT -->
-    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <key>com.apple.security.cs.allow-jit</key>
     <true/>
     <!-- Anthropic API, auto-update checks, Sentry -->
     <key>com.apple.security.network.client</key>

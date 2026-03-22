@@ -11,6 +11,7 @@ module.exports = async function afterPack(context) {
   let executableName
   switch (electronPlatformName) {
     case 'darwin':
+    case 'mas':
       executableName = path.join(appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'MacOS', context.packager.appInfo.productFilename)
       break
     case 'win32':

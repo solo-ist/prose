@@ -58,7 +58,7 @@ mac:
 
 mas:
   category: public.app-category.productivity
-  identity: Apple Distribution
+  identity: 8PT2Y7QQ2F
   provisioningProfile: build/Prose_Distribution.provisionprofile
   entitlements: build/entitlements.mas.plist
   entitlementsInherit: build/entitlements.mas.inherit.plist

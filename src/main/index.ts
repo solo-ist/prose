@@ -30,6 +30,7 @@ import { createMenu } from './menu'
 import { getMcpHttpServer, getMcpBridge, getMcpSocketServer } from './mcp'
 import { initializeSpellcheck, setupContextMenu } from './spellcheck'
 import { initAutoUpdater } from './updater'
+import { isMASBuild } from './env'
 
 console.log('[Main] Environment loaded. OCR URL:', process.env.REMARKABLE_OCR_URL ? 'set' : 'not set')
 console.log('[Main] Google configured:', process.env.GOOGLE_CLIENT_ID ? 'ID set' : 'ID missing', process.env.GOOGLE_CLIENT_SECRET ? 'Secret set' : 'Secret missing')
@@ -280,8 +281,7 @@ app.whenReady().then(async () => {
 
   // Start HTTP/SSE server for MCP communication (Claude Desktop connects here)
   // MAS builds use sandbox, which prohibits network.server — skip HTTP server
-  // @ts-expect-error — __IS_MAS_BUILD__ defined by electron-vite
-  const isMAS = typeof __IS_MAS_BUILD__ !== 'undefined' && __IS_MAS_BUILD__
+  const isMAS = isMASBuild()
   const mcpServer = isMAS ? null : getMcpHttpServer()
   const MCP_PORT = 9877
   let mcpStarted = false

@@ -1099,7 +1099,7 @@ export function setupIpcHandlers(): void {
       }).toString().trim()
       const lines = result.split('\n')
       const bundleId = lines[2] // Third line is bundle ID
-      return bundleId === 'com.prose.app' || bundleId?.toLowerCase().includes('prose')
+      return bundleId === 'ist.solo.prose' || bundleId?.toLowerCase().includes('prose')
     } catch {
       return null // Can't determine - that's fine
     }

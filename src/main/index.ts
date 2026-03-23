@@ -215,7 +215,7 @@ app.on('certificate-error', (event, _webContents, _url, _error, _certificate, ca
 })
 
 app.whenReady().then(async () => {
-  electronApp.setAppUserModelId('com.prose.app')
+  electronApp.setAppUserModelId('ist.solo.prose')
 
   // Deny all permission requests and checks — the app needs no special permissions (camera, mic, geolocation, etc.)
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {

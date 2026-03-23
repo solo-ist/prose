@@ -1,4 +1,4 @@
-appId: com.prose.app
+appId: ist.solo.prose
 productName: Prose
 directories:
   buildResources: build
@@ -65,6 +65,10 @@ mas:
   hardenedRuntime: false
   target:
     - mas
+
+masDev:
+  identity: Apple Development
+  provisioningProfile: build/Prose_Development.provisionprofile
 
 win:
   target:

@@ -44,6 +44,7 @@ mac:
     - zip
     - dir
   extendInfo:
+    ITSAppUsesNonExemptEncryption: false
     UTImportedTypeDeclarations:
       - UTTypeIdentifier: net.daringfireball.markdown
         UTTypeDescription: Markdown Document

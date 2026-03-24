@@ -2,8 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- Inherit parent sandbox -->
+    <!-- App Sandbox required by App Store validation -->
     <key>com.apple.security.app-sandbox</key>
+    <true/>
+    <!-- Inherit parent's sandbox container instead of creating a new one -->
+    <key>com.apple.security.inherit</key>
     <true/>
     <!-- Child processes need JIT for V8 -->
     <key>com.apple.security.cs.allow-jit</key>

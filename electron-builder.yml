@@ -1,6 +1,6 @@
 appId: ist.solo.prose
 productName: Prose
-buildVersion: "5"
+buildVersion: "7"
 directories:
   buildResources: build
   output: dist
@@ -67,6 +67,9 @@ mas:
   hardenedRuntime: false
   target:
     - mas
+  files:
+    - "!node_modules/@sentry/cli-darwin/**"
+    - "!node_modules/@sentry/cli/**"
 
 masDev:
   identity: Apple Development

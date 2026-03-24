@@ -1,4 +1,5 @@
 import { ipcMain, dialog, app, shell, BrowserWindow } from 'electron'
+import { IS_MAS_BUILD } from './env'
 import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat, copyFile } from 'fs/promises'
 import { join, dirname, normalize, isAbsolute } from 'path'
 import { randomUUID } from 'crypto'
@@ -1112,8 +1113,7 @@ export function setupIpcHandlers(): void {
 
   // Google: Start OAuth flow
   ipcMain.handle('google:startAuth', async () => {
-    // @ts-expect-error — __IS_MAS_BUILD__ defined by electron-vite
-    if (typeof __IS_MAS_BUILD__ !== 'undefined' && __IS_MAS_BUILD__) {
+    if (IS_MAS_BUILD) {
       return { success: false, error: 'Google Docs sync is not available in the Mac App Store version.' }
     }
     const { startOAuthFlow } = await import('./google/auth')
@@ -1234,8 +1234,7 @@ export function setupIpcHandlers(): void {
 
   // MCP: Install server
   ipcMain.handle('mcp:install', async (): Promise<{ success: boolean; error?: string }> => {
-    // @ts-expect-error — __IS_MAS_BUILD__ defined by electron-vite
-    if (typeof __IS_MAS_BUILD__ !== 'undefined' && __IS_MAS_BUILD__) {
+    if (IS_MAS_BUILD) {
       return { success: false, error: 'MCP server installation is not available in the Mac App Store version.' }
     }
     const MCP_SERVER_DIR = join(app.getPath('userData'), 'mcp-server')

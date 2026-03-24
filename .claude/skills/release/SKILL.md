@@ -106,22 +106,32 @@ codesign -d --entitlements - dist/mas-arm64/Prose.app 2>&1 | head -20
 
 **Entitlements must NOT include:** `network.server`, `get-task-allow`
 
-### 4. Report
+### 4. Upload to App Store Connect
+
+```bash
+xcrun altool --upload-app \
+  --type macos \
+  --file dist/mas-arm64/Prose-1.0.0-arm64.pkg \
+  --apiKey 73DLM4525G \
+  --apiIssuer f46c81a3-3264-4e9d-9b2f-93de6a302175
+```
+
+The API key `.p8` file lives at `~/.appstoreconnect/private_keys/AuthKey_73DLM4525G.p8`.
+
+### 5. Report
 
 ```
-## MAS Build Ready
+## MAS Build Uploaded
 
-- **Version:** 1.0.0 (build 2)
-- **Package:** dist/mas-arm64/Prose-1.0.0-arm64.pkg (XXX MB)
+- **Version:** <version> (build <N>)
+- **Package:** dist/mas-arm64/Prose-<version>-arm64.pkg
 - **Signed:** Apple Distribution + 3rd Party Mac Developer Installer
-- **Profile:** Prose_Distribution.provisionprofile
+- **Delivery UUID:** <from upload output>
 
 ### Next steps
-1. Open **Transporter** and drag in the `.pkg`
-2. Click **Deliver**
-3. Wait for processing in App Store Connect (~10 min)
-4. Test via **TestFlight** on your Mac
-5. When satisfied, submit for App Store review
+1. Wait for processing in App Store Connect (~10 min)
+2. Test via **TestFlight** on your Mac
+3. When satisfied, submit for App Store review
 ```
 
 ---
@@ -245,7 +255,17 @@ git commit -m "chore(build): bump build number to <N>"
 git push origin <branch>
 ```
 
-Report the new `.pkg` path for Transporter upload.
+### 5. Upload
+
+```bash
+xcrun altool --upload-app \
+  --type macos \
+  --file dist/mas-arm64/Prose-1.0.0-arm64.pkg \
+  --apiKey 73DLM4525G \
+  --apiIssuer f46c81a3-3264-4e9d-9b2f-93de6a302175
+```
+
+Report the delivery UUID and wait for App Store Connect processing.
 
 ---
 

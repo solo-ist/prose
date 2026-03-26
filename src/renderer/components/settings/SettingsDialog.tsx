@@ -272,9 +272,16 @@ export function SettingsDialog() {
                 <Button
                   variant="outline"
                   onClick={async () => {
-                    const folder = await window.api?.selectFolder()
-                    if (folder) {
-                      setDefaultSaveDirectory(folder)
+                    const result = await window.api?.selectFolder()
+                    if (result) {
+                      setDefaultSaveDirectory(result.path)
+                      if (result.bookmark) {
+                        // Persist bookmark for MAS sandbox access across restarts
+                        useSettingsStore.setState((state) => ({
+                          settings: { ...state.settings, masDirectoryBookmark: result.bookmark! }
+                        }))
+                        saveSettings()
+                      }
                     }
                   }}
                 >

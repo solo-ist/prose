@@ -284,7 +284,7 @@ export const browserApi: ElectronAPI = {
   },
 
   // Folder operations - limited in browser mode
-  selectFolder: async (): Promise<string | null> => {
+  selectFolder: async (): Promise<{ path: string; bookmark: string | null } | null> => {
     // Not supported in browser
     return null
   },

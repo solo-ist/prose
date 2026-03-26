@@ -1073,16 +1073,31 @@ export function FileListPanel() {
         ) : (
           // Folder view
           !rootPath ? (
-            <div className="flex h-full flex-col p-4">
-              <p className="text-sm text-muted-foreground">
-                No folder configured. Set up in Settings → Integrations.
+            <div className="flex h-full flex-col items-center justify-center p-4 text-center">
+              <FolderOpen className="h-8 w-8 text-muted-foreground/50 mb-3" />
+              <p className="text-sm text-muted-foreground mb-4">
+                Choose a folder to browse your documents.
               </p>
               <Button
-                variant="ghost"
-                className="mt-6 w-full border border-dashed border-muted-foreground/30 text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground"
-                onClick={() => setDialogOpen(true, 'integrations')}
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  const result = await api?.selectFolder()
+                  if (result) {
+                    setRootPath(result.path)
+                    useSettingsStore.getState().setDefaultSaveDirectory(result.path)
+                    if (result.bookmark) {
+                      useSettingsStore.setState((state) => ({
+                        settings: { ...state.settings, masDirectoryBookmark: result.bookmark! }
+                      }))
+                    }
+                    useSettingsStore.getState().saveSettings()
+                    loadFiles()
+                  }
+                }}
               >
-                <Plus className="h-4 w-4" />
+                <FolderOpen className="h-4 w-4 mr-2" />
+                Choose Folder
               </Button>
             </div>
           ) : (

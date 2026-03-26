@@ -25,6 +25,7 @@ export interface Settings {
     mode: 'silent' | 'prompt'
   }
   defaultSaveDirectory?: string
+  masDirectoryBookmark?: string
   remarkable?: {
     enabled: boolean
     deviceToken?: string

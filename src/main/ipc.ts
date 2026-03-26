@@ -59,6 +59,9 @@ interface LLMStreamRequest extends LLMRequest {
 // Track active streams for abort support
 const activeStreams = new Map<string, AbortController>()
 
+// Security-scoped bookmark stop function (MAS sandbox)
+let stopAccessingBookmark: (() => void) | null = null
+
 const SETTINGS_DIR = join(homedir(), '.prose')
 const SETTINGS_PATH = join(SETTINGS_DIR, 'settings.json')
 const ANTHROPIC_KEY_PATH = join(SETTINGS_DIR, '.remarkable-anthropic-key') // Legacy path for migration
@@ -194,14 +197,30 @@ export function setupIpcHandlers(): void {
   // File: Select folder dialog
   ipcMain.handle('file:selectFolder', async () => {
     const result = await dialog.showOpenDialog({
-      properties: ['openDirectory']
+      properties: ['openDirectory'],
+      ...(IS_MAS_BUILD ? { securityScopedBookmarks: true } : {})
     })
 
     if (result.canceled || result.filePaths.length === 0) {
       return null
     }
 
-    return result.filePaths[0]
+    const path = result.filePaths[0]
+    const bookmark = IS_MAS_BUILD ? (result.bookmarks?.[0] ?? null) : null
+
+    // Activate bookmark access immediately for this session
+    if (IS_MAS_BUILD && bookmark) {
+      if (stopAccessingBookmark) {
+        stopAccessingBookmark()
+      }
+      try {
+        stopAccessingBookmark = app.startAccessingSecurityScopedResource(bookmark)
+      } catch (err) {
+        console.warn('[file:selectFolder] Could not activate bookmark:', err)
+      }
+    }
+
+    return { path, bookmark }
   })
 
   // File: Save to folder with filename
@@ -487,6 +506,26 @@ export function setupIpcHandlers(): void {
         const storedToken = await credentialStore.get(REMARKABLE_DEVICE_TOKEN)
         if (storedToken && rawSettings.remarkable) {
           rawSettings.remarkable = { ...rawSettings.remarkable, deviceToken: storedToken }
+        }
+      }
+
+      // Restore security-scoped bookmark for MAS sandbox directory access
+      if (IS_MAS_BUILD && rawSettings.masDirectoryBookmark) {
+        if (stopAccessingBookmark) {
+          stopAccessingBookmark()
+          stopAccessingBookmark = null
+        }
+        try {
+          stopAccessingBookmark = app.startAccessingSecurityScopedResource(
+            rawSettings.masDirectoryBookmark
+          )
+        } catch (err) {
+          console.warn('[settings:load] Security-scoped bookmark invalid, clearing:', err)
+          rawSettings.masDirectoryBookmark = undefined
+          rawSettings.defaultSaveDirectory = undefined
+          try {
+            await writeFile(SETTINGS_PATH, JSON.stringify(rawSettings, null, 2), 'utf-8')
+          } catch { /* best effort */ }
         }
       }
 

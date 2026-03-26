@@ -100,8 +100,15 @@ export const useFileListStore = create<FileListState>()(
       if (window.api) {
         try {
           const documentsPath = await window.api.getDocumentsPath()
-          set({ rootPath: documentsPath, isInitialized: true })
-          get().loadFiles()
+          // Verify the directory is actually readable (may fail in MAS sandbox)
+          const files = await window.api.listDirectory(documentsPath)
+          if (files && files.length > 0) {
+            set({ rootPath: documentsPath, isInitialized: true })
+            get().loadFiles()
+          } else {
+            // Can't read directory (sandbox) or genuinely empty — show picker prompt
+            set({ isInitialized: true })
+          }
         } catch (error) {
           console.error('Failed to get documents path:', error)
           set({ isInitialized: true })

@@ -379,9 +379,9 @@ function RemarkableSettings({ settings, setRemarkableConfig }: Props) {
               <Button
                 variant="outline"
                 onClick={async () => {
-                  const folder = await window.api?.selectFolder()
-                  if (folder) {
-                    setRemarkableConfig({ syncDirectory: folder })
+                  const result = await window.api?.selectFolder()
+                  if (result) {
+                    setRemarkableConfig({ syncDirectory: result.path })
                   }
                 }}
               >

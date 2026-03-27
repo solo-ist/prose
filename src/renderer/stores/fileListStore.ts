@@ -133,7 +133,10 @@ export const useFileListStore = create<FileListState>()(
         get().loadFiles()
       } else {
         // Parent not accessible — prompt for folder access via Powerbox
-        const result = await window.api.selectFolder(parentPath)
+        const result = await window.api.selectFolder(
+          parentPath,
+          'Select a folder to expand your workspace. Prose needs permission to access folders outside your current directory.'
+        )
         if (result) {
           // User granted access to a new directory
           const { useSettingsStore } = await import('./settingsStore')

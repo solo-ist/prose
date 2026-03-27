@@ -338,7 +338,7 @@ export interface ElectronAPI {
   onLLMStreamComplete: (callback: (complete: LLMStreamComplete) => void) => () => void
   onLLMStreamError: (callback: (error: LLMStreamError) => void) => () => void
   // Folder operations for quick save
-  selectFolder: (defaultPath?: string) => Promise<{ path: string; bookmark: string | null } | null>
+  selectFolder: (defaultPath?: string, message?: string) => Promise<{ path: string; bookmark: string | null } | null>
   saveToFolder: (folder: string, filename: string, content: string) => Promise<string>
   getDocumentsPath: () => Promise<string>
   saveImage: (documentDir: string, base64Data: string, mimeType: string, originalName?: string) => Promise<{ relativePath: string; localFileUrl: string }>

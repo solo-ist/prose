@@ -345,7 +345,7 @@ const api: ElectronAPI = {
   llmChatStream: (request: LLMStreamRequest) => ipcRenderer.invoke('llm:stream', request),
   llmAbortStream: (streamId: string) => ipcRenderer.invoke('llm:stream:abort', streamId),
   // Folder operations for quick save
-  selectFolder: () => ipcRenderer.invoke('file:selectFolder'),
+  selectFolder: (defaultPath?: string) => ipcRenderer.invoke('file:selectFolder', defaultPath),
   saveToFolder: (folder: string, filename: string, content: string) =>
     ipcRenderer.invoke('file:saveToFolder', folder, filename, content),
   getDocumentsPath: () => ipcRenderer.invoke('file:documentsPath'),

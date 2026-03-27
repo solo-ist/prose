@@ -195,9 +195,10 @@ export function setupIpcHandlers(): void {
   })
 
   // File: Select folder dialog
-  ipcMain.handle('file:selectFolder', async () => {
+  ipcMain.handle('file:selectFolder', async (_event, defaultPath?: string) => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory'],
+      ...(defaultPath ? { defaultPath } : {}),
       ...(IS_MAS_BUILD ? { securityScopedBookmarks: true } : {})
     })
 

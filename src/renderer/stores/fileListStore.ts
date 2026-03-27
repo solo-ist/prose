@@ -118,15 +118,36 @@ export const useFileListStore = create<FileListState>()(
       }
     },
 
-    navigateToParent: () => {
+    navigateToParent: async () => {
       const { rootPath } = get()
-      if (!rootPath) return
+      if (!rootPath || !window.api) return
 
       // Get parent directory
       const parentPath = rootPath.split('/').slice(0, -1).join('/')
-      if (parentPath) {
+      if (!parentPath) return
+
+      // Try reading the parent — may fail in MAS sandbox
+      const files = await window.api.listDirectory(parentPath, 1)
+      if (files && files.length > 0) {
         set({ rootPath: parentPath, files: [], expandedFolders: new Set() })
         get().loadFiles()
+      } else {
+        // Parent not accessible — prompt for folder access via Powerbox
+        const result = await window.api.selectFolder(parentPath)
+        if (result) {
+          // User granted access to a new directory
+          const { useSettingsStore } = await import('./settingsStore')
+          useSettingsStore.getState().setDefaultSaveDirectory(result.path)
+          if (result.bookmark) {
+            useSettingsStore.setState((state) => ({
+              settings: { ...state.settings, masDirectoryBookmark: result.bookmark! }
+            }))
+          }
+          useSettingsStore.getState().saveSettings()
+          set({ rootPath: result.path, files: [], expandedFolders: new Set() })
+          get().loadFiles()
+        }
+        // User cancelled — stay where we are
       }
     },
 

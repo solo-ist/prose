@@ -422,7 +422,7 @@ export function SettingsDialog() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value='"IBM Plex Mono", monospace'>
+                  <SelectItem value="'IBM Plex Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace">
                     IBM Plex Mono (Default)
                   </SelectItem>
                   <SelectItem value='"IBM Plex Sans", sans-serif'>
@@ -639,8 +639,8 @@ export function SettingsDialog() {
           </TabsContent>
 
           <TabsContent value="integrations" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={integrationsTabRef}>
-            {!isWebMode() && <McpIntegration />}
-            {!isWebMode() && <Separator />}
+            {!isWebMode() && !window.api?.isMasBuild && <McpIntegration />}
+            {!isWebMode() && !window.api?.isMasBuild && <Separator />}
             <RemarkableIntegration
               settings={settings}
               setRemarkableConfig={setRemarkableConfig}
@@ -661,7 +661,7 @@ export function SettingsDialog() {
           <Button variant="outline" onClick={() => setDialogOpen(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={!!apiKeyFormatError}>Save Changes</Button>
+          <Button onClick={handleSave} disabled={!!apiKeyFormatError && !!settings.llm.apiKey?.trim()}>Save Changes</Button>
         </div>
       </DialogContent>
     </Dialog>

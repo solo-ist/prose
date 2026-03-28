@@ -409,6 +409,8 @@ export interface ElectronAPI {
   clearRecentFiles: () => Promise<void>
   // Sentry error tracking
   sentrySetEnabled: (enabled: boolean) => Promise<void>
+  // Build info
+  isMasBuild?: boolean
   // Auto-updater
   onUpdateAvailable?: (callback: (info: { version: string; releaseNotes?: string }) => void) => () => void
   onDownloadProgress?: (callback: (progress: { percent: number }) => void) => () => void

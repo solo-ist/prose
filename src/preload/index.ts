@@ -189,7 +189,7 @@ export interface ElectronAPI {
   onLLMStreamComplete: (callback: (complete: LLMStreamComplete) => void) => () => void
   onLLMStreamError: (callback: (error: LLMStreamError) => void) => () => void
   // Folder operations for quick save
-  selectFolder: () => Promise<{ path: string; bookmark: string | null } | null>
+  selectFolder: (defaultPath?: string, message?: string) => Promise<{ path: string; bookmark: string | null } | null>
   saveToFolder: (folder: string, filename: string, content: string) => Promise<string>
   getDocumentsPath: () => Promise<string>
   fileExists: (path: string) => Promise<boolean>
@@ -258,6 +258,8 @@ export interface ElectronAPI {
   clearRecentFiles: () => Promise<void>
   // Sentry error tracking
   sentrySetEnabled: (enabled: boolean) => Promise<void>
+  // Build info
+  isMasBuild: boolean
 }
 
 export interface FileItem {
@@ -481,6 +483,8 @@ const api: ElectronAPI = {
   clearRecentFiles: () => ipcRenderer.invoke('recentFiles:clear'),
   // Sentry error tracking
   sentrySetEnabled: (enabled: boolean) => ipcRenderer.invoke('sentry:setEnabled', enabled),
+  // Build info
+  isMasBuild: process.env.MAS_BUILD === '1',
   // Window fullscreen state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, isFullscreen: boolean): void => {

@@ -30,6 +30,29 @@ import { Eye, EyeOff, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
 import { getModelsForProvider, getDefaultModel, type LLMProvider } from '../../../shared/llm/models'
 import { validateApiKeyFormat, validateUrl, maskApiKey } from '../../lib/llm'
 
+/** Extract the primary font name from a CSS font-family stack */
+function extractPrimaryFont(fontFamily: string): string {
+  // Strip quotes and take first font in the stack
+  const primary = fontFamily.split(',')[0].trim().replace(/['"]/g, '')
+  // Map known system stacks to friendly names
+  if (primary === 'ui-monospace') return 'System Mono'
+  if (primary === 'ui-serif') return 'Serif'
+  if (primary === 'ui-sans-serif') return 'Sans Serif'
+  return primary
+}
+
+/** Font CSS stacks keyed by primary font name */
+const FONT_STACKS: Record<string, string> = {
+  'IBM Plex Mono': "'IBM Plex Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
+  'IBM Plex Sans': "'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif",
+  'Fira Mono': "'Fira Mono', ui-monospace, monospace",
+  'Cutive Mono': "'Cutive Mono', ui-monospace, monospace",
+  'Source Code Pro': "'Source Code Pro', ui-monospace, monospace",
+  'System Mono': "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
+  'Serif': "ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif",
+  'Sans Serif': "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+}
+
 export function SettingsDialog() {
   const {
     settings,
@@ -415,35 +438,35 @@ export function SettingsDialog() {
             <div className="space-y-2">
               <Label htmlFor="fontFamily">Font Family</Label>
               <Select
-                value={settings.editor.fontFamily}
-                onValueChange={(value) => setEditorConfig({ fontFamily: value })}
+                value={extractPrimaryFont(settings.editor.fontFamily)}
+                onValueChange={(value) => setEditorConfig({ fontFamily: FONT_STACKS[value] || value })}
               >
                 <SelectTrigger id="fontFamily">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="'IBM Plex Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace">
+                  <SelectItem value="IBM Plex Mono">
                     IBM Plex Mono (Default)
                   </SelectItem>
-                  <SelectItem value='"IBM Plex Sans", sans-serif'>
+                  <SelectItem value="IBM Plex Sans">
                     IBM Plex Sans
                   </SelectItem>
-                  <SelectItem value='"Fira Mono", monospace'>
+                  <SelectItem value="Fira Mono">
                     Fira Mono
                   </SelectItem>
-                  <SelectItem value='"Cutive Mono", monospace'>
+                  <SelectItem value="Cutive Mono">
                     Cutive Mono
                   </SelectItem>
-                  <SelectItem value='"Source Code Pro", monospace'>
+                  <SelectItem value="Source Code Pro">
                     Source Code Pro
                   </SelectItem>
-                  <SelectItem value='ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace'>
+                  <SelectItem value="System Mono">
                     System Mono
                   </SelectItem>
-                  <SelectItem value='ui-serif, Georgia, Cambria, "Times New Roman", Times, serif'>
+                  <SelectItem value="Serif">
                     Serif
                   </SelectItem>
-                  <SelectItem value='ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'>
+                  <SelectItem value="Sans Serif">
                     Sans Serif
                   </SelectItem>
                 </SelectContent>

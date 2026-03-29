@@ -298,6 +298,7 @@ Step-by-step recipes for common extension tasks (settings tab, IPC channel, TipT
 - **Sandbox settings** — `contextIsolation: true`, `nodeIntegration: false` — never change these.
 - **External URLs** — `shell.openExternal` only allows `http:` and `https:` protocols. All others are silently dropped.
 - **CORS** — MCP HTTP server only reflects `localhost`/`127.0.0.1` origins. No wildcard `Access-Control-Allow-Origin`.
+- **App Store submission** — NEVER submit builds for App Store review. Upload to App Store Connect / TestFlight is the automation boundary. Submission for review is always a human decision and action.
 
 ## Sentry Debugging
 

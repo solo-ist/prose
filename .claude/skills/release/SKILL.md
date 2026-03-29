@@ -131,7 +131,9 @@ The API key `.p8` file lives at `~/.appstoreconnect/private_keys/AuthKey_73DLM45
 ### Next steps
 1. Wait for processing in App Store Connect (~10 min)
 2. Test via **TestFlight** on your Mac
-3. When satisfied, submit for App Store review
+3. **HUMAN ONLY:** When satisfied, submit for App Store review manually in App Store Connect
+
+⚠️ **NEVER submit for App Store review programmatically.** This is always a human decision. The automated workflow stops at TestFlight upload.
 ```
 
 ---

@@ -176,17 +176,6 @@ Prose ships two builds from one codebase:
 
 Issues and PRs are welcome. For large changes, please open an issue first to discuss.
 
-```bash
-# Run tests
-npm test
-
-# Lint
-npm run lint
-
-# Type check
-npm run typecheck
-```
-
 Commits generally follow Conventional Commits style.
 
 ---

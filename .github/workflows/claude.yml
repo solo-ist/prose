@@ -27,6 +27,19 @@ jobs:
       issues: write
       id-token: write
     steps:
+      - name: Check commenter permissions
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: context.payload.comment.user.login,
+            });
+            if (!['admin', 'write'].includes(data.permission)) {
+              core.setFailed(`User ${context.payload.comment.user.login} lacks write access`);
+            }
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -120,6 +133,28 @@ jobs:
       id-token: write
       actions: read
     steps:
+      - name: Check actor permissions
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Determine the actor based on event type
+            let username;
+            if (context.eventName === 'issues') {
+              username = context.payload.issue.user.login;
+            } else if (context.eventName === 'pull_request_review') {
+              username = context.payload.review.user.login;
+            } else {
+              username = context.payload.comment.user.login;
+            }
+            const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username,
+            });
+            if (!['admin', 'write'].includes(data.permission)) {
+              core.setFailed(`User ${username} lacks write access`);
+            }
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:

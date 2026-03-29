@@ -1,4 +1,5 @@
 import { ipcMain, dialog, app, shell, BrowserWindow } from 'electron'
+import { IS_MAS_BUILD } from './env'
 import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat, copyFile } from 'fs/promises'
 import { join, dirname, normalize, isAbsolute } from 'path'
 import { randomUUID } from 'crypto'
@@ -9,8 +10,9 @@ import { clearRecentFiles } from './recentFiles'
 import { refreshMenu } from './menu'
 import { credentialStore } from './credentialStore'
 
-// Credential store key for the LLM provider API key
+// Credential store keys
 const LLM_API_KEY = 'llm-api-key'
+const REMARKABLE_DEVICE_TOKEN = 'remarkable-device-token'
 
 // Content block types for Anthropic API tool use
 interface LLMTextBlock {
@@ -56,6 +58,9 @@ interface LLMStreamRequest extends LLMRequest {
 
 // Track active streams for abort support
 const activeStreams = new Map<string, AbortController>()
+
+// Security-scoped bookmark stop function (MAS sandbox)
+let stopAccessingBookmark: (() => void) | null = null
 
 const SETTINGS_DIR = join(homedir(), '.prose')
 const SETTINGS_PATH = join(SETTINGS_DIR, 'settings.json')
@@ -190,16 +195,34 @@ export function setupIpcHandlers(): void {
   })
 
   // File: Select folder dialog
-  ipcMain.handle('file:selectFolder', async () => {
+  ipcMain.handle('file:selectFolder', async (_event, defaultPath?: string, message?: string) => {
     const result = await dialog.showOpenDialog({
-      properties: ['openDirectory']
+      properties: ['openDirectory'],
+      ...(defaultPath ? { defaultPath } : {}),
+      ...(message ? { message } : {}),
+      ...(IS_MAS_BUILD ? { securityScopedBookmarks: true } : {})
     })
 
     if (result.canceled || result.filePaths.length === 0) {
       return null
     }
 
-    return result.filePaths[0]
+    const path = result.filePaths[0]
+    const bookmark = IS_MAS_BUILD ? (result.bookmarks?.[0] ?? null) : null
+
+    // Activate bookmark access immediately for this session
+    if (IS_MAS_BUILD && bookmark) {
+      if (stopAccessingBookmark) {
+        stopAccessingBookmark()
+      }
+      try {
+        stopAccessingBookmark = app.startAccessingSecurityScopedResource(bookmark)
+      } catch (err) {
+        console.warn('[file:selectFolder] Could not activate bookmark:', err)
+      }
+    }
+
+    return { path, bookmark }
   })
 
   // File: Save to folder with filename
@@ -464,11 +487,47 @@ export function setupIpcHandlers(): void {
         }
       }
 
-      // Inject API key from secure storage
+      // Migration: if plaintext reMarkable device token exists, migrate to secure storage
+      if (credentialStore.isAvailable() && rawSettings.remarkable?.deviceToken) {
+        try {
+          await credentialStore.set(REMARKABLE_DEVICE_TOKEN, rawSettings.remarkable.deviceToken)
+          rawSettings.remarkable = { ...rawSettings.remarkable, deviceToken: '' }
+          await writeFile(SETTINGS_PATH, JSON.stringify(rawSettings, null, 2), 'utf-8')
+          console.log('[settings:load] Migrated plaintext reMarkable device token to secure storage')
+        } catch (err) {
+          console.error('[settings:load] reMarkable token migration failed:', err)
+        }
+      }
+
+      // Inject secrets from secure storage
       if (credentialStore.isAvailable()) {
         const storedKey = await credentialStore.get(LLM_API_KEY)
         if (storedKey) {
           rawSettings.llm = { ...rawSettings.llm, apiKey: storedKey }
+        }
+        const storedToken = await credentialStore.get(REMARKABLE_DEVICE_TOKEN)
+        if (storedToken && rawSettings.remarkable) {
+          rawSettings.remarkable = { ...rawSettings.remarkable, deviceToken: storedToken }
+        }
+      }
+
+      // Restore security-scoped bookmark for MAS sandbox directory access
+      if (IS_MAS_BUILD && rawSettings.masDirectoryBookmark) {
+        if (stopAccessingBookmark) {
+          stopAccessingBookmark()
+          stopAccessingBookmark = null
+        }
+        try {
+          stopAccessingBookmark = app.startAccessingSecurityScopedResource(
+            rawSettings.masDirectoryBookmark
+          )
+        } catch (err) {
+          console.warn('[settings:load] Security-scoped bookmark invalid, clearing:', err)
+          rawSettings.masDirectoryBookmark = undefined
+          rawSettings.defaultSaveDirectory = undefined
+          try {
+            await writeFile(SETTINGS_PATH, JSON.stringify(rawSettings, null, 2), 'utf-8')
+          } catch { /* best effort */ }
         }
       }
 
@@ -489,16 +548,30 @@ export function setupIpcHandlers(): void {
         if (apiKey) {
           await credentialStore.set(LLM_API_KEY, apiKey)
         }
+
+        // Store reMarkable device token securely
+        if (settings.remarkable?.deviceToken) {
+          await credentialStore.set(REMARKABLE_DEVICE_TOKEN, settings.remarkable.deviceToken)
+        }
+
         // Don't delete stored key when apiKey is empty — preserves the
         // credential if the field is momentarily cleared during editing
-        const settingsToSave = { ...settings, llm: { ...llmWithoutKey, apiKey: '' } }
+        const settingsToSave = {
+          ...settings,
+          llm: { ...llmWithoutKey, apiKey: '' },
+          ...(settings.remarkable ? { remarkable: { ...settings.remarkable, deviceToken: '' } } : {})
+        }
         await writeFile(SETTINGS_PATH, JSON.stringify(settingsToSave, null, 2), 'utf-8')
       } else {
-        // Secure storage unavailable — save settings but strip the API key
+        // Secure storage unavailable — save settings but strip secrets
         // to avoid storing credentials in plaintext on disk
-        console.warn('[settings:save] Secure storage unavailable, API key will not be persisted')
+        console.warn('[settings:save] Secure storage unavailable, secrets will not be persisted')
         const { apiKey: _stripped, ...llmWithoutKey } = settings.llm
-        const settingsToSave = { ...settings, llm: { ...llmWithoutKey, apiKey: '' } }
+        const settingsToSave = {
+          ...settings,
+          llm: { ...llmWithoutKey, apiKey: '' },
+          ...(settings.remarkable ? { remarkable: { ...settings.remarkable, deviceToken: '' } } : {})
+        }
         await writeFile(SETTINGS_PATH, JSON.stringify(settingsToSave, null, 2), 'utf-8')
       }
     } catch (error) {
@@ -526,7 +599,7 @@ export function setupIpcHandlers(): void {
           const client = new Anthropic({ apiKey })
           // Make a minimal request to validate the key
           await client.messages.create({
-            model: 'claude-3-5-haiku-20241022',
+            model: 'claude-haiku-4-5-20251001',
             max_tokens: 1,
             messages: [{ role: 'user', content: 'Hi' }]
           })
@@ -1068,7 +1141,7 @@ export function setupIpcHandlers(): void {
       }).toString().trim()
       const lines = result.split('\n')
       const bundleId = lines[2] // Third line is bundle ID
-      return bundleId === 'com.prose.app' || bundleId?.toLowerCase().includes('prose')
+      return bundleId === 'ist.solo.prose' || bundleId?.toLowerCase().includes('prose')
     } catch {
       return null // Can't determine - that's fine
     }
@@ -1081,6 +1154,9 @@ export function setupIpcHandlers(): void {
 
   // Google: Start OAuth flow
   ipcMain.handle('google:startAuth', async () => {
+    if (IS_MAS_BUILD) {
+      return { success: false, error: 'Google Docs sync is not available in the Mac App Store version.' }
+    }
     const { startOAuthFlow } = await import('./google/auth')
     return await startOAuthFlow()
   })
@@ -1199,6 +1275,9 @@ export function setupIpcHandlers(): void {
 
   // MCP: Install server
   ipcMain.handle('mcp:install', async (): Promise<{ success: boolean; error?: string }> => {
+    if (IS_MAS_BUILD) {
+      return { success: false, error: 'MCP server installation is not available in the Mac App Store version.' }
+    }
     const MCP_SERVER_DIR = join(app.getPath('userData'), 'mcp-server')
     const MCP_SERVER_PATH = join(MCP_SERVER_DIR, 'mcp-stdio.js')
     const VERSION_PATH = join(MCP_SERVER_DIR, 'version.json')

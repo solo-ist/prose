@@ -1,10 +1,16 @@
-appId: com.prose.app
+appId: ist.solo.prose
 productName: Prose
+buildVersion: "13"
 directories:
   buildResources: build
   output: dist
 
-afterPack: build/afterPack.js
+afterPack: build/afterPack.cjs
+
+publish:
+  provider: github
+  owner: solo-ist
+  repo: prose
 
 files:
   - out/**/*
@@ -28,12 +34,17 @@ fileAssociations:
 
 mac:
   category: public.app-category.productivity
-  identity: null
+  identity: Developer ID Application
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
   target:
     - dmg
+    - zip
     - dir
-  entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
+    ITSAppUsesNonExemptEncryption: false
     UTImportedTypeDeclarations:
       - UTTypeIdentifier: net.daringfireball.markdown
         UTTypeDescription: Markdown Document
@@ -46,6 +57,23 @@ mac:
             - mdown
             - mkd
           public.mime-type: text/markdown
+
+mas:
+  category: public.app-category.productivity
+  identity: 8PT2Y7QQ2F
+  provisioningProfile: build/Prose_Distribution.provisionprofile
+  entitlements: build/entitlements.mas.plist
+  entitlementsInherit: build/entitlements.mas.inherit.plist
+  hardenedRuntime: false
+  target:
+    - mas
+  files:
+    - "!node_modules/@sentry/cli-darwin/**"
+    - "!node_modules/@sentry/cli/**"
+
+masDev:
+  identity: Apple Development
+  provisioningProfile: build/Prose_Development.provisionprofile
 
 win:
   target:

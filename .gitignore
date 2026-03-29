@@ -4,6 +4,7 @@ node_modules/
 # Build outputs
 out/
 dist/
+src/main/env.ts
 
 # Logs
 *.log
@@ -41,3 +42,9 @@ playwright-report/
 
 # MCP config (contains secrets)
 .mcp.json
+
+# Sentry Config File
+.env.sentry-build-plugin
+
+# Apple provisioning profiles (contain Team ID, device UDIDs)
+build/*.provisionprofile

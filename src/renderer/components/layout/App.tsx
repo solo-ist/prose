@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { useGoogleDocsEnabled, isGoogleDocsEnabled } from '../../lib/featureFlags'
 import { Toolbar } from './Toolbar'
+import { UpdateBanner } from './UpdateBanner'
 import { StatusBar } from './StatusBar'
 import { Editor } from '../editor/Editor'
 import { SidebarPanel } from '../sidebar/SidebarPanel'
@@ -67,6 +69,7 @@ export function App() {
   const panelLayout = usePanelLayout({ fileListPanelRef, chatPanelRef })
   const { isChatOpen, isFileListOpen, toggleChat, toggleFileList, setChatOpen, panelSizes } = panelLayout
 
+  const googleDocsEnabled = useGoogleDocsEnabled()
   const { openFile, openFileFromPath, saveFile, saveFileAs, newFile } = useEditor()
   const { createNewTab, openFileInTab } = useTabs()
   const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, isAboutDialogOpen, setAboutDialogOpen, isModelPickerOpen, setModelPickerOpen, settings, autosaveActive, isLoaded: settingsLoaded } = useSettings()
@@ -803,10 +806,10 @@ export function App() {
           window.dispatchEvent(new CustomEvent('menu:closeTab'))
           break
         case 'googleSync':
-          handleGoogleSync()
+          if (isGoogleDocsEnabled()) handleGoogleSync()
           break
         case 'googleImport':
-          handleGoogleImport()
+          if (isGoogleDocsEnabled()) handleGoogleImport()
           break
         case 'showRecentFiles':
           // Open the file list panel and switch to recent view
@@ -877,6 +880,7 @@ export function App() {
     <TooltipProvider delayDuration={300}>
       <div className="flex h-screen flex-col bg-background text-foreground">
         <Toolbar />
+        <UpdateBanner />
 
         <div className="flex-1 overflow-hidden">
           <ResizablePanelGroup
@@ -937,7 +941,7 @@ export function App() {
         <AIConsentDialog />
 
         {/* Google Docs Import Dialog */}
-        <AlertDialog open={importDialogOpen} onOpenChange={(open) => {
+        <AlertDialog open={googleDocsEnabled && importDialogOpen} onOpenChange={(open) => {
           if (!open) {
             setImportDialogOpen(false)
             setImportDocId('')

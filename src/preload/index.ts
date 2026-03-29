@@ -189,7 +189,7 @@ export interface ElectronAPI {
   onLLMStreamComplete: (callback: (complete: LLMStreamComplete) => void) => () => void
   onLLMStreamError: (callback: (error: LLMStreamError) => void) => () => void
   // Folder operations for quick save
-  selectFolder: () => Promise<string | null>
+  selectFolder: (defaultPath?: string, message?: string) => Promise<{ path: string; bookmark: string | null } | null>
   saveToFolder: (folder: string, filename: string, content: string) => Promise<string>
   getDocumentsPath: () => Promise<string>
   fileExists: (path: string) => Promise<boolean>
@@ -258,6 +258,8 @@ export interface ElectronAPI {
   clearRecentFiles: () => Promise<void>
   // Sentry error tracking
   sentrySetEnabled: (enabled: boolean) => Promise<void>
+  // Build info
+  isMasBuild: boolean
 }
 
 export interface FileItem {
@@ -345,7 +347,7 @@ const api: ElectronAPI = {
   llmChatStream: (request: LLMStreamRequest) => ipcRenderer.invoke('llm:stream', request),
   llmAbortStream: (streamId: string) => ipcRenderer.invoke('llm:stream:abort', streamId),
   // Folder operations for quick save
-  selectFolder: () => ipcRenderer.invoke('file:selectFolder'),
+  selectFolder: (defaultPath?: string, message?: string) => ipcRenderer.invoke('file:selectFolder', defaultPath, message),
   saveToFolder: (folder: string, filename: string, content: string) =>
     ipcRenderer.invoke('file:saveToFolder', folder, filename, content),
   getDocumentsPath: () => ipcRenderer.invoke('file:documentsPath'),
@@ -481,6 +483,8 @@ const api: ElectronAPI = {
   clearRecentFiles: () => ipcRenderer.invoke('recentFiles:clear'),
   // Sentry error tracking
   sentrySetEnabled: (enabled: boolean) => ipcRenderer.invoke('sentry:setEnabled', enabled),
+  // Build info
+  isMasBuild: process.env.MAS_BUILD === '1',
   // Window fullscreen state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, isFullscreen: boolean): void => {
@@ -490,7 +494,38 @@ const api: ElectronAPI = {
     return () => {
       ipcRenderer.removeListener('window:fullscreen-change', handler)
     }
-  }
+  },
+  // Auto-updater
+  onUpdateAvailable: (callback: (info: { version: string; releaseNotes?: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, info: { version: string; releaseNotes?: string }): void => {
+      callback(info)
+    }
+    ipcRenderer.on('updater:update-available', handler)
+    return () => {
+      ipcRenderer.removeListener('updater:update-available', handler)
+    }
+  },
+  onDownloadProgress: (callback: (progress: { percent: number }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: { percent: number }): void => {
+      callback(progress)
+    }
+    ipcRenderer.on('updater:download-progress', handler)
+    return () => {
+      ipcRenderer.removeListener('updater:download-progress', handler)
+    }
+  },
+  onUpdateDownloaded: (callback: (info: { version: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, info: { version: string }): void => {
+      callback(info)
+    }
+    ipcRenderer.on('updater:update-downloaded', handler)
+    return () => {
+      ipcRenderer.removeListener('updater:update-downloaded', handler)
+    }
+  },
+  updaterDownload: () => ipcRenderer.invoke('updater:download'),
+  updaterInstall: () => ipcRenderer.invoke('updater:install'),
+  updaterCheck: () => ipcRenderer.invoke('updater:check'),
 }
 
 contextBridge.exposeInMainWorld('api', api)

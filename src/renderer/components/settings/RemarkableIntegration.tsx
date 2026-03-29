@@ -4,8 +4,9 @@ import { Input } from '../ui/input'
 import { Button } from '../ui/button'
 import { Separator } from '../ui/separator'
 import { Switch } from '../ui/switch'
-import { Loader2, ExternalLink, CheckCircle, XCircle, RefreshCw, Settings2, Key, Eye, EyeOff } from 'lucide-react'
+import { Loader2, ExternalLink, CheckCircle, XCircle, RefreshCw, Settings2, Key, Eye, EyeOff, FlaskConical } from 'lucide-react'
 import { NotebookSelectionDialog } from './NotebookSelectionDialog'
+import { useRemarkableEnabled } from '../../lib/featureFlags'
 import { useSettingsStore } from '../../stores/settingsStore'
 import type { Settings } from '../../types'
 
@@ -22,6 +23,48 @@ function hasAnthropicLLMKey(settings: Settings): boolean {
 }
 
 export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) {
+  const enabled = useRemarkableEnabled()
+
+  if (!enabled) {
+    return <RemarkableWaitlist />
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+        <FlaskConical className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+        <span className="text-sm text-amber-700 dark:text-amber-300">
+          reMarkable Sync enabled via feature flag
+        </span>
+      </div>
+      <RemarkableSettings settings={settings} setRemarkableConfig={setRemarkableConfig} />
+    </div>
+  )
+}
+
+function RemarkableWaitlist() {
+  return (
+    <div className="space-y-2">
+      <Label>reMarkable Sync</Label>
+      <p className="text-xs text-muted-foreground font-medium">Coming in v1.1</p>
+      <p className="text-xs text-muted-foreground">
+        Sync handwritten notebooks from your reMarkable tablet. This feature is being prepared
+        for a future release.
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        className="mt-1"
+        onClick={() => window.open('https://github.com/solo-ist/prose/issues/369', '_blank', 'noopener,noreferrer')}
+      >
+        <ExternalLink className="h-3.5 w-3.5 mr-2" />
+        Express interest
+      </Button>
+    </div>
+  )
+}
+
+function RemarkableSettings({ settings, setRemarkableConfig }: Props) {
   const { saveSettings } = useSettingsStore()
   const [code, setCode] = useState('')
   const [isRegistering, setIsRegistering] = useState(false)
@@ -92,7 +135,6 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
       try {
         const key = await window.api.remarkableGetApiKey()
         setHasStoredApiKey(!!key)
-        // Also update settings flag
         if (!!key !== remarkableSettings?.hasAnthropicKey) {
           setRemarkableConfig({ hasAnthropicKey: !!key })
         }
@@ -114,7 +156,6 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
 
     try {
       const response = await window.api.remarkableRegister(code.trim())
-      // Set device token and default sync directory on successful registration
       const config: Partial<NonNullable<Settings['remarkable']>> = {
         deviceToken: response.deviceToken
       }
@@ -158,7 +199,6 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
 
     const syncDir = remarkableSettings.syncDirectory || '~/Documents/reMarkable'
 
-    // If no sync state exists, show selection dialog first
     if (!hasSyncState) {
       setShowSelectionDialog(true)
       return
@@ -207,7 +247,7 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
       await window.api.remarkableStoreApiKey(apiKey.trim())
       setHasStoredApiKey(true)
       setRemarkableConfig({ hasAnthropicKey: true })
-      setApiKey('') // Clear the input after saving
+      setApiKey('')
     } catch (err) {
       setApiKeyError(err instanceof Error ? err.message : 'Failed to save API key')
     } finally {
@@ -232,7 +272,7 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
   const hasToken = !!remarkableSettings?.deviceToken
 
   return (
-    <div className="space-y-4">
+    <>
       <div className="flex items-center justify-between">
         <div className="space-y-0.5">
           <Label htmlFor="remarkable-enabled">reMarkable Sync</Label>
@@ -245,7 +285,6 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
           checked={isEnabled}
           onCheckedChange={(checked) => {
             const config: Partial<NonNullable<Settings['remarkable']>> = { enabled: checked }
-            // Set default sync directory when enabling for the first time
             if (checked && !remarkableSettings?.syncDirectory) {
               config.syncDirectory = '~/Documents/reMarkable'
             }
@@ -258,7 +297,6 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
         <>
           <Separator />
 
-          {/* Connection status */}
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium">Status:</span>
             {isValidating ? (
@@ -279,7 +317,6 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
             )}
           </div>
 
-          {/* Registration flow (when not connected) */}
           {!hasToken && (
             <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-4">
               <p className="text-sm">To connect your reMarkable:</p>
@@ -329,7 +366,6 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
             </div>
           )}
 
-          {/* Sync directory (always shown when enabled) */}
           <div className="space-y-2">
             <Label htmlFor="remarkable-syncdir">Sync Directory</Label>
             <div className="flex gap-2">
@@ -343,9 +379,9 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
               <Button
                 variant="outline"
                 onClick={async () => {
-                  const folder = await window.api?.selectFolder()
-                  if (folder) {
-                    setRemarkableConfig({ syncDirectory: folder })
+                  const result = await window.api?.selectFolder()
+                  if (result) {
+                    setRemarkableConfig({ syncDirectory: result.path })
                   }
                 }}
               >
@@ -357,7 +393,6 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
             </p>
           </div>
 
-          {/* Anthropic API Key for OCR — only shown when not using Anthropic as LLM provider */}
           {hasAnthropicLLMKey(settings) ? (
             <p className="text-xs text-muted-foreground">
               Handwriting recognition uses your Anthropic API key from LLM settings.
@@ -439,19 +474,16 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
             </div>
           )}
 
-          {/* Sync status */}
           {syncStatus && (
             <p className="text-xs text-muted-foreground">{syncStatus}</p>
           )}
 
-          {/* Last synced timestamp */}
           {remarkableSettings?.lastSyncedAt && !syncStatus && (
             <p className="text-xs text-muted-foreground">
               Last synced: {new Date(remarkableSettings.lastSyncedAt).toLocaleString()}
             </p>
           )}
 
-          {/* Action buttons (when connected) */}
           {hasToken && (
             <div className="flex gap-2 flex-wrap">
               <Button
@@ -492,7 +524,6 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
         </>
       )}
 
-      {/* Notebook selection dialog */}
       {remarkableSettings?.deviceToken && (
         <NotebookSelectionDialog
           open={showSelectionDialog}
@@ -502,6 +533,6 @@ export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) 
           onComplete={handleSelectionComplete}
         />
       )}
-    </div>
+    </>
   )
 }

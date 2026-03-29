@@ -3,402 +3,351 @@ name: release
 description: Create a new Prose release with automated testing, GitHub release, and local verification.
 ---
 
-# Release
+# Release Manager
 
-Automates the full release workflow for Prose including regression testing, version management, release notes, GitHub release creation, and local installation verification.
+Manages the full release workflow for Prose across two distribution channels:
+- **Mac App Store** — signed `.pkg` uploaded via Transporter → TestFlight → App Store
+- **GitHub Releases** — signed `.dmg` + `.zip` published to GitHub for direct download + auto-update
 
 ## Usage
 
 ```
-/release [version]
+/release [command]
 ```
 
-If version is omitted, the current version is shown and you'll be prompted to select the next version.
+### Commands
 
-## Workflow
+| Command | Description |
+|---------|-------------|
+| `/release` | Show current version, build number, and release status |
+| `/release mas` | Build and prepare MAS `.pkg` for Transporter upload |
+| `/release github` | Build DMG and create GitHub Release |
+| `/release bump-build` | Increment `buildVersion` and rebuild MAS `.pkg` |
+| `/release bump-version <version>` | Bump marketing version (e.g., `1.1.0`) |
+| `/release status` | Check TestFlight processing, GitHub Release, and CI status |
+| `/release checklist` | Run the pre-release verification checklist |
 
-### 1. Pre-flight Checks
+---
 
-Verify clean state before proceeding:
+## Architecture
+
+### Version Numbers
+
+Two version numbers, managed independently:
+
+- **Marketing version** (`CFBundleShortVersionString`): Set in `package.json` `"version"`. Example: `1.0.0`. This is what users see. Must match the App Store Connect record.
+- **Build number** (`CFBundleVersion`): Set in `electron-builder.yml` `"buildVersion"`. Example: `"2"`. Incremented for each upload to App Store Connect. GitHub Releases don't care about this.
+
+### Signing Identities
+
+| Build | Identity | Profile |
+|-------|----------|---------|
+| DMG (direct download) | `Developer ID Application` | None (notarized via CI) |
+| MAS (App Store) | `Apple Distribution` (via team ID `8PT2Y7QQ2F`) | `build/Prose_Distribution.provisionprofile` |
+| MAS `.pkg` installer | `3rd Party Mac Developer Installer` | N/A |
+
+### Bundle ID
+
+`ist.solo.prose` — used across all builds. Must match provisioning profiles and App Store Connect.
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `package.json` | Marketing version (`"version"`) |
+| `electron-builder.yml` | Build number (`buildVersion`), signing config, targets |
+| `build/entitlements.mac.plist` | DMG entitlements (includes `network.server` for MCP) |
+| `build/entitlements.mas.plist` | MAS entitlements (sandbox, no `network.server`) |
+| `build/entitlements.mas.inherit.plist` | Child process entitlements for MAS |
+| `build/Prose_Distribution.provisionprofile` | MAS distribution profile |
+| `build/afterPack.cjs` | Electron fuse flipping |
+| `.github/workflows/release.yml` | CI: builds signed DMG on `v*` tag push |
+
+---
+
+## Workflow: MAS Release (`/release mas`)
+
+### 1. Pre-flight
 
 ```bash
-# Must be on main branch
-git branch --show-current
-
-# Working tree must be clean (untracked files OK, uncommitted changes not OK)
-git status --porcelain | grep -v "^??" | wc -l
-
-# Current version
-node -p "require('./package.json').version"
-
-# Last release tag
-git tag --list 'v*' --sort=-v:refname | head -1
-
-# Commits since last release
-git log $(git tag --list 'v*' --sort=-v:refname | head -1)..HEAD --oneline
+git branch --show-current          # Must be on release branch or main
+git status --porcelain             # Must be clean
+node -p "require('./package.json').version"   # Current marketing version
+grep buildVersion electron-builder.yml        # Current build number
 ```
 
-**Requirements:**
-- Must be on `main` branch
-- No uncommitted changes (staged or unstaged)
-- At least one commit since last release
+### 2. Build
 
-If pre-flight fails, report what needs to be fixed and stop.
+```bash
+# Clean previous builds
+rm -rf dist/mas-arm64
 
-### 2. Version Bump
+# Build with MAS_BUILD flag (gates HTTP MCP server, auto-updater)
+npm run build:mas
+```
 
-**Parse current version** to suggest next:
-- `0.1.0-alpha.1` → suggest `0.1.0-alpha.2` (next prerelease)
-- `0.1.0-alpha.N` → can also offer `0.1.0-beta.1` or `0.1.0` (stable)
-- `0.1.0` → suggest `0.1.1` (patch), `0.2.0` (minor), `1.0.0` (major)
+### 3. Verify
 
-**Ask user** which version using AskUserQuestion with options:
-- Next prerelease (e.g., `0.1.0-alpha.2`)
-- Next beta (e.g., `0.1.0-beta.1`) — if currently alpha
-- Stable release (e.g., `0.1.0`) — if currently prerelease
-- Custom version (Other option)
+```bash
+# Check .pkg exists
+ls -la dist/mas-arm64/*.pkg
 
-**Update package.json:**
+# Verify version strings
+plutil -p dist/mas-arm64/Prose.app/Contents/Info.plist | grep -E "CFBundleVersion|CFBundleShortVersion"
+
+# Verify code signature
+codesign --verify --deep --strict dist/mas-arm64/Prose.app
+
+# Verify entitlements
+codesign -d --entitlements - dist/mas-arm64/Prose.app 2>&1 | head -20
+```
+
+**Entitlements must include:** `app-sandbox`, `allow-jit`, `network.client`, `files.user-selected.read-write`, `bookmarks.app-scope`
+
+**Entitlements must NOT include:** `network.server`, `get-task-allow`
+
+### 4. Upload to App Store Connect
+
+```bash
+xcrun altool --upload-app \
+  --type macos \
+  --file dist/mas-arm64/Prose-1.0.0-arm64.pkg \
+  --apiKey 73DLM4525G \
+  --apiIssuer f46c81a3-3264-4e9d-9b2f-93de6a302175
+```
+
+The API key `.p8` file lives at `~/.appstoreconnect/private_keys/AuthKey_73DLM4525G.p8`.
+
+### 5. Report
+
+```
+## MAS Build Uploaded
+
+- **Version:** <version> (build <N>)
+- **Package:** dist/mas-arm64/Prose-<version>-arm64.pkg
+- **Signed:** Apple Distribution + 3rd Party Mac Developer Installer
+- **Delivery UUID:** <from upload output>
+
+### Next steps
+1. Wait for processing in App Store Connect (~10 min)
+2. Test via **TestFlight** on your Mac
+3. When satisfied, submit for App Store review
+```
+
+---
+
+## Workflow: GitHub Release (`/release github`)
+
+### 1. Pre-flight
+
+```bash
+git branch --show-current          # Should be main (after PR merge)
+git status --porcelain             # Must be clean
+```
+
+### 2. Build
+
+```bash
+rm -rf dist/mac-arm64
+npm run build:mac
+```
+
+### 3. Verify
+
+```bash
+# Check outputs
+ls -la dist/Prose-*-arm64.dmg dist/Prose-*-arm64-mac.zip
+
+# Verify signature
+codesign --verify --deep --strict dist/mac-arm64/Prose.app
+
+# Verify entitlements include network.server (MCP)
+codesign -d --entitlements - dist/mac-arm64/Prose.app 2>&1 | grep network.server
+```
+
+### 4. Generate Release Notes
+
+```bash
+# Commits since last release
+git log $(git tag --list 'v*' --sort=-v:refname | head -1)..HEAD --oneline --no-merges
+```
+
+Write release notes from commits. Template:
+
+```markdown
+# Prose v<version>
+
+<One sentence description.>
+
+## What's New
+
+- <Feature or fix>
+
+## Installation
+
+### Mac App Store
+Available on the [Mac App Store](link).
+
+### Direct Download
+Download `Prose-<version>-arm64.dmg`, open, and drag to Applications.
+The app is signed and notarized — no security bypass needed.
+
+### Auto-Update
+Existing users will be prompted to update automatically.
+
+## Requirements
+
+- macOS (Apple Silicon)
+- Anthropic API key for AI features ([get one](https://console.anthropic.com/))
+```
+
+### 5. Tag and Publish
+
+```bash
+VERSION=$(node -p "require('./package.json').version")
+
+# Create tag
+git tag "v${VERSION}"
+git push origin "v${VERSION}"
+```
+
+The tag push triggers `release.yml` which builds, signs, notarizes, and publishes the DMG + ZIP to GitHub Releases automatically.
+
+If CI is not available or you want to publish manually:
+
+```bash
+gh release create "v${VERSION}" \
+  --title "Prose v${VERSION}" \
+  --notes-file RELEASE_NOTES.md \
+  "dist/Prose-${VERSION}-arm64.dmg" \
+  "dist/Prose-${VERSION}-arm64-mac.zip"
+```
+
+---
+
+## Workflow: Bump Build Number (`/release bump-build`)
+
+Used when you need to re-upload to App Store Connect (Transporter rejects duplicate version + build combos).
+
+### 1. Read current
+
+```bash
+grep buildVersion electron-builder.yml
+```
+
+### 2. Increment
+
+Edit `electron-builder.yml`: increment `buildVersion` (e.g., `"2"` → `"3"`).
+
+### 3. Rebuild and verify
+
+```bash
+rm -rf dist/mas-arm64
+npm run build:mas
+plutil -p dist/mas-arm64/Prose.app/Contents/Info.plist | grep CFBundleVersion
+```
+
+### 4. Commit
+
+```bash
+git add electron-builder.yml
+git commit -m "chore(build): bump build number to <N>"
+git push origin <branch>
+```
+
+### 5. Upload
+
+```bash
+xcrun altool --upload-app \
+  --type macos \
+  --file dist/mas-arm64/Prose-1.0.0-arm64.pkg \
+  --apiKey 73DLM4525G \
+  --apiIssuer f46c81a3-3264-4e9d-9b2f-93de6a302175
+```
+
+Report the delivery UUID and wait for App Store Connect processing.
+
+---
+
+## Workflow: Bump Marketing Version (`/release bump-version <version>`)
+
+### 1. Update package.json
 
 ```bash
 npm version <version> --no-git-tag-version
 ```
 
-**Commit version bump:**
+### 2. Reset build number
+
+Edit `electron-builder.yml`: set `buildVersion: "1"`.
+
+### 3. Commit
 
 ```bash
-git add package.json package-lock.json
+git add package.json package-lock.json electron-builder.yml
 git commit -m "chore: bump version to <version>"
 ```
 
-### 3. Build
+---
 
-Kill stale processes and build:
+## Workflow: Pre-release Checklist (`/release checklist`)
 
-```bash
-# Kill stale Electron/Vite processes
-pkill -f "Electron.app" 2>/dev/null || true
-pkill -f "electron-vite" 2>/dev/null || true
-
-# Build macOS distributable
-npm run build:mac
-```
-
-**Verify DMG created:**
-
-```bash
-ls -la dist/Prose-*-arm64.dmg
-```
-
-The DMG should be at `dist/Prose-<version>-arm64.dmg`.
-
-### 4. Regression Testing (Circuit Electron)
-
-Run medium-depth smoke tests to verify the build works. Load Circuit Electron tools first:
+Run through this before any release:
 
 ```
-ToolSearch: select:mcp__circuit-electron__app_launch
+## Pre-release Checklist
+
+### Build
+- [ ] `npm run build` succeeds with no errors
+- [ ] `npm run build:mac` produces signed DMG
+- [ ] `npm run build:mas` produces signed .pkg
+- [ ] `codesign --verify --deep --strict` passes on both builds
+
+### App Verification (DMG build)
+- [ ] App launches from dist/mac-arm64/Prose.app
+- [ ] Editor: create file, type, save, reopen
+- [ ] Settings dialog opens and closes without outline
+- [ ] API key test passes (Settings > LLM > Test)
+- [ ] Chat works with valid API key
+- [ ] Feature flags: Google Docs and reMarkable hidden
+- [ ] File explorer: no Google/reMarkable tabs
+- [ ] Body does not scroll off screen
+
+### MAS-specific
+- [ ] HTTP MCP server disabled (check console for log message)
+- [ ] MCP install returns error in MAS build
+- [ ] Auto-updater disabled in MAS build
+
+### Security
+- [ ] No plaintext secrets in ~/.prose/settings.json
+- [ ] DMG entitlements: allow-jit (not allow-unsigned-executable-memory)
+- [ ] MAS entitlements: app-sandbox, no network.server
+- [ ] Fuses flipped (RunAsNode, NodeOptions, CliInspect all false)
+
+### CI
+- [ ] E2E tests pass on PR
+- [ ] Code review clean (no blocking issues)
 ```
-
-#### 4.1 Launch Built App
-
-Launch the packaged app (not dev mode):
-
-```
-mcp__circuit-electron__app_launch (
-  app: "/Users/angelmarino/Code/prose/dist/mac-arm64/Prose.app/Contents/MacOS/Prose",
-  mode: "packaged",
-  includeSnapshots: false
-)
-```
-
-Save the returned `sessionId` for subsequent commands.
-
-#### 4.2 Verify App Opens
-
-```
-mcp__circuit-electron__screenshot (sessionId: <id>)
-```
-
-Take screenshot to confirm app launched successfully. Verify:
-- Editor area is visible
-- Sidebar is visible
-- No error dialogs
-
-#### 4.3 Test Editor Functionality
-
-Type content into editor:
-
-```
-mcp__circuit-electron__evaluate (sessionId: <id>, script: `
-  const editor = document.querySelector('.ProseMirror');
-  if (editor) {
-    editor.innerHTML = '<p>Release test content - ' + new Date().toISOString() + '</p>';
-    editor.dispatchEvent(new Event('input', { bubbles: true }));
-  }
-  editor?.innerText
-`)
-```
-
-Verify content appears in editor.
-
-#### 4.4 Test Settings Dialog
-
-Open settings (Cmd+,):
-
-```
-mcp__circuit-electron__evaluate (sessionId: <id>, script: `
-  document.dispatchEvent(new KeyboardEvent('keydown', { key: ',', metaKey: true, bubbles: true }));
-  'triggered'
-`)
-```
-
-Wait briefly, then verify settings dialog opened:
-
-```
-mcp__circuit-electron__evaluate (sessionId: <id>, script: `
-  document.querySelector('[role="dialog"]')?.innerText || 'no dialog'
-`)
-```
-
-Close settings:
-
-```
-mcp__circuit-electron__evaluate (sessionId: <id>, script: `
-  document.querySelector('[role="dialog"] button[aria-label="Close"]')?.click() ||
-  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-  'closed'
-`)
-```
-
-#### 4.5 Verify Version in About Dialog
-
-Open About dialog (Prose → About Prose menu, or via evaluate):
-
-```
-mcp__circuit-electron__evaluate (sessionId: <id>, script: `
-  // Trigger About dialog via IPC if possible, otherwise look for menu
-  window.api?.showAboutDialog?.() || 'no direct access';
-`)
-```
-
-Since menu access may be limited, ask user to manually verify:
-
-**Manual verification:** Open Prose menu → About Prose and confirm version shows `<version>`.
-
-#### 4.6 Clean Up
-
-```
-mcp__circuit-electron__close (sessionId: <id>)
-```
-
-**Test summary:** Report pass/fail for each test:
-- App launch: PASS/FAIL
-- Editor functionality: PASS/FAIL
-- Settings dialog: PASS/FAIL
-- Version (manual): NEEDS VERIFICATION
-
-If any automated tests fail, stop and report issues.
-
-### 5. Release Notes
-
-Update `RELEASE_NOTES.md` with the new version info. Use this template:
-
-```markdown
-# Prose v<version> — <tagline>
-
-<One sentence description of this release.>
-
-## What's New
-
-- <Feature or fix from commits since last release>
-- <Another change>
-
-## Requirements
-
-- **macOS** (Apple Silicon) — Intel Mac support coming soon
-- **Anthropic API key** — Required for AI features ([get one here](https://console.anthropic.com/))
-
-## Installation
-
-1. Download `Prose-<version>-arm64.dmg`
-2. Open the DMG and drag Prose to Applications
-3. **Important: Unsigned app workaround**
-
-   macOS will show a misleading "damaged" error for unsigned apps downloaded from the internet. The app is not actually damaged. To fix this, open Terminal and run:
-
-   ```bash
-   xattr -cr /Applications/Prose.app
-   ```
-
-   Then open Prose normally. This is only required once after installation.
-
-## Known Limitations
-
-This is an early alpha release:
-
-- macOS only (Windows/Linux builds coming)
-- Apple Silicon only (Intel support coming)
-- App is unsigned — requires manual security bypass
-- No auto-updates yet
-
-## Feedback
-
-Found a bug or have a suggestion? Please open an issue:
-https://github.com/angelmarino/prose/issues
 
 ---
 
-Built with Electron, React, and TipTap.
-```
-
-**Generate "What's New" section** from commits since last release:
-
-```bash
-git log $(git tag --list 'v*' --sort=-v:refname | head -1)..HEAD --oneline --no-merges
-```
-
-Group changes by type (feat, fix, etc.) and write human-readable descriptions.
-
-### 6. Create GitHub Release
-
-Create the release with the DMG attached:
-
-```bash
-# Determine if prerelease (alpha, beta, rc)
-VERSION="<version>"
-PRERELEASE_FLAG=""
-if [[ "$VERSION" == *"alpha"* ]] || [[ "$VERSION" == *"beta"* ]] || [[ "$VERSION" == *"rc"* ]]; then
-  PRERELEASE_FLAG="--prerelease"
-fi
-
-# Create release
-gh release create "v${VERSION}" \
-  --title "Prose v${VERSION}" \
-  --notes-file RELEASE_NOTES.md \
-  $PRERELEASE_FLAG \
-  "dist/Prose-${VERSION}-arm64.dmg"
-```
-
-Verify release was created:
-
-```bash
-gh release view "v<version>"
-```
-
-### 7. Local Installation Verification
-
-Download and install the release to verify the full user experience:
-
-```bash
-# Create temp directory for download
-TEMP_DIR=$(mktemp -d)
-cd "$TEMP_DIR"
-
-# Download DMG from GitHub release
-gh release download "v<version>" --pattern "*.dmg"
-
-# Mount DMG
-hdiutil attach Prose-*-arm64.dmg
-
-# Copy to Applications (will overwrite existing)
-rm -rf /Applications/Prose.app
-cp -R /Volumes/Prose/Prose.app /Applications/
-
-# Unmount DMG
-hdiutil detach /Volumes/Prose
-
-# Run xattr fix
-xattr -cr /Applications/Prose.app
-
-# Clean up temp
-cd -
-rm -rf "$TEMP_DIR"
-```
-
-Launch installed app and verify:
-
-```bash
-open /Applications/Prose.app
-```
-
-**Manual verification:**
-1. App launches without Gatekeeper errors
-2. About dialog shows correct version
-3. Basic editing works
-
-Close the app after verification.
-
-### 8. Push and Cleanup
-
-Push the version commit:
-
-```bash
-git push origin main
-```
-
-Push the tag (created by gh release):
-
-```bash
-git push origin "v<version>"
-```
-
-**Optional:** If this release closes any issues, close them:
-
-```bash
-gh issue close <issue-number> --comment "Released in v<version>"
-```
-
-## Summary Report
-
-At the end, provide a summary:
-
-```
-## Release v<version> Complete
-
-### Artifacts
-- GitHub Release: https://github.com/angelmarino/prose/releases/tag/v<version>
-- DMG: Prose-<version>-arm64.dmg (<size>)
-
-### Tests
-- App launch: PASS
-- Editor functionality: PASS
-- Settings dialog: PASS
-- Local install: PASS
-
-### Next Steps
-- [ ] Announce release (if desired)
-- [ ] Close related issues
-```
-
 ## Troubleshooting
 
-### Build Fails
+### Transporter rejects upload
+- **"Duplicate version"**: Bump `buildVersion` in `electron-builder.yml` and rebuild
+- **"Invalid signature"**: Check that `Apple Distribution` cert is in keychain and not expired
+- **"Missing provisioning profile"**: Verify `build/Prose_Distribution.provisionprofile` exists and bundle ID matches `ist.solo.prose`
 
-```bash
-# Clean and rebuild
-rm -rf out dist node_modules/.cache
-npm run build:mac
-```
+### MAS build fails at signing
+- **"Cannot find valid 3rd Party Mac Developer Installer"**: Use team ID (`8PT2Y7QQ2F`) as identity in `mas:` block, not cert name
+- **afterPack error "Unsupported platform: mas"**: Ensure `build/afterPack.cjs` handles the `mas` case
 
-### Circuit Electron Issues
+### DMG build hangs
+- **Notarization hanging locally**: Don't set `notarize: true` in config. Notarization happens in CI via env vars (`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`). Local builds skip it.
 
-- **App won't launch**: Verify path to executable is correct
-- **Snapshot errors**: Always use `includeSnapshots: false`
-- **"Not connected"**: Circuit Electron MCP may have disconnected, try reloading
+### GitHub Release workflow fails
+- **Missing secrets**: Verify `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, `SENTRY_AUTH_TOKEN` are set in repo secrets
+- **Signing fails in CI**: `CSC_LINK` must be the base64-encoded `.p12` containing the Developer ID Application cert
 
-### GitHub Release Fails
-
-```bash
-# Check authentication
-gh auth status
-
-# Verify DMG exists
-ls -la dist/*.dmg
-```
-
-### Local Install Fails
-
-- **"App is damaged"**: Run `xattr -cr /Applications/Prose.app`
-- **Already running**: Close existing Prose instances first
-- **Permission denied**: May need `sudo` for `/Applications` write
+### TestFlight build won't install
+- **"App can't be opened"**: Distribution-signed MAS builds cannot run locally. Only TestFlight or App Store installs work.

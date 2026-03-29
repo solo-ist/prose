@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Label } from '../ui/label'
 import { Button } from '../ui/button'
-import { Loader2, CheckCircle, XCircle, ExternalLink } from 'lucide-react'
+import { Loader2, CheckCircle, XCircle, ExternalLink, FlaskConical } from 'lucide-react'
+import { useGoogleDocsEnabled } from '../../lib/featureFlags'
 import type { Settings, GoogleConnectionStatus } from '../../types'
 
 interface Props {
@@ -10,6 +11,60 @@ interface Props {
 }
 
 export function GoogleDocsIntegration({ settings, setGoogleConfig }: Props) {
+  const enabled = useGoogleDocsEnabled()
+
+  if (!enabled) {
+    return <GoogleDocsWaitlist />
+  }
+
+  return (
+    <div className="space-y-4">
+      <FeatureFlagBanner label="Google Docs" />
+      <GoogleDocsSettings settings={settings} setGoogleConfig={setGoogleConfig} />
+    </div>
+  )
+}
+
+function FeatureFlagBanner({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+      <FlaskConical className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+      <span className="text-sm text-amber-700 dark:text-amber-300">
+        {label} enabled via feature flag
+      </span>
+    </div>
+  )
+}
+
+function GoogleDocsWaitlist() {
+  return (
+    <div className="space-y-4">
+      <div className="space-y-0.5">
+        <Label>Google Docs</Label>
+        <p className="text-xs text-muted-foreground">
+          Coming in v1.1
+        </p>
+      </div>
+
+      <div className="rounded-lg border border-border bg-muted/30 p-4">
+        <p className="text-sm text-muted-foreground">
+          Bidirectional sync with Google Docs is being prepared for a future release.
+        </p>
+      </div>
+
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => window.open('https://github.com/solo-ist/prose/issues/368', '_blank', 'noopener,noreferrer')}
+      >
+        <ExternalLink className="h-4 w-4 mr-2" />
+        Express interest
+      </Button>
+    </div>
+  )
+}
+
+function GoogleDocsSettings({ settings, setGoogleConfig }: Props) {
   const [isConnecting, setIsConnecting] = useState(false)
   const [isValidating, setIsValidating] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<GoogleConnectionStatus | null>(null)
@@ -47,14 +102,13 @@ export function GoogleDocsIntegration({ settings, setGoogleConfig }: Props) {
             })
           }
         } else if (!status.connected && googleSettings) {
-          // Connection lost, clear settings
           setGoogleConfig(undefined)
         }
 
         if (status.error) {
           setError(status.error)
         }
-      } catch (err) {
+      } catch {
         setConnectionStatus({ connected: false })
       } finally {
         setIsValidating(false)
@@ -76,7 +130,6 @@ export function GoogleDocsIntegration({ settings, setGoogleConfig }: Props) {
       if (result.success && result.email) {
         setConnectionStatus({ connected: true, email: result.email, picture: result.picture })
 
-        // Ensure the sync folder exists
         let syncDirectory: string | undefined
         if (window.api?.googleEnsureFolder) {
           try {
@@ -120,23 +173,20 @@ export function GoogleDocsIntegration({ settings, setGoogleConfig }: Props) {
   const isConnected = connectionStatus?.connected ?? false
   const displayEmail = connectionStatus?.email || googleSettings?.email
 
-  // While loading or when credentials aren't configured, show placeholder
   if (isConfigured !== true) {
-    if (isConfigured === null) return null // Still checking
+    if (isConfigured === null) return null
     return (
-      <div className="space-y-4">
-        <div className="space-y-0.5">
-          <Label>Google Docs</Label>
-          <p className="text-xs text-muted-foreground">
-            Google Docs sync — coming soon
-          </p>
-        </div>
+      <div className="space-y-0.5">
+        <Label>Google Docs</Label>
+        <p className="text-xs text-muted-foreground">
+          Google Docs sync — coming soon
+        </p>
       </div>
     )
   }
 
   return (
-    <div className="space-y-4">
+    <>
       <div className="space-y-0.5">
         <Label>Google Docs</Label>
         <p className="text-xs text-muted-foreground">
@@ -144,7 +194,6 @@ export function GoogleDocsIntegration({ settings, setGoogleConfig }: Props) {
         </p>
       </div>
 
-      {/* Connection status */}
       <div className="flex items-center gap-2">
         <span className="text-sm font-medium">Status:</span>
         {isValidating ? (
@@ -165,12 +214,10 @@ export function GoogleDocsIntegration({ settings, setGoogleConfig }: Props) {
         )}
       </div>
 
-      {/* Error message */}
       {error && (
         <p className="text-sm text-destructive">{error}</p>
       )}
 
-      {/* Action buttons */}
       <div className="flex gap-2 flex-wrap">
         {!isConnected ? (
           <Button
@@ -187,19 +234,16 @@ export function GoogleDocsIntegration({ settings, setGoogleConfig }: Props) {
             )}
           </Button>
         ) : (
-          <>
-            <Button
-              variant="outline"
-              onClick={handleDisconnect}
-              className="text-destructive hover:text-destructive"
-            >
-              Disconnect
-            </Button>
-          </>
+          <Button
+            variant="outline"
+            onClick={handleDisconnect}
+            className="text-destructive hover:text-destructive"
+          >
+            Disconnect
+          </Button>
         )}
       </div>
 
-      {/* Info about sync */}
       {isConnected && (
         <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-2">
           <p className="text-sm font-medium">How to sync</p>
@@ -217,7 +261,6 @@ export function GoogleDocsIntegration({ settings, setGoogleConfig }: Props) {
         </div>
       )}
 
-      {/* Not connected info */}
       {!isConnected && !isValidating && (
         <div className="rounded-lg border border-border bg-muted/30 p-4">
           <p className="text-sm text-muted-foreground">
@@ -227,12 +270,11 @@ export function GoogleDocsIntegration({ settings, setGoogleConfig }: Props) {
         </div>
       )}
 
-      {/* Connected timestamp */}
       {isConnected && googleSettings?.connectedAt && (
         <p className="text-xs text-muted-foreground">
           Connected since: {new Date(googleSettings.connectedAt).toLocaleString()}
         </p>
       )}
-    </div>
+    </>
   )
 }

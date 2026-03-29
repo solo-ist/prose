@@ -74,6 +74,7 @@ export async function startOAuthFlow(): Promise<GoogleAuthResult> {
     let serverPort: number = 0
     let authCompleted = false
     let authWindow: BrowserWindow | null = null
+    let csrfState: string = ''
 
     // Create a temporary HTTP server on a random port
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
@@ -194,7 +195,7 @@ export async function startOAuthFlow(): Promise<GoogleAuthResult> {
       const oauth2Client = createOAuth2Client(redirectUri)
 
       // Generate CSRF state token to prevent cross-site request forgery
-      const csrfState = randomBytes(16).toString('hex')
+      csrfState = randomBytes(16).toString('hex')
 
       const authUrl = oauth2Client.generateAuthUrl({
         access_type: 'offline',

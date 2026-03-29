@@ -318,7 +318,7 @@ export function createMockApi(): ElectronAPI {
 
     // ---- Folder / filesystem operations -----------------------------------
 
-    selectFolder: async (): Promise<string | null> => DOCUMENTS_ROOT,
+    selectFolder: async (): Promise<{ path: string; bookmark: string | null } | null> => ({ path: DOCUMENTS_ROOT, bookmark: null }),
 
     saveToFolder: async (folder: string, filename: string, content: string): Promise<string> => {
       const path = `${folder}/${filename}`

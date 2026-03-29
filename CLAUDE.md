@@ -8,6 +8,7 @@ This project uses an **agentic, multi-agent development workflow**:
 
 - **Multiple Claude Code agents** may run simultaneously on the same machine — across terminal sessions, git worktrees, different branches, or different repos. Never assume you're the only agent running.
 - **Prefer Agent Teams and git worktrees** for parallelizing independent work. Use `isolation: "worktree"` when spawning agents that need to make changes without conflicting with the main working tree. This avoids branch conflicts and lets multiple agents write code simultaneously.
+- **Worktree git commands**: Always use `git -C <worktree-path> <subcommand>` instead of `cd <path> && git <subcommand>`. Single commands match the `Bash(git:*)` allowlist; compound `cd && git` chains get flagged for manual approval, which blocks unattended agents.
 - **Cloud agents** (via GitHub Actions) handle PR reviews, automated fixes, and pipeline triage. Local agents handle implementation, QA, and complex features.
 - **The CI pipeline is self-enhancing** — automated review (`claude.yml`), scoring (`pipeline-triage.yml`), and auto-fix (`ci-gate.yml`) run on every PR. Skills and workflows evolve alongside the codebase.
 - **Be mindful of concurrent sessions.** Other terminal sessions or worktree agents may be running builds, dev servers, or tests at the same time. Check for port conflicts before starting servers. Use PID files (not `pkill` patterns) for process management. Use `gh` CLI (not GitHub MCP) for all GitHub operations. Always `git fetch origin` before comparing branches — another session may have pushed.
@@ -19,6 +20,7 @@ This project uses an **agentic, multi-agent development workflow**:
 npm run dev          # Start development (Electron + Vite HMR, debuggable on port 9222)
 npm run build        # Build for production (unpacked)
 npm run build:mac    # Build macOS distributable (.app + .dmg)
+npm run build:mas    # Build Mac App Store package (MAS_BUILD=1)
 npm run build:win    # Build Windows distributable
 npm run build:linux  # Build Linux distributable
 ```
@@ -138,6 +140,7 @@ All workflows in `.github/workflows/`:
 - `pipeline-fix.yml` - Claude agent auto-fixes simple review findings
 - `dispatch.yml` - Routes `/triage`, `/fix`, `/pipeline` slash commands to downstream workflows
 - `feature-request-triage.yml` - Adds `feature-request`-labeled issues to project board
+- `release.yml` - Builds and publishes macOS distributable to GitHub Releases on version tag push (`v*`)
 
 ## Architecture
 
@@ -185,6 +188,21 @@ Zustand stores in `src/renderer/stores/`:
 - `summaryStore` - AI-generated document summaries, staleness tracking
 - `commandHistoryStore` - Per-tool argument history, persisted to IndexedDB
 - `linkHoverStore` - Currently hovered link URL for tooltip
+
+### Feature Flags
+
+`src/renderer/lib/featureFlags.ts` gates features that aren't ready for public release. Flags are persisted in `~/.prose/settings.json` under the `featureFlags` key and default to `false`.
+
+To enable a feature without rebuilding, add to `~/.prose/settings.json`:
+```json
+"featureFlags": { "googleDocs": true, "remarkable": true }
+```
+
+Current flags:
+- `googleDocs` — Google Docs bidirectional sync (v1.1)
+- `remarkable` — reMarkable tablet sync (v1.1)
+
+The module exports React hooks (`useGoogleDocsEnabled`, `useRemarkableEnabled`) for use in components and non-hook accessors (`isGoogleDocsEnabled`, `isRemarkableEnabled`) for use in callbacks. When gating a feature, import the appropriate function and use it to guard UI rendering, background effects, and menu handlers. Preserve all code — gate, don't delete.
 
 ### IndexedDB Schema Changes
 
@@ -280,6 +298,22 @@ Step-by-step recipes for common extension tasks (settings tab, IPC channel, TipT
 - **Sandbox settings** — `contextIsolation: true`, `nodeIntegration: false` — never change these.
 - **External URLs** — `shell.openExternal` only allows `http:` and `https:` protocols. All others are silently dropped.
 - **CORS** — MCP HTTP server only reflects `localhost`/`127.0.0.1` origins. No wildcard `Access-Control-Allow-Origin`.
+
+## Sentry Debugging
+
+Prose uses opt-in Sentry error tracking. When investigating production errors, use the Sentry CLI (`npx sentry`) — not MCP.
+
+**Playbook:**
+```bash
+npx sentry issue list                  # List recent unresolved issues
+npx sentry issue list --json | jq      # Machine-readable output
+npx sentry issue explain PROSE-<id>    # Seer AI root cause analysis (takes ~1 min)
+npx sentry issue plan PROSE-<id>       # Generate a fix plan
+```
+
+**First-time setup:** `npx sentry auth login` (browser OAuth, stores token locally).
+
+**Workflow:** `issue list` → `issue explain <id>` → fix in code → verify. Seer provides reproduction steps, suspect lines, and scoping analysis — treat it as a strong lead, not gospel. Always cross-reference against the actual source before committing a fix.
 
 ## Troubleshooting
 

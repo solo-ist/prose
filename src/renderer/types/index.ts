@@ -25,6 +25,7 @@ export interface Settings {
     mode: 'silent' | 'prompt'
   }
   defaultSaveDirectory?: string
+  masDirectoryBookmark?: string
   remarkable?: {
     enabled: boolean
     deviceToken?: string
@@ -49,6 +50,10 @@ export interface Settings {
   errorTracking?: {
     enabled: boolean
     enabledAt?: string      // ISO timestamp of when user enabled
+  }
+  featureFlags?: {
+    googleDocs?: boolean
+    remarkable?: boolean
   }
 }
 
@@ -333,7 +338,7 @@ export interface ElectronAPI {
   onLLMStreamComplete: (callback: (complete: LLMStreamComplete) => void) => () => void
   onLLMStreamError: (callback: (error: LLMStreamError) => void) => () => void
   // Folder operations for quick save
-  selectFolder: () => Promise<string | null>
+  selectFolder: (defaultPath?: string, message?: string) => Promise<{ path: string; bookmark: string | null } | null>
   saveToFolder: (folder: string, filename: string, content: string) => Promise<string>
   getDocumentsPath: () => Promise<string>
   saveImage: (documentDir: string, base64Data: string, mimeType: string, originalName?: string) => Promise<{ relativePath: string; localFileUrl: string }>
@@ -404,6 +409,15 @@ export interface ElectronAPI {
   clearRecentFiles: () => Promise<void>
   // Sentry error tracking
   sentrySetEnabled: (enabled: boolean) => Promise<void>
+  // Build info
+  isMasBuild?: boolean
+  // Auto-updater
+  onUpdateAvailable?: (callback: (info: { version: string; releaseNotes?: string }) => void) => () => void
+  onDownloadProgress?: (callback: (progress: { percent: number }) => void) => () => void
+  onUpdateDownloaded?: (callback: (info: { version: string }) => void) => () => void
+  updaterDownload?: () => Promise<{ success: boolean }>
+  updaterInstall?: () => Promise<void>
+  updaterCheck?: () => Promise<{ updateAvailable: boolean }>
 }
 
 declare global {

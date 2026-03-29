@@ -100,8 +100,15 @@ export const useFileListStore = create<FileListState>()(
       if (window.api) {
         try {
           const documentsPath = await window.api.getDocumentsPath()
-          set({ rootPath: documentsPath, isInitialized: true })
-          get().loadFiles()
+          // Verify the directory is actually readable (may fail in MAS sandbox)
+          const files = await window.api.listDirectory(documentsPath)
+          if (files && files.length > 0) {
+            set({ rootPath: documentsPath, isInitialized: true })
+            get().loadFiles()
+          } else {
+            // Can't read directory (sandbox) or genuinely empty — show picker prompt
+            set({ isInitialized: true })
+          }
         } catch (error) {
           console.error('Failed to get documents path:', error)
           set({ isInitialized: true })
@@ -111,15 +118,39 @@ export const useFileListStore = create<FileListState>()(
       }
     },
 
-    navigateToParent: () => {
+    navigateToParent: async () => {
       const { rootPath } = get()
-      if (!rootPath) return
+      if (!rootPath || !window.api) return
 
       // Get parent directory
       const parentPath = rootPath.split('/').slice(0, -1).join('/')
-      if (parentPath) {
+      if (!parentPath) return
+
+      // Try reading the parent — may fail in MAS sandbox
+      const files = await window.api.listDirectory(parentPath, 1)
+      if (files && files.length > 0) {
         set({ rootPath: parentPath, files: [], expandedFolders: new Set() })
         get().loadFiles()
+      } else {
+        // Parent not accessible — prompt for folder access via Powerbox
+        const result = await window.api.selectFolder(
+          parentPath,
+          'Select a folder to expand your workspace. Prose needs permission to access folders outside your current directory.'
+        )
+        if (result) {
+          // User granted access to a new directory
+          const { useSettingsStore } = await import('./settingsStore')
+          useSettingsStore.getState().setDefaultSaveDirectory(result.path)
+          if (result.bookmark) {
+            useSettingsStore.setState((state) => ({
+              settings: { ...state.settings, masDirectoryBookmark: result.bookmark! }
+            }))
+          }
+          useSettingsStore.getState().saveSettings()
+          set({ rootPath: result.path, files: [], expandedFolders: new Set() })
+          get().loadFiles()
+        }
+        // User cancelled — stay where we are
       }
     },
 

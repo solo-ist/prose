@@ -29,6 +29,8 @@ import { setupIpcHandlers } from './ipc'
 import { createMenu } from './menu'
 import { getMcpHttpServer, getMcpBridge, getMcpSocketServer } from './mcp'
 import { initializeSpellcheck, setupContextMenu } from './spellcheck'
+import { initAutoUpdater } from './updater'
+import { IS_MAS_BUILD } from './env'
 
 console.log('[Main] Environment loaded. OCR URL:', process.env.REMARKABLE_OCR_URL ? 'set' : 'not set')
 console.log('[Main] Google configured:', process.env.GOOGLE_CLIENT_ID ? 'ID set' : 'ID missing', process.env.GOOGLE_CLIENT_SECRET ? 'Secret set' : 'Secret missing')
@@ -134,7 +136,7 @@ function createWindow(): BrowserWindow {
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 16 },
     webPreferences: {
-      preload: join(__dirname, '../preload/index.mjs'),
+      preload: join(__dirname, '../preload-cjs/index.cjs'),
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
@@ -214,7 +216,7 @@ app.on('certificate-error', (event, _webContents, _url, _error, _certificate, ca
 })
 
 app.whenReady().then(async () => {
-  electronApp.setAppUserModelId('com.prose.app')
+  electronApp.setAppUserModelId('ist.solo.prose')
 
   // Deny all permission requests and checks — the app needs no special permissions (camera, mic, geolocation, etc.)
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
@@ -278,17 +280,23 @@ app.whenReady().then(async () => {
   }
 
   // Start HTTP/SSE server for MCP communication (Claude Desktop connects here)
-  const mcpServer = getMcpHttpServer()
-  mcpServer.setAuthToken(mcpAuthToken)
+  // MAS builds use sandbox, which prohibits network.server — skip HTTP server
+  const isMAS = IS_MAS_BUILD
+  const mcpServer = isMAS ? null : getMcpHttpServer()
   const MCP_PORT = 9877
   let mcpStarted = false
-  try {
-    await mcpServer.start()
-    mcpStarted = true
-    console.log(`[Main] MCP HTTP server started on port ${MCP_PORT}`)
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : 'Unknown error'
-    console.warn(`[Main] MCP server unavailable (port ${MCP_PORT} may be in use): ${errorMessage}`)
+  if (mcpServer) {
+    mcpServer.setAuthToken(mcpAuthToken)
+    try {
+      await mcpServer.start()
+      mcpStarted = true
+      console.log(`[Main] MCP HTTP server started on port ${MCP_PORT}`)
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+      console.warn(`[Main] MCP server unavailable (port ${MCP_PORT} may be in use): ${errorMessage}`)
+    }
+  } else {
+    console.log('[Main] MCP HTTP server disabled (MAS build)')
   }
 
   app.on('browser-window-created', (_, window) => {
@@ -303,6 +311,7 @@ app.whenReady().then(async () => {
   const mainWindow = createWindow()
   setupIpcHandlers()
   createMenu(mainWindow)
+  initAutoUpdater(mainWindow)
 
   // Initialize spellcheck with personal dictionary
   await initializeSpellcheck()
@@ -313,9 +322,11 @@ app.whenReady().then(async () => {
   bridge.setWindow(mainWindow)
 
   // Connect HTTP MCP server to bridge for tool execution
-  mcpServer.setToolInvokeHandler(async (name, args) => {
-    return bridge.executeTool(name, args)
-  })
+  if (mcpServer) {
+    mcpServer.setToolInvokeHandler(async (name, args) => {
+      return bridge.executeTool(name, args)
+    })
+  }
 
   // Send MCP status to renderer once loaded
   mainWindow.webContents.once('did-finish-load', () => {

@@ -59,6 +59,7 @@ interface SettingsState {
   addRecentFile: (path: string) => void
   removeRecentFile: (path: string) => void
   setErrorTracking: (enabled: boolean) => void
+  setFeatureFlag: (flag: keyof NonNullable<Settings['featureFlags']>, enabled: boolean) => void
   setAIConsent: (consented: boolean) => void
   isAIConsentDialogOpen: boolean
   setAIConsentDialogOpen: (open: boolean) => void
@@ -315,6 +316,19 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
         settings: { ...state.settings, recentFiles: filtered }
       }
     })
+    get().saveSettings()
+  },
+
+  setFeatureFlag: (flag, enabled) => {
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        featureFlags: {
+          ...state.settings.featureFlags,
+          [flag]: enabled
+        }
+      }
+    }))
     get().saveSettings()
   },
 

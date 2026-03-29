@@ -8,6 +8,14 @@ const path = require('path')
 module.exports = async function afterPack(context) {
   const { electronPlatformName, appOutDir } = context
 
+  // Skip fuse flipping for MAS builds — the App Sandbox already provides
+  // the security that fuses enforce, and flipping fuses on the MAS Electron
+  // binary can invalidate framework signatures, causing EXC_BREAKPOINT crashes.
+  if (electronPlatformName === 'mas') {
+    console.log('[Fuses] Skipping fuse flipping for MAS build (sandbox provides equivalent protection)')
+    return
+  }
+
   let executableName
   switch (electronPlatformName) {
     case 'darwin':

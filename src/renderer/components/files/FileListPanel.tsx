@@ -6,6 +6,7 @@ import { useTabs } from '../../hooks/useTabs'
 import { useSummaryStore } from '../../stores/summaryStore'
 import { useRemarkableSync } from '../../hooks/useRemarkableSync'
 import { useGoogleDocsSync } from '../../hooks/useGoogleDocsSync'
+import { useGoogleDocsEnabled, useRemarkableEnabled } from '../../lib/featureFlags'
 import { useExplorerActions } from '../../hooks/useExplorerActions'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useEditorStore } from '../../stores/editorStore'
@@ -71,8 +72,10 @@ export function FileListPanel() {
   const { isSyncing, sync, error: syncError } = useRemarkableSync()
   const { isSyncing: isGoogleSyncing, sync: googleSync, error: googleSyncError } = useGoogleDocsSync()
   const { setDialogOpen } = useSettings()
-  const remarkableEnabled = useSettingsStore((state) => state.settings.remarkable?.enabled && !!state.settings.remarkable?.deviceToken)
-  const googleConnected = useSettingsStore((state) => !!state.settings.google)
+  const remarkableFlag = useRemarkableEnabled()
+  const googleDocsFlag = useGoogleDocsEnabled()
+  const remarkableEnabled = useSettingsStore((state) => remarkableFlag && state.settings.remarkable?.enabled && !!state.settings.remarkable?.deviceToken)
+  const googleConnected = useSettingsStore((state) => googleDocsFlag && !!state.settings.google)
   const googleSyncDirectory = useSettingsStore((state) => state.settings.google?.syncDirectory)
 
   // Switch away from notebooks view if reMarkable becomes disconnected
@@ -81,6 +84,13 @@ export function FileListPanel() {
       setViewMode('folder')
     }
   }, [remarkableEnabled, viewMode, setViewMode])
+
+  // Switch away from Google Docs view if not connected/enabled
+  useEffect(() => {
+    if (!googleConnected && viewMode === 'googledocs') {
+      setViewMode('folder')
+    }
+  }, [googleConnected, viewMode, setViewMode])
 
   // Explorer panel ref for scoped keyboard shortcuts
   const containerRef = useRef<HTMLDivElement>(null)
@@ -495,7 +505,7 @@ export function FileListPanel() {
   }, [loadGoogleDocsMetadata])
 
   // Get folder name from path for display
-  const folderName = rootPath?.split('/').pop() || 'Cloud'
+  const folderName = rootPath?.split('/').pop() || 'Files'
 
   // Get filename from path for recent files display
   const getFileName = (path: string) => path.split('/').pop() || path
@@ -1063,16 +1073,31 @@ export function FileListPanel() {
         ) : (
           // Folder view
           !rootPath ? (
-            <div className="flex h-full flex-col p-4">
-              <p className="text-sm text-muted-foreground">
-                No folder configured. Set up in Settings → Integrations.
+            <div className="flex h-full flex-col items-center justify-center p-4 text-center">
+              <FolderOpen className="h-8 w-8 text-muted-foreground/50 mb-3" />
+              <p className="text-sm text-muted-foreground mb-4">
+                Choose a folder to browse your documents.
               </p>
               <Button
-                variant="ghost"
-                className="mt-6 w-full border border-dashed border-muted-foreground/30 text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground"
-                onClick={() => setDialogOpen(true, 'integrations')}
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  const result = await api?.selectFolder()
+                  if (result) {
+                    setRootPath(result.path)
+                    useSettingsStore.getState().setDefaultSaveDirectory(result.path)
+                    if (result.bookmark) {
+                      useSettingsStore.setState((state) => ({
+                        settings: { ...state.settings, masDirectoryBookmark: result.bookmark! }
+                      }))
+                    }
+                    useSettingsStore.getState().saveSettings()
+                    loadFiles()
+                  }
+                }}
               >
-                <Plus className="h-4 w-4" />
+                <FolderOpen className="h-4 w-4 mr-2" />
+                Choose Folder
               </Button>
             </div>
           ) : (

@@ -30,6 +30,29 @@ import { Eye, EyeOff, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
 import { getModelsForProvider, getDefaultModel, type LLMProvider } from '../../../shared/llm/models'
 import { validateApiKeyFormat, validateUrl, maskApiKey } from '../../lib/llm'
 
+/** Extract the primary font name from a CSS font-family stack */
+function extractPrimaryFont(fontFamily: string): string {
+  // Strip quotes and take first font in the stack
+  const primary = fontFamily.split(',')[0].trim().replace(/['"]/g, '')
+  // Map known system stacks to friendly names
+  if (primary === 'ui-monospace') return 'System Mono'
+  if (primary === 'ui-serif') return 'Serif'
+  if (primary === 'ui-sans-serif') return 'Sans Serif'
+  return primary
+}
+
+/** Font CSS stacks keyed by primary font name */
+const FONT_STACKS: Record<string, string> = {
+  'IBM Plex Mono': "'IBM Plex Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
+  'IBM Plex Sans': "'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif",
+  'Fira Mono': "'Fira Mono', ui-monospace, monospace",
+  'Cutive Mono': "'Cutive Mono', ui-monospace, monospace",
+  'Source Code Pro': "'Source Code Pro', ui-monospace, monospace",
+  'System Mono': "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
+  'Serif': "ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif",
+  'Sans Serif': "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+}
+
 export function SettingsDialog() {
   const {
     settings,
@@ -216,7 +239,7 @@ export function SettingsDialog() {
             <TabsTrigger value="account">Account</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="general" className="space-y-4 mt-4 overflow-y-auto flex-1" ref={generalTabRef}>
+          <TabsContent value="general" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={generalTabRef}>
             <div className="space-y-2">
               <Label htmlFor="theme">Theme</Label>
               <Select
@@ -272,9 +295,16 @@ export function SettingsDialog() {
                 <Button
                   variant="outline"
                   onClick={async () => {
-                    const folder = await window.api?.selectFolder()
-                    if (folder) {
-                      setDefaultSaveDirectory(folder)
+                    const result = await window.api?.selectFolder()
+                    if (result) {
+                      setDefaultSaveDirectory(result.path)
+                      if (result.bookmark) {
+                        // Persist bookmark for MAS sandbox access across restarts
+                        useSettingsStore.setState((state) => ({
+                          settings: { ...state.settings, masDirectoryBookmark: result.bookmark! }
+                        }))
+                        saveSettings()
+                      }
                     }
                   }}
                 >
@@ -372,7 +402,7 @@ export function SettingsDialog() {
             </div>
           </TabsContent>
 
-          <TabsContent value="editor" className="space-y-6 mt-4 overflow-y-auto flex-1" ref={editorTabRef}>
+          <TabsContent value="editor" className="space-y-6 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={editorTabRef}>
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label htmlFor="fontSize">Font Size</Label>
@@ -408,35 +438,35 @@ export function SettingsDialog() {
             <div className="space-y-2">
               <Label htmlFor="fontFamily">Font Family</Label>
               <Select
-                value={settings.editor.fontFamily}
-                onValueChange={(value) => setEditorConfig({ fontFamily: value })}
+                value={extractPrimaryFont(settings.editor.fontFamily)}
+                onValueChange={(value) => setEditorConfig({ fontFamily: FONT_STACKS[value] || value })}
               >
                 <SelectTrigger id="fontFamily">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value='"IBM Plex Mono", monospace'>
+                  <SelectItem value="IBM Plex Mono">
                     IBM Plex Mono (Default)
                   </SelectItem>
-                  <SelectItem value='"IBM Plex Sans", sans-serif'>
+                  <SelectItem value="IBM Plex Sans">
                     IBM Plex Sans
                   </SelectItem>
-                  <SelectItem value='"Fira Mono", monospace'>
+                  <SelectItem value="Fira Mono">
                     Fira Mono
                   </SelectItem>
-                  <SelectItem value='"Cutive Mono", monospace'>
+                  <SelectItem value="Cutive Mono">
                     Cutive Mono
                   </SelectItem>
-                  <SelectItem value='"Source Code Pro", monospace'>
+                  <SelectItem value="Source Code Pro">
                     Source Code Pro
                   </SelectItem>
-                  <SelectItem value='ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace'>
+                  <SelectItem value="System Mono">
                     System Mono
                   </SelectItem>
-                  <SelectItem value='ui-serif, Georgia, Cambria, "Times New Roman", Times, serif'>
+                  <SelectItem value="Serif">
                     Serif
                   </SelectItem>
-                  <SelectItem value='ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'>
+                  <SelectItem value="Sans Serif">
                     Sans Serif
                   </SelectItem>
                 </SelectContent>
@@ -444,7 +474,7 @@ export function SettingsDialog() {
             </div>
           </TabsContent>
 
-          <TabsContent value="llm" className="space-y-4 mt-4 overflow-y-auto flex-1" ref={llmTabRef}>
+          <TabsContent value="llm" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={llmTabRef}>
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1 flex-1">
                 <Label htmlFor="aiEnabled">Enable AI Features</Label>
@@ -631,16 +661,16 @@ export function SettingsDialog() {
 
           </TabsContent>
 
-          <TabsContent value="integrations" className="space-y-4 mt-4 overflow-y-auto flex-1" ref={integrationsTabRef}>
-            {!isWebMode() && <McpIntegration />}
-            {!isWebMode() && <Separator />}
+          <TabsContent value="integrations" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={integrationsTabRef}>
+            {!isWebMode() && !window.api?.isMasBuild && <McpIntegration />}
+            {!isWebMode() && !window.api?.isMasBuild && <Separator />}
             <RemarkableIntegration
               settings={settings}
               setRemarkableConfig={setRemarkableConfig}
             />
           </TabsContent>
 
-          <TabsContent value="account" className="space-y-4 mt-4 overflow-y-auto flex-1" ref={accountTabRef}>
+          <TabsContent value="account" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={accountTabRef}>
             <GoogleDocsIntegration
               settings={settings}
               setGoogleConfig={setGoogleConfig}
@@ -654,7 +684,7 @@ export function SettingsDialog() {
           <Button variant="outline" onClick={() => setDialogOpen(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={!!apiKeyFormatError}>Save Changes</Button>
+          <Button onClick={handleSave} disabled={!!apiKeyFormatError && !!settings.llm.apiKey?.trim()}>Save Changes</Button>
         </div>
       </DialogContent>
     </Dialog>

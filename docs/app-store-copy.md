@@ -16,12 +16,12 @@ Prose Markdown
 
 First release.
 
-A markdown editor for the agentic era. Plain ol' `.md`, your own API keys, and an MCP server that lets Claude read and edit your documents directly.
+A markdown editor for the agentic era. Plain ol' `.md`, your own API keys, and AI that works alongside you — not behind a subscription.
 
 ### **Description**
 
 \
-Prose is a minimal markdown editor for the Mac, built for the agentic era — where markdown is everything, your API keys are yours, and Claude can work with you directly.
+Prose is a minimal markdown editor for the Mac, built for the agentic era — where markdown is everything, your API keys are yours, and AI works alongside you directly.
 
 **Plain Files Always**\
 Your documents are .md files — open them in any editor, back them up anywhere, send them to anyone. No proprietary formats, no cloud sync required, no lock-in. They'll outlast this app.
@@ -35,9 +35,6 @@ When AI suggests edits, it's because you asked, and Prose shows them as inline c
 **AI Annotation Tracking**\
 When AI edits are accepted and made, you can keep track of human and AI provenance through an imbedded annotation highlight you can toggle off and on.
 
-**Agent Accessible**\
-Your editor has an API now. Prose ships an MCP (Model Context Protocol) server. Connect Claude Desktop once, and Claude can open, read, and edit your active document — without copy-pasting, without switching apps, without breaking your flow.
-
 **Clean, Minimal Editor**\
 Pure markdown editing with TipTap. YAML frontmatter — parsed and preserved, never rendered. Light and dark mode. Autosave. Standard keyboard shortcuts. The words are what matter.
 
@@ -47,9 +44,9 @@ No accounts, no telemetry, no analytics. API keys stored in macOS Keychain. All 
 Open Source Software\
 Prose is MIT licensed — the same codebase is on GitHub. Read every line, fork it, build on it. Prose exists to be useful, not to manufacture dependency.
 
-**Keywords** (100 characters, comma-separated) markdown,editor,writing,AI,Claude,plain text,distraction free,MCP,agent,notes,open source
+**Keywords** (100 characters, comma-separated) markdown,editor,writing,AI,Claude,plain text,distraction free,notes,open source
 
-**Promotional Text** (170 characters — can be updated without new build) Markdown for the agentic era. Plain .md files, your own API keys, and an MCP server that lets Claude read and edit your documents directly.
+**Promotional Text** (170 characters — can be updated without new build) Markdown for the agentic era. Plain .md files, your own API keys, and AI that works alongside you — not behind a subscription.
 
 **Support URL**https://github.com/solo-ist/prose/issues
 
@@ -59,7 +56,7 @@ Prose is MIT licensed — the same codebase is on GitHub. Read every line, fork 
 
 ## What's New (v1.0)
 
-First release. A minimal markdown editor with AI chat, inline diff review, and an MCP server for Claude Desktop. Plain .md files. Your keys stay yours.
+First release. A minimal markdown editor with AI chat and inline suggestion review. Plain .md files. Your keys stay yours.
 
 ---
 
@@ -72,8 +69,6 @@ Guidelines: macOS screenshots at 2560×1600. Dark mode preferred — matches the
 **Screenshot 2 — AI Chat**Headline: Your keys, your costs. Sub: Bring your own Anthropic API key. No middleman. Conversations stay local.
 
 **Screenshot 3 — Inline Diffs**Headline: Review every suggestion. Sub: Accept or reject AI edits inline — one at a time, or all at once.
-
-**Screenshot 4 — MCP / Agent**Headline: Your editor has an API now. Sub: Claude Desktop can read and edit your document directly via MCP.
 
 ---
 

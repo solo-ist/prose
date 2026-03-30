@@ -1,6 +1,6 @@
 appId: ist.solo.prose
 productName: Prose
-buildVersion: "14"
+buildVersion: "15"
 directories:
   buildResources: build
   output: dist

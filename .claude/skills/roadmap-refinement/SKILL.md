@@ -19,12 +19,18 @@ No arguments. Operates on `solo-ist/prose` and the Prose Roadmap project (projec
 
 ### 1. Gather State
 
-Fetch all data in parallel:
+Fetch all data in parallel using `gh` CLI:
 
+```bash
+gh issue list --repo solo-ist/prose --state open --limit 200 --json number,title,labels,updatedAt,createdAt,comments,body,milestone
+gh pr list --repo solo-ist/prose --state all --limit 200 --json number,title,state,mergedAt,body,headRefName,closedAt
+gh project item-list 5 --owner solo-ist --format json --limit 500
 ```
-mcp__github__list_issues (owner: "solo-ist", repo: "prose", state: "OPEN")
-mcp__github__list_pull_requests (owner: "solo-ist", repo: "prose", state: "all")
-gh project item-list 5 --owner solo-ist --format json
+
+Use `--jq` for data extraction instead of piping to external processors (e.g., `python3`, `jq`). This keeps each command as a single `gh` invocation that matches the Bash allowlist:
+
+```bash
+gh project item-list 5 --owner solo-ist --format json --limit 500 --jq '.items[] | "\(.content.number)\t\(.id)\t\(.status)\t\(.content.type)\t\(.content.title)"'
 ```
 
 **Important:** `gh project item-list` returns ALL items regardless of issue state — the GitHub Projects UI `is:open` filter is view-only and not applied by the API. After fetching, build an open issues set from the issues list and use it to distinguish open vs closed board items throughout the analysis.
@@ -87,11 +93,13 @@ Output a structured report:
 
 ### 6. Execute on Approval
 
-Wait for the user to review the report. Then use **only safe operations**:
+Wait for the user to review the report. Then use **only safe operations**.
+
+**Important:** Use individual parallel Bash calls for batch operations — never `for` loops. Loops are shell constructs that don't match the Bash allowlist and force manual approval on every invocation. Individual calls auto-approve and run concurrently (faster too).
 
 **Closing issues:**
-```
-mcp__github__issue_write (method: "update", owner: "solo-ist", repo: "prose", issueNumber: N, state: "CLOSED", comment: "...")
+```bash
+gh issue close <NUMBER> --repo solo-ist/prose --comment "..."
 ```
 
 **Removing closed items from board:**

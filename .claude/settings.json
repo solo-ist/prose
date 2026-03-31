@@ -14,7 +14,12 @@
       "Bash(git diff*)",
       "Bash(git log*)",
       "Bash(git branch*)",
-      "Bash(ls *)"
+      "Bash(ls *)",
+      "Bash(gh issue *)",
+      "Bash(gh pr *)",
+      "Bash(gh project *)",
+      "Bash(gh run *)",
+      "Bash(gh api *)"
     ]
   },
   "hooks": {

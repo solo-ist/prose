@@ -19,12 +19,18 @@ No arguments. Operates on `solo-ist/prose` and the Prose Roadmap project (projec
 
 ### 1. Gather State
 
-Fetch in parallel:
+Fetch all data in parallel using `gh` CLI:
 
+```bash
+gh project item-list 5 --owner solo-ist --format json --limit 500
+gh issue list --repo solo-ist/prose --state open --limit 200 --json number,title,labels,updatedAt,createdAt,comments,body,milestone
+gh pr list --repo solo-ist/prose --state open --limit 50 --json number,title,state,body,headRefName
 ```
-gh project item-list 5 --owner solo-ist --format json
-mcp__github__list_issues (owner: "solo-ist", repo: "prose", state: "OPEN")
-mcp__github__list_pull_requests (owner: "solo-ist", repo: "prose", state: "open")
+
+Use `--jq` for data extraction instead of piping to external processors (e.g., `python3`, `jq`). This keeps each command as a single `gh` invocation that matches the Bash allowlist:
+
+```bash
+gh project item-list 5 --owner solo-ist --format json --limit 500 --jq '.items[] | "\(.content.number)\t\(.id)\t\(.status)\t\(.content.title)"'
 ```
 
 Parse project items grouped by status column. Parse open PRs to detect work already in flight.
@@ -110,7 +116,9 @@ Output a structured recommendation:
 
 ### 6. Optional: Update Board
 
-If the user approves changes (e.g., moving items between columns, triaging user requests), use **only safe item-level operations**:
+If the user approves changes (e.g., moving items between columns, triaging user requests), use **only safe item-level operations**.
+
+**Important:** Use individual parallel Bash calls for batch operations — never `for` loops. Loops are shell constructs that don't match the Bash allowlist and force manual approval on every invocation. Individual calls auto-approve and run concurrently (faster too).
 
 ```bash
 # Move an item to a new status

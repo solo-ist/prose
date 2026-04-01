@@ -74,8 +74,8 @@ export async function extractTextFromPages(
     return { pages: [], failedPages: [] }
   }
 
-  if (pages.length > 20) {
-    throw new Error('Maximum 20 pages per OCR request')
+  if (pages.length > 5) {
+    throw new Error('Maximum 5 pages per OCR request')
   }
 
   if (!anthropicApiKey) {
@@ -91,35 +91,65 @@ export async function extractTextFromPages(
     }))
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'x-anthropic-key': anthropicApiKey
-    },
-    body: JSON.stringify(requestBody)
-  })
+  // Retry with exponential backoff for transient failures
+  const MAX_RETRIES = 3
+  const RETRY_DELAYS = [1000, 2000, 4000]
+  let lastError: Error | null = null
 
-  if (!response.ok) {
-    let errorMessage = `OCR request failed: ${response.status} ${response.statusText}`
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const errorBody = await response.json()
-      if (errorBody.error) {
-        errorMessage = errorBody.error
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'x-anthropic-key': anthropicApiKey
+        },
+        body: JSON.stringify(requestBody)
+      })
+
+      if (!response.ok) {
+        let errorMessage = `OCR request failed: ${response.status} ${response.statusText}`
+        try {
+          const errorBody = await response.json()
+          if (errorBody.error) {
+            errorMessage = errorBody.error
+          }
+        } catch {
+          // Ignore JSON parse errors
+        }
+
+        // Only retry on 5xx (server) errors, not 4xx (client) errors
+        if (response.status >= 500 && attempt < MAX_RETRIES) {
+          console.warn(`[OCR] Server error (${response.status}), retrying in ${RETRY_DELAYS[attempt]}ms (attempt ${attempt + 1}/${MAX_RETRIES})`)
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt]))
+          lastError = new Error(errorMessage)
+          continue
+        }
+
+        throw new Error(errorMessage)
       }
-    } catch {
-      // Ignore JSON parse errors
+
+      const result = (await response.json()) as OCRResponse
+
+      return {
+        pages: result.pages,
+        failedPages: result.failedPages || []
+      }
+    } catch (error) {
+      // Retry on network errors (fetch throws on network failure)
+      if (attempt < MAX_RETRIES) {
+        console.warn(`[OCR] Request failed, retrying in ${RETRY_DELAYS[attempt]}ms (attempt ${attempt + 1}/${MAX_RETRIES}):`, error)
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt]))
+        lastError = error instanceof Error ? error : new Error(String(error))
+        continue
+      }
+      throw error
     }
-    throw new Error(errorMessage)
   }
 
-  const result = (await response.json()) as OCRResponse
-
-  return {
-    pages: result.pages,
-    failedPages: result.failedPages || []
-  }
+  // Should not reach here, but just in case
+  throw lastError || new Error('OCR request failed after retries')
 }
 
 /**
@@ -165,7 +195,7 @@ export async function extractTextBatched(
   anthropicApiKey: string,
   onProgress?: (processed: number, total: number) => void
 ): Promise<OCRResult> {
-  const BATCH_SIZE = 20
+  const BATCH_SIZE = 5
   const allResults: OCRPageResult[] = []
   const allFailed: string[] = []
 

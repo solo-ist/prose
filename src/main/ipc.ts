@@ -893,6 +893,7 @@ export function setupIpcHandlers(): void {
   ipcMain.handle(
     'remarkable:sync',
     async (_event, deviceToken: string, syncDirectory: string) => {
+      const safeDir = validatePath(syncDirectory)
       const { syncAll } = await import('./remarkable/sync')
 
       // Get Anthropic API key - first from credentialStore (LLM key if provider is Anthropic),
@@ -921,7 +922,7 @@ export function setupIpcHandlers(): void {
         }
       }
 
-      return await syncAll(deviceToken, syncDirectory, anthropicApiKey)
+      return await syncAll(deviceToken, safeDir, anthropicApiKey)
     }
   )
 
@@ -931,8 +932,9 @@ export function setupIpcHandlers(): void {
     disconnect()
 
     if (syncDirectory) {
+      const safeDir = validatePath(syncDirectory)
       const { purgeSync } = await import('./remarkable/sync')
-      await purgeSync(syncDirectory)
+      await purgeSync(safeDir)
     }
 
     await credentialStore.delete(REMARKABLE_CREDENTIAL_KEY)
@@ -942,8 +944,9 @@ export function setupIpcHandlers(): void {
 
   // reMarkable: Get sync metadata (notebook list with status)
   ipcMain.handle('remarkable:getMetadata', async (_event, syncDirectory: string) => {
+    const safeDir = validatePath(syncDirectory)
     const { getSyncStatus } = await import('./remarkable/sync')
-    return await getSyncStatus(syncDirectory)
+    return await getSyncStatus(safeDir)
   })
 
   // reMarkable: List cloud notebooks (for selection UI)
@@ -954,16 +957,18 @@ export function setupIpcHandlers(): void {
 
   // reMarkable: Get sync state (which notebooks are selected)
   ipcMain.handle('remarkable:getSyncState', async (_event, syncDirectory: string) => {
+    const safeDir = validatePath(syncDirectory)
     const { getSyncState } = await import('./remarkable/sync')
-    return await getSyncState(syncDirectory)
+    return await getSyncState(safeDir)
   })
 
   // reMarkable: Update sync selection
   ipcMain.handle(
     'remarkable:updateSyncSelection',
     async (_event, syncDirectory: string, selectedNotebooks: string[]) => {
+      const safeDir = validatePath(syncDirectory)
       const { updateSyncSelection } = await import('./remarkable/sync')
-      await updateSyncSelection(syncDirectory, selectedNotebooks)
+      await updateSyncSelection(safeDir, selectedNotebooks)
     }
   )
 
@@ -987,8 +992,9 @@ export function setupIpcHandlers(): void {
   ipcMain.handle(
     'remarkable:getOCRPath',
     async (_event, notebookId: string, syncDirectory: string) => {
+      const safeDir = validatePath(syncDirectory)
       const { getOCRPath } = await import('./remarkable/sync')
-      return await getOCRPath(notebookId, syncDirectory)
+      return await getOCRPath(notebookId, safeDir)
     }
   )
 
@@ -996,8 +1002,9 @@ export function setupIpcHandlers(): void {
   ipcMain.handle(
     'remarkable:getEditablePath',
     async (_event, notebookId: string, syncDirectory: string) => {
+      const safeDir = validatePath(syncDirectory)
       const { getEditablePath } = await import('./remarkable/sync')
-      return await getEditablePath(notebookId, syncDirectory)
+      return await getEditablePath(notebookId, safeDir)
     }
   )
 
@@ -1005,8 +1012,9 @@ export function setupIpcHandlers(): void {
   ipcMain.handle(
     'remarkable:createEditableVersion',
     async (_event, notebookId: string, syncDirectory: string) => {
+      const safeDir = validatePath(syncDirectory)
       const { createEditableVersion } = await import('./remarkable/sync')
-      return await createEditableVersion(notebookId, syncDirectory)
+      return await createEditableVersion(notebookId, safeDir)
     }
   )
 
@@ -1014,8 +1022,10 @@ export function setupIpcHandlers(): void {
   ipcMain.handle(
     'remarkable:findNotebookByFilePath',
     async (_event, filePath: string, syncDirectory: string) => {
+      const safePath = validatePath(filePath)
+      const safeDir = validatePath(syncDirectory)
       const { findNotebookByFilePath } = await import('./remarkable/sync')
-      return await findNotebookByFilePath(filePath, syncDirectory)
+      return await findNotebookByFilePath(safePath, safeDir)
     }
   )
 
@@ -1023,8 +1033,9 @@ export function setupIpcHandlers(): void {
   ipcMain.handle(
     'remarkable:clearNotebookMarkdownPath',
     async (_event, notebookId: string, syncDirectory: string) => {
+      const safeDir = validatePath(syncDirectory)
       const { clearNotebookMarkdownPath } = await import('./remarkable/sync')
-      return await clearNotebookMarkdownPath(notebookId, syncDirectory)
+      return await clearNotebookMarkdownPath(notebookId, safeDir)
     }
   )
 

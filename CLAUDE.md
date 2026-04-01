@@ -250,10 +250,12 @@ Managed by `reviewStore` and components in `src/renderer/components/review/`.
 
 Syncs handwritten notebooks from reMarkable tablets. Located in `src/main/remarkable/`:
 - `client.ts` - reMarkable cloud API client (uses `rmapi-js`)
-- `sync.ts` - Notebook sync logic, downloads to `~/.prose/remarkable/`
-- `ocr.ts` - Handwriting recognition via external OCR service
+- `sync.ts` - Notebook sync logic with parallel downloads (3 concurrent), incremental metadata saves, and structured `SyncProgressUpdate` progress events
+- `ocr.ts` - Handwriting recognition via external OCR service (batch size 5, retry with exponential backoff)
 
-OCR requires an Anthropic API key. If using Anthropic as the LLM provider, that key is reused; otherwise users can configure a separate key in Settings → Integrations.
+**Sync progress push:** The `remarkable:sync` IPC handler pushes `SyncProgressUpdate` events via `event.sender.send('remarkable:sync:progress', ...)`. The preload exposes `onRemarkableSyncProgress(callback)` for the renderer to subscribe.
+
+**OCR service:** Requires environment variables `REMARKABLE_OCR_URL` and `REMARKABLE_OCR_API_KEY` pointing to the Lambda endpoint. When absent, OCR silently skips — sync still works but notebooks have no markdown text. Also requires an Anthropic API key (reused from LLM provider settings, or configured separately in Settings → Integrations).
 
 ### Google Docs Integration
 

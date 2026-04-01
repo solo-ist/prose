@@ -27,36 +27,53 @@ The PE agent evaluates changes across five dimensions:
 
 ### Electron-Specific Checks
 
-| Check | Why It Matters |
-|-------|---------------|
-| Process boundary respect | Renderer <-> main must go through IPC |
-| Context bridge exposure | New preload APIs need input validation |
-| `getApi()` abstraction | Direct `window.api` bypasses the browser fallback |
-| IPC validation | Handlers must validate renderer input |
-| Store interactions | Cross-store deps create hidden coupling |
+| Check | Why It Matters | Example |
+|-------|---------------|---------|
+| Process boundary respect | Renderer <-> main must go through IPC | Importing `fs` in renderer bypasses sandbox |
+| Context bridge exposure | New preload APIs need input validation | Adding `window.api.exec()` without sanitization |
+| `getApi()` abstraction | Direct `window.api` bypasses the browser fallback | Should always use `getApi()` from `browserApi.ts` |
+| IPC validation | Handlers must validate renderer input | `validatePath()` on all filesystem operations |
+| Store interactions | Cross-store deps create hidden coupling | `chatStore` reading from `editorStore` directly |
 
 ## Risk Levels
 
-| Level | Meaning | Action |
-|-------|---------|--------|
-| LOW | Standard changes, well-contained | Auto-fix eligible |
-| MEDIUM | Some architectural concern | Human should verify |
-| HIGH | Significant risk, multiple concerns | Full human review |
-| CRITICAL | Security, data loss, or systemic risk | Block merge, escalate |
+| Level | Meaning | Routing Impact | Example |
+|-------|---------|---------------|---------|
+| LOW | Standard changes, well-contained | `auto-fix` eligible (if score ≤ 3) | Fixing a typo in a UI string |
+| MEDIUM | Some architectural concern | `hitl-full` (if score ≥ 4) or `hitl-light` (if score ≤ 3) | Adding a new Zustand store with cross-store subscription |
+| HIGH | Significant risk, multiple concerns | `hitl-full` | Changing the IPC channel protocol |
+| CRITICAL | Security, data loss, or systemic risk | `hitl-full` (always) | Weakening CSP, disabling contextIsolation |
 
 ## Privilege Boundary
 
 PRs touching these paths are auto-flagged as `privileged: true`:
-- `src/main/**` — full system access
+- `src/main/**` — full system access (Node.js, filesystem, network)
 - `src/preload/**` — context bridge / attack surface
-- `electron-builder.*` — build/packaging config
-- `electron.vite.config.*` — build config
+- `electron-builder.*` — build/packaging config (signing, fuses, entitlements)
+- `electron.vite.config.*` — build config (define blocks, entry points)
 
-Privileged PRs always route to human review regardless of score.
+**`privileged: true` is a routing directive, not a bug.** It forces `hitl-full` regardless of score. This is correct — changes to the trust boundary between renderer and main process should always have human review. Don't lower this flag to get auto-fix routing.
+
+## LOW vs MEDIUM Decision Guide
+
+Ask yourself: "If this change has a subtle bug, what's the worst that happens?"
+
+- **LOW**: User sees a visual glitch, a tooltip is wrong, a log message is malformed. The app still works. Fix is straightforward and contained.
+- **MEDIUM**: User data could be stale, a sync could skip items, a store subscription fires out of order. The app works but produces wrong results in some cases. Fix requires understanding interaction between components.
+
+When in doubt, lean MEDIUM — the cost of over-escalating is a human glance; the cost of under-escalating is a shipped bug.
+
+## Workflow
+
+1. Fetch the review comment and changed files from the PR
+2. Send to Claude Opus with the PE analysis prompt
+3. Check changed file paths against privilege boundary list
+4. Produce risk assessment, concern list, and verdict
+5. Output structured analysis with sentinel for downstream pipeline
 
 ## Output Format
 
 Machine-readable sentinel:
-`<!-- pe-output: {"risk":"...", "privileged": bool, "concerns": N} -->`
+`<!-- pe-output: {"risk":"LOW|MEDIUM|HIGH|CRITICAL", "privileged": true|false, "concerns": N} -->`
 
 Human-readable analysis with architecture review, specific concerns, and verdict.

@@ -11,8 +11,10 @@ on:
         type: number
 
 jobs:
-  run-scorer:
-    # Auto-trigger: claude[bot] review with issues-found verdict
+  # 383-2: Short-circuit when review contains [SECURITY GATE] — skip scorer+PE,
+  # go straight to hitl-full. PRs touching privilege-boundary files always route
+  # hitl-full regardless of score, so running scorer+PE is pure API waste.
+  security-gate-check:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (
@@ -20,6 +22,89 @@ jobs:
         github.event.issue.pull_request &&
         github.event.comment.user.login == 'claude[bot]' &&
         contains(github.event.comment.body, '<!-- review-verdict: issues-found -->')
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: write
+    outputs:
+      shortcircuit: ${{ steps.check.outputs.shortcircuit }}
+    steps:
+      - name: Determine PR number
+        id: pr
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "number=${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check for security gate in review
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            REVIEW=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+              --jq '[.[] | select(.user.login == "claude[bot]" and (.body | contains("<!-- review-verdict: issues-found -->")))] | last | .body')
+          else
+            REVIEW="$COMMENT_BODY"
+          fi
+
+          if echo "$REVIEW" | grep -q '\[SECURITY GATE\]'; then
+            echo "::notice::Security gate detected — short-circuiting to hitl-full (skipping scorer+PE)"
+            echo "shortcircuit=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "shortcircuit=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post hitl-full verdict (security gate shortcircuit)
+        if: steps.check.outputs.shortcircuit == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "<!-- scorer-output-comment -->
+          <!-- pe-output-comment -->
+          <!-- orchestrator-verdict: hitl-full -->
+          ## Pipeline Triage — Security Gate Short-Circuit
+
+          This PR touches privilege-boundary files. Scorer and PE analysis skipped — \`hitl-full\` verdict applied directly.
+
+          > **[SECURITY GATE]** Privilege-boundary PRs always route to full human review.
+
+          **Verdict:** \`hitl-full\`
+          **Labels:** \`complex\`, \`needs-review\`"
+
+      - name: Apply labels (security gate shortcircuit)
+        if: steps.check.outputs.shortcircuit == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh label create "complex" --repo "$REPO" --color "D93F0B" --description "Complex changes requiring full review" --force || true
+          gh label create "needs-review" --repo "$REPO" --color "FBCA04" --description "Awaiting human review" --force || true
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "complex,needs-review"
+
+  run-scorer:
+    needs: [security-gate-check]
+    # Skip if security gate fired — verdict already posted
+    if: >-
+      needs.security-gate-check.outputs.shortcircuit != 'true' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'issue_comment' &&
+          github.event.issue.pull_request &&
+          github.event.comment.user.login == 'claude[bot]' &&
+          contains(github.event.comment.body, '<!-- review-verdict: issues-found -->')
+        )
       )
     runs-on: ubuntu-latest
     permissions:
@@ -97,14 +182,18 @@ jobs:
             --body-file /tmp/scorer-output.md
 
   run-pe-analysis:
-    # Same trigger conditions as scorer — runs in parallel
+    needs: [security-gate-check]
+    # Skip if security gate fired — verdict already posted
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      needs.security-gate-check.outputs.shortcircuit != 'true' &&
       (
-        github.event_name == 'issue_comment' &&
-        github.event.issue.pull_request &&
-        github.event.comment.user.login == 'claude[bot]' &&
-        contains(github.event.comment.body, '<!-- review-verdict: issues-found -->')
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'issue_comment' &&
+          github.event.issue.pull_request &&
+          github.event.comment.user.login == 'claude[bot]' &&
+          contains(github.event.comment.body, '<!-- review-verdict: issues-found -->')
+        )
       )
     runs-on: ubuntu-latest
     permissions:
@@ -187,8 +276,13 @@ jobs:
             --body-file /tmp/pe-output.md
 
   orchestrate:
-    needs: [run-scorer, run-pe-analysis]
-    if: needs.run-scorer.result == 'success' && needs.run-pe-analysis.result == 'success'
+    needs: [security-gate-check, run-scorer, run-pe-analysis]
+    # Only run if security gate did NOT fire and both scorer+PE succeeded
+    if: >-
+      always() &&
+      needs.security-gate-check.outputs.shortcircuit != 'true' &&
+      needs.run-scorer.result == 'success' &&
+      needs.run-pe-analysis.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read

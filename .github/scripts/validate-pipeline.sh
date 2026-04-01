@@ -215,6 +215,42 @@ if $YAML_OK; then
 fi
 echo ""
 
+# 18. Unified fix-attempt circuit breaker (383-6)
+# Both ci-gate.yml and pipeline-fix.yml must count BOTH sentinel types
+echo "--- Check: Unified fix-attempt sentinels ---"
+SENTINEL_OK=true
+for f in .github/workflows/ci-gate.yml .github/workflows/pipeline-fix.yml; do
+  if ! grep -q "e2e-fix-attempt:" "$f"; then
+    echo "FAIL: $f missing e2e-fix-attempt sentinel in guard"
+    SENTINEL_OK=false
+    ERRORS=$((ERRORS + 1))
+  fi
+  if ! grep -q "agent-fix-attempt:" "$f"; then
+    echo "FAIL: $f missing agent-fix-attempt sentinel in guard"
+    SENTINEL_OK=false
+    ERRORS=$((ERRORS + 1))
+  fi
+done
+if $SENTINEL_OK; then
+  echo "PASS"
+fi
+echo ""
+
+# 19. Privilege-boundary path sync (383-7)
+# The path list must be identical in claude.yml and run-pe-analysis.mjs
+echo "--- Check: Privilege-boundary path sync ---"
+PATHS_CLAUDE=$(grep -oE 'src/main/\*\*|src/preload/\*\*|electron-builder\.\*|electron\.vite\.config\.\*' .github/workflows/claude.yml | sort -u)
+PATHS_PE=$(grep -oE 'src/main/\*\*|src/preload/\*\*|electron-builder\.\*|electron\.vite\.config\.\*' .github/scripts/run-pe-analysis.mjs | sort -u)
+if [ "$PATHS_CLAUDE" = "$PATHS_PE" ]; then
+  echo "PASS"
+else
+  echo "FAIL: Privilege-boundary paths diverge between claude.yml and run-pe-analysis.mjs"
+  echo "  claude.yml: $PATHS_CLAUDE"
+  echo "  run-pe-analysis.mjs: $PATHS_PE"
+  ERRORS=$((ERRORS + 1))
+fi
+echo ""
+
 # Summary
 echo "==========================="
 if [ "$ERRORS" -eq 0 ]; then

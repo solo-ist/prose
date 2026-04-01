@@ -13,6 +13,10 @@ permissions:
 
 jobs:
   web-e2e:
+    # Runs on: (1) PRs with 'accelerated' label, or (2) /test comments.
+    # NOTE: /test comments also trigger e2e.yml — this is intentional.
+    # Both Electron and web test suites run in parallel on /test.
+    # For pull_request events, only 'accelerated'-labeled PRs trigger this.
     if: |
       (
         github.event_name == 'pull_request' &&

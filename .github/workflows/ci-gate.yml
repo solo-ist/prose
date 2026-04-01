@@ -28,17 +28,55 @@ jobs:
             }
             core.setOutput('number', prs[0].number);
 
-      - name: Trigger auto-review
+      - name: Check for duplicate or recent review
         if: steps.pr.outputs.number
+        id: dedup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          # Fetch recent comments and check for dedup/debounce
+          COMMENTS=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+            --jq '[.[] | select(.body | contains("<!-- ci-gate-sha:")) | {body, created_at}]')
+
+          # 383-1: SHA dedup — skip if this commit was already reviewed
+          SHA_EXISTS=$(echo "$COMMENTS" | jq --arg sha "$HEAD_SHA" \
+            '[.[] | select(.body | contains("<!-- ci-gate-sha: " + $sha))] | length')
+          if [ "$SHA_EXISTS" -gt 0 ]; then
+            echo "::notice::SHA $HEAD_SHA already reviewed — skipping"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # 383-3: Debounce — skip if a /review was posted within the last 10 minutes
+          LATEST=$(echo "$COMMENTS" | jq -r 'sort_by(.created_at) | last | .created_at // empty')
+          if [ -n "$LATEST" ]; then
+            LATEST_TS=$(date -d "${LATEST}" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "${LATEST}" +%s 2>/dev/null || echo 0)
+            NOW_TS=$(date +%s)
+            DIFF=$(( NOW_TS - LATEST_TS ))
+            if [ "$DIFF" -lt 600 ]; then
+              echo "::notice::Last /review was ${DIFF}s ago (< 600s) — debouncing"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger auto-review
+        if: steps.pr.outputs.number && steps.dedup.outputs.skip != 'true'
         env:
           # PROJECT_TOKEN required: github.token events don't trigger downstream
           # issue_comment workflows. claude.yml checks body content, not author.
           GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           gh pr comment "$PR_NUMBER" --repo "$REPO" \
-            --body "/review
+            --body "/review <!-- ci-gate-sha: $HEAD_SHA -->
 
           *Auto-triggered after E2E tests passed.*"
 
@@ -72,8 +110,9 @@ jobs:
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           REPO: ${{ github.repository }}
         run: |
+          # 383-6: Count BOTH fix-attempt sentinel types (e2e + agent) as a unified breaker
           ATTEMPTS=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
-            --jq '[.[] | select(.body | contains("<!-- e2e-fix-attempt:"))] | length')
+            --jq '[.[] | select(.body | (contains("<!-- e2e-fix-attempt:") or contains("<!-- agent-fix-attempt:")))] | length')
           echo "attempts=$ATTEMPTS" >> "$GITHUB_OUTPUT"
           if [ "$ATTEMPTS" -ge 1 ]; then
             echo "::warning::E2E fix already attempted. Escalating."

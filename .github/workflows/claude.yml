@@ -191,6 +191,9 @@ jobs:
 
       # 383-8: Concurrency guard — prevent multiple @claude agents on the same PR/issue.
       # Best-effort: narrow race window exists between check and run start.
+      # This is repo-wide (not PR-scoped) because run metadata doesn't reliably
+      # carry the triggering PR number. When skipped, a visible comment is posted
+      # so the user knows to retry.
       - name: Check for concurrent claude runs
         id: concurrency
         env:
@@ -206,6 +209,23 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Notify user of skipped run
+        if: steps.concurrency.outputs.skip == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Determine the issue/PR number from the event
+          if [ "${{ github.event_name }}" = "issues" ]; then
+            NUMBER="${{ github.event.issue.number }}"
+          else
+            NUMBER="${{ github.event.issue.number || github.event.pull_request.number }}"
+          fi
+          if [ -n "$NUMBER" ]; then
+            gh issue comment "$NUMBER" --repo "$REPO" \
+              --body "> **Skipped:** Another \`@claude\` agent is currently running. Please retry in a few minutes."
           fi
 
       - name: Checkout repository

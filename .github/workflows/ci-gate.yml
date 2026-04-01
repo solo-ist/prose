@@ -53,7 +53,7 @@ jobs:
           # 383-3: Debounce — skip if a /review was posted within the last 10 minutes
           LATEST=$(echo "$COMMENTS" | jq -r 'sort_by(.created_at) | last | .created_at // empty')
           if [ -n "$LATEST" ]; then
-            LATEST_TS=$(date -d "$LATEST" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$LATEST" +%s 2>/dev/null || echo 0)
+            LATEST_TS=$(date -d "${LATEST}" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "${LATEST}" +%s 2>/dev/null || echo 0)
             NOW_TS=$(date +%s)
             DIFF=$(( NOW_TS - LATEST_TS ))
             if [ "$DIFF" -lt 600 ]; then

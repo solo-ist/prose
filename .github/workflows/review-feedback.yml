@@ -68,16 +68,20 @@ jobs:
             printf '%s' "$COMMENT_BODY" > /tmp/review-comment.txt
           fi
 
-      - name: Warn on missing verdict trailer
+      # 383-5: This is now a canary path. With 383-4 (verdict trailer validation in
+      # claude.yml), trailers should always be present. If this job fires, it means
+      # the validation step also failed — investigate both.
+      - name: Warn on missing verdict trailer (canary)
         if: github.event_name == 'issue_comment'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           REPO: ${{ github.repository }}
         run: |
+          echo "::error::Legacy bypass canary triggered — verdict trailer missing despite claude.yml validation (383-4). Investigate."
           gh pr comment "$PR_NUMBER" --repo "$REPO" \
             --body "<!-- pipeline-bypass-warning -->
-          > **Pipeline bypass:** Review from claude[bot] contains \`## Code Review\` but no verdict trailer (\`<!-- review-verdict: ... -->\`). Falling back to legacy triage. If this is unexpected, check the review prompt in \`claude.yml\`."
+          > **⚠️ Pipeline bypass (canary):** Review from claude[bot] contains \`## Code Review\` but no verdict trailer (\`<!-- review-verdict: ... -->\`). This should not happen — the trailer validation in \`claude.yml\` should have caught this. Falling back to legacy triage. Investigate the review step output."
 
       - name: Analyze review feedback
         env:

@@ -45,8 +45,9 @@ jobs:
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           REPO: ${{ github.repository }}
         run: |
+          # 383-6: Count BOTH fix-attempt sentinel types (e2e + agent) as a unified breaker
           ATTEMPTS=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
-            --jq '[.[] | select(.body | contains("<!-- agent-fix-attempt:"))] | length')
+            --jq '[.[] | select(.body | (contains("<!-- e2e-fix-attempt:") or contains("<!-- agent-fix-attempt:")))] | length')
           echo "attempts=$ATTEMPTS" >> "$GITHUB_OUTPUT"
           if [ "$ATTEMPTS" -ge 1 ]; then
             echo "::warning::Fix already attempted $ATTEMPTS time(s). Escalating to human review."

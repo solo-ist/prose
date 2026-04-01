@@ -118,6 +118,40 @@ jobs:
 
             This trailer is machine-readable and drives the downstream triage pipeline. Always include it.
 
+      # 383-4: Ensure verdict trailer is always present. If the LLM response was
+      # truncated or omitted the trailer, append a safe default to prevent fallback
+      # to the legacy review-feedback analysis path.
+      - name: Verify verdict trailer
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Find the most recent claude[bot] comment with ## Code Review
+          COMMENT=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+            --jq '[.[] | select(.user.login == "claude[bot]" and (.body | contains("## Code Review")))] | last')
+
+          if [ -z "$COMMENT" ] || [ "$COMMENT" = "null" ]; then
+            echo "::notice::No Code Review comment found — nothing to verify"
+            exit 0
+          fi
+
+          BODY=$(echo "$COMMENT" | jq -r '.body')
+          COMMENT_ID=$(echo "$COMMENT" | jq -r '.id')
+
+          if echo "$BODY" | grep -q '<!-- review-verdict:'; then
+            echo "::notice::Verdict trailer present — no action needed"
+          else
+            echo "::warning::Verdict trailer MISSING — appending safe default (issues-found)"
+            PATCHED="${BODY}
+
+          <!-- review-verdict: issues-found -->"
+            gh api "repos/$REPO/issues/comments/$COMMENT_ID" \
+              -X PATCH \
+              -f body="$PATCHED"
+          fi
+
   # Manual invocation via @claude mentions
   claude:
     if: |
@@ -155,12 +189,33 @@ jobs:
               core.setFailed(`User ${username} lacks write access`);
             }
 
+      # 383-8: Concurrency guard — prevent multiple @claude agents on the same PR/issue.
+      # Best-effort: narrow race window exists between check and run start.
+      - name: Check for concurrent claude runs
+        id: concurrency
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CURRENT_RUN: ${{ github.run_id }}
+        run: |
+          IN_PROGRESS=$(gh run list --repo "$REPO" --workflow claude.yml \
+            --json databaseId,status \
+            --jq "[.[] | select((.status == \"in_progress\" or .status == \"queued\") and .databaseId != ($CURRENT_RUN | tonumber))] | length")
+          if [ "$IN_PROGRESS" -gt 0 ]; then
+            echo "::warning::Another claude.yml run is active ($IN_PROGRESS queued/in-progress). Skipping to prevent concurrent agent collision."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout repository
+        if: steps.concurrency.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
       - name: Run Claude Code
+        if: steps.concurrency.outputs.skip != 'true'
         id: claude
         uses: anthropics/claude-code-action@v1
         with:

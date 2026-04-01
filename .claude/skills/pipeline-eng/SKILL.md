@@ -25,17 +25,23 @@ The full workflow chain, trigger to output:
 | Workflow | Trigger | Reads sentinel | Writes sentinel | Dispatches to |
 |----------|---------|---------------|-----------------|---------------|
 | `e2e.yml` | `pull_request`, `/test` comment | — | — (artifact: `e2e-results`) | — |
-| `ci-gate.yml` | `workflow_run` on "E2E Tests" | `<!-- e2e-fix-attempt:` | Posts `/review` comment; `<!-- e2e-fix-escalation -->` | `claude.yml` (via `/review` comment) |
+| `web-e2e.yml` | `pull_request` (with `accelerated` label), `/test` comment | — | — | — |
+| `ci-gate.yml` | `workflow_run` on "E2E Tests" | `<!-- e2e-fix-attempt:`, `<!-- agent-fix-attempt:`, `<!-- ci-gate-sha:` | Posts `/review <!-- ci-gate-sha: ... -->` comment; `<!-- e2e-fix-escalation -->` | `claude.yml` (via `/review` comment) |
 | `claude.yml` (auto-review) | `/review` comment on PR | — | `<!-- review-verdict: clean -->` or `<!-- review-verdict: issues-found -->` | — |
 | `review-feedback.yml` (clean-gate) | `issue_comment` with `<!-- review-verdict: clean -->` | `<!-- review-verdict: clean -->`, absence of `<!-- review-feedback-analysis -->` | `<!-- review-feedback-analysis -->` | — |
 | `review-feedback.yml` (analyze) | `issue_comment` with `## Code Review` (no verdict trailer) | absence of `<!-- review-feedback-analysis -->`, `<!-- review-verdict: clean -->`, `<!-- review-verdict: issues-found -->` | `<!-- review-feedback-analysis -->`, `<!-- pipeline-bypass-warning -->` | — |
-| `pipeline-triage.yml` (scorer + PE) | `issue_comment` with `<!-- review-verdict: issues-found -->` | `<!-- review-verdict: issues-found -->`, absence of `<!-- scorer-output:` / `<!-- pe-output:` | `<!-- scorer-output: {...} -->`, `<!-- pe-output: {...} -->` | — |
+| `pipeline-triage.yml` (security-gate) | `issue_comment` with `<!-- review-verdict: issues-found -->` | `[SECURITY GATE]` in review body | `<!-- orchestrator-verdict: hitl-full -->` (short-circuit) | — |
+| `pipeline-triage.yml` (scorer + PE) | `issue_comment` with `<!-- review-verdict: issues-found -->` (security gate NOT detected) | `<!-- review-verdict: issues-found -->`, absence of `<!-- scorer-output:` / `<!-- pe-output:` | `<!-- scorer-output: {...} -->`, `<!-- pe-output: {...} -->` | — |
 | `pipeline-triage.yml` (orchestrate) | `needs: [run-scorer, run-pe-analysis]` | `<!-- scorer-output: {...} -->`, `<!-- pe-output: {...} -->` | `<!-- orchestrator-verdict: auto-fix\|auto-fix-verify\|hitl-light\|hitl-full -->` | — |
-| `pipeline-fix.yml` | `issue_comment` with `<!-- orchestrator-verdict: auto-fix -->` or `auto-fix-verify` | `<!-- orchestrator-verdict: ... -->`, absence of `<!-- agent-fix-attempt:` | `<!-- agent-fix-attempt: 1 -->`, `<!-- agent-fix-escalation -->` | — |
+| `pipeline-fix.yml` | `issue_comment` with `<!-- orchestrator-verdict: auto-fix -->` or `auto-fix-verify` | `<!-- orchestrator-verdict: ... -->`, absence of `<!-- agent-fix-attempt:` AND `<!-- e2e-fix-attempt:` | `<!-- agent-fix-attempt: 1 -->`, `<!-- agent-fix-escalation -->` | — |
 | `dispatch.yml` | `/triage`, `/fix`, `/pipeline` comment | — | — | `pipeline-triage.yml`, `pipeline-fix.yml`, or posts `/review` |
 | `notify.yml` | PR labeled `needs-review` or `complex` | — | — | Slack webhook |
 
-**Sync hazard:** `run-pe-analysis.mjs` and `claude.yml` auto-review both hardcode the same privilege-boundary path list (`src/main/**`, `src/preload/**`, `electron-builder.*`, `electron.vite.config.*`). If you update one, update the other.
+**Sync hazard:** `run-pe-analysis.mjs` and `claude.yml` auto-review both hardcode the same privilege-boundary path list (`src/main/**`, `src/preload/**`, `electron-builder.*`, `electron.vite.config.*`). If you update one, update the other. `validate-pipeline.sh` invariant #19 enforces this.
+
+**Dual `/test` trigger:** Posting `/test` on a PR fires BOTH `e2e.yml` (Electron Playwright) and `web-e2e.yml` (browser Playwright) in parallel. This is intentional — it runs the full test matrix. For `pull_request` events, only `e2e.yml` runs automatically; `web-e2e.yml` only runs on `accelerated`-labeled PRs.
+
+**Unified circuit breaker:** Both `ci-gate.yml` and `pipeline-fix.yml` count both `<!-- e2e-fix-attempt:` and `<!-- agent-fix-attempt:` sentinels in their fix-attempt guards. `validate-pipeline.sh` invariant #18 enforces this.
 
 ---
 

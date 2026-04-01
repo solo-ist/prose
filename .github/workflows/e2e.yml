@@ -12,6 +12,8 @@ permissions:
 jobs:
   e2e:
     # Only run on PRs, or on /test comments (but not @claude mentions)
+    # NOTE: /test comments also trigger web-e2e.yml — this is intentional.
+    # Both Electron and web test suites run in parallel on /test.
     if: |
       github.event_name == 'pull_request' ||
       (

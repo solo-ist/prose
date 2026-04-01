@@ -459,6 +459,24 @@ export function createMockApi(): ElectronAPI {
       _syncDirectory: string
     ): Promise<boolean> => false,
 
+    remarkableMoveNotebook: async (
+      _deviceToken: string,
+      _notebookHash: string,
+      _newParentId: string
+    ): Promise<void> => { throw new Error('reMarkable move not available in web mode') },
+
+    remarkableCreateFolder: async (
+      _deviceToken: string,
+      _name: string,
+      _parentId?: string
+    ): Promise<string> => { throw new Error('reMarkable create folder not available in web mode') },
+
+    remarkableUpdateNotebookParent: async (
+      _notebookId: string,
+      _newParentId: string,
+      _syncDirectory: string
+    ): Promise<boolean> => false,
+
     // ---- Google Docs (stubs) ----------------------------------------------
 
     googleIsConfigured: async (): Promise<boolean> => false,

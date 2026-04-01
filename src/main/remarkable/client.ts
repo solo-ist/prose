@@ -18,6 +18,8 @@ export interface RemarkableNotebook {
 export interface RemarkableClient {
   listNotebooks(): Promise<RemarkableNotebook[]>
   downloadNotebook(id: string, hash: string): Promise<Uint8Array>
+  moveNotebook(hash: string, newParentId: string): Promise<void>
+  createFolder(name: string, parentId?: string): Promise<string>
   disconnect(): void
 }
 
@@ -144,6 +146,15 @@ function createClient(api: RemarkableApi): RemarkableClient {
     async downloadNotebook(id: string, hash: string): Promise<Uint8Array> {
       // getDocument returns a zip containing all notebook files
       return await api.getDocument(hash)
+    },
+
+    async moveNotebook(hash: string, newParentId: string): Promise<void> {
+      await api.move(hash, newParentId)
+    },
+
+    async createFolder(name: string, parentId?: string): Promise<string> {
+      const entry = await api.putFolder(name, parentId || '')
+      return entry.hash
     },
 
     disconnect(): void {

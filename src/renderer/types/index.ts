@@ -376,6 +376,9 @@ export interface ElectronAPI {
   remarkableCreateEditableVersion: (notebookId: string, syncDirectory: string) => Promise<string | null>
   remarkableFindNotebookByFilePath: (filePath: string, syncDirectory: string) => Promise<string | null>
   remarkableClearNotebookMarkdownPath: (notebookId: string, syncDirectory: string) => Promise<boolean>
+  remarkableMoveNotebook: (deviceToken: string, notebookHash: string, newParentId: string) => Promise<void>
+  remarkableCreateFolder: (deviceToken: string, name: string, parentId?: string) => Promise<string>
+  remarkableUpdateNotebookParent: (notebookId: string, newParentId: string, syncDirectory: string) => Promise<boolean>
   // MCP tool execution (only used in MCP server mode)
   onMcpToolInvoke: (
     callback: (requestId: string, toolName: string, args: unknown) => void

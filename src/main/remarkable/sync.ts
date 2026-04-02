@@ -70,10 +70,11 @@ export interface SyncResult {
 
 export interface SyncProgressUpdate {
   message: string
+  notebookId?: string
   notebookName?: string
   current?: number
   total?: number
-  phase: 'connecting' | 'listing' | 'downloading' | 'ocr' | 'complete'
+  phase: 'connecting' | 'listing' | 'downloading' | 'ocr' | 'notebook-done' | 'complete'
 }
 
 const META_FILE = 'sync-metadata.json'
@@ -368,7 +369,7 @@ export async function syncAll(
     async function syncOneNotebook(doc: RemarkableNotebook): Promise<void> {
       const idx = ++completed
       console.log(`[reMarkable] Processing ${idx}/${totalToSync}: ${doc.name} (type: ${doc.fileType})`)
-      onProgress?.({ message: `Syncing ${idx}/${totalToSync}: ${doc.name}`, notebookName: doc.name, current: idx, total: totalToSync, phase: 'downloading' })
+      onProgress?.({ message: `Syncing ${idx}/${totalToSync}: ${doc.name}`, notebookId: doc.id, notebookName: doc.name, current: idx, total: totalToSync, phase: 'downloading' })
 
       const docPath = buildPath(doc, notebooks)
 
@@ -439,6 +440,7 @@ export async function syncAll(
           markdownPath: existingEntry?.markdownPath
         }
         result.synced++
+        onProgress?.({ message: `Done: ${doc.name}`, notebookId: doc.id, notebookName: doc.name, phase: 'notebook-done' })
         await saveMetadata(baseDir, newMeta)
         return
       }
@@ -486,6 +488,7 @@ export async function syncAll(
       }
 
       result.synced++
+      onProgress?.({ message: `Done: ${doc.name}`, notebookId: doc.id, notebookName: doc.name, phase: 'notebook-done' })
       // Incremental save: persist metadata after each successful notebook
       await saveMetadata(baseDir, newMeta)
     }

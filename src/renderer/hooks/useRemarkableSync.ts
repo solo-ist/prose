@@ -4,6 +4,7 @@ import { useFileListStore } from '../stores/fileListStore'
 
 interface SyncProgress {
   message: string
+  notebookId?: string
   notebookName?: string
   current?: number
   total?: number
@@ -33,6 +34,9 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
   const saveSettings = useSettingsStore((state) => state.saveSettings)
   const loadFiles = useFileListStore((state) => state.loadFiles)
   const loadNotebooks = useFileListStore((state) => state.loadNotebooks)
+  const addSyncingNotebook = useFileListStore((state) => state.addSyncingNotebook)
+  const removeSyncingNotebook = useFileListStore((state) => state.removeSyncingNotebook)
+  const clearSyncingNotebooks = useFileListStore((state) => state.clearSyncingNotebooks)
 
   const remarkableSettings = settings.remarkable
   const lastSyncedAt = remarkableSettings?.lastSyncedAt ?? null
@@ -43,11 +47,19 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
 
     const unsubscribe = window.api.onRemarkableSyncProgress((update) => {
       setProgress(update)
+      if (update.notebookId) {
+        if (update.phase === 'downloading' || update.phase === 'ocr') {
+          addSyncingNotebook(update.notebookId)
+        } else if (update.phase === 'notebook-done') {
+          removeSyncingNotebook(update.notebookId)
+        }
+      }
     })
 
     return () => {
       unsubscribe()
       setProgress(null)
+      clearSyncingNotebooks()
     }
   }, [isSyncing])
 

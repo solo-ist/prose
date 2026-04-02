@@ -664,7 +664,7 @@ export function FileListPanel() {
       } else {
         const notebookId = getNotebookId(item)
         const isSynced = isNotebookSynced(notebookId)
-        const isSyncingThisNotebook = syncingNotebookIds.has(notebookId)
+        const isSyncingThisNotebook = syncingNotebookIds.includes(notebookId)
         const localMeta = notebookMetadata?.notebooks?.[notebookId] ?? null
         const hasOCR = !!localMeta?.ocrPath
         const hasEditable = !!localMeta?.markdownPath

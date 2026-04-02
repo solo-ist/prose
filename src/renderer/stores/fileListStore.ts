@@ -30,7 +30,7 @@ interface FileListState {
   notebookMetadata: RemarkableSyncMetadata | null
   cloudNotebooks: RemarkableCloudNotebook[]
   syncState: RemarkableSyncState | null
-  syncingNotebookIds: Set<string>
+  syncingNotebookIds: string[]
 
   // Google Docs metadata
   googleDocsMetadata: GoogleSyncMetadata | null
@@ -79,19 +79,17 @@ export const useFileListStore = create<FileListState>()(
     notebookMetadata: null,
     cloudNotebooks: [],
     syncState: null,
-    syncingNotebookIds: new Set(),
+    syncingNotebookIds: [],
 
-    addSyncingNotebook: (id) => set((state) => {
-      const next = new Set(state.syncingNotebookIds)
-      next.add(id)
-      return { syncingNotebookIds: next }
-    }),
-    removeSyncingNotebook: (id) => set((state) => {
-      const next = new Set(state.syncingNotebookIds)
-      next.delete(id)
-      return { syncingNotebookIds: next }
-    }),
-    clearSyncingNotebooks: () => set({ syncingNotebookIds: new Set() }),
+    addSyncingNotebook: (id) => set((state) => ({
+      syncingNotebookIds: state.syncingNotebookIds.includes(id)
+        ? state.syncingNotebookIds
+        : [...state.syncingNotebookIds, id]
+    })),
+    removeSyncingNotebook: (id) => set((state) => ({
+      syncingNotebookIds: state.syncingNotebookIds.filter(x => x !== id)
+    })),
+    clearSyncingNotebooks: () => set({ syncingNotebookIds: [] }),
 
     setClipboardPath: (path, operation = 'copy') => set({ clipboardPath: path, clipboardOperation: path ? operation : null }),
     setRenamingPath: (path) => set({ renamingPath: path }),

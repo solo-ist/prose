@@ -585,8 +585,8 @@ export async function updateSyncSelection(
 export async function listCloudNotebooks(
   deviceToken: string
 ): Promise<{ id: string; name: string; type: 'folder' | 'notebook'; parent: string | null; fileType?: string }[]> {
-  // Clear cache to get fresh data
-  disconnect()
+  // Reuse cached connection if available — syncAll() already forces fresh data before downloading.
+  // No need to disconnect here; the selection dialog just needs the notebook list.
   const client = await connect(deviceToken)
   const notebooks = await client.listNotebooks()
 

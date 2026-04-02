@@ -45,6 +45,7 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
   useEffect(() => {
     if (!isSyncing || !window.api?.onRemarkableSyncProgress) return
 
+    const syncDir = remarkableSettings?.syncDirectory
     const unsubscribe = window.api.onRemarkableSyncProgress((update) => {
       setProgress(update)
       if (update.notebookId) {
@@ -52,6 +53,8 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
           addSyncingNotebook(update.notebookId)
         } else if (update.phase === 'notebook-done') {
           removeSyncingNotebook(update.notebookId)
+          // Reload metadata so the notebook becomes interactive immediately
+          if (syncDir) loadNotebooks(syncDir)
         }
       }
     })

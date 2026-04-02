@@ -196,15 +196,46 @@ async function processNotebookWithOCR(
   }
 
   try {
-    // Find all .rm files in the notebook directory
+    // Read page order from .content file (reMarkable stores page UUIDs in order)
+    let pageOrder: string[] = []
     const files = await readdir(notebookDir, { recursive: true })
     console.log(`[OCR] Found ${files.length} files in directory:`, files.slice(0, 10))
 
+    const contentFile = files.find(f => typeof f === 'string' && f.endsWith('.content'))
+    if (contentFile) {
+      try {
+        const contentJson = JSON.parse(await readFile(join(notebookDir, contentFile), 'utf-8'))
+        if (contentJson.cPages?.pages) {
+          // v6 format: cPages.pages[].id
+          pageOrder = contentJson.cPages.pages.map((p: { id: string }) => p.id)
+        } else if (contentJson.pages) {
+          // Legacy format: pages[] as string array of UUIDs
+          pageOrder = contentJson.pages
+        }
+        console.log(`[OCR] Page order from .content: ${pageOrder.length} pages`)
+      } catch {
+        console.warn(`[OCR] Failed to parse .content file, falling back to alphabetical`)
+      }
+    }
+
     const rmFiles = files
       .filter(f => typeof f === 'string' && f.endsWith('.rm'))
-      .sort() // Sort to ensure consistent page order
 
-    console.log(`[OCR] Found ${rmFiles.length} .rm files:`, rmFiles)
+    // Sort by .content page order if available, otherwise alphabetical
+    if (pageOrder.length > 0) {
+      rmFiles.sort((a, b) => {
+        const aId = a.replace('.rm', '').replace(/.*\//, '')
+        const bId = b.replace('.rm', '').replace(/.*\//, '')
+        const aIdx = pageOrder.indexOf(aId)
+        const bIdx = pageOrder.indexOf(bId)
+        // Pages not in .content go to the end
+        return (aIdx === -1 ? Infinity : aIdx) - (bIdx === -1 ? Infinity : bIdx)
+      })
+    } else {
+      rmFiles.sort()
+    }
+
+    console.log(`[OCR] Found ${rmFiles.length} .rm files`)
 
     if (rmFiles.length === 0) {
       console.log(`[OCR] No .rm files found`)
@@ -215,14 +246,12 @@ async function processNotebookWithOCR(
     onProgress?.({ message: `Processing ${rmFiles.length} pages from "${notebookName}"...`, notebookName, phase: 'ocr' })
     console.log(`[OCR] Processing ${rmFiles.length} pages...`)
 
-    // Read all .rm files
+    // Read all .rm files in page order
     const pages: Array<{ id: string; data: Buffer }> = []
     for (const rmFile of rmFiles) {
       const filePath = join(notebookDir, rmFile)
-      console.log(`[OCR] Reading file: ${filePath}`)
       const data = await readFile(filePath)
       console.log(`[OCR] Read ${data.length} bytes from ${rmFile}`)
-      // Use the filename without extension as the page ID
       const pageId = rmFile.replace('.rm', '').replace(/\//g, '_')
       pages.push({ id: pageId, data })
     }
@@ -240,9 +269,14 @@ async function processNotebookWithOCR(
       onProgress?.({ message: `Warning: ${result.failedPages.length} pages failed OCR`, notebookName, phase: 'ocr' })
     }
 
-    // Sort results by page ID to maintain order
-    const sortedPages = result.pages.sort((a, b) => a.id.localeCompare(b.id))
-    console.log(`[OCR] Sorted ${sortedPages.length} pages`)
+    // Preserve input page order (already sorted by .content page order above)
+    const pageIdOrder = pages.map(p => p.id)
+    const sortedPages = result.pages.sort((a, b) => {
+      const aIdx = pageIdOrder.indexOf(a.id)
+      const bIdx = pageIdOrder.indexOf(b.id)
+      return (aIdx === -1 ? Infinity : aIdx) - (bIdx === -1 ? Infinity : bIdx)
+    })
+    console.log(`[OCR] Ordered ${sortedPages.length} pages`)
 
     // Combine all markdown with page separators
     const markdownParts = sortedPages.map((page, index) => {
@@ -295,8 +329,10 @@ export async function syncAll(
   console.log('[reMarkable] OCR configured:', isOCRConfigured())
   console.log('[reMarkable] Anthropic API key:', anthropicApiKey ? 'provided' : 'not provided')
 
-  // Clear cached API connection to ensure fresh data from cloud
-  disconnect()
+  // Reuse cached connection if available — connect() handles re-auth if needed.
+  // Previously called disconnect() here to force fresh data, but that caused
+  // a slow full re-authentication on every sync. The cloud API returns fresh
+  // data on each listNotebooks() call regardless of connection caching.
 
   // Expand ~ to home directory - syncDirectory is where markdown files go
   const baseDir = expandPath(syncDirectory)

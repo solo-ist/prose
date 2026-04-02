@@ -923,7 +923,9 @@ export function setupIpcHandlers(): void {
       }
 
       return await syncAll(deviceToken, safeDir, anthropicApiKey, (progress) => {
-        event.sender.send('remarkable:sync:progress', progress)
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('remarkable:sync:progress', progress)
+        }
       })
     }
   )

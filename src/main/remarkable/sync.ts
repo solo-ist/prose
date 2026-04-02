@@ -128,10 +128,12 @@ async function loadMetadata(baseDirectory: string): Promise<SyncMetadata | null>
  * Save sync metadata to the hidden directory
  */
 async function saveMetadata(baseDirectory: string, metadata: SyncMetadata): Promise<void> {
+  // Snapshot before any await to prevent concurrent workers from seeing partial state
+  const snapshot = JSON.stringify(metadata, null, 2)
   const hiddenDir = join(baseDirectory, HIDDEN_DIR)
   await mkdir(hiddenDir, { recursive: true })
   const metaPath = join(hiddenDir, META_FILE)
-  await writeFile(metaPath, JSON.stringify(metadata, null, 2), 'utf-8')
+  await writeFile(metaPath, snapshot, 'utf-8')
 }
 
 /**

@@ -214,6 +214,11 @@ function RemarkableSettings({ settings, setRemarkableConfig }: Props) {
     setError(null)
     setSyncStatus('Starting sync...')
 
+    // Subscribe to real-time progress events
+    const unsubscribe = window.api.onRemarkableSyncProgress?.((progress) => {
+      setSyncStatus(progress.message)
+    })
+
     try {
       const result = await window.api.remarkableSync(remarkableSettings.deviceToken, syncDir)
 
@@ -228,6 +233,7 @@ function RemarkableSettings({ settings, setRemarkableConfig }: Props) {
       setError(err instanceof Error ? err.message : 'Sync failed')
       setSyncStatus(null)
     } finally {
+      unsubscribe?.()
       setIsSyncing(false)
     }
   }

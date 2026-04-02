@@ -30,6 +30,7 @@ interface FileListState {
   notebookMetadata: RemarkableSyncMetadata | null
   cloudNotebooks: RemarkableCloudNotebook[]
   syncState: RemarkableSyncState | null
+  syncingNotebookIds: string[]
 
   // Google Docs metadata
   googleDocsMetadata: GoogleSyncMetadata | null
@@ -49,6 +50,9 @@ interface FileListState {
   loadNotebooks: (syncDirectory: string) => Promise<void>
   loadCloudNotebooks: (deviceToken: string, syncDirectory: string) => Promise<void>
   toggleNotebookSync: (notebookId: string, syncDirectory: string) => Promise<void>
+  addSyncingNotebook: (id: string) => void
+  removeSyncingNotebook: (id: string) => void
+  clearSyncingNotebooks: () => void
   loadGoogleDocsMetadata: () => Promise<void>
   selectFile: (path: string | null) => void
   toggleFolder: (path: string) => void
@@ -75,6 +79,17 @@ export const useFileListStore = create<FileListState>()(
     notebookMetadata: null,
     cloudNotebooks: [],
     syncState: null,
+    syncingNotebookIds: [],
+
+    addSyncingNotebook: (id) => set((state) => ({
+      syncingNotebookIds: state.syncingNotebookIds.includes(id)
+        ? state.syncingNotebookIds
+        : [...state.syncingNotebookIds, id]
+    })),
+    removeSyncingNotebook: (id) => set((state) => ({
+      syncingNotebookIds: state.syncingNotebookIds.filter(x => x !== id)
+    })),
+    clearSyncingNotebooks: () => set({ syncingNotebookIds: [] }),
 
     setClipboardPath: (path, operation = 'copy') => set({ clipboardPath: path, clipboardOperation: path ? operation : null }),
     setRenamingPath: (path) => set({ renamingPath: path }),

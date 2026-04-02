@@ -53,6 +53,7 @@ export function FileListPanel() {
     notebookMetadata,
     cloudNotebooks,
     syncState,
+    syncingNotebookIds,
     selectFile,
     toggleFolder,
     setViewMode,
@@ -663,6 +664,7 @@ export function FileListPanel() {
       } else {
         const notebookId = getNotebookId(item)
         const isSynced = isNotebookSynced(notebookId)
+        const isSyncingThisNotebook = syncingNotebookIds.includes(notebookId)
         const localMeta = notebookMetadata?.notebooks?.[notebookId] ?? null
         const hasOCR = !!localMeta?.ocrPath
         const hasEditable = !!localMeta?.markdownPath
@@ -698,7 +700,9 @@ export function FileListPanel() {
                   }
                   disabled={!isSynced || !isClickable}
                 >
-                  {isSynced ? (
+                  {isSyncingThisNotebook ? (
+                    <Loader2 className="h-4 w-4 shrink-0 text-muted-foreground animate-spin" />
+                  ) : isSynced ? (
                     hasEditable ? (
                       <Cloud className="h-4 w-4 shrink-0 text-foreground" />
                     ) : hasOCR ? (

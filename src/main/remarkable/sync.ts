@@ -811,6 +811,34 @@ export async function clearNotebookMarkdownPath(
 }
 
 /**
+ * Update the cloud parent ID of a notebook in local sync metadata.
+ * Called after successfully moving a notebook on the reMarkable cloud.
+ *
+ * @param notebookId - The notebook ID to update
+ * @param newParentId - The new cloud folder ID (empty string for root)
+ * @param syncDirectory - Base sync directory
+ * @returns true if updated successfully, false if notebook not found
+ */
+export async function updateNotebookParent(
+  notebookId: string,
+  newParentId: string,
+  syncDirectory: string
+): Promise<boolean> {
+  const baseDir = expandPath(syncDirectory)
+  const metadata = await loadMetadata(baseDir)
+  if (!metadata) return false
+
+  const notebook = metadata.notebooks[notebookId]
+  if (!notebook) return false
+
+  notebook.parent = newParentId || null
+
+  await saveMetadata(baseDir, metadata)
+  console.log(`[reMarkable] Updated parent for notebook ${notebookId} to "${newParentId}"`)
+  return true
+}
+
+/**
  * Purge sync state and cached data (hidden .remarkable/ directory only).
  * Does NOT delete user-visible markdown files — those belong to the user.
  * Called on disconnect to ensure a clean slate for reconnection.

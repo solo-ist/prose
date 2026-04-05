@@ -288,8 +288,17 @@ async function processNotebookWithOCR(
       }
     }
 
-    console.log(`[OCR] ${Object.keys(cachedPages).length} cached, ${pagesToOCR.length} need OCR out of ${rmFiles.length} total`)
-    onProgress?.({ message: `Processing ${pagesToOCR.length} changed pages from "${notebookName}"...`, notebookName, phase: 'ocr' })
+    const cachedCount = Object.keys(cachedPages).length
+    const totalPages = rmFiles.length
+    console.log(`[OCR] ${cachedCount} cached, ${pagesToOCR.length} need OCR out of ${totalPages} total`)
+
+    if (pagesToOCR.length === 0) {
+      onProgress?.({ message: `All ${totalPages} pages cached for "${notebookName}"`, notebookName, phase: 'ocr' })
+    } else if (cachedCount > 0) {
+      onProgress?.({ message: `OCR: ${pagesToOCR.length} changed, ${cachedCount} cached — "${notebookName}"`, notebookName, phase: 'ocr' })
+    } else {
+      onProgress?.({ message: `OCR: processing ${totalPages} pages — "${notebookName}"`, notebookName, phase: 'ocr' })
+    }
 
     // OCR only the changed/new pages
     const newCache: Record<string, PageOCRCacheEntry> = { ...cachedPages }
@@ -299,7 +308,7 @@ async function processNotebookWithOCR(
       console.log(`[OCR] Calling extractTextBatched with ${pagesToOCR.length} pages`)
       const result = await extractTextBatched(pagesToOCR, anthropicApiKey, (processed, total) => {
         console.log(`[OCR] Progress: ${processed}/${total}`)
-        onProgress?.({ message: `OCR progress: ${processed}/${total} pages`, notebookName, current: processed, total, phase: 'ocr' })
+        onProgress?.({ message: `OCR: page ${processed} of ${pagesToOCR.length} — "${notebookName}"`, notebookName, current: processed, total, phase: 'ocr' })
       })
       console.log(`[OCR] extractTextBatched returned: pages=${result.pages.length}, failed=${result.failedPages.length}`)
 

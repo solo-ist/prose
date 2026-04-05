@@ -1,15 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFileListStore } from '../stores/fileListStore'
+import type { SyncProgress } from '../stores/fileListStore'
 
-interface SyncProgress {
-  message: string
-  notebookId?: string
-  notebookName?: string
-  current?: number
-  total?: number
-  phase: string
-}
+export type { SyncProgress }
 
 export interface UseRemarkableSyncReturn {
   isSyncing: boolean
@@ -21,10 +15,7 @@ export interface UseRemarkableSyncReturn {
 }
 
 export function useRemarkableSync(): UseRemarkableSyncReturn {
-  const [isSyncing, setIsSyncing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [syncResult, setSyncResult] = useState<{ synced: number; skipped: number } | null>(null)
-  const [progress, setProgress] = useState<SyncProgress | null>(null)
 
   // Use a ref to prevent concurrent syncs (avoids stale closure issues)
   const syncLockRef = useRef(false)
@@ -37,17 +28,25 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
   const addSyncingNotebook = useFileListStore((state) => state.addSyncingNotebook)
   const removeSyncingNotebook = useFileListStore((state) => state.removeSyncingNotebook)
   const clearSyncingNotebooks = useFileListStore((state) => state.clearSyncingNotebooks)
+  const loadCloudNotebooks = useFileListStore((state) => state.loadCloudNotebooks)
+  const setRemarkableSyncActive = useFileListStore((state) => state.setRemarkableSyncActive)
+  const setRemarkableSyncProgress = useFileListStore((state) => state.setRemarkableSyncProgress)
+  const setRemarkableSyncError = useFileListStore((state) => state.setRemarkableSyncError)
+
+  const isSyncing = useFileListStore((state) => state.remarkableSyncActive)
+  const progress = useFileListStore((state) => state.remarkableSyncProgress)
+  const error = useFileListStore((state) => state.remarkableSyncError)
 
   const remarkableSettings = settings.remarkable
   const lastSyncedAt = remarkableSettings?.lastSyncedAt ?? null
+  const syncDir = remarkableSettings?.syncDirectory
 
-  // Subscribe to sync progress events while syncing
+  // Subscribe to sync progress events unconditionally — events only fire during active sync
   useEffect(() => {
-    if (!isSyncing || !window.api?.onRemarkableSyncProgress) return
+    if (!window.api?.onRemarkableSyncProgress) return
 
-    const syncDir = remarkableSettings?.syncDirectory
     const unsubscribe = window.api.onRemarkableSyncProgress((update) => {
-      setProgress(update)
+      setRemarkableSyncProgress(update)
       if (update.notebookId) {
         if (update.phase === 'downloading' || update.phase === 'ocr') {
           addSyncingNotebook(update.notebookId)
@@ -61,10 +60,8 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
 
     return () => {
       unsubscribe()
-      setProgress(null)
-      clearSyncingNotebooks()
     }
-  }, [isSyncing])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const sync = useCallback(async () => {
     // Check ref-based lock to prevent concurrent syncs
@@ -76,32 +73,32 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
 
     if (!window.api) {
       syncLockRef.current = false
-      setError('reMarkable sync is only available in the desktop app')
+      setRemarkableSyncError('reMarkable sync is only available in the desktop app')
       return
     }
 
     if (!remarkableSettings?.enabled) {
       syncLockRef.current = false
-      setError('reMarkable sync is not enabled')
+      setRemarkableSyncError('reMarkable sync is not enabled')
       return
     }
 
     if (!remarkableSettings.deviceToken) {
       syncLockRef.current = false
-      setError('Please connect your reMarkable device in Settings')
+      setRemarkableSyncError('Please connect your reMarkable device in Settings')
       return
     }
 
     if (!remarkableSettings.syncDirectory) {
       syncLockRef.current = false
-      setError('Please set a sync directory in Settings')
+      setRemarkableSyncError('Please set a sync directory in Settings')
       return
     }
 
-    setIsSyncing(true)
-    setError(null)
+    setRemarkableSyncActive(true)
+    setRemarkableSyncError(null)
     setSyncResult(null)
-    setProgress(null)
+    setRemarkableSyncProgress(null)
 
     try {
       const result = await window.api.remarkableSync(
@@ -112,7 +109,7 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
       // Check for sync errors
       if (result.errors.length > 0) {
         console.error('reMarkable sync errors:', result.errors)
-        setError(result.errors[0])
+        setRemarkableSyncError(result.errors[0])
       }
 
       // Update lastSyncedAt in settings
@@ -126,17 +123,20 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
 
       setSyncResult({ synced: result.synced, skipped: result.skipped })
 
-      // Refresh the file list and notebooks
+      // Refresh the file list, notebooks, and cloud notebook tree (folder structure may have changed)
       await loadFiles()
       await loadNotebooks(remarkableSettings.syncDirectory)
+      await loadCloudNotebooks(remarkableSettings.deviceToken, remarkableSettings.syncDirectory)
     } catch (err) {
       console.error('reMarkable sync failed:', err)
-      setError(err instanceof Error ? err.message : 'Sync failed')
+      setRemarkableSyncError(err instanceof Error ? err.message : 'Sync failed')
     } finally {
-      setIsSyncing(false)
+      setRemarkableSyncActive(false)
+      setRemarkableSyncProgress(null)
+      clearSyncingNotebooks()
       syncLockRef.current = false
     }
-  }, [remarkableSettings, setSettings, saveSettings, loadFiles, loadNotebooks])
+  }, [remarkableSettings, setSettings, saveSettings, loadFiles, loadNotebooks, loadCloudNotebooks, setRemarkableSyncActive, setRemarkableSyncProgress, setRemarkableSyncError, clearSyncingNotebooks])
 
   return {
     isSyncing,

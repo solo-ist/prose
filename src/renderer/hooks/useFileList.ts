@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useFileListStore } from '../stores/fileListStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useEditorStore } from '../stores/editorStore'
@@ -52,12 +52,19 @@ export function useFileList() {
     }
   }, [settings.defaultSaveDirectory, rootPath, setRootPath, initializeDefaultPath])
 
-  // Load local notebook metadata when in notebooks view (no cloud API calls)
+  // Load notebook metadata when in notebooks view
+  // Phase A: local metadata from disk (instant)
+  // Phase B: cloud metadata on first view (~1-2s) to populate tree before sync completes
+  const cloudNotebooksLoadedRef = useRef(false)
   useEffect(() => {
     if (viewMode === 'notebooks' && settings.remarkable?.enabled && settings.remarkable?.deviceToken && syncDirectory) {
       loadNotebooks(syncDirectory)
+      if (!cloudNotebooksLoadedRef.current) {
+        cloudNotebooksLoadedRef.current = true
+        loadCloudNotebooks(settings.remarkable.deviceToken, syncDirectory)
+      }
     }
-  }, [viewMode, settings.remarkable?.enabled, settings.remarkable?.deviceToken, syncDirectory, loadNotebooks])
+  }, [viewMode, settings.remarkable?.enabled, settings.remarkable?.deviceToken, syncDirectory, loadNotebooks, loadCloudNotebooks])
 
   // Auto-refresh files when switching to folder view
   useEffect(() => {

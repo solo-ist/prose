@@ -555,20 +555,18 @@ export async function syncAll(
       : []
     for (const doc of nonSyncedDocs) {
       const existingEntry = existingMeta?.notebooks[doc.id]
-      if (existingEntry) {
-        newMeta.notebooks[doc.id] = existingEntry
-      } else {
-        // Record metadata for cloud-only notebooks
-        const docPath = buildPath(doc, notebooks)
-        newMeta.notebooks[doc.id] = {
-          name: doc.name,
-          parent: doc.parent,
-          type: 'notebook',
-          fileType: doc.fileType,
-          lastModified: doc.lastModified,
-          hash: doc.hash,
-          localPath: '' // Not synced locally
-        }
+      // Always update name/parent/hash from cloud (user may have moved or renamed)
+      // but preserve local paths from existing entry
+      newMeta.notebooks[doc.id] = {
+        name: doc.name,
+        parent: doc.parent,
+        type: 'notebook',
+        fileType: doc.fileType,
+        lastModified: doc.lastModified,
+        hash: doc.hash,
+        localPath: existingEntry?.localPath || '',
+        ocrPath: existingEntry?.ocrPath,
+        markdownPath: existingEntry?.markdownPath
       }
     }
 

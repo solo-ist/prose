@@ -2,6 +2,15 @@ import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import type { FileItem, RemarkableSyncMetadata, RemarkableCloudNotebook, RemarkableSyncState, GoogleSyncMetadata } from '../types'
 
+export interface SyncProgress {
+  message: string
+  notebookId?: string
+  notebookName?: string
+  current?: number
+  total?: number
+  phase: string
+}
+
 type ViewMode = 'recent' | 'folder' | 'notebooks' | 'googledocs'
 
 interface FileListState {
@@ -26,6 +35,11 @@ interface FileListState {
   // Google Docs sync state
   isGoogleSyncing: boolean
 
+  // reMarkable global sync state
+  remarkableSyncActive: boolean
+  remarkableSyncProgress: SyncProgress | null
+  remarkableSyncError: string | null
+
   // Notebook metadata
   notebookMetadata: RemarkableSyncMetadata | null
   cloudNotebooks: RemarkableCloudNotebook[]
@@ -42,6 +56,9 @@ interface FileListState {
   setClipboardPath: (path: string | null, operation?: 'copy' | 'cut') => void
   setRenamingPath: (path: string | null) => void
   setGoogleSyncing: (syncing: boolean) => void
+  setRemarkableSyncActive: (active: boolean) => void
+  setRemarkableSyncProgress: (progress: SyncProgress | null) => void
+  setRemarkableSyncError: (error: string | null) => void
   setRootPath: (path: string | null) => void
   initializeDefaultPath: () => Promise<void>
   navigateToParent: () => void
@@ -75,6 +92,9 @@ export const useFileListStore = create<FileListState>()(
     clipboardOperation: null,
     renamingPath: null,
     isGoogleSyncing: false,
+    remarkableSyncActive: false,
+    remarkableSyncProgress: null,
+    remarkableSyncError: null,
     googleDocsMetadata: null,
     notebookMetadata: null,
     cloudNotebooks: [],
@@ -94,6 +114,9 @@ export const useFileListStore = create<FileListState>()(
     setClipboardPath: (path, operation = 'copy') => set({ clipboardPath: path, clipboardOperation: path ? operation : null }),
     setRenamingPath: (path) => set({ renamingPath: path }),
     setGoogleSyncing: (syncing) => set({ isGoogleSyncing: syncing }),
+    setRemarkableSyncActive: (active) => set({ remarkableSyncActive: active }),
+    setRemarkableSyncProgress: (progress) => set({ remarkableSyncProgress: progress }),
+    setRemarkableSyncError: (error) => set({ remarkableSyncError: error }),
 
     togglePanel: () => set((state) => ({ isPanelOpen: !state.isPanelOpen })),
 

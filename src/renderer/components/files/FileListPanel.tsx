@@ -446,7 +446,7 @@ export function FileListPanel() {
 
   // Auto-sync when switching to notebooks view
   useEffect(() => {
-    if (viewMode === 'notebooks' && remarkableEnabled && deviceToken && syncState && !isSyncing) {
+    if (viewMode === 'notebooks' && remarkableEnabled && deviceToken && !isSyncing) {
       sync().catch((err) => {
         console.error('[FileListPanel] Auto-sync failed:', err)
       })

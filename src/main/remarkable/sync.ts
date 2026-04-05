@@ -47,6 +47,15 @@ export interface SyncMetadata {
   notebooks: Record<string, NotebookMetadata>
 }
 
+export interface PageOCRCacheEntry {
+  /** Page modification timestamp from .content (ms epoch) */
+  modifed: string
+  /** OCR markdown result for this page */
+  markdown: string
+  /** OCR confidence score */
+  confidence: number
+}
+
 export interface NotebookMetadata {
   name: string
   parent: string | null
@@ -59,6 +68,8 @@ export interface NotebookMetadata {
   ocrPath?: string
   /** Path to user's editable markdown in visible folder (relative to sync dir, created on demand) */
   markdownPath?: string
+  /** Per-page OCR cache keyed by page UUID — enables incremental OCR on resync */
+  pageOCRCache?: Record<string, PageOCRCacheEntry>
 }
 
 export interface SyncResult {
@@ -174,15 +185,18 @@ function buildPath(
  *
  * @param notebookDir - Path to extracted notebook directory (e.g., .remarkable/<hash>/)
  * @param notebookName - Display name for the notebook
+ * @param anthropicApiKey - API key for the OCR service
+ * @param existingCache - Per-page OCR cache from previous sync (enables incremental OCR)
  * @param onProgress - Progress callback
- * @returns Markdown content or null if no .rm files found
+ * @returns Object with markdown content and updated page cache, or null if no .rm files found
  */
 async function processNotebookWithOCR(
   notebookDir: string,
   notebookName: string,
   anthropicApiKey: string | null | undefined,
+  existingCache?: Record<string, PageOCRCacheEntry>,
   onProgress?: (update: SyncProgressUpdate) => void
-): Promise<string | null> {
+): Promise<{ markdown: string; pageOCRCache: Record<string, PageOCRCacheEntry> } | null> {
   console.log(`[OCR] processNotebookWithOCR called for "${notebookName}" at ${notebookDir}`)
 
   if (!isOCRConfigured()) {
@@ -198,8 +212,9 @@ async function processNotebookWithOCR(
   }
 
   try {
-    // Read page order from .content file (reMarkable stores page UUIDs in order)
+    // Read page order and timestamps from .content file
     let pageOrder: string[] = []
+    const pageTimestamps: Record<string, string> = {} // pageId → modifed timestamp
     const files = await readdir(notebookDir, { recursive: true })
     console.log(`[OCR] Found ${files.length} files in directory:`, files.slice(0, 10))
 
@@ -208,10 +223,13 @@ async function processNotebookWithOCR(
       try {
         const contentJson = JSON.parse(await readFile(join(notebookDir, contentFile), 'utf-8'))
         if (contentJson.cPages?.pages) {
-          // v6 format: cPages.pages[].id
-          pageOrder = contentJson.cPages.pages.map((p: { id: string }) => p.id)
+          // v6 format: cPages.pages[].id with modifed timestamps
+          for (const p of contentJson.cPages.pages) {
+            pageOrder.push(p.id)
+            if (p.modifed) pageTimestamps[p.id] = String(p.modifed)
+          }
         } else if (contentJson.pages) {
-          // Legacy format: pages[] as string array of UUIDs
+          // Legacy format: pages[] as string array of UUIDs (no timestamps)
           pageOrder = contentJson.pages
         }
         console.log(`[OCR] Page order from .content: ${pageOrder.length} pages`)
@@ -230,7 +248,6 @@ async function processNotebookWithOCR(
         const bId = b.replace('.rm', '').replace(/.*\//, '')
         const aIdx = pageOrder.indexOf(aId)
         const bIdx = pageOrder.indexOf(bId)
-        // Pages not in .content go to the end
         return (aIdx === -1 ? Infinity : aIdx) - (bIdx === -1 ? Infinity : bIdx)
       })
     } else {
@@ -245,44 +262,79 @@ async function processNotebookWithOCR(
       return null
     }
 
-    onProgress?.({ message: `Processing ${rmFiles.length} pages from "${notebookName}"...`, notebookName, phase: 'ocr' })
-    console.log(`[OCR] Processing ${rmFiles.length} pages...`)
+    // Determine which pages need OCR by comparing timestamps with cache
+    const pagesToOCR: Array<{ id: string; data: Buffer }> = []
+    const cachedPages: Record<string, PageOCRCacheEntry> = {}
+    const allPageIds: string[] = []
 
-    // Read all .rm files in page order
-    const pages: Array<{ id: string; data: Buffer }> = []
     for (const rmFile of rmFiles) {
       const filePath = join(notebookDir, rmFile)
-      const data = await readFile(filePath)
-      console.log(`[OCR] Read ${data.length} bytes from ${rmFile}`)
-      const pageId = rmFile.replace('.rm', '').replace(/\//g, '_')
-      pages.push({ id: pageId, data })
+      const pageId = rmFile.replace('.rm', '').replace(/.*\//, '')
+      allPageIds.push(pageId)
+      // Strip subdirectory prefix to get bare UUID for timestamp lookup
+      const bareId = rmFile.replace('.rm', '').replace(/.*\//, '')
+      const currentTimestamp = pageTimestamps[bareId]
+      const cached = existingCache?.[pageId]
+
+      if (cached && currentTimestamp && cached.modifed === currentTimestamp) {
+        // Page unchanged — use cached OCR result
+        cachedPages[pageId] = cached
+        console.log(`[OCR] Cache hit for page ${bareId}`)
+      } else {
+        // Page changed or new — needs OCR
+        const data = await readFile(filePath)
+        console.log(`[OCR] Read ${data.length} bytes from ${rmFile} (${cached ? 'changed' : 'new'})`)
+        pagesToOCR.push({ id: pageId, data })
+      }
     }
 
-    console.log(`[OCR] Calling extractTextBatched with ${pages.length} pages`)
-    // Process with OCR
-    const result = await extractTextBatched(pages, anthropicApiKey, (processed, total) => {
-      console.log(`[OCR] Progress: ${processed}/${total}`)
-      onProgress?.({ message: `OCR progress: ${processed}/${total} pages`, notebookName, current: processed, total, phase: 'ocr' })
-    })
-    console.log(`[OCR] extractTextBatched returned: pages=${result.pages.length}, failed=${result.failedPages.length}`)
+    console.log(`[OCR] ${Object.keys(cachedPages).length} cached, ${pagesToOCR.length} need OCR out of ${rmFiles.length} total`)
+    onProgress?.({ message: `Processing ${pagesToOCR.length} changed pages from "${notebookName}"...`, notebookName, phase: 'ocr' })
 
-    if (result.failedPages.length > 0) {
-      console.log(`[OCR] Failed pages:`, result.failedPages)
-      onProgress?.({ message: `Warning: ${result.failedPages.length} pages failed OCR`, notebookName, phase: 'ocr' })
+    // OCR only the changed/new pages
+    const newCache: Record<string, PageOCRCacheEntry> = { ...cachedPages }
+    let ocrResults: Array<{ id: string; markdown: string; confidence: number }> = []
+
+    if (pagesToOCR.length > 0) {
+      console.log(`[OCR] Calling extractTextBatched with ${pagesToOCR.length} pages`)
+      const result = await extractTextBatched(pagesToOCR, anthropicApiKey, (processed, total) => {
+        console.log(`[OCR] Progress: ${processed}/${total}`)
+        onProgress?.({ message: `OCR progress: ${processed}/${total} pages`, notebookName, current: processed, total, phase: 'ocr' })
+      })
+      console.log(`[OCR] extractTextBatched returned: pages=${result.pages.length}, failed=${result.failedPages.length}`)
+
+      if (result.failedPages.length > 0) {
+        console.log(`[OCR] Failed pages:`, result.failedPages)
+        onProgress?.({ message: `Warning: ${result.failedPages.length} pages failed OCR`, notebookName, phase: 'ocr' })
+      }
+
+      ocrResults = result.pages
+
+      // Update cache with fresh OCR results
+      for (const page of result.pages) {
+        const bareId = page.id.replace(/.*_/, '')
+        newCache[page.id] = {
+          modifed: pageTimestamps[bareId] || '',
+          markdown: page.markdown,
+          confidence: page.confidence
+        }
+      }
     }
 
-    // Preserve input page order (already sorted by .content page order above)
-    const pageIdOrder = pages.map(p => p.id)
-    const sortedPages = result.pages.sort((a, b) => {
-      const aIdx = pageIdOrder.indexOf(a.id)
-      const bIdx = pageIdOrder.indexOf(b.id)
-      return (aIdx === -1 ? Infinity : aIdx) - (bIdx === -1 ? Infinity : bIdx)
+    // Assemble all pages in order — merge cached and fresh results
+    const orderedPages = allPageIds.map(pageId => {
+      const cached = newCache[pageId]
+      if (cached) return { id: pageId, markdown: cached.markdown, confidence: cached.confidence }
+      // Fallback: page was in OCR results (matched by id)
+      const fresh = ocrResults.find(r => r.id === pageId)
+      return fresh || { id: pageId, markdown: '', confidence: 0 }
     })
-    console.log(`[OCR] Ordered ${sortedPages.length} pages`)
+
+    console.log(`[OCR] Ordered ${orderedPages.length} pages`)
 
     // Combine all markdown with page separators
-    const markdownParts = sortedPages.map((page, index) => {
-      const pageHeader = sortedPages.length > 1 ? `<!-- Page ${index + 1} -->\n\n` : ''
+    const markdownParts = orderedPages.map((page, index) => {
+      const pageHeader = orderedPages.length > 1 ? `<!-- Page ${index + 1} -->\n\n` : ''
       return pageHeader + page.markdown
     })
 
@@ -293,13 +345,13 @@ async function processNotebookWithOCR(
     const header = `---
 title: ${notebookName}
 source: reMarkable
-pages: ${sortedPages.length}
+pages: ${orderedPages.length}
 extracted: ${new Date().toISOString()}
 ---
 
 `
 
-    return header + combinedMarkdown
+    return { markdown: header + combinedMarkdown, pageOCRCache: newCache }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     console.error(`[OCR] Error processing "${notebookName}":`, error)
@@ -448,19 +500,21 @@ export async function syncAll(
       // Only show sync indicator for notebooks that actually need work
       onProgress?.({ message: `Syncing ${idx}/${totalToSync}: ${doc.name}`, notebookId: doc.id, notebookName: doc.name, current: idx, total: totalToSync, phase: 'downloading' })
 
-      // Helper: run OCR and return ocrPath
-      async function runOCR(sourceDir: string): Promise<string | undefined> {
+      // Helper: run OCR and return ocrPath + page cache
+      async function runOCR(sourceDir: string): Promise<{ ocrPath?: string; pageOCRCache?: Record<string, PageOCRCacheEntry> }> {
         let ocrPath: string | undefined
+        let pageOCRCache: Record<string, PageOCRCacheEntry> | undefined
         console.log(`[reMarkable] Running OCR for ${doc.name} from ${sourceDir}`)
-        const markdown = await processNotebookWithOCR(sourceDir, doc.name, anthropicApiKey, onProgress)
-        console.log(`[reMarkable] OCR result for ${doc.name}: ${markdown ? 'got markdown' : 'null'}`)
-        if (markdown) {
+        const ocrResult = await processNotebookWithOCR(sourceDir, doc.name, anthropicApiKey, existingEntry?.pageOCRCache, onProgress)
+        console.log(`[reMarkable] OCR result for ${doc.name}: ${ocrResult ? 'got markdown' : 'null'}`)
+        if (ocrResult) {
           const ocrFileName = `${sanitizeName(doc.name)}.md`
           const ocrDir = join(hiddenDir, doc.id)
           const ocrFullPath = join(ocrDir, ocrFileName)
           await mkdir(ocrDir, { recursive: true })
-          await writeFile(ocrFullPath, markdown, 'utf-8')
+          await writeFile(ocrFullPath, ocrResult.markdown, 'utf-8')
           ocrPath = join(doc.id, ocrFileName)
+          pageOCRCache = ocrResult.pageOCRCache
           onProgress?.({ message: `Saved OCR: ${ocrPath}`, notebookName: doc.name, phase: 'ocr' })
         }
         // Fallback: reuse existing OCR file on disk
@@ -470,22 +524,24 @@ export async function syncAll(
           try {
             await access(existingOcrFile)
             ocrPath = join(doc.id, ocrFileName)
+            pageOCRCache = existingEntry?.pageOCRCache
             console.log(`[reMarkable] Reusing existing OCR file: ${ocrPath}`)
           } catch {
             // No existing file on disk either
           }
         }
-        return ocrPath
+        return { ocrPath, pageOCRCache }
       }
 
       // OCR-only path: hash matches, local files exist, just need OCR
       if (!needsDownload && needsOCR) {
         console.log(`[reMarkable] OCR-only path for ${doc.name}`)
         onProgress?.({ message: `Processing OCR for existing notebook: ${doc.name}`, notebookName: doc.name, phase: 'ocr' })
-        const ocrPath = await runOCR(notebookDir)
+        const { ocrPath, pageOCRCache } = await runOCR(notebookDir)
         newMeta.notebooks[doc.id] = {
           ...existingEntry!,
           ocrPath,
+          pageOCRCache,
           markdownPath: existingEntry?.markdownPath
         }
         result.synced++
@@ -527,8 +583,11 @@ export async function syncAll(
 
       // OCR for handwritten notebooks
       let ocrPath: string | undefined
+      let pageOCRCache: Record<string, PageOCRCacheEntry> | undefined
       if (doc.fileType === 'notebook') {
-        ocrPath = await runOCR(notebookDir)
+        const ocrResult = await runOCR(notebookDir)
+        ocrPath = ocrResult.ocrPath
+        pageOCRCache = ocrResult.pageOCRCache
       }
 
       newMeta.notebooks[doc.id] = {
@@ -539,7 +598,8 @@ export async function syncAll(
         lastModified: doc.lastModified,
         hash: doc.hash,
         localPath: join(HIDDEN_DIR, doc.hash),
-        ocrPath
+        ocrPath,
+        pageOCRCache
       }
 
       result.synced++

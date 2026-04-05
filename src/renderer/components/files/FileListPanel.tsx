@@ -70,7 +70,7 @@ export function FileListPanel() {
 
   const { openFileFromPath } = useEditor()
   const { openFileInTab, openFileInPreviewTab, forceCloseTab, createNewTab } = useTabs()
-  const { isSyncing, sync, error: syncError } = useRemarkableSync()
+  const { isSyncing, sync, error: syncError, progress: syncProgress, lastSyncedAt } = useRemarkableSync()
   const { isSyncing: isGoogleSyncing, sync: googleSync, error: googleSyncError } = useGoogleDocsSync()
   const { setDialogOpen } = useSettings()
   const remarkableFlag = useRemarkableEnabled()
@@ -894,6 +894,29 @@ export function FileListPanel() {
         </div>
       )}
 
+      {/* Sync info panel — slides down below header in notebooks view */}
+      {viewMode === 'notebooks' && remarkableEnabled && (
+        <div className={cn(
+          "overflow-hidden transition-all duration-200 ease-in-out",
+          (isSyncing || syncError || lastSyncedAt) ? "max-h-20 border-b border-border" : "max-h-0"
+        )}>
+          <div className="mx-2 my-2 rounded-md bg-muted/50 border border-border/60 px-3 py-2">
+            {isSyncing && syncProgress ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
+                <span className="text-xs text-muted-foreground truncate">{syncProgress.message}</span>
+              </div>
+            ) : syncError ? (
+              <p className="text-xs text-destructive truncate">{syncError}</p>
+            ) : lastSyncedAt ? (
+              <p className="text-[10px] text-muted-foreground">
+                Last synced {new Date(lastSyncedAt).toLocaleString()}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      )}
+
       {/* Content */}
       <ScrollArea className="flex-1">
         {viewMode === 'recent' ? (
@@ -1067,10 +1090,7 @@ export function FileListPanel() {
               No notebooks found.
             </div>
           ) : (
-            <div className={cn(
-              "p-2",
-              isSyncing && "opacity-50 pointer-events-none"
-            )}>
+            <div className="p-2">
               {renderNotebookItems(null, 0)}
             </div>
           )

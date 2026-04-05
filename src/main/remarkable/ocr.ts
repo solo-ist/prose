@@ -37,6 +37,25 @@ interface OCRResult {
 }
 
 /**
+ * Post-process OCR markdown output to clean up whitespace artifacts
+ *
+ * - Collapses 3+ consecutive blank lines to 2
+ * - Normalizes line endings to \n
+ * - Trims trailing whitespace per line
+ * - Strips leading/trailing whitespace from the whole result
+ */
+export function postProcessOCR(markdown: string): string {
+  return markdown
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map(line => line.trimEnd())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/**
  * Check if OCR service is configured
  */
 export function isOCRConfigured(): boolean {
@@ -84,6 +103,9 @@ export async function extractTextFromPages(
 
   const { url, apiKey } = getOCRConfig()
 
+  // Record input sizes for quality scoring after OCR
+  const inputBytes: Map<string, number> = new Map(pages.map(p => [p.id, p.data.length]))
+
   const requestBody: OCRRequest = {
     pages: pages.map(p => ({
       id: p.id,
@@ -116,8 +138,19 @@ export async function extractTextFromPages(
 
   const result = (await response.json()) as OCRResponse
 
+  const processedPages = result.pages.map(page => {
+    const cleaned = postProcessOCR(page.markdown)
+    const outputChars = cleaned.length
+    const pageInputBytes = inputBytes.get(page.id) ?? 1
+    const qualityScore = Math.min(outputChars / Math.max(pageInputBytes, 1) * 100, 100)
+    if (qualityScore < 10) {
+      console.warn(`[OCR] Low quality score for page ${page.id}: ${qualityScore.toFixed(1)} (${outputChars} chars from ${pageInputBytes} bytes)`)
+    }
+    return { ...page, markdown: cleaned }
+  })
+
   return {
-    pages: result.pages,
+    pages: processedPages,
     failedPages: result.failedPages || []
   }
 }

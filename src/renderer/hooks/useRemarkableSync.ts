@@ -41,6 +41,10 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
   const lastSyncedAt = remarkableSettings?.lastSyncedAt ?? null
   const syncDir = remarkableSettings?.syncDirectory
 
+  // Ref to avoid stale closure on syncDir in the progress subscription
+  const syncDirRef = useRef(syncDir)
+  syncDirRef.current = syncDir
+
   // Subscribe to sync progress events unconditionally — events only fire during active sync
   useEffect(() => {
     if (!window.api?.onRemarkableSyncProgress) return
@@ -53,7 +57,7 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
         } else if (update.phase === 'notebook-done') {
           removeSyncingNotebook(update.notebookId)
           // Reload metadata so the notebook becomes interactive immediately
-          if (syncDir) loadNotebooks(syncDir)
+          if (syncDirRef.current) loadNotebooks(syncDirRef.current)
         }
       }
     })

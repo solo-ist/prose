@@ -8,7 +8,7 @@ export interface SyncProgress {
   notebookName?: string
   current?: number
   total?: number
-  phase: string
+  phase: 'connecting' | 'listing' | 'downloading' | 'ocr' | 'notebook-done' | 'skipped' | 'complete'
 }
 
 type ViewMode = 'recent' | 'folder' | 'notebooks' | 'googledocs'

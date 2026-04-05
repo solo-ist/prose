@@ -74,7 +74,7 @@ export interface SyncProgressUpdate {
   notebookName?: string
   current?: number
   total?: number
-  phase: 'connecting' | 'listing' | 'downloading' | 'ocr' | 'notebook-done' | 'complete'
+  phase: 'connecting' | 'listing' | 'downloading' | 'ocr' | 'notebook-done' | 'skipped' | 'complete'
 }
 
 const META_FILE = 'sync-metadata.json'
@@ -129,7 +129,9 @@ async function loadMetadata(baseDirectory: string): Promise<SyncMetadata | null>
  * Save sync metadata to the hidden directory
  */
 async function saveMetadata(baseDirectory: string, metadata: SyncMetadata): Promise<void> {
-  // Snapshot before any await to prevent concurrent workers from seeing partial state
+  // Snapshot synchronously before any await. With 3 concurrent workers, multiple
+  // saveMetadata calls can be in-flight — last atomic writeFile wins, which is
+  // acceptable because each worker adds its own notebook before calling save.
   const snapshot = JSON.stringify(metadata, null, 2)
   const hiddenDir = join(baseDirectory, HIDDEN_DIR)
   await mkdir(hiddenDir, { recursive: true })
@@ -405,13 +407,11 @@ export async function syncAll(
     async function syncOneNotebook(doc: RemarkableNotebook): Promise<void> {
       const idx = ++completed
       console.log(`[reMarkable] Processing ${idx}/${totalToSync}: ${doc.name} (type: ${doc.fileType})`)
-      onProgress?.({ message: `Syncing ${idx}/${totalToSync}: ${doc.name}`, notebookId: doc.id, notebookName: doc.name, current: idx, total: totalToSync, phase: 'downloading' })
-
-      const docPath = buildPath(doc, notebooks)
 
       // Check if we need to download (hash changed or doesn't exist)
       const existingEntry = existingMeta?.notebooks[doc.id]
       const notebookDir = join(hiddenDir, doc.hash)
+      const zipPath = join(hiddenDir, `${doc.hash}.zip`)
 
       console.log(`[reMarkable] ${doc.name} hash: cloud=${doc.hash}, local=${existingEntry?.hash || 'none'}`)
 
@@ -424,16 +424,29 @@ export async function syncAll(
         localFilesExist = false
       }
 
+      // Check if zip exists from a previous interrupted sync (resume support)
+      let zipExists = false
+      try {
+        await access(zipPath)
+        zipExists = true
+      } catch {
+        zipExists = false
+      }
+
       const needsDownload = !existingEntry || existingEntry.hash !== doc.hash || !localFilesExist
       const needsOCR = doc.fileType === 'notebook' && isOCRConfigured() && !existingEntry?.ocrPath
-      console.log(`[reMarkable] ${doc.name}: needsDownload=${needsDownload}, needsOCR=${needsOCR}, localFilesExist=${localFilesExist}`)
+      console.log(`[reMarkable] ${doc.name}: needsDownload=${needsDownload}, needsOCR=${needsOCR}, localFilesExist=${localFilesExist}, zipExists=${zipExists}`)
 
       if (!needsDownload && !needsOCR) {
         result.skipped++
         newMeta.notebooks[doc.id] = existingEntry!
         await saveMetadata(baseDir, newMeta)
+        onProgress?.({ message: `Up to date: ${doc.name}`, notebookId: doc.id, notebookName: doc.name, current: idx, total: totalToSync, phase: 'skipped' })
         return
       }
+
+      // Only show sync indicator for notebooks that actually need work
+      onProgress?.({ message: `Syncing ${idx}/${totalToSync}: ${doc.name}`, notebookId: doc.id, notebookName: doc.name, current: idx, total: totalToSync, phase: 'downloading' })
 
       // Helper: run OCR and return ocrPath
       async function runOCR(sourceDir: string): Promise<string | undefined> {
@@ -481,10 +494,16 @@ export async function syncAll(
         return
       }
 
-      // Full download path
-      const zipData = await client.downloadNotebook(doc.id, doc.hash)
-      const zipPath = join(hiddenDir, `${doc.hash}.zip`)
-      await writeFile(zipPath, zipData)
+      // Full download path — resume from zip if available, otherwise download
+      let zipData: Buffer
+      if (zipExists && !localFilesExist) {
+        console.log(`[reMarkable] Resuming from cached zip for ${doc.name}`)
+        onProgress?.({ message: `Resuming: ${doc.name} (extracting cached download)`, notebookId: doc.id, notebookName: doc.name, phase: 'downloading' })
+        zipData = await readFile(zipPath)
+      } else {
+        zipData = await client.downloadNotebook(doc.id, doc.hash)
+        await writeFile(zipPath, zipData)
+      }
 
       // Extract zip contents
       const zip = await JSZip.loadAsync(zipData)

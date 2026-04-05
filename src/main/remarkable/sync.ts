@@ -4,6 +4,7 @@
 import { mkdir, writeFile, readFile, readdir, access, rm } from 'fs/promises'
 import { join, dirname, resolve, sep } from 'path'
 import { homedir } from 'os'
+import { createHash } from 'crypto'
 import { connect, disconnect, type RemarkableNotebook } from './client'
 import { isOCRConfigured, extractTextBatched } from './ocr'
 import JSZip from 'jszip'
@@ -48,8 +49,8 @@ export interface SyncMetadata {
 }
 
 export interface PageOCRCacheEntry {
-  /** Page modification timestamp from .content (ms epoch) */
-  modifed: string
+  /** SHA-256 hash of the .rm file bytes */
+  rmHash: string
   /** OCR markdown result for this page */
   markdown: string
   /** OCR confidence score */
@@ -212,9 +213,8 @@ async function processNotebookWithOCR(
   }
 
   try {
-    // Read page order and timestamps from .content file
+    // Read page order from .content file (reMarkable stores page UUIDs in order)
     let pageOrder: string[] = []
-    const pageTimestamps: Record<string, string> = {} // pageId → modifed timestamp
     const files = await readdir(notebookDir, { recursive: true })
     console.log(`[OCR] Found ${files.length} files in directory:`, files.slice(0, 10))
 
@@ -223,13 +223,10 @@ async function processNotebookWithOCR(
       try {
         const contentJson = JSON.parse(await readFile(join(notebookDir, contentFile), 'utf-8'))
         if (contentJson.cPages?.pages) {
-          // v6 format: cPages.pages[].id with modifed timestamps
-          for (const p of contentJson.cPages.pages) {
-            pageOrder.push(p.id)
-            if (p.modifed) pageTimestamps[p.id] = String(p.modifed)
-          }
+          // v6 format: cPages.pages[].id
+          pageOrder = contentJson.cPages.pages.map((p: { id: string }) => p.id)
         } else if (contentJson.pages) {
-          // Legacy format: pages[] as string array of UUIDs (no timestamps)
+          // Legacy format: pages[] as string array of UUIDs
           pageOrder = contentJson.pages
         }
         console.log(`[OCR] Page order from .content: ${pageOrder.length} pages`)
@@ -262,28 +259,26 @@ async function processNotebookWithOCR(
       return null
     }
 
-    // Determine which pages need OCR by comparing timestamps with cache
+    // Determine which pages need OCR by hashing .rm file content against cache
     const pagesToOCR: Array<{ id: string; data: Buffer }> = []
     const cachedPages: Record<string, PageOCRCacheEntry> = {}
     const allPageIds: string[] = []
 
     for (const rmFile of rmFiles) {
       const filePath = join(notebookDir, rmFile)
-      const pageId = rmFile.replace('.rm', '').replace(/.*\//, '')
+      const pageId = rmFile.replace('.rm', '').replace(/\//g, '_')
       allPageIds.push(pageId)
-      // Strip subdirectory prefix to get bare UUID for timestamp lookup
-      const bareId = rmFile.replace('.rm', '').replace(/.*\//, '')
-      const currentTimestamp = pageTimestamps[bareId]
+      const data = await readFile(filePath)
+      const rmHash = createHash('sha256').update(data).digest('hex')
       const cached = existingCache?.[pageId]
 
-      if (cached && currentTimestamp && cached.modifed === currentTimestamp) {
+      if (cached && cached.rmHash === rmHash) {
         // Page unchanged — use cached OCR result
         cachedPages[pageId] = cached
-        console.log(`[OCR] Cache hit for page ${bareId}`)
+        console.log(`[OCR] Cache hit for page ${pageId.slice(-8)} (hash match)`)
       } else {
         // Page changed or new — needs OCR
-        const data = await readFile(filePath)
-        console.log(`[OCR] Read ${data.length} bytes from ${rmFile} (${cached ? 'changed' : 'new'})`)
+        console.log(`[OCR] ${cached ? 'Changed' : 'New'} page ${pageId.slice(-8)}: ${data.length} bytes`)
         pagesToOCR.push({ id: pageId, data })
       }
     }
@@ -319,11 +314,12 @@ async function processNotebookWithOCR(
 
       ocrResults = result.pages
 
-      // Update cache with fresh OCR results
+      // Update cache with fresh OCR results — hash the .rm data we already read
       for (const page of result.pages) {
-        const bareId = page.id.replace(/.*_/, '')
+        const sourceData = pagesToOCR.find(p => p.id === page.id)?.data
+        const rmHash = sourceData ? createHash('sha256').update(sourceData).digest('hex') : ''
         newCache[page.id] = {
-          modifed: pageTimestamps[bareId] || '',
+          rmHash,
           markdown: page.markdown,
           confidence: page.confidence
         }

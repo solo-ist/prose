@@ -65,6 +65,8 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
     return () => {
       unsubscribe()
     }
+  // Zustand actions (addSyncingNotebook, removeSyncingNotebook, etc.) are referentially
+  // stable — intentionally mounting the IPC listener once. syncDir uses a ref to avoid stale closure.
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const sync = useCallback(async () => {

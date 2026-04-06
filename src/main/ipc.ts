@@ -892,7 +892,7 @@ export function setupIpcHandlers(): void {
   // reMarkable: Sync notebooks to local directory
   ipcMain.handle(
     'remarkable:sync',
-    async (_event, deviceToken: string, syncDirectory: string) => {
+    async (event, deviceToken: string, syncDirectory: string) => {
       const safeDir = validatePath(syncDirectory)
       const { syncAll } = await import('./remarkable/sync')
 
@@ -922,7 +922,11 @@ export function setupIpcHandlers(): void {
         }
       }
 
-      return await syncAll(deviceToken, safeDir, anthropicApiKey)
+      return await syncAll(deviceToken, safeDir, anthropicApiKey, (progress) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('remarkable:sync:progress', progress)
+        }
+      })
     }
   )
 

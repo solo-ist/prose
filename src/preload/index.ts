@@ -222,6 +222,9 @@ export interface ElectronAPI {
   remarkableCreateEditableVersion: (notebookId: string, syncDirectory: string) => Promise<string | null>
   remarkableFindNotebookByFilePath: (filePath: string, syncDirectory: string) => Promise<string | null>
   remarkableClearNotebookMarkdownPath: (notebookId: string, syncDirectory: string) => Promise<boolean>
+  onRemarkableSyncProgress: (
+    callback: (progress: { message: string; notebookId?: string; notebookName?: string; current?: number; total?: number; phase: string }) => void
+  ) => () => void
   // MCP tool execution (only used in MCP server mode)
   onMcpToolInvoke: (
     callback: (requestId: string, toolName: string, args: unknown) => void
@@ -392,6 +395,15 @@ const api: ElectronAPI = {
     ipcRenderer.invoke('remarkable:findNotebookByFilePath', filePath, syncDirectory),
   remarkableClearNotebookMarkdownPath: (notebookId: string, syncDirectory: string) =>
     ipcRenderer.invoke('remarkable:clearNotebookMarkdownPath', notebookId, syncDirectory),
+  onRemarkableSyncProgress: (callback: (progress: { message: string; notebookId?: string; notebookName?: string; current?: number; total?: number; phase: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: { message: string; notebookName?: string; current?: number; total?: number; phase: string }) => {
+      callback(progress)
+    }
+    ipcRenderer.on('remarkable:sync:progress', handler)
+    return () => {
+      ipcRenderer.removeListener('remarkable:sync:progress', handler)
+    }
+  },
   // MCP tool execution
   onMcpToolInvoke: (callback: (requestId: string, toolName: string, args: unknown) => void) => {
     const handler = (

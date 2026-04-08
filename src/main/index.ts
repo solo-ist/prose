@@ -32,6 +32,12 @@ import { initializeSpellcheck, setupContextMenu } from './spellcheck'
 import { initAutoUpdater } from './updater'
 import { IS_MAS_BUILD } from './env'
 
+// Track quit intent so macOS hide-on-close can be bypassed during actual quit
+let isQuitting = false
+app.on('before-quit', () => {
+  isQuitting = true
+})
+
 console.log('[Main] Environment loaded. OCR URL:', process.env.REMARKABLE_OCR_URL ? 'set' : 'not set')
 console.log('[Main] Google configured:', process.env.GOOGLE_CLIENT_ID ? 'ID set' : 'ID missing', process.env.GOOGLE_CLIENT_SECRET ? 'Secret set' : 'Secret missing')
 
@@ -158,6 +164,18 @@ function createWindow(): BrowserWindow {
   mainWindow.on('leave-full-screen', () => {
     mainWindow.webContents.send('window:fullscreen-change', false)
   })
+
+  // macOS: hide window on close instead of destroying it.
+  // This keeps IPC handlers, menu, and MCP bridge bindings intact
+  // and allows the window to be re-shown via dock click or Window menu.
+  if (process.platform === 'darwin') {
+    mainWindow.on('close', (e) => {
+      if (!isQuitting) {
+        e.preventDefault()
+        mainWindow.hide()
+      }
+    })
+  }
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     // Only allow http/https URLs to prevent javascript: and other dangerous schemes
@@ -383,7 +401,12 @@ app.whenReady().then(async () => {
   })
 
   app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    const windows = BrowserWindow.getAllWindows()
+    if (windows.length === 0) {
+      createWindow()
+    } else {
+      windows[0].show()
+    }
   })
 })
 

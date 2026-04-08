@@ -16,8 +16,8 @@ files:
   - out/**/*
 
 extraResources:
-  - from: out/mcp-stdio.js
-    to: mcp-stdio.js
+  - from: out/mcp-stdio.cjs
+    to: mcp-stdio.cjs
   - from: resources/
     to: resources/
 

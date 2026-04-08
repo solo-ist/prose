@@ -1248,7 +1248,7 @@ export function setupIpcHandlers(): void {
     serverPath: string
   }> => {
     const MCP_SERVER_DIR = join(app.getPath('userData'), 'mcp-server')
-    const MCP_SERVER_PATH = join(MCP_SERVER_DIR, 'mcp-stdio.js')
+    const MCP_SERVER_PATH = join(MCP_SERVER_DIR, 'mcp-stdio.cjs')
     const VERSION_PATH = join(MCP_SERVER_DIR, 'version.json')
     const CONFIG_PATH = join(homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
     const appVersion = app.getVersion()
@@ -1290,7 +1290,7 @@ export function setupIpcHandlers(): void {
       return { success: false, error: 'MCP server installation is not available in the Mac App Store version.' }
     }
     const MCP_SERVER_DIR = join(app.getPath('userData'), 'mcp-server')
-    const MCP_SERVER_PATH = join(MCP_SERVER_DIR, 'mcp-stdio.js')
+    const MCP_SERVER_PATH = join(MCP_SERVER_DIR, 'mcp-stdio.cjs')
     const VERSION_PATH = join(MCP_SERVER_DIR, 'version.json')
     const CONFIG_PATH = join(homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
     const appVersion = app.getVersion()
@@ -1299,10 +1299,10 @@ export function setupIpcHandlers(): void {
       // Create MCP server directory
       await mkdir(MCP_SERVER_DIR, { recursive: true })
 
-      // Copy the mcp-stdio.js from app resources
+      // Copy the mcp-stdio.cjs from app resources
       const resourcePath = app.isPackaged
-        ? join(process.resourcesPath, 'mcp-stdio.js')
-        : join(__dirname, '../../out/mcp-stdio.js')
+        ? join(process.resourcesPath, 'mcp-stdio.cjs')
+        : join(__dirname, '../../out/mcp-stdio.cjs')
 
       const serverCode = await readFile(resourcePath, 'utf-8')
       await writeFile(MCP_SERVER_PATH, serverCode, 'utf-8')

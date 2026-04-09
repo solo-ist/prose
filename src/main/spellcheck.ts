@@ -1,16 +1,16 @@
 import { BrowserWindow, Menu, MenuItem, session } from 'electron'
 import { promises as fs } from 'fs'
 import { join } from 'path'
-import { homedir } from 'os'
+import { getSettingsDir } from './paths'
 
-const DICTIONARY_PATH = join(homedir(), '.prose', 'dictionary.json')
+function getDictionaryPath(): string { return join(getSettingsDir(), 'dictionary.json') }
 
 /**
- * Load personal dictionary words from ~/.prose/dictionary.json
+ * Load personal dictionary words from userData/dictionary.json
  */
 export async function loadPersonalDictionary(): Promise<string[]> {
   try {
-    const content = await fs.readFile(DICTIONARY_PATH, 'utf-8')
+    const content = await fs.readFile(getDictionaryPath(), 'utf-8')
     const data = JSON.parse(content)
     return Array.isArray(data.words) ? data.words : []
   } catch {
@@ -20,12 +20,11 @@ export async function loadPersonalDictionary(): Promise<string[]> {
 }
 
 /**
- * Save personal dictionary words to ~/.prose/dictionary.json
+ * Save personal dictionary words to userData/dictionary.json
  */
 export async function savePersonalDictionary(words: string[]): Promise<void> {
-  const dir = join(homedir(), '.prose')
-  await fs.mkdir(dir, { recursive: true })
-  await fs.writeFile(DICTIONARY_PATH, JSON.stringify({ words }, null, 2))
+  // getSettingsDir() is self-healing (creates dir if missing)
+  await fs.writeFile(getDictionaryPath(), JSON.stringify({ words }, null, 2))
 }
 
 /**

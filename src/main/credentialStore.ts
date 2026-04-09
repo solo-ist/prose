@@ -1,14 +1,13 @@
 import { safeStorage } from 'electron'
 import { readFile, writeFile, unlink, mkdir } from 'fs/promises'
 import { join } from 'path'
-import { homedir } from 'os'
+import { getSettingsDir } from './paths'
 
-const SETTINGS_DIR = join(homedir(), '.prose')
-const CREDENTIALS_DIR = join(SETTINGS_DIR, 'credentials')
+function getCredentialsDir(): string { return join(getSettingsDir(), 'credentials') }
 
 function keyToFilename(key: string): string {
   // Convert key to a safe filename (alphanumeric, dashes, underscores only)
-  // Dots are stripped to prevent path traversal (e.g. '..' escaping CREDENTIALS_DIR)
+  // Dots are stripped to prevent path traversal (e.g. '..' escaping getCredentialsDir())
   return key.replace(/[^a-z0-9\-_]/gi, '-')
 }
 
@@ -21,10 +20,10 @@ export const credentialStore = {
     if (!safeStorage.isEncryptionAvailable()) {
       throw new Error('Secure storage is not available on this system')
     }
-    await mkdir(CREDENTIALS_DIR, { recursive: true })
+    await mkdir(getCredentialsDir(), { recursive: true })
     const filename = keyToFilename(key)
     const encrypted = safeStorage.encryptString(value)
-    await writeFile(join(CREDENTIALS_DIR, filename), encrypted)
+    await writeFile(join(getCredentialsDir(), filename), encrypted)
   },
 
   async get(key: string): Promise<string | null> {
@@ -33,7 +32,7 @@ export const credentialStore = {
     }
     try {
       const filename = keyToFilename(key)
-      const encrypted = await readFile(join(CREDENTIALS_DIR, filename))
+      const encrypted = await readFile(join(getCredentialsDir(), filename))
       return safeStorage.decryptString(encrypted)
     } catch {
       return null
@@ -43,7 +42,7 @@ export const credentialStore = {
   async delete(key: string): Promise<void> {
     try {
       const filename = keyToFilename(key)
-      await unlink(join(CREDENTIALS_DIR, filename))
+      await unlink(join(getCredentialsDir(), filename))
     } catch {
       // File doesn't exist, ignore
     }

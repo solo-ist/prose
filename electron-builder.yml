@@ -20,6 +20,8 @@ extraResources:
     to: mcp-stdio.cjs
   - from: resources/
     to: resources/
+  - from: resources/PrivacyInfo.xcprivacy
+    to: PrivacyInfo.xcprivacy
 
 fileAssociations:
   - ext:
@@ -70,6 +72,8 @@ mas:
   files:
     - "!node_modules/@sentry/cli-darwin/**"
     - "!node_modules/@sentry/cli/**"
+    - "!node_modules/electron-updater/**"
+    - "!node_modules/builder-util-runtime/**"
 
 masDev:
   identity: Apple Development

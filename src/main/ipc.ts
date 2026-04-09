@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
 import { withRetry, getNetworkErrorMessage } from '../shared/utils/retry'
+import { getSettingsDir, LEGACY_SETTINGS_DIR } from './paths'
 import { clearRecentFiles } from './recentFiles'
 import { refreshMenu } from './menu'
 import { credentialStore } from './credentialStore'
@@ -62,9 +63,8 @@ const activeStreams = new Map<string, AbortController>()
 // Security-scoped bookmark stop function (MAS sandbox)
 let stopAccessingBookmark: (() => void) | null = null
 
-const SETTINGS_DIR = join(homedir(), '.prose')
-const SETTINGS_PATH = join(SETTINGS_DIR, 'settings.json')
-const ANTHROPIC_KEY_PATH = join(SETTINGS_DIR, '.remarkable-anthropic-key') // Legacy path for migration
+function getSettingsPath(): string { return join(getSettingsDir(), 'settings.json') }
+const ANTHROPIC_KEY_PATH = join(LEGACY_SETTINGS_DIR, '.remarkable-anthropic-key') // Legacy path for migration
 const REMARKABLE_CREDENTIAL_KEY = 'remarkable-anthropic-key'
 
 /**
@@ -469,10 +469,10 @@ export function setupIpcHandlers(): void {
     return listDir(safePath, 0)
   })
 
-  // Settings: Load from ~/.prose/settings.json
+  // Settings: Load from userData/settings.json
   ipcMain.handle('settings:load', async () => {
     try {
-      const content = await readFile(SETTINGS_PATH, 'utf-8')
+      const content = await readFile(getSettingsPath(), 'utf-8')
       const rawSettings = { ...defaultSettings, ...JSON.parse(content) }
 
       // Migration: if plaintext API key exists in JSON, migrate to secure storage
@@ -480,7 +480,7 @@ export function setupIpcHandlers(): void {
         try {
           await credentialStore.set(LLM_API_KEY, rawSettings.llm.apiKey)
           rawSettings.llm = { ...rawSettings.llm, apiKey: '' }
-          await writeFile(SETTINGS_PATH, JSON.stringify(rawSettings, null, 2), 'utf-8')
+          await writeFile(getSettingsPath(), JSON.stringify(rawSettings, null, 2), 'utf-8')
           console.log('[settings:load] Migrated plaintext API key to secure storage')
         } catch (err) {
           console.error('[settings:load] Migration failed:', err)
@@ -492,7 +492,7 @@ export function setupIpcHandlers(): void {
         try {
           await credentialStore.set(REMARKABLE_DEVICE_TOKEN, rawSettings.remarkable.deviceToken)
           rawSettings.remarkable = { ...rawSettings.remarkable, deviceToken: '' }
-          await writeFile(SETTINGS_PATH, JSON.stringify(rawSettings, null, 2), 'utf-8')
+          await writeFile(getSettingsPath(), JSON.stringify(rawSettings, null, 2), 'utf-8')
           console.log('[settings:load] Migrated plaintext reMarkable device token to secure storage')
         } catch (err) {
           console.error('[settings:load] reMarkable token migration failed:', err)
@@ -526,7 +526,7 @@ export function setupIpcHandlers(): void {
           rawSettings.masDirectoryBookmark = undefined
           rawSettings.defaultSaveDirectory = undefined
           try {
-            await writeFile(SETTINGS_PATH, JSON.stringify(rawSettings, null, 2), 'utf-8')
+            await writeFile(getSettingsPath(), JSON.stringify(rawSettings, null, 2), 'utf-8')
           } catch { /* best effort */ }
         }
       }
@@ -537,10 +537,10 @@ export function setupIpcHandlers(): void {
     }
   })
 
-  // Settings: Save to ~/.prose/settings.json
+  // Settings: Save to userData/settings.json
   ipcMain.handle('settings:save', async (_event, settings: Settings) => {
     try {
-      await mkdir(SETTINGS_DIR, { recursive: true })
+      // getSettingsDir() is self-healing (creates dir if missing)
 
       if (credentialStore.isAvailable()) {
         // Store API key securely; save settings without it
@@ -561,7 +561,7 @@ export function setupIpcHandlers(): void {
           llm: { ...llmWithoutKey, apiKey: '' },
           ...(settings.remarkable ? { remarkable: { ...settings.remarkable, deviceToken: '' } } : {})
         }
-        await writeFile(SETTINGS_PATH, JSON.stringify(settingsToSave, null, 2), 'utf-8')
+        await writeFile(getSettingsPath(), JSON.stringify(settingsToSave, null, 2), 'utf-8')
       } else {
         // Secure storage unavailable — save settings but strip secrets
         // to avoid storing credentials in plaintext on disk
@@ -572,7 +572,7 @@ export function setupIpcHandlers(): void {
           llm: { ...llmWithoutKey, apiKey: '' },
           ...(settings.remarkable ? { remarkable: { ...settings.remarkable, deviceToken: '' } } : {})
         }
-        await writeFile(SETTINGS_PATH, JSON.stringify(settingsToSave, null, 2), 'utf-8')
+        await writeFile(getSettingsPath(), JSON.stringify(settingsToSave, null, 2), 'utf-8')
       }
     } catch (error) {
       console.error('Failed to save settings:', error)
@@ -900,7 +900,7 @@ export function setupIpcHandlers(): void {
       // then fall back to the reMarkable-specific secure storage
       let anthropicApiKey: string | undefined
       try {
-        const content = await readFile(SETTINGS_PATH, 'utf-8')
+        const content = await readFile(getSettingsPath(), 'utf-8')
         const settings = JSON.parse(content) as Settings
         // API key is now in credentialStore after migration
         if (credentialStore.isAvailable()) {
@@ -1045,7 +1045,7 @@ export function setupIpcHandlers(): void {
       // Read settings to check provider, then get API key from secure storage
       let settings: Settings
       try {
-        const content = await readFile(SETTINGS_PATH, 'utf-8')
+        const content = await readFile(getSettingsPath(), 'utf-8')
         settings = { ...defaultSettings, ...JSON.parse(content) }
       } catch {
         settings = defaultSettings
@@ -1247,6 +1247,9 @@ export function setupIpcHandlers(): void {
     configPath: string
     serverPath: string
   }> => {
+    if (IS_MAS_BUILD) {
+      return { installed: false, version: null, appVersion: app.getVersion(), needsUpdate: false, configPath: '', serverPath: '' }
+    }
     const MCP_SERVER_DIR = join(app.getPath('userData'), 'mcp-server')
     const MCP_SERVER_PATH = join(MCP_SERVER_DIR, 'mcp-stdio.cjs')
     const VERSION_PATH = join(MCP_SERVER_DIR, 'version.json')
@@ -1365,6 +1368,9 @@ export function setupIpcHandlers(): void {
 
   // MCP: Uninstall server
   ipcMain.handle('mcp:uninstall', async (): Promise<{ success: boolean; error?: string }> => {
+    if (IS_MAS_BUILD) {
+      return { success: false, error: 'MCP server uninstall is not available in the Mac App Store version.' }
+    }
     const MCP_SERVER_DIR = join(app.getPath('userData'), 'mcp-server')
     const CONFIG_PATH = join(homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
 

@@ -1,5 +1,6 @@
 import { Menu, BrowserWindow, app } from 'electron'
 import { basename } from 'path'
+import { is } from '@electron-toolkit/utils'
 import { loadRecentFiles, clearRecentFiles } from './recentFiles'
 
 // Store mainWindow reference so we can rebuild the menu after adding recent files
@@ -226,10 +227,12 @@ export function createMenu(mainWindow: BrowserWindow): void {
     {
       label: 'View',
       submenu: [
-        { role: 'reload' },
-        { role: 'forceReload' },
-        { role: 'toggleDevTools' },
-        { type: 'separator' },
+        ...(is.dev || process.env.PROSE_DEBUG === '1' ? [
+          { role: 'reload' as const },
+          { role: 'forceReload' as const },
+          { role: 'toggleDevTools' as const },
+          { type: 'separator' as const },
+        ] : []),
         { role: 'resetZoom' },
         { role: 'zoomIn' },
         { role: 'zoomOut' },

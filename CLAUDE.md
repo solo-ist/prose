@@ -148,7 +148,7 @@ All workflows in `.github/workflows/`:
 
 The app is designed to run both as an Electron desktop app and as a standalone web app. All platform-specific code is abstracted behind the `ElectronAPI` interface:
 
-- **Electron**: Uses IPC to call main process for file dialogs, settings persistence (`~/.prose/settings.json`), and LLM API calls
+- **Electron**: Uses IPC to call main process for file dialogs, settings persistence (`app.getPath('userData')/settings.json`), and LLM API calls
 - **Web**: Uses File System Access API (with `<input>` fallback), localStorage for settings, and direct API calls (limited by CORS — Anthropic blocks browser requests, so web mode LLM features are unavailable)
 
 Always use `getApi()` from `src/renderer/lib/browserApi.ts` instead of accessing `window.api` directly. This returns the Electron API when available, or a browser-compatible fallback.
@@ -191,9 +191,9 @@ Zustand stores in `src/renderer/stores/`:
 
 ### Feature Flags
 
-`src/renderer/lib/featureFlags.ts` gates features that aren't ready for public release. Flags are persisted in `~/.prose/settings.json` under the `featureFlags` key and default to `false`.
+`src/renderer/lib/featureFlags.ts` gates features that aren't ready for public release. Flags are persisted in `settings.json` (in `app.getPath('userData')`) under the `featureFlags` key and default to `false`.
 
-To enable a feature without rebuilding, add to `~/.prose/settings.json`:
+To enable a feature without rebuilding, add to `~/Library/Application Support/Prose/settings.json` (macOS):
 ```json
 "featureFlags": { "googleDocs": true, "remarkable": true }
 ```
@@ -222,7 +222,9 @@ Tool pipeline, stream lifecycle, and tool modes: see `docs/architecture/llm-pipe
 
 ### Settings
 
-Settings stored at `~/.prose/settings.json`. Default settings defined in `src/main/ipc.ts`. The `Settings` type in `src/renderer/types/index.ts` is the source of truth for the settings shape.
+Settings stored at `app.getPath('userData')/settings.json` (`~/Library/Application Support/Prose/` on macOS). All settings path resolution is centralized in `src/main/paths.ts`. Default settings defined in `src/main/ipc.ts`. The `Settings` type in `src/renderer/types/index.ts` is the source of truth for the settings shape.
+
+Legacy `~/.prose/` data is migrated automatically on first launch via `src/main/migrate.ts` (settings and dictionary only; credentials require re-entry due to safeStorage identity differences).
 
 ### Theme
 
@@ -250,7 +252,7 @@ Managed by `reviewStore` and components in `src/renderer/components/review/`.
 
 Syncs handwritten notebooks from reMarkable tablets. Located in `src/main/remarkable/`:
 - `client.ts` - reMarkable cloud API client (uses `rmapi-js`)
-- `sync.ts` - Notebook sync logic, downloads to `~/.prose/remarkable/`
+- `sync.ts` - Notebook sync logic, downloads to user-configured sync directory
 - `ocr.ts` - Handwriting recognition via external OCR service
 
 OCR requires an Anthropic API key. If using Anthropic as the LLM provider, that key is reused; otherwise users can configure a separate key in Settings → Integrations.
@@ -280,7 +282,7 @@ Exposes 5 tools: `read_document`, `get_outline`, `open_file`, `suggest_edit`, `c
 
 Opt-in crash reporting via `@sentry/electron`. Users enable it in Settings > General > "Error Reporting".
 
-- **Main process**: `src/main/sentry.ts` — `initSentry()` called synchronously at startup by reading `~/.prose/settings.json`. `setSentryEnabled()` handles runtime toggle via `sentry:setEnabled` IPC.
+- **Main process**: `src/main/sentry.ts` — `initSentry()` called synchronously at startup by reading settings (checks new userData path first, falls back to legacy `~/.prose/`). `setSentryEnabled()` handles runtime toggle via `sentry:setEnabled` IPC.
 - **Renderer**: `src/renderer/lib/sentry.ts` — `initRendererSentry()` called from `settingsStore.loadSettings()`. Uses dynamic `import('@sentry/electron/renderer')` to keep the SDK off the critical render path (required for `sandbox: true` compatibility). `ErrorBoundary` wraps `<App />` in `main.tsx`.
 - **DSN**: Injected at build time via `SENTRY_DSN` env var. Falls back to the project DSN if unset. Renderer uses `__SENTRY_DSN__` (Vite `define`); main process uses `process.env.SENTRY_DSN`.
 - **Privacy**: Sentry never initializes unless `errorTracking.enabled === true` in settings. In dev mode, Sentry is initialized but disabled (`enabled: false`).
@@ -298,6 +300,9 @@ Step-by-step recipes for common extension tasks (settings tab, IPC channel, TipT
 - **Sandbox settings** — `contextIsolation: true`, `nodeIntegration: false` — never change these.
 - **External URLs** — `shell.openExternal` only allows `http:` and `https:` protocols. All others are silently dropped.
 - **CORS** — MCP HTTP server only reflects `localhost`/`127.0.0.1` origins. No wildcard `Access-Control-Allow-Origin`.
+- **DevTools** — stripped from production View menu. Set `PROSE_DEBUG=1` env var to re-enable for debugging.
+- **Privacy manifest** — `resources/PrivacyInfo.xcprivacy` declares required-reason API usage for Apple. Update when adding new system APIs.
+- **MAS sandbox** — MCP install/uninstall/status handlers are blocked via `IS_MAS_BUILD`. Settings path uses `app.getPath('userData')` (sandbox-safe). Never use `homedir()` + `.prose` for new data paths.
 - **App Store submission** — NEVER submit builds for App Store review. Upload to App Store Connect / TestFlight is the automation boundary. Submission for review is always a human decision and action.
 
 ## Sentry Debugging

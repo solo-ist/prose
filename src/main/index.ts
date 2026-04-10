@@ -14,8 +14,14 @@ if (dotenvResult.error) {
 
 // Initialize Sentry early (before app.whenReady) if user has opted in
 import { initSentry, setSentryEnabled } from './sentry'
+import { getUserDataPath, LEGACY_SETTINGS_DIR, validatePathConsistency } from './paths'
+import { migrateFromLegacyDir } from './migrate'
 try {
-  const settingsPath = join(homedir(), '.prose', 'settings.json')
+  // Check new path first; fall back to legacy for first post-upgrade launch
+  // (migration hasn't run yet — it requires app.whenReady())
+  const newSettingsPath = join(getUserDataPath(), 'settings.json')
+  const legacySettingsPath = join(LEGACY_SETTINGS_DIR, 'settings.json')
+  const settingsPath = existsSync(newSettingsPath) ? newSettingsPath : legacySettingsPath
   const raw = readFileSync(settingsPath, 'utf-8')
   const parsedSettings = JSON.parse(raw)
   initSentry(parsedSettings?.errorTracking?.enabled === true)
@@ -236,6 +242,12 @@ app.on('certificate-error', (event, _webContents, _url, _error, _certificate, ca
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('ist.solo.prose')
 
+  // Validate that early Sentry init path matches Electron's resolved path
+  validatePathConsistency()
+
+  // Migrate legacy ~/.prose/ data to app.getPath('userData') on first launch
+  await migrateFromLegacyDir()
+
   // Deny all permission requests and checks — the app needs no special permissions (camera, mic, geolocation, etc.)
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false)
@@ -243,6 +255,8 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionCheckHandler(() => false)
 
   // Handle local-file:// protocol to serve images from the filesystem
+  // MAS sandbox: only works for files within security-scoped bookmark directories
+  // (user-opened folders). Images from arbitrary paths silently return 403.
   protocol.handle('local-file', (request) => {
     // URL format: local-file:///absolute/path/to/image.png
     const filePath = decodeURIComponent(new URL(request.url).pathname)

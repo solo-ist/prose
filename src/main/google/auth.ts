@@ -3,13 +3,12 @@ import { BrowserWindow, session } from 'electron'
 import { createServer, IncomingMessage, ServerResponse } from 'http'
 import { unlink } from 'fs/promises'
 import { join } from 'path'
-import { homedir } from 'os'
 import { URL } from 'url'
 import { randomBytes } from 'crypto'
 import { credentialStore } from '../credentialStore'
+import { LEGACY_SETTINGS_DIR } from '../paths'
 
-const SETTINGS_DIR = join(homedir(), '.prose')
-const REFRESH_TOKEN_PATH = join(SETTINGS_DIR, '.google-refresh-token')
+const REFRESH_TOKEN_PATH = join(LEGACY_SETTINGS_DIR, '.google-refresh-token')
 const GOOGLE_CREDENTIAL_KEY = 'google-refresh-token'
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000 // Refresh 5 min before expiry
 

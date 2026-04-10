@@ -20,6 +20,8 @@ extraResources:
     to: mcp-stdio.cjs
   - from: resources/
     to: resources/
+    filter:
+      - "!PrivacyInfo.xcprivacy"
   - from: resources/PrivacyInfo.xcprivacy
     to: PrivacyInfo.xcprivacy
 

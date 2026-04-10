@@ -540,7 +540,7 @@ export function setupIpcHandlers(): void {
   // Settings: Save to userData/settings.json
   ipcMain.handle('settings:save', async (_event, settings: Settings) => {
     try {
-      // getSettingsDir() is self-healing (creates dir if missing)
+      await mkdir(getSettingsDir(), { recursive: true })
 
       if (credentialStore.isAvailable()) {
         // Store API key securely; save settings without it

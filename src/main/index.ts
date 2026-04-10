@@ -14,7 +14,7 @@ if (dotenvResult.error) {
 
 // Initialize Sentry early (before app.whenReady) if user has opted in
 import { initSentry, setSentryEnabled } from './sentry'
-import { getUserDataPath, LEGACY_SETTINGS_DIR } from './paths'
+import { getUserDataPath, LEGACY_SETTINGS_DIR, validatePathConsistency } from './paths'
 import { migrateFromLegacyDir } from './migrate'
 try {
   // Check new path first; fall back to legacy for first post-upgrade launch
@@ -223,6 +223,9 @@ app.on('certificate-error', (event, _webContents, _url, _error, _certificate, ca
 
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('ist.solo.prose')
+
+  // Validate that early Sentry init path matches Electron's resolved path
+  validatePathConsistency()
 
   // Migrate legacy ~/.prose/ data to app.getPath('userData') on first launch
   await migrateFromLegacyDir()

@@ -9,7 +9,7 @@
  * decryption failure) and avoids needing IS_MAS_BUILD logic here.
  */
 import { join } from 'path'
-import { existsSync, copyFileSync, writeFileSync, mkdirSync, readdirSync } from 'fs'
+import { access, copyFile, writeFile, mkdir, readdir } from 'fs/promises'
 import { app } from 'electron'
 import { LEGACY_SETTINGS_DIR } from './paths'
 
@@ -18,24 +18,34 @@ const LOG_FILE = 'migration.log'
 
 const FILES_TO_MIGRATE = ['settings.json', 'dictionary.json']
 
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export async function migrateFromLegacyDir(): Promise<void> {
   try {
     const newDir = app.getPath('userData')
-    mkdirSync(newDir, { recursive: true })
+    await mkdir(newDir, { recursive: true })
 
     const sentinelPath = join(newDir, SENTINEL)
-    if (existsSync(sentinelPath)) {
+    if (await exists(sentinelPath)) {
       return
     }
 
     const log: string[] = []
+    let hasErrors = false
     log.push(`[Migration] Started at ${new Date().toISOString()}`)
     log.push(`[Migration] Legacy dir: ${LEGACY_SETTINGS_DIR}`)
     log.push(`[Migration] New dir: ${newDir}`)
 
-    if (!existsSync(LEGACY_SETTINGS_DIR)) {
+    if (!(await exists(LEGACY_SETTINGS_DIR))) {
       log.push('[Migration] Legacy dir does not exist — new user, nothing to migrate')
-      writeLogs(newDir, log, sentinelPath)
+      await writeLogs(newDir, log, sentinelPath)
       return
     }
 
@@ -45,20 +55,21 @@ export async function migrateFromLegacyDir(): Promise<void> {
       const src = join(LEGACY_SETTINGS_DIR, file)
       const dest = join(newDir, file)
 
-      if (!existsSync(src)) {
+      if (!(await exists(src))) {
         log.push(`[Migration] Skipped ${file} — not found at legacy path`)
         continue
       }
 
-      if (existsSync(dest)) {
+      if (await exists(dest)) {
         log.push(`[Migration] Skipped ${file} — already exists at destination`)
         continue
       }
 
       try {
-        copyFileSync(src, dest)
+        await copyFile(src, dest)
         log.push(`[Migration] Copied ${file}`)
       } catch (err) {
+        hasErrors = true
         log.push(`[Migration] ERROR copying ${file}: ${err instanceof Error ? err.message : err}`)
       }
     }
@@ -66,30 +77,36 @@ export async function migrateFromLegacyDir(): Promise<void> {
     // Copy credentials directory (safeStorage-encrypted blobs)
     const legacyCreds = join(LEGACY_SETTINGS_DIR, 'credentials')
     const newCreds = join(newDir, 'credentials')
-    if (existsSync(legacyCreds)) {
+    if (await exists(legacyCreds)) {
       try {
-        mkdirSync(newCreds, { recursive: true })
-        const files = readdirSync(legacyCreds)
+        await mkdir(newCreds, { recursive: true })
+        const files = await readdir(legacyCreds)
         let copied = 0
         for (const file of files) {
           const dest = join(newCreds, file)
-          if (!existsSync(dest)) {
-            copyFileSync(join(legacyCreds, file), dest)
+          if (!(await exists(dest))) {
+            await copyFile(join(legacyCreds, file), dest)
             copied++
           }
         }
         log.push(`[Migration] Copied credentials/ (${copied} files)`)
       } catch (err) {
+        hasErrors = true
         log.push(`[Migration] ERROR copying credentials/: ${err instanceof Error ? err.message : err}`)
       }
     } else {
       log.push('[Migration] Skipped credentials/ — not found at legacy path')
     }
 
-    writeLogs(newDir, log, sentinelPath)
+    // Only write sentinel if all copies succeeded — allows retry on next launch
+    await writeLogs(newDir, log, hasErrors ? null : sentinelPath)
 
     for (const line of log) {
       console.log(line)
+    }
+
+    if (hasErrors) {
+      console.warn('[Migration] Completed with errors — will retry on next launch')
     }
   } catch (err) {
     console.error('[Migration] Fatal error:', err instanceof Error ? err.message : err)
@@ -97,15 +114,17 @@ export async function migrateFromLegacyDir(): Promise<void> {
   }
 }
 
-function writeLogs(newDir: string, log: string[], sentinelPath: string): void {
+async function writeLogs(newDir: string, log: string[], sentinelPath: string | null): Promise<void> {
   try {
-    writeFileSync(join(newDir, LOG_FILE), log.join('\n') + '\n', 'utf-8')
+    await writeFile(join(newDir, LOG_FILE), log.join('\n') + '\n', 'utf-8')
   } catch {
     // Best-effort logging
   }
-  try {
-    writeFileSync(sentinelPath, JSON.stringify({ migratedAt: new Date().toISOString() }), 'utf-8')
-  } catch {
-    // Best-effort sentinel
+  if (sentinelPath) {
+    try {
+      await writeFile(sentinelPath, JSON.stringify({ migratedAt: new Date().toISOString() }), 'utf-8')
+    } catch {
+      // Best-effort sentinel
+    }
   }
 }

@@ -33,11 +33,31 @@ export function getUserDataPath(): string {
 
 /**
  * Get the canonical settings directory (app.getPath('userData')).
- * Self-healing: creates the directory if it doesn't exist.
+ * Self-healing: creates the directory on first call, then caches.
  * Only call AFTER app.whenReady() — will throw if called too early.
  */
+let _cachedSettingsDir: string | undefined
 export function getSettingsDir(): string {
-  const dir = app.getPath('userData')
-  mkdirSync(dir, { recursive: true })
-  return dir
+  if (!_cachedSettingsDir) {
+    const dir = app.getPath('userData')
+    mkdirSync(dir, { recursive: true })
+    _cachedSettingsDir = dir
+  }
+  return _cachedSettingsDir
+}
+
+/**
+ * Validate that getUserDataPath() agrees with app.getPath('userData').
+ * Call once after app.whenReady() to catch divergence early.
+ */
+export function validatePathConsistency(): void {
+  const manual = getUserDataPath()
+  const electron = app.getPath('userData')
+  if (manual !== electron) {
+    console.error(
+      `[Paths] WARNING: getUserDataPath() returned "${manual}" but app.getPath('userData') returned "${electron}". ` +
+      `Early Sentry init may have read settings from the wrong location. ` +
+      `Ensure "Prose" in paths.ts matches productName in package.json.`
+    )
+  }
 }

@@ -1,13 +1,15 @@
 /**
  * One-time migration from legacy ~/.prose/ to app.getPath('userData').
  *
- * Copies settings.json and dictionary.json only.
- * Does NOT copy credentials/ — safeStorage encryption keys differ between
- * sandboxed and non-sandboxed app identities, so copied blobs would be garbage.
- * Users re-enter their API key on first launch after migration.
+ * Copies settings.json, dictionary.json, and credentials/.
+ * Credentials (safeStorage-encrypted blobs) are copied for non-MAS builds where
+ * the app identity stays the same. For MAS builds, the sandbox changes the app
+ * identity so safeStorage decryption will fail — users re-enter their API key.
+ * We copy anyway since it's harmless (credentialStore.get returns null on
+ * decryption failure) and avoids needing IS_MAS_BUILD logic here.
  */
 import { join } from 'path'
-import { existsSync, copyFileSync, writeFileSync, mkdirSync } from 'fs'
+import { existsSync, copyFileSync, writeFileSync, mkdirSync, readdirSync } from 'fs'
 import { app } from 'electron'
 import { LEGACY_SETTINGS_DIR } from './paths'
 
@@ -61,7 +63,28 @@ export async function migrateFromLegacyDir(): Promise<void> {
       }
     }
 
-    log.push('[Migration] NOTE: credentials/ not copied — safeStorage keys differ between sandbox identities')
+    // Copy credentials directory (safeStorage-encrypted blobs)
+    const legacyCreds = join(LEGACY_SETTINGS_DIR, 'credentials')
+    const newCreds = join(newDir, 'credentials')
+    if (existsSync(legacyCreds)) {
+      try {
+        mkdirSync(newCreds, { recursive: true })
+        const files = readdirSync(legacyCreds)
+        let copied = 0
+        for (const file of files) {
+          const dest = join(newCreds, file)
+          if (!existsSync(dest)) {
+            copyFileSync(join(legacyCreds, file), dest)
+            copied++
+          }
+        }
+        log.push(`[Migration] Copied credentials/ (${copied} files)`)
+      } catch (err) {
+        log.push(`[Migration] ERROR copying credentials/: ${err instanceof Error ? err.message : err}`)
+      }
+    } else {
+      log.push('[Migration] Skipped credentials/ — not found at legacy path')
+    }
 
     writeLogs(newDir, log, sentinelPath)
 

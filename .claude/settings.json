@@ -1,5 +1,14 @@
 {
   "permissions": {
+    "deny": [
+      "Read(.env)",
+      "Read(.env.sentry-build-plugin)",
+      "Read(.mcp.json)",
+      "Read(build/*.provisionprofile)",
+      "Edit(.env)",
+      "Edit(.env.sentry-build-plugin)",
+      "Edit(.mcp.json)"
+    ],
     "allow": [
       "Bash(npm run *)",
       "Bash(npx *)",

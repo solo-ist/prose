@@ -23,11 +23,11 @@ export const LEGACY_SETTINGS_DIR = join(homedir(), '.prose')
 export function getUserDataPath(): string {
   switch (process.platform) {
     case 'darwin':
-      return join(homedir(), 'Library', 'Application Support', 'Prose')
+      return join(homedir(), 'Library', 'Application Support', 'prose')
     case 'win32':
-      return join(process.env.APPDATA || join(homedir(), 'AppData', 'Roaming'), 'Prose')
+      return join(process.env.APPDATA || join(homedir(), 'AppData', 'Roaming'), 'prose')
     default: // linux, freebsd, etc.
-      return join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'Prose')
+      return join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'prose')
   }
 }
 

@@ -6,7 +6,7 @@
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "npm run build:preload && electron-vite dev",
+    "dev": "npm run build:env && npm run build:preload && electron-vite dev",
     "dev:kill": "kill $(cat .dev.pid 2>/dev/null) 2>/dev/null || true; lsof -ti:9222 | xargs kill -9 2>/dev/null || true; lsof -ti:5173 | xargs kill -9 2>/dev/null || true",
     "dev:restart": "npm run dev:kill && sleep 2 && npm run dev",
     "build:env": "node -e \"require('fs').writeFileSync('src/main/env.ts', '// Auto-generated — do not edit\\nexport const IS_MAS_BUILD = ' + (process.env.MAS_BUILD === '1') + '\\n')\"",
@@ -26,7 +26,9 @@
     "test:e2e:dev": "npx playwright test",
     "test:web": "npm run build:web && npx playwright test --config playwright.web.config.ts",
     "test:web:dev": "npx playwright test --config playwright.web.config.ts",
-    "typecheck:e2e": "tsc --project tsconfig.e2e.json --noEmit"
+    "typecheck:e2e": "tsc --project tsconfig.e2e.json --noEmit",
+    "clean": "rm -rf out dist node_modules/.vite .dev.pid",
+    "clean:hard": "npm run clean && rm -rf node_modules && rm -rf \"$HOME/Library/Application Support/prose\" \"$HOME/.prose\""
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.1",
@@ -57,6 +59,8 @@
     "@tiptap/extension-table-cell": "^2.27.2",
     "@tiptap/extension-table-header": "^2.27.2",
     "@tiptap/extension-table-row": "^2.27.2",
+    "@tiptap/extension-task-item": "^2.27.2",
+    "@tiptap/extension-task-list": "^2.27.2",
     "@tiptap/extension-underline": "^2.27.2",
     "@tiptap/pm": "^2.11.2",
     "@tiptap/react": "^2.11.2",

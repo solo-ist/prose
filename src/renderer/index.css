@@ -263,6 +263,77 @@
   margin: 0;
 }
 
+/* Task lists (checklists) */
+.prose-editor ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0.25em;
+}
+
+.prose-editor ul[data-type="taskList"] li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+  margin-bottom: 0.25em;
+}
+
+.prose-editor ul[data-type="taskList"] li > label {
+  flex-shrink: 0;
+  user-select: none;
+  margin-top: 0.1em;
+}
+
+.prose-editor ul[data-type="taskList"] li > label input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 0.85em;
+  height: 0.85em;
+  border: 1.5px solid hsl(var(--muted-foreground) / 0.5);
+  border-radius: 0.2em;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  background: transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.prose-editor ul[data-type="taskList"] li > label input[type="checkbox"]:checked {
+  background: hsl(var(--primary));
+  border-color: hsl(var(--primary));
+}
+
+.prose-editor ul[data-type="taskList"] li > label input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  top: 0.05em;
+  left: 0.2em;
+  width: 0.35em;
+  height: 0.55em;
+  border: 1.5px solid hsl(var(--primary-foreground));
+  border-top: none;
+  border-left: none;
+  transform: rotate(45deg);
+}
+
+.prose-editor ul[data-type="taskList"] li > label input[type="checkbox"]:hover {
+  border-color: hsl(var(--primary));
+}
+
+.prose-editor ul[data-type="taskList"] li > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.prose-editor ul[data-type="taskList"] li[data-checked="true"] > div {
+  text-decoration: line-through;
+  color: hsl(var(--muted-foreground));
+}
+
+/* Nested task lists */
+.prose-editor ul[data-type="taskList"] ul[data-type="taskList"] {
+  padding-left: 1.25em;
+  margin-top: 0.25em;
+}
+
 .prose-editor blockquote {
   border-left: 3px solid hsl(var(--border));
   padding-left: 1em;

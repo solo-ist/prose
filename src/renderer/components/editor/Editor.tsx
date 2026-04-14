@@ -127,10 +127,7 @@ export function Editor() {
       TableCell,
       TaskList,
       TaskItem.configure({
-        nested: true,
-        HTMLAttributes: {
-          class: 'task-item'
-        }
+        nested: true
       }),
       Markdown.configure({
         html: true,

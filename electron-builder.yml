@@ -1,6 +1,6 @@
 appId: ist.solo.prose
 productName: Prose
-buildVersion: "15"
+buildVersion: "17"
 directories:
   buildResources: build
   output: dist
@@ -16,10 +16,14 @@ files:
   - out/**/*
 
 extraResources:
-  - from: out/mcp-stdio.js
-    to: mcp-stdio.js
+  - from: out/mcp-stdio.cjs
+    to: mcp-stdio.cjs
   - from: resources/
     to: resources/
+    filter:
+      - "!PrivacyInfo.xcprivacy"
+  - from: resources/PrivacyInfo.xcprivacy
+    to: PrivacyInfo.xcprivacy
 
 fileAssociations:
   - ext:
@@ -70,6 +74,8 @@ mas:
   files:
     - "!node_modules/@sentry/cli-darwin/**"
     - "!node_modules/@sentry/cli/**"
+    - "!node_modules/electron-updater/**"
+    - "!node_modules/builder-util-runtime/**"
 
 masDev:
   identity: Apple Development

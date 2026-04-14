@@ -10,7 +10,7 @@
  *   "mcpServers": {
  *     "prose": {
  *       "command": "node",
- *       "args": ["/Applications/Prose.app/Contents/Resources/mcp-stdio.js"]
+ *       "args": ["/Applications/Prose.app/Contents/Resources/mcp-stdio.cjs"]
  *     }
  *   }
  * }

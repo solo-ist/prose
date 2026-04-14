@@ -14,8 +14,14 @@ if (dotenvResult.error) {
 
 // Initialize Sentry early (before app.whenReady) if user has opted in
 import { initSentry, setSentryEnabled } from './sentry'
+import { getUserDataPath, LEGACY_SETTINGS_DIR, validatePathConsistency } from './paths'
+import { migrateFromLegacyDir } from './migrate'
 try {
-  const settingsPath = join(homedir(), '.prose', 'settings.json')
+  // Check new path first; fall back to legacy for first post-upgrade launch
+  // (migration hasn't run yet — it requires app.whenReady())
+  const newSettingsPath = join(getUserDataPath(), 'settings.json')
+  const legacySettingsPath = join(LEGACY_SETTINGS_DIR, 'settings.json')
+  const settingsPath = existsSync(newSettingsPath) ? newSettingsPath : legacySettingsPath
   const raw = readFileSync(settingsPath, 'utf-8')
   const parsedSettings = JSON.parse(raw)
   initSentry(parsedSettings?.errorTracking?.enabled === true)
@@ -31,6 +37,12 @@ import { getMcpHttpServer, getMcpBridge, getMcpSocketServer } from './mcp'
 import { initializeSpellcheck, setupContextMenu } from './spellcheck'
 import { initAutoUpdater } from './updater'
 import { IS_MAS_BUILD } from './env'
+
+// Track quit intent so macOS hide-on-close can be bypassed during actual quit
+let isQuitting = false
+app.on('before-quit', () => {
+  isQuitting = true
+})
 
 console.log('[Main] Environment loaded. OCR URL:', process.env.REMARKABLE_OCR_URL ? 'set' : 'not set')
 console.log('[Main] Google configured:', process.env.GOOGLE_CLIENT_ID ? 'ID set' : 'ID missing', process.env.GOOGLE_CLIENT_SECRET ? 'Secret set' : 'Secret missing')
@@ -159,6 +171,18 @@ function createWindow(): BrowserWindow {
     mainWindow.webContents.send('window:fullscreen-change', false)
   })
 
+  // macOS: hide window on close instead of destroying it.
+  // This keeps IPC handlers, menu, and MCP bridge bindings intact
+  // and allows the window to be re-shown via dock click or Window menu.
+  if (process.platform === 'darwin') {
+    mainWindow.on('close', (e) => {
+      if (!isQuitting) {
+        e.preventDefault()
+        mainWindow.hide()
+      }
+    })
+  }
+
   mainWindow.webContents.setWindowOpenHandler((details) => {
     // Only allow http/https URLs to prevent javascript: and other dangerous schemes
     try {
@@ -218,6 +242,12 @@ app.on('certificate-error', (event, _webContents, _url, _error, _certificate, ca
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('ist.solo.prose')
 
+  // Validate that early Sentry init path matches Electron's resolved path
+  validatePathConsistency()
+
+  // Migrate legacy ~/.prose/ data to app.getPath('userData') on first launch
+  await migrateFromLegacyDir()
+
   // Deny all permission requests and checks — the app needs no special permissions (camera, mic, geolocation, etc.)
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false)
@@ -225,6 +255,8 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionCheckHandler(() => false)
 
   // Handle local-file:// protocol to serve images from the filesystem
+  // MAS sandbox: only works for files within security-scoped bookmark directories
+  // (user-opened folders). Images from arbitrary paths silently return 403.
   protocol.handle('local-file', (request) => {
     // URL format: local-file:///absolute/path/to/image.png
     const filePath = decodeURIComponent(new URL(request.url).pathname)
@@ -383,7 +415,12 @@ app.whenReady().then(async () => {
   })
 
   app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    const windows = BrowserWindow.getAllWindows()
+    if (windows.length === 0) {
+      createWindow()
+    } else {
+      windows[0].show()
+    }
   })
 })
 

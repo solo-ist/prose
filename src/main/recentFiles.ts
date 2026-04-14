@@ -1,16 +1,16 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { join } from 'path'
-import { homedir } from 'os'
+import { getSettingsDir } from './paths'
 
-const SETTINGS_PATH = join(homedir(), '.prose', 'settings.json')
+function getSettingsPath(): string { return join(getSettingsDir(), 'settings.json') }
 
 /**
- * Load recent files from ~/.prose/settings.json (same source as the renderer's settingsStore).
+ * Load recent files from userData/settings.json (same source as the renderer's settingsStore).
  * Filters out files that no longer exist on disk.
  */
 export function loadRecentFiles(): string[] {
   try {
-    const data = readFileSync(SETTINGS_PATH, 'utf-8')
+    const data = readFileSync(getSettingsPath(), 'utf-8')
     const settings = JSON.parse(data)
     const files = settings?.recentFiles
     if (!Array.isArray(files)) return []
@@ -21,15 +21,15 @@ export function loadRecentFiles(): string[] {
 }
 
 /**
- * Clear recent files in ~/.prose/settings.json.
+ * Clear recent files in userData/settings.json.
  * Reads the full settings, removes recentFiles, and writes back.
  */
 export function clearRecentFiles(): void {
   try {
-    const data = readFileSync(SETTINGS_PATH, 'utf-8')
+    const data = readFileSync(getSettingsPath(), 'utf-8')
     const settings = JSON.parse(data)
     settings.recentFiles = []
-    writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf-8')
+    writeFileSync(getSettingsPath(), JSON.stringify(settings, null, 2), 'utf-8')
   } catch {
     // Settings file doesn't exist or can't be parsed — nothing to clear
   }

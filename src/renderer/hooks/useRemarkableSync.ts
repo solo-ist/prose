@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFileListStore } from '../stores/fileListStore'
 import type { SyncProgress } from '../stores/fileListStore'
+import { subscribeRemarkableProgress } from '../lib/remarkableBridge'
 
 export type { SyncProgress }
 
@@ -45,11 +46,12 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
   const syncDirRef = useRef(syncDir)
   syncDirRef.current = syncDir
 
-  // Subscribe to sync progress events unconditionally — events only fire during active sync
+  // Subscribe to sync progress events via the eager-init bridge. The bridge
+  // owns the single window.api.onRemarkableSyncProgress IPC subscription;
+  // each hook caller just attaches a local listener. Multiple components
+  // can mount this hook safely without double-firing IPC events.
   useEffect(() => {
-    if (!window.api?.onRemarkableSyncProgress) return
-
-    const unsubscribe = window.api.onRemarkableSyncProgress((update) => {
+    return subscribeRemarkableProgress((update) => {
       setRemarkableSyncProgress(update)
       if (update.notebookId) {
         if (update.phase === 'downloading' || update.phase === 'ocr') {
@@ -61,12 +63,8 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
         }
       }
     })
-
-    return () => {
-      unsubscribe()
-    }
   // Zustand actions (addSyncingNotebook, removeSyncingNotebook, etc.) are referentially
-  // stable — intentionally mounting the IPC listener once. syncDir uses a ref to avoid stale closure.
+  // stable — intentionally subscribing once. syncDir uses a ref to avoid stale closure.
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const sync = useCallback(async () => {

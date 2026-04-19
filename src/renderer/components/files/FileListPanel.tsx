@@ -444,14 +444,18 @@ export function FileListPanel() {
     }
   }
 
-  // Auto-sync when switching to notebooks view
+  // Auto-sync when switching to notebooks view, or when a device is connected
+  // while already on that view. Excludes sync and isSyncing intentionally —
+  // sync() has its own concurrent-call lock and we don't want to retrigger
+  // when isSyncing transitions back to false after a manual sync completes.
   useEffect(() => {
     if (viewMode === 'notebooks' && remarkableEnabled && deviceToken && !isSyncing) {
       sync().catch((err) => {
         console.error('[FileListPanel] Auto-sync failed:', err)
       })
     }
-  }, [viewMode, remarkableEnabled]) // Intentionally exclude sync and isSyncing to only trigger on view change
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, remarkableEnabled, deviceToken])
 
   // Load metadata and auto-sync when switching to Google Docs view
   useEffect(() => {

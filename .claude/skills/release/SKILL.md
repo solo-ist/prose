@@ -279,14 +279,14 @@ Report the delivery UUID and wait for App Store Connect processing.
 npm version <version> --no-git-tag-version
 ```
 
-### 2. Reset build number
+### 2. Leave buildVersion alone
 
-Edit `electron-builder.yml`: set `buildVersion: "1"`.
+**Do not reset `buildVersion`.** This project uses a global monotonic build counter across marketing versions (e.g., 1.0.0 ended at build 20; first 1.0.1 MAS upload will be build 21). App Store Connect treats `version+build` as unique either way, and continuous numbering matches the established pattern.
 
 ### 3. Commit
 
 ```bash
-git add package.json package-lock.json electron-builder.yml
+git add package.json package-lock.json
 git commit -m "chore: bump version to <version>"
 ```
 

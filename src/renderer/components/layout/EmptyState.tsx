@@ -32,12 +32,12 @@ export function EmptyState() {
           <p className="mb-2 font-medium">Keyboard shortcuts:</p>
           <div className="space-y-1">
             <p>
-              <kbd className="rounded bg-muted px-1.5 py-0.5">⌘N</kbd> New &nbsp;
+              <kbd className="rounded bg-muted px-1.5 py-0.5">⌘T</kbd> New &nbsp;
               <kbd className="rounded bg-muted px-1.5 py-0.5">⌘O</kbd> Open &nbsp;
               <kbd className="rounded bg-muted px-1.5 py-0.5">⌘S</kbd> Save
             </p>
             <p>
-              <kbd className="rounded bg-muted px-1.5 py-0.5">⌘\</kbd> Chat &nbsp;
+              <kbd className="rounded bg-muted px-1.5 py-0.5">⇧⌘L</kbd> Chat &nbsp;
               <kbd className="rounded bg-muted px-1.5 py-0.5">⇧⌘H</kbd> Files &nbsp;
               <kbd className="rounded bg-muted px-1.5 py-0.5">F1</kbd> All shortcuts
             </p>

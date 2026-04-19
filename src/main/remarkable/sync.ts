@@ -621,6 +621,7 @@ export async function syncAll(
       }
 
       newMeta.notebooks[doc.id] = {
+        ...existingEntry,
         name: doc.name,
         parent: doc.parent,
         type: 'notebook',
@@ -629,7 +630,8 @@ export async function syncAll(
         hash: doc.hash,
         localPath: join(HIDDEN_DIR, doc.hash),
         ocrPath,
-        pageOCRCache
+        pageOCRCache,
+        markdownPath: existingEntry?.markdownPath
       }
 
       result.synced++

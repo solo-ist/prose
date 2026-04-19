@@ -279,6 +279,7 @@ async function processNotebookWithOCR(
       allPageIds.push(pageId)
       const cached = existingCache?.[pageId]
 
+      let hashCheckBuffer: Buffer | undefined
       if (cached) {
         // Try timestamp comparison first (fast, no file I/O)
         const currentTimestamp = pageTimestamps[bareId]
@@ -289,8 +290,8 @@ async function processNotebookWithOCR(
         }
         // Fallback: hash comparison (requires reading the file)
         if (cached.rmHash) {
-          const data = await readFile(filePath)
-          const rmHash = createHash('sha256').update(data).digest('hex')
+          hashCheckBuffer = await readFile(filePath)
+          const rmHash = createHash('sha256').update(hashCheckBuffer).digest('hex')
           pageHashes[pageId] = rmHash
           if (rmHash === cached.rmHash) {
             cachedPages[pageId] = cached
@@ -300,10 +301,10 @@ async function processNotebookWithOCR(
         }
       }
 
-      // Page is new or changed — needs OCR
-      const data = pageHashes[pageId] ? undefined : await readFile(filePath)
-      if (data) pageHashes[pageId] = createHash('sha256').update(data).digest('hex')
-      const fileData = data || await readFile(filePath)
+      // Page is new or changed — needs OCR. Reuse hashCheckBuffer if we already
+      // read the file for hash comparison; otherwise read it now.
+      const fileData = hashCheckBuffer ?? await readFile(filePath)
+      if (!pageHashes[pageId]) pageHashes[pageId] = createHash('sha256').update(fileData).digest('hex')
       console.log(`[OCR] ${cached ? 'Changed' : 'New'} page ${bareId.slice(0, 8)}: ${fileData.length} bytes`)
       pagesToOCR.push({ id: pageId, data: fileData })
     }

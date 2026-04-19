@@ -17,6 +17,7 @@ Thumbs.db
 # Editor directories
 .idea/
 .vscode/
+.zed/
 *.swp
 *.swo
 
@@ -39,6 +40,10 @@ playwright-report/
 
 # Claude Code
 .claude/settings.local.json
+
+# Claude Cowork artifacts (per-session tooling outputs, not project files)
+.skills/
+*.plugin
 
 # MCP config (contains secrets)
 .mcp.json

@@ -37,6 +37,22 @@ interface OCRResult {
 }
 
 /**
+ * Post-process OCR markdown to clean up whitespace artifacts the OCR service
+ * sometimes emits — trailing spaces per line, mixed line endings, and runs of
+ * 3+ blank lines. Pure transformation; no I/O.
+ */
+export function postProcessOCR(markdown: string): string {
+  return markdown
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map(line => line.trimEnd())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/**
  * Check if OCR service is configured
  */
 export function isOCRConfigured(): boolean {
@@ -133,7 +149,7 @@ export async function extractTextFromPages(
       const result = (await response.json()) as OCRResponse
 
       return {
-        pages: result.pages,
+        pages: result.pages.map(page => ({ ...page, markdown: postProcessOCR(page.markdown) })),
         failedPages: result.failedPages || []
       }
     } catch (error) {

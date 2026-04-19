@@ -49,9 +49,14 @@ export interface SyncMetadata {
 }
 
 export interface PageOCRCacheEntry {
-  /** Page modification timestamp from .content (primary cache key) */
-  modifed?: string
-  /** SHA-256 hash of .rm file bytes (fallback when modifed unavailable) */
+  /**
+   * Page modification timestamp from the device's .content JSON (primary cache
+   * key). Note: the upstream field name is `modifed` (sic — typo in the
+   * reMarkable cloud schema). We normalize to `modified` internally; legacy
+   * on-disk caches with `modifed` are migrated by loadMetadata.
+   */
+  modified?: string
+  /** SHA-256 hash of .rm file bytes (fallback when modified is unavailable) */
   rmHash?: string
   /** OCR markdown result for this page */
   markdown: string
@@ -127,16 +132,37 @@ async function saveSyncState(baseDirectory: string, state: SyncState): Promise<v
 }
 
 /**
- * Load sync metadata from the hidden directory
+ * Load sync metadata from the hidden directory.
+ *
+ * Migrates legacy on-disk caches that use the upstream `modifed` typo to our
+ * canonical `modified` field. Writes back once when migration occurs so
+ * subsequent loads short-circuit (no per-sync migration cost).
  */
 async function loadMetadata(baseDirectory: string): Promise<SyncMetadata | null> {
+  let metadata: SyncMetadata
   try {
     const metaPath = join(baseDirectory, HIDDEN_DIR, META_FILE)
     const content = await readFile(metaPath, 'utf-8')
-    return JSON.parse(content) as SyncMetadata
+    metadata = JSON.parse(content) as SyncMetadata
   } catch {
     return null
   }
+
+  let migrated = false
+  for (const entry of Object.values(metadata.notebooks ?? {})) {
+    for (const page of Object.values(entry.pageOCRCache ?? {}) as Array<PageOCRCacheEntry & { modifed?: string }>) {
+      if (page.modifed != null && page.modified == null) {
+        page.modified = page.modifed
+        migrated = true
+      }
+      if ('modifed' in page) {
+        delete page.modifed
+        migrated = true
+      }
+    }
+  }
+  if (migrated) await saveMetadata(baseDirectory, metadata)
+  return metadata
 }
 
 /**
@@ -283,7 +309,7 @@ async function processNotebookWithOCR(
       if (cached) {
         // Try timestamp comparison first (fast, no file I/O)
         const currentTimestamp = pageTimestamps[bareId]
-        if (hasTimestamps && cached.modifed && currentTimestamp === cached.modifed) {
+        if (hasTimestamps && cached.modified && currentTimestamp === cached.modified) {
           cachedPages[pageId] = cached
           console.log(`[OCR] Cache hit for page ${bareId.slice(0, 8)} (timestamp match)`)
           continue
@@ -344,7 +370,7 @@ async function processNotebookWithOCR(
       for (const page of result.pages) {
         const bareId = page.id.replace(/.*_/, '')
         newCache[page.id] = {
-          modifed: pageTimestamps[bareId],
+          modified: pageTimestamps[bareId],
           rmHash: pageHashes[page.id],
           markdown: page.markdown,
           confidence: page.confidence

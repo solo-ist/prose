@@ -1,7 +1,7 @@
 /**
  * reMarkable sync logic - downloads notebooks to local filesystem
  */
-import { mkdir, writeFile, readFile, readdir, access, rm } from 'fs/promises'
+import { mkdir, writeFile, readFile, readdir, access, rm, rename } from 'fs/promises'
 import { join, dirname, resolve, sep } from 'path'
 import { homedir } from 'os'
 import { createHash } from 'crypto'
@@ -166,17 +166,35 @@ async function loadMetadata(baseDirectory: string): Promise<SyncMetadata | null>
 }
 
 /**
- * Save sync metadata to the hidden directory
+ * Single-element promise queue serializing saveMetadata calls. With concurrent
+ * sync workers, naive read-modify-write would lose entries when two workers
+ * snapshot the same in-memory state and overwrite each other. enqueueSave
+ * forces them to run sequentially.
+ */
+let saveTail: Promise<void> = Promise.resolve()
+function enqueueSave<T>(fn: () => Promise<T>): Promise<T> {
+  const result = saveTail.then(fn, fn)
+  saveTail = result.then(() => undefined, () => undefined)
+  return result
+}
+
+/**
+ * Save sync metadata to the hidden directory.
+ *
+ * Writes via temp-file-then-rename (POSIX-atomic on the same filesystem) so a
+ * crash or kill mid-write cannot corrupt sync-metadata.json. Serialized via
+ * enqueueSave so concurrent workers don't race on read-modify-write.
  */
 async function saveMetadata(baseDirectory: string, metadata: SyncMetadata): Promise<void> {
-  // Snapshot synchronously before any await. With 3 concurrent workers, multiple
-  // saveMetadata calls can be in-flight — last atomic writeFile wins, which is
-  // acceptable because each worker adds its own notebook before calling save.
-  const snapshot = JSON.stringify(metadata, null, 2)
-  const hiddenDir = join(baseDirectory, HIDDEN_DIR)
-  await mkdir(hiddenDir, { recursive: true })
-  const metaPath = join(hiddenDir, META_FILE)
-  await writeFile(metaPath, snapshot, 'utf-8')
+  return enqueueSave(async () => {
+    const snapshot = JSON.stringify(metadata, null, 2)
+    const hiddenDir = join(baseDirectory, HIDDEN_DIR)
+    await mkdir(hiddenDir, { recursive: true })
+    const metaPath = join(hiddenDir, META_FILE)
+    const tmpPath = join(hiddenDir, `${META_FILE}.${process.pid}.tmp`)
+    await writeFile(tmpPath, snapshot, 'utf-8')
+    await rename(tmpPath, metaPath)
+  })
 }
 
 /**

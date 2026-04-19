@@ -78,6 +78,12 @@ export interface NotebookMetadata {
   markdownPath?: string
   /** Per-page OCR cache keyed by page UUID — enables incremental OCR on resync */
   pageOCRCache?: Record<string, PageOCRCacheEntry>
+  /**
+   * Sentinel set when OCR fails for a given notebook hash. Suppresses retry on
+   * every subsequent sync until the notebook's content changes (hash differs).
+   * Cleared on successful OCR.
+   */
+  ocrAttempt?: { hash: string; failedAt: string }
 }
 
 export interface SyncResult {
@@ -561,7 +567,8 @@ export async function syncAll(
       }
 
       const needsDownload = !existingEntry || existingEntry.hash !== doc.hash || !localFilesExist
-      const needsOCR = doc.fileType === 'notebook' && isOCRConfigured() && !existingEntry?.ocrPath
+      const ocrPreviouslyFailed = existingEntry?.ocrAttempt?.hash === doc.hash
+      const needsOCR = doc.fileType === 'notebook' && isOCRConfigured() && !existingEntry?.ocrPath && !ocrPreviouslyFailed
       console.log(`[reMarkable] ${doc.name}: needsDownload=${needsDownload}, needsOCR=${needsOCR}, localFilesExist=${localFilesExist}, zipExists=${zipExists}`)
 
       if (!needsDownload && !needsOCR) {
@@ -617,7 +624,8 @@ export async function syncAll(
           ...existingEntry!,
           ocrPath,
           pageOCRCache,
-          markdownPath: existingEntry?.markdownPath
+          markdownPath: existingEntry?.markdownPath,
+          ocrAttempt: ocrPath ? undefined : { hash: doc.hash, failedAt: new Date().toISOString() }
         }
         result.synced++
         onProgress?.({ message: `Done: ${doc.name}`, notebookId: doc.id, notebookName: doc.name, phase: 'notebook-done' })
@@ -659,10 +667,12 @@ export async function syncAll(
       // OCR for handwritten notebooks
       let ocrPath: string | undefined
       let pageOCRCache: Record<string, PageOCRCacheEntry> | undefined
+      let ocrAttempt: NotebookMetadata['ocrAttempt']
       if (doc.fileType === 'notebook') {
         const ocrResult = await runOCR(notebookDir)
         ocrPath = ocrResult.ocrPath
         pageOCRCache = ocrResult.pageOCRCache
+        if (!ocrPath) ocrAttempt = { hash: doc.hash, failedAt: new Date().toISOString() }
       }
 
       newMeta.notebooks[doc.id] = {
@@ -676,7 +686,8 @@ export async function syncAll(
         localPath: join(HIDDEN_DIR, doc.hash),
         ocrPath,
         pageOCRCache,
-        markdownPath: existingEntry?.markdownPath
+        markdownPath: existingEntry?.markdownPath,
+        ocrAttempt
       }
 
       result.synced++

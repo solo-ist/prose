@@ -4,6 +4,7 @@
 import { mkdir, writeFile, readFile, readdir, access, rm } from 'fs/promises'
 import { join, dirname, resolve, sep } from 'path'
 import { homedir } from 'os'
+import { createHash } from 'crypto'
 import { connect, disconnect, type RemarkableNotebook } from './client'
 import { isOCRConfigured, extractTextBatched } from './ocr'
 import JSZip from 'jszip'
@@ -47,6 +48,17 @@ export interface SyncMetadata {
   notebooks: Record<string, NotebookMetadata>
 }
 
+export interface PageOCRCacheEntry {
+  /** Page modification timestamp from .content (primary cache key) */
+  modifed?: string
+  /** SHA-256 hash of .rm file bytes (fallback when modifed unavailable) */
+  rmHash?: string
+  /** OCR markdown result for this page */
+  markdown: string
+  /** OCR confidence score */
+  confidence: number
+}
+
 export interface NotebookMetadata {
   name: string
   parent: string | null
@@ -59,6 +71,8 @@ export interface NotebookMetadata {
   ocrPath?: string
   /** Path to user's editable markdown in visible folder (relative to sync dir, created on demand) */
   markdownPath?: string
+  /** Per-page OCR cache keyed by page UUID — enables incremental OCR on resync */
+  pageOCRCache?: Record<string, PageOCRCacheEntry>
 }
 
 export interface SyncResult {
@@ -66,6 +80,15 @@ export interface SyncResult {
   synced: number
   skipped: number
   errors: string[]
+}
+
+export interface SyncProgressUpdate {
+  message: string
+  notebookId?: string
+  notebookName?: string
+  current?: number
+  total?: number
+  phase: 'connecting' | 'listing' | 'downloading' | 'ocr' | 'notebook-done' | 'skipped' | 'complete'
 }
 
 const META_FILE = 'sync-metadata.json'
@@ -120,10 +143,14 @@ async function loadMetadata(baseDirectory: string): Promise<SyncMetadata | null>
  * Save sync metadata to the hidden directory
  */
 async function saveMetadata(baseDirectory: string, metadata: SyncMetadata): Promise<void> {
+  // Snapshot synchronously before any await. With 3 concurrent workers, multiple
+  // saveMetadata calls can be in-flight — last atomic writeFile wins, which is
+  // acceptable because each worker adds its own notebook before calling save.
+  const snapshot = JSON.stringify(metadata, null, 2)
   const hiddenDir = join(baseDirectory, HIDDEN_DIR)
   await mkdir(hiddenDir, { recursive: true })
   const metaPath = join(hiddenDir, META_FILE)
-  await writeFile(metaPath, JSON.stringify(metadata, null, 2), 'utf-8')
+  await writeFile(metaPath, snapshot, 'utf-8')
 }
 
 /**
@@ -161,81 +188,183 @@ function buildPath(
  *
  * @param notebookDir - Path to extracted notebook directory (e.g., .remarkable/<hash>/)
  * @param notebookName - Display name for the notebook
+ * @param anthropicApiKey - API key for the OCR service
+ * @param existingCache - Per-page OCR cache from previous sync (enables incremental OCR)
  * @param onProgress - Progress callback
- * @returns Markdown content or null if no .rm files found
+ * @returns Object with markdown content and updated page cache, or null if no .rm files found
  */
 async function processNotebookWithOCR(
   notebookDir: string,
   notebookName: string,
   anthropicApiKey: string | null | undefined,
-  onProgress?: (message: string) => void
-): Promise<string | null> {
+  existingCache?: Record<string, PageOCRCacheEntry>,
+  onProgress?: (update: SyncProgressUpdate) => void
+): Promise<{ markdown: string; pageOCRCache: Record<string, PageOCRCacheEntry> } | null> {
   console.log(`[OCR] processNotebookWithOCR called for "${notebookName}" at ${notebookDir}`)
 
   if (!isOCRConfigured()) {
     console.log(`[OCR] Skipping - not configured`)
-    onProgress?.(`Skipping OCR for "${notebookName}" - OCR service not configured`)
+    onProgress?.({ message: `Skipping OCR for "${notebookName}" - OCR service not configured`, notebookName, phase: 'ocr' })
     return null
   }
 
   if (!anthropicApiKey) {
     console.log(`[OCR] Skipping - no Anthropic API key`)
-    onProgress?.(`Skipping OCR for "${notebookName}" - please add Anthropic API key in Settings`)
+    onProgress?.({ message: `Skipping OCR for "${notebookName}" - please add Anthropic API key in Settings`, notebookName, phase: 'ocr' })
     return null
   }
 
   try {
-    // Find all .rm files in the notebook directory
+    // Read page order and modification timestamps from .content file
+    let pageOrder: string[] = []
+    const pageTimestamps: Record<string, string> = {} // bare pageId → modifed timestamp
     const files = await readdir(notebookDir, { recursive: true })
     console.log(`[OCR] Found ${files.length} files in directory:`, files.slice(0, 10))
 
+    const contentFile = files.find(f => typeof f === 'string' && f.endsWith('.content'))
+    if (contentFile) {
+      try {
+        const contentJson = JSON.parse(await readFile(join(notebookDir, contentFile), 'utf-8'))
+        if (contentJson.cPages?.pages) {
+          // v6 format: cPages.pages[].id with modifed timestamps
+          for (const p of contentJson.cPages.pages) {
+            pageOrder.push(p.id)
+            if (p.modifed) pageTimestamps[p.id] = String(p.modifed)
+          }
+        } else if (contentJson.pages) {
+          // Legacy format: pages[] as string array of UUIDs (no timestamps)
+          pageOrder = contentJson.pages
+        }
+        console.log(`[OCR] Page order from .content: ${pageOrder.length} pages, ${Object.keys(pageTimestamps).length} with timestamps`)
+      } catch {
+        console.warn(`[OCR] Failed to parse .content file, falling back to alphabetical`)
+      }
+    }
+    const hasTimestamps = Object.keys(pageTimestamps).length > 0
+
     const rmFiles = files
       .filter(f => typeof f === 'string' && f.endsWith('.rm'))
-      .sort() // Sort to ensure consistent page order
 
-    console.log(`[OCR] Found ${rmFiles.length} .rm files:`, rmFiles)
+    // Sort by .content page order if available, otherwise alphabetical
+    if (pageOrder.length > 0) {
+      rmFiles.sort((a, b) => {
+        const aId = a.replace('.rm', '').replace(/.*\//, '')
+        const bId = b.replace('.rm', '').replace(/.*\//, '')
+        const aIdx = pageOrder.indexOf(aId)
+        const bIdx = pageOrder.indexOf(bId)
+        return (aIdx === -1 ? Infinity : aIdx) - (bIdx === -1 ? Infinity : bIdx)
+      })
+    } else {
+      rmFiles.sort()
+    }
+
+    console.log(`[OCR] Found ${rmFiles.length} .rm files`)
 
     if (rmFiles.length === 0) {
       console.log(`[OCR] No .rm files found`)
-      onProgress?.(`No .rm files found in "${notebookName}"`)
+      onProgress?.({ message: `No .rm files found in "${notebookName}"`, notebookName, phase: 'ocr' })
       return null
     }
 
-    onProgress?.(`Processing ${rmFiles.length} pages from "${notebookName}"...`)
-    console.log(`[OCR] Processing ${rmFiles.length} pages...`)
+    // Determine which pages need OCR — use modifed timestamps if available, else hash .rm bytes
+    const pagesToOCR: Array<{ id: string; data: Buffer }> = []
+    const pageHashes: Record<string, string> = {} // pageId → rmHash (computed on demand)
+    const cachedPages: Record<string, PageOCRCacheEntry> = {}
+    const allPageIds: string[] = []
 
-    // Read all .rm files
-    const pages: Array<{ id: string; data: Buffer }> = []
     for (const rmFile of rmFiles) {
       const filePath = join(notebookDir, rmFile)
-      console.log(`[OCR] Reading file: ${filePath}`)
-      const data = await readFile(filePath)
-      console.log(`[OCR] Read ${data.length} bytes from ${rmFile}`)
-      // Use the filename without extension as the page ID
       const pageId = rmFile.replace('.rm', '').replace(/\//g, '_')
-      pages.push({ id: pageId, data })
+      const bareId = rmFile.replace('.rm', '').replace(/.*\//, '')
+      allPageIds.push(pageId)
+      const cached = existingCache?.[pageId]
+
+      if (cached) {
+        // Try timestamp comparison first (fast, no file I/O)
+        const currentTimestamp = pageTimestamps[bareId]
+        if (hasTimestamps && cached.modifed && currentTimestamp === cached.modifed) {
+          cachedPages[pageId] = cached
+          console.log(`[OCR] Cache hit for page ${bareId.slice(0, 8)} (timestamp match)`)
+          continue
+        }
+        // Fallback: hash comparison (requires reading the file)
+        if (cached.rmHash) {
+          const data = await readFile(filePath)
+          const rmHash = createHash('sha256').update(data).digest('hex')
+          pageHashes[pageId] = rmHash
+          if (rmHash === cached.rmHash) {
+            cachedPages[pageId] = cached
+            console.log(`[OCR] Cache hit for page ${bareId.slice(0, 8)} (hash match)`)
+            continue
+          }
+        }
+      }
+
+      // Page is new or changed — needs OCR
+      const data = pageHashes[pageId] ? undefined : await readFile(filePath)
+      if (data) pageHashes[pageId] = createHash('sha256').update(data).digest('hex')
+      const fileData = data || await readFile(filePath)
+      console.log(`[OCR] ${cached ? 'Changed' : 'New'} page ${bareId.slice(0, 8)}: ${fileData.length} bytes`)
+      pagesToOCR.push({ id: pageId, data: fileData })
     }
 
-    console.log(`[OCR] Calling extractTextBatched with ${pages.length} pages`)
-    // Process with OCR
-    const result = await extractTextBatched(pages, anthropicApiKey, (processed, total) => {
-      console.log(`[OCR] Progress: ${processed}/${total}`)
-      onProgress?.(`OCR progress: ${processed}/${total} pages`)
+    const cachedCount = Object.keys(cachedPages).length
+    const totalPages = rmFiles.length
+    console.log(`[OCR] ${cachedCount} cached, ${pagesToOCR.length} need OCR out of ${totalPages} total`)
+
+    if (pagesToOCR.length === 0) {
+      onProgress?.({ message: `All ${totalPages} pages cached for "${notebookName}"`, notebookName, phase: 'ocr' })
+    } else if (cachedCount > 0) {
+      onProgress?.({ message: `OCR: ${pagesToOCR.length} changed, ${cachedCount} cached — "${notebookName}"`, notebookName, phase: 'ocr' })
+    } else {
+      onProgress?.({ message: `OCR: processing ${totalPages} pages — "${notebookName}"`, notebookName, phase: 'ocr' })
+    }
+
+    // OCR only the changed/new pages
+    const newCache: Record<string, PageOCRCacheEntry> = { ...cachedPages }
+    let ocrResults: Array<{ id: string; markdown: string; confidence: number }> = []
+
+    if (pagesToOCR.length > 0) {
+      console.log(`[OCR] Calling extractTextBatched with ${pagesToOCR.length} pages`)
+      const result = await extractTextBatched(pagesToOCR, anthropicApiKey, (processed, total) => {
+        console.log(`[OCR] Progress: ${processed}/${total}`)
+        onProgress?.({ message: `OCR: page ${processed} of ${pagesToOCR.length} — "${notebookName}"`, notebookName, current: processed, total, phase: 'ocr' })
+      })
+      console.log(`[OCR] extractTextBatched returned: pages=${result.pages.length}, failed=${result.failedPages.length}`)
+
+      if (result.failedPages.length > 0) {
+        console.log(`[OCR] Failed pages:`, result.failedPages)
+        onProgress?.({ message: `Warning: ${result.failedPages.length} pages failed OCR`, notebookName, phase: 'ocr' })
+      }
+
+      ocrResults = result.pages
+
+      // Update cache with fresh OCR results
+      for (const page of result.pages) {
+        const bareId = page.id.replace(/.*_/, '')
+        newCache[page.id] = {
+          modifed: pageTimestamps[bareId],
+          rmHash: pageHashes[page.id],
+          markdown: page.markdown,
+          confidence: page.confidence
+        }
+      }
+    }
+
+    // Assemble all pages in order — merge cached and fresh results
+    const orderedPages = allPageIds.map(pageId => {
+      const cached = newCache[pageId]
+      if (cached) return { id: pageId, markdown: cached.markdown, confidence: cached.confidence }
+      // Fallback: page was in OCR results (matched by id)
+      const fresh = ocrResults.find(r => r.id === pageId)
+      return fresh || { id: pageId, markdown: '', confidence: 0 }
     })
-    console.log(`[OCR] extractTextBatched returned: pages=${result.pages.length}, failed=${result.failedPages.length}`)
 
-    if (result.failedPages.length > 0) {
-      console.log(`[OCR] Failed pages:`, result.failedPages)
-      onProgress?.(`Warning: ${result.failedPages.length} pages failed OCR`)
-    }
-
-    // Sort results by page ID to maintain order
-    const sortedPages = result.pages.sort((a, b) => a.id.localeCompare(b.id))
-    console.log(`[OCR] Sorted ${sortedPages.length} pages`)
+    console.log(`[OCR] Ordered ${orderedPages.length} pages`)
 
     // Combine all markdown with page separators
-    const markdownParts = sortedPages.map((page, index) => {
-      const pageHeader = sortedPages.length > 1 ? `<!-- Page ${index + 1} -->\n\n` : ''
+    const markdownParts = orderedPages.map((page, index) => {
+      const pageHeader = orderedPages.length > 1 ? `<!-- Page ${index + 1} -->\n\n` : ''
       return pageHeader + page.markdown
     })
 
@@ -246,17 +375,17 @@ async function processNotebookWithOCR(
     const header = `---
 title: ${notebookName}
 source: reMarkable
-pages: ${sortedPages.length}
+pages: ${orderedPages.length}
 extracted: ${new Date().toISOString()}
 ---
 
 `
 
-    return header + combinedMarkdown
+    return { markdown: header + combinedMarkdown, pageOCRCache: newCache }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     console.error(`[OCR] Error processing "${notebookName}":`, error)
-    onProgress?.(`OCR failed for "${notebookName}": ${message}`)
+    onProgress?.({ message: `OCR failed for "${notebookName}": ${message}`, notebookName, phase: 'ocr' })
     return null
   }
 }
@@ -277,15 +406,17 @@ export async function syncAll(
   deviceToken: string,
   syncDirectory: string,
   anthropicApiKey?: string,
-  onProgress?: (message: string) => void
+  onProgress?: (update: SyncProgressUpdate) => void
 ): Promise<SyncResult> {
   console.log('[reMarkable] Starting sync...')
   console.log('[reMarkable] syncDirectory:', syncDirectory)
   console.log('[reMarkable] OCR configured:', isOCRConfigured())
   console.log('[reMarkable] Anthropic API key:', anthropicApiKey ? 'provided' : 'not provided')
 
-  // Clear cached API connection to ensure fresh data from cloud
-  disconnect()
+  // Reuse cached connection if available — connect() handles re-auth if needed.
+  // Previously called disconnect() here to force fresh data, but that caused
+  // a slow full re-authentication on every sync. The cloud API returns fresh
+  // data on each listNotebooks() call regardless of connection caching.
 
   // Expand ~ to home directory - syncDirectory is where markdown files go
   const baseDir = expandPath(syncDirectory)
@@ -304,12 +435,12 @@ export async function syncAll(
 
   try {
     console.log('[reMarkable] Connecting to cloud...')
-    onProgress?.('Connecting to reMarkable cloud...')
+    onProgress?.({ message: 'Connecting to reMarkable cloud...', phase: 'connecting' })
     const client = await connect(deviceToken)
     console.log('[reMarkable] Connected successfully')
 
     console.log('[reMarkable] Fetching notebook list...')
-    onProgress?.('Fetching notebook list...')
+    onProgress?.({ message: 'Fetching notebook list...', phase: 'listing' })
     const notebooks = await client.listNotebooks()
     console.log(`[reMarkable] Found ${notebooks.length} notebooks`)
 
@@ -350,168 +481,182 @@ export async function syncAll(
 
     console.log('[reMarkable] Documents to sync:', documentsToSync.length)
 
-    for (let i = 0; i < documentsToSync.length; i++) {
-      const doc = documentsToSync[i]
-      console.log(`[reMarkable] Processing ${i + 1}/${documentsToSync.length}: ${doc.name} (type: ${doc.fileType})`)
-      onProgress?.(`Syncing ${i + 1}/${documentsToSync.length}: ${doc.name}`)
+    // Track completed count for progress reporting
+    let completed = 0
+    const totalToSync = documentsToSync.length
 
+    // Process a single notebook (used by the concurrent executor)
+    async function syncOneNotebook(doc: RemarkableNotebook): Promise<void> {
+      const idx = ++completed
+      console.log(`[reMarkable] Processing ${idx}/${totalToSync}: ${doc.name} (type: ${doc.fileType})`)
+
+      // Check if we need to download (hash changed or doesn't exist)
+      const existingEntry = existingMeta?.notebooks[doc.id]
+      const notebookDir = join(hiddenDir, doc.hash)
+      const zipPath = join(hiddenDir, `${doc.hash}.zip`)
+
+      console.log(`[reMarkable] ${doc.name} hash: cloud=${doc.hash}, local=${existingEntry?.hash || 'none'}`)
+
+      // Check if local files actually exist
+      let localFilesExist = false
       try {
-        const docPath = buildPath(doc, notebooks)
-
-        // Check if we need to download (hash changed or doesn't exist)
-        const existingEntry = existingMeta?.notebooks[doc.id]
-        const notebookDir = join(hiddenDir, doc.hash)
-
-        // Debug: log hash comparison
-        console.log(`[reMarkable] ${doc.name} hash comparison:`)
-        console.log(`[reMarkable]   cloud hash: ${doc.hash}`)
-        console.log(`[reMarkable]   local hash: ${existingEntry?.hash || 'none'}`)
-
-        // Check if local files actually exist
-        let localFilesExist = false
-        try {
-          await access(notebookDir)
-          localFilesExist = true
-        } catch {
-          localFilesExist = false
-        }
-
-        const needsDownload = !existingEntry || existingEntry.hash !== doc.hash || !localFilesExist
-        const needsOCR = doc.fileType === 'notebook' && isOCRConfigured() && !existingEntry?.ocrPath
-        console.log(`[reMarkable] ${doc.name}: needsDownload=${needsDownload}, needsOCR=${needsOCR}, localFilesExist=${localFilesExist}, existingOCR=${existingEntry?.ocrPath}`)
-
-        if (!needsDownload && !needsOCR) {
-          result.skipped++
-          newMeta.notebooks[doc.id] = existingEntry!
-          continue
-        }
-
-        // If hash matches and local files exist but OCR is needed, use existing files
-        if (!needsDownload && needsOCR) {
-          console.log(`[reMarkable] OCR-only path for ${doc.name}`)
-          onProgress?.(`Processing OCR for existing notebook: ${doc.name}`)
-
-          let ocrPath: string | undefined
-          console.log(`[reMarkable] Running OCR for ${doc.name} from ${notebookDir}`)
-          const markdown = await processNotebookWithOCR(notebookDir, doc.name, anthropicApiKey, onProgress)
-          console.log(`[reMarkable] OCR result for ${doc.name}: ${markdown ? 'got markdown' : 'null'}`)
-          if (markdown) {
-            // Save OCR output to hidden folder (read-only source of truth)
-            const ocrFileName = `${sanitizeName(doc.name)}.md`
-            const ocrDir = join(hiddenDir, doc.id)
-            const ocrFullPath = join(ocrDir, ocrFileName)
-
-            await mkdir(ocrDir, { recursive: true })
-            await writeFile(ocrFullPath, markdown, 'utf-8')
-            ocrPath = join(doc.id, ocrFileName)
-            onProgress?.(`Saved OCR: ${ocrPath}`)
-          }
-
-          // If OCR failed but a previous OCR file exists on disk, reuse it
-          if (!ocrPath) {
-            const ocrFileName = `${sanitizeName(doc.name)}.md`
-            const existingOcrFile = join(hiddenDir, doc.id, ocrFileName)
-            try {
-              await access(existingOcrFile)
-              ocrPath = join(doc.id, ocrFileName)
-              console.log(`[reMarkable] Reusing existing OCR file: ${ocrPath}`)
-            } catch {
-              // No existing file on disk either
-            }
-          }
-
-          newMeta.notebooks[doc.id] = {
-            ...existingEntry!,
-            ocrPath,
-            // Preserve existing markdownPath if user has already created editable version
-            markdownPath: existingEntry?.markdownPath
-          }
-          result.synced++
-          continue
-        }
-
-        // Download the notebook
-        const zipData = await client.downloadNotebook(doc.id, doc.hash)
-
-        // Save raw ZIP to hidden directory
-        const zipPath = join(hiddenDir, `${doc.hash}.zip`)
-        await writeFile(zipPath, zipData)
-
-        // Extract the zip contents to hidden directory
-        const zip = await JSZip.loadAsync(zipData)
-        await mkdir(notebookDir, { recursive: true })
-
-        // Extract all files from the zip (with path traversal protection)
-        const files = Object.keys(zip.files)
-        for (const filename of files) {
-          const file = zip.files[filename]
-          const targetPath = join(notebookDir, filename)
-
-          // Defense-in-depth: verify path stays within notebook directory
-          if (!isWithinDirectory(notebookDir, targetPath)) {
-            console.warn(`[reMarkable] Skipping suspicious path in zip: ${filename}`)
-            continue
-          }
-
-          if (file.dir) {
-            await mkdir(targetPath, { recursive: true })
-          } else {
-            const content = await file.async('nodebuffer')
-            await mkdir(dirname(targetPath), { recursive: true })
-            await writeFile(targetPath, content)
-          }
-        }
-
-        // Process with OCR for handwritten notebooks
-        let ocrPath: string | undefined
-        if (doc.fileType === 'notebook') {
-          console.log(`[reMarkable] Running OCR for ${doc.name} from ${notebookDir}`)
-          const markdown = await processNotebookWithOCR(notebookDir, doc.name, anthropicApiKey, onProgress)
-          console.log(`[reMarkable] OCR result for ${doc.name}: ${markdown ? 'got markdown' : 'null'}`)
-          if (markdown) {
-            // Save OCR output to hidden folder (read-only source of truth)
-            const ocrFileName = `${sanitizeName(doc.name)}.md`
-            const ocrDir = join(hiddenDir, doc.id)
-            const ocrFullPath = join(ocrDir, ocrFileName)
-
-            await mkdir(ocrDir, { recursive: true })
-            await writeFile(ocrFullPath, markdown, 'utf-8')
-            ocrPath = join(doc.id, ocrFileName)
-            onProgress?.(`Saved OCR: ${ocrPath}`)
-          }
-
-          // If OCR failed but a previous OCR file exists on disk, reuse it
-          if (!ocrPath) {
-            const ocrFileName = `${sanitizeName(doc.name)}.md`
-            const existingOcrFile = join(hiddenDir, doc.id, ocrFileName)
-            try {
-              await access(existingOcrFile)
-              ocrPath = join(doc.id, ocrFileName)
-              console.log(`[reMarkable] Reusing existing OCR file: ${ocrPath}`)
-            } catch {
-              // No existing file on disk either
-            }
-          }
-        }
-
-        newMeta.notebooks[doc.id] = {
-          name: doc.name,
-          parent: doc.parent,
-          type: 'notebook',
-          fileType: doc.fileType,
-          lastModified: doc.lastModified,
-          hash: doc.hash,
-          localPath: join(HIDDEN_DIR, doc.hash),
-          ocrPath
-          // markdownPath is not set yet - created on demand when user transforms to edit mode
-        }
-
-        result.synced++
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown error'
-        result.errors.push(`Failed to sync "${doc.name}": ${message}`)
+        await access(notebookDir)
+        localFilesExist = true
+      } catch {
+        localFilesExist = false
       }
+
+      // Check if zip exists from a previous interrupted sync (resume support)
+      let zipExists = false
+      try {
+        await access(zipPath)
+        zipExists = true
+      } catch {
+        zipExists = false
+      }
+
+      const needsDownload = !existingEntry || existingEntry.hash !== doc.hash || !localFilesExist
+      const needsOCR = doc.fileType === 'notebook' && isOCRConfigured() && !existingEntry?.ocrPath
+      console.log(`[reMarkable] ${doc.name}: needsDownload=${needsDownload}, needsOCR=${needsOCR}, localFilesExist=${localFilesExist}, zipExists=${zipExists}`)
+
+      if (!needsDownload && !needsOCR) {
+        result.skipped++
+        newMeta.notebooks[doc.id] = existingEntry!
+        await saveMetadata(baseDir, newMeta)
+        onProgress?.({ message: `Up to date: ${doc.name}`, notebookId: doc.id, notebookName: doc.name, current: idx, total: totalToSync, phase: 'skipped' })
+        return
+      }
+
+      // Only show sync indicator for notebooks that actually need work
+      onProgress?.({ message: `Syncing ${idx}/${totalToSync}: ${doc.name}`, notebookId: doc.id, notebookName: doc.name, current: idx, total: totalToSync, phase: 'downloading' })
+
+      // Helper: run OCR and return ocrPath + page cache
+      async function runOCR(sourceDir: string): Promise<{ ocrPath?: string; pageOCRCache?: Record<string, PageOCRCacheEntry> }> {
+        let ocrPath: string | undefined
+        let pageOCRCache: Record<string, PageOCRCacheEntry> | undefined
+        console.log(`[reMarkable] Running OCR for ${doc.name} from ${sourceDir}`)
+        const ocrResult = await processNotebookWithOCR(sourceDir, doc.name, anthropicApiKey, existingEntry?.pageOCRCache, onProgress)
+        console.log(`[reMarkable] OCR result for ${doc.name}: ${ocrResult ? 'got markdown' : 'null'}`)
+        if (ocrResult) {
+          const ocrFileName = `${sanitizeName(doc.name)}.md`
+          const ocrDir = join(hiddenDir, doc.id)
+          const ocrFullPath = join(ocrDir, ocrFileName)
+          await mkdir(ocrDir, { recursive: true })
+          await writeFile(ocrFullPath, ocrResult.markdown, 'utf-8')
+          ocrPath = join(doc.id, ocrFileName)
+          pageOCRCache = ocrResult.pageOCRCache
+          onProgress?.({ message: `Saved OCR: ${ocrPath}`, notebookName: doc.name, phase: 'ocr' })
+        }
+        // Fallback: reuse existing OCR file on disk
+        if (!ocrPath) {
+          const ocrFileName = `${sanitizeName(doc.name)}.md`
+          const existingOcrFile = join(hiddenDir, doc.id, ocrFileName)
+          try {
+            await access(existingOcrFile)
+            ocrPath = join(doc.id, ocrFileName)
+            pageOCRCache = existingEntry?.pageOCRCache
+            console.log(`[reMarkable] Reusing existing OCR file: ${ocrPath}`)
+          } catch {
+            // No existing file on disk either
+          }
+        }
+        return { ocrPath, pageOCRCache }
+      }
+
+      // OCR-only path: hash matches, local files exist, just need OCR
+      if (!needsDownload && needsOCR) {
+        console.log(`[reMarkable] OCR-only path for ${doc.name}`)
+        onProgress?.({ message: `Processing OCR for existing notebook: ${doc.name}`, notebookName: doc.name, phase: 'ocr' })
+        const { ocrPath, pageOCRCache } = await runOCR(notebookDir)
+        newMeta.notebooks[doc.id] = {
+          ...existingEntry!,
+          ocrPath,
+          pageOCRCache,
+          markdownPath: existingEntry?.markdownPath
+        }
+        result.synced++
+        onProgress?.({ message: `Done: ${doc.name}`, notebookId: doc.id, notebookName: doc.name, phase: 'notebook-done' })
+        await saveMetadata(baseDir, newMeta)
+        return
+      }
+
+      // Full download path — resume from zip if available, otherwise download
+      let zipData: Buffer
+      if (zipExists && !localFilesExist) {
+        console.log(`[reMarkable] Resuming from cached zip for ${doc.name}`)
+        onProgress?.({ message: `Resuming: ${doc.name} (extracting cached download)`, notebookId: doc.id, notebookName: doc.name, phase: 'downloading' })
+        zipData = await readFile(zipPath)
+      } else {
+        zipData = await client.downloadNotebook(doc.id, doc.hash)
+        await writeFile(zipPath, zipData)
+      }
+
+      // Extract zip contents
+      const zip = await JSZip.loadAsync(zipData)
+      await mkdir(notebookDir, { recursive: true })
+      const files = Object.keys(zip.files)
+      for (const filename of files) {
+        const file = zip.files[filename]
+        const targetPath = join(notebookDir, filename)
+        if (!isWithinDirectory(notebookDir, targetPath)) {
+          console.warn(`[reMarkable] Skipping suspicious path in zip: ${filename}`)
+          continue
+        }
+        if (file.dir) {
+          await mkdir(targetPath, { recursive: true })
+        } else {
+          const content = await file.async('nodebuffer')
+          await mkdir(dirname(targetPath), { recursive: true })
+          await writeFile(targetPath, content)
+        }
+      }
+
+      // OCR for handwritten notebooks
+      let ocrPath: string | undefined
+      let pageOCRCache: Record<string, PageOCRCacheEntry> | undefined
+      if (doc.fileType === 'notebook') {
+        const ocrResult = await runOCR(notebookDir)
+        ocrPath = ocrResult.ocrPath
+        pageOCRCache = ocrResult.pageOCRCache
+      }
+
+      newMeta.notebooks[doc.id] = {
+        name: doc.name,
+        parent: doc.parent,
+        type: 'notebook',
+        fileType: doc.fileType,
+        lastModified: doc.lastModified,
+        hash: doc.hash,
+        localPath: join(HIDDEN_DIR, doc.hash),
+        ocrPath,
+        pageOCRCache
+      }
+
+      result.synced++
+      onProgress?.({ message: `Done: ${doc.name}`, notebookId: doc.id, notebookName: doc.name, phase: 'notebook-done' })
+      // Incremental save: persist metadata after each successful notebook
+      await saveMetadata(baseDir, newMeta)
     }
+
+    // Concurrent executor: process up to 3 notebooks at a time.
+    // A single failure does NOT abort the queue — errors are collected.
+    const CONCURRENCY = 3
+    const queue = [...documentsToSync]
+    const workers = Array.from(
+      { length: Math.min(CONCURRENCY, queue.length) },
+      async () => {
+        let doc: RemarkableNotebook | undefined
+        while ((doc = queue.shift())) {
+          try {
+            await syncOneNotebook(doc)
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error'
+            result.errors.push(`Failed to sync "${doc.name}": ${message}`)
+          }
+        }
+      }
+    )
+    await Promise.all(workers)
 
     // Record non-synced notebooks in metadata (but don't download them)
     const nonSyncedDocs = syncState
@@ -519,27 +664,25 @@ export async function syncAll(
       : []
     for (const doc of nonSyncedDocs) {
       const existingEntry = existingMeta?.notebooks[doc.id]
-      if (existingEntry) {
-        newMeta.notebooks[doc.id] = existingEntry
-      } else {
-        // Record metadata for cloud-only notebooks
-        const docPath = buildPath(doc, notebooks)
-        newMeta.notebooks[doc.id] = {
-          name: doc.name,
-          parent: doc.parent,
-          type: 'notebook',
-          fileType: doc.fileType,
-          lastModified: doc.lastModified,
-          hash: doc.hash,
-          localPath: '' // Not synced locally
-        }
+      // Always update name/parent/hash from cloud (user may have moved or renamed)
+      // but preserve local paths from existing entry
+      newMeta.notebooks[doc.id] = {
+        name: doc.name,
+        parent: doc.parent,
+        type: 'notebook',
+        fileType: doc.fileType,
+        lastModified: doc.lastModified,
+        hash: doc.hash,
+        localPath: existingEntry?.localPath || '',
+        ocrPath: existingEntry?.ocrPath,
+        markdownPath: existingEntry?.markdownPath
       }
     }
 
     // Save updated metadata
     await saveMetadata(baseDir, newMeta)
 
-    onProgress?.(`Sync complete: ${result.synced} synced, ${result.skipped} unchanged`)
+    onProgress?.({ message: `Sync complete: ${result.synced} synced, ${result.skipped} unchanged`, phase: 'complete' })
   } catch (error) {
     console.error('[reMarkable] Sync error:', error)
     const message = error instanceof Error ? error.message : 'Unknown error'
@@ -588,8 +731,8 @@ export async function updateSyncSelection(
 export async function listCloudNotebooks(
   deviceToken: string
 ): Promise<{ id: string; name: string; type: 'folder' | 'notebook'; parent: string | null; fileType?: string }[]> {
-  // Clear cache to get fresh data
-  disconnect()
+  // Reuse cached connection if available — syncAll() already forces fresh data before downloading.
+  // No need to disconnect here; the selection dialog just needs the notebook list.
   const client = await connect(deviceToken)
   const notebooks = await client.listNotebooks()
 

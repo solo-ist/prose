@@ -892,7 +892,7 @@ export function setupIpcHandlers(): void {
   // reMarkable: Sync notebooks to local directory
   ipcMain.handle(
     'remarkable:sync',
-    async (_event, deviceToken: string, syncDirectory: string) => {
+    async (event, deviceToken: string, syncDirectory: string) => {
       const safeDir = validatePath(syncDirectory)
       const { syncAll } = await import('./remarkable/sync')
 
@@ -922,7 +922,11 @@ export function setupIpcHandlers(): void {
         }
       }
 
-      return await syncAll(deviceToken, safeDir, anthropicApiKey)
+      return await syncAll(deviceToken, safeDir, anthropicApiKey, (progress) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('remarkable:sync:progress', progress)
+        }
+      })
     }
   )
 
@@ -1346,9 +1350,19 @@ export function setupIpcHandlers(): void {
         delete config.mcpServers.prose
       }
 
+      // Resolve full path to node so Claude Desktop can find it
+      // (version managers like fnm/nvm aren't on Claude Desktop's default PATH)
+      let nodePath = 'node'
+      try {
+        const { execSync } = await import('child_process')
+        nodePath = execSync('which node', { encoding: 'utf-8' }).trim() || 'node'
+      } catch {
+        // Fall back to bare 'node' if which fails
+      }
+
       // Add Prose entry (capitalized key)
       config.mcpServers.Prose = {
-        command: 'node',
+        command: nodePath,
         args: [MCP_SERVER_PATH]
       }
 

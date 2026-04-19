@@ -459,6 +459,8 @@ export function createMockApi(): ElectronAPI {
       _syncDirectory: string
     ): Promise<boolean> => false,
 
+    onRemarkableSyncProgress: () => () => {},
+
     // ---- Google Docs (stubs) ----------------------------------------------
 
     googleIsConfigured: async (): Promise<boolean> => false,

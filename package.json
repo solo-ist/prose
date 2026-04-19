@@ -6,7 +6,7 @@
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "npm run build:env && npm run build:preload && electron-vite dev",
+    "dev": "npm run build:env && npm run build:mcp-stdio && npm run build:preload && electron-vite dev",
     "dev:kill": "kill $(cat .dev.pid 2>/dev/null) 2>/dev/null || true; lsof -ti:9222 | xargs kill -9 2>/dev/null || true; lsof -ti:5173 | xargs kill -9 2>/dev/null || true",
     "dev:restart": "npm run dev:kill && sleep 2 && npm run dev",
     "build:env": "node -e \"require('fs').writeFileSync('src/main/env.ts', '// Auto-generated — do not edit\\nexport const IS_MAS_BUILD = ' + (process.env.MAS_BUILD === '1') + '\\n')\"",

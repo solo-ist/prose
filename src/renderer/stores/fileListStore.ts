@@ -2,6 +2,15 @@ import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import type { FileItem, RemarkableSyncMetadata, RemarkableCloudNotebook, RemarkableSyncState, GoogleSyncMetadata } from '../types'
 
+export interface SyncProgress {
+  message: string
+  notebookId?: string
+  notebookName?: string
+  current?: number
+  total?: number
+  phase: 'connecting' | 'listing' | 'downloading' | 'ocr' | 'notebook-done' | 'skipped' | 'complete'
+}
+
 type ViewMode = 'recent' | 'folder' | 'notebooks' | 'googledocs'
 
 interface FileListState {
@@ -26,10 +35,16 @@ interface FileListState {
   // Google Docs sync state
   isGoogleSyncing: boolean
 
+  // reMarkable global sync state
+  remarkableSyncActive: boolean
+  remarkableSyncProgress: SyncProgress | null
+  remarkableSyncError: string | null
+
   // Notebook metadata
   notebookMetadata: RemarkableSyncMetadata | null
   cloudNotebooks: RemarkableCloudNotebook[]
   syncState: RemarkableSyncState | null
+  syncingNotebookIds: string[]
 
   // Google Docs metadata
   googleDocsMetadata: GoogleSyncMetadata | null
@@ -41,6 +56,9 @@ interface FileListState {
   setClipboardPath: (path: string | null, operation?: 'copy' | 'cut') => void
   setRenamingPath: (path: string | null) => void
   setGoogleSyncing: (syncing: boolean) => void
+  setRemarkableSyncActive: (active: boolean) => void
+  setRemarkableSyncProgress: (progress: SyncProgress | null) => void
+  setRemarkableSyncError: (error: string | null) => void
   setRootPath: (path: string | null) => void
   initializeDefaultPath: () => Promise<void>
   navigateToParent: () => void
@@ -49,6 +67,9 @@ interface FileListState {
   loadNotebooks: (syncDirectory: string) => Promise<void>
   loadCloudNotebooks: (deviceToken: string, syncDirectory: string) => Promise<void>
   toggleNotebookSync: (notebookId: string, syncDirectory: string) => Promise<void>
+  addSyncingNotebook: (id: string) => void
+  removeSyncingNotebook: (id: string) => void
+  clearSyncingNotebooks: () => void
   loadGoogleDocsMetadata: () => Promise<void>
   selectFile: (path: string | null) => void
   toggleFolder: (path: string) => void
@@ -71,14 +92,31 @@ export const useFileListStore = create<FileListState>()(
     clipboardOperation: null,
     renamingPath: null,
     isGoogleSyncing: false,
+    remarkableSyncActive: false,
+    remarkableSyncProgress: null,
+    remarkableSyncError: null,
     googleDocsMetadata: null,
     notebookMetadata: null,
     cloudNotebooks: [],
     syncState: null,
+    syncingNotebookIds: [],
+
+    addSyncingNotebook: (id) => set((state) => ({
+      syncingNotebookIds: state.syncingNotebookIds.includes(id)
+        ? state.syncingNotebookIds
+        : [...state.syncingNotebookIds, id]
+    })),
+    removeSyncingNotebook: (id) => set((state) => ({
+      syncingNotebookIds: state.syncingNotebookIds.filter(x => x !== id)
+    })),
+    clearSyncingNotebooks: () => set({ syncingNotebookIds: [] }),
 
     setClipboardPath: (path, operation = 'copy') => set({ clipboardPath: path, clipboardOperation: path ? operation : null }),
     setRenamingPath: (path) => set({ renamingPath: path }),
     setGoogleSyncing: (syncing) => set({ isGoogleSyncing: syncing }),
+    setRemarkableSyncActive: (active) => set({ remarkableSyncActive: active }),
+    setRemarkableSyncProgress: (progress) => set({ remarkableSyncProgress: progress }),
+    setRemarkableSyncError: (error) => set({ remarkableSyncError: error }),
 
     togglePanel: () => set((state) => ({ isPanelOpen: !state.isPanelOpen })),
 

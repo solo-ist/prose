@@ -1,20 +1,10 @@
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
-import { execSync } from 'child_process'
 import { config } from 'dotenv'
 import type { Plugin } from 'vite'
 
 // Load .env so SENTRY_AUTH_TOKEN is available at config evaluation time
 config()
-
-// Get git commit hash at build time
-const getGitHash = () => {
-  try {
-    return execSync('git rev-parse --short HEAD').toString().trim()
-  } catch {
-    return 'unknown'
-  }
-}
 
 // Conditionally load Sentry Vite plugin for source map upload
 const getSentryPlugin = async (): Promise<Plugin | null> => {
@@ -54,13 +44,6 @@ export default defineConfig(async () => {
     },
     renderer: {
       plugins: [react(), ...(sentryPlugin ? [sentryPlugin] : [])],
-      define: {
-        __GIT_HASH__: JSON.stringify(getGitHash()),
-        __SENTRY_DSN__: JSON.stringify(
-          process.env.SENTRY_DSN ||
-            'https://fd14a3e064b942f9ec02734f7d26d541@o4511057861476352.ingest.us.sentry.io/4511057863311360'
-        )
-      },
       build: {
         sourcemap: true
       }

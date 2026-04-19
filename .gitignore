@@ -5,6 +5,7 @@ node_modules/
 out/
 dist/
 src/main/env.ts
+src/renderer/buildInfo.generated.ts
 
 # Logs
 *.log

@@ -270,6 +270,17 @@ export function createMenu(mainWindow: BrowserWindow): void {
         ...(isMac
           ? [
               { type: 'separator' as const },
+              {
+                label: 'Prose',
+                click: (): void => {
+                  if (_menuWindow && !_menuWindow.isDestroyed()) {
+                    if (_menuWindow.isMinimized()) _menuWindow.restore()
+                    _menuWindow.show()
+                    _menuWindow.focus()
+                  }
+                }
+              },
+              { type: 'separator' as const },
               { role: 'front' as const },
               { type: 'separator' as const },
               { role: 'window' as const }

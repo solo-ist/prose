@@ -41,6 +41,7 @@ playwright-report/
 
 # Claude Code
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # Claude Cowork artifacts (per-session tooling outputs, not project files)
 .skills/

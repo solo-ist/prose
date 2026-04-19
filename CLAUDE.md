@@ -51,6 +51,19 @@ This prevents LevelDB lock conflicts and ensures the user sees the latest change
 
 Always include human-readable verification steps when presenting completed work. These should let the user independently confirm the changes work. Format as numbered steps with exact commands to run and what to look for in the output. Prefer verification against the locally running dev server; only use `npm run build:mac` + the built app when the change specifically requires a production build to verify.
 
+## Working Tree Hygiene
+
+Before announcing a task complete, run `git status`. Every untracked file must have a destination — do not leave files orphaned across sessions.
+
+- **Project code/config** (e.g., `.claude/` — standard Claude Code project config) → committed
+- **Project docs** → commit under `docs/` (or `docs/issues/<n>/` for issue-linked docs)
+- **Historical/reference docs** (launch checklists, audits, proposals) → commit under an appropriate `docs/` subdirectory such as `docs/launch/` or `docs/audits/`
+- **Claude Cowork artifacts** (`.skills/`, `*.plugin`) → gitignored; these are per-session tooling outputs, not project files
+- **Editor/IDE state** (`.vscode/`, `.idea/`, `.zed/`) → gitignored
+- **Local-only scratch** (one-off drafts) → either delete, or place under a gitignored path
+
+If a file's destination needs user input, ask explicitly — don't defer the decision by leaving it untracked.
+
 ## QA Testing
 
 The app supports automated QA testing via Circuit Electron MCP (configured at parent level).

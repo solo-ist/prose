@@ -5,6 +5,7 @@ node_modules/
 out/
 dist/
 src/main/env.ts
+src/renderer/buildInfo.generated.ts
 
 # Logs
 *.log
@@ -17,6 +18,7 @@ Thumbs.db
 # Editor directories
 .idea/
 .vscode/
+.zed/
 *.swp
 *.swo
 
@@ -39,6 +41,11 @@ playwright-report/
 
 # Claude Code
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+# Claude Cowork artifacts (per-session tooling outputs, not project files)
+.skills/
+*.plugin
 
 # MCP config (contains secrets)
 .mcp.json

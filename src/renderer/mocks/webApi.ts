@@ -459,6 +459,24 @@ export function createMockApi(): ElectronAPI {
       _syncDirectory: string
     ): Promise<boolean> => false,
 
+    remarkableMoveNotebook: async (
+      _deviceToken: string,
+      _notebookHash: string,
+      _newParentId: string
+    ): Promise<void> => {},
+
+    remarkableCreateFolder: async (
+      _deviceToken: string,
+      _name: string,
+      _parentId?: string
+    ): Promise<string> => '',
+
+    remarkableUpdateNotebookParent: async (
+      _notebookId: string,
+      _newParentId: string,
+      _syncDirectory: string
+    ): Promise<boolean> => false,
+
     onRemarkableSyncProgress: () => () => {},
 
     // ---- Google Docs (stubs) ----------------------------------------------

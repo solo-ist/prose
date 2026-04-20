@@ -1043,6 +1043,36 @@ export function setupIpcHandlers(): void {
     }
   )
 
+  // reMarkable: Move a notebook to a new parent folder on the cloud
+  ipcMain.handle(
+    'remarkable:moveNotebook',
+    async (_event, deviceToken: string, notebookHash: string, newParentId: string) => {
+      const { connect } = await import('./remarkable/client')
+      const client = await connect(deviceToken)
+      await client.moveNotebook(notebookHash, newParentId)
+    }
+  )
+
+  // reMarkable: Create a folder on the cloud
+  ipcMain.handle(
+    'remarkable:createFolder',
+    async (_event, deviceToken: string, name: string, parentId?: string) => {
+      const { connect } = await import('./remarkable/client')
+      const client = await connect(deviceToken)
+      return await client.createFolder(name, parentId)
+    }
+  )
+
+  // reMarkable: Update notebook parent in local sync metadata
+  ipcMain.handle(
+    'remarkable:updateNotebookParent',
+    async (_event, notebookId: string, newParentId: string, syncDirectory: string) => {
+      const safeDir = validatePath(syncDirectory)
+      const { updateNotebookParent } = await import('./remarkable/sync')
+      return await updateNotebookParent(notebookId, newParentId, safeDir)
+    }
+  )
+
   // Emoji: Generate emoji for a tab title (runs in main process to avoid CORS)
   ipcMain.handle('emoji:generate', async (_event, title: string, contentPreview?: string): Promise<{ emoji: string | null; error?: string }> => {
     try {

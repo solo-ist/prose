@@ -178,11 +178,11 @@ When running as Electron:
 
 ### IPC Channels
 
-Defined in `src/main/ipc.ts` (64 handlers across 11 namespaces):
+Defined in `src/main/ipc.ts` (67 handlers across 11 namespaces):
 - `file:*` (17) - File operations (open, save, read, rename, delete, trash, duplicate, etc.)
 - `settings:*` (4) - Settings persistence, secure storage check, API key test
 - `llm:chat`, `llm:stream`, `llm:stream:abort` - LLM API calls (streaming via Anthropic SDK)
-- `remarkable:*` (14) - reMarkable tablet sync (register, validate, sync, OCR, etc.)
+- `remarkable:*` (17) - reMarkable tablet sync (register, validate, sync, OCR, folder move, etc.)
 - `google:*` (13) - Google Docs OAuth, sync, pull, import, metadata management
 - `mcp:*` (3) - MCP server status, install, uninstall for Claude Desktop
 - `sentry:setEnabled` - Toggle Sentry error tracking from renderer

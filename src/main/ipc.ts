@@ -941,6 +941,12 @@ export function setupIpcHandlers(): void {
       await purgeSync(safeDir)
     }
 
+    // Clear BOTH credentials: the device token (for the reMarkable cloud
+    // connection) and the separate Anthropic key used for OCR. settings:load
+    // injects the device token back into memory from safeStorage if present,
+    // so leaving it would resurrect the connection on the next settings
+    // reload or app restart.
+    await credentialStore.delete(REMARKABLE_DEVICE_TOKEN)
     await credentialStore.delete(REMARKABLE_CREDENTIAL_KEY)
     // Also clean up legacy file if it exists
     try { await unlink(ANTHROPIC_KEY_PATH) } catch { /* ignore */ }

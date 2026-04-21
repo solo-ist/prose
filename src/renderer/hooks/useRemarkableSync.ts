@@ -105,6 +105,14 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
     setSyncResult(null)
     setRemarkableSyncProgress(null)
 
+    // Kick off the cloud notebook list fetch in parallel with the sync so the
+    // file explorer tree populates as soon as the listing returns, instead of
+    // waiting for every notebook to finish downloading. The post-sync call at
+    // the bottom of this try block still runs to catch any structural changes
+    // that happened during sync (folder moves, etc.).
+    loadCloudNotebooks(remarkableSettings.deviceToken, remarkableSettings.syncDirectory)
+      .catch((err) => console.warn('[reMarkable] Eager cloud list fetch failed:', err))
+
     try {
       const result = await window.api.remarkableSync(
         remarkableSettings.deviceToken,

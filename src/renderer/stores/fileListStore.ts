@@ -27,6 +27,14 @@ interface FileListState {
   selectedPath: string | null
   loadingFolders: Set<string> // Track which folders are currently loading children
 
+  // Notebook folder collapse state (reMarkable view). Lives in the store so it
+  // survives FileListPanel unmount (e.g., when the panel closes via
+  // Shift+Cmd+H) — otherwise collapsed folders would reopen on re-mount.
+  // Semantics: membership means "toggled" (deviation from default). Synced
+  // folders default open and appear in this set when collapsed; unsynced
+  // folders default closed and appear when opened.
+  expandedNotebookFolders: Set<string>
+
   // Explorer clipboard and inline rename
   clipboardPath: string | null
   clipboardOperation: 'copy' | 'cut' | null
@@ -74,6 +82,7 @@ interface FileListState {
   selectFile: (path: string | null) => void
   toggleFolder: (path: string) => void
   setExpanded: (path: string, expanded: boolean) => void
+  toggleNotebookFolderExpanded: (folderId: string) => void
   revealAndSelectPath: (path: string) => void
 }
 
@@ -100,6 +109,14 @@ export const useFileListStore = create<FileListState>()(
     cloudNotebooks: [],
     syncState: null,
     syncingNotebookIds: [],
+    expandedNotebookFolders: new Set<string>(),
+
+    toggleNotebookFolderExpanded: (folderId) => set((state) => {
+      const next = new Set(state.expandedNotebookFolders)
+      if (next.has(folderId)) next.delete(folderId)
+      else next.add(folderId)
+      return { expandedNotebookFolders: next }
+    }),
 
     addSyncingNotebook: (id) => set((state) => ({
       syncingNotebookIds: state.syncingNotebookIds.includes(id)

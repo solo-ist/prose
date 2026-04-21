@@ -137,8 +137,11 @@ export function FileListPanel() {
   const [newFileTargetDir, setNewFileTargetDir] = useState<string | null>(null)
   // Drop-over highlight for the ".." (root directory) drop target
   const [rootDropOver, setRootDropOver] = useState(false)
-  // Notebook folder expand/collapse state — synced folders default open, unsynced default closed
-  const [expandedNotebookFolders, setExpandedNotebookFolders] = useState<Set<string>>(new Set())
+  // Notebook folder expand/collapse state lives in fileListStore so it
+  // survives panel unmount (Shift+Cmd+H). Synced folders default open,
+  // unsynced default closed — membership in the Set means "toggled".
+  const expandedNotebookFolders = useFileListStore((state) => state.expandedNotebookFolders)
+  const toggleNotebookFolderExpanded = useFileListStore((state) => state.toggleNotebookFolderExpanded)
 
   // Context-aware new file handler
   const handleNewFileInDir = useCallback((targetDir: string) => {
@@ -257,6 +260,103 @@ export function FileListPanel() {
       setOperationError('Failed to create file. Please try again.')
     }
   }
+
+  // Sync a file move/rename to the reMarkable cloud if the file is a synced
+  // notebook. Runs after the local filesystem move has already succeeded.
+  // Errors are caught and logged but never propagate — local move wins.
+  //
+  // Multi-level folder creation: when the target path includes folders that
+  // don't exist on the cloud yet, walk segments and track newly-created
+  // folders in a local map so subsequent segments can find their parent
+  // (notebookMetadata is a snapshot and won't include just-created folders).
+  //
+  // Declared before the rename/drop handlers that reference it in their
+  // useCallback dep arrays — a later declaration would be in the temporal
+  // dead zone at mount time and throw on first render.
+  const syncRemarkableCloudMove = useCallback(async (oldPath: string, newPath: string) => {
+    if (!syncDirectory || !deviceToken || !notebookMetadata) return
+
+    // Normalize to forward slashes for portable comparison
+    const normSync = syncDirectory.replace(/\\/g, '/')
+    const normOld = oldPath.replace(/\\/g, '/')
+
+    // Only act on files inside the reMarkable sync directory
+    if (!normOld.startsWith(normSync + '/')) return
+
+    try {
+      const notebookId = await window.api?.remarkableFindNotebookByFilePath?.(oldPath, syncDirectory)
+      if (!notebookId) return
+
+      const notebookEntry = notebookMetadata.notebooks[notebookId]
+      if (!notebookEntry?.hash) return
+
+      const normNew = newPath.replace(/\\/g, '/')
+      const newTargetDir = normNew.substring(0, normNew.lastIndexOf('/'))
+      const relTargetDir = newTargetDir.startsWith(normSync + '/')
+        ? newTargetDir.slice(normSync.length + 1)
+        : ''
+
+      let cloudFolderId = '' // empty string = root on reMarkable cloud
+
+      if (relTargetDir) {
+        // Fast path: full target directory already exists in cloud metadata
+        const folderEntry = Object.entries(notebookMetadata.notebooks).find(
+          ([, meta]) => meta.type === 'folder' && meta.localPath.replace(/\\/g, '/') === relTargetDir
+        )
+        if (folderEntry) {
+          cloudFolderId = folderEntry[0]
+        } else {
+          // Walk segments. For each, check (a) just-created in this loop,
+          // then (b) existing in metadata at the accumulated path, then (c)
+          // create on cloud. justCreated must be consulted before metadata
+          // because newly-created folders aren't in the metadata snapshot.
+          const segments = relTargetDir.split('/')
+          const justCreated = new Map<string, string>() // accumulated rel path → cloud folder ID
+          let currentParentId = ''
+          let accumulated = ''
+
+          for (const segment of segments) {
+            accumulated = accumulated ? `${accumulated}/${segment}` : segment
+
+            const cached = justCreated.get(accumulated)
+            if (cached) {
+              currentParentId = cached
+              continue
+            }
+
+            const existing = Object.entries(notebookMetadata.notebooks).find(
+              ([, meta]) => meta.type === 'folder' && meta.localPath.replace(/\\/g, '/') === accumulated
+            )
+            if (existing) {
+              currentParentId = existing[0]
+              continue
+            }
+
+            const newFolderHash = await window.api?.remarkableCreateFolder?.(
+              deviceToken,
+              segment,
+              currentParentId || undefined
+            )
+            if (!newFolderHash) {
+              console.warn('[reMarkable] Failed to create cloud folder:', segment)
+              return
+            }
+            justCreated.set(accumulated, newFolderHash)
+            currentParentId = newFolderHash
+          }
+
+          cloudFolderId = currentParentId
+        }
+      }
+
+      await window.api?.remarkableMoveNotebook?.(deviceToken, notebookEntry.hash, cloudFolderId)
+      await window.api?.remarkableUpdateNotebookParent?.(notebookId, cloudFolderId, syncDirectory)
+
+      console.log(`[reMarkable] Synced cloud move for notebook ${notebookId} to folder "${cloudFolderId}"`)
+    } catch (error) {
+      console.warn('[reMarkable] Failed to sync move to cloud (local move succeeded):', error)
+    }
+  }, [syncDirectory, deviceToken, notebookMetadata])
 
   // Inline rename handler (for file tree) — triggers inline edit via store
   const handleFileRenameInline = useCallback((path: string) => {
@@ -391,99 +491,6 @@ export function FileListPanel() {
       setOperationError('Failed to rename file. Please try again.')
     }
   }
-
-  // Sync a file move/rename to the reMarkable cloud if the file is a synced
-  // notebook. Runs after the local filesystem move has already succeeded.
-  // Errors are caught and logged but never propagate — local move wins.
-  //
-  // Multi-level folder creation: when the target path includes folders that
-  // don't exist on the cloud yet, walk segments and track newly-created
-  // folders in a local map so subsequent segments can find their parent
-  // (notebookMetadata is a snapshot and won't include just-created folders).
-  const syncRemarkableCloudMove = useCallback(async (oldPath: string, newPath: string) => {
-    if (!syncDirectory || !deviceToken || !notebookMetadata) return
-
-    // Normalize to forward slashes for portable comparison
-    const normSync = syncDirectory.replace(/\\/g, '/')
-    const normOld = oldPath.replace(/\\/g, '/')
-
-    // Only act on files inside the reMarkable sync directory
-    if (!normOld.startsWith(normSync + '/')) return
-
-    try {
-      const notebookId = await window.api?.remarkableFindNotebookByFilePath?.(oldPath, syncDirectory)
-      if (!notebookId) return
-
-      const notebookEntry = notebookMetadata.notebooks[notebookId]
-      if (!notebookEntry?.hash) return
-
-      const normNew = newPath.replace(/\\/g, '/')
-      const newTargetDir = normNew.substring(0, normNew.lastIndexOf('/'))
-      const relTargetDir = newTargetDir.startsWith(normSync + '/')
-        ? newTargetDir.slice(normSync.length + 1)
-        : ''
-
-      let cloudFolderId = '' // empty string = root on reMarkable cloud
-
-      if (relTargetDir) {
-        // Fast path: full target directory already exists in cloud metadata
-        const folderEntry = Object.entries(notebookMetadata.notebooks).find(
-          ([, meta]) => meta.type === 'folder' && meta.localPath.replace(/\\/g, '/') === relTargetDir
-        )
-        if (folderEntry) {
-          cloudFolderId = folderEntry[0]
-        } else {
-          // Walk segments. For each, check (a) just-created in this loop,
-          // then (b) existing in metadata at the accumulated path, then (c)
-          // create on cloud. justCreated must be consulted before metadata
-          // because newly-created folders aren't in the metadata snapshot.
-          const segments = relTargetDir.split('/')
-          const justCreated = new Map<string, string>() // accumulated rel path → cloud folder ID
-          let currentParentId = ''
-          let accumulated = ''
-
-          for (const segment of segments) {
-            accumulated = accumulated ? `${accumulated}/${segment}` : segment
-
-            const cached = justCreated.get(accumulated)
-            if (cached) {
-              currentParentId = cached
-              continue
-            }
-
-            const existing = Object.entries(notebookMetadata.notebooks).find(
-              ([, meta]) => meta.type === 'folder' && meta.localPath.replace(/\\/g, '/') === accumulated
-            )
-            if (existing) {
-              currentParentId = existing[0]
-              continue
-            }
-
-            const newFolderHash = await window.api?.remarkableCreateFolder?.(
-              deviceToken,
-              segment,
-              currentParentId || undefined
-            )
-            if (!newFolderHash) {
-              console.warn('[reMarkable] Failed to create cloud folder:', segment)
-              return
-            }
-            justCreated.set(accumulated, newFolderHash)
-            currentParentId = newFolderHash
-          }
-
-          cloudFolderId = currentParentId
-        }
-      }
-
-      await window.api?.remarkableMoveNotebook?.(deviceToken, notebookEntry.hash, cloudFolderId)
-      await window.api?.remarkableUpdateNotebookParent?.(notebookId, cloudFolderId, syncDirectory)
-
-      console.log(`[reMarkable] Synced cloud move for notebook ${notebookId} to folder "${cloudFolderId}"`)
-    } catch (error) {
-      console.warn('[reMarkable] Failed to sync move to cloud (local move succeeded):', error)
-    }
-  }, [syncDirectory, deviceToken, notebookMetadata])
 
   // Drag-and-drop move handler
   const handleFileDrop = useCallback(async (sourcePath: string, targetDirPath: string) => {
@@ -733,14 +740,7 @@ export function FileListPanel() {
         const isExpanded = hasSyncedContent
           ? !expandedNotebookFolders.has(folderId) // synced: open unless toggled closed
           : expandedNotebookFolders.has(folderId)   // unsynced: closed unless toggled open
-        const toggleFolder = () => {
-          setExpandedNotebookFolders(prev => {
-            const next = new Set(prev)
-            if (next.has(folderId)) next.delete(folderId)
-            else next.add(folderId)
-            return next
-          })
-        }
+        const toggleFolder = () => toggleNotebookFolderExpanded(folderId)
 
         return (
           <div key={folderId} className="space-y-0.5" style={{ paddingLeft: depth > 0 ? '1rem' : 0 }}>

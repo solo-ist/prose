@@ -13,6 +13,7 @@ export interface UseRemarkableSyncReturn {
   syncResult: { synced: number; skipped: number } | null
   progress: SyncProgress | null
   sync: () => Promise<void>
+  cancel: () => Promise<void>
 }
 
 export function useRemarkableSync(): UseRemarkableSyncReturn {
@@ -142,12 +143,22 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
     }
   }, [remarkableSettings, setSettings, saveSettings, loadFiles, loadNotebooks, loadCloudNotebooks, setRemarkableSyncActive, setRemarkableSyncProgress, setRemarkableSyncError, clearSyncingNotebooks])
 
+  const cancel = useCallback(async () => {
+    if (!window.api?.remarkableCancelSync) return
+    try {
+      await window.api.remarkableCancelSync()
+    } catch (err) {
+      console.warn('[reMarkable] cancelSync failed:', err)
+    }
+  }, [])
+
   return {
     isSyncing,
     lastSyncedAt,
     error,
     syncResult,
     progress,
-    sync
+    sync,
+    cancel
   }
 }

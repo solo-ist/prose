@@ -91,6 +91,7 @@ export interface SyncResult {
   synced: number
   skipped: number
   errors: string[]
+  cancelled?: boolean
 }
 
 export interface SyncProgressUpdate {
@@ -457,7 +458,8 @@ export async function syncAll(
   deviceToken: string,
   syncDirectory: string,
   anthropicApiKey?: string,
-  onProgress?: (update: SyncProgressUpdate) => void
+  onProgress?: (update: SyncProgressUpdate) => void,
+  signal?: AbortSignal
 ): Promise<SyncResult> {
   console.log('[reMarkable] Starting sync...')
   console.log('[reMarkable] syncDirectory:', syncDirectory)
@@ -698,6 +700,11 @@ export async function syncAll(
 
     // Concurrent executor: process up to 3 notebooks at a time.
     // A single failure does NOT abort the queue — errors are collected.
+    // Cancellation: if signal.aborted flips to true, workers drain the
+    // remaining queue without starting new notebook work. Notebooks already
+    // in flight run to completion — mid-download/mid-OCR interruption would
+    // require propagating the signal into rmapi-js/fetch, which is out of
+    // scope for this iteration.
     const CONCURRENCY = 3
     const queue = [...documentsToSync]
     const workers = Array.from(
@@ -705,6 +712,7 @@ export async function syncAll(
       async () => {
         let doc: RemarkableNotebook | undefined
         while ((doc = queue.shift())) {
+          if (signal?.aborted) break
           try {
             await syncOneNotebook(doc)
           } catch (error) {
@@ -715,6 +723,13 @@ export async function syncAll(
       }
     )
     await Promise.all(workers)
+
+    if (signal?.aborted) {
+      result.cancelled = true
+      onProgress?.({ message: 'Sync cancelled', phase: 'complete' })
+      console.log('[reMarkable] Sync cancelled by user')
+      return result
+    }
 
     // Record non-synced notebooks in metadata (but don't download them)
     const nonSyncedDocs = syncState

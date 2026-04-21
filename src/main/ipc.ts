@@ -15,6 +15,11 @@ import { credentialStore } from './credentialStore'
 const LLM_API_KEY = 'llm-api-key'
 const REMARKABLE_DEVICE_TOKEN = 'remarkable-device-token'
 
+// Tracks the in-flight reMarkable sync so remarkable:sync:abort can cancel it.
+// Only one sync runs at a time (the renderer hook has its own concurrent-call
+// lock), so a single module-level reference is sufficient.
+let currentRemarkableSyncAbort: AbortController | null = null
+
 // Content block types for Anthropic API tool use
 interface LLMTextBlock {
   type: 'text'
@@ -922,13 +927,40 @@ export function setupIpcHandlers(): void {
         }
       }
 
-      return await syncAll(deviceToken, safeDir, anthropicApiKey, (progress) => {
-        if (!event.sender.isDestroyed()) {
-          event.sender.send('remarkable:sync:progress', progress)
+      // Abort any previous sync (shouldn't happen — hook has its own lock —
+      // but harmless defensive cleanup).
+      currentRemarkableSyncAbort?.abort()
+      const controller = new AbortController()
+      currentRemarkableSyncAbort = controller
+
+      try {
+        return await syncAll(
+          deviceToken,
+          safeDir,
+          anthropicApiKey,
+          (progress) => {
+            if (!event.sender.isDestroyed()) {
+              event.sender.send('remarkable:sync:progress', progress)
+            }
+          },
+          controller.signal
+        )
+      } finally {
+        // Clear only if we're still the active sync (another sync may have
+        // started and replaced us while we were winding down).
+        if (currentRemarkableSyncAbort === controller) {
+          currentRemarkableSyncAbort = null
         }
-      })
+      }
     }
   )
+
+  // reMarkable: Cancel the currently in-flight sync (if any).
+  // Cancellation is cooperative — workers check the signal between notebooks.
+  // Notebooks already being downloaded or OCR'd finish first.
+  ipcMain.handle('remarkable:sync:abort', () => {
+    currentRemarkableSyncAbort?.abort()
+  })
 
   // reMarkable: Disconnect (clear cached connection + purge sync data)
   ipcMain.handle('remarkable:disconnect', async (_event, syncDirectory?: string) => {

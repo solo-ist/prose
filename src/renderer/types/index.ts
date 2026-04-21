@@ -379,6 +379,7 @@ export interface ElectronAPI {
   remarkableMoveNotebook: (deviceToken: string, notebookHash: string, newParentId: string) => Promise<void>
   remarkableCreateFolder: (deviceToken: string, name: string, parentId?: string) => Promise<string>
   remarkableUpdateNotebookParent: (notebookId: string, newParentId: string, syncDirectory: string) => Promise<boolean>
+  remarkableCancelSync: () => Promise<void>
   onRemarkableSyncProgress: (
     callback: (progress: { message: string; notebookId?: string; notebookName?: string; current?: number; total?: number; phase: string }) => void
   ) => () => void

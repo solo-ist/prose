@@ -67,7 +67,7 @@ function RemarkableWaitlist() {
 
 function RemarkableSettings({ settings, setRemarkableConfig }: Props) {
   const { saveSettings } = useSettingsStore()
-  const { isSyncing, sync, progress, error: syncError } = useRemarkableSync()
+  const { isSyncing, sync, cancel: cancelSync, progress, error: syncError } = useRemarkableSync()
   const [code, setCode] = useState('')
   const [isRegistering, setIsRegistering] = useState(false)
   const [isValidating, setIsValidating] = useState(false)
@@ -482,6 +482,14 @@ function RemarkableSettings({ settings, setRemarkableConfig }: Props) {
                   </>
                 )}
               </Button>
+              {isSyncing && (
+                <Button
+                  variant="outline"
+                  onClick={cancelSync}
+                >
+                  Cancel
+                </Button>
+              )}
               {hasSyncState && (
                 <Button
                   variant="outline"

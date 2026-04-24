@@ -6,12 +6,23 @@ import { loadRecentFiles, clearRecentFiles } from './recentFiles'
 // Store mainWindow reference so we can rebuild the menu after adding recent files
 let _menuWindow: BrowserWindow | null = null
 
-// Helper to safely send menu actions to the focused window
+// Helper to safely send menu actions to the focused window.
+// Falls back to _menuWindow when no window is focused (window hidden via
+// hide-on-close or minimized) — otherwise menu items would silently no-op,
+// which Apple cited in MAS rejection of build 20 (see issue #429).
 function sendMenuAction(action: string): void {
-  const win = BrowserWindow.getFocusedWindow()
-  if (win && !win.isDestroyed()) {
-    win.webContents.send('menu:action', action)
+  let win = BrowserWindow.getFocusedWindow()
+  if (!win || win.isDestroyed()) {
+    if (_menuWindow && !_menuWindow.isDestroyed()) {
+      if (_menuWindow.isMinimized()) _menuWindow.restore()
+      _menuWindow.show()
+      _menuWindow.focus()
+      win = _menuWindow
+    } else {
+      return
+    }
   }
+  win.webContents.send('menu:action', action)
 }
 
 export function createMenu(mainWindow: BrowserWindow): void {
@@ -88,6 +99,13 @@ export function createMenu(mainWindow: BrowserWindow): void {
     {
       label: 'File',
       submenu: [
+        {
+          label: 'New Document',
+          accelerator: 'CmdOrCtrl+N',
+          click: (): void => {
+            sendMenuAction('new')
+          }
+        },
         {
           label: 'New Tab',
           accelerator: 'CmdOrCtrl+T',

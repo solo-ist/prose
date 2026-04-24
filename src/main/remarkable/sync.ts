@@ -177,6 +177,15 @@ async function loadMetadata(baseDirectory: string): Promise<SyncMetadata | null>
  * sync workers, naive read-modify-write would lose entries when two workers
  * snapshot the same in-memory state and overwrite each other. enqueueSave
  * forces them to run sequentially.
+ *
+ * saveTail is module-level singleton state intentionally — it has no per-sync
+ * scope because the queue must outlive any single syncAll invocation (the
+ * sync's final save and any updateNotebookParent call landing during shutdown
+ * both go through the same chain). Concurrent syncAll calls cannot occur in
+ * practice: useRemarkableSync.sync uses a ref-based lock and the IPC handler
+ * uses currentRemarkableSyncAbort to enforce one in-flight sync at a time.
+ * If those locks are ever bypassed the queue still serializes correctly; it
+ * just blends saves from both runs onto the same tail.
  */
 let saveTail: Promise<void> = Promise.resolve()
 function enqueueSave<T>(fn: () => Promise<T>): Promise<T> {
@@ -579,8 +588,12 @@ export async function syncAll(
 
       if (!needsDownload && !needsOCR) {
         result.skipped++
+        // Carry the existing entry into newMeta so it survives the final
+        // sync-metadata.json write at the end of syncAll. No incremental
+        // save here — the entry is unchanged from disk, and the post-sync
+        // final saveMetadata will persist this branch alongside any work
+        // other workers actually did.
         newMeta.notebooks[doc.id] = existingEntry!
-        await saveMetadata(baseDir, newMeta)
         const done = ++finished
         onProgress?.({ message: `Up to date: ${doc.name}`, notebookId: doc.id, notebookName: doc.name, current: done, total: totalToSync, phase: 'skipped' })
         return

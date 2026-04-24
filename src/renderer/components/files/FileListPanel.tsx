@@ -273,6 +273,14 @@ export function FileListPanel() {
   // Declared before the rename/drop handlers that reference it in their
   // useCallback dep arrays — a later declaration would be in the temporal
   // dead zone at mount time and throw on first render.
+  // Known edge case: rapid concurrent moves into the same NEW folder hierarchy
+  // can each create their own copy of the missing folder. justCreated is per-call,
+  // and notebookMetadata won't reflect the first move's just-created folder until
+  // the next loadCloudNotebooks. The user-facing impact is a duplicated cloud
+  // folder; the notebooks still land somewhere valid. Real-world trigger requires
+  // queuing two drags within milliseconds, so we accept it for now — a process-
+  // level "just created" cache or a per-move serialization queue would close it
+  // if we ever see it in practice.
   const syncRemarkableCloudMove = useCallback(async (oldPath: string, newPath: string) => {
     if (!syncDirectory || !deviceToken || !notebookMetadata) return
 
@@ -332,17 +340,17 @@ export function FileListPanel() {
               continue
             }
 
-            const newFolderHash = await window.api?.remarkableCreateFolder?.(
+            const newFolderId = await window.api?.remarkableCreateFolder?.(
               deviceToken,
               segment,
               currentParentId || undefined
             )
-            if (!newFolderHash) {
+            if (!newFolderId) {
               console.warn('[reMarkable] Failed to create cloud folder:', segment)
               return
             }
-            justCreated.set(accumulated, newFolderHash)
-            currentParentId = newFolderHash
+            justCreated.set(accumulated, newFolderId)
+            currentParentId = newFolderId
           }
 
           cloudFolderId = currentParentId

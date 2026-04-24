@@ -153,8 +153,20 @@ function createClient(api: RemarkableApi): RemarkableClient {
     },
 
     async createFolder(name: string, parentId?: string): Promise<string> {
-      const entry = await api.putFolder(name, parentId || '')
-      return entry.hash
+      // rmapi-js's putFolder takes FolderOptions ({ parent?: string }), NOT
+      // a bare parent string. Passing a string causes JS to destructure it
+      // into { parent: undefined }, defaulting parent to "" (root) — so
+      // every nested folder silently lands at the cloud root regardless of
+      // the intended parent. The options-object form fixes that.
+      //
+      // Return the folder's id, not its hash. Callers use this value as the
+      // `parent` argument to subsequent move() calls, and rmapi-js's
+      // move(hash, parent) expects parent to be a document id (UUID4).
+      // notebookMetadata.notebooks is also keyed by id, so callers that store
+      // this value as `parent` in local metadata stay consistent with how
+      // existing folders are referenced.
+      const entry = await api.putFolder(name, { parent: parentId || '' })
+      return entry.id
     },
 
     disconnect(): void {

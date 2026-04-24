@@ -287,9 +287,17 @@ export function FileListPanel() {
     // Normalize to forward slashes for portable comparison
     const normSync = syncDirectory.replace(/\\/g, '/')
     const normOld = oldPath.replace(/\\/g, '/')
+    const normNew = newPath.replace(/\\/g, '/')
 
-    // Only act on files inside the reMarkable sync directory
-    if (!normOld.startsWith(normSync + '/')) return
+    // Only act when both endpoints are inside the reMarkable sync directory.
+    // A move OUT of the sync dir should NOT propagate as a cloud move —
+    // silently defaulting to cloud root (as the old code did) could
+    // reorganize the user's cloud without warning. Leave the cloud alone
+    // for out-of-sync moves; the local file has still left the sync tree,
+    // which is what the user chose to do.
+    const oldInside = normOld.startsWith(normSync + '/')
+    const newInside = normNew.startsWith(normSync + '/')
+    if (!oldInside || !newInside) return
 
     try {
       const notebookId = await window.api?.remarkableFindNotebookByFilePath?.(oldPath, syncDirectory)
@@ -298,7 +306,6 @@ export function FileListPanel() {
       const notebookEntry = notebookMetadata.notebooks[notebookId]
       if (!notebookEntry?.hash) return
 
-      const normNew = newPath.replace(/\\/g, '/')
       const newTargetDir = normNew.substring(0, normNew.lastIndexOf('/'))
       const relTargetDir = newTargetDir.startsWith(normSync + '/')
         ? newTargetDir.slice(normSync.length + 1)

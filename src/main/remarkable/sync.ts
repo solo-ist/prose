@@ -201,6 +201,22 @@ function enqueueSave<T>(fn: () => Promise<T>): Promise<T> {
  * crash or kill mid-write cannot corrupt sync-metadata.json. Serialized via
  * enqueueSave so concurrent workers don't race on read-modify-write.
  */
+/**
+ * Escape a string into a safe YAML double-quoted scalar. reMarkable notebook
+ * names are user-controlled and may contain colons, newlines, or quotes — any
+ * of which would malform an unquoted YAML value. Double-quoted YAML escapes
+ * only need to handle backslash, double-quote, and control characters.
+ */
+function yamlDoubleQuote(s: string): string {
+  const escaped = s
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')
+    .replace(/\t/g, '\\t')
+  return `"${escaped}"`
+}
+
 async function writeMetadataToDisk(baseDirectory: string, metadata: SyncMetadata): Promise<void> {
   const snapshot = JSON.stringify(metadata, null, 2)
   const hiddenDir = join(baseDirectory, HIDDEN_DIR)
@@ -212,6 +228,13 @@ async function writeMetadataToDisk(baseDirectory: string, metadata: SyncMetadata
 }
 
 async function saveMetadata(baseDirectory: string, metadata: SyncMetadata): Promise<void> {
+  // The `metadata` object is captured by reference (not snapshotted) and the
+  // JSON.stringify inside writeMetadataToDisk runs when the queue reaches this
+  // call — NOT when saveMetadata was invoked. That's intentional: concurrent
+  // workers mutate `newMeta.notebooks[doc.id]` in parallel, and each enqueued
+  // save gets the latest state at serialize-time, not whatever was present
+  // when it was queued. A save enqueued early still includes updates from
+  // workers that finished while it was waiting its turn.
   return enqueueSave(() => writeMetadataToDisk(baseDirectory, metadata))
 }
 
@@ -435,9 +458,13 @@ async function processNotebookWithOCR(
     const combinedMarkdown = markdownParts.join('\n\n---\n\n')
     console.log(`[OCR] Combined markdown length: ${combinedMarkdown.length}`)
 
-    // Add metadata header
+    // Add metadata header. Notebook names come from the reMarkable cloud and
+    // can contain colons, newlines, or quotes — values that would malform an
+    // unquoted YAML scalar. yamlDoubleQuote escapes the content into a safe
+    // double-quoted YAML string so the frontmatter parses cleanly regardless
+    // of what the user named the notebook.
     const header = `---
-title: ${notebookName}
+title: ${yamlDoubleQuote(notebookName)}
 source: reMarkable
 pages: ${orderedPages.length}
 extracted: ${new Date().toISOString()}

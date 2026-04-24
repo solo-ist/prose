@@ -1108,11 +1108,15 @@ export function setupIpcHandlers(): void {
     async (_event, deviceToken: string, name: string, parentId?: string) => {
       // Bound the folder name at the IPC boundary. reMarkable folder names
       // round-trip through the filesystem (sync writes them as directories),
-      // so the 255-char POSIX NAME_MAX is the right cap. Reject empty names
-      // too — the cloud API would fail anyway but a clearer message helps.
+      // so the POSIX NAME_MAX (255 BYTES — not characters) is the right cap.
+      // Multibyte Unicode names can exceed 255 bytes with fewer characters.
+      // Reject empty names too — the cloud API would fail anyway but a
+      // clearer message helps.
       const trimmed = typeof name === 'string' ? name.trim() : ''
       if (!trimmed) throw new Error('Folder name is required')
-      if (trimmed.length > 255) throw new Error('Folder name is too long (max 255 characters)')
+      if (Buffer.byteLength(trimmed, 'utf8') > 255) {
+        throw new Error('Folder name is too long (max 255 bytes)')
+      }
       const { connect } = await import('./remarkable/client')
       const client = await connect(deviceToken)
       return await client.createFolder(trimmed, parentId)
@@ -1123,6 +1127,16 @@ export function setupIpcHandlers(): void {
   ipcMain.handle(
     'remarkable:updateNotebookParent',
     async (_event, notebookId: string, newParentId: string, syncDirectory: string) => {
+      // Match the bounds on the sibling cloud-move handlers. These values
+      // are metadata keys, not filesystem paths (syncDirectory is what goes
+      // through validatePath), but guarding them here keeps the behavior
+      // consistent with remarkable:moveNotebook / remarkable:createFolder.
+      if (typeof notebookId !== 'string' || !notebookId) {
+        throw new Error('notebookId is required')
+      }
+      if (notebookId.length > 128) throw new Error('notebookId is too long')
+      if (typeof newParentId !== 'string') throw new Error('newParentId must be a string')
+      if (newParentId.length > 128) throw new Error('newParentId is too long')
       const safeDir = validatePath(syncDirectory)
       const { updateNotebookParent } = await import('./remarkable/sync')
       return await updateNotebookParent(notebookId, newParentId, safeDir)

@@ -357,12 +357,18 @@ async function processNotebookWithOCR(
     const pageHashes: Record<string, string> = {} // pageId → rmHash (computed on demand)
     const cachedPages: Record<string, PageOCRCacheEntry> = {}
     const allPageIds: string[] = []
+    // pageId → bareId lookup so the cache-write loop below doesn't have to
+    // re-derive bareId from pageId via regex (the earlier `page.id.replace(/.*_/, '')`
+    // trick assumed bareId contains no underscores — true today for
+    // reMarkable UUIDs but fragile).
+    const bareIdByPageId: Record<string, string> = {}
 
     for (const rmFile of rmFiles) {
       const filePath = join(notebookDir, rmFile)
       const pageId = rmFile.replace('.rm', '').replace(/\//g, '_')
       const bareId = rmFile.replace('.rm', '').replace(/.*\//, '')
       allPageIds.push(pageId)
+      bareIdByPageId[pageId] = bareId
       const cached = existingCache?.[pageId]
 
       let hashCheckBuffer: Buffer | undefined
@@ -428,9 +434,9 @@ async function processNotebookWithOCR(
 
       // Update cache with fresh OCR results
       for (const page of result.pages) {
-        const bareId = page.id.replace(/.*_/, '')
+        const bareId = bareIdByPageId[page.id]
         newCache[page.id] = {
-          modified: pageTimestamps[bareId],
+          modified: bareId ? pageTimestamps[bareId] : undefined,
           rmHash: pageHashes[page.id],
           markdown: page.markdown,
           confidence: page.confidence

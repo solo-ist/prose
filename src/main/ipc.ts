@@ -1117,6 +1117,12 @@ export function setupIpcHandlers(): void {
       if (Buffer.byteLength(trimmed, 'utf8') > 255) {
         throw new Error('Folder name is too long (max 255 bytes)')
       }
+      // Match the 128-char cap on the other cloud-id IPC handlers. parentId
+      // is optional — undefined/empty-string means cloud root.
+      if (parentId !== undefined) {
+        if (typeof parentId !== 'string') throw new Error('parentId must be a string')
+        if (parentId.length > 128) throw new Error('parentId is too long')
+      }
       const { connect } = await import('./remarkable/client')
       const client = await connect(deviceToken)
       return await client.createFolder(trimmed, parentId)

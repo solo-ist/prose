@@ -7,6 +7,14 @@ import { IS_MAS_BUILD } from './env'
 // Store mainWindow reference so we can rebuild the menu after adding recent files
 let _menuWindow: BrowserWindow | null = null
 
+// Helper to open an external URL without leaking an unhandled promise
+// rejection if the OS can't open the URL (e.g., no default browser).
+function openExternalUrl(url: string): void {
+  shell.openExternal(url).catch((err) => {
+    console.warn('[Menu] Failed to open external URL:', url, err)
+  })
+}
+
 // Helper to safely send menu actions to the focused window.
 // Falls back to _menuWindow when no window is focused (window hidden via
 // hide-on-close or minimized) — otherwise menu items would silently no-op,
@@ -321,7 +329,7 @@ export function createMenu(mainWindow: BrowserWindow): void {
         {
           label: 'Learn More',
           click: (): void => {
-            shell.openExternal('https://github.com/solo-ist/prose')
+            openExternalUrl('https://github.com/solo-ist/prose')
           }
         },
         { type: 'separator' },
@@ -330,7 +338,7 @@ export function createMenu(mainWindow: BrowserWindow): void {
               {
                 label: 'Request Support',
                 click: (): void => {
-                  shell.openExternal('https://solo.ist/prose/support')
+                  openExternalUrl('https://solo.ist/prose/support')
                 }
               }
             ]
@@ -338,20 +346,20 @@ export function createMenu(mainWindow: BrowserWindow): void {
               {
                 label: 'Report a Bug',
                 click: (): void => {
-                  shell.openExternal('https://github.com/solo-ist/prose/issues/new?template=bug-report.yml')
+                  openExternalUrl('https://github.com/solo-ist/prose/issues/new?template=bug-report.yml')
                 }
               }
             ]),
         {
           label: 'Request a Feature',
           click: (): void => {
-            shell.openExternal('https://github.com/solo-ist/prose/issues/new?template=feature-request.yml')
+            openExternalUrl('https://github.com/solo-ist/prose/issues/new?template=feature-request.yml')
           }
         },
         {
           label: 'Discuss Ideas',
           click: (): void => {
-            shell.openExternal('https://github.com/solo-ist/prose/discussions/categories/ideas')
+            openExternalUrl('https://github.com/solo-ist/prose/discussions/categories/ideas')
           }
         },
         ...(!isMac

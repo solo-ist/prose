@@ -1413,4 +1413,28 @@ export function setupIpcHandlers(): void {
       }
     }
   })
+
+  ipcMain.handle('skill:download', async (): Promise<{ success: boolean; error?: string }> => {
+    if (IS_MAS_BUILD) {
+      return { success: false, error: 'Skill download is not available in the Mac App Store version.' }
+    }
+    try {
+      const skillZipSrc = app.isPackaged
+        ? join(process.resourcesPath, 'resources', 'prose-skill.zip')
+        : join(__dirname, '../../resources/prose-skill.zip')
+
+      const downloadsDir = app.getPath('downloads')
+      const destPath = join(downloadsDir, 'prose-skill.zip')
+
+      await copyFile(skillZipSrc, destPath)
+      await shell.openPath(downloadsDir)
+      return { success: true }
+    } catch (error) {
+      console.error('[Skill:download] Error:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  })
 }

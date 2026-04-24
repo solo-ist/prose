@@ -22,6 +22,7 @@ extraResources:
     to: resources/
     filter:
       - "!PrivacyInfo.xcprivacy"
+      - "!prose-skill/"
   - from: resources/PrivacyInfo.xcprivacy
     to: PrivacyInfo.xcprivacy
 
@@ -36,6 +37,11 @@ fileAssociations:
     role: Editor
     rank: Default
 
+protocols:
+  - name: Prose
+    schemes:
+      - prose
+
 mac:
   category: public.app-category.productivity
   identity: Developer ID Application
@@ -49,6 +55,10 @@ mac:
     - dir
   extendInfo:
     ITSAppUsesNonExemptEncryption: false
+    CFBundleURLTypes:
+      - CFBundleURLName: ist.solo.prose
+        CFBundleURLSchemes:
+          - prose
     UTImportedTypeDeclarations:
       - UTTypeIdentifier: net.daringfireball.markdown
         UTTypeDescription: Markdown Document

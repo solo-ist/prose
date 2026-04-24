@@ -822,6 +822,11 @@ export function App() {
             settings: { ...state.settings, recentFiles: [] }
           }))
           break
+        case 'downloadSkill':
+          if (window.api?.downloadSkill) {
+            window.api.downloadSkill().catch((err) => console.error('[Skill] Download failed:', err))
+          }
+          break
         default:
           // Handle openRecentFile:${path} actions
           if (action.startsWith('openRecentFile:')) {
@@ -856,6 +861,29 @@ export function App() {
     })
     return unsubscribe
   }, [openFileInTab])
+
+  // Handle prose://open?content=... URL scheme — create a new document from the payload
+  useEffect(() => {
+    if (!window.api?.onOpenFromUrl) return
+    const unsubscribe = window.api.onOpenFromUrl(async (content: string) => {
+      await createNewTab()
+      // Set content on the editor instance; parseMarkdown handles frontmatter stripping
+      const { parseMarkdown } = await import('../../lib/markdown')
+      const parsed = parseMarkdown(content)
+      const editorInstance = useEditorInstanceStore.getState().editor
+      if (editorInstance) {
+        editorInstance.commands.setContent(parsed.content)
+      }
+      useEditorStore.getState().setDocument({
+        ...useEditorStore.getState().document,
+        content: parsed.content,
+        frontmatter: parsed.frontmatter,
+        isDirty: true
+      })
+    })
+    return unsubscribe
+  }, [createNewTab])
+
 
   // Handle MCP tool invocations (only active in MCP server mode)
   useEffect(() => {

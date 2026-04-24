@@ -110,6 +110,12 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
     // waiting for every notebook to finish downloading. The post-sync call at
     // the bottom of this try block still runs to catch any structural changes
     // that happened during sync (folder moves, etc.).
+    //
+    // Race note: the post-sync fetch and this eager fetch could theoretically
+    // land out of order, so `loadCloudNotebooks` must tolerate the later call
+    // winning. In practice the eager fetch returns almost immediately (just a
+    // cloud list) and the post-sync fetch happens much later, so collision is
+    // unlikely. The side-effect (populating the tree) is idempotent either way.
     loadCloudNotebooks(remarkableSettings.deviceToken, remarkableSettings.syncDirectory)
       .catch((err) => console.warn('[reMarkable] Eager cloud list fetch failed:', err))
 

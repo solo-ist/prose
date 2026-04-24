@@ -205,6 +205,12 @@ function RemarkableSettings({ settings, setRemarkableConfig }: Props) {
   }
 
   const handleSelectionComplete = async () => {
+    // `hasSyncState` tracks whether `sync-state.json` exists on disk (i.e. the
+    // user has picked notebooks to sync) — NOT whether a sync has succeeded.
+    // The selection dialog's Save button writes the file before it fires
+    // onComplete, so by the time we land here the file is present regardless
+    // of whether the follow-up sync() succeeds or surfaces an error. Setting
+    // true here mirrors disk; a failed sync is surfaced separately via syncError.
     await sync()
     setHasSyncState(true)
   }

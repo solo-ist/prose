@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Settings } from '../renderer/types'
+import type { Settings, RemarkableSyncPhase } from '../renderer/types'
 import type { ToolResult } from '../shared/tools/types'
 
 export interface FileResult {
@@ -227,7 +227,7 @@ export interface ElectronAPI {
   remarkableUpdateNotebookParent: (notebookId: string, newParentId: string, syncDirectory: string) => Promise<boolean>
   remarkableCancelSync: () => Promise<void>
   onRemarkableSyncProgress: (
-    callback: (progress: { message: string; notebookId?: string; notebookName?: string; current?: number; total?: number; phase: string }) => void
+    callback: (progress: { message: string; notebookId?: string; notebookName?: string; current?: number; total?: number; phase: RemarkableSyncPhase }) => void
   ) => () => void
   // MCP tool execution (only used in MCP server mode)
   onMcpToolInvoke: (
@@ -406,8 +406,8 @@ const api: ElectronAPI = {
   remarkableUpdateNotebookParent: (notebookId: string, newParentId: string, syncDirectory: string) =>
     ipcRenderer.invoke('remarkable:updateNotebookParent', notebookId, newParentId, syncDirectory),
   remarkableCancelSync: () => ipcRenderer.invoke('remarkable:sync:abort'),
-  onRemarkableSyncProgress: (callback: (progress: { message: string; notebookId?: string; notebookName?: string; current?: number; total?: number; phase: string }) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, progress: { message: string; notebookName?: string; current?: number; total?: number; phase: string }) => {
+  onRemarkableSyncProgress: (callback: (progress: { message: string; notebookId?: string; notebookName?: string; current?: number; total?: number; phase: RemarkableSyncPhase }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: { message: string; notebookId?: string; notebookName?: string; current?: number; total?: number; phase: RemarkableSyncPhase }) => {
       callback(progress)
     }
     ipcRenderer.on('remarkable:sync:progress', handler)

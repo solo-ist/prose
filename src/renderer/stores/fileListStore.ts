@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
-import type { FileItem, RemarkableSyncMetadata, RemarkableCloudNotebook, RemarkableSyncState, GoogleSyncMetadata } from '../types'
+import type { FileItem, RemarkableSyncMetadata, RemarkableCloudNotebook, RemarkableSyncState, RemarkableSyncPhase, GoogleSyncMetadata } from '../types'
 
 export interface SyncProgress {
   message: string
@@ -8,7 +8,7 @@ export interface SyncProgress {
   notebookName?: string
   current?: number
   total?: number
-  phase: 'connecting' | 'listing' | 'downloading' | 'ocr' | 'notebook-done' | 'skipped' | 'complete'
+  phase: RemarkableSyncPhase
 }
 
 type ViewMode = 'recent' | 'folder' | 'notebooks' | 'googledocs'

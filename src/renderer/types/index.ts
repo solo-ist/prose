@@ -137,6 +137,15 @@ export interface RemarkableSyncState {
   lastUpdated: string
 }
 
+export type RemarkableSyncPhase =
+  | 'connecting'
+  | 'listing'
+  | 'downloading'
+  | 'ocr'
+  | 'notebook-done'
+  | 'skipped'
+  | 'complete'
+
 // Google Docs integration types
 export interface GoogleAuthResult {
   success: boolean
@@ -381,7 +390,7 @@ export interface ElectronAPI {
   remarkableUpdateNotebookParent: (notebookId: string, newParentId: string, syncDirectory: string) => Promise<boolean>
   remarkableCancelSync: () => Promise<void>
   onRemarkableSyncProgress: (
-    callback: (progress: { message: string; notebookId?: string; notebookName?: string; current?: number; total?: number; phase: string }) => void
+    callback: (progress: { message: string; notebookId?: string; notebookName?: string; current?: number; total?: number; phase: RemarkableSyncPhase }) => void
   ) => () => void
   // MCP tool execution (only used in MCP server mode)
   onMcpToolInvoke: (

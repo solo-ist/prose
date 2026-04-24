@@ -137,7 +137,7 @@ export async function extractTextFromPages(
 
         // Only retry on 5xx (server) errors, not 4xx (client) errors
         if (response.status >= 500 && attempt < MAX_RETRIES) {
-          console.warn(`[OCR] Server error (${response.status}), retrying in ${RETRY_DELAYS[attempt]}ms (attempt ${attempt + 1}/${MAX_RETRIES})`)
+          console.warn(`[OCR] Server error (${response.status}), retrying in ${RETRY_DELAYS[attempt]}ms (retry ${attempt + 1}/${MAX_RETRIES})`)
           await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt]))
           lastError = new Error(errorMessage)
           continue
@@ -155,7 +155,7 @@ export async function extractTextFromPages(
     } catch (error) {
       // Retry on network errors (fetch throws on network failure)
       if (attempt < MAX_RETRIES) {
-        console.warn(`[OCR] Request failed, retrying in ${RETRY_DELAYS[attempt]}ms (attempt ${attempt + 1}/${MAX_RETRIES}):`, error)
+        console.warn(`[OCR] Request failed, retrying in ${RETRY_DELAYS[attempt]}ms (retry ${attempt + 1}/${MAX_RETRIES}):`, error)
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt]))
         lastError = error instanceof Error ? error : new Error(String(error))
         continue

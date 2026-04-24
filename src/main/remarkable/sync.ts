@@ -672,6 +672,11 @@ export async function syncAll(
         }
       }
 
+      // Extraction succeeded — drop the cached zip. It's only kept across
+      // runs so an interrupted sync can resume without re-downloading; once
+      // the extracted files are on disk, the zip is dead weight.
+      await rm(zipPath, { force: true })
+
       // OCR for handwritten notebooks
       let ocrPath: string | undefined
       let pageOCRCache: Record<string, PageOCRCacheEntry> | undefined
@@ -712,6 +717,13 @@ export async function syncAll(
     // in flight run to completion — mid-download/mid-OCR interruption would
     // require propagating the signal into rmapi-js/fetch, which is out of
     // scope for this iteration.
+    //
+    // Concurrency safety of the shared `client`: rmapi-js's raw layer uses an
+    // LRU cache keyed by content hash. Concurrent getText/getHash calls with
+    // the same key will fetch twice (benign duplicate work — a limitation the
+    // library acknowledges inline); our workers operate on distinct notebook
+    // hashes so they never collide on the same cache key. No shared
+    // request-in-flight state, so parallel downloadNotebook calls are safe.
     const CONCURRENCY = 3
     const queue = [...documentsToSync]
     const workers = Array.from(

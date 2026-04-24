@@ -12,13 +12,15 @@
  * listener and the local emitter so dev hot-reloads don't stack subscriptions.
  */
 
+import type { RemarkableSyncPhase } from '../types'
+
 export interface SyncProgressUpdate {
   message: string
   notebookId?: string
   notebookName?: string
   current?: number
   total?: number
-  phase: string
+  phase: RemarkableSyncPhase
 }
 
 type Listener = (update: SyncProgressUpdate) => void

@@ -1427,7 +1427,9 @@ export function setupIpcHandlers(): void {
       const destPath = join(downloadsDir, 'prose-skill.zip')
 
       await copyFile(skillZipSrc, destPath)
-      await shell.openPath(downloadsDir)
+      // showItemInFolder reveals the file (highlights it in Finder/Explorer),
+      // unlike openPath which only opens the containing folder.
+      shell.showItemInFolder(destPath)
       return { success: true }
     } catch (error) {
       console.error('[Skill:download] Error:', error)

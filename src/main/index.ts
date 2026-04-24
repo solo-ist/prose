@@ -130,9 +130,17 @@ if (!gotTheLock) {
   })
 }
 
+// Cap on prose://open?content payload — guards the renderer against an
+// oversized URL hanging or OOMing the editor. 5MB is generous for an
+// artifact-handoff draft.
+const MAX_URL_CONTENT_BYTES = 5 * 1024 * 1024
+
 /**
- * Parse a prose://open?content=... URL and return the decoded markdown content.
- * Returns null if the URL is not a valid prose://open URL or content is missing.
+ * Parse a prose://open?content=... URL and return the markdown content.
+ * Returns null if the URL is not a valid prose://open URL, content is missing,
+ * or content exceeds MAX_URL_CONTENT_BYTES.
+ *
+ * URLSearchParams.get() already URL-decodes the value; do not decode again.
  */
 function parseProseUrl(url: string): string | null {
   try {
@@ -140,7 +148,11 @@ function parseProseUrl(url: string): string | null {
     if (parsed.protocol !== 'prose:' || parsed.hostname !== 'open') return null
     const content = parsed.searchParams.get('content')
     if (!content) return null
-    return decodeURIComponent(content)
+    if (Buffer.byteLength(content, 'utf8') > MAX_URL_CONTENT_BYTES) {
+      console.warn('[prose://] Rejected oversized payload')
+      return null
+    }
+    return content
   } catch {
     return null
   }

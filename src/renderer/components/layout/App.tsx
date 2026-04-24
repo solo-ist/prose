@@ -530,14 +530,14 @@ export function App() {
           // Open the saved file in a tab
           await openFileInTab(savedPath)
         } else {
-          // Fallback: create new untitled tab
-          await createNewTab()
-          const editor = useEditorInstanceStore.getState().editor
-          if (editor) {
-            editor.commands.setContent(result.content)
-          }
-          const editorState = useEditorStore.getState()
-          editorState.setFrontmatter(frontmatter)
+          // Fallback: create a new untitled tab with the imported content baked in.
+          // Same race-free pattern as the prose:// URL handler — the new editor mounts
+          // with content already in editorStore, no setContent-after-mount needed.
+          await createNewTab({
+            content: result.content,
+            frontmatter,
+            isDirty: true
+          })
         }
 
         // Mark as AI-generated if checkbox was checked
@@ -862,20 +862,16 @@ export function App() {
     return unsubscribe
   }, [openFileInTab])
 
-  // Handle prose://open?content=... URL scheme — create a new document from the payload
+  // Handle prose://open?content=... URL scheme — create a new document from the payload.
+  // Content is baked into the new tab via createNewTab's init options before the editor
+  // mounts, so the editor reads the right content from its initial state. No setContent
+  // race with the editor instance ref.
   useEffect(() => {
     if (!window.api?.onOpenFromUrl) return
     const unsubscribe = window.api.onOpenFromUrl(async (content: string) => {
-      await createNewTab()
-      // Set content on the editor instance; parseMarkdown handles frontmatter stripping
       const { parseMarkdown } = await import('../../lib/markdown')
       const parsed = parseMarkdown(content)
-      const editorInstance = useEditorInstanceStore.getState().editor
-      if (editorInstance) {
-        editorInstance.commands.setContent(parsed.content)
-      }
-      useEditorStore.getState().setDocument({
-        ...useEditorStore.getState().document,
+      await createNewTab({
         content: parsed.content,
         frontmatter: parsed.frontmatter,
         isDirty: true
@@ -883,7 +879,6 @@ export function App() {
     })
     return unsubscribe
   }, [createNewTab])
-
 
   // Handle MCP tool invocations (only active in MCP server mode)
   useEffect(() => {

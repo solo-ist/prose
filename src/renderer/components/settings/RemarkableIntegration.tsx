@@ -202,7 +202,6 @@ function RemarkableSettings({ settings, setRemarkableConfig }: Props) {
     }
 
     await sync()
-    setHasSyncState(true)
   }
 
   const handleSelectionComplete = async () => {

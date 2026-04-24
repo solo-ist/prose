@@ -196,9 +196,9 @@ This requires hitting the rename window — a random `kill -9` during idle won't
    done
    ```
    Leave running. You'll see only `sync-metadata.json` most of the time. When a save happens, you'll briefly also see `sync-metadata.json.<pid>.tmp`.
-3. **Terminal B** (PID lookup):
+3. **Terminal B** (PID lookup, from the repo root):
    ```bash
-   cat /Users/angelmarino/Code/prose/.dev.pid
+   cat .dev.pid
    ```
    Note the PID.
 4. **Terminal C** (kill on standby):

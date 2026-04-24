@@ -534,13 +534,17 @@ export async function syncAll(
 
     console.log('[reMarkable] Documents to sync:', documentsToSync.length)
 
-    // Track completed count for progress reporting
-    let completed = 0
+    // Track start + completion counts separately. Under CONCURRENCY=3 these diverge —
+    // `started` is monotonic in kickoff order, `finished` is monotonic in completion order.
+    // Start-phase events (downloading) use `started`; completion events (skipped, notebook-done)
+    // use `finished` so any downstream progress indicator sees a monotonically advancing count.
+    let started = 0
+    let finished = 0
     const totalToSync = documentsToSync.length
 
     // Process a single notebook (used by the concurrent executor)
     async function syncOneNotebook(doc: RemarkableNotebook): Promise<void> {
-      const idx = ++completed
+      const idx = ++started
       console.log(`[reMarkable] Processing ${idx}/${totalToSync}: ${doc.name} (type: ${doc.fileType})`)
 
       // Check if we need to download (hash changed or doesn't exist)
@@ -577,7 +581,8 @@ export async function syncAll(
         result.skipped++
         newMeta.notebooks[doc.id] = existingEntry!
         await saveMetadata(baseDir, newMeta)
-        onProgress?.({ message: `Up to date: ${doc.name}`, notebookId: doc.id, notebookName: doc.name, current: idx, total: totalToSync, phase: 'skipped' })
+        const done = ++finished
+        onProgress?.({ message: `Up to date: ${doc.name}`, notebookId: doc.id, notebookName: doc.name, current: done, total: totalToSync, phase: 'skipped' })
         return
       }
 
@@ -630,7 +635,8 @@ export async function syncAll(
           ocrAttempt: ocrPath ? undefined : { hash: doc.hash, failedAt: new Date().toISOString() }
         }
         result.synced++
-        onProgress?.({ message: `Done: ${doc.name}`, notebookId: doc.id, notebookName: doc.name, phase: 'notebook-done' })
+        const done = ++finished
+        onProgress?.({ message: `Done: ${doc.name}`, notebookId: doc.id, notebookName: doc.name, current: done, total: totalToSync, phase: 'notebook-done' })
         await saveMetadata(baseDir, newMeta)
         return
       }
@@ -693,7 +699,8 @@ export async function syncAll(
       }
 
       result.synced++
-      onProgress?.({ message: `Done: ${doc.name}`, notebookId: doc.id, notebookName: doc.name, phase: 'notebook-done' })
+      const done = ++finished
+      onProgress?.({ message: `Done: ${doc.name}`, notebookId: doc.id, notebookName: doc.name, current: done, total: totalToSync, phase: 'notebook-done' })
       // Incremental save: persist metadata after each successful notebook
       await saveMetadata(baseDir, newMeta)
     }

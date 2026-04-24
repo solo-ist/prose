@@ -195,17 +195,13 @@ function enqueueSave<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Save sync metadata to the hidden directory.
- *
- * Writes via temp-file-then-rename (POSIX-atomic on the same filesystem) so a
- * crash or kill mid-write cannot corrupt sync-metadata.json. Serialized via
- * enqueueSave so concurrent workers don't race on read-modify-write.
- */
-/**
  * Escape a string into a safe YAML double-quoted scalar. reMarkable notebook
  * names are user-controlled and may contain colons, newlines, or quotes — any
  * of which would malform an unquoted YAML value. Double-quoted YAML escapes
- * only need to handle backslash, double-quote, and control characters.
+ * backslash + double-quote, and escapes the characters YAML treats as line
+ * breaks: ASCII CR/LF/TAB plus Unicode NEXT LINE (U+0085), LINE SEPARATOR
+ * (U+2028), and PARAGRAPH SEPARATOR (U+2029). Uses \u escapes for the three
+ * Unicode code points so the source file itself stays pure ASCII.
  */
 function yamlDoubleQuote(s: string): string {
   const escaped = s
@@ -214,6 +210,9 @@ function yamlDoubleQuote(s: string): string {
     .replace(/\r/g, '\\r')
     .replace(/\n/g, '\\n')
     .replace(/\t/g, '\\t')
+    .replace(/\u0085/g, '\\N')
+    .replace(/\u2028/g, '\\L')
+    .replace(/\u2029/g, '\\P')
   return `"${escaped}"`
 }
 
@@ -227,6 +226,13 @@ async function writeMetadataToDisk(baseDirectory: string, metadata: SyncMetadata
   await rename(tmpPath, metaPath)
 }
 
+/**
+ * Save sync metadata to the hidden directory.
+ *
+ * Writes via temp-file-then-rename (POSIX-atomic on the same filesystem) so a
+ * crash or kill mid-write cannot corrupt sync-metadata.json. Serialized via
+ * enqueueSave so concurrent workers don't race on read-modify-write.
+ */
 async function saveMetadata(baseDirectory: string, metadata: SyncMetadata): Promise<void> {
   // The `metadata` object is captured by reference (not snapshotted) and the
   // JSON.stringify inside writeMetadataToDisk runs when the queue reaches this
@@ -729,12 +735,10 @@ export async function syncAll(
       // OCR for handwritten notebooks
       let ocrPath: string | undefined
       let pageOCRCache: Record<string, PageOCRCacheEntry> | undefined
-      let ocrAttempt: NotebookMetadata['ocrAttempt']
       if (doc.fileType === 'notebook') {
         const ocrResult = await runOCR(notebookDir)
         ocrPath = ocrResult.ocrPath
         pageOCRCache = ocrResult.pageOCRCache
-        if (!ocrPath) ocrAttempt = { hash: doc.hash, failedAt: new Date().toISOString() }
       }
 
       newMeta.notebooks[doc.id] = {
@@ -749,7 +753,15 @@ export async function syncAll(
         ocrPath,
         pageOCRCache,
         markdownPath: existingEntry?.markdownPath,
-        ocrAttempt
+        // Matches the OCR-only path above: on successful OCR (or when OCR
+        // isn't applicable to this file type) clear any prior sentinel; on
+        // OCR failure for a notebook, stamp a new sentinel with the current
+        // hash. The explicit `undefined` on success deliberately overrides
+        // any ocrAttempt carried in by the existingEntry spread;
+        // JSON.stringify then drops the key.
+        ocrAttempt: doc.fileType !== 'notebook' || ocrPath
+          ? undefined
+          : { hash: doc.hash, failedAt: new Date().toISOString() }
       }
 
       result.synced++

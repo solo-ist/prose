@@ -12,6 +12,13 @@ export type { SyncProgress }
 // RemarkableIntegration) further multiplies that. The debounce coalesces
 // rapid notebook-done events into one trailing read; removeSyncingNotebook
 // stays immediate so the spinner clears promptly.
+//
+// Scope: assumes a single active sync directory. Prose only has one
+// reMarkable sync configured at a time (remarkable.syncDirectory in
+// settings), so if two callers submit different directories within the
+// 200ms window, the second wins and the first is silently dropped — fine
+// today because they'd both be the same value. Revisit if multi-directory
+// support ever lands.
 let loadNotebooksDebounceTimer: ReturnType<typeof setTimeout> | null = null
 let pendingLoadNotebooksDir: string | null = null
 function scheduleLoadNotebooks(syncDir: string, loadFn: (dir: string) => void | Promise<void>): void {

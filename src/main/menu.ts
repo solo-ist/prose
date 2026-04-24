@@ -1,7 +1,8 @@
-import { Menu, BrowserWindow, app } from 'electron'
+import { Menu, BrowserWindow, app, shell } from 'electron'
 import { basename } from 'path'
 import { is } from '@electron-toolkit/utils'
 import { loadRecentFiles, clearRecentFiles } from './recentFiles'
+import { IS_MAS_BUILD } from './env'
 
 // Store mainWindow reference so we can rebuild the menu after adding recent files
 let _menuWindow: BrowserWindow | null = null
@@ -161,7 +162,7 @@ export function createMenu(mainWindow: BrowserWindow): void {
             sendMenuAction('convertToMarkdown')
           }
         },
-        ...(isGoogleConfigured
+        ...(!IS_MAS_BUILD && isGoogleConfigured
           ? [
               { type: 'separator' as const },
               {
@@ -319,9 +320,38 @@ export function createMenu(mainWindow: BrowserWindow): void {
         { type: 'separator' },
         {
           label: 'Learn More',
-          click: async (): Promise<void> => {
-            const { shell } = await import('electron')
-            await shell.openExternal('https://github.com/solo-ist/prose')
+          click: (): void => {
+            shell.openExternal('https://github.com/solo-ist/prose')
+          }
+        },
+        { type: 'separator' },
+        ...(IS_MAS_BUILD
+          ? [
+              {
+                label: 'Request Support',
+                click: (): void => {
+                  shell.openExternal('https://solo.ist/prose/support')
+                }
+              }
+            ]
+          : [
+              {
+                label: 'Report a Bug',
+                click: (): void => {
+                  shell.openExternal('https://github.com/solo-ist/prose/issues/new?template=bug-report.yml')
+                }
+              }
+            ]),
+        {
+          label: 'Request a Feature',
+          click: (): void => {
+            shell.openExternal('https://github.com/solo-ist/prose/issues/new?template=feature-request.yml')
+          }
+        },
+        {
+          label: 'Discuss Ideas',
+          click: (): void => {
+            shell.openExternal('https://github.com/solo-ist/prose/discussions/categories/ideas')
           }
         },
         ...(!isMac

@@ -1,10 +1,19 @@
-import { Menu, BrowserWindow, app } from 'electron'
+import { Menu, BrowserWindow, app, shell } from 'electron'
 import { basename } from 'path'
 import { is } from '@electron-toolkit/utils'
 import { loadRecentFiles, clearRecentFiles } from './recentFiles'
+import { IS_MAS_BUILD } from './env'
 
 // Store mainWindow reference so we can rebuild the menu after adding recent files
 let _menuWindow: BrowserWindow | null = null
+
+// Helper to open an external URL without leaking an unhandled promise
+// rejection if the OS can't open the URL (e.g., no default browser).
+function openExternalUrl(url: string): void {
+  shell.openExternal(url).catch((err) => {
+    console.warn('[Menu] Failed to open external URL:', url, err)
+  })
+}
 
 // Helper to safely send menu actions to the focused window.
 // Falls back to _menuWindow when no window is focused (window hidden via
@@ -161,7 +170,7 @@ export function createMenu(mainWindow: BrowserWindow): void {
             sendMenuAction('convertToMarkdown')
           }
         },
-        ...(isGoogleConfigured
+        ...(!IS_MAS_BUILD && isGoogleConfigured
           ? [
               { type: 'separator' as const },
               {
@@ -319,9 +328,38 @@ export function createMenu(mainWindow: BrowserWindow): void {
         { type: 'separator' },
         {
           label: 'Learn More',
-          click: async (): Promise<void> => {
-            const { shell } = await import('electron')
-            await shell.openExternal('https://github.com/solo-ist/prose')
+          click: (): void => {
+            openExternalUrl('https://github.com/solo-ist/prose')
+          }
+        },
+        { type: 'separator' },
+        ...(IS_MAS_BUILD
+          ? [
+              {
+                label: 'Request Support',
+                click: (): void => {
+                  openExternalUrl('https://solo.ist/prose/support')
+                }
+              }
+            ]
+          : [
+              {
+                label: 'Report a Bug',
+                click: (): void => {
+                  openExternalUrl('https://github.com/solo-ist/prose/issues/new?template=bug-report.yml')
+                }
+              }
+            ]),
+        {
+          label: 'Request a Feature',
+          click: (): void => {
+            openExternalUrl('https://github.com/solo-ist/prose/issues/new?template=feature-request.yml')
+          }
+        },
+        {
+          label: 'Discuss Ideas',
+          click: (): void => {
+            openExternalUrl('https://github.com/solo-ist/prose/discussions/categories/ideas')
           }
         },
         ...(!isMac

@@ -201,16 +201,18 @@ function enqueueSave<T>(fn: () => Promise<T>): Promise<T> {
  * crash or kill mid-write cannot corrupt sync-metadata.json. Serialized via
  * enqueueSave so concurrent workers don't race on read-modify-write.
  */
+async function writeMetadataToDisk(baseDirectory: string, metadata: SyncMetadata): Promise<void> {
+  const snapshot = JSON.stringify(metadata, null, 2)
+  const hiddenDir = join(baseDirectory, HIDDEN_DIR)
+  await mkdir(hiddenDir, { recursive: true })
+  const metaPath = join(hiddenDir, META_FILE)
+  const tmpPath = join(hiddenDir, `${META_FILE}.${process.pid}.tmp`)
+  await writeFile(tmpPath, snapshot, 'utf-8')
+  await rename(tmpPath, metaPath)
+}
+
 async function saveMetadata(baseDirectory: string, metadata: SyncMetadata): Promise<void> {
-  return enqueueSave(async () => {
-    const snapshot = JSON.stringify(metadata, null, 2)
-    const hiddenDir = join(baseDirectory, HIDDEN_DIR)
-    await mkdir(hiddenDir, { recursive: true })
-    const metaPath = join(hiddenDir, META_FILE)
-    const tmpPath = join(hiddenDir, `${META_FILE}.${process.pid}.tmp`)
-    await writeFile(tmpPath, snapshot, 'utf-8')
-    await rename(tmpPath, metaPath)
-  })
+  return enqueueSave(() => writeMetadataToDisk(baseDirectory, metadata))
 }
 
 /**
@@ -1080,17 +1082,26 @@ export async function updateNotebookParent(
   syncDirectory: string
 ): Promise<boolean> {
   const baseDir = expandPath(syncDirectory)
-  const metadata = await loadMetadata(baseDir)
-  if (!metadata) return false
+  // Serialize read+modify+write through enqueueSave so we don't race with a
+  // sync's pending writes. Without this, we could read pre-sync metadata from
+  // disk before the sync's tail save lands, then write our parent update on
+  // top of stale data — clobbering the sync result. Doing the load inside
+  // the queue forces this op to wait for any pending sync writes to flush
+  // before reading. Calls writeMetadataToDisk directly rather than going
+  // through saveMetadata to avoid recursive enqueueing.
+  return enqueueSave(async () => {
+    const metadata = await loadMetadata(baseDir)
+    if (!metadata) return false
 
-  const notebook = metadata.notebooks[notebookId]
-  if (!notebook) return false
+    const notebook = metadata.notebooks[notebookId]
+    if (!notebook) return false
 
-  notebook.parent = newParentId || null
+    notebook.parent = newParentId || null
 
-  await saveMetadata(baseDir, metadata)
-  console.log(`[reMarkable] Updated parent for notebook ${notebookId} to "${newParentId}"`)
-  return true
+    await writeMetadataToDisk(baseDir, metadata)
+    console.log(`[reMarkable] Updated parent for notebook ${notebookId} to "${newParentId}"`)
+    return true
+  })
 }
 
 /**

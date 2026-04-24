@@ -131,12 +131,14 @@ export async function extractTextFromPages(
     }))
   }
 
-  // Retry with exponential backoff for transient failures
-  const MAX_RETRIES = 3
+  // Retry with exponential backoff for transient failures.
+  // 4 total attempts (1 initial + 3 retries); RETRY_DELAYS has one entry per
+  // post-failure delay slot (only consulted when attempt < MAX_ATTEMPTS - 1).
+  const MAX_ATTEMPTS = 4
   const RETRY_DELAYS = [1000, 2000, 4000]
   let lastError: Error | null = null
 
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (signal?.aborted) throw new DOMException('OCR aborted', 'AbortError')
     try {
       const response = await fetch(url, {
@@ -162,8 +164,8 @@ export async function extractTextFromPages(
         }
 
         // Only retry on 5xx (server) errors, not 4xx (client) errors
-        if (response.status >= 500 && attempt < MAX_RETRIES) {
-          console.warn(`[OCR] Server error (${response.status}), retrying in ${RETRY_DELAYS[attempt]}ms (retry ${attempt + 1}/${MAX_RETRIES})`)
+        if (response.status >= 500 && attempt < MAX_ATTEMPTS - 1) {
+          console.warn(`[OCR] Server error (${response.status}), retrying in ${RETRY_DELAYS[attempt]}ms (retry ${attempt + 1}/${MAX_ATTEMPTS - 1})`)
           await abortableDelay(RETRY_DELAYS[attempt], signal)
           lastError = new Error(errorMessage)
           continue
@@ -182,8 +184,8 @@ export async function extractTextFromPages(
       // Propagate aborts immediately without another retry attempt.
       if ((error as { name?: string })?.name === 'AbortError') throw error
       // Retry on network errors (fetch throws on network failure)
-      if (attempt < MAX_RETRIES) {
-        console.warn(`[OCR] Request failed, retrying in ${RETRY_DELAYS[attempt]}ms (retry ${attempt + 1}/${MAX_RETRIES}):`, error)
+      if (attempt < MAX_ATTEMPTS - 1) {
+        console.warn(`[OCR] Request failed, retrying in ${RETRY_DELAYS[attempt]}ms (retry ${attempt + 1}/${MAX_ATTEMPTS - 1}):`, error)
         await abortableDelay(RETRY_DELAYS[attempt], signal)
         lastError = error instanceof Error ? error : new Error(String(error))
         continue

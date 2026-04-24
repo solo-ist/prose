@@ -6,6 +6,25 @@ import { subscribeRemarkableProgress } from '../lib/remarkableBridge'
 
 export type { SyncProgress }
 
+// Module-level debounce for loadNotebooks calls fired off the notebook-done
+// progress event. Without this, a sync of N notebooks fires N disk reads of
+// sync-metadata.json, and each useRemarkableSync caller (FileListPanel +
+// RemarkableIntegration) further multiplies that. The debounce coalesces
+// rapid notebook-done events into one trailing read; removeSyncingNotebook
+// stays immediate so the spinner clears promptly.
+let loadNotebooksDebounceTimer: ReturnType<typeof setTimeout> | null = null
+let pendingLoadNotebooksDir: string | null = null
+function scheduleLoadNotebooks(syncDir: string, loadFn: (dir: string) => void | Promise<void>): void {
+  pendingLoadNotebooksDir = syncDir
+  if (loadNotebooksDebounceTimer) clearTimeout(loadNotebooksDebounceTimer)
+  loadNotebooksDebounceTimer = setTimeout(() => {
+    loadNotebooksDebounceTimer = null
+    const dir = pendingLoadNotebooksDir
+    pendingLoadNotebooksDir = null
+    if (dir) void loadFn(dir)
+  }, 200)
+}
+
 export interface UseRemarkableSyncReturn {
   isSyncing: boolean
   lastSyncedAt: string | null
@@ -59,8 +78,10 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
           addSyncingNotebook(update.notebookId)
         } else if (update.phase === 'notebook-done') {
           removeSyncingNotebook(update.notebookId)
-          // Reload metadata so the notebook becomes interactive immediately
-          if (syncDirRef.current) loadNotebooks(syncDirRef.current)
+          // Reload metadata so just-completed notebooks become interactive.
+          // Debounced (200ms trailing) to coalesce bursts during a multi-
+          // notebook sync — see scheduleLoadNotebooks above.
+          if (syncDirRef.current) scheduleLoadNotebooks(syncDirRef.current, loadNotebooks)
         }
       }
     })

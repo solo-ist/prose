@@ -210,9 +210,11 @@ function RemarkableSettings({ settings, setRemarkableConfig }: Props) {
     // The selection dialog's Save button writes the file before it fires
     // onComplete, so by the time we land here the file is present regardless
     // of whether the follow-up sync() succeeds or surfaces an error. Setting
-    // true here mirrors disk; a failed sync is surfaced separately via syncError.
-    await sync()
+    // true BEFORE awaiting sync() ensures the React state mirrors disk even
+    // if sync ever throws (sync() catches internally today, but the ordering
+    // is defensive against future changes). Errors surface via syncError.
     setHasSyncState(true)
+    await sync()
   }
 
   const handleSaveApiKey = async () => {

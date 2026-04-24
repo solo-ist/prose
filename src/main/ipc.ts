@@ -1085,6 +1085,17 @@ export function setupIpcHandlers(): void {
   ipcMain.handle(
     'remarkable:moveNotebook',
     async (_event, deviceToken: string, notebookHash: string, newParentId: string) => {
+      // Bound the renderer-supplied identifiers at the IPC boundary. These
+      // hit the rmapi-js cloud API and never touch the local filesystem, so
+      // the validation is about catching obviously-malformed values fast
+      // (with a clear error) rather than path-traversal protection.
+      // newParentId may be empty (root). Cap at 128 chars — UUIDs are 36.
+      if (typeof notebookHash !== 'string' || !notebookHash) {
+        throw new Error('notebookHash is required')
+      }
+      if (notebookHash.length > 128) throw new Error('notebookHash is too long')
+      if (typeof newParentId !== 'string') throw new Error('newParentId must be a string')
+      if (newParentId.length > 128) throw new Error('newParentId is too long')
       const { connect } = await import('./remarkable/client')
       const client = await connect(deviceToken)
       await client.moveNotebook(notebookHash, newParentId)

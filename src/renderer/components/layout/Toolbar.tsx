@@ -48,6 +48,7 @@ import {
   Timer,
   CircleUserRound,
   Bug,
+  LifeBuoy,
   MessageSquarePlus,
   MessagesSquare,
   FilePlus,
@@ -508,10 +509,17 @@ export function Toolbar() {
                 Settings
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => window.open('https://github.com/solo-ist/prose/issues/new?template=bug-report.yml', '_blank', 'noopener,noreferrer')}>
-                <Bug className="mr-2 h-4 w-4" />
-                Report a Bug
-              </DropdownMenuItem>
+              {window.api?.isMasBuild ? (
+                <DropdownMenuItem onClick={() => window.open('https://solo.ist/prose/support', '_blank', 'noopener,noreferrer')}>
+                  <LifeBuoy className="mr-2 h-4 w-4" />
+                  Request Support
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem onClick={() => window.open('https://github.com/solo-ist/prose/issues/new?template=bug-report.yml', '_blank', 'noopener,noreferrer')}>
+                  <Bug className="mr-2 h-4 w-4" />
+                  Report a Bug
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => window.open('https://github.com/solo-ist/prose/issues/new?template=feature-request.yml', '_blank', 'noopener,noreferrer')}>
                 <MessageSquarePlus className="mr-2 h-4 w-4" />
                 Request a Feature

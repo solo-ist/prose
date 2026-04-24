@@ -419,7 +419,10 @@ app.whenReady().then(async () => {
     if (windows.length === 0) {
       createWindow()
     } else {
-      windows[0].show()
+      const win = windows[0]
+      if (win.isMinimized()) win.restore()
+      win.show()
+      win.focus()
     }
   })
 })

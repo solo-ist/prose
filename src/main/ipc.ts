@@ -1095,9 +1095,16 @@ export function setupIpcHandlers(): void {
   ipcMain.handle(
     'remarkable:createFolder',
     async (_event, deviceToken: string, name: string, parentId?: string) => {
+      // Bound the folder name at the IPC boundary. reMarkable folder names
+      // round-trip through the filesystem (sync writes them as directories),
+      // so the 255-char POSIX NAME_MAX is the right cap. Reject empty names
+      // too — the cloud API would fail anyway but a clearer message helps.
+      const trimmed = typeof name === 'string' ? name.trim() : ''
+      if (!trimmed) throw new Error('Folder name is required')
+      if (trimmed.length > 255) throw new Error('Folder name is too long (max 255 characters)')
       const { connect } = await import('./remarkable/client')
       const client = await connect(deviceToken)
-      return await client.createFolder(name, parentId)
+      return await client.createFolder(trimmed, parentId)
     }
   )
 

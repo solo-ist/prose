@@ -258,7 +258,8 @@ async function processNotebookWithOCR(
   notebookName: string,
   anthropicApiKey: string | null | undefined,
   existingCache?: Record<string, PageOCRCacheEntry>,
-  onProgress?: (update: SyncProgressUpdate) => void
+  onProgress?: (update: SyncProgressUpdate) => void,
+  signal?: AbortSignal
 ): Promise<{ markdown: string; pageOCRCache: Record<string, PageOCRCacheEntry> } | null> {
   console.log(`[OCR] processNotebookWithOCR called for "${notebookName}" at ${notebookDir}`)
 
@@ -390,7 +391,7 @@ async function processNotebookWithOCR(
       const result = await extractTextBatched(pagesToOCR, anthropicApiKey, (processed, total) => {
         console.log(`[OCR] Progress: ${processed}/${total}`)
         onProgress?.({ message: `OCR: page ${processed} of ${pagesToOCR.length} — "${notebookName}"`, notebookName, current: processed, total, phase: 'ocr' })
-      })
+      }, signal)
       console.log(`[OCR] extractTextBatched returned: pages=${result.pages.length}, failed=${result.failedPages.length}`)
 
       if (result.failedPages.length > 0) {
@@ -607,7 +608,7 @@ export async function syncAll(
         let ocrPath: string | undefined
         let pageOCRCache: Record<string, PageOCRCacheEntry> | undefined
         console.log(`[reMarkable] Running OCR for ${doc.name} from ${sourceDir}`)
-        const ocrResult = await processNotebookWithOCR(sourceDir, doc.name, anthropicApiKey, existingEntry?.pageOCRCache, onProgress)
+        const ocrResult = await processNotebookWithOCR(sourceDir, doc.name, anthropicApiKey, existingEntry?.pageOCRCache, onProgress, signal)
         console.log(`[reMarkable] OCR result for ${doc.name}: ${ocrResult ? 'got markdown' : 'null'}`)
         if (ocrResult) {
           const ocrFileName = `${sanitizeName(doc.name)}.md`
@@ -748,6 +749,11 @@ export async function syncAll(
           try {
             await syncOneNotebook(doc)
           } catch (error) {
+            // AbortError propagates from OCR when the user cancels mid-retry —
+            // that's cancellation, not a sync failure, so don't surface it
+            // as an error. The signal.aborted check at the top of the next
+            // loop iteration ends the worker cleanly.
+            if ((error as { name?: string })?.name === 'AbortError') break
             const message = error instanceof Error ? error.message : 'Unknown error'
             result.errors.push(`Failed to sync "${doc.name}": ${message}`)
           }

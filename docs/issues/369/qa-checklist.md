@@ -52,15 +52,17 @@ Required: a reMarkable tablet (any model, paired or not), with at least:
 
 If the device has only 1–2 notebooks, create a few throwaway ones with quick scribbles before starting — Finding 4 (concurrent worker race) needs ≥5 to actually exercise the parallelism.
 
-### P5. Open DevTools
+### P5. Open the dev server terminal AND DevTools
 
-Launch Prose: `npm run dev` (in another terminal, background). Once the app window appears, open DevTools (View → Toggle Developer Tools, or `Cmd+Opt+I`). Keep the Console tab visible and **filter for `[reMarkable]`** so signal stays high.
+Most reMarkable instrumentation (`[reMarkable] Processing X/N`, `OCR configured: ...`, `Sync finished`, etc.) lives in the **main process**, which logs to the terminal that ran `npm run dev` — NOT to the renderer DevTools. The two artifacts you'll watch:
 
-```
-Filter input: [reMarkable]
-```
+1. **Dev server terminal / `.dev.log`** — primary signal for sync progress, OCR, save failures.
+   ```bash
+   tail -f .dev.log | grep -E "\[reMarkable\]|\[OCR\]"
+   ```
+2. **Renderer DevTools** (View → Toggle Developer Tools, or `Cmd+Opt+I`) — for renderer-side errors and the few renderer logs that exist (`Synced cloud move for notebook ...`, `Eager cloud list fetch failed`, etc.). Keep it open for the whole session to catch any unexpected exceptions.
 
-Leave DevTools open for the entire session. Several steps need it.
+Many checks in this doc verify behavior via the **UI** (sync spinners, file panel updates, file presence on disk) rather than logs. If a step says "watch DevTools console," interpret it as "watch for renderer errors / specific renderer-emitted strings" — the bulk of `[reMarkable] ...` logs will be in the terminal stream.
 
 ---
 
@@ -77,13 +79,13 @@ Leave DevTools open for the entire session. Several steps need it.
 
 **Pass:**
 - Status flips to "Connected" within ~5 seconds.
-- DevTools console shows `[reMarkable] Registration successful`.
 - Sync directory field becomes editable.
+- No errors in the renderer DevTools console.
 
 **Fail diagnostic:**
 - "Invalid code" → re-copy the code, watch for case-sensitivity or extra characters.
 - Spinner hangs >15s → check network; reMarkable cloud may be slow.
-- Crash → DevTools console + main process log via `tail -f ~/Library/Logs/prose/main.log` (if it exists).
+- Crash → check renderer DevTools console for the React stack, and `.dev.log` (or the dev server terminal) for the main-process traceback.
 
 ---
 
@@ -91,18 +93,19 @@ Leave DevTools open for the entire session. Several steps need it.
 
 ### B1. Single-fire progress events (Finding 5)
 
-**Verifies:** the new `remarkableBridge.ts` IPC singleton fires each progress event exactly once, even with both the file panel AND settings panel mounted.
+**Verifies:** the `remarkableBridge.ts` IPC singleton fires each progress event exactly once, even with both the file panel AND settings panel mounted. With the singleton in place, the file panel updates each notebook's row exactly once when its sync completes — no flicker, no double-flash of the spinner.
 
 1. With settings panel still open from A1, click the file explorer (the panel on the left) so the notebooks view is visible — both panels are now mounted.
 2. Settings panel → Sync Now.
-3. Watch DevTools console. Each `[reMarkable] Done: <notebook name>` (or any `notebook-done` phase event) should appear **exactly once per notebook**, not twice.
+3. Watch the file panel as notebooks complete. Each notebook's row should show its spinner appear, then disappear cleanly when its sync finishes — no double-flash or visible re-render churn.
 
 **Pass:**
-- Count of `notebook-done` events == count of notebooks synced.
-- No duplicate `loadNotebooks` triggers (look for `[reMarkable] loadNotebooks` if logged, or just no double-render flicker in the file panel).
+- Each notebook's per-row sync indicator clears exactly once per notebook.
+- No double-flicker, no duplicate row entries appearing/disappearing.
+- `.dev.log` shows one `Processing X/N` line per notebook (count via `grep -c "Processing " .dev.log`).
 
 **Fail diagnostic:**
-- Doubled events → the bridge isn't installed; check `src/renderer/main.tsx` has `import './lib/remarkableBridge'` and `useRemarkableSync` imports `subscribeRemarkableProgress` from the bridge (not directly from `window.api`).
+- Visible double-flash on each notebook's spinner clear → the bridge isn't installed; check `src/renderer/main.tsx` has `import './lib/remarkableBridge'` and `useRemarkableSync` imports `subscribeRemarkableProgress` from the bridge (not directly from `window.api`).
 
 ### B2. OCR end-to-end + post-processing
 
@@ -135,7 +138,7 @@ Leave DevTools open for the entire session. Several steps need it.
 
 **Pass:**
 - The editable file you edited in step 3 opens. Your edit is still there.
-- DevTools console does not show "editable file not found" or similar errors.
+- Renderer DevTools console does not show "editable file not found" or similar errors.
 
 **Fail diagnostic:** **STOP IMMEDIATELY.** This is the regression we explicitly fixed. If it failed, the spread of `existingEntry` at `src/main/remarkable/sync.ts` line ~625 is wrong or got dropped somewhere. Do not continue.
 
@@ -160,11 +163,14 @@ Look for the notebook you edited. If `markdownPath` is `null` or missing, the bu
    ```
    Pass: the failed notebook has an `ocrAttempt` entry with `hash` matching the notebook's current hash.
 7. **Trigger another sync without changing anything.**
-8. Watch DevTools console.
+8. Watch `.dev.log` (or the dev server terminal).
 
 **Pass:**
-- The second sync does NOT attempt OCR for the previously-failed notebook (no `[OCR] Calling extractTextBatched` or similar for that notebook).
-- DevTools console shows the notebook being skipped or going through fast-path.
+- The second sync does NOT attempt OCR for the previously-failed notebook. Confirm via:
+  ```bash
+  grep "extractTextBatched\|<NOTEBOOK NAME>" .dev.log | tail -20
+  ```
+  No `[OCR] Calling extractTextBatched` line should appear for the failed notebook on the second sync — only `Processing X/N` then a fast-path skip.
 
 **Cleanup:** Restore the real OCR URL/API key, restart, sync once to confirm OCR can run again. Edit a page on the device first so the hash changes, then re-sync — OCR should run for that notebook (sentinel cleared by hash change).
 
@@ -232,13 +238,14 @@ This requires hitting the rename window — a random `kill -9` during idle won't
 1. Close settings panel (if open).
 2. Trigger Sync Now from the file panel (or a force-sync via the notebooks view).
 3. **While sync is running**, open Settings → Integrations → reMarkable.
-4. Watch DevTools console. Count `notebook-done` events.
+4. Watch the file panel and the renderer DevTools console.
 
 **Pass:**
-- Each notebook still emits exactly one `notebook-done` event total, even though both panels are now mounted.
-- No visible double-render in the file panel notebook list.
+- Each notebook's row in the file panel updates exactly once when its sync completes — no double-flicker after the settings panel mounts.
+- `.dev.log`'s `Processing X/N` count still equals the synced notebook count (one line per notebook, not two).
+- Renderer DevTools shows no errors.
 
-**Fail diagnostic:** doubled events → bridge wiring is broken; same diagnostic as B1.
+**Fail diagnostic:** visible double-render on notebook rows → bridge wiring is broken; same diagnostic as B1.
 
 ---
 
@@ -254,7 +261,7 @@ This requires hitting the rename window — a random `kill -9` during idle won't
 4. Without switching tabs or doing anything else, wait ~5 seconds.
 
 **Pass:**
-- Auto-sync fires. DevTools console shows `[reMarkable] Listing` then sync messages.
+- Auto-sync fires. The file panel shows the sync indicator activate. `.dev.log` shows `[reMarkable] Starting sync...` followed by `Fetching notebook list...`.
 
 **Fail diagnostic:** if no auto-sync, the `deviceToken` dep is missing from the `useEffect` array in `src/renderer/components/files/FileListPanel.tsx` (~line 458). You'd have to switch tabs and back to trigger sync, which is the bug we fixed.
 
@@ -274,7 +281,7 @@ This requires hitting the rename window — a random `kill -9` during idle won't
 **Pass:**
 - Local file moved.
 - Cloud notebook moved to matching folder.
-- DevTools console: `[reMarkable] Synced cloud move for notebook ...`.
+- Renderer DevTools console shows `[reMarkable] Synced cloud move for notebook ...` (this one is genuinely renderer-side — see `FileListPanel.tsx`).
 
 ### E2. Move into new local folder (auto-creates cloud folder)
 
@@ -309,7 +316,7 @@ This is a high-priority regression — moving folders incorrectly means the loca
 
 **Pass:**
 - Local move works.
-- DevTools console: NO `[reMarkable]` messages related to this move.
+- Renderer DevTools console: NO `[reMarkable] Synced cloud move ...` line for this move (it's the only renderer-emitted reMarkable log on the move path; absence confirms the cloud-side code path was correctly skipped).
 - No errors.
 
 ---
@@ -343,7 +350,7 @@ cat ~/Documents/reMarkable/.remarkable/sync-metadata.json | jq '[.. | objects | 
 **Pass:**
 - Output is `0`. No `modifed` entries remain.
 - Sample any `pageOCRCache` entry — it should now have `modified` (with the same value).
-- Trigger a sync. Watch DevTools console: pages with cached OCR should hit the timestamp-match cache (`[OCR] Cache hit for page ... (timestamp match)`), NOT re-OCR.
+- Trigger a sync. In `.dev.log`, pages with cached OCR should hit the timestamp-match cache (`[OCR] Cache hit for page ... (timestamp match)`), NOT re-OCR. Confirm via `grep "Cache hit\|Calling extractTextBatched" .dev.log | tail -20`.
 
 **Fail diagnostic:** if `modifed` entries persist, the migration didn't write back. Check `loadMetadata` in `sync.ts` for the `if (migrated) await saveMetadata(...)` line.
 
@@ -361,7 +368,7 @@ If the cache misses fire (re-OCR every page), the comparison in `cached.modified
 
 **Pass:**
 - Status: disconnected.
-- DevTools console: no errors.
+- Renderer DevTools console: no errors.
 - `~/Documents/reMarkable/.remarkable/` directory removed (or emptied; check `purgeSync` behavior).
 - User-visible markdown files (the editable copies in `~/Documents/reMarkable/`) are NOT deleted.
 
@@ -392,15 +399,16 @@ Only relevant if you're running `npm run dev` (which you should be for this whol
 1. Open `src/renderer/lib/remarkableBridge.ts` in your editor.
 2. Add a trivial whitespace change (e.g., add a blank line at the end). Save.
 3. Vite should hot-reload the module — Prose's window may flash briefly, no full restart.
-4. In DevTools console, check that the page didn't error.
+4. In renderer DevTools console, check that the page didn't error.
 5. Trigger Sync Now.
-6. Count `notebook-done` events per notebook.
+6. Watch the file panel as notebooks complete.
 
 **Pass:**
-- Each notebook emits exactly one `notebook-done` event (HMR didn't stack a second listener).
-- No "duplicate event" or "listener already registered" warnings in console.
+- Each notebook's per-row sync indicator clears exactly once per notebook (same as B1) — HMR didn't stack a second listener.
+- No "duplicate event" or "listener already registered" warnings in renderer DevTools.
+- `.dev.log` shows one `Processing X/N` line per notebook, matching the synced count.
 
-**Fail diagnostic:** if events double after HMR, `import.meta.hot.dispose` isn't firing. Check that the bridge's HMR teardown clears both `unsubscribeIpc` and `listeners`.
+**Fail diagnostic:** if you see double-flash on each notebook's spinner clear after HMR, `import.meta.hot.dispose` isn't firing. Check that the bridge's HMR teardown clears both `unsubscribeIpc` and `listeners`.
 
 ---
 

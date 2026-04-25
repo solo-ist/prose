@@ -822,7 +822,8 @@ export function FileListPanel() {
                         // OCR-failed wins over hasOCR/hasEditable so users see
                         // honest signal that the most recent OCR failed.
                         // Click still works (opens stale content if available).
-                        ? `${item.name} (OCR failed${localMeta?.ocrAttempt?.failedAt ? ` ${new Date(localMeta.ocrAttempt.failedAt).toLocaleDateString()}` : ''}${hasOCR || hasEditable ? ' — showing previous transcription; edit on tablet to retry, or right-click to contact support' : ' — edit on tablet to retry, or right-click to contact support'})`
+                        // Right-click → "Report OCR Issue" is the action surface.
+                        ? `${item.name}: Error Syncing — Contact Support`
                         : hasEditable
                           ? `${item.name} (editable)`
                           : hasOCR

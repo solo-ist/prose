@@ -1427,9 +1427,19 @@ export function FileListPanel() {
           </DialogHeader>
           <div className="max-h-[320px] overflow-y-auto rounded-md border border-border">
             {(() => {
+              // Filter to folders containing at least one sync-selected notebook.
+              // reMarkable ships with a set of pre-installed Methods folders
+              // (Quadrant method, Boxing method, Pros/cons, etc.) that look
+              // like ordinary CollectionType entries in the cloud listing —
+              // there's no SDK flag distinguishing them from user folders.
+              // Restricting to folders the user has notebooks in keeps the
+              // picker focused on their active workspace and hides the
+              // pre-installed clutter. isFolderSynced returns true with no
+              // sync-state (legacy/first-launch), so this is a no-op until
+              // the user has actually selected notebooks to sync.
               const folders = notebookMetadata
                 ? Object.entries(notebookMetadata.notebooks)
-                    .filter(([, meta]) => meta.type === 'folder')
+                    .filter(([id, meta]) => meta.type === 'folder' && isFolderSynced(id))
                     .map(([id, meta]) => ({ id, name: meta.name, localPath: meta.localPath }))
                     .sort((a, b) => a.localPath.localeCompare(b.localPath))
                 : []

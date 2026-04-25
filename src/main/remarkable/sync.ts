@@ -644,10 +644,19 @@ export async function syncAll(
       // Only show sync indicator for notebooks that actually need work
       onProgress?.({ message: `Syncing ${idx}/${totalToSync}: ${doc.name}`, notebookId: doc.id, notebookName: doc.name, current: idx, total: totalToSync, phase: 'downloading' })
 
-      // Helper: run OCR and return ocrPath + page cache
-      async function runOCR(sourceDir: string): Promise<{ ocrPath?: string; pageOCRCache?: Record<string, PageOCRCacheEntry> }> {
+      // Helper: run OCR and return ocrPath + page cache + freshSucceeded.
+      //
+      // freshSucceeded specifically reports whether the THIS-sync OCR call
+      // produced a new markdown file. ocrPath, by contrast, may be populated
+      // by the stale-file fallback below — so callers must check
+      // freshSucceeded (not ocrPath) when deciding whether to set the
+      // ocrAttempt failure sentinel. Otherwise the fallback silently masks
+      // OCR failures: the UI keeps showing stale content as if everything is
+      // fine, and the user has no idea fresh OCR failed.
+      async function runOCR(sourceDir: string): Promise<{ ocrPath?: string; pageOCRCache?: Record<string, PageOCRCacheEntry>; freshSucceeded: boolean }> {
         let ocrPath: string | undefined
         let pageOCRCache: Record<string, PageOCRCacheEntry> | undefined
+        let freshSucceeded = false
         console.log(`[reMarkable] Running OCR for ${doc.name} from ${sourceDir}`)
         const ocrResult = await processNotebookWithOCR(sourceDir, doc.name, anthropicApiKey, existingEntry?.pageOCRCache, onProgress, signal)
         console.log(`[reMarkable] OCR result for ${doc.name}: ${ocrResult ? 'got markdown' : 'null'}`)
@@ -659,9 +668,13 @@ export async function syncAll(
           await writeFile(ocrFullPath, ocrResult.markdown, 'utf-8')
           ocrPath = join(doc.id, ocrFileName)
           pageOCRCache = ocrResult.pageOCRCache
+          freshSucceeded = true
           onProgress?.({ message: `Saved OCR: ${ocrPath}`, notebookName: doc.name, phase: 'ocr' })
         }
-        // Fallback: reuse existing OCR file on disk
+        // Fallback: keep referencing the existing on-disk OCR file so the
+        // user can still read what was successfully transcribed previously.
+        // This intentionally does NOT flip freshSucceeded — the sentinel
+        // tracks the most recent fresh attempt, independent of stale content.
         if (!ocrPath) {
           const ocrFileName = `${sanitizeName(doc.name)}.md`
           const existingOcrFile = join(hiddenDir, doc.id, ocrFileName)
@@ -674,20 +687,22 @@ export async function syncAll(
             // No existing file on disk either
           }
         }
-        return { ocrPath, pageOCRCache }
+        return { ocrPath, pageOCRCache, freshSucceeded }
       }
 
       // OCR-only path: hash matches, local files exist, just need OCR
       if (!needsDownload && needsOCR) {
         console.log(`[reMarkable] OCR-only path for ${doc.name}`)
         onProgress?.({ message: `Processing OCR for existing notebook: ${doc.name}`, notebookName: doc.name, phase: 'ocr' })
-        const { ocrPath, pageOCRCache } = await runOCR(notebookDir)
+        const { ocrPath, pageOCRCache, freshSucceeded } = await runOCR(notebookDir)
         newMeta.notebooks[doc.id] = {
           ...existingEntry!,
           ocrPath,
           pageOCRCache,
           markdownPath: existingEntry?.markdownPath,
-          ocrAttempt: ocrPath ? undefined : { hash: doc.hash, failedAt: new Date().toISOString() }
+          // Sentinel keys off freshSucceeded, NOT ocrPath: ocrPath may be the
+          // stale-fallback path even when this sync's OCR call failed.
+          ocrAttempt: freshSucceeded ? undefined : { hash: doc.hash, failedAt: new Date().toISOString() }
         }
         result.synced++
         const done = ++finished
@@ -735,10 +750,12 @@ export async function syncAll(
       // OCR for handwritten notebooks
       let ocrPath: string | undefined
       let pageOCRCache: Record<string, PageOCRCacheEntry> | undefined
+      let ocrFreshSucceeded = false
       if (doc.fileType === 'notebook') {
         const ocrResult = await runOCR(notebookDir)
         ocrPath = ocrResult.ocrPath
         pageOCRCache = ocrResult.pageOCRCache
+        ocrFreshSucceeded = ocrResult.freshSucceeded
       }
 
       newMeta.notebooks[doc.id] = {
@@ -756,10 +773,12 @@ export async function syncAll(
         // Matches the OCR-only path above: on successful OCR (or when OCR
         // isn't applicable to this file type) clear any prior sentinel; on
         // OCR failure for a notebook, stamp a new sentinel with the current
-        // hash. The explicit `undefined` on success deliberately overrides
-        // any ocrAttempt carried in by the existingEntry spread;
-        // JSON.stringify then drops the key.
-        ocrAttempt: doc.fileType !== 'notebook' || ocrPath
+        // hash. Keys off ocrFreshSucceeded, NOT ocrPath — ocrPath can come
+        // from the stale-file fallback even when this sync's OCR failed.
+        // The explicit `undefined` on success deliberately overrides any
+        // ocrAttempt carried in by the existingEntry spread; JSON.stringify
+        // then drops the key.
+        ocrAttempt: doc.fileType !== 'notebook' || ocrFreshSucceeded
           ? undefined
           : { hash: doc.hash, failedAt: new Date().toISOString() }
       }

@@ -818,12 +818,15 @@ export function FileListPanel() {
                   title={
                     !isSynced
                       ? `${item.name} (not synced - right-click to sync)`
-                      : hasEditable
-                        ? `${item.name} (editable)`
-                        : hasOCR
-                          ? `${item.name} (read-only OCR - click to view)`
-                          : ocrFailed
-                            ? `${item.name} (OCR failed${localMeta?.ocrAttempt?.failedAt ? ` ${new Date(localMeta.ocrAttempt.failedAt).toLocaleDateString()}` : ''} — edit on tablet to retry)`
+                      : ocrFailed
+                        // OCR-failed wins over hasOCR/hasEditable so users see
+                        // honest signal that the most recent OCR failed.
+                        // Click still works (opens stale content if available).
+                        ? `${item.name} (OCR failed${localMeta?.ocrAttempt?.failedAt ? ` ${new Date(localMeta.ocrAttempt.failedAt).toLocaleDateString()}` : ''}${hasOCR || hasEditable ? ' — showing previous transcription; edit on tablet to retry' : ' — edit on tablet to retry'})`
+                        : hasEditable
+                          ? `${item.name} (editable)`
+                          : hasOCR
+                            ? `${item.name} (read-only OCR - click to view)`
                             : `${item.name} (synced, processing OCR...)`
                   }
                   disabled={!isSynced || !isClickable}
@@ -831,12 +834,12 @@ export function FileListPanel() {
                   {isSyncingThisNotebook ? (
                     <Loader2 className="h-4 w-4 shrink-0 text-muted-foreground animate-spin" />
                   ) : isSynced ? (
-                    hasEditable ? (
+                    ocrFailed ? (
+                      <AlertTriangle className="h-4 w-4 shrink-0 text-destructive/70" />
+                    ) : hasEditable ? (
                       <Cloud className="h-4 w-4 shrink-0 text-foreground" />
                     ) : hasOCR ? (
                       <Cloud className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    ) : ocrFailed ? (
-                      <AlertTriangle className="h-4 w-4 shrink-0 text-destructive/70" />
                     ) : (
                       <Cloud className="h-4 w-4 shrink-0 text-muted-foreground/50" />
                     )

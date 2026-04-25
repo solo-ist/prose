@@ -34,7 +34,7 @@ import {
 } from '../ui/dialog'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
-import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, ChevronRight, ChevronDown, Folder, FolderOpen, Download, Trash2, FilePlus, ClipboardPaste, ExternalLink, X, Globe, Edit3, RefreshCw, Loader2 } from 'lucide-react'
+import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, ChevronRight, ChevronDown, Folder, FolderOpen, Download, Trash2, FilePlus, ClipboardPaste, ExternalLink, X, Globe, Edit3, RefreshCw, Loader2, AlertTriangle } from 'lucide-react'
 import { useSettings } from '../../hooks/useSettings'
 import { cn } from '../../lib/utils'
 import { getApi } from '../../lib/browserApi'
@@ -789,6 +789,11 @@ export function FileListPanel() {
         const localMeta = notebookMetadata?.notebooks?.[notebookId] ?? null
         const hasOCR = !!localMeta?.ocrPath
         const hasEditable = !!localMeta?.markdownPath
+        // OCR failed AND the failed-against hash matches the current hash —
+        // i.e. the sentinel still applies. If the user edits the page on the
+        // tablet, hash changes and the sentinel no longer matches, so retry
+        // will fire on the next sync (and ocrFailed flips back to false).
+        const ocrFailed = !!localMeta?.ocrAttempt && localMeta.ocrAttempt.hash === localMeta.hash
         const isClickable = hasOCR || hasEditable
         // For selection highlighting, check both editable path and OCR path
         const fullEditablePath = (localMeta?.markdownPath && syncDirectory)
@@ -817,7 +822,9 @@ export function FileListPanel() {
                         ? `${item.name} (editable)`
                         : hasOCR
                           ? `${item.name} (read-only OCR - click to view)`
-                          : `${item.name} (synced, processing OCR...)`
+                          : ocrFailed
+                            ? `${item.name} (OCR failed${localMeta?.ocrAttempt?.failedAt ? ` ${new Date(localMeta.ocrAttempt.failedAt).toLocaleDateString()}` : ''} — edit on tablet to retry)`
+                            : `${item.name} (synced, processing OCR...)`
                   }
                   disabled={!isSynced || !isClickable}
                 >
@@ -828,6 +835,8 @@ export function FileListPanel() {
                       <Cloud className="h-4 w-4 shrink-0 text-foreground" />
                     ) : hasOCR ? (
                       <Cloud className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    ) : ocrFailed ? (
+                      <AlertTriangle className="h-4 w-4 shrink-0 text-destructive/70" />
                     ) : (
                       <Cloud className="h-4 w-4 shrink-0 text-muted-foreground/50" />
                     )

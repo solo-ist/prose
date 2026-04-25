@@ -117,6 +117,13 @@ export interface RemarkableNotebookMetadata {
   ocrPath?: string
   /** Path to user's editable markdown in visible folder */
   markdownPath?: string
+  /**
+   * Sentinel set by sync when OCR returned no markdown for the given hash.
+   * Suppresses retry on every sync until the notebook content changes.
+   * Surfaced in the file panel as a distinct failed-state tooltip + icon
+   * so users know the row isn't simply "still processing".
+   */
+  ocrAttempt?: { hash: string; failedAt: string }
 }
 
 export interface RemarkableSyncMetadata {

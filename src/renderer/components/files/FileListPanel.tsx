@@ -819,11 +819,10 @@ export function FileListPanel() {
                     !isSynced
                       ? `${item.name} (not synced - right-click to sync)`
                       : ocrFailed
-                        // OCR-failed wins over hasOCR/hasEditable so users see
-                        // honest signal that the most recent OCR failed.
-                        // Click still works (opens stale content if available).
-                        // Right-click → "Report OCR Issue" is the action surface.
-                        ? `${item.name}: Error Syncing — Contact Support`
+                        // No tooltip in the failed state — the AlertTriangle
+                        // icon is the signal, and "Report OCR Issue" in the
+                        // right-click menu is the action surface.
+                        ? item.name
                         : hasEditable
                           ? `${item.name} (editable)`
                           : hasOCR

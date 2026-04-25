@@ -3,6 +3,9 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { useFileListStore } from '../stores/fileListStore'
 import type { SyncProgress } from '../stores/fileListStore'
 import { subscribeRemarkableProgress } from '../lib/remarkableBridge'
+import { useTabStore } from '../stores/tabStore'
+import { useEditorStore } from '../stores/editorStore'
+import { parseMarkdown } from '../lib/markdown'
 
 export type { SyncProgress }
 
@@ -30,6 +33,66 @@ function scheduleLoadNotebooks(syncDir: string, loadFn: (dir: string) => void | 
     pendingLoadNotebooksDir = null
     if (dir) void loadFn(dir)
   }, 200)
+}
+
+/**
+ * Reload any open editor tab whose path is the read-only OCR file for the
+ * just-synced notebook. Without this, sync rewrites the OCR markdown on disk
+ * but the open tab's TipTap state keeps showing whatever it loaded at open
+ * time — so a successful Retry Sync visibly looks unchanged until the user
+ * closes and reopens the tab.
+ *
+ * Match strategy: OCR files always live at
+ *   <syncDir>/.remarkable/<notebookId>/<filename>.md
+ * and the directory segment embeds the notebook id, so a substring match on
+ * `/.remarkable/<id>/` uniquely identifies the OCR tab regardless of how it
+ * was opened. Editable copies (created via "transform to edit mode") live
+ * elsewhere in the sync dir and are intentionally not touched — those are
+ * user-owned and would be wrong to overwrite.
+ *
+ * Read-only OCR tabs cannot be dirty (the editor disables edits while
+ * `isRemarkableReadOnly` is set), so silently swapping content is safe — no
+ * unsaved-edit conflict to worry about.
+ */
+async function refreshOpenOcrTab(notebookId: string): Promise<void> {
+  if (!window.api?.readFile) return
+  const segment = `/.remarkable/${notebookId}/`
+  const tabs = useTabStore.getState().tabs
+  const matches = tabs.filter(t => t.path?.includes(segment))
+  if (matches.length === 0) return
+
+  for (const tab of matches) {
+    if (!tab.path) continue
+    let raw: string
+    try {
+      raw = await window.api.readFile(tab.path)
+    } catch (err) {
+      // File may be mid-write or briefly missing during sync; skip silently.
+      console.warn('[reMarkable] Failed to reload OCR tab content:', err)
+      continue
+    }
+    const parsed = parseMarkdown(raw)
+
+    // Always refresh the cached tab snapshot so background tabs hydrate the
+    // new content next time they activate.
+    useTabStore.getState().updateTab(tab.id, {
+      content: parsed.content,
+      frontmatter: parsed.frontmatter,
+      isDirty: false
+    })
+
+    // If this tab is the active editor, push the content through editorStore
+    // — Editor.tsx watches editorStore.document.content and runs setContent on
+    // the TipTap instance, so this is what makes the visible swap happen.
+    const editorState = useEditorStore.getState()
+    if (editorState.document.path === tab.path) {
+      editorState.setDocument({
+        content: parsed.content,
+        frontmatter: parsed.frontmatter,
+        isDirty: false
+      })
+    }
+  }
 }
 
 export interface UseRemarkableSyncReturn {
@@ -89,6 +152,9 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
           // Debounced (200ms trailing) to coalesce bursts during a multi-
           // notebook sync — see scheduleLoadNotebooks above.
           if (syncDirRef.current) scheduleLoadNotebooks(syncDirRef.current, loadNotebooks)
+          // Refresh any open OCR tab for this notebook so the editor shows
+          // the freshly-OCR'd markdown instead of the pre-sync snapshot.
+          void refreshOpenOcrTab(update.notebookId)
         }
       }
     })

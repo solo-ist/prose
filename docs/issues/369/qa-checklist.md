@@ -171,6 +171,7 @@ Look for the notebook you edited. If `markdownPath` is `null` or missing, the bu
   grep "extractTextBatched\|<NOTEBOOK NAME>" .dev.log | tail -20
   ```
   No `[OCR] Calling extractTextBatched` line should appear for the failed notebook on the second sync — only `Processing X/N` then a fast-path skip.
+- In the file panel, the failed notebook now shows an **AlertTriangle icon (red/destructive tint)** instead of the faint cloud, and its tooltip reads `(OCR failed YYYY-MM-DD — edit on tablet to retry)` rather than `(synced, processing OCR...)`. This is the user-visible surface added so the suppressed state isn't indistinguishable from "still processing".
 
 **Cleanup:** Restore the real OCR URL/API key, restart, sync once to confirm OCR can run again. Edit a page on the device first so the hash changes, then re-sync — OCR should run for that notebook (sentinel cleared by hash change).
 

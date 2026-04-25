@@ -34,7 +34,7 @@ import {
 } from '../ui/dialog'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
-import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, ChevronRight, ChevronDown, Folder, FolderOpen, Download, Trash2, FilePlus, ClipboardPaste, ExternalLink, X, Globe, Edit3, RefreshCw, Loader2, AlertTriangle } from 'lucide-react'
+import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, ChevronRight, ChevronDown, Folder, FolderOpen, Download, Trash2, FilePlus, ClipboardPaste, ExternalLink, X, Globe, Edit3, RefreshCw, Loader2, AlertTriangle, Bug } from 'lucide-react'
 import { useSettings } from '../../hooks/useSettings'
 import { cn } from '../../lib/utils'
 import { getApi } from '../../lib/browserApi'
@@ -822,7 +822,7 @@ export function FileListPanel() {
                         // OCR-failed wins over hasOCR/hasEditable so users see
                         // honest signal that the most recent OCR failed.
                         // Click still works (opens stale content if available).
-                        ? `${item.name} (OCR failed${localMeta?.ocrAttempt?.failedAt ? ` ${new Date(localMeta.ocrAttempt.failedAt).toLocaleDateString()}` : ''}${hasOCR || hasEditable ? ' — showing previous transcription; edit on tablet to retry' : ' — edit on tablet to retry'})`
+                        ? `${item.name} (OCR failed${localMeta?.ocrAttempt?.failedAt ? ` ${new Date(localMeta.ocrAttempt.failedAt).toLocaleDateString()}` : ''}${hasOCR || hasEditable ? ' — showing previous transcription; edit on tablet to retry, or right-click to contact support' : ' — edit on tablet to retry, or right-click to contact support'})`
                         : hasEditable
                           ? `${item.name} (editable)`
                           : hasOCR
@@ -864,6 +864,27 @@ export function FileListPanel() {
                   <ContextMenuItem onClick={() => handleToggleSync(notebookId)}>
                     <Download className="h-4 w-4 mr-2" />
                     Add to sync
+                  </ContextMenuItem>
+                )}
+                {ocrFailed && (
+                  <ContextMenuItem
+                    onClick={() => {
+                      // Pre-fill the bug-report template with notebook name + failedAt.
+                      // The user can edit before submitting; we just save them typing.
+                      const params = new URLSearchParams({
+                        template: 'bug-report.yml',
+                        title: `[reMarkable] OCR failed for "${item.name}"`,
+                        labels: 'remarkable,bug',
+                      })
+                      window.open(
+                        `https://github.com/solo-ist/prose/issues/new?${params.toString()}`,
+                        '_blank',
+                        'noopener,noreferrer'
+                      )
+                    }}
+                  >
+                    <Bug className="h-4 w-4 mr-2" />
+                    Report OCR Issue
                   </ContextMenuItem>
                 )}
               </ContextMenuContent>

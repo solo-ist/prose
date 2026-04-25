@@ -663,6 +663,19 @@ export function FileListPanel() {
     }
   }
 
+  // True if a folder (or any of its descendants) contains at least one
+  // notebook entry. Mirrors the same predicate the NotebookSelectionDialog
+  // ("Manage Notebooks") uses to hide reMarkable's pre-installed Methods
+  // folders — those ship with only template PDFs and no real notebooks, so
+  // they fall out implicitly. Used by the Move-to picker so the user sees
+  // every folder they could organize into, regardless of sync selection.
+  const hasNotebookDescendants = (folderId: string): boolean => {
+    const children = itemsByParent.get(folderId) || []
+    return children.some(child =>
+      child.type === 'notebook' || (child.type === 'folder' && hasNotebookDescendants(child.id))
+    )
+  }
+
   // Check if a folder has any synced notebooks inside it (recursively)
   const isFolderSynced = (folderId: string): boolean => {
     if (!syncState) return true // Legacy behavior
@@ -1427,19 +1440,19 @@ export function FileListPanel() {
           </DialogHeader>
           <div className="max-h-[320px] overflow-y-auto rounded-md border border-border">
             {(() => {
-              // Filter to folders containing at least one sync-selected notebook.
-              // reMarkable ships with a set of pre-installed Methods folders
-              // (Quadrant method, Boxing method, Pros/cons, etc.) that look
-              // like ordinary CollectionType entries in the cloud listing —
-              // there's no SDK flag distinguishing them from user folders.
-              // Restricting to folders the user has notebooks in keeps the
-              // picker focused on their active workspace and hides the
-              // pre-installed clutter. isFolderSynced returns true with no
-              // sync-state (legacy/first-launch), so this is a no-op until
-              // the user has actually selected notebooks to sync.
+              // Filter to folders that contain at least one notebook entry
+              // somewhere in their subtree. reMarkable ships with pre-
+              // installed Methods folders (Quadrant method, Boxing method,
+              // Pros/cons, etc.) populated only with template PDFs and no
+              // real notebooks — there's no SDK flag distinguishing them
+              // from user folders, but they fall out of this predicate
+              // implicitly. Same logic the Manage Notebooks dialog uses to
+              // hide system folders. Sync-state is intentionally NOT used:
+              // a user folder that has notebooks but no current sync
+              // selection is still a valid move target.
               const folders = notebookMetadata
                 ? Object.entries(notebookMetadata.notebooks)
-                    .filter(([id, meta]) => meta.type === 'folder' && isFolderSynced(id))
+                    .filter(([id, meta]) => meta.type === 'folder' && hasNotebookDescendants(id))
                     .map(([id, meta]) => ({ id, name: meta.name, localPath: meta.localPath }))
                     .sort((a, b) => a.localPath.localeCompare(b.localPath))
                 : []

@@ -1131,6 +1131,49 @@ export async function clearNotebookMarkdownPath(
 }
 
 /**
+ * Clear the OCR-failure sentinel AND the cached ocrPath for a single notebook
+ * so the next sync will run a fresh OCR attempt. Used by the "Retry Sync"
+ * context-menu action when the user has fixed an external condition (e.g.
+ * wrong OCR service URL) that caused the prior failure.
+ *
+ * Why both fields: syncOneNotebook short-circuits as "skipped" when the hash
+ * matches AND `existingEntry.ocrPath` is populated. After a failed OCR the
+ * stale-fallback in runOCR may have set ocrPath to point at a previously-
+ * transcribed file from an older hash, so leaving ocrPath alone would let
+ * the retry skip without doing anything — flipping the UI from "failed" to
+ * a fake "success" backed by stale text.
+ *
+ * Clearing ocrPath is safe: the on-disk file isn't deleted, and runOCR's
+ * stale-fallback re-discovers it via filesystem access if the retry also
+ * fails. So the worst case (retry still broken) lands back at exactly the
+ * same observable state as before retry.
+ */
+export async function clearOcrSentinel(
+  notebookId: string,
+  syncDirectory: string
+): Promise<boolean> {
+  const baseDir = expandPath(syncDirectory)
+  // Serialize through enqueueSave for the same reason updateNotebookParent
+  // does: avoid racing the read with a sync's pending writes.
+  return enqueueSave(async () => {
+    const metadata = await loadMetadata(baseDir)
+    if (!metadata) return false
+
+    const notebook = metadata.notebooks[notebookId]
+    if (!notebook) return false
+    // No-op if there's nothing to clear (defensive — UI already gates the
+    // menu item on ocrFailed, but a stray call shouldn't dirty the file).
+    if (!notebook.ocrAttempt && !notebook.ocrPath) return false
+
+    delete notebook.ocrAttempt
+    delete notebook.ocrPath
+    await writeMetadataToDisk(baseDir, metadata)
+    console.log(`[reMarkable] Cleared OCR sentinel + ocrPath for notebook ${notebookId}`)
+    return true
+  })
+}
+
+/**
  * Update the cloud parent ID of a notebook in local sync metadata.
  * Called after successfully moving a notebook on the reMarkable cloud so
  * the local view stays consistent with the cloud state.

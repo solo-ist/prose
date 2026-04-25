@@ -1081,6 +1081,21 @@ export function setupIpcHandlers(): void {
     }
   )
 
+  // reMarkable: Clear OCR-failure sentinel so next sync retries OCR.
+  // Backs the "Retry Sync" context-menu action on a notebook in the failed state.
+  ipcMain.handle(
+    'remarkable:clearOcrSentinel',
+    async (_event, notebookId: string, syncDirectory: string) => {
+      if (typeof notebookId !== 'string' || !notebookId) {
+        throw new Error('notebookId is required')
+      }
+      if (notebookId.length > 128) throw new Error('notebookId is too long')
+      const safeDir = validatePath(syncDirectory)
+      const { clearOcrSentinel } = await import('./remarkable/sync')
+      return await clearOcrSentinel(notebookId, safeDir)
+    }
+  )
+
   // reMarkable: Move a notebook to a new parent folder on the cloud
   ipcMain.handle(
     'remarkable:moveNotebook',

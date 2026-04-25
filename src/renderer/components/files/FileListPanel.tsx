@@ -688,6 +688,20 @@ export function FileListPanel() {
     }
   }
 
+  // Retry OCR for a notebook stuck in the failed state. Clears the sentinel
+  // (which the per-hash short-circuit in syncOneNotebook keys off) and then
+  // triggers a fresh sync. Without clearing the sentinel, sync would re-skip
+  // OCR for this notebook because its cloud hash hasn't changed.
+  const handleRetrySync = async (notebookId: string) => {
+    if (!syncDirectory || !window.api) return
+    try {
+      await window.api.remarkableClearOcrSentinel(notebookId, syncDirectory)
+    } catch (err) {
+      console.warn('[reMarkable] Failed to clear OCR sentinel:', err)
+    }
+    await sync()
+  }
+
   // Check if a folder has any synced notebooks inside it (recursively)
   const isFolderSynced = (folderId: string): boolean => {
     if (!syncState) return true // Legacy behavior
@@ -864,6 +878,15 @@ export function FileListPanel() {
                   <ContextMenuItem onClick={() => handleToggleSync(notebookId)}>
                     <Download className="h-4 w-4 mr-2" />
                     Add to sync
+                  </ContextMenuItem>
+                )}
+                {ocrFailed && (
+                  <ContextMenuItem
+                    onClick={() => handleRetrySync(notebookId)}
+                    disabled={isSyncing}
+                  >
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Retry Sync
                   </ContextMenuItem>
                 )}
                 {ocrFailed && (

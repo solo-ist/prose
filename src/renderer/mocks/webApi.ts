@@ -459,6 +459,11 @@ export function createMockApi(): ElectronAPI {
       _syncDirectory: string
     ): Promise<boolean> => false,
 
+    remarkableClearOcrSentinel: async (
+      _notebookId: string,
+      _syncDirectory: string
+    ): Promise<boolean> => false,
+
     remarkableMoveNotebook: async (
       _deviceToken: string,
       _notebookHash: string,

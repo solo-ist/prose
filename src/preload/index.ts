@@ -222,6 +222,7 @@ export interface ElectronAPI {
   remarkableCreateEditableVersion: (notebookId: string, syncDirectory: string) => Promise<string | null>
   remarkableFindNotebookByFilePath: (filePath: string, syncDirectory: string) => Promise<string | null>
   remarkableClearNotebookMarkdownPath: (notebookId: string, syncDirectory: string) => Promise<boolean>
+  remarkableClearOcrSentinel: (notebookId: string, syncDirectory: string) => Promise<boolean>
   remarkableMoveNotebook: (deviceToken: string, notebookHash: string, newParentId: string) => Promise<void>
   remarkableCreateFolder: (deviceToken: string, name: string, parentId?: string) => Promise<string>
   remarkableUpdateNotebookParent: (notebookId: string, newParentId: string, syncDirectory: string) => Promise<boolean>
@@ -399,6 +400,8 @@ const api: ElectronAPI = {
     ipcRenderer.invoke('remarkable:findNotebookByFilePath', filePath, syncDirectory),
   remarkableClearNotebookMarkdownPath: (notebookId: string, syncDirectory: string) =>
     ipcRenderer.invoke('remarkable:clearNotebookMarkdownPath', notebookId, syncDirectory),
+  remarkableClearOcrSentinel: (notebookId: string, syncDirectory: string) =>
+    ipcRenderer.invoke('remarkable:clearOcrSentinel', notebookId, syncDirectory),
   remarkableMoveNotebook: (deviceToken: string, notebookHash: string, newParentId: string) =>
     ipcRenderer.invoke('remarkable:moveNotebook', deviceToken, notebookHash, newParentId),
   remarkableCreateFolder: (deviceToken: string, name: string, parentId?: string) =>

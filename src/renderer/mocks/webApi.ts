@@ -470,12 +470,6 @@ export function createMockApi(): ElectronAPI {
       _newParentId: string
     ): Promise<void> => {},
 
-    remarkableCreateFolder: async (
-      _deviceToken: string,
-      _name: string,
-      _parentId?: string
-    ): Promise<string> => '',
-
     remarkableUpdateNotebookParent: async (
       _notebookId: string,
       _newParentId: string,

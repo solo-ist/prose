@@ -261,118 +261,6 @@ export function FileListPanel() {
     }
   }
 
-  // Sync a file move/rename to the reMarkable cloud if the file is a synced
-  // notebook. Runs after the local filesystem move has already succeeded.
-  // Errors are caught and logged but never propagate — local move wins.
-  //
-  // Multi-level folder creation: when the target path includes folders that
-  // don't exist on the cloud yet, walk segments and track newly-created
-  // folders in a local map so subsequent segments can find their parent
-  // (notebookMetadata is a snapshot and won't include just-created folders).
-  //
-  // Declared before the rename/drop handlers that reference it in their
-  // useCallback dep arrays — a later declaration would be in the temporal
-  // dead zone at mount time and throw on first render.
-  // Known edge case: rapid concurrent moves into the same NEW folder hierarchy
-  // can each create their own copy of the missing folder. justCreated is per-call,
-  // and notebookMetadata won't reflect the first move's just-created folder until
-  // the next loadCloudNotebooks. The user-facing impact is a duplicated cloud
-  // folder; the notebooks still land somewhere valid. Real-world trigger requires
-  // queuing two drags within milliseconds, so we accept it for now — a process-
-  // level "just created" cache or a per-move serialization queue would close it
-  // if we ever see it in practice.
-  const syncRemarkableCloudMove = useCallback(async (oldPath: string, newPath: string) => {
-    if (!syncDirectory || !deviceToken || !notebookMetadata) return
-
-    // Normalize to forward slashes for portable comparison
-    const normSync = syncDirectory.replace(/\\/g, '/')
-    const normOld = oldPath.replace(/\\/g, '/')
-    const normNew = newPath.replace(/\\/g, '/')
-
-    // Only act when both endpoints are inside the reMarkable sync directory.
-    // A move OUT of the sync dir should NOT propagate as a cloud move —
-    // silently defaulting to cloud root (as the old code did) could
-    // reorganize the user's cloud without warning. Leave the cloud alone
-    // for out-of-sync moves; the local file has still left the sync tree,
-    // which is what the user chose to do.
-    const oldInside = normOld.startsWith(normSync + '/')
-    const newInside = normNew.startsWith(normSync + '/')
-    if (!oldInside || !newInside) return
-
-    try {
-      const notebookId = await window.api?.remarkableFindNotebookByFilePath?.(oldPath, syncDirectory)
-      if (!notebookId) return
-
-      const notebookEntry = notebookMetadata.notebooks[notebookId]
-      if (!notebookEntry?.hash) return
-
-      const newTargetDir = normNew.substring(0, normNew.lastIndexOf('/'))
-      const relTargetDir = newTargetDir.startsWith(normSync + '/')
-        ? newTargetDir.slice(normSync.length + 1)
-        : ''
-
-      let cloudFolderId = '' // empty string = root on reMarkable cloud
-
-      if (relTargetDir) {
-        // Fast path: full target directory already exists in cloud metadata
-        const folderEntry = Object.entries(notebookMetadata.notebooks).find(
-          ([, meta]) => meta.type === 'folder' && meta.localPath.replace(/\\/g, '/') === relTargetDir
-        )
-        if (folderEntry) {
-          cloudFolderId = folderEntry[0]
-        } else {
-          // Walk segments. For each, check (a) just-created in this loop,
-          // then (b) existing in metadata at the accumulated path, then (c)
-          // create on cloud. justCreated must be consulted before metadata
-          // because newly-created folders aren't in the metadata snapshot.
-          const segments = relTargetDir.split('/')
-          const justCreated = new Map<string, string>() // accumulated rel path → cloud folder ID
-          let currentParentId = ''
-          let accumulated = ''
-
-          for (const segment of segments) {
-            accumulated = accumulated ? `${accumulated}/${segment}` : segment
-
-            const cached = justCreated.get(accumulated)
-            if (cached) {
-              currentParentId = cached
-              continue
-            }
-
-            const existing = Object.entries(notebookMetadata.notebooks).find(
-              ([, meta]) => meta.type === 'folder' && meta.localPath.replace(/\\/g, '/') === accumulated
-            )
-            if (existing) {
-              currentParentId = existing[0]
-              continue
-            }
-
-            const newFolderId = await window.api?.remarkableCreateFolder?.(
-              deviceToken,
-              segment,
-              currentParentId || undefined
-            )
-            if (!newFolderId) {
-              console.warn('[reMarkable] Failed to create cloud folder:', segment)
-              return
-            }
-            justCreated.set(accumulated, newFolderId)
-            currentParentId = newFolderId
-          }
-
-          cloudFolderId = currentParentId
-        }
-      }
-
-      await window.api?.remarkableMoveNotebook?.(deviceToken, notebookEntry.hash, cloudFolderId)
-      await window.api?.remarkableUpdateNotebookParent?.(notebookId, cloudFolderId, syncDirectory)
-
-      console.log(`[reMarkable] Synced cloud move for notebook ${notebookId} to folder "${cloudFolderId}"`)
-    } catch (error) {
-      console.warn('[reMarkable] Failed to sync move to cloud (local move succeeded):', error)
-    }
-  }, [syncDirectory, deviceToken, notebookMetadata])
-
   // Inline rename handler (for file tree) — triggers inline edit via store
   const handleFileRenameInline = useCallback((path: string) => {
     selectFile(path)
@@ -401,9 +289,6 @@ export function FileListPanel() {
       }
 
       await api.renameFile(oldPath, newPath)
-
-      // Sync move to reMarkable cloud if applicable
-      await syncRemarkableCloudMove(oldPath, newPath)
 
       // Tab sync: update tab if file was open
       const tab = useTabStore.getState().getTabByPath(oldPath)
@@ -434,7 +319,7 @@ export function FileListPanel() {
     } catch (error) {
       console.error('Error renaming file:', error)
     }
-  }, [api, googleDocsMetadata, loadGoogleDocsMetadata, loadFiles, selectFile, setRenamingPath, syncRemarkableCloudMove])
+  }, [api, googleDocsMetadata, loadGoogleDocsMetadata, loadFiles, selectFile, setRenamingPath])
 
   const handleRenameCancel = useCallback(() => {
     setRenamingPath(null)
@@ -469,9 +354,6 @@ export function FileListPanel() {
       }
 
       await api.renameFile(renameFilePath, newPath)
-
-      // Sync move to reMarkable cloud if applicable
-      await syncRemarkableCloudMove(renameFilePath, newPath)
 
       // Tab sync
       const tab = useTabStore.getState().getTabByPath(renameFilePath)
@@ -542,9 +424,6 @@ export function FileListPanel() {
     try {
       await api.renameFile(sourcePath, destPath)
 
-      // Sync move to reMarkable cloud if applicable
-      await syncRemarkableCloudMove(sourcePath, destPath)
-
       // Update tab if the moved file was open
       const tab = useTabStore.getState().getTabByPath(sourcePath)
       if (tab) {
@@ -557,7 +436,7 @@ export function FileListPanel() {
     } catch (error) {
       console.error('Error moving file:', error)
     }
-  }, [api, loadFiles, selectFile, syncRemarkableCloudMove])
+  }, [api, loadFiles, selectFile])
 
   // Show in folder handler
   const handleFileShowInFolder = async (path: string) => {

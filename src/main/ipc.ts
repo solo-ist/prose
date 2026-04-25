@@ -1117,41 +1117,14 @@ export function setupIpcHandlers(): void {
     }
   )
 
-  // reMarkable: Create a folder on the cloud
-  ipcMain.handle(
-    'remarkable:createFolder',
-    async (_event, deviceToken: string, name: string, parentId?: string) => {
-      // Bound the folder name at the IPC boundary. reMarkable folder names
-      // round-trip through the filesystem (sync writes them as directories),
-      // so the POSIX NAME_MAX (255 BYTES — not characters) is the right cap.
-      // Multibyte Unicode names can exceed 255 bytes with fewer characters.
-      // Reject empty names too — the cloud API would fail anyway but a
-      // clearer message helps.
-      const trimmed = typeof name === 'string' ? name.trim() : ''
-      if (!trimmed) throw new Error('Folder name is required')
-      if (Buffer.byteLength(trimmed, 'utf8') > 255) {
-        throw new Error('Folder name is too long (max 255 bytes)')
-      }
-      // Match the 128-char cap on the other cloud-id IPC handlers. parentId
-      // is optional — undefined/empty-string means cloud root.
-      if (parentId !== undefined) {
-        if (typeof parentId !== 'string') throw new Error('parentId must be a string')
-        if (parentId.length > 128) throw new Error('parentId is too long')
-      }
-      const { connect } = await import('./remarkable/client')
-      const client = await connect(deviceToken)
-      return await client.createFolder(trimmed, parentId)
-    }
-  )
-
   // reMarkable: Update notebook parent in local sync metadata
   ipcMain.handle(
     'remarkable:updateNotebookParent',
     async (_event, notebookId: string, newParentId: string, syncDirectory: string) => {
-      // Match the bounds on the sibling cloud-move handlers. These values
+      // Match the bounds on the sibling cloud-move handler. These values
       // are metadata keys, not filesystem paths (syncDirectory is what goes
       // through validatePath), but guarding them here keeps the behavior
-      // consistent with remarkable:moveNotebook / remarkable:createFolder.
+      // consistent with remarkable:moveNotebook.
       if (typeof notebookId !== 'string' || !notebookId) {
         throw new Error('notebookId is required')
       }

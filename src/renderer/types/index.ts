@@ -394,7 +394,6 @@ export interface ElectronAPI {
   remarkableClearNotebookMarkdownPath: (notebookId: string, syncDirectory: string) => Promise<boolean>
   remarkableClearOcrSentinel: (notebookId: string, syncDirectory: string) => Promise<boolean>
   remarkableMoveNotebook: (deviceToken: string, notebookHash: string, newParentId: string) => Promise<void>
-  remarkableCreateFolder: (deviceToken: string, name: string, parentId?: string) => Promise<string>
   remarkableUpdateNotebookParent: (notebookId: string, newParentId: string, syncDirectory: string) => Promise<boolean>
   remarkableCancelSync: () => Promise<void>
   onRemarkableSyncProgress: (

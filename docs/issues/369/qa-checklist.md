@@ -173,6 +173,12 @@ Look for the notebook you edited. If `markdownPath` is `null` or missing, the bu
   No `[OCR] Calling extractTextBatched` line should appear for the failed notebook on the second sync — only `Processing X/N` then a fast-path skip.
 - In the file panel, the failed notebook now shows an **AlertTriangle icon (red/destructive tint)** instead of the faint cloud, and its tooltip reads `(OCR failed YYYY-MM-DD — edit on tablet to retry)` rather than `(synced, processing OCR...)`. This is the user-visible surface added so the suppressed state isn't indistinguishable from "still processing".
 
+**Stale-fallback regression check:** repeat the failure flow against a notebook that already has a successful OCR markdown file on disk (e.g., one that succeeded under the real URL before you broke it). The sync log should still show `[OCR] Reusing existing OCR file: <id>/<name>.md` (the user keeps access to old content) — but the metadata MUST also stamp the `ocrAttempt` sentinel and the file-panel row MUST show AlertTriangle with the tooltip suffix `— showing previous transcription; edit on tablet to retry`. If either is missing, the stale fallback is masking failure again (regression of c14f6e5). Verify metadata via:
+```bash
+jq --arg id "<NOTEBOOK ID>" '.notebooks[$id] | {ocrPath, ocrAttempt, hash}' ~/Documents/reMarkable/.remarkable/sync-metadata.json
+```
+Both `ocrPath` (stale path) and `ocrAttempt.hash` (== current hash) should be present together.
+
 **Cleanup:** Restore the real OCR URL/API key, restart, sync once to confirm OCR can run again. Edit a page on the device first so the hash changes, then re-sync — OCR should run for that notebook (sentinel cleared by hash change).
 
 **Fail diagnostic:** if OCR fires again on the unchanged notebook, the `ocrAttempt` sentinel isn't being read or written. Check `needsOCR` calc at `sync.ts` line ~566.

@@ -274,57 +274,62 @@ This requires hitting the rename window — a random `kill -9` during idle won't
 
 ---
 
-## Section E — Folder move (PR #400 work)
+## Section E — Cloud-tab "Move to..." (#215)
 
-### E1. Move into existing folder
+The original PR #400 implementation intercepted local-explorer gestures and
+pushed them to the cloud — wrong direction (the local sync directory is a
+one-way mirror) and removed in `revert(remarkable): remove misguided
+local-explorer cloud-sync path`. The replacement is a deliberate cloud-tab
+context-menu action that calls only `api.move()` (retry-safe). Folder
+creation is intentionally NOT offered — `api.putFolder` can leave orphan
+blobs on partial failure and the value-to-risk ratio isn't worth it.
 
-**Verifies:** basic single-level move propagates to cloud.
+### E1. Move a notebook to an existing cloud folder
 
-1. In the file explorer, find a synced notebook's `.md` (the editable copy created in B3, or a fresh one created via "Create Editable Version").
-2. Drag it into an existing local folder (or right-click → Move To).
-3. Wait ~5 seconds.
-4. On the reMarkable device or my.remarkable.com web UI, confirm the notebook now shows under the corresponding cloud folder.
+**Verifies:** the cloud-tab "Move to..." action propagates to the cloud and the cloud-tab UI re-renders under the new parent.
 
-**Pass:**
-- Local file moved.
-- Cloud notebook moved to matching folder.
-- Renderer DevTools console shows `[reMarkable] Synced cloud move for notebook ...` (this one is genuinely renderer-side — see `FileListPanel.tsx`).
-
-### E2. Move into new local folder (auto-creates cloud folder)
-
-**Verifies:** single missing folder is created on cloud.
-
-1. Create a new folder in the local sync directory: right-click → New Folder, name it `qa-test-1`.
-2. Move a synced notebook's `.md` into `qa-test-1`.
-3. On reMarkable cloud, confirm a folder named `qa-test-1` was created at the root and contains the moved notebook.
-
-**Pass:** folder exists on cloud; notebook is inside it.
-
-### E3. Multi-level new path — **THE FINDING 7-STYLE FIX**
-
-**Verifies:** the multi-level folder bug fix actually works.
-
-1. Create a deeply nested local folder: `qa-test-2/sub/deep` (three levels of new folders, none of which exist on the cloud).
-2. Move a synced notebook's `.md` into `qa-test-2/sub/deep`.
-3. On reMarkable cloud, browse: should see `qa-test-2/` → `sub/` → `deep/` → notebook.
-
-**Pass:** all three folder levels exist on cloud, properly nested. Notebook is in the deepest one.
-
-**Fail diagnostic:** if any level lands at root instead of nested, the `justCreated` Map isn't being consulted before the metadata lookup. Check `src/renderer/components/files/FileListPanel.tsx` `syncRemarkableCloudMove` callback — the segment loop should check `justCreated.get(accumulated)` before `Object.entries(notebookMetadata.notebooks).find(...)`.
-
-This is a high-priority regression — moving folders incorrectly means the local view diverges from cloud state and users lose track of where their notebooks live.
-
-### E4. Non-reMarkable file move (no-op for cloud)
-
-**Verifies:** the cloud sync code path doesn't touch unrelated files.
-
-1. Create a file outside the reMarkable sync directory (e.g., a regular `.md` somewhere in your editor's recents).
-2. Move it.
+1. Open the cloud notebooks tab (`Shift+Cmd+H` to toggle the panel, then switch to the Notebooks view).
+2. Right-click any synced notebook → "Move to...".
+3. The picker dialog opens. The notebook's current parent is highlighted as `current` and the Move button is disabled until you pick a different row.
+4. Pick a different existing cloud folder. Click **Move**.
+5. Wait ~2-3 seconds for the cloud listing refresh.
 
 **Pass:**
-- Local move works.
-- Renderer DevTools console: NO `[reMarkable] Synced cloud move ...` line for this move (it's the only renderer-emitted reMarkable log on the move path; absence confirms the cloud-side code path was correctly skipped).
-- No errors.
+- Dialog closes.
+- The notebook now renders under the chosen folder in the cloud-tab tree.
+- On my.remarkable.com or the device, the notebook appears in the same folder.
+
+### E2. Move a notebook back to root
+
+**Verifies:** root is selectable and the move correctly clears the cloud parent.
+
+1. Right-click a notebook that's currently inside a folder → "Move to...".
+2. Pick the **Root** row at the top of the picker. Click **Move**.
+
+**Pass:** the notebook returns to top level in both the cloud-tab tree and on my.remarkable.com.
+
+### E3. Folder creation is NOT offered
+
+**Verifies:** the dangerous primitive stays gone.
+
+1. Open the cloud-tab "Move to..." dialog.
+2. Confirm there is no "New folder" button or input — only the existing folder list and Root.
+3. Right-click any cloud folder in the tab. Confirm there is no "Create folder" menu item (folders have no context menu at all today).
+
+**Pass:** no UI exposes folder creation. `api.putFolder` is unreachable from any user gesture.
+
+### E4. Failure surfaces, local metadata stays consistent
+
+**Verifies:** a failed cloud move does not desync local metadata.
+
+1. Settings → Integrations → reMarkable: change the device token to an obviously-invalid value (e.g., flip a character). Save.
+2. Open the cloud-tab, right-click a synced notebook → "Move to..." → pick a different folder → Move.
+
+**Pass:**
+- Dialog shows an error message (e.g., `Connection failed: ...`).
+- Dialog stays open with the user's selection intact.
+- Closing the dialog and reopening the cloud tab: the notebook is still under its **original** parent, both in the UI and in `~/Documents/reMarkable/.remarkable/sync-metadata.json` (`grep '"parent"'` for the notebook id).
+- Restore the correct device token and try again — the move now succeeds.
 
 ---
 

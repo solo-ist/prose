@@ -34,7 +34,7 @@ import {
 } from '../ui/dialog'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
-import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, ChevronRight, ChevronDown, Folder, FolderOpen, Download, Trash2, FilePlus, ClipboardPaste, ExternalLink, X, Globe, Edit3, RefreshCw, Loader2, AlertTriangle, Bug } from 'lucide-react'
+import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, ChevronRight, ChevronDown, Folder, FolderOpen, FolderInput, Download, Trash2, FilePlus, ClipboardPaste, ExternalLink, X, Globe, Edit3, RefreshCw, Loader2, AlertTriangle, Bug } from 'lucide-react'
 import { useSettings } from '../../hooks/useSettings'
 import { cn } from '../../lib/utils'
 import { getApi } from '../../lib/browserApi'
@@ -62,6 +62,8 @@ export function FileListPanel() {
     toggleNotebookSync,
     loadFiles,
     loadGoogleDocsMetadata,
+    loadNotebooks,
+    loadCloudNotebooks,
     googleDocsMetadata,
     syncDirectory,
     deviceToken,
@@ -114,6 +116,20 @@ export function FileListPanel() {
   const [renameDialogOpen, setRenameDialogOpen] = useState(false)
   const [renameFilePath, setRenameFilePath] = useState<string | null>(null)
   const [renameFileName, setRenameFileName] = useState('')
+
+  // reMarkable cloud "Move to..." dialog state. moveTarget !== null drives
+  // dialog visibility; selectedTargetParentId is the user's pick within the
+  // dialog and starts at the notebook's current parent so Confirm is a no-op
+  // until they actually choose a different folder.
+  const [moveTarget, setMoveTarget] = useState<{
+    notebookId: string
+    notebookName: string
+    notebookHash: string
+    currentParentId: string
+  } | null>(null)
+  const [selectedTargetParentId, setSelectedTargetParentId] = useState<string>('')
+  const [isMovingToCloud, setIsMovingToCloud] = useState(false)
+  const [moveError, setMoveError] = useState<string | null>(null)
 
   // Error state for user feedback
   const [operationError, setOperationError] = useState<string | null>(null)
@@ -581,6 +597,68 @@ export function FileListPanel() {
     await sync()
   }
 
+  // Open the "Move to..." picker for a cloud notebook. The dialog reads from
+  // notebookMetadata to render the available cloud folder list, then on
+  // confirm calls api.move() (cloud) followed by updateNotebookParent (local
+  // metadata) so the cloud-tab UI reflects the new parent immediately
+  // without waiting for a full sync to reconcile.
+  const handleMoveTo = (notebookId: string) => {
+    if (!notebookMetadata) return
+    const entry = notebookMetadata.notebooks[notebookId]
+    if (!entry || entry.type !== 'notebook' || !entry.hash) return
+    const currentParentId = entry.parent ?? ''
+    setMoveTarget({
+      notebookId,
+      notebookName: entry.name,
+      notebookHash: entry.hash,
+      currentParentId
+    })
+    setSelectedTargetParentId(currentParentId)
+    setMoveError(null)
+  }
+
+  const handleConfirmMove = async () => {
+    if (!moveTarget || !deviceToken || !syncDirectory || !window.api) return
+    // No-op move — disable Confirm in the UI as well, but defend here too.
+    if (selectedTargetParentId === moveTarget.currentParentId) return
+
+    setIsMovingToCloud(true)
+    setMoveError(null)
+    try {
+      // api.move() is retry-safe per rmapi-js: a failed root commit leaves
+      // the cloud at the old state, so we can surface the error and let
+      // the user retry without worrying about half-moved data.
+      await window.api.remarkableMoveNotebook(
+        deviceToken,
+        moveTarget.notebookHash,
+        selectedTargetParentId
+      )
+      // Local metadata update is best-effort: if it fails after a successful
+      // cloud move, the next full sync will reconcile. Don't let it block
+      // closing the dialog.
+      try {
+        await window.api.remarkableUpdateNotebookParent(
+          moveTarget.notebookId,
+          selectedTargetParentId,
+          syncDirectory
+        )
+      } catch (err) {
+        console.warn('[reMarkable] Cloud move succeeded but local metadata update failed:', err)
+      }
+      // Refresh both the cloud listing and local metadata so the cloud-tab
+      // tree re-renders under the new parent immediately. The useMemo on
+      // cloudNotebooks/notebookMetadata picks up the new structure.
+      await loadNotebooks(syncDirectory)
+      if (deviceToken) await loadCloudNotebooks(deviceToken, syncDirectory)
+      setMoveTarget(null)
+    } catch (err) {
+      console.error('[reMarkable] Cloud move failed:', err)
+      setMoveError(err instanceof Error ? err.message : 'Failed to move notebook')
+    } finally {
+      setIsMovingToCloud(false)
+    }
+  }
+
   // Check if a folder has any synced notebooks inside it (recursively)
   const isFolderSynced = (folderId: string): boolean => {
     if (!syncState) return true // Legacy behavior
@@ -759,6 +837,13 @@ export function FileListPanel() {
                     Add to sync
                   </ContextMenuItem>
                 )}
+                <ContextMenuItem
+                  onClick={() => handleMoveTo(notebookId)}
+                  disabled={isSyncing || isMovingToCloud}
+                >
+                  <FolderInput className="h-4 w-4 mr-2" />
+                  Move to...
+                </ContextMenuItem>
                 {ocrFailed && (
                   <ContextMenuItem
                     onClick={() => handleRetrySync(notebookId)}
@@ -1309,6 +1394,89 @@ export function FileListPanel() {
               disabled={isDeleting}
             >
               {isDeleting ? 'Moving...' : 'Move to Trash'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* reMarkable cloud "Move to..." picker. Lists existing cloud folders;
+          folder creation is intentionally NOT offered here — api.putFolder
+          can leave orphan blobs on partial failure (see rmapi-js notes), so
+          users create folders on the device or my.remarkable.com first. */}
+      <Dialog
+        open={!!moveTarget}
+        onOpenChange={(open) => {
+          if (!open && !isMovingToCloud) {
+            setMoveTarget(null)
+            setMoveError(null)
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Move to...</DialogTitle>
+            <DialogDescription>
+              {moveTarget && (
+                <>Choose a destination folder for <strong>{moveTarget.notebookName}</strong>.</>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[320px] overflow-y-auto rounded-md border border-border">
+            {(() => {
+              const folders = notebookMetadata
+                ? Object.entries(notebookMetadata.notebooks)
+                    .filter(([, meta]) => meta.type === 'folder')
+                    .map(([id, meta]) => ({ id, name: meta.name, localPath: meta.localPath }))
+                    .sort((a, b) => a.localPath.localeCompare(b.localPath))
+                : []
+              const rows = [{ id: '', name: 'Root', localPath: '' }, ...folders]
+              return rows.map((row) => {
+                const isSelected = selectedTargetParentId === row.id
+                const isCurrent = moveTarget?.currentParentId === row.id
+                return (
+                  <button
+                    key={row.id || 'root'}
+                    type="button"
+                    onClick={() => setSelectedTargetParentId(row.id)}
+                    className={cn(
+                      'flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted/50',
+                      isSelected && 'bg-muted',
+                      isCurrent && 'opacity-60'
+                    )}
+                  >
+                    <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate flex-1">{row.localPath || row.name}</span>
+                    {isCurrent && (
+                      <span className="text-xs text-muted-foreground">current</span>
+                    )}
+                  </button>
+                )
+              })
+            })()}
+          </div>
+          {moveError && (
+            <p className="text-sm text-destructive">{moveError}</p>
+          )}
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setMoveTarget(null)
+                setMoveError(null)
+              }}
+              disabled={isMovingToCloud}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmMove}
+              disabled={
+                isMovingToCloud ||
+                !moveTarget ||
+                selectedTargetParentId === moveTarget.currentParentId
+              }
+            >
+              {isMovingToCloud ? 'Moving...' : 'Move'}
             </Button>
           </DialogFooter>
         </DialogContent>

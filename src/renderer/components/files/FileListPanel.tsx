@@ -627,8 +627,11 @@ export function FileListPanel() {
     try {
       // api.move() is retry-safe per rmapi-js: a failed root commit leaves
       // the cloud at the old state, so we can surface the error and let
-      // the user retry without worrying about half-moved data.
-      await window.api.remarkableMoveNotebook(
+      // the user retry without worrying about half-moved data. The IPC
+      // returns the entry's NEW hash assigned by the cloud; persist it so
+      // a follow-up move for the same notebook doesn't pass the now-stale
+      // pre-move hash and fail with "not found in root hash".
+      const newHash = await window.api.remarkableMoveNotebook(
         deviceToken,
         moveTarget.notebookHash,
         selectedTargetParentId
@@ -640,7 +643,8 @@ export function FileListPanel() {
         await window.api.remarkableUpdateNotebookParent(
           moveTarget.notebookId,
           selectedTargetParentId,
-          syncDirectory
+          syncDirectory,
+          newHash
         )
       } catch (err) {
         console.warn('[reMarkable] Cloud move succeeded but local metadata update failed:', err)

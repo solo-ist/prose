@@ -223,8 +223,8 @@ export interface ElectronAPI {
   remarkableFindNotebookByFilePath: (filePath: string, syncDirectory: string) => Promise<string | null>
   remarkableClearNotebookMarkdownPath: (notebookId: string, syncDirectory: string) => Promise<boolean>
   remarkableClearOcrSentinel: (notebookId: string, syncDirectory: string) => Promise<boolean>
-  remarkableMoveNotebook: (deviceToken: string, notebookHash: string, newParentId: string) => Promise<void>
-  remarkableUpdateNotebookParent: (notebookId: string, newParentId: string, syncDirectory: string) => Promise<boolean>
+  remarkableMoveNotebook: (deviceToken: string, notebookHash: string, newParentId: string) => Promise<string>
+  remarkableUpdateNotebookParent: (notebookId: string, newParentId: string, syncDirectory: string, newHash?: string) => Promise<boolean>
   remarkableCancelSync: () => Promise<void>
   onRemarkableSyncProgress: (
     callback: (progress: { message: string; notebookId?: string; notebookName?: string; current?: number; total?: number; phase: RemarkableSyncPhase }) => void
@@ -403,8 +403,8 @@ const api: ElectronAPI = {
     ipcRenderer.invoke('remarkable:clearOcrSentinel', notebookId, syncDirectory),
   remarkableMoveNotebook: (deviceToken: string, notebookHash: string, newParentId: string) =>
     ipcRenderer.invoke('remarkable:moveNotebook', deviceToken, notebookHash, newParentId),
-  remarkableUpdateNotebookParent: (notebookId: string, newParentId: string, syncDirectory: string) =>
-    ipcRenderer.invoke('remarkable:updateNotebookParent', notebookId, newParentId, syncDirectory),
+  remarkableUpdateNotebookParent: (notebookId: string, newParentId: string, syncDirectory: string, newHash?: string) =>
+    ipcRenderer.invoke('remarkable:updateNotebookParent', notebookId, newParentId, syncDirectory, newHash),
   remarkableCancelSync: () => ipcRenderer.invoke('remarkable:sync:abort'),
   onRemarkableSyncProgress: (callback: (progress: { message: string; notebookId?: string; notebookName?: string; current?: number; total?: number; phase: RemarkableSyncPhase }) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, progress: { message: string; notebookId?: string; notebookName?: string; current?: number; total?: number; phase: RemarkableSyncPhase }) => {

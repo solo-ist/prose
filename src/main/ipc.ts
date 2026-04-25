@@ -1113,14 +1113,17 @@ export function setupIpcHandlers(): void {
       if (newParentId.length > 128) throw new Error('newParentId is too long')
       const { connect } = await import('./remarkable/client')
       const client = await connect(deviceToken)
-      await client.moveNotebook(notebookHash, newParentId)
+      // Surface the new hash assigned by the cloud so the caller can persist
+      // it via remarkable:updateNotebookParent — without it, a follow-up
+      // move would still pass the pre-move hash and fail.
+      return await client.moveNotebook(notebookHash, newParentId)
     }
   )
 
-  // reMarkable: Update notebook parent in local sync metadata
+  // reMarkable: Update notebook parent (and optionally hash) in local sync metadata
   ipcMain.handle(
     'remarkable:updateNotebookParent',
-    async (_event, notebookId: string, newParentId: string, syncDirectory: string) => {
+    async (_event, notebookId: string, newParentId: string, syncDirectory: string, newHash?: string) => {
       // Match the bounds on the sibling cloud-move handler. These values
       // are metadata keys, not filesystem paths (syncDirectory is what goes
       // through validatePath), but guarding them here keeps the behavior
@@ -1131,9 +1134,14 @@ export function setupIpcHandlers(): void {
       if (notebookId.length > 128) throw new Error('notebookId is too long')
       if (typeof newParentId !== 'string') throw new Error('newParentId must be a string')
       if (newParentId.length > 128) throw new Error('newParentId is too long')
+      // newHash bound matches notebookHash on the cloud-move handler.
+      if (newHash !== undefined) {
+        if (typeof newHash !== 'string') throw new Error('newHash must be a string')
+        if (newHash.length > 128) throw new Error('newHash is too long')
+      }
       const safeDir = validatePath(syncDirectory)
       const { updateNotebookParent } = await import('./remarkable/sync')
-      return await updateNotebookParent(notebookId, newParentId, safeDir)
+      return await updateNotebookParent(notebookId, newParentId, safeDir, newHash)
     }
   )
 

@@ -1174,19 +1174,28 @@ export async function clearOcrSentinel(
 }
 
 /**
- * Update the cloud parent ID of a notebook in local sync metadata.
- * Called after successfully moving a notebook on the reMarkable cloud so
- * the local view stays consistent with the cloud state.
+ * Update the cloud parent ID (and optionally the content hash) of a notebook
+ * in local sync metadata. Called after successfully moving a notebook on the
+ * reMarkable cloud so the local view stays consistent with the cloud state.
+ *
+ * The optional newHash parameter is critical for the move flow: the cloud
+ * assigns a fresh hash to an entry every time its metadata changes, so the
+ * pre-move hash becomes invalid the moment api.move() succeeds. Without
+ * persisting the new hash here, the next move attempt for the same notebook
+ * passes a stale hash to the cloud and fails with "not found in root hash"
+ * until the next full sync rewrites the metadata file.
  *
  * @param notebookId - The notebook ID to update
  * @param newParentId - The new cloud folder ID (empty string for root)
  * @param syncDirectory - Base sync directory
+ * @param newHash - Optional new content hash to persist alongside the parent
  * @returns true if updated successfully, false if notebook not found
  */
 export async function updateNotebookParent(
   notebookId: string,
   newParentId: string,
-  syncDirectory: string
+  syncDirectory: string,
+  newHash?: string
 ): Promise<boolean> {
   const baseDir = expandPath(syncDirectory)
   // Serialize read+modify+write through enqueueSave so we don't race with a
@@ -1204,9 +1213,10 @@ export async function updateNotebookParent(
     if (!notebook) return false
 
     notebook.parent = newParentId || null
+    if (newHash) notebook.hash = newHash
 
     await writeMetadataToDisk(baseDir, metadata)
-    console.log(`[reMarkable] Updated parent for notebook ${notebookId} to "${newParentId}"`)
+    console.log(`[reMarkable] Updated parent for notebook ${notebookId} to "${newParentId}"${newHash ? ` (hash → ${newHash.slice(0, 12)}...)` : ''}`)
     return true
   })
 }

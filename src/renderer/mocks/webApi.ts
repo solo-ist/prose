@@ -468,12 +468,13 @@ export function createMockApi(): ElectronAPI {
       _deviceToken: string,
       _notebookHash: string,
       _newParentId: string
-    ): Promise<void> => {},
+    ): Promise<string> => '',
 
     remarkableUpdateNotebookParent: async (
       _notebookId: string,
       _newParentId: string,
-      _syncDirectory: string
+      _syncDirectory: string,
+      _newHash?: string
     ): Promise<boolean> => false,
 
     remarkableCancelSync: async (): Promise<void> => {},

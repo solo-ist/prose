@@ -18,7 +18,7 @@ export interface RemarkableNotebook {
 export interface RemarkableClient {
   listNotebooks(): Promise<RemarkableNotebook[]>
   downloadNotebook(id: string, hash: string): Promise<Uint8Array>
-  moveNotebook(hash: string, newParentId: string): Promise<void>
+  moveNotebook(hash: string, newParentId: string): Promise<string>
   disconnect(): void
 }
 
@@ -147,8 +147,14 @@ function createClient(api: RemarkableApi): RemarkableClient {
       return await api.getDocument(hash)
     },
 
-    async moveNotebook(hash: string, newParentId: string): Promise<void> {
-      await api.move(hash, newParentId)
+    async moveNotebook(hash: string, newParentId: string): Promise<string> {
+      // api.move returns a HashEntry { hash } — the entry's NEW hash after
+      // the move (the cloud's content-addressed model assigns a fresh hash
+      // any time an entry's metadata changes). We surface this so callers
+      // can persist it and avoid a "not found in root hash" failure on the
+      // next operation that would still be using the pre-move hash.
+      const result = await api.move(hash, newParentId)
+      return result.hash
     },
 
     disconnect(): void {

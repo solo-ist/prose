@@ -664,10 +664,21 @@ export function SettingsDialog() {
           <TabsContent value="integrations" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={integrationsTabRef}>
             {!isWebMode() && !window.api?.isMasBuild && <McpIntegration />}
             {!isWebMode() && !window.api?.isMasBuild && <Separator />}
-            <RemarkableIntegration
-              settings={settings}
-              setRemarkableConfig={setRemarkableConfig}
-            />
+            {!isWebMode() && !window.api?.isMasBuild && (
+              <RemarkableIntegration
+                settings={settings}
+                setRemarkableConfig={setRemarkableConfig}
+              />
+            )}
+            {/* Both McpIntegration and RemarkableIntegration are gated to
+                desktop, non-MAS builds — without this fallback, web and MAS
+                users land on a completely empty Integrations tab with no
+                explanation when they click into it. */}
+            {(isWebMode() || window.api?.isMasBuild) && (
+              <p className="text-sm text-muted-foreground">
+                No integrations are available in this build.
+              </p>
+            )}
           </TabsContent>
 
           <TabsContent value="account" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={accountTabRef}>

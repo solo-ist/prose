@@ -37,6 +37,22 @@ interface OCRResult {
 }
 
 /**
+ * Post-process OCR markdown to clean up whitespace artifacts the OCR service
+ * sometimes emits — trailing spaces per line, mixed line endings, and runs of
+ * 3+ blank lines. Pure transformation; no I/O.
+ */
+export function postProcessOCR(markdown: string): string {
+  return markdown
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map(line => line.trimEnd())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/**
  * Check if OCR service is configured
  */
 export function isOCRConfigured(): boolean {
@@ -66,16 +82,40 @@ function getOCRConfig(): { url: string; apiKey: string } {
  * @param anthropicApiKey - User's Anthropic API key for the OCR service
  * @returns OCR results with markdown text and confidence scores
  */
+/**
+ * setTimeout-based delay that resolves early when the signal aborts. Used to
+ * keep OCR retry backoff from adding up to ~7 seconds of latency after a user
+ * hits Cancel on an in-progress sync.
+ */
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('OCR aborted', 'AbortError'))
+      return
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(new DOMException('OCR aborted', 'AbortError'))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
 export async function extractTextFromPages(
   pages: Array<{ id: string; data: Buffer }>,
-  anthropicApiKey: string
+  anthropicApiKey: string,
+  signal?: AbortSignal
 ): Promise<OCRResult> {
   if (pages.length === 0) {
     return { pages: [], failedPages: [] }
   }
 
-  if (pages.length > 20) {
-    throw new Error('Maximum 20 pages per OCR request')
+  if (pages.length > 5) {
+    throw new Error('Maximum 5 pages per OCR request')
   }
 
   if (!anthropicApiKey) {
@@ -91,35 +131,71 @@ export async function extractTextFromPages(
     }))
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'x-anthropic-key': anthropicApiKey
-    },
-    body: JSON.stringify(requestBody)
-  })
+  // Retry with exponential backoff for transient failures.
+  // 4 total attempts (1 initial + 3 retries); RETRY_DELAYS has one entry per
+  // post-failure delay slot (only consulted when attempt < MAX_ATTEMPTS - 1).
+  const MAX_ATTEMPTS = 4
+  const RETRY_DELAYS = [1000, 2000, 4000]
+  let lastError: Error | null = null
 
-  if (!response.ok) {
-    let errorMessage = `OCR request failed: ${response.status} ${response.statusText}`
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (signal?.aborted) throw new DOMException('OCR aborted', 'AbortError')
     try {
-      const errorBody = await response.json()
-      if (errorBody.error) {
-        errorMessage = errorBody.error
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'x-anthropic-key': anthropicApiKey
+        },
+        body: JSON.stringify(requestBody),
+        signal
+      })
+
+      if (!response.ok) {
+        let errorMessage = `OCR request failed: ${response.status} ${response.statusText}`
+        try {
+          const errorBody = await response.json()
+          if (errorBody.error) {
+            errorMessage = errorBody.error
+          }
+        } catch {
+          // Ignore JSON parse errors
+        }
+
+        // Only retry on 5xx (server) errors, not 4xx (client) errors
+        if (response.status >= 500 && attempt < MAX_ATTEMPTS - 1) {
+          console.warn(`[OCR] Server error (${response.status}), retrying in ${RETRY_DELAYS[attempt]}ms (retry ${attempt + 1}/${MAX_ATTEMPTS - 1})`)
+          await abortableDelay(RETRY_DELAYS[attempt], signal)
+          lastError = new Error(errorMessage)
+          continue
+        }
+
+        throw new Error(errorMessage)
       }
-    } catch {
-      // Ignore JSON parse errors
+
+      const result = (await response.json()) as OCRResponse
+
+      return {
+        pages: result.pages.map(page => ({ ...page, markdown: postProcessOCR(page.markdown) })),
+        failedPages: result.failedPages || []
+      }
+    } catch (error) {
+      // Propagate aborts immediately without another retry attempt.
+      if ((error as { name?: string })?.name === 'AbortError') throw error
+      // Retry on network errors (fetch throws on network failure)
+      if (attempt < MAX_ATTEMPTS - 1) {
+        console.warn(`[OCR] Request failed, retrying in ${RETRY_DELAYS[attempt]}ms (retry ${attempt + 1}/${MAX_ATTEMPTS - 1}):`, error)
+        await abortableDelay(RETRY_DELAYS[attempt], signal)
+        lastError = error instanceof Error ? error : new Error(String(error))
+        continue
+      }
+      throw error
     }
-    throw new Error(errorMessage)
   }
 
-  const result = (await response.json()) as OCRResponse
-
-  return {
-    pages: result.pages,
-    failedPages: result.failedPages || []
-  }
+  // Should not reach here, but just in case
+  throw lastError || new Error('OCR request failed after retries')
 }
 
 /**
@@ -163,15 +239,17 @@ export async function extractTextFromRM(
 export async function extractTextBatched(
   pages: Array<{ id: string; data: Buffer }>,
   anthropicApiKey: string,
-  onProgress?: (processed: number, total: number) => void
+  onProgress?: (processed: number, total: number) => void,
+  signal?: AbortSignal
 ): Promise<OCRResult> {
-  const BATCH_SIZE = 20
+  const BATCH_SIZE = 5
   const allResults: OCRPageResult[] = []
   const allFailed: string[] = []
 
   for (let i = 0; i < pages.length; i += BATCH_SIZE) {
+    if (signal?.aborted) throw new DOMException('OCR aborted', 'AbortError')
     const batch = pages.slice(i, i + BATCH_SIZE)
-    const result = await extractTextFromPages(batch, anthropicApiKey)
+    const result = await extractTextFromPages(batch, anthropicApiKey, signal)
 
     allResults.push(...result.pages)
     allFailed.push(...result.failedPages)

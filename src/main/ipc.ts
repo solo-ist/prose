@@ -15,6 +15,11 @@ import { credentialStore } from './credentialStore'
 const LLM_API_KEY = 'llm-api-key'
 const REMARKABLE_DEVICE_TOKEN = 'remarkable-device-token'
 
+// Tracks the in-flight reMarkable sync so remarkable:sync:abort can cancel it.
+// Only one sync runs at a time (the renderer hook has its own concurrent-call
+// lock), so a single module-level reference is sufficient.
+let currentRemarkableSyncAbort: AbortController | null = null
+
 // Content block types for Anthropic API tool use
 interface LLMTextBlock {
   type: 'text'
@@ -892,7 +897,7 @@ export function setupIpcHandlers(): void {
   // reMarkable: Sync notebooks to local directory
   ipcMain.handle(
     'remarkable:sync',
-    async (_event, deviceToken: string, syncDirectory: string) => {
+    async (event, deviceToken: string, syncDirectory: string) => {
       const safeDir = validatePath(syncDirectory)
       const { syncAll } = await import('./remarkable/sync')
 
@@ -922,9 +927,40 @@ export function setupIpcHandlers(): void {
         }
       }
 
-      return await syncAll(deviceToken, safeDir, anthropicApiKey)
+      // Abort any previous sync (shouldn't happen — hook has its own lock —
+      // but harmless defensive cleanup).
+      currentRemarkableSyncAbort?.abort()
+      const controller = new AbortController()
+      currentRemarkableSyncAbort = controller
+
+      try {
+        return await syncAll(
+          deviceToken,
+          safeDir,
+          anthropicApiKey,
+          (progress) => {
+            if (!event.sender.isDestroyed()) {
+              event.sender.send('remarkable:sync:progress', progress)
+            }
+          },
+          controller.signal
+        )
+      } finally {
+        // Clear only if we're still the active sync (another sync may have
+        // started and replaced us while we were winding down).
+        if (currentRemarkableSyncAbort === controller) {
+          currentRemarkableSyncAbort = null
+        }
+      }
     }
   )
+
+  // reMarkable: Cancel the currently in-flight sync (if any).
+  // Cancellation is cooperative — workers check the signal between notebooks.
+  // Notebooks already being downloaded or OCR'd finish first.
+  ipcMain.handle('remarkable:sync:abort', () => {
+    currentRemarkableSyncAbort?.abort()
+  })
 
   // reMarkable: Disconnect (clear cached connection + purge sync data)
   ipcMain.handle('remarkable:disconnect', async (_event, syncDirectory?: string) => {
@@ -937,6 +973,12 @@ export function setupIpcHandlers(): void {
       await purgeSync(safeDir)
     }
 
+    // Clear BOTH credentials: the device token (for the reMarkable cloud
+    // connection) and the separate Anthropic key used for OCR. settings:load
+    // injects the device token back into memory from safeStorage if present,
+    // so leaving it would resurrect the connection on the next settings
+    // reload or app restart.
+    await credentialStore.delete(REMARKABLE_DEVICE_TOKEN)
     await credentialStore.delete(REMARKABLE_CREDENTIAL_KEY)
     // Also clean up legacy file if it exists
     try { await unlink(ANTHROPIC_KEY_PATH) } catch { /* ignore */ }
@@ -1036,6 +1078,70 @@ export function setupIpcHandlers(): void {
       const safeDir = validatePath(syncDirectory)
       const { clearNotebookMarkdownPath } = await import('./remarkable/sync')
       return await clearNotebookMarkdownPath(notebookId, safeDir)
+    }
+  )
+
+  // reMarkable: Clear OCR-failure sentinel so next sync retries OCR.
+  // Backs the "Retry Sync" context-menu action on a notebook in the failed state.
+  ipcMain.handle(
+    'remarkable:clearOcrSentinel',
+    async (_event, notebookId: string, syncDirectory: string) => {
+      if (typeof notebookId !== 'string' || !notebookId) {
+        throw new Error('notebookId is required')
+      }
+      if (notebookId.length > 128) throw new Error('notebookId is too long')
+      const safeDir = validatePath(syncDirectory)
+      const { clearOcrSentinel } = await import('./remarkable/sync')
+      return await clearOcrSentinel(notebookId, safeDir)
+    }
+  )
+
+  // reMarkable: Move a notebook to a new parent folder on the cloud
+  ipcMain.handle(
+    'remarkable:moveNotebook',
+    async (_event, deviceToken: string, notebookHash: string, newParentId: string) => {
+      // Bound the renderer-supplied identifiers at the IPC boundary. These
+      // hit the rmapi-js cloud API and never touch the local filesystem, so
+      // the validation is about catching obviously-malformed values fast
+      // (with a clear error) rather than path-traversal protection.
+      // newParentId may be empty (root). Cap at 128 chars — UUIDs are 36.
+      if (typeof notebookHash !== 'string' || !notebookHash) {
+        throw new Error('notebookHash is required')
+      }
+      if (notebookHash.length > 128) throw new Error('notebookHash is too long')
+      if (typeof newParentId !== 'string') throw new Error('newParentId must be a string')
+      if (newParentId.length > 128) throw new Error('newParentId is too long')
+      const { connect } = await import('./remarkable/client')
+      const client = await connect(deviceToken)
+      // Surface the new hash assigned by the cloud so the caller can persist
+      // it via remarkable:updateNotebookParent — without it, a follow-up
+      // move would still pass the pre-move hash and fail.
+      return await client.moveNotebook(notebookHash, newParentId)
+    }
+  )
+
+  // reMarkable: Update notebook parent (and optionally hash) in local sync metadata
+  ipcMain.handle(
+    'remarkable:updateNotebookParent',
+    async (_event, notebookId: string, newParentId: string, syncDirectory: string, newHash?: string) => {
+      // Match the bounds on the sibling cloud-move handler. These values
+      // are metadata keys, not filesystem paths (syncDirectory is what goes
+      // through validatePath), but guarding them here keeps the behavior
+      // consistent with remarkable:moveNotebook.
+      if (typeof notebookId !== 'string' || !notebookId) {
+        throw new Error('notebookId is required')
+      }
+      if (notebookId.length > 128) throw new Error('notebookId is too long')
+      if (typeof newParentId !== 'string') throw new Error('newParentId must be a string')
+      if (newParentId.length > 128) throw new Error('newParentId is too long')
+      // newHash bound matches notebookHash on the cloud-move handler.
+      if (newHash !== undefined) {
+        if (typeof newHash !== 'string') throw new Error('newHash must be a string')
+        if (newHash.length > 128) throw new Error('newHash is too long')
+      }
+      const safeDir = validatePath(syncDirectory)
+      const { updateNotebookParent } = await import('./remarkable/sync')
+      return await updateNotebookParent(notebookId, newParentId, safeDir, newHash)
     }
   )
 

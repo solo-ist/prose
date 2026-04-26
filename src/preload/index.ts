@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Settings } from '../renderer/types'
+import type { Settings, RemarkableSyncPhase } from '../renderer/types'
 import type { ToolResult } from '../shared/tools/types'
 
 export interface FileResult {
@@ -222,6 +222,13 @@ export interface ElectronAPI {
   remarkableCreateEditableVersion: (notebookId: string, syncDirectory: string) => Promise<string | null>
   remarkableFindNotebookByFilePath: (filePath: string, syncDirectory: string) => Promise<string | null>
   remarkableClearNotebookMarkdownPath: (notebookId: string, syncDirectory: string) => Promise<boolean>
+  remarkableClearOcrSentinel: (notebookId: string, syncDirectory: string) => Promise<boolean>
+  remarkableMoveNotebook: (deviceToken: string, notebookHash: string, newParentId: string) => Promise<string>
+  remarkableUpdateNotebookParent: (notebookId: string, newParentId: string, syncDirectory: string, newHash?: string) => Promise<boolean>
+  remarkableCancelSync: () => Promise<void>
+  onRemarkableSyncProgress: (
+    callback: (progress: { message: string; notebookId?: string; notebookName?: string; current?: number; total?: number; phase: RemarkableSyncPhase }) => void
+  ) => () => void
   // MCP tool execution (only used in MCP server mode)
   onMcpToolInvoke: (
     callback: (requestId: string, toolName: string, args: unknown) => void
@@ -392,6 +399,22 @@ const api: ElectronAPI = {
     ipcRenderer.invoke('remarkable:findNotebookByFilePath', filePath, syncDirectory),
   remarkableClearNotebookMarkdownPath: (notebookId: string, syncDirectory: string) =>
     ipcRenderer.invoke('remarkable:clearNotebookMarkdownPath', notebookId, syncDirectory),
+  remarkableClearOcrSentinel: (notebookId: string, syncDirectory: string) =>
+    ipcRenderer.invoke('remarkable:clearOcrSentinel', notebookId, syncDirectory),
+  remarkableMoveNotebook: (deviceToken: string, notebookHash: string, newParentId: string) =>
+    ipcRenderer.invoke('remarkable:moveNotebook', deviceToken, notebookHash, newParentId),
+  remarkableUpdateNotebookParent: (notebookId: string, newParentId: string, syncDirectory: string, newHash?: string) =>
+    ipcRenderer.invoke('remarkable:updateNotebookParent', notebookId, newParentId, syncDirectory, newHash),
+  remarkableCancelSync: () => ipcRenderer.invoke('remarkable:sync:abort'),
+  onRemarkableSyncProgress: (callback: (progress: { message: string; notebookId?: string; notebookName?: string; current?: number; total?: number; phase: RemarkableSyncPhase }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: { message: string; notebookId?: string; notebookName?: string; current?: number; total?: number; phase: RemarkableSyncPhase }) => {
+      callback(progress)
+    }
+    ipcRenderer.on('remarkable:sync:progress', handler)
+    return () => {
+      ipcRenderer.removeListener('remarkable:sync:progress', handler)
+    }
+  },
   // MCP tool execution
   onMcpToolInvoke: (callback: (requestId: string, toolName: string, args: unknown) => void) => {
     const handler = (

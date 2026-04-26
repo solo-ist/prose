@@ -178,11 +178,11 @@ When running as Electron:
 
 ### IPC Channels
 
-Defined in `src/main/ipc.ts` (64 handlers across 11 namespaces):
+Defined in `src/main/ipc.ts` (68 handlers across 11 namespaces):
 - `file:*` (17) - File operations (open, save, read, rename, delete, trash, duplicate, etc.)
 - `settings:*` (4) - Settings persistence, secure storage check, API key test
 - `llm:chat`, `llm:stream`, `llm:stream:abort` - LLM API calls (streaming via Anthropic SDK)
-- `remarkable:*` (14) - reMarkable tablet sync (register, validate, sync, OCR, etc.)
+- `remarkable:*` (18) - reMarkable tablet sync (register, validate, sync, sync:abort, OCR, folder move, etc.)
 - `google:*` (13) - Google Docs OAuth, sync, pull, import, metadata management
 - `mcp:*` (3) - MCP server status, install, uninstall for Claude Desktop
 - `sentry:setEnabled` - Toggle Sentry error tracking from renderer
@@ -265,10 +265,12 @@ Managed by `reviewStore` and components in `src/renderer/components/review/`.
 
 Syncs handwritten notebooks from reMarkable tablets. Located in `src/main/remarkable/`:
 - `client.ts` - reMarkable cloud API client (uses `rmapi-js`)
-- `sync.ts` - Notebook sync logic, downloads to user-configured sync directory
-- `ocr.ts` - Handwriting recognition via external OCR service
+- `sync.ts` - Notebook sync logic with parallel downloads (3 concurrent), incremental metadata saves, and structured `SyncProgressUpdate` progress events
+- `ocr.ts` - Handwriting recognition via external OCR service (batch size 5, retry with exponential backoff)
 
-OCR requires an Anthropic API key. If using Anthropic as the LLM provider, that key is reused; otherwise users can configure a separate key in Settings → Integrations.
+**Sync progress push:** The `remarkable:sync` IPC handler pushes `SyncProgressUpdate` events via `event.sender.send('remarkable:sync:progress', ...)`. The preload exposes `onRemarkableSyncProgress(callback)` for the renderer to subscribe.
+
+**OCR service:** Requires environment variables `REMARKABLE_OCR_URL` and `REMARKABLE_OCR_API_KEY` pointing to the Lambda endpoint. When absent, OCR silently skips — sync still works but notebooks have no markdown text. Also requires an Anthropic API key (reused from LLM provider settings, or configured separately in Settings → Integrations).
 
 ### Google Docs Integration
 

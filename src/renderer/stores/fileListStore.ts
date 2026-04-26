@@ -1,6 +1,15 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
-import type { FileItem, RemarkableSyncMetadata, RemarkableCloudNotebook, RemarkableSyncState, GoogleSyncMetadata } from '../types'
+import type { FileItem, RemarkableSyncMetadata, RemarkableCloudNotebook, RemarkableSyncState, RemarkableSyncPhase, GoogleSyncMetadata } from '../types'
+
+export interface SyncProgress {
+  message: string
+  notebookId?: string
+  notebookName?: string
+  current?: number
+  total?: number
+  phase: RemarkableSyncPhase
+}
 
 type ViewMode = 'recent' | 'folder' | 'notebooks' | 'googledocs'
 
@@ -18,6 +27,14 @@ interface FileListState {
   selectedPath: string | null
   loadingFolders: Set<string> // Track which folders are currently loading children
 
+  // Notebook folder collapse state (reMarkable view). Lives in the store so it
+  // survives FileListPanel unmount (e.g., when the panel closes via
+  // Shift+Cmd+H) — otherwise collapsed folders would reopen on re-mount.
+  // Semantics: membership means "toggled" (deviation from default). Synced
+  // folders default open and appear in this set when collapsed; unsynced
+  // folders default closed and appear when opened.
+  expandedNotebookFolders: Set<string>
+
   // Explorer clipboard and inline rename
   clipboardPath: string | null
   clipboardOperation: 'copy' | 'cut' | null
@@ -26,10 +43,16 @@ interface FileListState {
   // Google Docs sync state
   isGoogleSyncing: boolean
 
+  // reMarkable global sync state
+  remarkableSyncActive: boolean
+  remarkableSyncProgress: SyncProgress | null
+  remarkableSyncError: string | null
+
   // Notebook metadata
   notebookMetadata: RemarkableSyncMetadata | null
   cloudNotebooks: RemarkableCloudNotebook[]
   syncState: RemarkableSyncState | null
+  syncingNotebookIds: string[]
 
   // Google Docs metadata
   googleDocsMetadata: GoogleSyncMetadata | null
@@ -41,6 +64,9 @@ interface FileListState {
   setClipboardPath: (path: string | null, operation?: 'copy' | 'cut') => void
   setRenamingPath: (path: string | null) => void
   setGoogleSyncing: (syncing: boolean) => void
+  setRemarkableSyncActive: (active: boolean) => void
+  setRemarkableSyncProgress: (progress: SyncProgress | null) => void
+  setRemarkableSyncError: (error: string | null) => void
   setRootPath: (path: string | null) => void
   initializeDefaultPath: () => Promise<void>
   navigateToParent: () => void
@@ -49,10 +75,14 @@ interface FileListState {
   loadNotebooks: (syncDirectory: string) => Promise<void>
   loadCloudNotebooks: (deviceToken: string, syncDirectory: string) => Promise<void>
   toggleNotebookSync: (notebookId: string, syncDirectory: string) => Promise<void>
+  addSyncingNotebook: (id: string) => void
+  removeSyncingNotebook: (id: string) => void
+  clearSyncingNotebooks: () => void
   loadGoogleDocsMetadata: () => Promise<void>
   selectFile: (path: string | null) => void
   toggleFolder: (path: string) => void
   setExpanded: (path: string, expanded: boolean) => void
+  toggleNotebookFolderExpanded: (folderId: string) => void
   revealAndSelectPath: (path: string) => void
 }
 
@@ -71,14 +101,39 @@ export const useFileListStore = create<FileListState>()(
     clipboardOperation: null,
     renamingPath: null,
     isGoogleSyncing: false,
+    remarkableSyncActive: false,
+    remarkableSyncProgress: null,
+    remarkableSyncError: null,
     googleDocsMetadata: null,
     notebookMetadata: null,
     cloudNotebooks: [],
     syncState: null,
+    syncingNotebookIds: [],
+    expandedNotebookFolders: new Set<string>(),
+
+    toggleNotebookFolderExpanded: (folderId) => set((state) => {
+      const next = new Set(state.expandedNotebookFolders)
+      if (next.has(folderId)) next.delete(folderId)
+      else next.add(folderId)
+      return { expandedNotebookFolders: next }
+    }),
+
+    addSyncingNotebook: (id) => set((state) => ({
+      syncingNotebookIds: state.syncingNotebookIds.includes(id)
+        ? state.syncingNotebookIds
+        : [...state.syncingNotebookIds, id]
+    })),
+    removeSyncingNotebook: (id) => set((state) => ({
+      syncingNotebookIds: state.syncingNotebookIds.filter(x => x !== id)
+    })),
+    clearSyncingNotebooks: () => set({ syncingNotebookIds: [] }),
 
     setClipboardPath: (path, operation = 'copy') => set({ clipboardPath: path, clipboardOperation: path ? operation : null }),
     setRenamingPath: (path) => set({ renamingPath: path }),
     setGoogleSyncing: (syncing) => set({ isGoogleSyncing: syncing }),
+    setRemarkableSyncActive: (active) => set({ remarkableSyncActive: active }),
+    setRemarkableSyncProgress: (progress) => set({ remarkableSyncProgress: progress }),
+    setRemarkableSyncError: (error) => set({ remarkableSyncError: error }),
 
     togglePanel: () => set((state) => ({ isPanelOpen: !state.isPanelOpen })),
 

@@ -8,6 +8,7 @@ import { Loader2, ExternalLink, CheckCircle, XCircle, RefreshCw, Settings2, Key,
 import { NotebookSelectionDialog } from './NotebookSelectionDialog'
 import { useRemarkableEnabled } from '../../lib/featureFlags'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useRemarkableSync } from '../../hooks/useRemarkableSync'
 import type { Settings } from '../../types'
 
 interface Props {
@@ -66,13 +67,12 @@ function RemarkableWaitlist() {
 
 function RemarkableSettings({ settings, setRemarkableConfig }: Props) {
   const { saveSettings } = useSettingsStore()
+  const { isSyncing, sync, cancel: cancelSync, progress, error: syncError } = useRemarkableSync()
   const [code, setCode] = useState('')
   const [isRegistering, setIsRegistering] = useState(false)
   const [isValidating, setIsValidating] = useState(false)
-  const [isSyncing, setIsSyncing] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [syncStatus, setSyncStatus] = useState<string | null>(null)
   const [showSelectionDialog, setShowSelectionDialog] = useState(false)
   const [hasSyncState, setHasSyncState] = useState<boolean | null>(null)
 
@@ -190,51 +190,31 @@ function RemarkableSettings({ settings, setRemarkableConfig }: Props) {
     setHasSyncState(false)
     setIsConnected(false)
     setError(null)
-    setSyncStatus(null)
     await saveSettings()
   }
 
   const handleSync = async () => {
     if (!window.api || !remarkableSettings?.deviceToken) return
 
-    const syncDir = remarkableSettings.syncDirectory || '~/Documents/reMarkable'
-
     if (!hasSyncState) {
       setShowSelectionDialog(true)
       return
     }
 
-    await performSync(syncDir)
-  }
-
-  const performSync = async (syncDir: string) => {
-    if (!window.api || !remarkableSettings?.deviceToken) return
-
-    setIsSyncing(true)
-    setError(null)
-    setSyncStatus('Starting sync...')
-
-    try {
-      const result = await window.api.remarkableSync(remarkableSettings.deviceToken, syncDir)
-
-      if (result.errors.length > 0) {
-        setError(result.errors.join('; '))
-      }
-
-      setSyncStatus(`Synced ${result.synced} notebooks, ${result.skipped} unchanged`)
-      setRemarkableConfig({ lastSyncedAt: result.syncedAt })
-      setHasSyncState(true)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sync failed')
-      setSyncStatus(null)
-    } finally {
-      setIsSyncing(false)
-    }
+    await sync()
   }
 
   const handleSelectionComplete = async () => {
-    const syncDir = remarkableSettings?.syncDirectory || '~/Documents/reMarkable'
-    await performSync(syncDir)
+    // `hasSyncState` tracks whether `sync-state.json` exists on disk (i.e. the
+    // user has picked notebooks to sync) — NOT whether a sync has succeeded.
+    // The selection dialog's Save button writes the file before it fires
+    // onComplete, so by the time we land here the file is present regardless
+    // of whether the follow-up sync() succeeds or surfaces an error. Setting
+    // true BEFORE awaiting sync() ensures the React state mirrors disk even
+    // if sync ever throws (sync() catches internally today, but the ordering
+    // is defensive against future changes). Errors surface via syncError.
+    setHasSyncState(true)
+    await sync()
   }
 
   const handleSaveApiKey = async () => {
@@ -474,11 +454,18 @@ function RemarkableSettings({ settings, setRemarkableConfig }: Props) {
             </div>
           )}
 
-          {syncStatus && (
-            <p className="text-xs text-muted-foreground">{syncStatus}</p>
+          {isSyncing && progress && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              {progress.message}
+            </div>
           )}
 
-          {remarkableSettings?.lastSyncedAt && !syncStatus && (
+          {syncError && (
+            <p className="text-sm text-destructive">{syncError}</p>
+          )}
+
+          {!isSyncing && !syncError && remarkableSettings?.lastSyncedAt && (
             <p className="text-xs text-muted-foreground">
               Last synced: {new Date(remarkableSettings.lastSyncedAt).toLocaleString()}
             </p>
@@ -502,6 +489,14 @@ function RemarkableSettings({ settings, setRemarkableConfig }: Props) {
                   </>
                 )}
               </Button>
+              {isSyncing && (
+                <Button
+                  variant="outline"
+                  onClick={cancelSync}
+                >
+                  Cancel
+                </Button>
+              )}
               {hasSyncState && (
                 <Button
                   variant="outline"

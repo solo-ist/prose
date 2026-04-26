@@ -332,6 +332,16 @@ export function createMenu(mainWindow: BrowserWindow): void {
             openExternalUrl('https://github.com/solo-ist/prose')
           }
         },
+        ...(!IS_MAS_BUILD
+          ? [
+              {
+                label: 'Download Prose Skill for Claude',
+                click: (): void => {
+                  sendMenuAction('downloadSkill')
+                }
+              }
+            ]
+          : []),
         { type: 'separator' },
         ...(IS_MAS_BUILD
           ? [

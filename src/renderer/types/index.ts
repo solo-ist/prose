@@ -432,6 +432,10 @@ export interface ElectronAPI {
   clearRecentFiles: () => Promise<void>
   // Sentry error tracking
   sentrySetEnabled: (enabled: boolean) => Promise<void>
+  // prose:// URL scheme — open content as a new document
+  onOpenFromUrl?: (callback: (content: string) => void) => () => void
+  // Skill download (OSS builds only)
+  downloadSkill?: () => Promise<{ success: boolean; error?: string }>
   // Build info
   isMasBuild?: boolean
   // Auto-updater

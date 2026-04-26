@@ -265,6 +265,10 @@ export interface ElectronAPI {
   clearRecentFiles: () => Promise<void>
   // Sentry error tracking
   sentrySetEnabled: (enabled: boolean) => Promise<void>
+  // prose:// URL scheme — open content as a new document
+  onOpenFromUrl: (callback: (content: string) => void) => () => void
+  // Skill download (OSS builds only)
+  downloadSkill: () => Promise<{ success: boolean; error?: string }>
   // Build info
   isMasBuild: boolean
 }
@@ -506,6 +510,18 @@ const api: ElectronAPI = {
   clearRecentFiles: () => ipcRenderer.invoke('recentFiles:clear'),
   // Sentry error tracking
   sentrySetEnabled: (enabled: boolean) => ipcRenderer.invoke('sentry:setEnabled', enabled),
+  // prose:// URL scheme — open content as a new document
+  onOpenFromUrl: (callback: (content: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, content: string): void => {
+      callback(content)
+    }
+    ipcRenderer.on('prose:openFromUrl', handler)
+    return () => {
+      ipcRenderer.removeListener('prose:openFromUrl', handler)
+    }
+  },
+  // Skill download (OSS builds only)
+  downloadSkill: () => ipcRenderer.invoke('skill:download'),
   // Build info
   isMasBuild: process.env.MAS_BUILD === '1',
   // Window fullscreen state

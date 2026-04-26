@@ -664,10 +664,12 @@ export function SettingsDialog() {
           <TabsContent value="integrations" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={integrationsTabRef}>
             {!isWebMode() && !window.api?.isMasBuild && <McpIntegration />}
             {!isWebMode() && !window.api?.isMasBuild && <Separator />}
-            <RemarkableIntegration
-              settings={settings}
-              setRemarkableConfig={setRemarkableConfig}
-            />
+            {!window.api?.isMasBuild && (
+              <RemarkableIntegration
+                settings={settings}
+                setRemarkableConfig={setRemarkableConfig}
+              />
+            )}
           </TabsContent>
 
           <TabsContent value="account" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={accountTabRef}>

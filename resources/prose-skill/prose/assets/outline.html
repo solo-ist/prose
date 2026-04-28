@@ -1,10 +1,47 @@
-<div style="font-family: system-ui, -apple-system, sans-serif; font-size: 14px; padding: 12px; border-radius: 8px; background: #f8f9fa; color: #1a1a1a; max-width: 600px;">
-  <div style="font-weight: 600; margin-bottom: 8px; color: #5a6065; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;">Document Outline</div>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+  .prose-outline {
+    --bg: #ffffff;
+    --text: #1a1a1a;
+    --border: #e4e4e7;
+    --muted: #71717a;
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text);
+    max-width: 720px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    background: var(--bg);
+  }
+  @media (prefers-color-scheme: dark) {
+    .prose-outline {
+      --bg: #18181b;
+      --text: #fafafa;
+      --border: #3f3f46;
+      --muted: #a1a1aa;
+    }
+  }
+  .prose-outline__label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 10px;
+  }
+  .prose-outline__item {
+    padding: 3px 0;
+    color: var(--text);
+    font-size: 13px;
+  }
+</style>
+<div class="prose-outline">
+  <div class="prose-outline__label">Outline</div>
   {{HEADING_ITEMS}}
 </div>
 
 <!--
   HEADING_ITEMS: one of these per entry in the outline array. INDENT is (level - 1) * 16. Escape & < > " in TEXT.
 
-  <div style="padding-left: {{INDENT}}px; padding-top: 3px; padding-bottom: 3px; color: #1a1a1a; font-size: 14px;">{{TEXT}}</div>
+  <div class="prose-outline__item" style="padding-left: {{INDENT}}px;">{{TEXT}}</div>
 -->

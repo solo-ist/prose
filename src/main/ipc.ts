@@ -1419,14 +1419,14 @@ export function setupIpcHandlers(): void {
       return { success: false, error: 'Skill download is not available in the Mac App Store version.' }
     }
     try {
-      const skillZipSrc = app.isPackaged
-        ? join(process.resourcesPath, 'resources', 'prose-skill.zip')
-        : join(__dirname, '../../resources/prose-skill.zip')
+      const skillSrc = app.isPackaged
+        ? join(process.resourcesPath, 'resources', 'prose.skill')
+        : join(__dirname, '../../resources/prose.skill')
 
       const downloadsDir = app.getPath('downloads')
-      const destPath = join(downloadsDir, 'prose-skill.zip')
+      const destPath = join(downloadsDir, 'prose.skill')
 
-      await copyFile(skillZipSrc, destPath)
+      await copyFile(skillSrc, destPath)
       // showItemInFolder reveals the file (highlights it in Finder/Explorer),
       // unlike openPath which only opens the containing folder.
       shell.showItemInFolder(destPath)

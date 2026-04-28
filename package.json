@@ -11,7 +11,7 @@
     "dev:restart": "npm run dev:kill && sleep 2 && npm run dev",
     "build:env": "node -e \"require('fs').writeFileSync('src/main/env.ts', '// Auto-generated — do not edit\\nexport const IS_MAS_BUILD = ' + (process.env.MAS_BUILD === '1') + '\\n')\"",
     "build:buildinfo": "node -e \"const h=(()=>{try{return require('child_process').execSync('git rev-parse --short HEAD').toString().trim()}catch{return 'unknown'}})(); require('fs').writeFileSync('src/renderer/buildInfo.generated.ts', '// Auto-generated — do not edit\\nexport const GIT_HASH = ' + JSON.stringify(h) + '\\n')\"",
-    "build:skill": "rm -f resources/prose-skill.zip && cd resources/prose-skill && zip -rq ../prose-skill.zip prose/",
+    "build:skill": "rm -f resources/prose.skill && cd resources/prose-skill && zip -rq ../prose.skill prose/",
     "build": "npm run build:env && npm run build:buildinfo && npm run build:skill && npm run build:mcp-stdio && electron-vite build && npm run build:preload",
     "build:preload": "npx esbuild src/preload/index.ts --bundle --platform=node --format=cjs --target=node18 --outfile=out/preload-cjs/index.cjs --external:electron --define:process.env.MAS_BUILD=\\\"${MAS_BUILD:-}\\\"",
     "build:mcp-stdio": "npx esbuild src/mcp-stdio/index.ts --bundle --platform=node --target=node18 --format=cjs --outfile=out/mcp-stdio.cjs",

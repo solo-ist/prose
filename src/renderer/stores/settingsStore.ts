@@ -358,8 +358,7 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
           consentedAt: new Date().toISOString(),
           version: AI_CONSENT_VERSION
         }
-      },
-      isAIConsentDialogOpen: false
+      }
     }))
     get().saveSettings()
   },

@@ -335,7 +335,7 @@ export function createMenu(mainWindow: BrowserWindow): void {
         ...(!IS_MAS_BUILD
           ? [
               {
-                label: 'Download Prose Skill for Claude',
+                label: 'Download Claude Skill',
                 click: (): void => {
                   sendMenuAction('downloadSkill')
                 }

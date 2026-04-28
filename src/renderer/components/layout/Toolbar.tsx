@@ -59,7 +59,8 @@ import {
   Eye,
   EyeOff,
   Code,
-  FileText
+  FileText,
+  Sparkles
 } from 'lucide-react'
 
 export function Toolbar() {
@@ -508,6 +509,14 @@ export function Toolbar() {
                 <Settings className="mr-2 h-4 w-4" />
                 Settings
               </DropdownMenuItem>
+              {!window.api?.isMasBuild && (
+                <DropdownMenuItem onClick={() => {
+                  window.api?.downloadSkill?.().catch((err) => console.error('[Skill] Download failed:', err))
+                }}>
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  Download Claude Skill
+                </DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               {window.api?.isMasBuild ? (
                 <DropdownMenuItem onClick={() => window.open('https://solo.ist/prose/support', '_blank', 'noopener,noreferrer')}>

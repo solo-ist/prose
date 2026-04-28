@@ -1,0 +1,24 @@
+<div style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; border-radius: 8px; overflow: hidden; border: 1px solid #d0d4d8; max-width: 800px;">
+  {{COMMENT_BLOCK}}
+  <div style="display: grid; grid-template-columns: 1fr 1fr;">
+    <div style="padding: 12px; background: #fef2f2; border-right: 1px solid #d0d4d8;">
+      <div style="color: #ef4444; font-size: 11px; font-weight: 600; margin-bottom: 6px; letter-spacing: 0.06em; text-transform: uppercase;">Before</div>
+      <pre style="margin: 0; white-space: pre-wrap; color: #1a1a1a; font-size: 13px;">{{OLD_TEXT}}</pre>
+    </div>
+    <div style="padding: 12px; background: #f0fdf4;">
+      <div style="color: #22c55e; font-size: 11px; font-weight: 600; margin-bottom: 6px; letter-spacing: 0.06em; text-transform: uppercase;">After</div>
+      <pre style="margin: 0; white-space: pre-wrap; color: #1a1a1a; font-size: 13px;">{{NEW_TEXT}}</pre>
+    </div>
+  </div>
+  <div style="padding: 8px 12px; background: #f8f9fa; border-top: 1px solid #d0d4d8; font-size: 11px; color: #5a6065;">
+    Accept or reject this change in Prose's diff overlay.
+  </div>
+</div>
+
+<!--
+  COMMENT_BLOCK: empty string when no comment was passed to suggest_edit. When present, render as:
+
+  <div style="padding: 8px 12px; background: #fef9c3; font-size: 12px; color: #713f12; border-bottom: 1px solid #d0d4d8;">{{COMMENT}}</div>
+
+  OLD_TEXT / NEW_TEXT: HTML-escape & < > " before substituting.
+-->

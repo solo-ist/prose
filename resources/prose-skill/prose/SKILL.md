@@ -28,6 +28,20 @@ Never silently underperform. If MCP isn't usable, surface why and offer an alter
 | `open_file` | Opens an existing file in Prose by absolute path. |
 | `create_and_open_file` | Creates a new file with given content at a given path and opens it in Prose. |
 
+## Response shapes
+
+`get_outline` returns:
+
+```
+{ outline: [{ level: number, text: string, line: number }, ...], summary?: string }
+```
+
+Each entry is a heading. `level` is 1–6 (H1–H6), `text` is the heading text, `line` is its approximate line number. The `summary` field appears only when the document has fewer than 3 headings.
+
+`read_document` returns a list of nodes, each with `id`, `type`, and `text`. The `id` is what `suggest_edit` targets via `nodeId`.
+
+`suggest_edit` returns `{ suggested: true, suggestionId }` on success.
+
 ## Editing — node IDs first
 
 `suggest_edit` is **node-targeted**. Its parameters:
@@ -62,179 +76,50 @@ Do not try to construct edits without first reading the document. Blind edits fr
 4. `suggest_edit` with both `nodeId` and `search` (the original node text).
 5. Wait for the user to accept or reject in Prose's diff UI before queueing another edit.
 
-## Widget rendering
+## Rendering — widgets are the response shape
 
-When `show_widget` is available on the current Claude surface (Claude Code, claude.ai web, Claude Desktop Cowork on supported builds), render select MCP responses as interactive widgets. When it isn't available, fall back to the same information rendered as plain prose or fenced code.
+Prose ships two HTML widget templates in `assets/`. **The widget IS the response shape for outlines and diffs — not an optional enhancement.** Do not fall back to a Markdown list because the widget feels heavy or because Markdown is "simpler." Only fall back when `show_widget` is genuinely unavailable on this surface (every variant returns "tool not found").
 
-### Outline navigator widget
+Both templates are static HTML — `show_widget` does not execute callbacks, so do not add `onclick` handlers. The diff widget tells the user where to accept the change inline (in Prose's overlay).
 
-Render after `get_outline` returns **3 or more headings**. Skip the widget for shorter outlines — describe the structure in text instead.
+### Outline widget
 
-```jsx
-const headings = outline.headings; // [{ text, level, nodeId }, ...]
+**When**: after `get_outline` returns three or more entries, render the result as a widget instead of a Markdown list.
 
-<div style={{
-  fontFamily: 'var(--font-sans)',
-  fontSize: 'var(--text-sm)',
-  color: 'var(--color-text-primary)'
-}}>
-  <div style={{
-    fontWeight: 600,
-    marginBottom: 8,
-    color: 'var(--color-text-secondary)'
-  }}>
-    Document Outline
-  </div>
-  {headings.map((h) => (
-    <button
-      key={h.nodeId ?? h.text}
-      className="interactive"
-      style={{
-        display: 'block',
-        width: '100%',
-        textAlign: 'left',
-        paddingLeft: (h.level - 1) * 16,
-        padding: '4px 8px',
-        borderRadius: 4,
-        background: 'none',
-        border: 'none',
-        cursor: 'pointer',
-        color: 'var(--color-text-primary)'
-      }}
-      onClick={() => sendPrompt(
-        `Read the section under heading ${JSON.stringify(h.text)} and summarize it.`
-      )}
-    >
-      {h.text}
-    </button>
-  ))}
-</div>
-```
+**How**:
 
-`JSON.stringify(h.text)` defends against headings that contain quotes, backticks, or backslashes.
+1. Read the file at `assets/outline.html` (sibling to this SKILL.md). On surfaces that mount skills under `/mnt/skills/user/<skill-name>/`, the absolute path is `/mnt/skills/user/prose/assets/outline.html`.
+2. Build the heading items by iterating the `outline` array from the response. For each entry `{level, text, line}`, emit one item using the template inside the HTML comment at the bottom of the file:
+   - `INDENT` = `(level - 1) * 16`
+   - `TEXT` = HTML-escape the heading's `text` (`& < > "`)
+3. Concatenate all items and substitute them for `{{HEADING_ITEMS}}` in the outer template.
+4. Call `show_widget` (or `visualize:show_widget`) with the resulting HTML as the only argument.
 
-### Before/after diff widget
+For documents with **fewer than 3 headings**, do not render the widget. Use the `summary` field from the response and answer in one or two conversational sentences.
 
-Render after `suggest_edit` returns successfully. The tool returns `{ suggested: true, suggestionId }`.
+### Diff widget
 
-**Important:** the actual accept or reject happens in Prose's diff UI, not via this widget. Prose's MCP does not expose a programmatic accept tool. The widget's buttons signal Claude's *next conversational turn* — they don't apply or revert the edit. Make this clear in the widget copy.
+**When**: after `suggest_edit` returns `{ suggested: true, suggestionId }`, render the diff as a widget. Do this every time, not just for "interesting" edits.
 
-The widget needs four values that aren't all in the `suggest_edit` response — assemble them from the call context:
+**How**:
 
-- **`oldText`** — the original node text. Use the node's `text` field from your most recent `read_document`, or the `search` argument you passed to `suggest_edit`.
-- **`newText`** — the `content` argument you passed to `suggest_edit`.
-- **`comment`** — the optional `comment` argument you passed (or omit if none).
-- **`suggestionId`** — from the `suggest_edit` response (`{ suggested: true, suggestionId }`).
+1. Read `assets/diff.html` (or `/mnt/skills/user/prose/assets/diff.html` on mounted surfaces).
+2. Substitute three placeholders:
+   - `{{COMMENT_BLOCK}}` — empty string if no `comment` was passed to `suggest_edit`. If a comment was passed, use the comment-block template inside the HTML comment at the bottom of the file, with `{{COMMENT}}` HTML-escaped.
+   - `{{OLD_TEXT}}` — original node text (HTML-escaped) from your most recent `read_document`, or the `search` arg you passed.
+   - `{{NEW_TEXT}}` — HTML-escaped new content (the `content` arg you passed).
+3. Call `show_widget` with the resulting HTML.
 
-```jsx
-const { oldText, newText, comment, suggestionId } = edit;
+The widget includes a footer line directing the user to accept or reject in Prose's overlay. Don't paraphrase that or add your own buttons — Prose's MCP does not expose a programmatic accept tool, so any button would be a lie.
 
-<div style={{
-  fontFamily: 'var(--font-mono, monospace)',
-  fontSize: 'var(--text-sm)',
-  borderRadius: 8,
-  overflow: 'hidden',
-  border: '1px solid var(--color-border)'
-}}>
-  {comment && (
-    <div style={{
-      padding: '8px 12px',
-      background: 'var(--color-surface-secondary)',
-      fontSize: 'var(--text-xs)',
-      color: 'var(--color-text-secondary)'
-    }}>
-      {comment}
-    </div>
-  )}
-  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
-    <div style={{
-      padding: 12,
-      background: 'var(--color-diff-removed-bg, #fef2f2)',
-      borderRight: '1px solid var(--color-border)'
-    }}>
-      <div style={{
-        color: 'var(--color-diff-removed, #ef4444)',
-        fontSize: 'var(--text-xs)',
-        fontWeight: 600,
-        marginBottom: 4
-      }}>
-        Before
-      </div>
-      <pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: 'var(--color-text-primary)' }}>
-        {oldText}
-      </pre>
-    </div>
-    <div style={{
-      padding: 12,
-      background: 'var(--color-diff-added-bg, #f0fdf4)'
-    }}>
-      <div style={{
-        color: 'var(--color-diff-added, #22c55e)',
-        fontSize: 'var(--text-xs)',
-        fontWeight: 600,
-        marginBottom: 4
-      }}>
-        After
-      </div>
-      <pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: 'var(--color-text-primary)' }}>
-        {newText}
-      </pre>
-    </div>
-  </div>
-  <div style={{
-    display: 'flex',
-    gap: 8,
-    padding: '8px 12px',
-    background: 'var(--color-surface)',
-    borderTop: '1px solid var(--color-border)'
-  }}>
-    <button
-      className="interactive"
-      style={{
-        padding: '4px 12px',
-        borderRadius: 4,
-        fontSize: 'var(--text-sm)',
-        cursor: 'pointer',
-        background: 'var(--color-accent)',
-        color: 'white',
-        border: 'none'
-      }}
-      onClick={() => sendPrompt(
-        `The user wants to keep the suggestion with id ${JSON.stringify(suggestionId)}. Remind them to click the accept control in Prose's diff overlay, then ask what to change next.`
-      )}
-    >
-      Looks good
-    </button>
-    <button
-      className="interactive"
-      style={{
-        padding: '4px 12px',
-        borderRadius: 4,
-        fontSize: 'var(--text-sm)',
-        cursor: 'pointer',
-        background: 'none',
-        border: '1px solid var(--color-border)',
-        color: 'var(--color-text-primary)'
-      }}
-      onClick={() => sendPrompt(
-        `The user rejected the suggestion with id ${JSON.stringify(suggestionId)}. Propose a different approach.`
-      )}
-    >
-      Try again
-    </button>
-  </div>
-</div>
-```
+After rendering the widget, in the conversational reply, briefly state what the change does (one sentence). Then wait for the user.
 
-Both buttons drive Claude's next turn. "Looks good" tells Claude the user intends to accept (and to continue the conversation); "Try again" tells Claude to revise. The actual edit is accepted or rejected in Prose's diff UI, not here.
+### When widgets really aren't available
 
-### When not to render a widget
+If both `show_widget` and `visualize:show_widget` return "tool not found", render the same information as plain Markdown:
 
-- Short conversational answers that aren't tool results.
-- `get_outline` returns fewer than 3 headings — describe the structure in text.
-- A `suggest_edit` retry after a targeting failure — don't widgetize a failed attempt.
-- `show_widget` isn't available on the current surface — render the same info as plain Markdown.
-- The user is rapidly iterating on edits and a widget per turn would be visual noise.
+- Outline → nested list using `level` for indentation.
+- Diff → describe the change in one or two sentences.
 
 ## Graceful degradation
 
@@ -244,4 +129,3 @@ Both buttons drive Claude's next turn. "Looks good" tells Claude the user intend
 | Prose running, MCP not installed (OSS build) | "Open Prose → Settings → Integrations → Install MCP Server, then restart Claude." |
 | Mac App Store build of Prose | Sandbox blocks MCP. Offer pasted-content workflow. Don't suggest install. |
 | Prose not running | Suggest launching, or work with pasted content. |
-| `show_widget` unavailable on this surface | Plain Markdown rendering of the same information. |

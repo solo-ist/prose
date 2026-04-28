@@ -857,6 +857,16 @@ export function App() {
     return unsubscribe
   }, [openFileInTab])
 
+  // Handle prose://open?content=<encoded> — create a new untitled tab with the URL content
+  useEffect(() => {
+    if (!window.api?.onFileOpenFromUrl) return
+    const unsubscribe = window.api.onFileOpenFromUrl(async (content) => {
+      await createNewTab()
+      useEditorStore.getState().setDocument({ content, isDirty: true })
+    })
+    return unsubscribe
+  }, [createNewTab])
+
   // Handle MCP tool invocations (only active in MCP server mode)
   useEffect(() => {
     if (!window.api?.onMcpToolInvoke) return

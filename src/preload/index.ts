@@ -177,6 +177,7 @@ export interface ElectronAPI {
   testApiKey: (request: TestApiKeyRequest) => Promise<TestApiKeyResult>
   onMenuAction: (callback: (action: string) => void) => () => void
   onFileOpenExternal: (callback: (path: string) => void) => () => void
+  onFileOpenFromUrl: (callback: (content: string) => void) => () => void
   llmChat: (request: LLMRequest) => Promise<LLMResponse>
   platform: 'aix' | 'darwin' | 'freebsd' | 'linux' | 'openbsd' | 'sunos' | 'win32' | 'android' | 'cygwin' | 'netbsd'
   // Renderer ready signal
@@ -344,6 +345,15 @@ const api: ElectronAPI = {
     ipcRenderer.on('file:openExternal', handler)
     return () => {
       ipcRenderer.removeListener('file:openExternal', handler)
+    }
+  },
+  onFileOpenFromUrl: (callback: (content: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, content: string): void => {
+      callback(content)
+    }
+    ipcRenderer.on('file:openFromUrl', handler)
+    return () => {
+      ipcRenderer.removeListener('file:openFromUrl', handler)
     }
   },
   llmChat: (request: LLMRequest) => ipcRenderer.invoke('llm:chat', request),

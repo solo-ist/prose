@@ -254,6 +254,8 @@ export function createMockApi(): ElectronAPI {
 
     onFileOpenExternal: (_callback: (path: string) => void) => () => {},
 
+    onFileOpenFromUrl: (_callback: (content: string) => void) => () => {},
+
     // ---- LLM (stub) -------------------------------------------------------
 
     llmChat: async (_request: LLMRequest): Promise<LLMResponse> => {

@@ -174,6 +174,11 @@ export const browserApi: ElectronAPI = {
     return () => {}
   },
 
+  onFileOpenFromUrl: (_callback: (content: string) => void) => {
+    // No prose:// URL handling in browser mode
+    return () => {}
+  },
+
   llmChat: async (request: LLMRequest): Promise<LLMResponse> => {
     const anthropic = createAnthropic({
       apiKey: request.apiKey,

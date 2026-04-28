@@ -24,6 +24,8 @@ extraResources:
       - "!PrivacyInfo.xcprivacy"
   - from: resources/PrivacyInfo.xcprivacy
     to: PrivacyInfo.xcprivacy
+  - from: resources/skill/
+    to: skill/
 
 fileAssociations:
   - ext:
@@ -49,6 +51,10 @@ mac:
     - dir
   extendInfo:
     ITSAppUsesNonExemptEncryption: false
+    CFBundleURLTypes:
+      - CFBundleURLName: Prose URL
+        CFBundleURLSchemes:
+          - prose
     UTImportedTypeDeclarations:
       - UTTypeIdentifier: net.daringfireball.markdown
         UTTypeDescription: Markdown Document

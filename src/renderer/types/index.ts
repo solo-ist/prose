@@ -342,6 +342,7 @@ export interface ElectronAPI {
   isSecureStorageAvailable: () => Promise<boolean>
   onMenuAction: (callback: (action: string) => void) => () => void
   onFileOpenExternal: (callback: (path: string) => void) => () => void
+  onFileOpenFromUrl: (callback: (content: string) => void) => () => void
   llmChat: (request: LLMRequest) => Promise<LLMResponse>
   platform: 'aix' | 'darwin' | 'freebsd' | 'linux' | 'openbsd' | 'sunos' | 'win32' | 'android' | 'cygwin' | 'netbsd' | null
   // Renderer ready signal

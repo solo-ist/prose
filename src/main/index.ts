@@ -82,6 +82,33 @@ let fileToOpen: string | null = null
 let rendererReady = false
 // Queue of file paths to open once renderer is ready
 const pendingFileOpens: string[] = []
+// Content to open from a prose:// URL, queued until renderer is ready
+let pendingUrlContent: string | null = null
+
+// Handle prose://open?content=<encoded> URL scheme
+function handleProseUrl(url: string): void {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'prose:') return
+    if (parsed.hostname !== 'open') return
+
+    const encodedContent = parsed.searchParams.get('content')
+    if (!encodedContent) return
+
+    const content = decodeURIComponent(encodedContent)
+    const mainWindow = BrowserWindow.getAllWindows()[0]
+    if (mainWindow && rendererReady) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+      mainWindow.webContents.send('file:openFromUrl', content)
+    } else {
+      pendingUrlContent = content
+    }
+  } catch (err) {
+    console.warn('[Main] Failed to handle prose:// URL:', err)
+  }
+}
 
 // Single instance lock - ensures only one instance of the app is running
 const gotTheLock = app.requestSingleInstanceLock()
@@ -93,9 +120,13 @@ if (!gotTheLock) {
 } else {
   // Handle second instance launch (another instance tried to start)
   app.on('second-instance', (event, commandLine, workingDirectory) => {
-    // Parse command line for file path
+    // Parse command line for file path or prose:// URL (Windows/Linux URL scheme delivery)
     const args = commandLine.slice(is.dev ? 2 : 1)
     for (const arg of args) {
+      if (arg.startsWith('prose://')) {
+        handleProseUrl(arg)
+        return
+      }
       if (arg.endsWith('.md') && !arg.startsWith('-')) {
         // Focus main window and send file to renderer
         const mainWindow = BrowserWindow.getAllWindows()[0]
@@ -104,11 +135,17 @@ if (!gotTheLock) {
           mainWindow.focus()
           mainWindow.webContents.send('file:openExternal', arg)
         }
-        break
+        return
       }
     }
   })
 }
+
+// Handle prose:// URL scheme (macOS delivers via open-url event)
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  handleProseUrl(url)
+})
 
 // Handle file open from macOS Finder (before app is ready)
 app.on('open-file', (event, path) => {
@@ -241,6 +278,12 @@ app.on('certificate-error', (event, _webContents, _url, _error, _certificate, ca
 
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('ist.solo.prose')
+
+  // Register prose:// URL scheme handler (non-MAS: URL schemes work but
+  // setAsDefaultProtocolClient is how we claim the scheme on first launch)
+  if (!IS_MAS_BUILD) {
+    app.setAsDefaultProtocolClient('prose')
+  }
 
   // Validate that early Sentry init path matches Electron's resolved path
   validatePathConsistency()
@@ -398,6 +441,12 @@ app.whenReady().then(async () => {
       mainWindow.webContents.send('file:openExternal', filePath)
     }
     pendingFileOpens.length = 0
+
+    // Send any content queued from a prose:// URL received before renderer was ready
+    if (pendingUrlContent) {
+      mainWindow.webContents.send('file:openFromUrl', pendingUrlContent)
+      pendingUrlContent = null
+    }
 
     // Start MCP socket server now that renderer bridge is ready
     // All MCP tools require renderer, so we can only start after this point

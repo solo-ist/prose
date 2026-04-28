@@ -1,8 +1,107 @@
-import { Menu, BrowserWindow, app, shell } from 'electron'
-import { basename } from 'path'
+import { Menu, BrowserWindow, app, shell, dialog } from 'electron'
+import { basename, join } from 'path'
+import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { is } from '@electron-toolkit/utils'
 import { loadRecentFiles, clearRecentFiles } from './recentFiles'
 import { IS_MAS_BUILD } from './env'
+
+// Minimal CRC-32 and STORE-mode ZIP creator (no external dependencies)
+function crc32(data: Buffer): number {
+  const table = new Uint32Array(256)
+  for (let n = 0; n < 256; n++) {
+    let c = n
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+    table[n] = c
+  }
+  let crc = 0xffffffff
+  for (const b of data) crc = table[(crc ^ b) & 0xff] ^ (crc >>> 8)
+  return (crc ^ 0xffffffff) >>> 0
+}
+
+function createZipBuffer(entries: Array<{ name: string; data: Buffer }>): Buffer {
+  const localParts: Buffer[] = []
+  const cdParts: Buffer[] = []
+  let offset = 0
+
+  for (const entry of entries) {
+    const nameBuf = Buffer.from(entry.name, 'utf8')
+    const crc = crc32(entry.data)
+    const size = entry.data.length
+
+    const local = Buffer.alloc(30 + nameBuf.length)
+    local.writeUInt32LE(0x04034b50, 0)
+    local.writeUInt16LE(20, 4)
+    local.writeUInt16LE(0, 6)
+    local.writeUInt16LE(0, 8)   // STORE
+    local.writeUInt16LE(0, 10)
+    local.writeUInt16LE(0, 12)
+    local.writeUInt32LE(crc, 14)
+    local.writeUInt32LE(size, 18)
+    local.writeUInt32LE(size, 22)
+    local.writeUInt16LE(nameBuf.length, 26)
+    local.writeUInt16LE(0, 28)
+    nameBuf.copy(local, 30)
+
+    const cd = Buffer.alloc(46 + nameBuf.length)
+    cd.writeUInt32LE(0x02014b50, 0)
+    cd.writeUInt16LE(20, 4)
+    cd.writeUInt16LE(20, 6)
+    cd.writeUInt16LE(0, 8)
+    cd.writeUInt16LE(0, 10)
+    cd.writeUInt16LE(0, 12)
+    cd.writeUInt16LE(0, 14)
+    cd.writeUInt32LE(crc, 16)
+    cd.writeUInt32LE(size, 20)
+    cd.writeUInt32LE(size, 24)
+    cd.writeUInt16LE(nameBuf.length, 28)
+    cd.writeUInt16LE(0, 30)
+    cd.writeUInt16LE(0, 32)
+    cd.writeUInt16LE(0, 34)
+    cd.writeUInt16LE(0, 36)
+    cd.writeUInt32LE(0, 38)
+    cd.writeUInt32LE(offset, 42)
+    nameBuf.copy(cd, 46)
+
+    localParts.push(local, entry.data)
+    cdParts.push(cd)
+    offset += local.length + size
+  }
+
+  const cdBuf = Buffer.concat(cdParts)
+  const eocd = Buffer.alloc(22)
+  eocd.writeUInt32LE(0x06054b50, 0)
+  eocd.writeUInt16LE(0, 4)
+  eocd.writeUInt16LE(0, 6)
+  eocd.writeUInt16LE(entries.length, 8)
+  eocd.writeUInt16LE(entries.length, 10)
+  eocd.writeUInt32LE(cdBuf.length, 12)
+  eocd.writeUInt32LE(offset, 16)
+  eocd.writeUInt16LE(0, 20)
+
+  return Buffer.concat([...localParts, cdBuf, eocd])
+}
+
+function downloadProseSkill(): void {
+  try {
+    const skillPath = join(process.resourcesPath, 'skill', 'skills', 'prose', 'SKILL.md')
+    if (!existsSync(skillPath)) {
+      dialog.showErrorBox('Prose Skill', 'Skill file not found. Please reinstall Prose.')
+      return
+    }
+
+    const skillContent = readFileSync(skillPath)
+    const zipBuf = createZipBuffer([
+      { name: 'skills/prose/SKILL.md', data: skillContent }
+    ])
+
+    const destPath = join(app.getPath('downloads'), 'prose-skill.zip')
+    writeFileSync(destPath, zipBuf)
+    shell.showItemInFolder(destPath)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    dialog.showErrorBox('Prose Skill', `Download failed: ${message}`)
+  }
+}
 
 // Store mainWindow reference so we can rebuild the menu after adding recent files
 let _menuWindow: BrowserWindow | null = null
@@ -362,6 +461,17 @@ export function createMenu(mainWindow: BrowserWindow): void {
             openExternalUrl('https://github.com/solo-ist/prose/discussions/categories/ideas')
           }
         },
+        ...(!IS_MAS_BUILD
+          ? [
+              { type: 'separator' as const },
+              {
+                label: 'Download Prose Skill',
+                click: (): void => {
+                  downloadProseSkill()
+                }
+              }
+            ]
+          : []),
         ...(!isMac
           ? [
               { type: 'separator' as const },

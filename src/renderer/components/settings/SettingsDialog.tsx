@@ -24,6 +24,7 @@ import { Switch } from '../ui/switch'
 import { RemarkableIntegration } from './RemarkableIntegration'
 import { GoogleDocsIntegration } from './GoogleDocsIntegration'
 import { McpIntegration } from './McpIntegration'
+import { ProseSkillIntegration } from './ProseSkillIntegration'
 import { isWebMode } from '../../lib/browserApi'
 import type { Settings } from '../../types'
 import { Eye, EyeOff, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
@@ -663,6 +664,8 @@ export function SettingsDialog() {
 
           <TabsContent value="integrations" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={integrationsTabRef}>
             {!isWebMode() && !window.api?.isMasBuild && <McpIntegration />}
+            {!isWebMode() && !window.api?.isMasBuild && <Separator />}
+            {!isWebMode() && !window.api?.isMasBuild && <ProseSkillIntegration />}
             {!isWebMode() && !window.api?.isMasBuild && <Separator />}
             <RemarkableIntegration
               settings={settings}

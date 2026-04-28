@@ -1,6 +1,6 @@
 ---
 name: prose
-description: Use Prose's MCP tools (get_outline, read_document, suggest_edit, open_file, create_and_open_file) to read, outline, and propose edits to the document the user has open in Prose. Activates when the user asks to edit, restructure, summarize, get an outline of, or work on a document in Prose, or when Prose MCP tools are available in the session.
+description: Use Prose's MCP tools (get_outline, read_document, suggest_edit, open_file, create_and_open_file) to read, outline, and propose edits to the document the user has open in Prose. Activates when the user asks to edit, restructure, summarize, read, get an outline of, look at, or work on a document in Prose, or when Prose MCP tools are available in the session.
 ---
 
 # Prose

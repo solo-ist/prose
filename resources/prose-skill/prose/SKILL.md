@@ -92,8 +92,9 @@ Both templates are static HTML — `show_widget` does not execute callbacks, so 
 2. Build the heading items by iterating the `outline` array from the response. For each entry `{level, text, line}`, emit one item using the template inside the HTML comment at the bottom of the file:
    - `INDENT` = `(level - 1) * 16`
    - `TEXT` = HTML-escape the heading's `text` (`& < > "`)
-3. Concatenate all items and substitute them for `{{HEADING_ITEMS}}` in the outer template.
-4. Call `show_widget` (or `visualize:show_widget`) with the resulting HTML as the only argument.
+3. Build `{{PROSE_URL}}` = `prose://open?content=` + `encodeURIComponent` of the outline rendered as Markdown headings (one per line, `#` × `level` + space + text). Cap content at 5MB.
+4. Substitute the heading items for `{{HEADING_ITEMS}}` and the URL for `{{PROSE_URL}}` in the outer template.
+5. Call `show_widget` (or `visualize:show_widget`) with the resulting HTML as the only argument.
 
 For documents with **fewer than 3 headings**, do not render the widget. Use the `summary` field from the response and answer in one or two conversational sentences.
 
@@ -104,13 +105,17 @@ For documents with **fewer than 3 headings**, do not render the widget. Use the 
 **How**:
 
 1. Read `assets/diff.html` (or `/mnt/skills/user/prose/assets/diff.html` on mounted surfaces).
-2. Substitute three placeholders:
-   - `{{COMMENT_BLOCK}}` — empty string if no `comment` was passed to `suggest_edit`. If a comment was passed, use the comment-block template inside the HTML comment at the bottom of the file, with `{{COMMENT}}` HTML-escaped.
-   - `{{OLD_TEXT}}` — original node text (HTML-escaped) from your most recent `read_document`, or the `search` arg you passed.
-   - `{{NEW_TEXT}}` — HTML-escaped new content (the `content` arg you passed).
-3. Call `show_widget` with the resulting HTML.
+2. Compute an inline word-level diff between the original node text and your new `content`. The widget shows both texts in full, side-by-side, with the parts that differ highlighted in place — so the eye can skim the unchanged surrounding text and land on what changed.
+3. Substitute four placeholders:
+   - `{{COMMENT_BLOCK}}` — empty string if no `comment` was passed to `suggest_edit`. If a comment was passed, render `<div class="prose-diff__comment">{{COMMENT}}</div>` with `{{COMMENT}}` HTML-escaped.
+   - `{{OLD_TEXT}}` — the **full original** text (HTML-escape `& < > "` first), then wrap each removed run with `<span class="prose-diff__removed">…</span>`. Unchanged surrounding text stays unmarked.
+   - `{{NEW_TEXT}}` — the **full new** text (HTML-escape first), then wrap each added run with `<span class="prose-diff__added">…</span>`. Unchanged text stays unmarked and matches the unmarked text in `{{OLD_TEXT}}` exactly.
+   - `{{PROSE_URL}}` — `prose://open?content=` + `encodeURIComponent` of the **plain** new text (no diff-markup spans, no HTML escaping — just the raw text the user would see if they accepted). Cap at 5MB; truncate longer content and append `[truncated]` before encoding.
+4. Call `show_widget` with the resulting HTML.
 
-The widget includes a footer line directing the user to accept or reject in Prose's overlay. Don't paraphrase that or add your own buttons — Prose's MCP does not expose a programmatic accept tool, so any button would be a lie.
+The widget includes an "Open in Prose" deep-link button that opens the suggested content in a new Prose tab via the `prose://` URL scheme. The hint next to it directs the user to accept/reject in Prose's diff overlay (where MCP put the suggestion). Don't add other buttons — Prose's MCP does not expose a programmatic accept tool, so any button claiming to do that would be a lie.
+
+**Diff granularity**: word-level (treat a "word" as a contiguous run of word characters or a contiguous run of punctuation). Don't mark character-level differences inside a word — for `integraton` → `integration`, mark the whole word in each column rather than just the missing `i`. For whole-paragraph rewrites where every word changed, marking the entire text as one span is acceptable.
 
 After rendering the widget, in the conversational reply, briefly state what the change does (one sentence). Then wait for the user.
 

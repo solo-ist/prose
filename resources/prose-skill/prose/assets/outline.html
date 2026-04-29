@@ -5,15 +5,13 @@
     --text: #1a1a1a;
     --border: #e4e4e7;
     --muted: #71717a;
+    --accent-bg: #18181b;
+    --accent-fg: #fafafa;
     font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 13px;
     line-height: 1.6;
     color: var(--text);
     max-width: 720px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px 16px;
-    background: var(--bg);
   }
   @media (prefers-color-scheme: dark) {
     .prose-outline {
@@ -21,7 +19,16 @@
       --text: #fafafa;
       --border: #3f3f46;
       --muted: #a1a1aa;
+      --accent-bg: #fafafa;
+      --accent-fg: #18181b;
     }
+  }
+  .prose-outline__card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    background: var(--bg);
+    margin-bottom: 12px;
   }
   .prose-outline__label {
     font-size: 13px;
@@ -34,14 +41,50 @@
     color: var(--text);
     font-size: 13px;
   }
+  .prose-outline__actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .prose-outline__button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    background: var(--accent-bg);
+    color: var(--accent-fg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    text-decoration: none;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .prose-outline__button:hover { opacity: 0.9; }
+  .prose-outline__button svg { width: 14px; height: 14px; }
 </style>
 <div class="prose-outline">
-  <div class="prose-outline__label">Outline</div>
-  {{HEADING_ITEMS}}
+  <div class="prose-outline__card">
+    <div class="prose-outline__label">Outline</div>
+    {{HEADING_ITEMS}}
+  </div>
+  <div class="prose-outline__actions">
+    <a class="prose-outline__button" href="{{PROSE_URL}}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3h7v7"/><path d="M21 3l-9 9"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>
+      Open in Prose
+    </a>
+  </div>
 </div>
 
 <!--
-  HEADING_ITEMS: one of these per entry in the outline array. INDENT is (level - 1) * 16. Escape & < > " in TEXT.
+  HEADING_ITEMS
+    One of these per entry in the outline array. INDENT is (level - 1) * 16. Escape & < > " in TEXT.
+      <div class="prose-outline__item" style="padding-left: {{INDENT}}px;">{{TEXT}}</div>
 
-  <div class="prose-outline__item" style="padding-left: {{INDENT}}px;">{{TEXT}}</div>
+  PROSE_URL
+    prose://open?content=<URL-encoded outline as Markdown>
+    Build a Markdown skeleton from the outline by emitting "#" repeated `level` times +
+    " " + heading text, one per line. This gives the user a starting outline they can
+    flesh out in a fresh Prose tab. Cap at 5MB.
 -->

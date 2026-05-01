@@ -38,42 +38,31 @@ Never silently underperform. If MCP isn't usable, surface why and offer an alter
 
 Each entry is a heading. `level` is 1–6 (H1–H6), `text` is the heading text, `line` is its approximate line number. The `summary` field appears only when the document has fewer than 3 headings.
 
-`read_document` returns a list of nodes, each with `id`, `type`, and `text`. The `id` is what `suggest_edit` targets via `nodeId`.
+`read_document` returns `{ nodes: [{ id, type, content }, ...], markdown }`. The `id` is what `suggest_edit` targets via `nodeId`. `markdown` is the full document text if you need it without iterating nodes. **Note**: nodes carry `content`, not `text` — don't look for a `text` field.
 
 `suggest_edit` returns `{ suggested: true, suggestionId }` on success.
 
-## Editing — node IDs first
+## Side effects and limitations
 
-`suggest_edit` is **node-targeted**. Its parameters:
+- `create_and_open_file` and `open_file` switch the active document and dismiss any pending `suggest_edit` overlay. Order multi-tool flows accordingly: render the diff last if you want the user to land on it.
+- `create_and_open_file` saves to Prose's configured default save location (typically `~/Documents`). The `filename` parameter is just a name, not a path; if it collides, Prose auto-suffixes (`Untitled.md` → `Untitled 2.md`).
+- The MCP exposes only the 5 tools above — there is **no** "get current file path" tool. If you need the active document's path (e.g., to switch back after `create_and_open_file`), ask the user or use a path they've already mentioned. Don't guess.
+- `get_outline` and `read_document` are read-only; safe to call any time without disturbing UI state.
 
-- `nodeId` (**required**) — the ID of the node to replace. Always get this from `read_document`.
-- `content` (**required**) — the new content for that node. This replaces the node's *entire* content.
+## Editing
+
+`suggest_edit` is **node-targeted**. Parameters:
+
+- `nodeId` (**required**) — from `read_document`.
+- `content` (**required**) — replaces the node's *entire* content.
 - `comment` (optional) — short rationale shown in the diff UI (≤ 20 words).
-- `search` (optional fallback) — the original text of the node. Pass this whenever you have it. If the `nodeId` is stale (the user edited the document since you read it), the server falls back to text matching against `search`.
+- `search` (optional but recommended) — the original node text. Pass it whenever you have it; the server uses it as a text-match fallback if `nodeId` is stale.
 
-**Always pass both `nodeId` and `search`.** `nodeId` is the primary key; `search` is the safety net.
+Workflow: `read_document` → pick the node → `suggest_edit` with both `nodeId` and `search`. One call per turn — Prose's overlay handles one suggestion at a time. Don't loop waiting for accept/reject; just return.
 
-If `suggest_edit` returns a targeting error ("node not found", "no match"):
+If `suggest_edit` returns "node not found" / "no match", call `read_document` again, locate the node by its current text, and retry with the fresh `nodeId`.
 
-1. Call `read_document` again to get fresh node IDs.
-2. Locate the node you intended to edit by its current text.
-3. Retry with the fresh `nodeId`.
-
-Do not try to construct edits without first reading the document. Blind edits frequently miss context and fail to target.
-
-## Editing etiquette
-
-- **One suggestion at a time.** Never fire multiple `suggest_edit` calls in parallel — each opens a diff overlay in Prose, and parallel calls overwhelm the UI and often conflict.
-- **Read before editing.** Always call `read_document` (or at minimum `get_outline`) before suggesting edits to a document you haven't read this session.
-- **Prefer minimal diffs.** If only a sentence needs changing, replace just that node. Rewriting a paragraph because of one clause is disruptive.
-- **Verify structural changes against the outline.** When moving sections or editing headings, confirm heading text verbatim from `get_outline` first.
-
-## Suggested edit workflow
-
-1. `read_document` (or `get_outline` if you only need structure) — get node IDs and current text.
-2. Identify the target node by its `text` and structural position.
-3. `suggest_edit` with both `nodeId` and `search` (the original node text).
-4. Wait for the user to accept or reject in Prose's diff UI before queueing another edit.
+Prefer minimal diffs — replace the smallest node that contains the change. When restructuring or editing headings, verify heading text verbatim against `get_outline` first.
 
 ## Rendering — widgets are the response shape
 

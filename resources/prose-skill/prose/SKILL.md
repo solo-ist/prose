@@ -68,7 +68,15 @@ Prefer minimal diffs — replace the smallest node that contains the change. Whe
 
 Both widget templates are inlined below. **The widget IS the response shape for outlines and diffs — not an optional enhancement.** Do not fall back to a Markdown list because the widget feels heavy or because Markdown is "simpler." Only fall back when `show_widget` is genuinely unavailable on this surface (every variant returns "tool not found").
 
-Templates are static HTML — `show_widget` does not execute callbacks, so do not add `onclick` handlers or buttons.
+### Calling `show_widget`
+
+`show_widget` (also exposed as `visualize:show_widget`) requires three parameters:
+
+- `widget_code` — the substituted HTML from the templates below.
+- `title` — short snake_case identifier (e.g., `prose_outline`, `prose_diff_<short_node_id>`). No spaces or special characters; also used as the download filename.
+- `loading_messages` — array of 1–4 short strings (~5 words each). Keep them dry and factual for this writing-tools context. Examples: `["Laying out the headings"]` for outline, `["Highlighting what changed"]` for diff.
+
+The platform expects a `read_me` call **once silently** before your first `show_widget` call in the conversation. Don't narrate it — just make the call before rendering.
 
 ### Outline widget
 
@@ -83,18 +91,23 @@ Templates are static HTML — `show_widget` does not execute callbacks, so do no
     --bg: #ffffff; --text: #1a1a1a; --border: #e4e4e7; --muted: #71717a;
     font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 13px; line-height: 1.6; color: var(--text);
-    max-width: 720px; border: 1px solid var(--border); border-radius: 8px;
-    padding: 14px 16px; background: var(--bg);
+    max-width: 720px;
   }
   @media (prefers-color-scheme: dark) {
     .prose-outline { --bg: #18181b; --text: #fafafa; --border: #3f3f46; --muted: #a1a1aa; }
+  }
+  .prose-outline__card {
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 16px; background: var(--bg);
   }
   .prose-outline__label { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 10px; }
   .prose-outline__item { padding: 3px 0; color: var(--text); font-size: 13px; }
 </style>
 <div class="prose-outline">
-  <div class="prose-outline__label">Outline</div>
-  {{HEADING_ITEMS}}
+  <div class="prose-outline__card">
+    <div class="prose-outline__label">Outline</div>
+    {{HEADING_ITEMS}}
+  </div>
 </div>
 ```
 
@@ -104,7 +117,7 @@ Templates are static HTML — `show_widget` does not execute callbacks, so do no
 <div class="prose-outline__item" style="padding-left: {{INDENT}}px;">{{TEXT}}</div>
 ```
 
-Pass the substituted HTML to `show_widget` (or `visualize:show_widget`) as the only argument.
+Pass the substituted HTML as `widget_code` per the calling rules above.
 
 ### Diff widget
 
@@ -172,7 +185,7 @@ Pass the substituted HTML to `show_widget` (or `visualize:show_widget`) as the o
 
   with `{{COMMENT}}` HTML-escaped.
 
-Pass the substituted HTML to `show_widget`. Then in the conversational reply, briefly state what the change does (one sentence). Then wait for the user.
+Pass the substituted HTML as `widget_code` per the calling rules above. Then in the conversational reply, briefly state what the change does (one sentence). Then wait for the user.
 
 ### When widgets really aren't available
 

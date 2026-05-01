@@ -7,14 +7,14 @@ description: Use Prose's MCP tools (get_outline, read_document, suggest_edit, op
 
 Prose is a focused Markdown editor for macOS with native Claude integration via MCP (Model Context Protocol). This skill drives Prose from a Claude conversation: outlining documents, reading content, and proposing inline edits the user can accept or reject in the diff UI.
 
-## Availability check
+## Connectivity
 
-At session start (or when this skill first activates), call `get_outline` with no arguments as a connectivity probe:
+Don't probe before doing real work — your **first MCP call doubles as the connectivity check**. Make whatever call the user's request actually needs (`get_outline`, `read_document`, etc.) and read the response state:
 
-- **Returns an outline** → Prose is running with MCP connected. Proceed.
+- **Returns the expected payload** → Prose is running with MCP connected. Continue.
 - **"tool not found" / not in toolset** → MCP isn't installed. Tell the user: open Prose → Settings → Integrations → click "Install MCP Server", then restart Claude.
 - **Error: server not reachable / connection refused** → MCP is installed but Prose isn't running. Ask the user to launch Prose, or offer to work with pasted content.
-- **Mac App Store build of Prose** → MCP is unavailable by sandbox design. Explain this and offer to work with pasted content. Do not attempt install instructions.
+- **Mac App Store build of Prose** → MCP is unavailable by sandbox design. Explain this and offer to work with pasted content. Don't attempt install instructions.
 
 Never silently underperform. If MCP isn't usable, surface why and offer an alternative.
 
@@ -22,7 +22,7 @@ Never silently underperform. If MCP isn't usable, surface why and offer an alter
 
 | Tool | Purpose |
 |------|---------|
-| `get_outline` | Returns document headings as a structured list. With no arguments, also serves as a connectivity probe. |
+| `get_outline` | Returns document headings as a structured list. |
 | `read_document` | Returns the full document as a list of nodes. Each node has an `id` (use this for edit targeting), the node `type`, and its `text` content. |
 | `suggest_edit` | Proposes a replacement for a single node. The user sees an inline diff in Prose and accepts or rejects there — Prose's MCP does not expose programmatic accept. |
 | `open_file` | Opens an existing file in Prose by absolute path. |
@@ -70,52 +70,120 @@ Do not try to construct edits without first reading the document. Blind edits fr
 
 ## Suggested edit workflow
 
-1. `get_outline` — confirm MCP, learn document structure.
-2. `read_document` — get node IDs and current text.
-3. Identify the target node by its `text` and structural position.
-4. `suggest_edit` with both `nodeId` and `search` (the original node text).
-5. Wait for the user to accept or reject in Prose's diff UI before queueing another edit.
+1. `read_document` (or `get_outline` if you only need structure) — get node IDs and current text.
+2. Identify the target node by its `text` and structural position.
+3. `suggest_edit` with both `nodeId` and `search` (the original node text).
+4. Wait for the user to accept or reject in Prose's diff UI before queueing another edit.
 
 ## Rendering — widgets are the response shape
 
-Prose ships two HTML widget templates in `assets/`. **The widget IS the response shape for outlines and diffs — not an optional enhancement.** Do not fall back to a Markdown list because the widget feels heavy or because Markdown is "simpler." Only fall back when `show_widget` is genuinely unavailable on this surface (every variant returns "tool not found").
+Both widget templates are inlined below. **The widget IS the response shape for outlines and diffs — not an optional enhancement.** Do not fall back to a Markdown list because the widget feels heavy or because Markdown is "simpler." Only fall back when `show_widget` is genuinely unavailable on this surface (every variant returns "tool not found").
 
-Both templates are static HTML — `show_widget` does not execute callbacks, so do not add `onclick` handlers. The diff widget tells the user where to accept the change inline (in Prose's overlay).
+Templates are static HTML — `show_widget` does not execute callbacks, so do not add `onclick` handlers or buttons.
 
 ### Outline widget
 
-**When**: after `get_outline` returns three or more entries, render the result as a widget instead of a Markdown list.
+**When**: after `get_outline` returns three or more entries. For fewer than 3 headings, use the `summary` field and answer in 1–2 conversational sentences.
 
-**How**:
+**Outer template** — substitute `{{HEADING_ITEMS}}` with one item per heading:
 
-1. Read the file at `assets/outline.html` (sibling to this SKILL.md). On surfaces that mount skills under `/mnt/skills/user/<skill-name>/`, the absolute path is `/mnt/skills/user/prose/assets/outline.html`.
-2. Build the heading items by iterating the `outline` array from the response. For each entry `{level, text, line}`, emit one item using the template inside the HTML comment at the bottom of the file:
-   - `INDENT` = `(level - 1) * 16`
-   - `TEXT` = HTML-escape the heading's `text` (`& < > "`)
-3. Concatenate all items and substitute them for `{{HEADING_ITEMS}}` in the outer template.
-4. Call `show_widget` (or `visualize:show_widget`) with the resulting HTML as the only argument.
+```html
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+  .prose-outline {
+    --bg: #ffffff; --text: #1a1a1a; --border: #e4e4e7; --muted: #71717a;
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px; line-height: 1.6; color: var(--text);
+    max-width: 720px; border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 16px; background: var(--bg);
+  }
+  @media (prefers-color-scheme: dark) {
+    .prose-outline { --bg: #18181b; --text: #fafafa; --border: #3f3f46; --muted: #a1a1aa; }
+  }
+  .prose-outline__label { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 10px; }
+  .prose-outline__item { padding: 3px 0; color: var(--text); font-size: 13px; }
+</style>
+<div class="prose-outline">
+  <div class="prose-outline__label">Outline</div>
+  {{HEADING_ITEMS}}
+</div>
+```
 
-For documents with **fewer than 3 headings**, do not render the widget. Use the `summary` field from the response and answer in one or two conversational sentences.
+**Item template** — one per heading. `INDENT` = `(level - 1) * 16`. `TEXT` = HTML-escape `& < > "` in the heading text:
+
+```html
+<div class="prose-outline__item" style="padding-left: {{INDENT}}px;">{{TEXT}}</div>
+```
+
+Pass the substituted HTML to `show_widget` (or `visualize:show_widget`) as the only argument.
 
 ### Diff widget
 
-**When**: after `suggest_edit` returns `{ suggested: true, suggestionId }`, render the diff as a widget. Do this every time, not just for "interesting" edits.
+**When**: after `suggest_edit` returns `{ suggested: true, suggestionId }`. Render every time, not just for "interesting" edits.
 
-**How**:
+**Compute** an inline word-level diff between the original node text and your new `content`. Both texts appear in full, side-by-side, with only the differing word runs highlighted in place — the eye skims unchanged surrounding text and lands on what changed.
 
-1. Read `assets/diff.html` (or `/mnt/skills/user/prose/assets/diff.html` on mounted surfaces).
-2. Compute an inline word-level diff between the original node text and your new `content`. The widget shows both texts in full, side-by-side, with the parts that differ highlighted in place — so the eye can skim the unchanged surrounding text and land on what changed.
-3. Substitute three placeholders:
-   - `{{COMMENT_BLOCK}}` — empty string if no `comment` was passed to `suggest_edit`. If a comment was passed, render `<div class="prose-diff__comment">{{COMMENT}}</div>` with `{{COMMENT}}` HTML-escaped.
-   - `{{OLD_TEXT}}` — the **full original** text (HTML-escape `& < > "` first), then wrap each removed run with `<span class="prose-diff__removed">…</span>`. Unchanged surrounding text stays unmarked.
-   - `{{NEW_TEXT}}` — the **full new** text (HTML-escape first), then wrap each added run with `<span class="prose-diff__added">…</span>`. Unchanged text stays unmarked and matches the unmarked text in `{{OLD_TEXT}}` exactly.
-4. Call `show_widget` with the resulting HTML.
+**Granularity**: word-level (a contiguous run of word characters or a contiguous run of punctuation). Don't mark character-level differences inside a word — for `integraton` → `integration`, mark the whole word, not just the missing `i`. For whole-paragraph rewrites where every word changed, marking the entire text as one span is acceptable.
 
-The widget includes a footer line directing the user to accept/reject in Prose's diff overlay (where MCP put the suggestion). Don't add buttons — Prose's MCP does not expose a programmatic accept tool, so any button claiming to do that would be a lie.
+**Template** — substitute `{{OLD_TEXT}}`, `{{NEW_TEXT}}`, `{{COMMENT_BLOCK}}`:
 
-**Diff granularity**: word-level (treat a "word" as a contiguous run of word characters or a contiguous run of punctuation). Don't mark character-level differences inside a word — for `integraton` → `integration`, mark the whole word in each column rather than just the missing `i`. For whole-paragraph rewrites where every word changed, marking the entire text as one span is acceptable.
+```html
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+  .prose-diff {
+    --bg: #ffffff; --text: #1a1a1a; --border: #e4e4e7; --muted: #71717a; --surface: #f4f4f5;
+    --removed-bg: #fecaca; --removed-fg: #7f1d1d;
+    --added-bg: #bbf7d0; --added-fg: #14532d;
+    font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px; line-height: 1.55; color: var(--text); max-width: 820px;
+  }
+  @media (prefers-color-scheme: dark) {
+    .prose-diff {
+      --bg: #18181b; --text: #fafafa; --border: #3f3f46; --muted: #a1a1aa;
+      --surface: rgba(255, 255, 255, 0.04);
+      --removed-bg: rgba(239, 68, 68, 0.30); --removed-fg: #fecaca;
+      --added-bg: rgba(34, 197, 94, 0.30); --added-fg: #bbf7d0;
+    }
+  }
+  .prose-diff__columns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+  .prose-diff__col { display: flex; flex-direction: column; min-width: 0; }
+  .prose-diff__label { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+  .prose-diff__block { border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; background: var(--bg); flex: 1; }
+  .prose-diff__text { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: 13px; color: var(--text); }
+  .prose-diff__removed { background: var(--removed-bg); color: var(--removed-fg); text-decoration: line-through; text-decoration-thickness: 1px; padding: 0 2px; border-radius: 3px; }
+  .prose-diff__added { background: var(--added-bg); color: var(--added-fg); padding: 0 2px; border-radius: 3px; }
+  .prose-diff__comment { margin-bottom: 16px; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; font-size: 13px; color: var(--text); }
+  .prose-diff__footer { font-size: 12px; color: var(--muted); }
+</style>
+<div class="prose-diff">
+  <div class="prose-diff__columns">
+    <div class="prose-diff__col">
+      <div class="prose-diff__label">Original</div>
+      <div class="prose-diff__block"><pre class="prose-diff__text">{{OLD_TEXT}}</pre></div>
+    </div>
+    <div class="prose-diff__col">
+      <div class="prose-diff__label">Suggested</div>
+      <div class="prose-diff__block"><pre class="prose-diff__text">{{NEW_TEXT}}</pre></div>
+    </div>
+  </div>
+  {{COMMENT_BLOCK}}
+  <div class="prose-diff__footer">Accept or reject in Prose's diff overlay.</div>
+</div>
+```
 
-After rendering the widget, in the conversational reply, briefly state what the change does (one sentence). Then wait for the user.
+**Substitution rules**:
+
+- `{{OLD_TEXT}}` — full original text (HTML-escape `& < > "`), then wrap each removed run with `<span class="prose-diff__removed">…</span>`. Unchanged surrounding text stays unmarked.
+- `{{NEW_TEXT}}` — full new text (HTML-escape first), then wrap each added run with `<span class="prose-diff__added">…</span>`. Unchanged text stays unmarked and matches the unmarked text in `{{OLD_TEXT}}` exactly.
+- `{{COMMENT_BLOCK}}` — empty string when no `comment` was passed to `suggest_edit`. When present:
+
+  ```html
+  <div class="prose-diff__comment">{{COMMENT}}</div>
+  ```
+
+  with `{{COMMENT}}` HTML-escaped.
+
+Pass the substituted HTML to `show_widget`. Then in the conversational reply, briefly state what the change does (one sentence). Then wait for the user.
 
 ### When widgets really aren't available
 

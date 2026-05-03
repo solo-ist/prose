@@ -17,6 +17,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
 
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -360,7 +361,14 @@
 
   function renderMd(text) {
     if (!text || !text.trim()) return '';
-    try { return marked.parse(text); }
+    try {
+      var html = marked.parse(text);
+      // Sanitize: marked v9 with GFM passes raw HTML through. Without
+      // DOMPurify, a user typing <img src=x onerror=...> into the textarea
+      // gets script execution in the preview. Per CLAUDE.md: never insert
+      // dynamic data into innerHTML unsanitized.
+      return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : '';
+    }
     catch(_) { return '<p>Preview error</p>'; }
   }
 
@@ -504,7 +512,9 @@
     var overCap = bytes >= MAX_BYTES;
 
     var preview = useMemo(function() { return renderMd(content); }, [content]);
-    var pUrl = useMemo(function() { return proseUrl(content); }, [content]);
+    // Skip URL encoding when over the 5MB cap — the button is disabled anyway,
+    // and encodeURIComponent on a multi-MB string causes input lag in the editor.
+    var pUrl = useMemo(function() { return overCap ? '' : proseUrl(content); }, [content, overCap]);
 
     var showEdit    = view === 'split' || view === 'edit';
     var showPreview = view === 'split' || view === 'preview';

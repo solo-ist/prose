@@ -511,7 +511,15 @@ export function Toolbar() {
               </DropdownMenuItem>
               {!window.api?.isMasBuild && (
                 <DropdownMenuItem onClick={() => {
-                  window.api?.downloadSkill?.().catch((err) => console.error('[Skill] Download failed:', err))
+                  window.api?.downloadSkill?.()
+                    .then((result) => {
+                      if (!result?.success) {
+                        alert(`Failed to download Claude Skill: ${result?.error ?? 'Unknown error'}`)
+                      }
+                    })
+                    .catch((err) => {
+                      alert(`Failed to download Claude Skill: ${err instanceof Error ? err.message : 'Unknown error'}`)
+                    })
                 }}>
                   <Sparkles className="mr-2 h-4 w-4" />
                   Download Claude Skill

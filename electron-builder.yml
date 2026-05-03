@@ -55,10 +55,6 @@ mac:
     - dir
   extendInfo:
     ITSAppUsesNonExemptEncryption: false
-    CFBundleURLTypes:
-      - CFBundleURLName: ist.solo.prose
-        CFBundleURLSchemes:
-          - prose
     UTImportedTypeDeclarations:
       - UTTypeIdentifier: net.daringfireball.markdown
         UTTypeDescription: Markdown Document

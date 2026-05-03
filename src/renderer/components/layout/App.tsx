@@ -824,7 +824,15 @@ export function App() {
           break
         case 'downloadSkill':
           if (window.api?.downloadSkill) {
-            window.api.downloadSkill().catch((err) => console.error('[Skill] Download failed:', err))
+            window.api.downloadSkill()
+              .then((result) => {
+                if (!result?.success) {
+                  alert(`Failed to download Claude Skill: ${result?.error ?? 'Unknown error'}`)
+                }
+              })
+              .catch((err) => {
+                alert(`Failed to download Claude Skill: ${err instanceof Error ? err.message : 'Unknown error'}`)
+              })
           }
           break
         default:

@@ -458,6 +458,12 @@ export const browserApi: ElectronAPI = {
   // Sentry error tracking - no-op in browser mode
   sentrySetEnabled: async (): Promise<void> => {},
 
+  // prose:// URL scheme - not available in browser
+  onOpenFromUrl: (_callback: (content: string) => void) => () => {},
+
+  // Skill download - not available in browser
+  downloadSkill: async () => ({ success: false, error: 'Not available in browser mode' }),
+
   // Auto-updater - not available in browser
   onUpdateAvailable: (_callback: (info: { version: string; releaseNotes?: string }) => void) => {
     return () => {}

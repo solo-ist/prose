@@ -1529,4 +1529,30 @@ export function setupIpcHandlers(): void {
       }
     }
   })
+
+  ipcMain.handle('skill:download', async (): Promise<{ success: boolean; error?: string }> => {
+    if (IS_MAS_BUILD) {
+      return { success: false, error: 'Skill download is not available in the Mac App Store version.' }
+    }
+    try {
+      const skillSrc = app.isPackaged
+        ? join(process.resourcesPath, 'resources', 'prose.skill')
+        : join(__dirname, '../../resources/prose.skill')
+
+      const downloadsDir = app.getPath('downloads')
+      const destPath = join(downloadsDir, 'prose.skill')
+
+      await copyFile(skillSrc, destPath)
+      // showItemInFolder reveals the file (highlights it in Finder/Explorer),
+      // unlike openPath which only opens the containing folder.
+      shell.showItemInFolder(destPath)
+      return { success: true }
+    } catch (error) {
+      console.error('[Skill:download] Error:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  })
 }

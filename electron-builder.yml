@@ -22,6 +22,7 @@ extraResources:
     to: resources/
     filter:
       - "!PrivacyInfo.xcprivacy"
+      - "!prose-skill/"
   - from: resources/PrivacyInfo.xcprivacy
     to: PrivacyInfo.xcprivacy
 
@@ -35,6 +36,11 @@ fileAssociations:
     description: Markdown document
     role: Editor
     rank: Default
+
+protocols:
+  - name: Prose
+    schemes:
+      - prose
 
 mac:
   category: public.app-category.productivity

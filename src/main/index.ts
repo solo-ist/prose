@@ -78,6 +78,8 @@ if (is.dev) {
 
 // Track file path to open (from command line or open-file event)
 let fileToOpen: string | null = null
+// Track prose:// URL content to open once renderer is ready
+let pendingUrlContent: string | null = null
 // Track if renderer has signaled ready
 let rendererReady = false
 // Queue of file paths to open once renderer is ready
@@ -93,21 +95,67 @@ if (!gotTheLock) {
 } else {
   // Handle second instance launch (another instance tried to start)
   app.on('second-instance', (event, commandLine, workingDirectory) => {
-    // Parse command line for file path
+    const mainWindow = BrowserWindow.getAllWindows()[0]
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+    }
+
+    // Check for prose:// URL (Windows/Linux pass it as a command-line argument)
     const args = commandLine.slice(is.dev ? 2 : 1)
     for (const arg of args) {
+      if (arg.startsWith('prose://')) {
+        const content = parseProseUrl(arg)
+        if (content !== null) {
+          if (mainWindow && rendererReady) {
+            mainWindow.webContents.send('prose:openFromUrl', content)
+          } else {
+            pendingUrlContent = content
+          }
+        }
+        return
+      }
+    }
+
+    // Check for file path
+    for (const arg of args) {
       if (arg.endsWith('.md') && !arg.startsWith('-')) {
-        // Focus main window and send file to renderer
-        const mainWindow = BrowserWindow.getAllWindows()[0]
         if (mainWindow) {
-          if (mainWindow.isMinimized()) mainWindow.restore()
-          mainWindow.focus()
           mainWindow.webContents.send('file:openExternal', arg)
         }
         break
       }
     }
   })
+}
+
+// Cap on prose://open?content payload — guards the renderer against an
+// oversized URL hanging or OOMing the editor. 5MB is generous for an
+// artifact-handoff draft.
+const MAX_URL_CONTENT_BYTES = 5 * 1024 * 1024
+
+/**
+ * Parse a prose://open?content=... URL and return the markdown content.
+ * Returns null if the URL is not a valid prose://open URL, content is missing,
+ * or content exceeds MAX_URL_CONTENT_BYTES.
+ *
+ * URLSearchParams.get() already URL-decodes the value; do not decode again.
+ */
+function parseProseUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'prose:' || parsed.hostname !== 'open') return null
+    const content = parsed.searchParams.get('content')
+    if (!content) return null
+    if (Buffer.byteLength(content, 'utf8') > MAX_URL_CONTENT_BYTES) {
+      console.warn('[prose://] Rejected oversized payload')
+      return null
+    }
+    return content
+  } catch {
+    return null
+  }
 }
 
 // Handle file open from macOS Finder (before app is ready)
@@ -122,6 +170,23 @@ app.on('open-file', (event, path) => {
     // Queue for later
     fileToOpen = path
     pendingFileOpens.push(path)
+  }
+})
+
+// Handle prose:// URL scheme on macOS (open-url fires before or after ready)
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  const content = parseProseUrl(url)
+  if (content === null) return
+
+  const mainWindow = BrowserWindow.getAllWindows()[0]
+  if (mainWindow && rendererReady) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+    mainWindow.webContents.send('prose:openFromUrl', content)
+  } else {
+    pendingUrlContent = content
   }
 })
 
@@ -241,6 +306,9 @@ app.on('certificate-error', (event, _webContents, _url, _error, _certificate, ca
 
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('ist.solo.prose')
+
+  // Register as default handler for prose:// URL scheme
+  app.setAsDefaultProtocolClient('prose')
 
   // Validate that early Sentry init path matches Electron's resolved path
   validatePathConsistency()
@@ -383,6 +451,12 @@ app.whenReady().then(async () => {
   ipcMain.handle('renderer:ready', async () => {
     rendererReady = true
     console.log('[Main] Renderer signaled ready')
+
+    // Send any pending prose:// URL content
+    if (pendingUrlContent) {
+      mainWindow.webContents.send('prose:openFromUrl', pendingUrlContent)
+      pendingUrlContent = null
+    }
 
     // Send any pending file opens
     // First, send the initial file (from command line or early open-file event)

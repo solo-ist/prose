@@ -149,7 +149,10 @@ Prose shows a consent dialog on first launch in a fresh browser context. Dismiss
 async function dismissAIConsent(page: Page) {
   const dialog = page.getByRole('alertdialog').filter({ hasText: 'AI Writing Assistance' })
   if (await dialog.isVisible({ timeout: 3_000 }).catch(() => false)) {
-    await page.getByRole('button', { name: 'Enable AI Features' }).click()
+    // "Use Without AI" closes in one click. "Enable AI Features" advances
+    // OSS/web builds to a second step (skill download) that would also need
+    // dismissal — avoid by declining.
+    await page.getByRole('button', { name: 'Use Without AI' }).click()
     await dialog.waitFor({ state: 'hidden' })
   }
 }

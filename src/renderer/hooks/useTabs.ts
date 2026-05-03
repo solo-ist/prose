@@ -180,9 +180,26 @@ export function useTabs() {
   }, [activeTabId, getTabById, saveCurrentTabState, setActiveTab, setDocument, setCursorPosition, loadChatForDocument, setEditing])
 
   /**
-   * Create a new untitled tab
+   * Create a new untitled tab.
+   *
+   * Pass `init.content` (and optionally `init.frontmatter`, `init.isDirty`) to
+   * pre-populate the new tab. The content is baked into both the tabStore and
+   * editorStore *before* the editor mounts, so the new <Editor> reads the
+   * content from its initial state — no setContent-after-mount race.
+   *
+   * Used by callers that want to drop content into a fresh tab in one step
+   * (e.g., the prose:// URL handler, the Google Docs import fallback). For an
+   * empty tab, call createNewTab() with no arguments.
    */
-  const createNewTab = useCallback(async () => {
+  const createNewTab = useCallback(async (init?: {
+    content?: string
+    frontmatter?: Record<string, unknown>
+    isDirty?: boolean
+  }) => {
+    const initialContent = init?.content ?? ''
+    const initialFrontmatter = init?.frontmatter ?? {}
+    const initialIsDirty = init?.isDirty ?? false
+
     // Save current tab state first
     await saveCurrentTabState()
 
@@ -197,8 +214,9 @@ export function useTabs() {
       path: null,
       title,
       baseTitle: title,
-      isDirty: false,
-      content: '',
+      isDirty: initialIsDirty,
+      content: initialContent,
+      frontmatter: initialFrontmatter,
       cursorPosition: { line: 1, column: 1 }
     })
 
@@ -206,9 +224,9 @@ export function useTabs() {
     setDocument({
       documentId: newDocumentId,
       path: null,
-      content: '',
-      frontmatter: {},
-      isDirty: false
+      content: initialContent,
+      frontmatter: initialFrontmatter,
+      isDirty: initialIsDirty
     })
 
     setCursorPosition(1, 1)

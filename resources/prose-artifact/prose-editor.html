@@ -14,10 +14,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" integrity="sha512-8Q6Y9XnTbOE+JNvjBQwJ2H8S+UV4uA6hiRykhdtIyDYZ2TprdNmWOUaKdGzOhyr4dCyk287OejbPvwl7lrfqrQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" integrity="sha512-MOCpqoRoisCTwJ8vQQiciZv0qcpROCidek3GTFS6KTk2+y7munJIlKCVkFCYY+p3ErYFXCjmFjnfTTRSC1OHWQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js" integrity="sha512-pmjEJQ7CveksANaAKdCJZMig7eAcCFFzE1b5XnlnxdB/vU3AOStJ5SF7w4tFuqskuU31ETnAaWTYRQOYg2WHKw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js" integrity="sha512-H+rglffZ6f5gF7UJgvH4Naa+fGCgjrHKMgoFOGmcPTRwR6oILo5R+gtzNrpDp7iMV3udbymBVjkeZGNz1Em4rQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -366,8 +366,13 @@
       // Sanitize: marked v9 with GFM passes raw HTML through. Without
       // DOMPurify, a user typing <img src=x onerror=...> into the textarea
       // gets script execution in the preview. Per CLAUDE.md: never insert
-      // dynamic data into innerHTML unsanitized.
-      return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : '';
+      // dynamic data into innerHTML unsanitized. If DOMPurify failed to
+      // load (CDN block, SRI mismatch), surface a visible error instead
+      // of a blank pane — silent failure leaves the user wondering.
+      if (typeof DOMPurify === 'undefined') {
+        return '<p style="color: var(--accent); font-style: italic;">Preview unavailable: sanitizer failed to load.</p>';
+      }
+      return DOMPurify.sanitize(html);
     }
     catch(_) { return '<p>Preview error</p>'; }
   }
@@ -437,15 +442,15 @@
 
   // ── Main component ───────────────────────────────────────────────────────
   function ProseEditor() {
-    // Initialise theme from storage, then system preference
-    var initTheme = (function() {
+    // Initialise theme from storage, then system preference. Lazy initializer
+    // so the storage read only fires on the first render — useState ignores
+    // the value on subsequent renders, so an eager IIFE was wasted work.
+    var _theme = useState(function() {
       var saved = stor.get(THEME_KEY);
       if (saved === 'dark' || saved === 'light') return saved;
       return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
         ? 'dark' : 'light';
-    })();
-
-    var _theme = useState(initTheme);
+    });
     var theme = _theme[0]; var setTheme = _theme[1];
 
     var _content = useState(function() { return stor.get(DRAFT_KEY) || ''; });
@@ -501,8 +506,14 @@
         var blob = new Blob([content], { type: 'text/markdown' });
         var url = URL.createObjectURL(blob);
         var a = document.createElement('a');
-        a.href = url; a.download = 'document.md'; a.click();
-        URL.revokeObjectURL(url);
+        a.href = url; a.download = 'document.md';
+        // Append + remove + deferred revoke: revoking the object URL
+        // synchronously after click() races the browser's blob fetch in
+        // Firefox / Chromium under load and silently drops the download.
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function() { URL.revokeObjectURL(url); }, 150);
       } catch(_) {}
     }, [content]);
 

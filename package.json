@@ -6,7 +6,7 @@
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "npm run build:env && npm run build:buildinfo && npm run build:preload && electron-vite dev",
+    "dev": "npm run build:env && npm run build:buildinfo && npm run build:mcp-stdio && npm run build:preload && electron-vite dev",
     "dev:kill": "kill $(cat .dev.pid 2>/dev/null) 2>/dev/null || true; lsof -ti:9222 | xargs kill -9 2>/dev/null || true; lsof -ti:5173 | xargs kill -9 2>/dev/null || true",
     "dev:restart": "npm run dev:kill && sleep 2 && npm run dev",
     "build:env": "node -e \"require('fs').writeFileSync('src/main/env.ts', '// Auto-generated — do not edit\\nexport const IS_MAS_BUILD = ' + (process.env.MAS_BUILD === '1') + '\\n')\"",
@@ -76,13 +76,13 @@
     "dotenv": "^17.2.3",
     "electron-updater": "^6.7.3",
     "framer-motion": "^12.25.0",
-    "googleapis": "^144.0.0",
+    "googleapis": "^171.4.0",
     "gray-matter": "^4.0.3",
     "js-yaml": "^4.1.1",
     "lucide-react": "^0.468.0",
     "marked": "^17.0.1",
     "react-resizable-panels": "^2.1.7",
-    "rmapi-js": "^9.0.0",
+    "rmapi-js": "^9.0.3",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "tiptap-markdown": "^0.8.10",
@@ -103,7 +103,7 @@
     "electron-builder": "^26.8.1",
     "electron-playwright-helpers": "^2.1.0",
     "electron-vite": "^5.0.0",
-    "postcss": "^8.4.49",
+    "postcss": "^8.5.10",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwindcss": "^3.4.17",
@@ -113,7 +113,7 @@
   },
   "overrides": {
     "minimatch": ">=10.2.3",
-    "hono": ">=4.12.12",
-    "@hono/node-server": ">=1.19.10"
+    "hono": ">=4.12.15",
+    "@hono/node-server": ">=1.19.13"
   }
 }

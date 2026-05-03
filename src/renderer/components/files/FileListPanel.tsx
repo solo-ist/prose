@@ -34,7 +34,7 @@ import {
 } from '../ui/dialog'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
-import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, ChevronRight, ChevronDown, Folder, FolderOpen, Download, Trash2, FilePlus, ClipboardPaste, ExternalLink, X, Globe, Edit3, RefreshCw, Loader2 } from 'lucide-react'
+import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, ChevronRight, ChevronDown, Folder, FolderOpen, FolderInput, Download, Trash2, FilePlus, ClipboardPaste, ExternalLink, X, Globe, Edit3, RefreshCw, Loader2, AlertTriangle, Bug } from 'lucide-react'
 import { useSettings } from '../../hooks/useSettings'
 import { cn } from '../../lib/utils'
 import { getApi } from '../../lib/browserApi'
@@ -53,6 +53,7 @@ export function FileListPanel() {
     notebookMetadata,
     cloudNotebooks,
     syncState,
+    syncingNotebookIds,
     selectFile,
     toggleFolder,
     setViewMode,
@@ -61,6 +62,8 @@ export function FileListPanel() {
     toggleNotebookSync,
     loadFiles,
     loadGoogleDocsMetadata,
+    loadNotebooks,
+    loadCloudNotebooks,
     googleDocsMetadata,
     syncDirectory,
     deviceToken,
@@ -69,7 +72,7 @@ export function FileListPanel() {
 
   const { openFileFromPath } = useEditor()
   const { openFileInTab, openFileInPreviewTab, forceCloseTab, createNewTab } = useTabs()
-  const { isSyncing, sync, error: syncError } = useRemarkableSync()
+  const { isSyncing, sync, error: syncError, progress: syncProgress, lastSyncedAt } = useRemarkableSync()
   const { isSyncing: isGoogleSyncing, sync: googleSync, error: googleSyncError } = useGoogleDocsSync()
   const { setDialogOpen } = useSettings()
   const remarkableFlag = useRemarkableEnabled()
@@ -114,6 +117,20 @@ export function FileListPanel() {
   const [renameFilePath, setRenameFilePath] = useState<string | null>(null)
   const [renameFileName, setRenameFileName] = useState('')
 
+  // reMarkable cloud "Move to..." dialog state. moveTarget !== null drives
+  // dialog visibility; selectedTargetParentId is the user's pick within the
+  // dialog and starts at the notebook's current parent so Confirm is a no-op
+  // until they actually choose a different folder.
+  const [moveTarget, setMoveTarget] = useState<{
+    notebookId: string
+    notebookName: string
+    notebookHash: string
+    currentParentId: string
+  } | null>(null)
+  const [selectedTargetParentId, setSelectedTargetParentId] = useState<string>('')
+  const [isMovingToCloud, setIsMovingToCloud] = useState(false)
+  const [moveError, setMoveError] = useState<string | null>(null)
+
   // Error state for user feedback
   const [operationError, setOperationError] = useState<string | null>(null)
 
@@ -136,8 +153,11 @@ export function FileListPanel() {
   const [newFileTargetDir, setNewFileTargetDir] = useState<string | null>(null)
   // Drop-over highlight for the ".." (root directory) drop target
   const [rootDropOver, setRootDropOver] = useState(false)
-  // Notebook folder expand/collapse state — synced folders default open, unsynced default closed
-  const [expandedNotebookFolders, setExpandedNotebookFolders] = useState<Set<string>>(new Set())
+  // Notebook folder expand/collapse state lives in fileListStore so it
+  // survives panel unmount (Shift+Cmd+H). Synced folders default open,
+  // unsynced default closed — membership in the Set means "toggled".
+  const expandedNotebookFolders = useFileListStore((state) => state.expandedNotebookFolders)
+  const toggleNotebookFolderExpanded = useFileListStore((state) => state.toggleNotebookFolderExpanded)
 
   // Context-aware new file handler
   const handleNewFileInDir = useCallback((targetDir: string) => {
@@ -443,14 +463,18 @@ export function FileListPanel() {
     }
   }
 
-  // Auto-sync when switching to notebooks view
+  // Auto-sync when switching to notebooks view, or when a device is connected
+  // while already on that view. Excludes sync and isSyncing intentionally —
+  // sync() has its own concurrent-call lock and we don't want to retrigger
+  // when isSyncing transitions back to false after a manual sync completes.
   useEffect(() => {
-    if (viewMode === 'notebooks' && remarkableEnabled && deviceToken && syncState && !isSyncing) {
+    if (viewMode === 'notebooks' && remarkableEnabled && deviceToken && !isSyncing) {
       sync().catch((err) => {
         console.error('[FileListPanel] Auto-sync failed:', err)
       })
     }
-  }, [viewMode, remarkableEnabled]) // Intentionally exclude sync and isSyncing to only trigger on view change
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, remarkableEnabled, deviceToken])
 
   // Load metadata and auto-sync when switching to Google Docs view
   useEffect(() => {
@@ -559,6 +583,99 @@ export function FileListPanel() {
     }
   }
 
+  // Retry OCR for a notebook stuck in the failed state. Clears the sentinel
+  // (which the per-hash short-circuit in syncOneNotebook keys off) and then
+  // triggers a fresh sync. Without clearing the sentinel, sync would re-skip
+  // OCR for this notebook because its cloud hash hasn't changed.
+  const handleRetrySync = async (notebookId: string) => {
+    if (!syncDirectory || !window.api) return
+    try {
+      await window.api.remarkableClearOcrSentinel(notebookId, syncDirectory)
+    } catch (err) {
+      console.warn('[reMarkable] Failed to clear OCR sentinel:', err)
+    }
+    await sync()
+  }
+
+  // Open the "Move to..." picker for a cloud notebook. The dialog reads from
+  // notebookMetadata to render the available cloud folder list, then on
+  // confirm calls api.move() (cloud) followed by updateNotebookParent (local
+  // metadata) so the cloud-tab UI reflects the new parent immediately
+  // without waiting for a full sync to reconcile.
+  const handleMoveTo = (notebookId: string) => {
+    if (!notebookMetadata) return
+    const entry = notebookMetadata.notebooks[notebookId]
+    if (!entry || entry.type !== 'notebook' || !entry.hash) return
+    const currentParentId = entry.parent ?? ''
+    setMoveTarget({
+      notebookId,
+      notebookName: entry.name,
+      notebookHash: entry.hash,
+      currentParentId
+    })
+    setSelectedTargetParentId(currentParentId)
+    setMoveError(null)
+  }
+
+  const handleConfirmMove = async () => {
+    if (!moveTarget || !deviceToken || !syncDirectory || !window.api) return
+    // No-op move — disable Confirm in the UI as well, but defend here too.
+    if (selectedTargetParentId === moveTarget.currentParentId) return
+
+    setIsMovingToCloud(true)
+    setMoveError(null)
+    try {
+      // api.move() is retry-safe per rmapi-js: a failed root commit leaves
+      // the cloud at the old state, so we can surface the error and let
+      // the user retry without worrying about half-moved data. The IPC
+      // returns the entry's NEW hash assigned by the cloud; persist it so
+      // a follow-up move for the same notebook doesn't pass the now-stale
+      // pre-move hash and fail with "not found in root hash".
+      const newHash = await window.api.remarkableMoveNotebook(
+        deviceToken,
+        moveTarget.notebookHash,
+        selectedTargetParentId
+      )
+      // Local metadata update is best-effort: if it fails after a successful
+      // cloud move, the next full sync will reconcile. Don't let it block
+      // closing the dialog.
+      try {
+        await window.api.remarkableUpdateNotebookParent(
+          moveTarget.notebookId,
+          selectedTargetParentId,
+          syncDirectory,
+          newHash
+        )
+      } catch (err) {
+        console.warn('[reMarkable] Cloud move succeeded but local metadata update failed:', err)
+      }
+      // Refresh both the cloud listing and local metadata so the cloud-tab
+      // tree re-renders under the new parent immediately. The useMemo on
+      // cloudNotebooks/notebookMetadata picks up the new structure.
+      await loadNotebooks(syncDirectory)
+      if (deviceToken) await loadCloudNotebooks(deviceToken, syncDirectory)
+      setMoveTarget(null)
+    } catch (err) {
+      console.error('[reMarkable] Cloud move failed:', err)
+      setMoveError(err instanceof Error ? err.message : 'Failed to move notebook')
+    } finally {
+      setIsMovingToCloud(false)
+    }
+  }
+
+  // True if a folder (or any of its descendants) contains at least one
+  // notebook entry. Mirrors the same predicate the NotebookSelectionDialog
+  // ("Manage Notebooks") uses to hide reMarkable's pre-installed Methods
+  // folders — those ship with only template PDFs and no real notebooks, so
+  // they fall out implicitly. Used by the Move-to picker so the user sees
+  // every folder they could organize into, regardless of sync selection.
+  const hasNotebookDescendants = (folderId: string): boolean => {
+    const children = itemsByParent.get(folderId) || []
+    return children.some(child =>
+      child.type === 'notebook' || (child.type === 'folder' && hasNotebookDescendants(child.id))
+    )
+  }
+
   // Check if a folder has any synced notebooks inside it (recursively)
   const isFolderSynced = (folderId: string): boolean => {
     if (!syncState) return true // Legacy behavior
@@ -626,14 +743,7 @@ export function FileListPanel() {
         const isExpanded = hasSyncedContent
           ? !expandedNotebookFolders.has(folderId) // synced: open unless toggled closed
           : expandedNotebookFolders.has(folderId)   // unsynced: closed unless toggled open
-        const toggleFolder = () => {
-          setExpandedNotebookFolders(prev => {
-            const next = new Set(prev)
-            if (next.has(folderId)) next.delete(folderId)
-            else next.add(folderId)
-            return next
-          })
-        }
+        const toggleFolder = () => toggleNotebookFolderExpanded(folderId)
 
         return (
           <div key={folderId} className="space-y-0.5" style={{ paddingLeft: depth > 0 ? '1rem' : 0 }}>
@@ -663,9 +773,15 @@ export function FileListPanel() {
       } else {
         const notebookId = getNotebookId(item)
         const isSynced = isNotebookSynced(notebookId)
+        const isSyncingThisNotebook = syncingNotebookIds.includes(notebookId)
         const localMeta = notebookMetadata?.notebooks?.[notebookId] ?? null
         const hasOCR = !!localMeta?.ocrPath
         const hasEditable = !!localMeta?.markdownPath
+        // OCR failed AND the failed-against hash matches the current hash —
+        // i.e. the sentinel still applies. If the user edits the page on the
+        // tablet, hash changes and the sentinel no longer matches, so retry
+        // will fire on the next sync (and ocrFailed flips back to false).
+        const ocrFailed = !!localMeta?.ocrAttempt && localMeta.ocrAttempt.hash === localMeta.hash
         const isClickable = hasOCR || hasEditable
         // For selection highlighting, check both editable path and OCR path
         const fullEditablePath = (localMeta?.markdownPath && syncDirectory)
@@ -690,16 +806,25 @@ export function FileListPanel() {
                   title={
                     !isSynced
                       ? `${item.name} (not synced - right-click to sync)`
-                      : hasEditable
-                        ? `${item.name} (editable)`
-                        : hasOCR
-                          ? `${item.name} (read-only OCR - click to view)`
-                          : `${item.name} (synced, processing OCR...)`
+                      : ocrFailed
+                        // No tooltip in the failed state — the AlertTriangle
+                        // icon is the signal, and "Report OCR Issue" in the
+                        // right-click menu is the action surface.
+                        ? item.name
+                        : hasEditable
+                          ? `${item.name} (editable)`
+                          : hasOCR
+                            ? `${item.name} (read-only OCR - click to view)`
+                            : `${item.name} (synced, processing OCR...)`
                   }
                   disabled={!isSynced || !isClickable}
                 >
-                  {isSynced ? (
-                    hasEditable ? (
+                  {isSyncingThisNotebook ? (
+                    <Loader2 className="h-4 w-4 shrink-0 text-muted-foreground animate-spin" />
+                  ) : isSynced ? (
+                    ocrFailed ? (
+                      <AlertTriangle className="h-4 w-4 shrink-0 text-destructive/70" />
+                    ) : hasEditable ? (
                       <Cloud className="h-4 w-4 shrink-0 text-foreground" />
                     ) : hasOCR ? (
                       <Cloud className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -727,6 +852,43 @@ export function FileListPanel() {
                   <ContextMenuItem onClick={() => handleToggleSync(notebookId)}>
                     <Download className="h-4 w-4 mr-2" />
                     Add to sync
+                  </ContextMenuItem>
+                )}
+                <ContextMenuItem
+                  onClick={() => handleMoveTo(notebookId)}
+                  disabled={isSyncing || isMovingToCloud}
+                >
+                  <FolderInput className="h-4 w-4 mr-2" />
+                  Move to...
+                </ContextMenuItem>
+                {ocrFailed && (
+                  <ContextMenuItem
+                    onClick={() => handleRetrySync(notebookId)}
+                    disabled={isSyncing}
+                  >
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Retry Sync
+                  </ContextMenuItem>
+                )}
+                {ocrFailed && (
+                  <ContextMenuItem
+                    onClick={() => {
+                      // Pre-fill the bug-report template with notebook name + failedAt.
+                      // The user can edit before submitting; we just save them typing.
+                      const params = new URLSearchParams({
+                        template: 'bug-report.yml',
+                        title: `[reMarkable] OCR failed for "${item.name}"`,
+                        labels: 'remarkable,bug',
+                      })
+                      window.open(
+                        `https://github.com/solo-ist/prose/issues/new?${params.toString()}`,
+                        '_blank',
+                        'noopener,noreferrer'
+                      )
+                    }}
+                  >
+                    <Bug className="h-4 w-4 mr-2" />
+                    Report OCR Issue
                   </ContextMenuItem>
                 )}
               </ContextMenuContent>
@@ -887,6 +1049,29 @@ export function FileListPanel() {
       {(isLoading || isSyncing || isGoogleSyncing) && (
         <div className="h-0.5 w-full overflow-hidden bg-muted/50">
           <div className="h-full w-1/3 animate-loading-bar bg-gradient-to-r from-violet-500 via-fuchsia-500 to-violet-500" />
+        </div>
+      )}
+
+      {/* Sync info panel — slides down below header in notebooks view */}
+      {viewMode === 'notebooks' && remarkableEnabled && (
+        <div className={cn(
+          "overflow-hidden transition-all duration-200 ease-in-out",
+          (isSyncing || syncError || lastSyncedAt) ? "max-h-20 border-b border-border" : "max-h-0"
+        )}>
+          <div className="mx-2 my-2 rounded-md bg-muted/50 border border-border/60 px-3 py-2">
+            {isSyncing && syncProgress ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
+                <span className="text-xs text-muted-foreground truncate">{syncProgress.message}</span>
+              </div>
+            ) : syncError ? (
+              <p className="text-xs text-destructive truncate">{syncError}</p>
+            ) : lastSyncedAt ? (
+              <p className="text-[10px] text-muted-foreground">
+                Last synced {new Date(lastSyncedAt).toLocaleString()}
+              </p>
+            ) : null}
+          </div>
         </div>
       )}
 
@@ -1063,10 +1248,7 @@ export function FileListPanel() {
               No notebooks found.
             </div>
           ) : (
-            <div className={cn(
-              "p-2",
-              isSyncing && "opacity-50 pointer-events-none"
-            )}>
+            <div className="p-2">
               {renderNotebookItems(null, 0)}
             </div>
           )
@@ -1229,6 +1411,99 @@ export function FileListPanel() {
               disabled={isDeleting}
             >
               {isDeleting ? 'Moving...' : 'Move to Trash'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* reMarkable cloud "Move to..." picker. Lists existing cloud folders;
+          folder creation is intentionally NOT offered here — api.putFolder
+          can leave orphan blobs on partial failure (see rmapi-js notes), so
+          users create folders on the device or my.remarkable.com first. */}
+      <Dialog
+        open={!!moveTarget}
+        onOpenChange={(open) => {
+          if (!open && !isMovingToCloud) {
+            setMoveTarget(null)
+            setMoveError(null)
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Move to...</DialogTitle>
+            <DialogDescription>
+              {moveTarget && (
+                <>Choose a destination folder for <strong>{moveTarget.notebookName}</strong>.</>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[320px] overflow-y-auto rounded-md border border-border">
+            {(() => {
+              // Filter to folders that contain at least one notebook entry
+              // somewhere in their subtree. reMarkable ships with pre-
+              // installed Methods folders (Quadrant method, Boxing method,
+              // Pros/cons, etc.) populated only with template PDFs and no
+              // real notebooks — there's no SDK flag distinguishing them
+              // from user folders, but they fall out of this predicate
+              // implicitly. Same logic the Manage Notebooks dialog uses to
+              // hide system folders. Sync-state is intentionally NOT used:
+              // a user folder that has notebooks but no current sync
+              // selection is still a valid move target.
+              const folders = notebookMetadata
+                ? Object.entries(notebookMetadata.notebooks)
+                    .filter(([id, meta]) => meta.type === 'folder' && hasNotebookDescendants(id))
+                    .map(([id, meta]) => ({ id, name: meta.name, localPath: meta.localPath }))
+                    .sort((a, b) => a.localPath.localeCompare(b.localPath))
+                : []
+              const rows = [{ id: '', name: 'Root', localPath: '' }, ...folders]
+              return rows.map((row) => {
+                const isSelected = selectedTargetParentId === row.id
+                const isCurrent = moveTarget?.currentParentId === row.id
+                return (
+                  <button
+                    key={row.id || 'root'}
+                    type="button"
+                    onClick={() => setSelectedTargetParentId(row.id)}
+                    className={cn(
+                      'flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted/50',
+                      isSelected && 'bg-muted',
+                      isCurrent && 'opacity-60'
+                    )}
+                  >
+                    <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate flex-1">{row.localPath || row.name}</span>
+                    {isCurrent && (
+                      <span className="text-xs text-muted-foreground">current</span>
+                    )}
+                  </button>
+                )
+              })
+            })()}
+          </div>
+          {moveError && (
+            <p className="text-sm text-destructive">{moveError}</p>
+          )}
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setMoveTarget(null)
+                setMoveError(null)
+              }}
+              disabled={isMovingToCloud}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmMove}
+              disabled={
+                isMovingToCloud ||
+                !moveTarget ||
+                selectedTargetParentId === moveTarget.currentParentId
+              }
+            >
+              {isMovingToCloud ? 'Moving...' : 'Move'}
             </Button>
           </DialogFooter>
         </DialogContent>

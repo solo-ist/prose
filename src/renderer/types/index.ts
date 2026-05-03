@@ -117,6 +117,13 @@ export interface RemarkableNotebookMetadata {
   ocrPath?: string
   /** Path to user's editable markdown in visible folder */
   markdownPath?: string
+  /**
+   * Sentinel set by sync when OCR returned no markdown for the given hash.
+   * Suppresses retry on every sync until the notebook content changes.
+   * Surfaced in the file panel as a distinct failed-state tooltip + icon
+   * so users know the row isn't simply "still processing".
+   */
+  ocrAttempt?: { hash: string; failedAt: string }
 }
 
 export interface RemarkableSyncMetadata {
@@ -136,6 +143,15 @@ export interface RemarkableSyncState {
   selectedNotebooks: string[]
   lastUpdated: string
 }
+
+export type RemarkableSyncPhase =
+  | 'connecting'
+  | 'listing'
+  | 'downloading'
+  | 'ocr'
+  | 'notebook-done'
+  | 'skipped'
+  | 'complete'
 
 // Google Docs integration types
 export interface GoogleAuthResult {
@@ -376,6 +392,13 @@ export interface ElectronAPI {
   remarkableCreateEditableVersion: (notebookId: string, syncDirectory: string) => Promise<string | null>
   remarkableFindNotebookByFilePath: (filePath: string, syncDirectory: string) => Promise<string | null>
   remarkableClearNotebookMarkdownPath: (notebookId: string, syncDirectory: string) => Promise<boolean>
+  remarkableClearOcrSentinel: (notebookId: string, syncDirectory: string) => Promise<boolean>
+  remarkableMoveNotebook: (deviceToken: string, notebookHash: string, newParentId: string) => Promise<string>
+  remarkableUpdateNotebookParent: (notebookId: string, newParentId: string, syncDirectory: string, newHash?: string) => Promise<boolean>
+  remarkableCancelSync: () => Promise<void>
+  onRemarkableSyncProgress: (
+    callback: (progress: { message: string; notebookId?: string; notebookName?: string; current?: number; total?: number; phase: RemarkableSyncPhase }) => void
+  ) => () => void
   // MCP tool execution (only used in MCP server mode)
   onMcpToolInvoke: (
     callback: (requestId: string, toolName: string, args: unknown) => void

@@ -5,6 +5,7 @@ import { initDB } from './lib/persistence'
 import { useCommandHistoryStore } from './stores/commandHistoryStore'
 import { seedEmojiCache } from './lib/emojiService'
 import { ErrorBoundary } from './lib/sentry'
+import './lib/remarkableBridge'
 import './index.css'
 
 function SentryFallback() {

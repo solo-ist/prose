@@ -370,7 +370,7 @@
       // load (CDN block, SRI mismatch), surface a visible error instead
       // of a blank pane — silent failure leaves the user wondering.
       if (typeof DOMPurify === 'undefined') {
-        return '<p style="color: var(--accent); font-style: italic;">Preview unavailable: sanitizer failed to load.</p>';
+        return '<p style="color: var(--warning-text); font-style: italic;">Preview unavailable: sanitizer failed to load.</p>';
       }
       return DOMPurify.sanitize(html);
     }
@@ -462,6 +462,9 @@
     var _copied = useState(false);
     var copied = _copied[0]; var setCopied = _copied[1];
 
+    var _copyFailed = useState(false);
+    var copyFailed = _copyFailed[0]; var setCopyFailed = _copyFailed[1];
+
     var saveTimer = useRef(null);
     var copiedTimer = useRef(null);
 
@@ -496,9 +499,18 @@
     var handleCopy = useCallback(function() {
       navigator.clipboard.writeText(content).then(function() {
         setCopied(true);
+        setCopyFailed(false);
         if (copiedTimer.current) clearTimeout(copiedTimer.current);
         copiedTimer.current = setTimeout(function() { setCopied(false); }, 2000);
-      }).catch(function() {});
+      }).catch(function() {
+        // Surface the failure in-button so the user knows the copy didn't take.
+        // Most likely cause is a non-secure-origin or denied permission;
+        // either way silence is the wrong default.
+        setCopyFailed(true);
+        setCopied(false);
+        if (copiedTimer.current) clearTimeout(copiedTimer.current);
+        copiedTimer.current = setTimeout(function() { setCopyFailed(false); }, 2000);
+      });
     }, [content]);
 
     var handleDownload = useCallback(function() {
@@ -563,8 +575,11 @@
         h('button', {
           className: 'btn btn-secondary' + (copied ? ' btn--copied' : ''),
           onClick: handleCopy,
-          title: 'Copy raw markdown to clipboard'
-        }, copied ? h(IcCheck) : h(IcCopy), copied ? 'Copied' : 'Copy markdown'),
+          title: copyFailed ? 'Clipboard access denied' : 'Copy raw markdown to clipboard'
+        },
+          copied ? h(IcCheck) : h(IcCopy),
+          copied ? 'Copied' : (copyFailed ? 'Failed' : 'Copy markdown')
+        ),
 
         // Open in Prose via prose:// URL scheme
         h('a', {

@@ -24,8 +24,9 @@ Manages the full release workflow for Prose across two distribution channels:
 | `/release github` | Build DMG and create GitHub Release |
 | `/release bump-build` | Increment `buildVersion` and rebuild MAS `.pkg` |
 | `/release bump-version <version>` | Bump marketing version (e.g., `1.1.0`) |
+| `/release smoke` | Build the DMG and walk 7 critical paths (~5 min) — fast pre-release sanity check |
 | `/release status` | Check TestFlight processing, GitHub Release, and CI status |
-| `/release checklist` | Run the pre-release verification checklist |
+| `/release checklist` | Run the full pre-release verification checklist |
 
 ---
 
@@ -224,6 +225,77 @@ gh release create "v${VERSION}" \
   "dist/Prose-${VERSION}-arm64.dmg" \
   "dist/Prose-${VERSION}-arm64-mac.zip"
 ```
+
+---
+
+## Workflow: Quick Smoke Test (`/release smoke`)
+
+Fast (~5 min) verification before tagging a GitHub release. Exercises the signed/notarized artifact users will actually receive — *not* dev mode. Use this for routine releases. Escalate to `/release checklist` if the release touches:
+
+- Main-process IPC handlers or new IPC channels
+- Entitlements (`build/entitlements.*.plist`)
+- Sandbox / `contextIsolation` / `nodeIntegration` settings
+- First build after an Electron major upgrade
+
+### 1. Build (skip if fresh)
+
+```bash
+rm -rf dist/mac-arm64
+npm run build:mac
+```
+
+### 2. Verify artifact
+
+```bash
+VERSION=$(node -p "require('./package.json').version")
+ls -la "dist/Prose-${VERSION}-arm64.dmg" "dist/Prose-${VERSION}-arm64-mac.zip"
+codesign --verify --deep --strict dist/mac-arm64/Prose.app
+codesign -d --entitlements - dist/mac-arm64/Prose.app 2>&1 | grep network.server   # expect a match (MCP)
+```
+
+### 3. Launch the built app
+
+```bash
+open dist/mac-arm64/Prose.app
+```
+
+Do NOT use `npm run dev` — the smoke test must exercise the signed bundle.
+
+### 4. Walk the 7 critical paths
+
+| # | Path | Pass criteria |
+|---|------|---------------|
+| 1 | App launches | Window renders, no crash dialog, no console error storm |
+| 2 | Editor round-trip | New file → type a paragraph → `Cmd+S` → close → reopen, content intact |
+| 3 | Settings dialog | Opens cleanly, no outline/focus artifacts, closes cleanly |
+| 4 | API key test | Settings → LLM → "Test API Key" returns success with current key |
+| 5 | Chat streaming | Send a message in chat panel, response streams in fully |
+| 6 | Skill download | Help → Download Prose Skill (or Settings → Integrations) downloads the `.zip` |
+| 7 | `prose://` scheme | Trigger a `prose://` URL (Claude artifact → Open in Prose) and confirm the app handles it |
+
+### 5. Clean up
+
+```bash
+rm -f /Users/angelmarino/Code/prose/electron-screenshot-*.jpeg
+```
+
+### 6. Report
+
+```
+## Smoke Test Results — v<version>
+
+- [x] App launches
+- [x] Editor round-trip
+- [x] Settings dialog
+- [x] API key test
+- [x] Chat streaming
+- [x] Skill download
+- [x] prose:// scheme
+
+Ready to tag.
+```
+
+If any path fails, fix before tagging. Do not ship on red smoke.
 
 ---
 

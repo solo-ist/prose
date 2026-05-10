@@ -14,7 +14,14 @@ export async function initAutoUpdater(mainWindow: BrowserWindow): Promise<void> 
   }
 
   try {
-    const { autoUpdater } = await import('electron-updater')
+    // electron-updater 6.8.x defines `autoUpdater` as a property getter, which
+    // Node's ESM↔CJS interop does not expose as a named import. Reach through
+    // `.default` (the CJS module.exports) so the getter resolves.
+    const updaterModule = await import('electron-updater')
+    const autoUpdater = updaterModule.autoUpdater ?? updaterModule.default?.autoUpdater
+    if (!autoUpdater) {
+      throw new Error('electron-updater: autoUpdater export not found')
+    }
 
     autoUpdater.autoDownload = false
     autoUpdater.autoInstallOnAppQuit = true

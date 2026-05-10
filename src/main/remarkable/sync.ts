@@ -107,6 +107,12 @@ const META_FILE = 'sync-metadata.json'
 const SYNC_STATE_FILE = 'sync-state.json'
 const HIDDEN_DIR = '.remarkable'
 
+// How long the OCR-failure sentinel suppresses retries for the same content
+// hash. Longer than a typical sync session (so flipping between tabs in the
+// same minute doesn't re-hammer a failing OCR Lambda) but short enough that a
+// new sync the next day picks up where transient failures left off.
+const FAIL_RETRY_AFTER_MS = 30 * 60 * 1000
+
 /**
  * Sync state tracks which notebooks are selected for sync
  */
@@ -624,7 +630,17 @@ export async function syncAll(
       }
 
       const needsDownload = !existingEntry || existingEntry.hash !== doc.hash || !localFilesExist
-      const ocrPreviouslyFailed = existingEntry?.ocrAttempt?.hash === doc.hash
+      // The OCR-failure sentinel expires after FAIL_RETRY_AFTER_MS so transient
+      // failures (Lambda cold start, OCR rate limits hit by concurrent workers,
+      // network blips) self-heal on the next sync instead of leaving a wall of
+      // red triangles that the user has to clear one-by-one via Retry Sync.
+      // Hash equality still short-circuits within the window — same content,
+      // same OCR call, no point hammering the service. The user-triggered
+      // clearOcrSentinel path remains for forcing a retry inside the window.
+      const failedAt = existingEntry?.ocrAttempt?.failedAt
+      const failedAtMs = failedAt ? Date.parse(failedAt) : 0
+      const failureIsFresh = failedAtMs > 0 && (Date.now() - failedAtMs) < FAIL_RETRY_AFTER_MS
+      const ocrPreviouslyFailed = existingEntry?.ocrAttempt?.hash === doc.hash && failureIsFresh
       const needsOCR = doc.fileType === 'notebook' && isOCRConfigured() && !existingEntry?.ocrPath && !ocrPreviouslyFailed
       console.log(`[reMarkable] ${doc.name}: needsDownload=${needsDownload}, needsOCR=${needsOCR}, localFilesExist=${localFilesExist}, zipExists=${zipExists}`)
 

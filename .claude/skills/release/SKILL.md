@@ -276,7 +276,7 @@ Do NOT use `npm run dev` — the smoke test must exercise the signed bundle.
 ### 5. Clean up
 
 ```bash
-rm -f /Users/angelmarino/Code/prose/electron-screenshot-*.jpeg
+rm -f electron-screenshot-*.jpeg
 ```
 
 ### 6. Report

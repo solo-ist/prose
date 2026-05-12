@@ -27,6 +27,7 @@ import { McpIntegration } from './McpIntegration'
 import { ProseSkillIntegration } from './ProseSkillIntegration'
 import { isWebMode } from '../../lib/browserApi'
 import type { Settings } from '../../types'
+import { getDefaultModel } from '../../../shared/llm/models'
 import { Eye, EyeOff, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
 import { getModelsForProvider, getDefaultModel, type LLMProvider } from '../../../shared/llm/models'
 import { validateApiKeyFormat, validateUrl, maskApiKey } from '../../lib/llm'
@@ -542,7 +543,7 @@ export function SettingsDialog() {
                   id="model"
                   value={settings.llm.model}
                   onChange={(e) => setLLMConfig({ model: e.target.value })}
-                  placeholder="e.g., claude-sonnet-4-20250514"
+                  placeholder={`e.g., ${getDefaultModel('anthropic')}`}
                 />
               ) : (
                 <Select

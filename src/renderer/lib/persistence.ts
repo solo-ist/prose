@@ -116,6 +116,38 @@ let recoveryAttempted = false
 let lastRecoveryResult: RecoveryResult | null = null
 
 /**
+ * Run a database operation with automatic reconnect on InvalidStateError.
+ *
+ * The IDB connection can enter a closing state when the app quits or a version
+ * change fires in another tab. If the connection closes between getDB() resolving
+ * and db.transaction() being called, the browser throws InvalidStateError. This
+ * helper catches that specific error, discards the stale handle, reopens the DB,
+ * and retries once. If the retry also fails (e.g., the app is truly shutting
+ * down) it logs a warning and returns undefined — never throws, so callers that
+ * don't need the return value get silent recovery.
+ */
+async function withDb<T>(fn: (db: IDBDatabase) => Promise<T>): Promise<T | undefined> {
+  let db: IDBDatabase
+  try {
+    db = await getDB()
+    return await fn(db)
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'InvalidStateError') {
+      console.warn('[persistence] InvalidStateError — connection closed, reopening and retrying once')
+      dbPromise = null
+      try {
+        db = await getDB()
+        return await fn(db)
+      } catch (retryError) {
+        console.warn('[persistence] Retry after InvalidStateError also failed (app likely shutting down):', retryError)
+        return undefined
+      }
+    }
+    throw error
+  }
+}
+
+/**
  * Get the last recovery result if recovery occurred.
  */
 export function getLastRecoveryResult(): RecoveryResult | null {
@@ -415,6 +447,14 @@ function getDB(): Promise<IDBDatabase> {
         console.log('IndexedDB closed due to version change in another tab')
       }
 
+      // Proactively clear the cached handle if the connection closes for any
+      // reason (e.g., browser-initiated close during app quit). withDb() will
+      // reopen on the next write attempt.
+      db.onclose = () => {
+        dbPromise = null
+        console.log('IndexedDB connection closed unexpectedly — handle cleared')
+      }
+
       resolve(db)
     }
 
@@ -486,19 +526,16 @@ export async function generateIdFromPath(path: string): Promise<string> {
  * Save the current draft state
  */
 export async function saveDraft(state: DraftState): Promise<void> {
-  try {
-    const db = await getDB()
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORES.DRAFTS, 'readwrite')
-      const store = transaction.objectStore(STORES.DRAFTS)
-      const request = store.put(state, 'current')
+  await withDb((db) => new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STORES.DRAFTS, 'readwrite')
+    const store = transaction.objectStore(STORES.DRAFTS)
+    const request = store.put(state, 'current')
 
-      request.onerror = () => reject(request.error)
-      request.onsuccess = () => resolve()
-    })
-  } catch (error) {
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve()
+  })).catch((error) => {
     console.error('Failed to save draft:', error)
-  }
+  })
 }
 
 /**
@@ -525,19 +562,16 @@ export async function loadDraft(): Promise<DraftState | null> {
  * Clear the saved draft
  */
 export async function clearDraft(): Promise<void> {
-  try {
-    const db = await getDB()
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORES.DRAFTS, 'readwrite')
-      const store = transaction.objectStore(STORES.DRAFTS)
-      const request = store.delete('current')
+  await withDb((db) => new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STORES.DRAFTS, 'readwrite')
+    const store = transaction.objectStore(STORES.DRAFTS)
+    const request = store.delete('current')
 
-      request.onerror = () => reject(request.error)
-      request.onsuccess = () => resolve()
-    })
-  } catch (error) {
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve()
+  })).catch((error) => {
     console.error('Failed to clear draft:', error)
-  }
+  })
 }
 
 // ============ Session State Operations (Multi-Tab) ============
@@ -546,19 +580,16 @@ export async function clearDraft(): Promise<void> {
  * Save the entire session state (all tabs)
  */
 export async function saveSession(state: SessionState): Promise<void> {
-  try {
-    const db = await getDB()
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORES.DRAFTS, 'readwrite')
-      const store = transaction.objectStore(STORES.DRAFTS)
-      const request = store.put(state, 'session')
+  await withDb((db) => new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STORES.DRAFTS, 'readwrite')
+    const store = transaction.objectStore(STORES.DRAFTS)
+    const request = store.put(state, 'session')
 
-      request.onerror = () => reject(request.error)
-      request.onsuccess = () => resolve()
-    })
-  } catch (error) {
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve()
+  })).catch((error) => {
     console.error('Failed to save session:', error)
-  }
+  })
 }
 
 /**
@@ -585,19 +616,16 @@ export async function loadSession(): Promise<SessionState | null> {
  * Clear the saved session state
  */
 export async function clearSession(): Promise<void> {
-  try {
-    const db = await getDB()
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORES.DRAFTS, 'readwrite')
-      const store = transaction.objectStore(STORES.DRAFTS)
-      const request = store.delete('session')
+  await withDb((db) => new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STORES.DRAFTS, 'readwrite')
+    const store = transaction.objectStore(STORES.DRAFTS)
+    const request = store.delete('session')
 
-      request.onerror = () => reject(request.error)
-      request.onsuccess = () => resolve()
-    })
-  } catch (error) {
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve()
+  })).catch((error) => {
     console.error('Failed to clear session:', error)
-  }
+  })
 }
 
 // ============ Conversation Operations ============
@@ -609,19 +637,16 @@ export async function saveConversations(
   documentId: string,
   conversations: ChatConversation[]
 ): Promise<void> {
-  try {
-    const db = await getDB()
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORES.CONVERSATIONS, 'readwrite')
-      const store = transaction.objectStore(STORES.CONVERSATIONS)
-      const request = store.put(conversations, documentId)
+  await withDb((db) => new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STORES.CONVERSATIONS, 'readwrite')
+    const store = transaction.objectStore(STORES.CONVERSATIONS)
+    const request = store.put(conversations, documentId)
 
-      request.onerror = () => reject(request.error)
-      request.onsuccess = () => resolve()
-    })
-  } catch (error) {
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve()
+  })).catch((error) => {
     console.error('Failed to save conversations:', error)
-  }
+  })
 }
 
 /**
@@ -650,19 +675,16 @@ export async function loadConversations(
  * Delete conversations for a document (used when discarding unsaved drafts)
  */
 export async function deleteConversations(documentId: string): Promise<void> {
-  try {
-    const db = await getDB()
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORES.CONVERSATIONS, 'readwrite')
-      const store = transaction.objectStore(STORES.CONVERSATIONS)
-      const request = store.delete(documentId)
+  await withDb((db) => new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STORES.CONVERSATIONS, 'readwrite')
+    const store = transaction.objectStore(STORES.CONVERSATIONS)
+    const request = store.delete(documentId)
 
-      request.onerror = () => reject(request.error)
-      request.onsuccess = () => resolve()
-    })
-  } catch (error) {
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve()
+  })).catch((error) => {
     console.error('Failed to delete conversations:', error)
-  }
+  })
 }
 
 /**
@@ -688,22 +710,19 @@ export async function saveAnnotations(
   annotations: AIAnnotation[]
 ): Promise<void> {
   console.log('[persistence] saveAnnotations:', { documentId, count: annotations.length, annotations })
-  try {
-    const db = await getDB()
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORES.ANNOTATIONS, 'readwrite')
-      const store = transaction.objectStore(STORES.ANNOTATIONS)
-      const request = store.put(annotations, documentId)
+  await withDb((db) => new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STORES.ANNOTATIONS, 'readwrite')
+    const store = transaction.objectStore(STORES.ANNOTATIONS)
+    const request = store.put(annotations, documentId)
 
-      request.onerror = () => reject(request.error)
-      request.onsuccess = () => {
-        console.log('[persistence] saveAnnotations SUCCESS:', { documentId })
-        resolve()
-      }
-    })
-  } catch (error) {
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      console.log('[persistence] saveAnnotations SUCCESS:', { documentId })
+      resolve()
+    }
+  })).catch((error) => {
     console.error('Failed to save annotations:', error)
-  }
+  })
 }
 
 /**
@@ -737,19 +756,16 @@ export async function loadAnnotations(
  * Delete annotations for a document
  */
 export async function deleteAnnotations(documentId: string): Promise<void> {
-  try {
-    const db = await getDB()
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORES.ANNOTATIONS, 'readwrite')
-      const store = transaction.objectStore(STORES.ANNOTATIONS)
-      const request = store.delete(documentId)
+  await withDb((db) => new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STORES.ANNOTATIONS, 'readwrite')
+    const store = transaction.objectStore(STORES.ANNOTATIONS)
+    const request = store.delete(documentId)
 
-      request.onerror = () => reject(request.error)
-      request.onsuccess = () => resolve()
-    })
-  } catch (error) {
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve()
+  })).catch((error) => {
     console.error('Failed to delete annotations:', error)
-  }
+  })
 }
 
 // ============ Command History Operations ============
@@ -760,19 +776,16 @@ export async function deleteAnnotations(documentId: string): Promise<void> {
 export async function saveCommandHistory(
   history: Record<string, string[]>
 ): Promise<void> {
-  try {
-    const db = await getDB()
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORES.COMMAND_HISTORY, 'readwrite')
-      const store = transaction.objectStore(STORES.COMMAND_HISTORY)
-      const request = store.put(history, 'history')
+  await withDb((db) => new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STORES.COMMAND_HISTORY, 'readwrite')
+    const store = transaction.objectStore(STORES.COMMAND_HISTORY)
+    const request = store.put(history, 'history')
 
-      request.onerror = () => reject(request.error)
-      request.onsuccess = () => resolve()
-    })
-  } catch (error) {
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => resolve()
+  })).catch((error) => {
     console.error('Failed to save command history:', error)
-  }
+  })
 }
 
 /**
@@ -822,16 +835,14 @@ export async function saveSuggestions(
   suggestions: AISuggestionData[]
 ): Promise<void> {
   console.log(`[persistence:${SESSION_ID}] saveSuggestions:`, { documentId, count: suggestions.length })
-  try {
-    const db = await ensureSuggestionsStore()
-
-    // Check if store exists after re-initialization attempt
+  await withDb(async (db) => {
+    // Re-check store (ensureSuggestionsStore already ran once at init; this
+    // handles the case where the store is still absent after reconnect)
     if (!db.objectStoreNames.contains(STORES.SUGGESTIONS)) {
       console.warn('[persistence] suggestions store still missing after re-init - skipping save')
       return
     }
-
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(STORES.SUGGESTIONS, 'readwrite')
       const store = transaction.objectStore(STORES.SUGGESTIONS)
       const request = store.put(suggestions, documentId)
@@ -842,9 +853,9 @@ export async function saveSuggestions(
         resolve()
       }
     })
-  } catch (error) {
+  }).catch((error) => {
     console.error('Failed to save suggestions:', error)
-  }
+  })
 }
 
 /**
@@ -854,16 +865,12 @@ export async function loadSuggestions(
   documentId: string
 ): Promise<AISuggestionData[]> {
   console.log(`[persistence:${SESSION_ID}] loadSuggestions:`, { documentId })
-  try {
-    const db = await ensureSuggestionsStore()
-
-    // Check if store exists after re-initialization attempt
+  return withDb(async (db) => {
     if (!db.objectStoreNames.contains(STORES.SUGGESTIONS)) {
       console.warn('[persistence] suggestions store still missing after re-init - returning empty')
       return []
     }
-
-    return new Promise((resolve, reject) => {
+    return new Promise<AISuggestionData[]>((resolve, reject) => {
       const transaction = db.transaction(STORES.SUGGESTIONS, 'readonly')
       const store = transaction.objectStore(STORES.SUGGESTIONS)
       const request = store.get(documentId)
@@ -875,26 +882,22 @@ export async function loadSuggestions(
         resolve(result)
       }
     })
-  } catch (error) {
+  }).then((result) => result ?? []).catch((error) => {
     console.error('Failed to load suggestions:', error)
     return []
-  }
+  })
 }
 
 /**
  * Delete pending AI suggestions for a document
  */
 export async function deleteSuggestions(documentId: string): Promise<void> {
-  try {
-    const db = await ensureSuggestionsStore()
-
-    // Check if store exists after re-initialization attempt
+  await withDb(async (db) => {
     if (!db.objectStoreNames.contains(STORES.SUGGESTIONS)) {
       console.warn('[persistence] suggestions store still missing after re-init - skipping delete')
       return
     }
-
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(STORES.SUGGESTIONS, 'readwrite')
       const store = transaction.objectStore(STORES.SUGGESTIONS)
       const request = store.delete(documentId)
@@ -902,9 +905,9 @@ export async function deleteSuggestions(documentId: string): Promise<void> {
       request.onerror = () => reject(request.error)
       request.onsuccess = () => resolve()
     })
-  } catch (error) {
+  }).catch((error) => {
     console.error('Failed to delete suggestions:', error)
-  }
+  })
 }
 
 // ============ Emoji Cache Operations ============
@@ -916,11 +919,9 @@ export async function saveEmojiCache(
   key: string,
   entry: EmojiCacheEntry
 ): Promise<void> {
-  try {
-    const db = await getDB()
+  await withDb(async (db) => {
     if (!db.objectStoreNames.contains(STORES.EMOJI_CACHE)) return
-
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(STORES.EMOJI_CACHE, 'readwrite')
       const store = transaction.objectStore(STORES.EMOJI_CACHE)
       const request = store.put(entry, key)
@@ -928,9 +929,9 @@ export async function saveEmojiCache(
       request.onerror = () => reject(request.error)
       request.onsuccess = () => resolve()
     })
-  } catch (error) {
+  }).catch((error) => {
     console.error('Failed to save emoji cache:', error)
-  }
+  })
 }
 
 /**
@@ -992,11 +993,9 @@ export async function loadAllEmojiCache(): Promise<Record<string, EmojiCacheEntr
  * Delete an emoji cache entry
  */
 export async function deleteEmojiCache(key: string): Promise<void> {
-  try {
-    const db = await getDB()
+  await withDb(async (db) => {
     if (!db.objectStoreNames.contains(STORES.EMOJI_CACHE)) return
-
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(STORES.EMOJI_CACHE, 'readwrite')
       const store = transaction.objectStore(STORES.EMOJI_CACHE)
       const request = store.delete(key)
@@ -1004,9 +1003,9 @@ export async function deleteEmojiCache(key: string): Promise<void> {
       request.onerror = () => reject(request.error)
       request.onsuccess = () => resolve()
     })
-  } catch (error) {
+  }).catch((error) => {
     console.error('Failed to delete emoji cache:', error)
-  }
+  })
 }
 
 // ============ Summary Operations ============
@@ -1035,11 +1034,9 @@ export async function saveSummary(
   documentId: string,
   summary: DocumentSummary
 ): Promise<void> {
-  try {
-    const db = await getDB()
+  await withDb(async (db) => {
     if (!db.objectStoreNames.contains(STORES.SUMMARIES)) return
-
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(STORES.SUMMARIES, 'readwrite')
       const store = transaction.objectStore(STORES.SUMMARIES)
       const request = store.put(summary, documentId)
@@ -1047,9 +1044,9 @@ export async function saveSummary(
       request.onerror = () => reject(request.error)
       request.onsuccess = () => resolve()
     })
-  } catch (error) {
+  }).catch((error) => {
     console.error('Failed to save summary:', error)
-  }
+  })
 }
 
 /**
@@ -1080,11 +1077,9 @@ export async function loadSummary(
  * Delete a document summary
  */
 export async function deleteSummary(documentId: string): Promise<void> {
-  try {
-    const db = await getDB()
+  await withDb(async (db) => {
     if (!db.objectStoreNames.contains(STORES.SUMMARIES)) return
-
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(STORES.SUMMARIES, 'readwrite')
       const store = transaction.objectStore(STORES.SUMMARIES)
       const request = store.delete(documentId)
@@ -1092,7 +1087,7 @@ export async function deleteSummary(documentId: string): Promise<void> {
       request.onerror = () => reject(request.error)
       request.onsuccess = () => resolve()
     })
-  } catch (error) {
+  }).catch((error) => {
     console.error('Failed to delete summary:', error)
-  }
+  })
 }

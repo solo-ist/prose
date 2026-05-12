@@ -12,6 +12,7 @@ import { createWordDiffAnnotations } from '../../diffUtils'
 import { findNodeById, findNodeByContent, getNodesWithIds, flattenNodes } from '../../../extensions/node-ids'
 import { generateId } from '../../persistence'
 import { getAISuggestions } from '../../../extensions/ai-suggestions'
+import { parseMarkdown } from '../../markdown'
 
 /**
  * Get the TipTap editor instance.
@@ -272,10 +273,23 @@ export function executeSuggestEdit(
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
-  const { nodeId, content, comment, search } = args
+  const { nodeId, comment, search } = args
+  let { content } = args
 
   if (!nodeId) {
     return toolError('Node ID is required', 'INVALID_INPUT')
+  }
+
+  // Detect and strip frontmatter from the incoming content.
+  // When Claude adds frontmatter via suggest_edit the --- delimiters render
+  // as a thematic break/heading in TipTap. Extract frontmatter and apply it
+  // directly to the store; insert only the body into the editor.
+  if (content.trimStart().startsWith('---')) {
+    const { content: body, frontmatter } = parseMarkdown(content)
+    if (Object.keys(frontmatter).length > 0) {
+      useEditorStore.getState().setFrontmatter(frontmatter)
+    }
+    content = body
   }
 
   // Find the node by ID, fall back to content matching if stale

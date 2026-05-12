@@ -8,7 +8,7 @@ import { Separator } from '../ui/separator'
 import iconDark from '../../assets/icon-dark.png'
 import iconLight from '../../assets/icon-light.png'
 
-import { GIT_HASH } from '../../buildInfo.generated'
+import { APP_VERSION, GIT_HASH } from '../../buildInfo.generated'
 
 interface AboutDialogProps {
   open: boolean
@@ -37,7 +37,7 @@ export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
 
           <div className="text-center space-y-1">
             <p className="text-sm text-muted-foreground">
-              Version 1.0.0 <span className="text-muted-foreground/60">({GIT_HASH})</span>
+              Version {APP_VERSION} <span className="text-muted-foreground/60">({GIT_HASH})</span>
             </p>
             <p className="text-sm text-muted-foreground">
               A minimal markdown editor with AI chat

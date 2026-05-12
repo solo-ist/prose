@@ -401,14 +401,22 @@ export function executeAddComment(args: {
     return toolError('Provide either nodeId or from/to positions', 'INVALID_INPUT')
   }
 
+  if (from >= to) {
+    return toolError('Cannot add a comment to an empty range — the targeted node has no text content', 'EMPTY_RANGE')
+  }
+
   const id = generateId()
 
-  editor
+  const success = editor
     .chain()
     .focus()
     .setTextSelection({ from, to })
     .setComment({ id, comment })
     .run()
+
+  if (!success) {
+    return toolError('Failed to apply comment mark — the range may not contain markable content', 'COMMENT_FAILED')
+  }
 
   return toolSuccess({ id })
 }

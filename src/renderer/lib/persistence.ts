@@ -126,17 +126,20 @@ let lastRecoveryResult: RecoveryResult | null = null
  * down) it logs a warning and returns undefined — never throws, so callers that
  * don't need the return value get silent recovery.
  */
-async function withDb<T>(fn: (db: IDBDatabase) => Promise<T>): Promise<T | undefined> {
+async function withDb<T>(
+  fn: (db: IDBDatabase) => Promise<T>,
+  getDb: () => Promise<IDBDatabase> = getDB,
+): Promise<T | undefined> {
   let db: IDBDatabase
   try {
-    db = await getDB()
+    db = await getDb()
     return await fn(db)
   } catch (error) {
     if (error instanceof DOMException && error.name === 'InvalidStateError') {
       console.warn('[persistence] InvalidStateError — connection closed, reopening and retrying once')
       dbPromise = null
       try {
-        db = await getDB()
+        db = await getDb()
         return await fn(db)
       } catch (retryError) {
         console.warn('[persistence] Retry after InvalidStateError also failed (app likely shutting down):', retryError)
@@ -836,8 +839,6 @@ export async function saveSuggestions(
 ): Promise<void> {
   console.log(`[persistence:${SESSION_ID}] saveSuggestions:`, { documentId, count: suggestions.length })
   await withDb(async (db) => {
-    // Re-check store (ensureSuggestionsStore already ran once at init; this
-    // handles the case where the store is still absent after reconnect)
     if (!db.objectStoreNames.contains(STORES.SUGGESTIONS)) {
       console.warn('[persistence] suggestions store still missing after re-init - skipping save')
       return
@@ -853,7 +854,7 @@ export async function saveSuggestions(
         resolve()
       }
     })
-  }).catch((error) => {
+  }, ensureSuggestionsStore).catch((error) => {
     console.error('Failed to save suggestions:', error)
   })
 }
@@ -882,7 +883,7 @@ export async function loadSuggestions(
         resolve(result)
       }
     })
-  }).then((result) => result ?? []).catch((error) => {
+  }, ensureSuggestionsStore).then((result) => result ?? []).catch((error) => {
     console.error('Failed to load suggestions:', error)
     return []
   })
@@ -905,7 +906,7 @@ export async function deleteSuggestions(documentId: string): Promise<void> {
       request.onerror = () => reject(request.error)
       request.onsuccess = () => resolve()
     })
-  }).catch((error) => {
+  }, ensureSuggestionsStore).catch((error) => {
     console.error('Failed to delete suggestions:', error)
   })
 }

@@ -9,6 +9,7 @@ import { useEditorStore } from '../../../stores/editorStore'
 import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
 import { useAnnotationStore } from '../../../extensions/ai-annotations'
 import { getNodesWithIds } from '../../../extensions/node-ids'
+import type { NodeWithId } from '../../../extensions/node-ids'
 import { getComments } from '../../../extensions/comments'
 import { getAISuggestions } from '../../../extensions/ai-suggestions'
 import { getApi } from '../../browserApi'
@@ -23,17 +24,35 @@ function getEditor(): Editor | null {
 
 /**
  * Node representation with ID for AI targeting.
+ * Container nodes (blockquote, lists, listItems) include a `children` array.
+ * Leaf nodes omit `children`.
  */
 interface DocumentNode {
   id: string
   type: string
   content: string
+  children?: DocumentNode[]
+}
+
+/**
+ * Convert a NodeWithId tree entry to a DocumentNode tree entry.
+ */
+function toDocumentNode(n: NodeWithId): DocumentNode {
+  const node: DocumentNode = {
+    id: n.nodeId,
+    type: n.type,
+    content: n.textContent,
+  }
+  if (n.children && n.children.length > 0) {
+    node.children = n.children.map(toDocumentNode)
+  }
+  return node
 }
 
 /**
  * read_document - Get the document content with node IDs for targeting.
  *
- * Returns a structured list of nodes with their IDs, allowing the AI to
+ * Returns a structured tree of nodes with their IDs, allowing the AI to
  * target specific nodes by ID when making edits.
  */
 export function executeReadDocument(): ToolResult<{
@@ -51,15 +70,11 @@ export function executeReadDocument(): ToolResult<{
     })
   }
 
-  // Get nodes with their IDs
+  // Get nodes with their IDs as a nested tree
   const nodesWithIds = getNodesWithIds(editor.state.doc)
 
-  // Format as structured list
-  const nodes: DocumentNode[] = nodesWithIds.map((n) => ({
-    id: n.nodeId,
-    type: n.type,
-    content: n.textContent
-  }))
+  // Map to DocumentNode tree
+  const nodes: DocumentNode[] = nodesWithIds.map(toDocumentNode)
 
   return toolSuccess({
     nodes,

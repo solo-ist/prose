@@ -9,7 +9,7 @@ import { useEditorStore } from '../../../stores/editorStore'
 import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
 import { useAnnotationStore } from '../../../extensions/ai-annotations'
 import { createWordDiffAnnotations } from '../../diffUtils'
-import { findNodeById, findNodeByContent, getNodesWithIds } from '../../../extensions/node-ids'
+import { findNodeById, findNodeByContent, getNodesWithIds, flattenNodes } from '../../../extensions/node-ids'
 import { generateId } from '../../persistence'
 import { getAISuggestions } from '../../../extensions/ai-suggestions'
 
@@ -104,7 +104,7 @@ export function executeEdit(
   }
 
   if (!found) {
-    const available = getNodesWithIds(editor.state.doc)
+    const available = flattenNodes(getNodesWithIds(editor.state.doc))
     const nodeList = available.map(n => `${n.nodeId} (${n.type}: "${n.textContent.substring(0, 40)}")`).join(', ')
     return toolError(
       `Node with ID "${nodeId}" not found. Available nodes: [${nodeList}]`,
@@ -286,7 +286,7 @@ export function executeSuggestEdit(
   }
 
   if (!found) {
-    const available = getNodesWithIds(editor.state.doc)
+    const available = flattenNodes(getNodesWithIds(editor.state.doc))
     const nodeList = available.map(n => `${n.nodeId} (${n.type}: "${n.textContent.substring(0, 40)}")`).join(', ')
     return toolError(
       `Node with ID "${nodeId}" not found. Available nodes: [${nodeList}]`,

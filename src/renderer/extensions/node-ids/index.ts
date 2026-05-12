@@ -128,33 +128,105 @@ export function findNodeByContent(
   return result
 }
 
-/**
- * Get all nodes with IDs as a flat list.
- * Useful for read_document output.
- */
-export function getNodesWithIds(
-  doc: import('@tiptap/pm/model').Node
-): Array<{ nodeId: string; type: string; pos: number; textContent: string }> {
-  const nodes: Array<{ nodeId: string; type: string; pos: number; textContent: string }> = []
+/** Container node types whose children should be nested, not emitted flat. */
+const CONTAINER_TYPES = new Set([
+  'blockquote',
+  'bulletList',
+  'orderedList',
+  'taskList',
+  'listItem',
+  'taskItem',
+])
 
-  doc.descendants((node, pos) => {
-    if (node.attrs.nodeId) {
+/**
+ * A node entry returned by getNodesWithIds.
+ * Container nodes (blockquote, lists, listItems) include a `children` array;
+ * leaf nodes omit it.
+ */
+export interface NodeWithId {
+  nodeId: string
+  type: string
+  pos: number
+  textContent: string
+  children?: NodeWithId[]
+}
+
+/**
+ * Recursively collect nodes with IDs from a ProseMirror node tree.
+ * Container nodes appear with a `children` array; their descendants are NOT
+ * emitted as top-level peers (avoids duplicated content for read_document consumers).
+ */
+function collectNodes(
+  node: import('@tiptap/pm/model').Node,
+  pos: number,
+  doc: import('@tiptap/pm/model').Node
+): NodeWithId[] {
+  const result: NodeWithId[] = []
+
+  node.forEach((child, offset) => {
+    const childPos = pos + offset + 1 // +1 for the parent's opening token
+
+    if (CONTAINER_TYPES.has(child.type.name)) {
+      // Emit the container with its children nested
+      const children = collectNodes(child, childPos, doc)
+      const entry: NodeWithId = {
+        nodeId: child.attrs.nodeId || '',
+        type: child.type.name,
+        pos: childPos,
+        textContent: child.textContent,
+        children,
+      }
+      // Only include the container if it has a nodeId (or has children worth surfacing)
+      if (entry.nodeId || children.length > 0) {
+        result.push(entry)
+      }
+    } else if (child.attrs.nodeId) {
       // Skip paragraphs inside list items — the listItem already covers the content
-      if (node.type.name === 'paragraph') {
-        const parent = doc.resolve(pos).parent
+      if (child.type.name === 'paragraph') {
+        const parent = doc.resolve(childPos).parent
         if (parent.type.name === 'listItem' || parent.type.name === 'taskItem') {
           return
         }
       }
-
-      nodes.push({
-        nodeId: node.attrs.nodeId,
-        type: node.type.name,
-        pos,
-        textContent: node.textContent,
+      result.push({
+        nodeId: child.attrs.nodeId,
+        type: child.type.name,
+        pos: childPos,
+        textContent: child.textContent,
       })
+    } else {
+      // No nodeId on this child — recurse in case it has id-bearing children
+      const deeper = collectNodes(child, childPos, doc)
+      result.push(...deeper)
     }
   })
 
-  return nodes
+  return result
+}
+
+/**
+ * Get all nodes with IDs as a nested tree.
+ * Container nodes (blockquote, lists, listItems) carry a `children` array.
+ * Descendants of containers are NOT emitted as top-level peers.
+ * Useful for read_document output.
+ */
+export function getNodesWithIds(
+  doc: import('@tiptap/pm/model').Node
+): NodeWithId[] {
+  return collectNodes(doc, 0, doc)
+}
+
+/**
+ * Flatten a NodeWithId tree into a flat array.
+ * Useful for error messages and utilities that need all nodes regardless of nesting.
+ */
+export function flattenNodes(nodes: NodeWithId[]): NodeWithId[] {
+  const result: NodeWithId[] = []
+  for (const node of nodes) {
+    result.push(node)
+    if (node.children && node.children.length > 0) {
+      result.push(...flattenNodes(node.children))
+    }
+  }
+  return result
 }

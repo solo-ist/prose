@@ -14,7 +14,7 @@ export const readDocumentSchema = z.object({}).describe('No parameters required'
 export const readDocumentConfig: ToolConfig<typeof readDocumentSchema> = {
   name: 'read_document',
   description:
-    'Get the document as structured nodes, each with a unique ID. Returns { nodes: [{ id, type, content }], markdown }. Node IDs are required for edit and suggest_edit calls.',
+    'Get the document as a structured node tree, each node with a unique ID. Returns { nodes: DocumentNode[], markdown }. DocumentNode shape: { id, type, content, children?: DocumentNode[] }. Container nodes (blockquote, bulletList, orderedList, listItem, taskItem) carry a children array with their nested nodes; their content is the concatenated text of all descendants. Leaf nodes (paragraph, heading, codeBlock) have no children. Node IDs are required for edit and suggest_edit calls — always target the most specific (innermost) node. Do NOT target a container when you mean to edit a specific child.',
   schema: readDocumentSchema,
   category: 'document',
   requiresMode: null, // Available in all modes

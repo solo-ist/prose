@@ -88,7 +88,7 @@ Prose stores settings at \~/.prose/settings.json (and uses macOS Keychain via El
   "theme": "dark",
   "llm": {
     "provider": "anthropic",
-    "model": "claude-sonnet-4-20250514"
+    "model": "claude-sonnet-4-5-20250929"
   },
   "editor": {
     "fontSize": 16,

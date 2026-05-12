@@ -33,3 +33,11 @@ export function isKnownModel(_provider: LLMProvider, modelId: string): boolean {
 export function getDefaultModel(_provider: LLMProvider): string {
   return 'claude-sonnet-4-5-20250929'
 }
+
+/**
+ * Get default Haiku model (used for internal lightweight calls such as
+ * API key validation and emoji generation where exact version doesn't matter).
+ */
+export function getDefaultHaikuModel(): string {
+  return 'claude-haiku-4-5-20251001'
+}

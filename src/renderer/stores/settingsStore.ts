@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import type { Settings } from '../types'
 import { initRendererSentry, setRendererSentryEnabled } from '../lib/sentry'
+import { getDefaultModel } from '../../shared/llm/models'
 
 const MAX_RECENT_FILES = 15
 
@@ -69,7 +70,7 @@ const defaultSettings: Settings = {
   theme: 'dark',
   llm: {
     provider: 'anthropic',
-    model: 'claude-sonnet-4-5-20250929',
+    model: getDefaultModel('anthropic'),
     apiKey: '',
     emojiIcons: false
   },

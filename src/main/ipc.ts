@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
 import { withRetry, getNetworkErrorMessage } from '../shared/utils/retry'
+import { getDefaultModel, getDefaultHaikuModel } from '../shared/llm/models'
 import { getSettingsDir, LEGACY_SETTINGS_DIR } from './paths'
 import { clearRecentFiles } from './recentFiles'
 import { refreshMenu } from './menu'
@@ -106,7 +107,7 @@ const defaultSettings: Settings = {
   theme: 'dark',
   llm: {
     provider: 'anthropic',
-    model: 'claude-sonnet-4-5-20250929',
+    model: getDefaultModel('anthropic'),
     apiKey: '',
     emojiIcons: false
   },
@@ -604,7 +605,7 @@ export function setupIpcHandlers(): void {
           const client = new Anthropic({ apiKey })
           // Make a minimal request to validate the key
           await client.messages.create({
-            model: 'claude-haiku-4-5-20251001',
+            model: getDefaultHaikuModel(),
             max_tokens: 1,
             messages: [{ role: 'user', content: 'Hi' }]
           })
@@ -1177,7 +1178,7 @@ export function setupIpcHandlers(): void {
       }
 
       const response = await client.messages.create({
-        model: 'claude-haiku-4-5-20251001',
+        model: getDefaultHaikuModel(),
         max_tokens: 10,
         system: 'Respond with exactly ONE emoji that represents the document. Nothing else — no text, no explanation, just the emoji.',
         messages: [{ role: 'user', content: prompt }]

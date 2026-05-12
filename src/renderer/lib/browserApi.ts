@@ -17,6 +17,7 @@ import type {
   LLMStreamError,
   ElectronAPI
 } from '../types'
+import { getDefaultModel } from '../../shared/llm/models'
 
 const SETTINGS_KEY = 'prose:settings'
 
@@ -24,7 +25,7 @@ const defaultSettings: Settings = {
   theme: 'dark',
   llm: {
     provider: 'anthropic',
-    model: 'claude-sonnet-4-5-20250929',
+    model: getDefaultModel('anthropic'),
     apiKey: ''
   },
   editor: {

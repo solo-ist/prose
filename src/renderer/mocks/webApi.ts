@@ -37,6 +37,7 @@ import type {
   TestApiKeyResult,
 } from '../types'
 import type { ToolResult } from '../../shared/tools/types'
+import { getDefaultModel } from '../../shared/llm/models'
 import { fixtures, DOCUMENTS_ROOT } from './fixtures'
 
 // ---------------------------------------------------------------------------
@@ -57,7 +58,7 @@ const defaultSettings: Settings = {
   theme: 'dark',
   llm: {
     provider: 'anthropic',
-    model: 'claude-sonnet-4-5-20250929',
+    model: getDefaultModel('anthropic'),
     apiKey: '',
   },
   editor: {

@@ -102,6 +102,72 @@ export const getOutlineConfig: ToolConfig<typeof getOutlineSchema> = {
 }
 
 // ============================================================================
+// list_comments
+// ============================================================================
+
+export const listCommentsSchema = z.object({}).describe('No parameters required')
+
+export const listCommentsConfig: ToolConfig<typeof listCommentsSchema> = {
+  name: 'list_comments',
+  description:
+    'List all comments in the active document. Returns { comments: [{ id, markedText, comment, createdAt, from, to }] }.',
+  schema: listCommentsSchema,
+  category: 'document',
+  requiresMode: null,
+  dangerous: false
+}
+
+// ============================================================================
+// add_comment
+// ============================================================================
+
+export const addCommentSchema = z.object({
+  nodeId: z
+    .string()
+    .optional()
+    .describe(
+      'ID of the node to attach the comment to. Get node IDs from read_document. Provide either nodeId or from/to, not both.'
+    ),
+  from: z
+    .number()
+    .optional()
+    .describe('Document position (from) for the comment range. Use when nodeId is unavailable.'),
+  to: z
+    .number()
+    .optional()
+    .describe('Document position (to) for the comment range. Use when nodeId is unavailable.'),
+  comment: z.string().describe('The comment text to attach to the selected content.')
+})
+
+export const addCommentConfig: ToolConfig<typeof addCommentSchema> = {
+  name: 'add_comment',
+  description:
+    'Add a comment to a node or range in the document. Provide nodeId (preferred, from read_document) or from/to positions. Returns { id } of the new comment.',
+  schema: addCommentSchema,
+  category: 'document',
+  requiresMode: null,
+  dangerous: false
+}
+
+// ============================================================================
+// resolve_comment
+// ============================================================================
+
+export const resolveCommentSchema = z.object({
+  id: z.string().describe('ID of the comment to resolve (remove). Get IDs from list_comments.')
+})
+
+export const resolveCommentConfig: ToolConfig<typeof resolveCommentSchema> = {
+  name: 'resolve_comment',
+  description:
+    'Resolve (remove) a comment by its ID. Use list_comments to see all comment IDs.',
+  schema: resolveCommentSchema,
+  category: 'document',
+  requiresMode: null,
+  dangerous: false
+}
+
+// ============================================================================
 // Export all document tools
 // ============================================================================
 
@@ -110,5 +176,8 @@ export const documentTools = [
   readSelectionConfig,
   getMetadataConfig,
   searchDocumentConfig,
-  getOutlineConfig
+  getOutlineConfig,
+  listCommentsConfig,
+  addCommentConfig,
+  resolveCommentConfig
 ] as const

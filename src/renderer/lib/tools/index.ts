@@ -14,7 +14,10 @@ import {
   executeReadSelection,
   executeGetMetadata,
   executeSearchDocument,
-  executeGetOutline
+  executeGetOutline,
+  executeListComments,
+  executeAddComment,
+  executeResolveComment
 } from './executors/document'
 
 // Editor executors
@@ -94,6 +97,12 @@ export async function executeTool(
       case 'get_outline':
       case 'outline':
         return executeGetOutline()
+      case 'list_comments':
+        return executeListComments()
+      case 'add_comment':
+        return executeAddComment(validatedArgs)
+      case 'resolve_comment':
+        return executeResolveComment(validatedArgs)
 
       // Editor tools
       case 'edit':

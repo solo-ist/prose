@@ -89,7 +89,10 @@ const mcpToolNames = [
   'get_outline',
   'open_file',
   'suggest_edit',
-  'create_and_open_file'
+  'create_and_open_file',
+  'list_comments',
+  'add_comment',
+  'resolve_comment'
 ] as const
 
 /**

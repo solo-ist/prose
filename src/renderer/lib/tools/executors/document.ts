@@ -8,11 +8,12 @@ import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useEditorStore } from '../../../stores/editorStore'
 import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
 import { useAnnotationStore } from '../../../extensions/ai-annotations'
-import { getNodesWithIds } from '../../../extensions/node-ids'
+import { getNodesWithIds, findNodeById } from '../../../extensions/node-ids'
 import type { NodeWithId } from '../../../extensions/node-ids'
 import { getComments } from '../../../extensions/comments'
 import { getAISuggestions } from '../../../extensions/ai-suggestions'
 import { getApi } from '../../browserApi'
+import { generateId } from '../../persistence'
 
 /**
  * Get the TipTap editor instance.
@@ -323,4 +324,118 @@ export function executeGetOutline(): ToolResult<{ outline: OutlineEntry[]; summa
   }
 
   return toolSuccess({ outline })
+}
+
+// ============================================================================
+// Comment tools
+// ============================================================================
+
+/** Minimal comment shape returned by list_comments */
+interface CommentEntry {
+  id: string
+  markedText: string
+  comment: string
+  createdAt: number
+  from: number
+  to: number
+}
+
+/**
+ * list_comments - Get all comments in the active document.
+ */
+export function executeListComments(): ToolResult<{ comments: CommentEntry[] }> {
+  const editor = getEditor()
+
+  if (!editor) {
+    return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
+  }
+
+  const raw = getComments(editor)
+  const comments: CommentEntry[] = raw.map((c) => ({
+    id: c.id,
+    markedText: c.markedText,
+    comment: c.comment,
+    createdAt: c.createdAt,
+    from: c.from,
+    to: c.to,
+  }))
+
+  return toolSuccess({ comments })
+}
+
+/**
+ * add_comment - Add a comment mark to a node or explicit range.
+ * The comment is tagged with author 'claude'.
+ */
+export function executeAddComment(args: {
+  nodeId?: string
+  from?: number
+  to?: number
+  comment: string
+}): ToolResult<{ id: string }> {
+  const editor = getEditor()
+
+  if (!editor) {
+    return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
+  }
+
+  const { nodeId, comment } = args
+  let from = args.from
+  let to = args.to
+
+  if (!comment) {
+    return toolError('comment text is required', 'INVALID_INPUT')
+  }
+
+  if (nodeId) {
+    // Resolve range from nodeId
+    const found = findNodeById(editor.state.doc, nodeId)
+    if (!found) {
+      return toolError(`Node with ID "${nodeId}" not found`, 'NODE_NOT_FOUND')
+    }
+    from = found.pos + 1
+    to = found.pos + found.node.nodeSize - 1
+  }
+
+  if (from === undefined || to === undefined) {
+    return toolError('Provide either nodeId or from/to positions', 'INVALID_INPUT')
+  }
+
+  const id = generateId()
+
+  editor
+    .chain()
+    .focus()
+    .setTextSelection({ from, to })
+    .setComment({ id, comment })
+    .run()
+
+  return toolSuccess({ id })
+}
+
+/**
+ * resolve_comment - Remove a comment by its ID.
+ */
+export function executeResolveComment(args: {
+  id: string
+}): ToolResult<{ resolved: boolean }> {
+  const editor = getEditor()
+
+  if (!editor) {
+    return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
+  }
+
+  const { id } = args
+
+  if (!id) {
+    return toolError('Comment ID is required', 'INVALID_INPUT')
+  }
+
+  const success = editor.commands.unsetComment(id)
+
+  if (!success) {
+    return toolError(`Comment with ID "${id}" not found`, 'COMMENT_NOT_FOUND')
+  }
+
+  return toolSuccess({ resolved: true })
 }

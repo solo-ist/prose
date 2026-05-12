@@ -41,6 +41,10 @@ module.exports = async function afterPack(context) {
     [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
     // Disable --inspect and related CLI flags — prevents attaching debuggers to production builds
     [FuseV1Options.EnableNodeCliInspectArguments]: false,
+    // Validate the asar archive integrity at runtime — detects post-sign tampering with bundled app code
+    [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
+    // Refuse to load app code from loose files outside the asar — forces all code to come from the integrity-validated archive
+    [FuseV1Options.OnlyLoadAppFromAsar]: true,
   })
 
   console.log('[Fuses] Fuses flipped successfully')

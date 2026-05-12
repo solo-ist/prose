@@ -78,25 +78,26 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
         title="Click to edit frontmatter"
       >
         <div className="flex items-start justify-between gap-2">
-          <div className="space-y-0.5 flex-1 min-w-0">
+          <div className="space-y-1.5 flex-1 min-w-0">
             {fields.map(({ key, value }) => {
               const isDocId = key === 'google_doc_id'
               const displayValue = isDocId ? value.replace(/^['"]|['"]$/g, '') : value
               return (
-                <div key={key} className="flex gap-2">
-                  <span className="text-muted-foreground/70 shrink-0">{key}:</span>
+                <div key={key} className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground/70 shrink-0 w-32 truncate">{key}</span>
+                  <span className="text-muted-foreground/40 shrink-0">:</span>
                   {isDocId ? (
                     <a
                       href={`https://docs.google.com/document/d/${displayValue}/edit`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-foreground/80 break-all underline decoration-muted-foreground/40 hover:decoration-foreground/60"
+                      className="text-foreground/80 flex-1 truncate underline decoration-muted-foreground/40 hover:decoration-foreground/60"
                       onClick={e => e.stopPropagation()}
                     >
                       {displayValue}
                     </a>
                   ) : (
-                    <span className="text-foreground/80 break-all">{value}</span>
+                    <span className="text-foreground/80 flex-1 truncate">{displayValue}</span>
                   )}
                 </div>
               )

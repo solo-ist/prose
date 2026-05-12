@@ -73,6 +73,8 @@ export function Editor() {
     to: number
     text: string
   } | null>(null)
+  const [viewingCommentId, setViewingCommentId] = useState<string | null>(null)
+  const [viewingCommentText, setViewingCommentText] = useState<string | null>(null)
   const { isTransforming, startTransform, completeTransform } = useTransformAnimation()
 
   // Source mode: holds markdown content while CodeMirror is mounted
@@ -96,6 +98,21 @@ export function Editor() {
     frontmatterRef.current = getFrontmatterRaw(document.content)
     return getContentWithoutFrontmatter(document.content)
   }, []) // Only run once on mount
+
+  // Stable frontmatter for the editor UI — only updates when documentId changes,
+  // never on body edits. This prevents FrontmatterEditor from re-initializing its
+  // field state during normal typing (fixes layout shift + data mutation on body click).
+  const [stableFrontmatter, setStableFrontmatter] = useState<Record<string, unknown>>(
+    () => document.frontmatter ?? {}
+  )
+  const stableFrontmatterDocIdRef = useRef<string>(document.documentId)
+
+  useEffect(() => {
+    if (stableFrontmatterDocIdRef.current !== document.documentId) {
+      stableFrontmatterDocIdRef.current = document.documentId
+      setStableFrontmatter(document.frontmatter ?? {})
+    }
+  }, [document.documentId, document.frontmatter])
 
   const editor = useTipTapEditor({
     extensions: [
@@ -214,12 +231,14 @@ export function Editor() {
     }
   })
 
-  // Helper to open comment dialog with current selection
+  // Helper to open comment dialog with current selection (add-new mode)
   const openAddCommentDialog = useCallback(() => {
     if (!editor) return
     const { from, to } = editor.state.selection
     if (from === to) return // No selection
     const text = editor.state.doc.textBetween(from, to, ' ')
+    setViewingCommentId(null)
+    setViewingCommentText(null)
     setPendingCommentSelection({ from, to, text })
     setIsAddCommentOpen(true)
   }, [editor])
@@ -729,16 +748,29 @@ export function Editor() {
     return () => window.removeEventListener('search:show', handleSearchShow)
   }, [])
 
+  // Listen for comment-click events dispatched by the Comment extension's click handler
+  useEffect(() => {
+    const handleCommentClick = (e: Event) => {
+      const { commentId, commentText } = (e as CustomEvent<{ commentId: string; commentText: string }>).detail
+      setViewingCommentId(commentId)
+      setViewingCommentText(commentText)
+      setPendingCommentSelection(null)
+      setIsAddCommentOpen(true)
+    }
+    window.addEventListener('editor:comment-click', handleCommentClick)
+    return () => window.removeEventListener('editor:comment-click', handleCommentClick)
+  }, [])
+
   // Show empty state when document is empty, untitled, and user hasn't started editing
   const showEmptyState = !isEditing && !document.path && !document.content && !document.isDirty
 
-  // Check if document has frontmatter to display
+  // Check if document has frontmatter to display — uses stableFrontmatter so the
+  // visibility decision doesn't flip during body edits
   const showFrontmatter = useMemo(() => {
-    // Check the parsed frontmatter object first (works for files loaded via parseMarkdown)
-    if (document.frontmatter && Object.keys(document.frontmatter).length > 0) return true
+    if (stableFrontmatter && Object.keys(stableFrontmatter).length > 0) return true
     // Fall back to checking raw content (for content that still has --- markers)
     return hasFrontmatter(document.content)
-  }, [document.content, document.frontmatter])
+  }, [document.content, stableFrontmatter])
 
   // Focus editor when transitioning from empty state to editing
   // (skip during preview tab navigation — editor is non-editable)
@@ -765,6 +797,7 @@ export function Editor() {
   const handleFrontmatterSave = useCallback((newFrontmatter: Record<string, unknown>) => {
     if (!editor) return
     setFrontmatter(newFrontmatter)
+    setStableFrontmatter(newFrontmatter)
     // Clear frontmatterRef so onUpdate doesn't re-prepend raw frontmatter.
     // The store's document.frontmatter is the source of truth now;
     // buildSaveContent/serializeMarkdown adds the --- block on save.
@@ -928,7 +961,7 @@ export function Editor() {
               {showFrontmatter && (
                 isRemarkableReadOnly || isPreviewTab
                   ? <FrontmatterDisplay content={document.content} frontmatter={document.frontmatter} />
-                  : <FrontmatterEditor key={document.path || 'new'} frontmatter={document.frontmatter ?? {}} onSave={handleFrontmatterSave} />
+                  : <FrontmatterEditor key={document.documentId} frontmatter={stableFrontmatter} onSave={handleFrontmatterSave} />
               )}
               <EditorContent
                 editor={editor}
@@ -949,9 +982,13 @@ export function Editor() {
         editor={editor}
         isOpen={isAddCommentOpen}
         selection={pendingCommentSelection}
+        existingCommentId={viewingCommentId}
+        existingCommentText={viewingCommentText}
         onClose={() => {
           setIsAddCommentOpen(false)
           setPendingCommentSelection(null)
+          setViewingCommentId(null)
+          setViewingCommentText(null)
         }}
       />
       {editor && <AISuggestionPopover editor={editor} />}

@@ -160,6 +160,12 @@ jobs:
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
     runs-on: ubuntu-latest
+    # Per-issue serialization: runs on the same issue/PR queue; runs on different
+    # issues execute concurrently. Each cloud agent works on its own per-issue branch,
+    # so cross-issue collisions aren't a real risk — only same-issue races matter.
+    concurrency:
+      group: claude-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: false
     permissions:
       contents: write
       pull-requests: write
@@ -189,53 +195,12 @@ jobs:
               core.setFailed(`User ${username} lacks write access`);
             }
 
-      # 383-8: Concurrency guard — prevent multiple @claude agents on the same PR/issue.
-      # Best-effort: narrow race window exists between check and run start.
-      # This is repo-wide (not PR-scoped) because run metadata doesn't reliably
-      # carry the triggering PR number. When skipped, a visible comment is posted
-      # so the user knows to retry.
-      - name: Check for concurrent claude runs
-        id: concurrency
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          CURRENT_RUN: ${{ github.run_id }}
-        run: |
-          IN_PROGRESS=$(gh run list --repo "$REPO" --workflow claude.yml \
-            --json databaseId,status \
-            --jq "[.[] | select((.status == \"in_progress\" or .status == \"queued\") and .databaseId != ($CURRENT_RUN | tonumber))] | length")
-          if [ "$IN_PROGRESS" -gt 0 ]; then
-            echo "::warning::Another claude.yml run is active ($IN_PROGRESS queued/in-progress). Skipping to prevent concurrent agent collision."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Notify user of skipped run
-        if: steps.concurrency.outputs.skip == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-        run: |
-          # Determine the issue/PR number from the event
-          if [ "${{ github.event_name }}" = "issues" ]; then
-            NUMBER="${{ github.event.issue.number }}"
-          else
-            NUMBER="${{ github.event.issue.number || github.event.pull_request.number }}"
-          fi
-          if [ -n "$NUMBER" ]; then
-            gh issue comment "$NUMBER" --repo "$REPO" \
-              --body "> **Skipped:** Another \`@claude\` agent is currently running. Please retry in a few minutes."
-          fi
-
       - name: Checkout repository
-        if: steps.concurrency.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
       - name: Run Claude Code
-        if: steps.concurrency.outputs.skip != 'true'
         id: claude
         uses: anthropics/claude-code-action@v1
         with:

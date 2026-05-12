@@ -15,6 +15,7 @@ import { KeyboardShortcutsDialog } from '../settings/KeyboardShortcutsDialog'
 import { AboutDialog } from '../settings/AboutDialog'
 import { ModelPickerDialog } from '../ModelPickerDialog'
 import { AIConsentDialog } from '../AIConsentDialog'
+import { EnableLoggingDialog } from '../EnableLoggingDialog'
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -965,6 +966,7 @@ export function App() {
         />
         <DefaultHandlerPrompt />
         <AIConsentDialog />
+        <EnableLoggingDialog />
 
         {/* Google Docs Import Dialog */}
         <AlertDialog open={googleDocsEnabled && importDialogOpen} onOpenChange={(open) => {

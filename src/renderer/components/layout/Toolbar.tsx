@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from 'react'
 import { downloadSkillWithAlert } from '../../lib/skillDownload'
+import { requestBugReport } from '../EnableLoggingDialog'
 import { useEditor } from '../../hooks/useEditor'
 import { useTabs } from '../../hooks/useTabs'
 import { useEditorStore } from '../../stores/editorStore'
@@ -523,7 +524,7 @@ export function Toolbar() {
                   Request Support
                 </DropdownMenuItem>
               ) : (
-                <DropdownMenuItem onClick={() => window.open('https://github.com/solo-ist/prose/issues/new?template=bug-report.yml', '_blank', 'noopener,noreferrer')}>
+                <DropdownMenuItem onClick={() => requestBugReport('https://github.com/solo-ist/prose/issues/new?template=bug-report.yml')}>
                   <Bug className="mr-2 h-4 w-4" />
                   Report a Bug
                 </DropdownMenuItem>

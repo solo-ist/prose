@@ -38,6 +38,7 @@ import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, ChevronR
 import { useSettings } from '../../hooks/useSettings'
 import { cn } from '../../lib/utils'
 import { getApi } from '../../lib/browserApi'
+import { requestBugReport } from '../EnableLoggingDialog'
 import type { RemarkableNotebookMetadata, RemarkableCloudNotebook, GoogleDocEntry } from '../../types'
 
 export function FileListPanel() {
@@ -880,10 +881,8 @@ export function FileListPanel() {
                         title: `[reMarkable] OCR failed for "${item.name}"`,
                         labels: 'remarkable,bug',
                       })
-                      window.open(
-                        `https://github.com/solo-ist/prose/issues/new?${params.toString()}`,
-                        '_blank',
-                        'noopener,noreferrer'
+                      requestBugReport(
+                        `https://github.com/solo-ist/prose/issues/new?${params.toString()}`
                       )
                     }}
                   >

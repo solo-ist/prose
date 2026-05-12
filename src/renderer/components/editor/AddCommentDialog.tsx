@@ -13,13 +13,35 @@ import { Textarea } from '../ui/textarea'
 interface AddCommentDialogProps {
   editor: Editor | null
   isOpen: boolean
+  /** New-comment mode: selection range + text */
   selection: { from: number; to: number; text: string } | null
+  /** View-existing mode: the comment ID to display/remove */
+  existingCommentId?: string | null
+  /** View-existing mode: the comment instruction text to display */
+  existingCommentText?: string | null
   onClose: () => void
 }
 
-export function AddCommentDialog({ editor, isOpen, selection, onClose }: AddCommentDialogProps) {
+export function AddCommentDialog({
+  editor,
+  isOpen,
+  selection,
+  existingCommentId,
+  existingCommentText,
+  onClose,
+}: AddCommentDialogProps) {
+  const isViewMode = !!existingCommentId
   const [comment, setComment] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Populate comment text when viewing an existing comment
+  useEffect(() => {
+    if (isOpen && isViewMode && existingCommentText) {
+      setComment(existingCommentText)
+    } else if (isOpen && !isViewMode) {
+      setComment('')
+    }
+  }, [isOpen, isViewMode, existingCommentText])
 
   // Focus textarea when dialog opens
   useEffect(() => {
@@ -47,6 +69,13 @@ export function AddCommentDialog({ editor, isOpen, selection, onClose }: AddComm
     onClose()
   }
 
+  const handleRemove = () => {
+    if (!editor || !existingCommentId) return
+    editor.commands.unsetComment(existingCommentId)
+    setComment('')
+    onClose()
+  }
+
   const handleClose = () => {
     setComment('')
     onClose()
@@ -55,7 +84,7 @@ export function AddCommentDialog({ editor, isOpen, selection, onClose }: AddComm
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault()
-      handleSubmit()
+      if (!isViewMode) handleSubmit()
     }
   }
 
@@ -63,10 +92,10 @@ export function AddCommentDialog({ editor, isOpen, selection, onClose }: AddComm
     <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Add Comment</DialogTitle>
+          <DialogTitle>{isViewMode ? 'Comment' : 'Add Comment'}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
-          {selection?.text && (
+          {!isViewMode && selection?.text && (
             <div className="text-sm">
               <span className="text-muted-foreground">Selected text: </span>
               <span className="italic">
@@ -76,24 +105,40 @@ export function AddCommentDialog({ editor, isOpen, selection, onClose }: AddComm
           )}
           <Textarea
             ref={textareaRef}
-            placeholder="Enter your instruction for the AI (e.g., 'make this more concise')"
+            placeholder={isViewMode ? '' : "Enter your instruction for the AI (e.g., 'make this more concise')"}
             value={comment}
-            onChange={(e) => setComment(e.target.value)}
+            onChange={(e) => !isViewMode && setComment(e.target.value)}
             onKeyDown={handleKeyDown}
             rows={3}
             className="resize-none"
+            readOnly={isViewMode}
           />
-          <p className="text-xs text-muted-foreground">
-            Tip: Press Cmd+Enter to submit
-          </p>
+          {!isViewMode && (
+            <p className="text-xs text-muted-foreground">
+              Tip: Press Cmd+Enter to submit
+            </p>
+          )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={handleClose}>
-            Cancel
-          </Button>
-          <Button onClick={handleSubmit} disabled={!comment.trim()}>
-            Add Comment
-          </Button>
+          {isViewMode ? (
+            <>
+              <Button variant="destructive" onClick={handleRemove}>
+                Remove Comment
+              </Button>
+              <Button variant="outline" onClick={handleClose}>
+                Close
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" onClick={handleClose}>
+                Cancel
+              </Button>
+              <Button onClick={handleSubmit} disabled={!comment.trim()}>
+                Add Comment
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

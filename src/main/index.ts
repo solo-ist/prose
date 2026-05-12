@@ -1,6 +1,7 @@
 import { config } from 'dotenv'
 import { join, normalize, sep } from 'path'
 import { writeFileSync, unlinkSync, existsSync, readFileSync } from 'fs'
+import { readFile as readFileAsync } from 'fs/promises'
 import { randomBytes } from 'crypto'
 import { homedir } from 'os'
 
@@ -29,7 +30,7 @@ try {
   // Settings don't exist yet or are invalid — skip Sentry
 }
 
-import { app, shell, BrowserWindow, session, protocol, net } from 'electron'
+import { app, shell, BrowserWindow, session, protocol } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { setupIpcHandlers } from './ipc'
 import { createMenu } from './menu'
@@ -371,10 +372,11 @@ app.whenReady().then(async () => {
   })
   session.defaultSession.setPermissionCheckHandler(() => false)
 
-  // Handle local-file:// protocol to serve images from the filesystem
-  // MAS sandbox: only works for files within security-scoped bookmark directories
-  // (user-opened folders). Images from arbitrary paths silently return 403.
-  protocol.handle('local-file', (request) => {
+  // Handle local-file:// protocol to serve images from the filesystem.
+  // Uses fs.readFile (which respects MAS security-scoped bookmark access) instead
+  // of net.fetch('file://...'), which does NOT inherit sandbox-granted permissions
+  // and silently fails for paths outside the app container on MAS builds.
+  protocol.handle('local-file', async (request) => {
     // URL format: local-file:///absolute/path/to/image.png
     const filePath = decodeURIComponent(new URL(request.url).pathname)
     const normalized = normalize(filePath)
@@ -392,7 +394,33 @@ app.whenReady().then(async () => {
       return new Response('Only image files are allowed', { status: 403 })
     }
 
-    return net.fetch('file://' + normalized)
+    // Map extension to MIME type for the response Content-Type header
+    const mimeTypes: Record<string, string> = {
+      png: 'image/png',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      gif: 'image/gif',
+      webp: 'image/webp',
+      svg: 'image/svg+xml',
+      bmp: 'image/bmp',
+      ico: 'image/x-icon',
+      avif: 'image/avif',
+    }
+    const contentType = mimeTypes[ext] || 'application/octet-stream'
+
+    // Read via fs.readFile, which respects OS-level security-scoped bookmark
+    // access on MAS builds. net.fetch('file://...') bypasses that layer and
+    // returns a network error for files outside the sandbox container.
+    try {
+      const data = await readFileAsync(normalized)
+      return new Response(data, {
+        status: 200,
+        headers: { 'Content-Type': contentType },
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return new Response(`Could not read file: ${message}`, { status: 404 })
+    }
   })
 
   // Configure Content Security Policy

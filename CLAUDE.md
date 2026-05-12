@@ -178,14 +178,17 @@ When running as Electron:
 
 ### IPC Channels
 
-Defined in `src/main/ipc.ts` (68 handlers across 11 namespaces):
+Most handlers live in `src/main/ipc.ts` (69 across 12 namespaces). A few sit closer to their feature: `sentry:setEnabled` and `renderer:ready` in `src/main/index.ts`, `updater:*` (3) in `src/main/updater.ts`, and `mcp:tool:result` in `src/main/mcp/bridge.ts`.
+
 - `file:*` (17) - File operations (open, save, read, rename, delete, trash, duplicate, etc.)
 - `settings:*` (4) - Settings persistence, secure storage check, API key test
 - `llm:chat`, `llm:stream`, `llm:stream:abort` - LLM API calls (streaming via Anthropic SDK)
-- `remarkable:*` (18) - reMarkable tablet sync (register, validate, sync, sync:abort, OCR, folder move, etc.)
+- `remarkable:*` (20) - reMarkable tablet sync (register, validate, sync, sync:abort, OCR, folder move, etc.)
 - `google:*` (13) - Google Docs OAuth, sync, pull, import, metadata management
 - `mcp:*` (3) - MCP server status, install, uninstall for Claude Desktop
 - `sentry:setEnabled` - Toggle Sentry error tracking from renderer
+- `updater:*` (3) - Auto-update check, download, install (Electron auto-updater)
+- `skill:download` - Download an external skill for use inside Prose
 - `window:*`, `shell:*`, `recentFiles:*`, `emoji:*`, `fileAssociation:*` - Utility handlers
 
 ### State Management
@@ -204,16 +207,16 @@ Zustand stores in `src/renderer/stores/`:
 
 ### Feature Flags
 
-`src/renderer/lib/featureFlags.ts` gates features that aren't ready for public release. Flags are persisted in `settings.json` (in `app.getPath('userData')`) under the `featureFlags` key and default to `false`.
+`src/renderer/lib/featureFlags.ts` gates features that aren't ready for public release. Flags are persisted in `settings.json` (in `app.getPath('userData')`) under the `featureFlags` key. Each flag has its own default — see below.
 
-To enable a feature without rebuilding, add to `~/Library/Application Support/Prose/settings.json` (macOS):
+To override a flag without rebuilding, add to `~/Library/Application Support/Prose/settings.json` (macOS):
 ```json
-"featureFlags": { "googleDocs": true, "remarkable": true }
+"featureFlags": { "googleDocs": true, "remarkable": false }
 ```
 
 Current flags:
-- `googleDocs` — Google Docs bidirectional sync (v1.1)
-- `remarkable` — reMarkable tablet sync (v1.1)
+- `googleDocs` — Google Docs bidirectional sync (v1.1). **Default: off.** Opt-in only.
+- `remarkable` — reMarkable tablet sync (v1.1). **Default: on for desktop builds; forced off for MAS builds** regardless of the user's setting, since the reMarkable Cloud auth and OCR Lambda credentials aren't ready for App Store review. Set to `false` explicitly to disable on desktop.
 
 The module exports React hooks (`useGoogleDocsEnabled`, `useRemarkableEnabled`) for use in components and non-hook accessors (`isGoogleDocsEnabled`, `isRemarkableEnabled`) for use in callbacks. When gating a feature, import the appropriate function and use it to guard UI rendering, background effects, and menu handlers. Preserve all code — gate, don't delete.
 

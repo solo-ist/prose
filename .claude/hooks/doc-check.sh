@@ -34,7 +34,7 @@ if [ -z "$DIFF_OUTPUT" ]; then
 fi
 
 # Emit a block decision so Claude pauses and reviews the diff.
-REASON="A commit was just made. Review the changed files and determine if CLAUDE.md or any skill files (.claude/skills/) need updating to reflect these changes. If documentation updates are needed, make the edits and create a follow-up commit with conventional commit type 'docs'. If no updates are needed, say so and proceed.
+REASON="A commit was just made. Review the changed files and determine if any project documentation needs updating to reflect these changes (CLAUDE.md, docs/**, .claude/skills/**, README.md). If documentation updates are needed, make the edits and create a follow-up commit with conventional commit type 'docs'. If no updates are needed, say so and proceed.
 
 Changed files:
 ${DIFF_OUTPUT}"

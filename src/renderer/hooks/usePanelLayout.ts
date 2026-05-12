@@ -24,6 +24,7 @@ const EDITOR_MIN_PX = 360
 const BOTH_PANELS_MIN_WIDTH = 1000
 const FILE_LIST_DEFAULT_PCT = 20
 export const CHAT_DEFAULT_PCT = 50
+export const QUICK_REVIEW_DEFAULT_PX = 330
 
 // --- Types ---
 

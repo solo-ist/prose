@@ -58,7 +58,7 @@ import { extractFirstH1 } from '../../lib/markdown'
 import type { DraftState, SessionState } from '../../lib/persistence'
 import { executeTool } from '../../lib/tools'
 import { useReviewMode, useWasChatOpenBeforeReview, usePreviousChatWidth, useReviewStore, type ReviewMode } from '../../stores/reviewStore'
-import { CHAT_DEFAULT_PCT, CHAT_MIN_PX } from '../../hooks/usePanelLayout'
+import { CHAT_DEFAULT_PCT, QUICK_REVIEW_DEFAULT_PX } from '../../hooks/usePanelLayout'
 
 export function App() {
   useChat() // Initialize stream listeners
@@ -101,8 +101,9 @@ export function App() {
   const prevReviewMode = useRef<ReviewMode | null>(null)
   const prevTabId = useRef(activeTabId)
 
-  // Quick review target: ~280px as a percentage of window width
-  const quickReviewPct = (CHAT_MIN_PX / window.innerWidth) * 100
+  // Quick review target: ~330px as a percentage of window width.
+  // Above CHAT_MIN_PX (280) so cards have breathing room; user can still drag smaller.
+  const quickReviewPct = (QUICK_REVIEW_DEFAULT_PX / window.innerWidth) * 100
 
   useEffect(() => {
     const tabChanged = activeTabId !== prevTabId.current
@@ -126,7 +127,7 @@ export function App() {
       if (reviewMode === 'side-by-side') {
         chatPanelRef.current?.resize(60)
       } else {
-        // Quick mode: compact sidebar at ~280px
+        // Quick mode: compact sidebar at ~330px
         chatPanelRef.current?.resize(quickReviewPct)
       }
     } else if (!reviewMode && prev) {

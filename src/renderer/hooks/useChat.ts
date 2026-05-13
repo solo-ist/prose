@@ -10,6 +10,7 @@ import { getComments } from '../extensions/comments'
 import { getSuggestionsWithFeedback } from '../extensions/ai-suggestions'
 import { executeTool, resolveToolPosition } from '../lib/tools'
 import { getToolsForClaudeAPI } from '../../shared/tools/registry'
+import { resolveModelName } from '../../shared/llm/models'
 import type { LLMMessage, LLMStreamToolCall, LLMContentBlock } from '../types'
 
 // Module-level flag to ensure stream listeners are only registered once globally
@@ -311,7 +312,12 @@ export function useChat() {
             apiKey: settingsState.settings.llm.apiKey,
             baseUrl: settingsState.settings.llm.baseUrl,
             messages: updatedMessages,
-            system: buildSystemPrompt(editorState.document.content, state.toolMode, editorState.document.path),
+            system: buildSystemPrompt(
+              editorState.document.content,
+              state.toolMode,
+              editorState.document.path,
+              resolveModelName(settingsState.settings.llm.model, settingsState.fetchedModels)
+            ),
             streamId: newStreamId,
             tools,
             maxToolRoundtrips: 5,
@@ -506,7 +512,12 @@ export function useChat() {
           apiKey: settings.llm.apiKey,
           baseUrl: settings.llm.baseUrl,
           messages: apiMessages,
-          system: buildSystemPrompt(useEditorStore.getState().document.content, toolMode, useEditorStore.getState().document.path),
+          system: buildSystemPrompt(
+            useEditorStore.getState().document.content,
+            toolMode,
+            useEditorStore.getState().document.path,
+            resolveModelName(settings.llm.model, useSettingsStore.getState().fetchedModels)
+          ),
           streamId,
           tools,
           maxToolRoundtrips: 5,

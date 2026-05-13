@@ -42,3 +42,18 @@ export function getDefaultModel(_provider: LLMProvider): string {
 export function getDefaultHaikuModel(): string {
   return 'claude-haiku-4-5-20251001'
 }
+
+/**
+ * Resolve a model ID to its human-readable display name. Prefers the live-fetched
+ * list (which the provider updates as new models ship), falls back to the static
+ * seed, and finally to the raw model ID.
+ */
+export function resolveModelName(
+  modelId: string,
+  fetched?: ModelInfo[] | null
+): string {
+  const fromFetched = fetched?.find((m) => m.id === modelId)?.name
+  if (fromFetched) return fromFetched
+  const fromStatic = ANTHROPIC_MODELS.find((m) => m.id === modelId)?.name
+  return fromStatic || modelId
+}

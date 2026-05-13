@@ -79,9 +79,14 @@ Keep edit comments under 20 words. You have a budget of 5 tool roundtrips per re
 export function buildSystemPrompt(
   documentContent?: string,
   toolMode?: ToolMode,
-  documentPath?: string | null
+  documentPath?: string | null,
+  modelName?: string
 ): string {
   let prompt = BASE_PROMPT
+
+  if (modelName) {
+    prompt = `You are ${modelName}.\n\n` + prompt
+  }
 
   // Mode-specific tool instructions
   if (!toolMode || toolMode === 'suggestions') {

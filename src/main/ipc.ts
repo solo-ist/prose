@@ -640,6 +640,52 @@ export function setupIpcHandlers(): void {
     }
   })
 
+  // LLM: Fetch live model list from provider (runs in main to avoid CORS)
+  ipcMain.handle('llm:fetchModels', async (_event, request: {
+    provider: string
+    apiKey: string
+  }): Promise<{
+    models?: Array<{ id: string; name: string; description?: string }>
+    error?: string
+  }> => {
+    const { provider, apiKey } = request
+
+    if (!apiKey) {
+      return { error: 'API key required' }
+    }
+
+    try {
+      switch (provider) {
+        case 'anthropic': {
+          const res = await fetch('https://api.anthropic.com/v1/models', {
+            headers: {
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01'
+            }
+          })
+          if (!res.ok) {
+            return { error: `HTTP ${res.status}: ${res.statusText}` }
+          }
+          const json = await res.json() as {
+            data: Array<{ id: string; display_name?: string; type: string }>
+          }
+          const models = (json.data || [])
+            .filter((m) => m.type === 'model')
+            .map((m) => ({
+              id: m.id,
+              name: m.display_name || m.id
+            }))
+          return { models }
+        }
+        default:
+          return { error: `Unknown provider: ${provider}` }
+      }
+    } catch (error) {
+      console.error('[fetchModels] Error:', error)
+      return { error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  })
+
   // LLM: Chat completion (runs in main process to avoid CORS)
   ipcMain.handle('llm:chat', async (_event, request: LLMRequest) => {
     const { createAnthropic } = await import('@ai-sdk/anthropic')

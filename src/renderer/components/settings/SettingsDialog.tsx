@@ -108,10 +108,16 @@ export function SettingsDialog() {
   const integrationsTabRef = useRef<HTMLDivElement>(null)
   const accountTabRef = useRef<HTMLDivElement>(null)
 
-  // Get models for current provider
+  // Get models for current provider — prefer the live-fetched list from the
+  // provider, fall back to the static seed list when offline / no API key.
+  const fetchedModels = useSettingsStore((s) => s.fetchedModels)
+  const isFetchingModels = useSettingsStore((s) => s.isFetchingModels)
+  const fetchModels = useSettingsStore((s) => s.fetchModels)
   const availableModels = useMemo(
-    () => getModelsForProvider(settings.llm.provider as LLMProvider),
-    [settings.llm.provider]
+    () => fetchedModels && fetchedModels.length > 0
+      ? fetchedModels
+      : getModelsForProvider(settings.llm.provider as LLMProvider),
+    [fetchedModels, settings.llm.provider]
   )
 
   // Check if current model is in the list
@@ -147,6 +153,13 @@ export function SettingsDialog() {
       window.api.isSecureStorageAvailable().then(setSecureStorageAvailable)
     }
   }, [isDialogOpen])
+
+  // Refresh the live model list when the dialog opens (if API key is set)
+  useEffect(() => {
+    if (isDialogOpen && settings.llm.apiKey) {
+      fetchModels()
+    }
+  }, [isDialogOpen, settings.llm.apiKey, fetchModels])
 
   // Check if we're the default handler when dialog opens
   useEffect(() => {
@@ -511,7 +524,7 @@ export function SettingsDialog() {
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label htmlFor="model">Model</Label>
+                <Label htmlFor="model">Model{isFetchingModels && <span className="ml-2 text-xs text-muted-foreground">refreshing…</span>}</Label>
                 {!customModel && (
                   <button
                     type="button"

@@ -339,6 +339,10 @@ export interface ElectronAPI {
   loadSettings: () => Promise<Settings>
   saveSettings: (settings: Settings) => Promise<void>
   testApiKey: (request: TestApiKeyRequest) => Promise<TestApiKeyResult>
+  fetchModels: (request: { provider: string; apiKey: string }) => Promise<{
+    models?: Array<{ id: string; name: string; description?: string }>
+    error?: string
+  }>
   isSecureStorageAvailable: () => Promise<boolean>
   onMenuAction: (callback: (action: string) => void) => () => void
   onFileOpenExternal: (callback: (path: string) => void) => () => void

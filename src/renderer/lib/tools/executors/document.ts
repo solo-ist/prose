@@ -405,6 +405,15 @@ export function executeAddComment(args: {
     return toolError('Cannot add a comment to an empty range — the targeted node has no text content', 'EMPTY_RANGE')
   }
 
+  // Range may be non-empty in positions but contain no actual text content
+  // (e.g., a paragraph with only a hardBreak, or whitespace-only). In that case
+  // setComment would apply the mark to the boundary, which can bleed into the
+  // preceding node. Require at least one non-whitespace character to attach to.
+  const rangeText = editor.state.doc.textBetween(from, to, ' ')
+  if (!rangeText.trim()) {
+    return toolError('Cannot add a comment to an empty range — the targeted node has no text content', 'EMPTY_RANGE')
+  }
+
   const id = generateId()
 
   const success = editor

@@ -98,20 +98,37 @@ export function Editor() {
     return getContentWithoutFrontmatter(document.content)
   }, []) // Only run once on mount
 
-  // Stable frontmatter for the editor UI — only updates when documentId changes,
-  // never on body edits. This prevents FrontmatterEditor from re-initializing its
-  // field state during normal typing (fixes layout shift + data mutation on body click).
+  // Stable frontmatter for the editor UI — re-syncs on documentId change AND on
+  // shallow-value changes from the store. The shallow-value check lets external
+  // writes (e.g., AI-applied frontmatter via MCP suggest_edit) surface in the UI
+  // while still ignoring transient new-object references that don't change values
+  // (which was the original body-edit-ripple bug this state was added to solve).
   const [stableFrontmatter, setStableFrontmatter] = useState<Record<string, unknown>>(
     () => document.frontmatter ?? {}
   )
   const stableFrontmatterDocIdRef = useRef<string>(document.documentId)
 
   useEffect(() => {
+    const next = document.frontmatter ?? {}
     if (stableFrontmatterDocIdRef.current !== document.documentId) {
       stableFrontmatterDocIdRef.current = document.documentId
-      setStableFrontmatter(document.frontmatter ?? {})
+      setStableFrontmatter(next)
+      return
     }
-  }, [document.documentId, document.frontmatter])
+    // Same doc — only re-sync if the values actually differ (not just identity)
+    const nextKeys = Object.keys(next)
+    const currentKeys = Object.keys(stableFrontmatter)
+    let differs = nextKeys.length !== currentKeys.length
+    if (!differs) {
+      for (const k of nextKeys) {
+        if ((next as Record<string, unknown>)[k] !== (stableFrontmatter as Record<string, unknown>)[k]) {
+          differs = true
+          break
+        }
+      }
+    }
+    if (differs) setStableFrontmatter(next)
+  }, [document.documentId, document.frontmatter, stableFrontmatter])
 
   const editor = useTipTapEditor({
     extensions: [

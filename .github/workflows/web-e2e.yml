@@ -81,6 +81,12 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
+      # Explicit so fork PRs / older branches without #484 still build.
+      # main's build:web now chains build:buildinfo internally too — this step is
+      # redundant for branches that contain that fix, but harmless.
+      - name: Generate build info
+        run: npm run build:buildinfo
+
       - name: Build web app
         run: npm run build:web
 

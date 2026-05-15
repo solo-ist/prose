@@ -455,6 +455,9 @@ export const browserApi: ElectronAPI = {
   refreshRecentMenu: async (): Promise<void> => {},
   clearRecentFiles: async (): Promise<void> => {},
 
+  // Clipboard - use browser API in web mode
+  copyToClipboard: async (text: string): Promise<void> => { await navigator.clipboard.writeText(text) },
+
   // Sentry error tracking - no-op in browser mode
   sentrySetEnabled: async (): Promise<void> => {},
 

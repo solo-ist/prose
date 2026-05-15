@@ -1,4 +1,4 @@
-import { ipcMain, dialog, app, shell, BrowserWindow } from 'electron'
+import { ipcMain, dialog, app, shell, BrowserWindow, clipboard } from 'electron'
 import { IS_MAS_BUILD } from './env'
 import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat, copyFile } from 'fs/promises'
 import { join, dirname, normalize, isAbsolute } from 'path'
@@ -1528,6 +1528,10 @@ export function setupIpcHandlers(): void {
         error: error instanceof Error ? error.message : 'Unknown error'
       }
     }
+  })
+
+  ipcMain.handle('clipboard:writeText', async (_event, text: string) => {
+    clipboard.writeText(text)
   })
 
   ipcMain.handle('skill:download', async (): Promise<{ success: boolean; error?: string }> => {

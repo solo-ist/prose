@@ -430,6 +430,8 @@ export interface ElectronAPI {
   // Recent files
   getRecentFiles: () => Promise<string[]>
   clearRecentFiles: () => Promise<void>
+  // Clipboard
+  copyToClipboard: (text: string) => Promise<void>
   // Sentry error tracking
   sentrySetEnabled: (enabled: boolean) => Promise<void>
   // prose:// URL scheme — open content as a new document

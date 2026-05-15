@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { Check, Copy } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { getApi } from '../../lib/browserApi'
 import { Button } from './button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './tooltip'
 
@@ -14,7 +15,7 @@ export function CopyButton({ value, className, ...props }: CopyButtonProps) {
 
   const handleCopy = React.useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(value)
+      await getApi().copyToClipboard(value)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch (error) {

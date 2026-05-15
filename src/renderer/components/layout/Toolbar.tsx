@@ -140,7 +140,7 @@ export function Toolbar() {
   const handleCopy = async () => {
     if (!document.content) return
     try {
-      await navigator.clipboard.writeText(document.content)
+      await getApi().copyToClipboard(document.content)
       setHasCopied(true)
       setTimeout(() => setHasCopied(false), 2000)
     } catch (err) {

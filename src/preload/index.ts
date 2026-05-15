@@ -263,6 +263,8 @@ export interface ElectronAPI {
   // Recent files
   refreshRecentMenu: () => Promise<void>
   clearRecentFiles: () => Promise<void>
+  // Clipboard
+  copyToClipboard: (text: string) => Promise<void>
   // Sentry error tracking
   sentrySetEnabled: (enabled: boolean) => Promise<void>
   // prose:// URL scheme — open content as a new document
@@ -508,6 +510,8 @@ const api: ElectronAPI = {
   // Recent files
   refreshRecentMenu: () => ipcRenderer.invoke('recentFiles:refreshMenu'),
   clearRecentFiles: () => ipcRenderer.invoke('recentFiles:clear'),
+  // Clipboard (routes through main process, bypasses web Permissions Policy)
+  copyToClipboard: (text: string) => ipcRenderer.invoke('clipboard:writeText', text),
   // Sentry error tracking
   sentrySetEnabled: (enabled: boolean) => ipcRenderer.invoke('sentry:setEnabled', enabled),
   // prose:// URL scheme — open content as a new document

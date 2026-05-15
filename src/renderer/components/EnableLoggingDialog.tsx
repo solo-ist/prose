@@ -31,6 +31,17 @@ const useBugReportPromptStore = create<BugReportPromptState>((set, get) => ({
   close: () => set({ pendingUrl: null })
 }))
 
+// Re-prompt next time if the user turns Error Reporting off again — the
+// dismissal only applied to the previous off→stay-off decision.
+useSettingsStore.subscribe(
+  (state) => state.settings.errorTracking?.enabled === true,
+  (isEnabled, wasEnabled) => {
+    if (wasEnabled && !isEnabled) {
+      useBugReportPromptStore.setState({ dismissedThisSession: false })
+    }
+  }
+)
+
 export function requestBugReport(url: string): void {
   useBugReportPromptStore.getState().request(url)
 }
@@ -65,7 +76,7 @@ export function EnableLoggingDialog() {
 
   return (
     <AlertDialog open={pendingUrl !== null} onOpenChange={(open) => { if (!open) close() }}>
-      <AlertDialogContent className="max-w-md">
+      <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Help us fix what you&rsquo;re reporting</AlertDialogTitle>
         </AlertDialogHeader>

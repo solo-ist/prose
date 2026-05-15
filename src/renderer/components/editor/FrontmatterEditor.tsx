@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import * as yaml from 'js-yaml'
 import { Lock, Plus, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { Input } from '../ui/input'
@@ -47,9 +47,25 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
   const [isExpanded, setIsExpanded] = useState(false)
   const [fields, setFields] = useState<Field[]>(() => frontmatterToFields(frontmatter))
 
+  // Track whether the next prop change originated from our own onSave round-trip
+  // so we don't clobber an in-progress local edit when the store echoes back.
+  const skipNextPropSyncRef = useRef(false)
+
+  // Sync local fields when the frontmatter prop changes from outside this
+  // component (e.g., AI-applied frontmatter via MCP suggest_edit). User-initiated
+  // edits set the skip flag so we don't re-init on the round-trip.
+  useEffect(() => {
+    if (skipNextPropSyncRef.current) {
+      skipNextPropSyncRef.current = false
+      return
+    }
+    setFields(frontmatterToFields(frontmatter))
+  }, [frontmatter])
+
   const handleFieldChange = useCallback((index: number, field: Partial<Field>) => {
     setFields(prev => {
       const next = prev.map((f, i) => i === index ? { ...f, ...field } : f)
+      skipNextPropSyncRef.current = true
       onSave(fieldsToFrontmatter(next))
       return next
     })
@@ -58,6 +74,7 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
   const handleDelete = useCallback((index: number) => {
     setFields(prev => {
       const next = prev.filter((_, i) => i !== index)
+      skipNextPropSyncRef.current = true
       onSave(fieldsToFrontmatter(next))
       return next
     })

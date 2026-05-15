@@ -213,7 +213,13 @@ function collectNodes(
 export function getNodesWithIds(
   doc: import('@tiptap/pm/model').Node
 ): NodeWithId[] {
-  return collectNodes(doc, 0, doc)
+  // pos = -1 so the first top-level child's childPos = -1 + 0 + 1 = 0, matching
+  // ProseMirror's content-position semantics for the doc root (which, unlike
+  // inner container nodes, has no opening token to skip). Without this,
+  // doc.resolve(childPos) lands one position too deep inside top-level paragraphs
+  // and the listItem-skip filter below never fires — re-introducing the
+  // duplication this walker was rewritten to eliminate. See #458, #489.
+  return collectNodes(doc, -1, doc)
 }
 
 /**

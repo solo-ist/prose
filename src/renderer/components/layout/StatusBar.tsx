@@ -8,7 +8,6 @@ import { useLinkHoverStore } from '../../stores/linkHoverStore'
 import { useReviewStore } from '../../stores/reviewStore'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
-import { isMacOS } from '../../lib/browserApi'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,6 +18,11 @@ import {
 } from '../ui/dropdown-menu'
 import type { ToolMode } from '../../stores/chatStore'
 import { getModelsForProvider, type LLMProvider } from '../../../shared/llm/models'
+
+// Detect Mac for keyboard-hint copy. Works in both Electron and web mode,
+// unlike browserApi's isMacOS() which gates on isElectron().
+const isMacKeyboard =
+  typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform)
 
 export function StatusBar() {
   const { document, cursorPosition } = useEditor()
@@ -72,7 +76,7 @@ export function StatusBar() {
               {hoveredUrl}
             </span>
             <span className="text-muted-foreground/60 shrink-0">
-              {isMacOS() ? '[CMD + click to open]' : '[Ctrl + click to open]'}
+              {isMacKeyboard ? '[CMD + click to open]' : '[Ctrl + click to open]'}
             </span>
           </>
         ) : (

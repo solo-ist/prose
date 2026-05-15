@@ -21,12 +21,23 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            // Same-repo PRs populate workflow_run.pull_requests directly.
+            // Fork PRs do NOT — GitHub omits them from that array. Fall back
+            // to a SHA search so auto-review still triggers for fork contributors.
             const prs = context.payload.workflow_run.pull_requests;
-            if (!prs || prs.length === 0) {
-              core.info('No PR associated with this workflow run');
+            if (prs && prs.length > 0) {
+              core.setOutput('number', prs[0].number);
               return;
             }
-            core.setOutput('number', prs[0].number);
+            const headSha = context.payload.workflow_run.head_sha;
+            const { data } = await github.rest.search.issuesAndPullRequests({
+              q: `repo:${context.repo.owner}/${context.repo.repo} type:pr sha:${headSha}`,
+            });
+            if (data.items.length === 0) {
+              core.info(`No PR found for head SHA ${headSha}`);
+              return;
+            }
+            core.setOutput('number', data.items[0].number);
 
       - name: Check for duplicate or recent review
         if: steps.pr.outputs.number

@@ -53,6 +53,7 @@ jobs:
               core.setOutput('number', context.payload.pull_request.number);
               core.setOutput('sha', context.payload.pull_request.head.sha);
               core.setOutput('ref', context.payload.pull_request.head.ref);
+              core.setOutput('repo', context.payload.pull_request.head.repo.full_name);
             } else {
               const { data: pr } = await github.rest.pulls.get({
                 owner: context.repo.owner,
@@ -62,10 +63,12 @@ jobs:
               core.setOutput('number', pr.number);
               core.setOutput('sha', pr.head.sha);
               core.setOutput('ref', pr.head.ref);
+              core.setOutput('repo', pr.head.repo.full_name);
             }
 
       - uses: actions/checkout@v4
         with:
+          repository: ${{ steps.pr.outputs.repo }}
           ref: ${{ steps.pr.outputs.ref }}
 
       - uses: actions/setup-node@v4

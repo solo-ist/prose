@@ -43,6 +43,7 @@ import { usePanelLayout, PanelLayoutProvider } from '../../hooks/usePanelLayout'
 import type { ImperativePanelHandle } from 'react-resizable-panels'
 import { useEditorStore } from '../../stores/editorStore'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
+import { getApi } from '../../lib/browserApi'
 import { useChatStore, setCurrentDocumentId } from '../../stores/chatStore'
 import { useTabStore, createTab, restoreSession, clearSavedSession, hasUnsavedTabs } from '../../stores/tabStore'
 import { useFileListStore } from '../../stores/fileListStore'
@@ -777,7 +778,7 @@ export function App() {
           break
         case 'copyMarkdown': {
           const content = useEditorStore.getState().document.content
-          if (content) navigator.clipboard.writeText(content)
+          if (content) getApi().copyToClipboard(content)
           break
         }
         case 'addComment':

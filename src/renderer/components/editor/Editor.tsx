@@ -47,6 +47,7 @@ import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import type { AISuggestionData } from '../../extensions/ai-suggestions/types'
 import { LinkPopover } from './LinkPopover'
 import { SourceEditor, SourceEditorHandle } from './SourceEditor'
+import { getApi } from '../../lib/browserApi'
 
 export function Editor() {
   const { document, setContent, openFile, saveFile } = useEditor()
@@ -519,7 +520,7 @@ export function Editor() {
       e.preventDefault()
       const content = useEditorStore.getState().document.content
       if (content) {
-        navigator.clipboard.writeText(content)
+        getApi().copyToClipboard(content)
       }
     } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'h') {
       // Cmd+Shift+H: Toggle file list (JS fallback for macOS menu accelerator)

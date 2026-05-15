@@ -8,6 +8,7 @@ import { useLinkHoverStore } from '../../stores/linkHoverStore'
 import { useReviewStore } from '../../stores/reviewStore'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
+import { isMacOS } from '../../lib/browserApi'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -66,9 +67,14 @@ export function StatusBar() {
     <div className="flex h-6 items-center justify-between border-t border-border bg-muted/30 px-4 text-xs text-muted-foreground font-mono">
       <div className="flex items-center gap-4 min-w-0">
         {hoveredUrl ? (
-          <span className="text-muted-foreground truncate max-w-[400px]" title={hoveredUrl}>
-            {hoveredUrl}
-          </span>
+          <>
+            <span className="text-muted-foreground truncate max-w-[400px]" title={hoveredUrl}>
+              {hoveredUrl}
+            </span>
+            <span className="text-muted-foreground/60 shrink-0">
+              {isMacOS() ? '[CMD + click to open]' : '[Ctrl + click to open]'}
+            </span>
+          </>
         ) : (
           <>
             <span>

@@ -320,9 +320,15 @@ export function executeSuggestEdit(
   if (content.trimStart().startsWith('---')) {
     const { content: body, frontmatter } = parseMarkdown(content)
     if (Object.keys(frontmatter).length > 0) {
+      // Real frontmatter — apply it to the store and use the stripped body
+      // as the suggestion content.
       useEditorStore.getState().setFrontmatter(frontmatter)
+      content = body
     }
-    content = body
+    // If parseMarkdown matched the regex but yielded no keys (e.g., bare
+    // string YAML, malformed YAML, or a deliberate thematic break followed
+    // by prose), leave content untouched. Otherwise we'd silently drop the
+    // ---...--- block from the suggestion. See #490.
   }
 
   // Find the node by ID, fall back to content matching if stale

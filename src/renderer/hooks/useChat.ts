@@ -599,6 +599,20 @@ export function useChat() {
     editor.commands.unsetAllComments()
   }, [sendMessage])
 
+  // Process a single comment by id — same prompt shape as processComments,
+  // but scoped to just one mark so the user can act per-comment from the popover.
+  const processComment = useCallback(async (commentId: string) => {
+    const editor = useEditorInstanceStore.getState().editor
+    if (!editor) return
+
+    const target = getComments(editor).find((c) => c.id === commentId)
+    if (!target) return
+
+    const commentsPrompt = buildCommentsPrompt([target])
+    await sendMessage(commentsPrompt)
+    editor.commands.unsetComment(commentId)
+  }, [sendMessage])
+
   // Helper to get current comment count
   const getCommentCount = useCallback(() => {
     const editor = useEditorInstanceStore.getState().editor
@@ -645,6 +659,7 @@ export function useChat() {
     sendMessage,
     stopGeneration,
     processComments,
+    processComment,
     getCommentCount,
     processSuggestionReplies,
     getSuggestionFeedbackCount,

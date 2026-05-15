@@ -563,6 +563,7 @@
   gap: 0.5rem;
 }
 
+.comment-popover .process-btn,
 .comment-popover .remove-btn,
 .comment-popover .close-btn {
   flex: 1;
@@ -576,6 +577,16 @@
   font-weight: 500;
   cursor: pointer;
   transition: background 0.15s;
+}
+
+.comment-popover .process-btn {
+  background: hsl(270 60% 50%);
+  color: white;
+  border: none;
+}
+
+.comment-popover .process-btn:hover {
+  background: hsl(270 60% 45%);
 }
 
 .comment-popover .remove-btn {

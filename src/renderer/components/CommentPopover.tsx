@@ -6,7 +6,8 @@
 import { useEffect, useRef, useState, useCallback, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
 import type { Editor } from '@tiptap/core'
-import { Trash2, X } from 'lucide-react'
+import { Trash2, X, Sparkles } from 'lucide-react'
+import { useChat } from '../hooks/useChat'
 
 interface CommentPopoverProps {
   editor: Editor
@@ -28,6 +29,7 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
   })
   const [adjustedPosition, setAdjustedPosition] = useState<{ x: number; y: number } | null>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
+  const { processComment } = useChat()
 
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {
@@ -104,6 +106,14 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
     }
   }, [editor, popover.commentId])
 
+  const handleProcess = useCallback(() => {
+    if (popover.commentId) {
+      const id = popover.commentId
+      setPopover((prev) => ({ ...prev, isOpen: false }))
+      processComment(id)
+    }
+  }, [popover.commentId, processComment])
+
   const handleClose = useCallback(() => {
     setPopover((prev) => ({ ...prev, isOpen: false }))
   }, [])
@@ -127,6 +137,10 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
       <div className="comment-label">Comment:</div>
       <div className="comment-text">{popover.commentText}</div>
       <div className="actions">
+        <button className="process-btn" onClick={handleProcess}>
+          <Sparkles size={16} />
+          Process
+        </button>
         <button className="remove-btn" onClick={handleRemove}>
           <Trash2 size={16} />
           Remove

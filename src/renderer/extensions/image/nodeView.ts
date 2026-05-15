@@ -34,9 +34,18 @@ export class ImageNodeView implements NodeView {
 
     this.syncAttrs()
 
-    // Prevent ProseMirror from swallowing input events
-    this.altInput.addEventListener('mousedown', (e) => e.stopPropagation())
-    this.altInput.addEventListener('focus', (e) => e.stopPropagation())
+    // Prevent ProseMirror from swallowing input events. ProseMirror installs
+    // editor-wide handlers for keydown/keypress/input/beforeinput; without
+    // stopPropagation here, typing into the caption is intercepted and
+    // dispatched as document edits instead.
+    const stop = (e: Event): void => e.stopPropagation()
+    this.altInput.addEventListener('mousedown', stop)
+    this.altInput.addEventListener('focus', stop)
+    this.altInput.addEventListener('keydown', stop)
+    this.altInput.addEventListener('keypress', stop)
+    this.altInput.addEventListener('keyup', stop)
+    this.altInput.addEventListener('beforeinput', stop)
+    this.altInput.addEventListener('input', stop)
 
     // Alt input saves on blur or Enter, cancels on Escape
     this.altInput.addEventListener('change', this.saveAlt)

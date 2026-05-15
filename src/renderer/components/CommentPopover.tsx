@@ -40,17 +40,21 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
         event.stopPropagation()
 
         const id = mark.getAttribute('data-comment-id')
-        const text = mark.getAttribute('data-comment') || ''
-
-        if (id) {
-          const rect = mark.getBoundingClientRect()
-          setPopover({
-            isOpen: true,
-            commentId: id,
-            commentText: text,
-            position: { x: rect.left + rect.width / 2, y: rect.bottom + 8 },
-          })
+        if (!id) {
+          // Malformed mark — the Comment extension's renderHTML drops the
+          // attribute when attrs.id is falsy. Warn loudly so the source of
+          // the bad mark is debuggable, but don't silently swallow the click.
+          console.warn('[CommentPopover] comment-mark clicked with no data-comment-id', mark)
+          return
         }
+        const text = mark.getAttribute('data-comment') || ''
+        const rect = mark.getBoundingClientRect()
+        setPopover({
+          isOpen: true,
+          commentId: id,
+          commentText: text,
+          position: { x: rect.left + rect.width / 2, y: rect.bottom + 8 },
+        })
         return
       }
 

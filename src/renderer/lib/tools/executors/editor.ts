@@ -35,6 +35,39 @@ function isEditorReadOnly(): boolean {
 }
 
 /**
+ * Strip markdown block-level prefix that matches the target node's type, so
+ * the suggestion popover displays the visible text instead of the raw markdown
+ * source the LLM might wrap a replacement in.
+ *
+ *   stripLeadingBlockMarkup('# New Title', 'heading', 1) -> 'New Title'
+ *   stripLeadingBlockMarkup('## Hello',    'heading', 2) -> 'Hello'
+ *   stripLeadingBlockMarkup('Hello',       'paragraph')  -> 'Hello'  (no-op)
+ */
+function stripLeadingBlockMarkup(content: string, nodeType: string, level?: number): string {
+  const trimmed = content.replace(/^[\r\n]+/, '')
+
+  if (nodeType === 'heading') {
+    const lvl = typeof level === 'number' && level >= 1 && level <= 6 ? level : null
+    if (lvl) {
+      const re = new RegExp(`^#{${lvl}}\\s+`)
+      if (re.test(trimmed)) return trimmed.replace(re, '')
+    }
+    // Fallback: strip any leading hash run if level is unknown
+    return trimmed.replace(/^#{1,6}\s+/, '')
+  }
+
+  if (nodeType === 'blockquote') {
+    return trimmed.replace(/^>\s?/gm, '')
+  }
+
+  if (nodeType === 'listItem' || nodeType === 'taskItem') {
+    return trimmed.replace(/^\s*(?:[-*+]|\d+\.)\s+/, '')
+  }
+
+  return trimmed
+}
+
+/**
  * Resolve the target document position for an editor-mutating tool call.
  * Used to sort tool calls by position (descending) before batch execution,
  * so bottom-of-document edits don't shift positions of earlier edits.
@@ -314,6 +347,12 @@ export function executeSuggestEdit(
   // Get the original text content
   const originalText = node.textContent
 
+  // Normalize suggested text to match the target node's shape. If the target
+  // is a heading and the LLM wrapped the replacement in markdown syntax (e.g.
+  // "# New Title" for an H1), strip the matching prefix so the diff popover
+  // shows just the visible text instead of the raw markdown source.
+  const suggestedText = stripLeadingBlockMarkup(content, node.type.name, node.attrs?.level)
+
   // Select the text content of the node and apply the AI suggestion mark
   const contentStart = pos + 1
   const contentEnd = pos + node.nodeSize - 1
@@ -326,7 +365,7 @@ export function executeSuggestEdit(
       id: suggestionId,
       type: 'edit',
       originalText,
-      suggestedText: content,
+      suggestedText,
       explanation: comment || '',
       provenanceModel: provenance?.model || '',
       provenanceConversationId: provenance?.conversationId || '',

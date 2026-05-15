@@ -12,6 +12,7 @@ import { getNodesWithIds, findNodeById } from '../../../extensions/node-ids'
 import type { NodeWithId } from '../../../extensions/node-ids'
 import { getComments } from '../../../extensions/comments'
 import { getAISuggestions } from '../../../extensions/ai-suggestions'
+import { isEditorReadOnly } from './editor'
 import { getApi } from '../../browserApi'
 import { generateId } from '../../persistence'
 
@@ -379,6 +380,10 @@ export function executeAddComment(args: {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
+  if (isEditorReadOnly()) {
+    return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
+  }
+
   const { nodeId, comment } = args
   let from = args.from
   let to = args.to
@@ -440,6 +445,10 @@ export function executeResolveComment(args: {
 
   if (!editor) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
+  }
+
+  if (isEditorReadOnly()) {
+    return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
   const { id } = args

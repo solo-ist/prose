@@ -27,9 +27,10 @@ function getEditor(): Editor | null {
 
 /**
  * Check if the editor is in a read-only mode (reMarkable OCR or preview tab).
- * AI tools should not mutate the document in these modes.
+ * AI tools should not mutate the document in these modes. Exported so that
+ * document-tool executors (add_comment, resolve_comment) can apply the same gate.
  */
-function isEditorReadOnly(): boolean {
+export function isEditorReadOnly(): boolean {
   const state = useEditorStore.getState()
   return state.isRemarkableReadOnly || state.isPreviewTab
 }

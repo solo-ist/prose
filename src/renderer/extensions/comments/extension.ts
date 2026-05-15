@@ -6,7 +6,6 @@
  */
 
 import { Mark, mergeAttributes } from '@tiptap/core'
-import { Plugin } from '@tiptap/pm/state'
 import type { MarkSerializerSpec } from 'prosemirror-markdown'
 import type { CommentOptions, CommentData } from './types'
 
@@ -178,37 +177,6 @@ export const Comment = Mark.create<CommentOptions>({
           return commands.unsetComment()
         },
     }
-  },
-
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        props: {
-          handleDOMEvents: {
-            click: (_view, event) => {
-              const target = event.target as HTMLElement
-              const mark = target.closest('.comment-mark') as HTMLElement | null
-              if (!mark) return false
-
-              const commentId = mark.getAttribute('data-comment-id')
-              const commentText = mark.getAttribute('data-comment') ?? ''
-
-              // Dispatch a custom event so Editor.tsx can open the comment modal
-              // without requiring a direct callback ref on the extension
-              window.dispatchEvent(
-                new CustomEvent('editor:comment-click', {
-                  detail: { commentId, commentText },
-                })
-              )
-
-              // Prevent default so the click doesn't also move the cursor
-              // into a partial selection (let ProseMirror set cursor position)
-              return false
-            },
-          },
-        },
-      }),
-    ]
   },
 })
 

@@ -43,6 +43,7 @@ import { FrontmatterEditor, serializeFrontmatter } from './FrontmatterEditor'
 import { serializeMarkdown, parseMarkdown } from '../../lib/markdown'
 import { TransformAnimation, useTransformAnimation } from './TransformAnimation'
 import { AISuggestionPopover } from '../AISuggestionPopover'
+import { CommentPopover } from '../CommentPopover'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import type { AISuggestionData } from '../../extensions/ai-suggestions/types'
 import { LinkPopover } from './LinkPopover'
@@ -73,8 +74,6 @@ export function Editor() {
     to: number
     text: string
   } | null>(null)
-  const [viewingCommentId, setViewingCommentId] = useState<string | null>(null)
-  const [viewingCommentText, setViewingCommentText] = useState<string | null>(null)
   const { isTransforming, startTransform, completeTransform } = useTransformAnimation()
 
   // Source mode: holds markdown content while CodeMirror is mounted
@@ -237,8 +236,6 @@ export function Editor() {
     const { from, to } = editor.state.selection
     if (from === to) return // No selection
     const text = editor.state.doc.textBetween(from, to, ' ')
-    setViewingCommentId(null)
-    setViewingCommentText(null)
     setPendingCommentSelection({ from, to, text })
     setIsAddCommentOpen(true)
   }, [editor])
@@ -748,18 +745,6 @@ export function Editor() {
     return () => window.removeEventListener('search:show', handleSearchShow)
   }, [])
 
-  // Listen for comment-click events dispatched by the Comment extension's click handler
-  useEffect(() => {
-    const handleCommentClick = (e: Event) => {
-      const { commentId, commentText } = (e as CustomEvent<{ commentId: string; commentText: string }>).detail
-      setViewingCommentId(commentId)
-      setViewingCommentText(commentText)
-      setPendingCommentSelection(null)
-      setIsAddCommentOpen(true)
-    }
-    window.addEventListener('editor:comment-click', handleCommentClick)
-    return () => window.removeEventListener('editor:comment-click', handleCommentClick)
-  }, [])
 
   // Show empty state when document is empty, untitled, and user hasn't started editing
   const showEmptyState = !isEditing && !document.path && !document.content && !document.isDirty
@@ -982,16 +967,13 @@ export function Editor() {
         editor={editor}
         isOpen={isAddCommentOpen}
         selection={pendingCommentSelection}
-        existingCommentId={viewingCommentId}
-        existingCommentText={viewingCommentText}
         onClose={() => {
           setIsAddCommentOpen(false)
           setPendingCommentSelection(null)
-          setViewingCommentId(null)
-          setViewingCommentText(null)
         }}
       />
       {editor && <AISuggestionPopover editor={editor} />}
+      {editor && <CommentPopover editor={editor} />}
       {editor && (
         <LinkPopover
           editor={editor}

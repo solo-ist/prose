@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
-import type { Settings } from '../types'
+import type { Appearance, LegacyTheme, Settings, SettingsOnDisk } from '../types'
 import { initRendererSentry, setRendererSentryEnabled } from '../lib/sentry'
 import { getDefaultModel } from '../../shared/llm/models'
 import type { ModelInfo } from '../../shared/llm/models'
@@ -11,21 +11,43 @@ type SettingsTab = 'general' | 'editor' | 'llm' | 'integrations' | 'account'
 
 export const AI_CONSENT_VERSION = 1
 
-// Helper to apply theme to document
-function applyTheme(theme: Settings['theme']): void {
-  // Remove all theme classes first
-  document.documentElement.classList.remove('dark', 'termy-green-dark', 'termy-green-light')
+const FRESH_INSTALL_APPEARANCE: Appearance = {
+  color: 'prose',
+  mode: 'dark',
+  icon: 'pilcrow',
+  // Fresh installs never had a legacy theme to migrate from, so the v1.2
+  // migration toast must not fire for them.
+  migrationToastShown: true,
+}
 
-  // Apply the appropriate theme class(es)
-  if (theme === 'termy-green-dark') {
-    document.documentElement.classList.add('dark', 'termy-green-dark')
-  } else if (theme === 'termy-green-light') {
-    document.documentElement.classList.add('termy-green-light')
-  } else {
-    const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-    if (isDark) {
-      document.documentElement.classList.add('dark')
-    }
+const LEGACY_THEME_TO_APPEARANCE: Record<LegacyTheme, Appearance> = {
+  light:               { color: 'mono',  mode: 'light',  icon: 'legacy', migrationToastShown: false },
+  dark:                { color: 'mono',  mode: 'dark',   icon: 'legacy', migrationToastShown: false },
+  system:              { color: 'mono',  mode: 'system', icon: 'legacy', migrationToastShown: false },
+  'termy-green-light': { color: 'termy', mode: 'light',  icon: 'legacy', migrationToastShown: false },
+  'termy-green-dark':  { color: 'termy', mode: 'dark',   icon: 'legacy', migrationToastShown: false },
+}
+
+function resolveEffectiveMode(mode: Appearance['mode']): 'dark' | 'light' {
+  if (mode === 'system') {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  }
+  return mode
+}
+
+// Toggle theme classes on <html>. Mono is implicit — no `theme-mono` class —
+// so `:root` defaults apply naturally for that palette.
+function applyAppearance(appearance: Appearance): void {
+  const html = document.documentElement
+  // Remove every class this module may have written, including legacy v1.1
+  // class names that older settings files would have produced before migration.
+  html.classList.remove('dark', 'theme-prose', 'theme-termy', 'termy-green-dark', 'termy-green-light')
+
+  if (appearance.color === 'prose' || appearance.color === 'termy') {
+    html.classList.add(`theme-${appearance.color}`)
+  }
+  if (resolveEffectiveMode(appearance.mode) === 'dark') {
+    html.classList.add('dark')
   }
 }
 
@@ -53,7 +75,7 @@ interface SettingsState {
   setAboutDialogOpen: (open: boolean) => void
   setModelPickerOpen: (open: boolean) => void
   fetchModels: () => Promise<void>
-  setTheme: (theme: Settings['theme']) => void
+  setAppearance: (patch: Partial<Appearance>) => void
   setLLMConfig: (config: Partial<Settings['llm']>) => void
   setEditorConfig: (config: Partial<Settings['editor']>) => void
   setRecoveryConfig: (config: Partial<NonNullable<Settings['recovery']>>) => void
@@ -73,7 +95,7 @@ interface SettingsState {
 }
 
 const defaultSettings: Settings = {
-  theme: 'dark',
+  appearance: FRESH_INSTALL_APPEARANCE,
   llm: {
     provider: 'anthropic',
     model: getDefaultModel('anthropic'),
@@ -94,48 +116,51 @@ const defaultSettings: Settings = {
   }
 }
 
-// Helper to compute effective theme
-function getEffectiveTheme(theme: Settings['theme']): 'dark' | 'light' {
-  if (theme === 'system') {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+// Drives the v1.1 → v1.2 migration. If the on-disk file has a `theme` field,
+// it predates v1.2 and we derive `appearance` from it. The default-merged
+// `appearance` (which carries fresh-install values) is discarded in that case.
+function migrateOnDiskSettings(raw: SettingsOnDisk): Settings {
+  // Strip the legacy `theme` field so it can't leak into in-memory Settings —
+  // every consumer should see the migrated `appearance` instead.
+  const { theme, appearance, ...rest } = raw
+
+  let resolved: Appearance
+  if (theme && LEGACY_THEME_TO_APPEARANCE[theme]) {
+    resolved = LEGACY_THEME_TO_APPEARANCE[theme]
+  } else if (appearance) {
+    resolved = appearance
+  } else {
+    resolved = FRESH_INSTALL_APPEARANCE
   }
-  if (theme === 'termy-green-dark') {
-    return 'dark'
-  }
-  if (theme === 'termy-green-light') {
-    return 'light'
-  }
-  return theme
+
+  return { ...rest, appearance: resolved }
 }
 
-// Track system theme listeners
-let systemThemeListener: ((e: MediaQueryListEvent) => void) | null = null
-let effectiveThemeListener: ((e: MediaQueryListEvent) => void) | null = null
+// Single tracked cleanup for the prefers-color-scheme listener. Stored at
+// module scope (not on the store) so hot reloads and rapid mode flips don't
+// stack handlers.
+let systemModeCleanup: (() => void) | null = null
 
-function setupSystemThemeListener(theme: Settings['theme'], set: (state: Partial<SettingsState>) => void): void {
+function setupSystemModeListener(
+  appearance: Appearance,
+  set: (state: Partial<SettingsState>) => void,
+): void {
+  // Always tear down the previous listener before deciding whether to attach
+  // a new one — handles mode changes both into and out of 'system'.
+  if (systemModeCleanup) {
+    systemModeCleanup()
+    systemModeCleanup = null
+  }
+
+  if (appearance.mode !== 'system') return
+
   const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-
-  // Remove existing listeners if any
-  if (systemThemeListener) {
-    mediaQuery.removeEventListener('change', systemThemeListener)
-    systemThemeListener = null
+  const handler = () => {
+    applyAppearance(appearance)
+    set({ effectiveTheme: resolveEffectiveMode(appearance.mode) })
   }
-  if (effectiveThemeListener) {
-    mediaQuery.removeEventListener('change', effectiveThemeListener)
-    effectiveThemeListener = null
-  }
-
-  // Only add listeners if theme is 'system'
-  if (theme === 'system') {
-    systemThemeListener = () => {
-      applyTheme('system')
-    }
-    effectiveThemeListener = () => {
-      set({ effectiveTheme: getEffectiveTheme('system') })
-    }
-    mediaQuery.addEventListener('change', systemThemeListener)
-    mediaQuery.addEventListener('change', effectiveThemeListener)
-  }
+  mediaQuery.addEventListener('change', handler)
+  systemModeCleanup = () => mediaQuery.removeEventListener('change', handler)
 }
 
 export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((set, get) => ({
@@ -163,37 +188,48 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
       // Guard for when running in browser without Electron
       if (!window.api) {
         console.warn('window.api not available - using default settings')
+        applyAppearance(defaultSettings.appearance)
         set({ isLoaded: true })
         return
       }
-      const settings = await window.api.loadSettings()
-      const theme = settings.theme || 'dark'
-      const effectiveTheme = getEffectiveTheme(theme)
+      const raw = await window.api.loadSettings()
 
       // Backwards compatibility: migrate old autosave.enabled to autosave.mode
-      if (settings.autosave && 'enabled' in settings.autosave) {
-        const oldAutosave = settings.autosave as { enabled: boolean; intervalSeconds: number }
-        settings.autosave = {
+      if (raw.autosave && 'enabled' in raw.autosave) {
+        const oldAutosave = raw.autosave as { enabled: boolean; intervalSeconds: number }
+        raw.autosave = {
           mode: oldAutosave.enabled ? 'custom' : 'off',
           intervalSeconds: oldAutosave.intervalSeconds ?? 30
         }
       }
 
+      const migrated = migrateOnDiskSettings(raw)
+      const effectiveTheme = resolveEffectiveMode(migrated.appearance.mode)
+
       set({
-        settings: { ...defaultSettings, ...settings },
+        settings: { ...defaultSettings, ...migrated },
         isLoaded: true,
         effectiveTheme
       })
 
-      // Apply theme and set up listener
-      applyTheme(theme)
-      setupSystemThemeListener(theme, set)
+      // Apply appearance and (re)attach the system-mode listener
+      applyAppearance(migrated.appearance)
+      setupSystemModeListener(migrated.appearance, set)
+
+      // If we migrated a legacy theme field, persist the cleaned shape so the
+      // next launch reads the new schema and the migration code path becomes
+      // a no-op for this user.
+      if (raw.theme) {
+        get().saveSettings().catch((err) => {
+          console.warn('[settings] failed to persist migrated appearance:', err)
+        })
+      }
 
       // Initialize Sentry if user has opted in
-      initRendererSentry(settings?.errorTracking?.enabled === true)
+      initRendererSentry(raw?.errorTracking?.enabled === true)
 
       // Refresh the live model list in the background if we have an API key
-      if (settings?.llm?.apiKey) {
+      if (raw?.llm?.apiKey) {
         get().fetchModels().catch(() => { /* surfaced via state, not a crash */ })
       }
     } catch (error) {
@@ -246,15 +282,17 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
     }
   },
 
-  setTheme: (theme) => {
-    const effectiveTheme = getEffectiveTheme(theme)
+  setAppearance: (patch) => {
+    const merged: Appearance = { ...get().settings.appearance, ...patch }
+    const effectiveTheme = resolveEffectiveMode(merged.mode)
     set((state) => ({
-      settings: { ...state.settings, theme },
+      settings: { ...state.settings, appearance: merged },
       effectiveTheme
     }))
 
-    applyTheme(theme)
-    setupSystemThemeListener(theme, set)
+    applyAppearance(merged)
+    setupSystemModeListener(merged, set)
+    get().saveSettings()
   },
 
   setLLMConfig: (config) =>

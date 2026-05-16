@@ -61,7 +61,6 @@ export function SettingsDialog() {
     dialogTab,
     setDialogOpen,
     setDialogTab,
-    setTheme,
     setLLMConfig,
     setEditorConfig,
     setRecoveryConfig,
@@ -254,25 +253,6 @@ export function SettingsDialog() {
           </TabsList>
 
           <TabsContent value="general" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={generalTabRef}>
-            <div className="space-y-2">
-              <Label htmlFor="theme">Theme</Label>
-              <Select
-                value={settings.theme}
-                onValueChange={(value) => setTheme(value as Settings['theme'])}
-              >
-                <SelectTrigger id="theme">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="light">Light</SelectItem>
-                  <SelectItem value="dark">Dark</SelectItem>
-                  <SelectItem value="system">System</SelectItem>
-                  <SelectItem value="termy-green-light">Termy Green Light</SelectItem>
-                  <SelectItem value="termy-green-dark">Termy Green Dark</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
             <div className="space-y-2">
               <Label htmlFor="recovery">Draft Recovery</Label>
               <Select

@@ -78,7 +78,7 @@ export function Toolbar() {
     closeAllTabs,
     renameTab
   } = useTabs()
-  const { settings, isLoaded, effectiveTheme, autosaveActive, setTheme, setDialogOpen, toggleAutosaveActive } = useSettings()
+  const { settings, isLoaded, effectiveTheme, autosaveActive, setAppearance, setDialogOpen, toggleAutosaveActive } = useSettings()
   const { isChatOpen, isFileListOpen, toggleChat, toggleFileList } = usePanelLayoutContext()
   const isEditing = useEditorStore((state) => state.isEditing)
   const annotationsVisible = useEditorStore((state) => state.annotationsVisible)
@@ -135,7 +135,7 @@ export function Toolbar() {
     : null
 
   const toggleTheme = () => {
-    setTheme(effectiveTheme === 'dark' ? 'light' : 'dark')
+    setAppearance({ mode: effectiveTheme === 'dark' ? 'light' : 'dark' })
   }
 
   const handleCopy = async () => {

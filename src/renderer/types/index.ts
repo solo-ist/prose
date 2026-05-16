@@ -1,7 +1,35 @@
 import type { ToolResult } from '../../shared/tools/types'
 
-export interface Settings {
-  theme: 'light' | 'dark' | 'system' | 'termy-green-light' | 'termy-green-dark'
+// v1.2 Appearance — see issue #499. The flat legacy `theme` field is replaced
+// with a structured `appearance` object. The on-disk shape may still contain
+// the legacy `theme` field; the renderer's loadSettings migrates it.
+export type ColorTheme = 'prose' | 'mono' | 'termy'
+export type ThemeMode = 'light' | 'dark' | 'system'
+export type IconId =
+  | 'pilcrow'
+  | 'refined-p'
+  | 'fraunces-p'
+  | 'p-ist'
+  | 'asterisk'
+  | 'hash'
+  | 'em-dash'
+  | 'caret'
+  | 'period'
+  | 'prompt'
+  | 'legacy'
+
+export interface Appearance {
+  color: ColorTheme
+  mode: ThemeMode
+  icon: IconId
+  /** True on fresh installs and once the one-time post-migration toast has been dismissed. */
+  migrationToastShown: boolean
+}
+
+/** Legacy theme values from v1.1 settings files. Read by the migrator only. */
+export type LegacyTheme = 'light' | 'dark' | 'system' | 'termy-green-light' | 'termy-green-dark'
+
+interface SettingsBase {
   llm: {
     provider: 'anthropic'
     model: string
@@ -55,6 +83,26 @@ export interface Settings {
     googleDocs?: boolean
     remarkable?: boolean
   }
+}
+
+/**
+ * Raw on-disk settings shape. Read ONLY by the settings loader / migrator
+ * (window.api.loadSettings + the renderer store's loadSettings action). Stores,
+ * components, and IPC consumers see `Settings` (below) instead.
+ */
+export interface SettingsOnDisk extends SettingsBase {
+  /** Absent for pre-v1.2 settings files. */
+  appearance?: Appearance
+  /** Present in pre-v1.2 settings files; stripped after migration. */
+  theme?: LegacyTheme
+}
+
+/**
+ * In-memory settings shape. `appearance` is guaranteed by the migration step
+ * in `loadSettings`; consumers never need to handle `undefined`.
+ */
+export interface Settings extends SettingsBase {
+  appearance: Appearance
 }
 
 export interface Document {
@@ -336,7 +384,7 @@ export interface ElectronAPI {
   saveFileAs: (content: string) => Promise<string | null>
   exportTxt: (content: string, defaultFilename?: string) => Promise<string | null>
   readFile: (path: string) => Promise<string>
-  loadSettings: () => Promise<Settings>
+  loadSettings: () => Promise<SettingsOnDisk>
   saveSettings: (settings: Settings) => Promise<void>
   testApiKey: (request: TestApiKeyRequest) => Promise<TestApiKeyResult>
   fetchModels: (request: { provider: string; apiKey: string }) => Promise<{

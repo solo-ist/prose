@@ -2,6 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
+@font-face {
+  font-family: 'Fraunces';
+  src: url('./assets/fonts/Fraunces-Italic-VariableFont.ttf') format('truetype-variations');
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -90,6 +98,91 @@
     --border: 120 25% 80%;
     --input: 120 25% 80%;
     --ring: 120 60% 25%;
+  }
+
+  /* v1.2 Appearance themes — generated from docs/design/v1.2-appearance/themes.css
+     via docs/design/v1.2-appearance/convert-tokens.mjs. Re-run that script after
+     editing the source --t-* values. Mono is the implicit baseline (:root + .dark
+     above). --destructive, --destructive-foreground, --radius inherit via cascade. */
+
+  .theme-prose {
+    --background: 36 40.5% 92.7%;
+    --foreground: 40 13% 9%;
+    --card: 40 65.2% 95.5%;
+    --card-foreground: 40 13% 9%;
+    --popover: 40 65.2% 95.5%;
+    --popover-foreground: 40 13% 9%;
+    --primary: 39.1 42.6% 42.4%;
+    --primary-foreground: 36 40.5% 92.7%;
+    --secondary: 39.1 36.5% 87.6%;
+    --secondary-foreground: 40 13% 9%;
+    --muted: 39.1 36.5% 87.6%;
+    --muted-foreground: 36.9 7.8% 32.7%;
+    --accent: 36.5 36.5% 87.6%;
+    --accent-foreground: 39.1 42.6% 42.4%;
+    --border: 39.4 29.1% 78.4%;
+    --input: 39.4 29.1% 78.4%;
+    --ring: 39.1 42.6% 42.4%;
+  }
+
+  .theme-prose.dark {
+    --background: 0 0% 3.9%;
+    --foreground: 33.3 24.3% 85.5%;
+    --card: 42.9 18.9% 7.3%;
+    --card-foreground: 33.3 24.3% 85.5%;
+    --popover: 42.9 18.9% 7.3%;
+    --popover-foreground: 33.3 24.3% 85.5%;
+    --primary: 40.4 50% 56.9%;
+    --primary-foreground: 0 0% 3.9%;
+    --secondary: 40 13% 4.5%;
+    --secondary-foreground: 33.3 24.3% 85.5%;
+    --muted: 40 13% 4.5%;
+    --muted-foreground: 32.3 5.5% 46.5%;
+    --accent: 38.2 23.4% 9.2%;
+    --accent-foreground: 40.4 50% 56.9%;
+    --border: 0 0% 11.4%;
+    --input: 0 0% 11.4%;
+    --ring: 40.4 50% 56.9%;
+  }
+
+  .theme-termy {
+    --background: 82.1 40.4% 90.8%;
+    --foreground: 123.8 53.3% 11.8%;
+    --card: 80 45.5% 93.5%;
+    --card-foreground: 123.8 53.3% 11.8%;
+    --popover: 80 45.5% 93.5%;
+    --popover-foreground: 123.8 53.3% 11.8%;
+    --primary: 137.7 57.4% 26.7%;
+    --primary-foreground: 82.1 40.4% 90.8%;
+    --secondary: 80.7 36.7% 84.5%;
+    --secondary-foreground: 123.8 53.3% 11.8%;
+    --muted: 80.7 36.7% 84.5%;
+    --muted-foreground: 124.5 30.8% 25.5%;
+    --accent: 96.5 29.9% 84.9%;
+    --accent-foreground: 137.7 57.4% 26.7%;
+    --border: 87.8 28.3% 71.6%;
+    --input: 87.8 28.3% 71.6%;
+    --ring: 137.7 57.4% 26.7%;
+  }
+
+  .theme-termy.dark {
+    --background: 160 60% 2%;
+    --foreground: 141.9 69.2% 58%;
+    --card: 132 45.5% 4.3%;
+    --card-foreground: 141.9 69.2% 58%;
+    --popover: 132 45.5% 4.3%;
+    --popover-foreground: 141.9 69.2% 58%;
+    --primary: 149.9 100% 50%;
+    --primary-foreground: 160 60% 2%;
+    --secondary: 156 71.4% 1.4%;
+    --secondary-foreground: 141.9 69.2% 58%;
+    --muted: 156 71.4% 1.4%;
+    --muted-foreground: 142.1 70.6% 45.3%;
+    --accent: 151 88.6% 6.9%;
+    --accent-foreground: 149.9 100% 50%;
+    --border: 146.1 53.5% 8.4%;
+    --input: 146.1 53.5% 8.4%;
+    --ring: 149.9 100% 50%;
   }
 }
 

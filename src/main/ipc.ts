@@ -104,7 +104,7 @@ function validatePath(inputPath: string): string {
 }
 
 const defaultSettings: Settings = {
-  theme: 'dark',
+  appearance: { color: 'prose', mode: 'dark', icon: 'pilcrow', migrationToastShown: true },
   llm: {
     provider: 'anthropic',
     model: getDefaultModel('anthropic'),

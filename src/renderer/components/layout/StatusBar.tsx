@@ -48,11 +48,14 @@ export function StatusBar() {
 
   const charCount = document.content.length
 
-  // Mode configuration
+  // Mode configuration.
+  // Internal keys stay as suggestions / plan / full until Chunk 3 of #467
+  // renames the ToolMode union after #450 merges. Labels reflect the
+  // target Chat / Editor / Create posture.
   const modeConfig: Record<ToolMode, { label: string; description: string }> = {
-    suggestions: { label: 'suggest edits', description: 'AI suggests changes for review' },
-    full: { label: 'accept edits', description: 'AI applies changes directly' },
-    plan: { label: 'plan', description: 'Review changes before applying' }
+    suggestions: { label: 'chat', description: 'Read-only — sounding board, fact-check, no edits' },
+    plan: { label: 'editor', description: 'Proposes copy edits and editorial notes (default)' },
+    full: { label: 'create', description: 'Drafts and applies edits directly (opt-in)' }
   }
 
   const currentMode = modeConfig[toolMode]

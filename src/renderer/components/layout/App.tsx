@@ -90,9 +90,16 @@ export function App() {
   const editor = useEditorInstanceStore((state) => state.editor)
   const tabs = useTabStore((state) => state.tabs)
   const addTab = useTabStore((state) => state.addTab)
+  const initFileWatcher = useFileListStore((state) => state.initFileWatcher)
 
   // Initialize autosave functionality
   useAutosave()
+
+  // Subscribe to filesystem events from the main process for live File Explorer updates
+  useEffect(() => {
+    const unsubscribe = initFileWatcher()
+    return unsubscribe
+  }, [initFileWatcher])
 
   // Review mode: auto-open sidebar, resize for mode, restore on exit
   const reviewMode = useReviewMode()

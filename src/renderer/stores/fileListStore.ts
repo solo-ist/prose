@@ -68,6 +68,7 @@ interface FileListState {
   setRemarkableSyncProgress: (progress: SyncProgress | null) => void
   setRemarkableSyncError: (error: string | null) => void
   setRootPath: (path: string | null) => void
+  initFileWatcher: () => (() => void)
   initializeDefaultPath: () => Promise<void>
   navigateToParent: () => void
   loadFiles: () => Promise<void>
@@ -145,6 +146,58 @@ export const useFileListStore = create<FileListState>()(
       set({ rootPath: path, files: [], expandedFolders: new Set() })
       if (path) {
         get().loadFiles()
+        // Notify the main process to start watching this directory.
+        // Fire-and-forget — the watcher replacing an old one is handled in main.
+        if (window.api?.startWatchingDirectory) {
+          window.api.startWatchingDirectory(path).catch((err: unknown) => {
+            console.error('[FileListStore] Failed to start directory watcher:', err)
+          })
+        }
+      } else {
+        // No directory — tear down the watcher
+        if (window.api?.stopWatchingDirectory) {
+          window.api.stopWatchingDirectory().catch((err: unknown) => {
+            console.error('[FileListStore] Failed to stop directory watcher:', err)
+          })
+        }
+      }
+    },
+
+    /**
+     * Subscribe to file-system events pushed by the main process.
+     * Call once on app mount (e.g., in the top-level App component).
+     * Returns an unsubscribe function to be called on unmount.
+     *
+     * On any event, we reload the root directory listing. This is a
+     * simple full reload — fine for the shallow (depth-1) listing we
+     * show. We avoid trying to surgically patch the tree because the
+     * cost of a re-read is negligible and correctness is guaranteed.
+     */
+    initFileWatcher: () => {
+      if (!window.api?.onFileWatchEvent) {
+        // Running in web mode — no watcher support
+        return () => {}
+      }
+
+      let reloadTimeout: ReturnType<typeof setTimeout> | null = null
+
+      const unsubscribe = window.api.onFileWatchEvent((_event) => {
+        const { viewMode, rootPath } = get()
+        // Only react in folder view — other views don't use the file tree
+        if (viewMode !== 'folder' || !rootPath) return
+
+        // Debounce: batch rapid file-system events (e.g., editor save = unlink + write)
+        // into a single reload 150ms after the last event.
+        if (reloadTimeout !== null) clearTimeout(reloadTimeout)
+        reloadTimeout = setTimeout(() => {
+          reloadTimeout = null
+          get().loadFiles()
+        }, 150)
+      })
+
+      return () => {
+        if (reloadTimeout !== null) clearTimeout(reloadTimeout)
+        unsubscribe()
       }
     },
 
@@ -160,6 +213,12 @@ export const useFileListStore = create<FileListState>()(
           if (files && files.length > 0) {
             set({ rootPath: documentsPath, isInitialized: true })
             get().loadFiles()
+            // Start watching the initial directory
+            if (window.api.startWatchingDirectory) {
+              window.api.startWatchingDirectory(documentsPath).catch((err: unknown) => {
+                console.error('[FileListStore] Failed to start directory watcher:', err)
+              })
+            }
           } else {
             // Can't read directory (sandbox) or genuinely empty — show picker prompt
             set({ isInitialized: true })

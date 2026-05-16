@@ -277,6 +277,10 @@ export interface ElectronAPI {
   downloadSkill: () => Promise<{ success: boolean; error?: string }>
   // Build info
   isMasBuild: boolean
+  // File watcher — subscribe to filesystem events for the File Explorer
+  startWatchingDirectory: (dirPath: string) => Promise<void>
+  stopWatchingDirectory: () => Promise<void>
+  onFileWatchEvent: (callback: (event: { type: 'created' | 'deleted' | 'renamed'; path: string }) => void) => () => void
 }
 
 export interface FileItem {
@@ -533,6 +537,18 @@ const api: ElectronAPI = {
   downloadSkill: () => ipcRenderer.invoke('skill:download'),
   // Build info
   isMasBuild: process.env.MAS_BUILD === '1',
+  // File watcher — subscribe to filesystem events for the File Explorer
+  startWatchingDirectory: (dirPath: string) => ipcRenderer.invoke('file:watch:start', dirPath),
+  stopWatchingDirectory: () => ipcRenderer.invoke('file:watch:stop'),
+  onFileWatchEvent: (callback: (event: { type: 'created' | 'deleted' | 'renamed'; path: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, fileEvent: { type: 'created' | 'deleted' | 'renamed'; path: string }): void => {
+      callback(fileEvent)
+    }
+    ipcRenderer.on('file:watch:event', handler)
+    return () => {
+      ipcRenderer.removeListener('file:watch:event', handler)
+    }
+  },
   // Window fullscreen state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, isFullscreen: boolean): void => {

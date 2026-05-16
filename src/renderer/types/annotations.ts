@@ -42,6 +42,8 @@ export interface AIAnnotation {
   content: string
   /** Provenance information about the AI source */
   provenance: AIProvenance
+  /** Model-supplied reason for the edit, preserved from the originating suggestion */
+  explanation?: string
 }
 
 /**

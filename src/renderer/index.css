@@ -1074,6 +1074,17 @@
   margin-top: 0.25em;
 }
 
+.ai-annotation-tooltip-explanation {
+  color: hsl(var(--foreground));
+  font-size: 0.7rem;
+  margin-top: 0.5em;
+  padding-top: 0.4em;
+  border-top: 1px solid hsl(var(--border));
+  max-width: 24em;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* Pending suggestion state - pink dashed underline */
 .prose-editor .ai-annotation-pending {
   background: transparent;

@@ -326,6 +326,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             provenanceMessageId?: string
             documentId?: string
             originalText?: string
+            explanation?: string
           }
 
           // Use fallbacks: store's documentId, or 'unknown' for model
@@ -333,6 +334,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           const docId = attrs.documentId || annotationStore.documentId
           const model = attrs.provenanceModel || 'unknown'
           const originalText = attrs.originalText || ''
+          const explanation = attrs.explanation || ''
 
           dispatch(tr)
 
@@ -352,6 +354,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
                 conversationId: attrs.provenanceConversationId || '',
                 messageId: attrs.provenanceMessageId || '',
               },
+              explanation: explanation || undefined,
             })
           } else {
             console.warn('[AISuggestion] Cannot create annotation - missing docId:', { docId, suggestedText: suggestedText.length })

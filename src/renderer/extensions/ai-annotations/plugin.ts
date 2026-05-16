@@ -50,6 +50,14 @@ function showTooltip(annotation: AIAnnotation, event: MouseEvent) {
 
   tooltip.append(header, model, time)
 
+  const explanationText = annotation.explanation?.trim()
+  if (explanationText) {
+    const explanation = document.createElement('div')
+    explanation.className = 'ai-annotation-tooltip-explanation'
+    explanation.textContent = explanationText
+    tooltip.appendChild(explanation)
+  }
+
   // Position near cursor
   tooltip.style.left = `${event.clientX + 10}px`
   tooltip.style.top = `${event.clientY + 10}px`

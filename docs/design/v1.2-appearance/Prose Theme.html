@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Prose Theme · light & dark</title>
+<link rel="stylesheet" href="design-tokens.css">
+<style>
+  :root {
+    --p-bg: #0a0a0a;
+    --p-bg-2: #111110;
+    --p-border: #1d1d1d;
+    --p-border-2: #272524;
+    --p-text: #e3dbd1;
+    --p-text-2: #7d7770;
+    --p-text-3: #4a4641;
+    --p-gold: #c8a45a;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--p-bg); color: var(--p-text); font-family: "IBM Plex Mono", monospace; }
+  body {
+    min-height: 100vh;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+    background-size: 200px 200px;
+    background-attachment: fixed;
+    background-blend-mode: screen;
+  }
+  body::after {
+    content: "";
+    position: fixed; inset: 0;
+    background-image: inherit;
+    background-size: 200px 200px;
+    opacity: 0.05;
+    mix-blend-mode: screen;
+    pointer-events: none;
+  }
+
+  .page {
+    max-width: 1640px;
+    margin: 0 auto;
+    padding: 56px 48px 80px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ── Header ───────────────────────────────────────── */
+  .eyebrow {
+    font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--p-text-3); font-weight: 400;
+    margin-bottom: 12px;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .eyebrow::after {
+    content: ""; flex: 0 0 80px; height: 1px; background: var(--p-border);
+  }
+  h1 {
+    font-family: "IBM Plex Mono"; font-weight: 200;
+    font-size: clamp(40px, 5.5vw, 72px);
+    letter-spacing: -0.04em;
+    line-height: 1; color: var(--p-text);
+    margin-bottom: 22px;
+  }
+  h1 em {
+    font-family: "Fraunces", serif; font-style: italic;
+    font-variation-settings: "opsz" 144, "SOFT" 30;
+    font-weight: 360;
+    color: var(--p-gold);
+    letter-spacing: -0.025em;
+  }
+  .lede {
+    font-size: 15px; font-weight: 300; line-height: 1.65;
+    color: var(--p-text-2);
+    max-width: 760px;
+    margin-bottom: 8px;
+  }
+  .lede em {
+    font-family: "Fraunces", serif; font-style: italic;
+    color: var(--p-text);
+  }
+  .lede code {
+    color: var(--p-gold); background: rgba(200,164,90,0.08);
+    padding: 1px 5px; border-radius: 3px; font-size: 12.5px;
+  }
+
+  .links {
+    display: flex; gap: 24px;
+    margin-top: 18px;
+    font-size: 11.5px; color: var(--p-text-2);
+    align-items: center;
+  }
+  .links a {
+    color: var(--p-text); text-decoration: none;
+    border: 1px solid var(--p-border);
+    padding: 6px 12px; border-radius: 5px;
+    transition: border-color .15s, color .15s;
+  }
+  .links a:hover { border-color: var(--p-border-2); color: var(--p-gold); }
+  .links a.primary {
+    background: var(--p-gold); color: var(--p-bg); border-color: var(--p-gold);
+    font-weight: 500;
+  }
+  .links a.primary:hover { opacity: 0.85; color: var(--p-bg); }
+  .links .sep { color: var(--p-text-3); }
+
+  /* ── Section labels ───────────────────────────────── */
+  .section-label {
+    display: flex; align-items: center; gap: 14px;
+    margin: 56px 0 18px;
+    font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--p-text-3);
+  }
+  .section-label .num { color: var(--p-gold); }
+  .section-label::after {
+    content: ""; flex: 1; height: 1px; background: var(--p-border);
+    max-width: 160px;
+  }
+
+  /* ── App frames side-by-side ──────────────────────── */
+  .frames {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+  }
+  .frame-card {
+    background: var(--p-bg-2);
+    border: 1px solid var(--p-border);
+    border-radius: 11px;
+    overflow: hidden;
+    box-shadow: 0 36px 80px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.02);
+    display: flex; flex-direction: column;
+  }
+  .frame-head {
+    height: 38px;
+    padding: 0 14px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--p-border);
+    flex-shrink: 0;
+  }
+  .frame-head .label {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--p-text-2);
+  }
+  .frame-head .label .swatch {
+    width: 10px; height: 10px; border-radius: 2px; border: 1px solid var(--p-border-2);
+  }
+  .frame-head .meta { font-size: 10px; color: var(--p-text-3); }
+  .frame-head .meta b { color: var(--p-gold); font-weight: 400; }
+
+  .frame-wrapper {
+    width: 100%;
+    overflow: hidden;
+    background: #050505;
+    position: relative;
+  }
+  .frame-wrapper iframe {
+    width: 1280px; height: 820px;
+    border: 0;
+    transform: scale(var(--scale, 0.6));
+    transform-origin: top left;
+    display: block;
+  }
+
+  /* ── Tokens panel ─────────────────────────────────── */
+  .tokens {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+    margin-top: 12px;
+  }
+  .token-card {
+    background: var(--p-bg-2);
+    border: 1px solid var(--p-border);
+    border-radius: 11px;
+    overflow: hidden;
+  }
+  .token-card .head {
+    height: 38px;
+    padding: 0 18px;
+    display: flex; align-items: center; gap: 12px;
+    border-bottom: 1px solid var(--p-border);
+    font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--p-text-2);
+  }
+  .token-card .head .pill {
+    margin-left: auto;
+    font-size: 9.5px; letter-spacing: 0.1em;
+    padding: 2px 7px; border-radius: 3px;
+    color: var(--p-gold); border: 1px solid rgba(200,164,90,0.3);
+    background: rgba(200,164,90,0.06);
+  }
+
+  .swatch-grid {
+    display: grid; gap: 1px;
+    grid-template-columns: repeat(2, 1fr);
+    background: var(--p-border);
+  }
+  .swatch {
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px 16px;
+    background: var(--p-bg-2);
+    font-size: 11px;
+  }
+  .swatch .chip {
+    width: 36px; height: 36px; border-radius: 6px;
+    border: 1px solid var(--p-border-2);
+    flex-shrink: 0;
+  }
+  .swatch .meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .swatch .name { color: var(--p-text); font-weight: 400; font-size: 11.5px; letter-spacing: -0.005em; }
+  .swatch .hex  { color: var(--p-text-3); font-size: 10.5px; }
+  .swatch .role { color: var(--p-text-2); font-size: 10px; }
+
+  /* ── Sample-typography callout (live demo of the theme rules) ── */
+  .demo-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 22px;
+    margin-top: 22px;
+  }
+  .demo-card {
+    background: var(--p-bg-2);
+    border: 1px solid var(--p-border);
+    border-radius: 11px;
+    padding: 24px 28px;
+    font-size: 13.5px; line-height: 1.7;
+  }
+  .demo-card.light { background: #f4eee5; color: #1a1814; border-color: #d8cdb8; }
+  .demo-card.dark  { background: #0a0a0a; color: #e3dbd1; }
+  .demo-card .label {
+    font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase;
+    margin-bottom: 10px;
+    color: var(--p-gold);
+  }
+  .demo-card.light .label { color: #9a7a3e; }
+  .demo-card em {
+    font-family: "Fraunces", serif; font-style: italic;
+    font-variation-settings: "opsz" 36, "SOFT" 30;
+  }
+  .demo-card.light em { color: #1a1814; }
+  .demo-card.dark em { color: #e3dbd1; }
+  .demo-card code {
+    color: var(--p-gold); background: rgba(200,164,90,0.10);
+    padding: 0.2em 0.45em; border-radius: 4px; font-size: 0.9em;
+  }
+  .demo-card.light code { color: #9a7a3e; background: rgba(154,122,62,0.12); }
+  .demo-card blockquote {
+    border-left: 2px solid var(--p-gold);
+    padding-left: 14px; margin: 14px 0;
+    font-family: "Fraunces", serif; font-style: italic;
+    font-size: 16px; line-height: 1.55;
+    color: inherit;
+  }
+  .demo-card.light blockquote { border-color: #9a7a3e; }
+  .demo-card hr {
+    border: 0; border-top: 1px solid var(--p-border); margin: 14px 0;
+  }
+  .demo-card.light hr { border-top-color: #d8cdb8; }
+
+  @media (max-width: 1100px) {
+    .frames, .tokens, .demo-row { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <div class="eyebrow">Theme · solo.ist <span style="color:var(--p-text-2)">/</span> Prose</div>
+    <h1>Prose <em>theme</em></h1>
+    <p class="lede">
+      A theme for the Prose app that finally matches the marketing brand.
+      Paper-warm cream on near-black, hairline borders, a single gold accent reserved
+      for live state and <em>emphasis</em>. Light mode is paper, not pure white. Body and chrome use
+      <code>IBM Plex Mono</code> at light weights; <em>emphasis</em> swaps to <code>Fraunces</code> italic
+      &mdash; the brand's most identifiable type move.
+    </p>
+    <div class="links">
+      <a href="App Logo Picker.html">← App Icon picker</a>
+      <a href="App Logo.html">Logo explorations</a>
+      <span class="sep">·</span>
+      <span>2 modes &nbsp;·&nbsp; 1 accent &nbsp;·&nbsp; 0 emoji</span>
+    </div>
+  </header>
+
+  <!-- App frames -->
+  <div class="section-label">
+    <span class="num">01</span>
+    <span>The app, themed</span>
+  </div>
+  <div class="frames">
+    <div class="frame-card">
+      <div class="frame-head">
+        <div class="label">
+          <span class="swatch" style="background:#f4eee5"></span>
+          Light <span style="color:var(--p-text-3)">·</span> paper-cream
+        </div>
+        <div class="meta">bg <b>#f4eee5</b> &nbsp; accent <b>#c8a45a</b></div>
+      </div>
+      <div class="frame-wrapper">
+        <iframe src="prose-app/index.html#light" title="Prose · Light"></iframe>
+      </div>
+    </div>
+
+    <div class="frame-card">
+      <div class="frame-head">
+        <div class="label">
+          <span class="swatch" style="background:#0a0a0a"></span>
+          Dark <span style="color:var(--p-text-3)">·</span> near-black <span style="color:var(--p-text-3)">·</span> default
+        </div>
+        <div class="meta">bg <b>#0a0a0a</b> &nbsp; accent <b>#c8a45a</b></div>
+      </div>
+      <div class="frame-wrapper">
+        <iframe src="prose-app/index.html#dark" title="Prose · Dark"></iframe>
+      </div>
+    </div>
+  </div>
+
+  <!-- Type system live demo -->
+  <div class="section-label">
+    <span class="num">02</span>
+    <span>Type system &mdash; live</span>
+  </div>
+  <div class="demo-row">
+    <div class="demo-card light">
+      <div class="label">Light · paper</div>
+      <p>
+        What survives aren't subscriptions &mdash; <em>it is the file.</em>
+        Plain markdown in <code>.md</code>, plus an <code>MCP</code> server so an agent can
+        edit it without leaving the room.
+      </p>
+      <blockquote>Software has stopped being scarce. What remains scarce is the idea, the taste, the through-line.</blockquote>
+    </div>
+    <div class="demo-card dark">
+      <div class="label">Dark · default</div>
+      <p>
+        What survives aren't subscriptions &mdash; <em>it is the file.</em>
+        Plain markdown in <code>.md</code>, plus an <code>MCP</code> server so an agent can
+        edit it without leaving the room.
+      </p>
+      <blockquote>Software has stopped being scarce. What remains scarce is the idea, the taste, the through-line.</blockquote>
+    </div>
+  </div>
+
+  <!-- Tokens -->
+  <div class="section-label">
+    <span class="num">03</span>
+    <span>Tokens</span>
+  </div>
+  <div class="tokens">
+    <!-- Light -->
+    <div class="token-card">
+      <div class="head">
+        Light · paper
+        <span class="pill">:root</span>
+      </div>
+      <div class="swatch-grid" id="grid-light"></div>
+    </div>
+    <!-- Dark -->
+    <div class="token-card">
+      <div class="head">
+        Dark · near-black
+        <span class="pill">html.dark</span>
+      </div>
+      <div class="swatch-grid" id="grid-dark"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // ── Iframe auto-fit (renders prose-app at native 1280×820, scales to fit) ──
+  const wrappers = document.querySelectorAll('.frame-wrapper');
+  function fit() {
+    for (const w of wrappers) {
+      const cw = w.clientWidth;
+      const scale = Math.min(1, cw / 1280);
+      w.style.setProperty('--scale', scale);
+      w.style.height = (820 * scale) + 'px';
+    }
+  }
+  new ResizeObserver(fit).observe(document.body);
+  window.addEventListener('load', fit);
+  fit();
+
+  // ── Render token swatch grids from a single source of truth ───────────────
+  const TOKENS = {
+    light: [
+      { name: '--background',       hex: '#f4eee5', role: 'paper, the editor surface' },
+      { name: '--foreground',       hex: '#1a1814', role: 'body text, max contrast' },
+      { name: '--card',             hex: '#fbf6ec', role: 'menus, popovers' },
+      { name: '--muted',            hex: '#e9dfca', role: 'input bgs, dim chips' },
+      { name: '--muted-foreground', hex: '#5a554d', role: 'secondary text' },
+      { name: '--border-shadcn',    hex: '#d8cdb8', role: 'hairlines, dividers' },
+      { name: '--ring  (accent)',   hex: '#c8a45a', role: 'gold focus, live state, em' },
+      { name: '--accent-shadcn',    hex: '#e3d6bc', role: 'hover bg, active row tint' },
+    ],
+    dark: [
+      { name: '--background',       hex: '#0a0a0a', role: 'near-black, editor surface' },
+      { name: '--foreground',       hex: '#e3dbd1', role: 'cream, body text' },
+      { name: '--card',             hex: '#121110', role: 'menus, popovers' },
+      { name: '--muted',            hex: '#1c1c1c', role: 'input bgs, dim chips' },
+      { name: '--muted-foreground', hex: '#7d7770', role: 'secondary text · text-2' },
+      { name: '--border-shadcn',    hex: '#1c1c1c', role: 'hairlines, dividers' },
+      { name: '--ring  (accent)',   hex: '#c8a45a', role: 'gold focus, live state, em' },
+      { name: '--accent-shadcn',    hex: '#1f1c17', role: 'hover bg, active row tint' },
+    ],
+  };
+  function renderSwatches(id, items) {
+    const grid = document.getElementById(id);
+    grid.innerHTML = items.map(t => `
+      <div class="swatch">
+        <div class="chip" style="background:${t.hex}"></div>
+        <div class="meta">
+          <div class="name">${t.name}</div>
+          <div class="hex">${t.hex}</div>
+          <div class="role">${t.role}</div>
+        </div>
+      </div>
+    `).join('');
+  }
+  renderSwatches('grid-light', TOKENS.light);
+  renderSwatches('grid-dark',  TOKENS.dark);
+</script>
+</body>
+</html>

@@ -1,0 +1,136 @@
+/* themes.css — Settings-window themes for the Prose app.
+   Three colors × two modes. Applied via data attributes on a scoped element
+   so the rest of the page (desktop, dock) stays independent:
+     <div data-theme="prose" data-mode="dark"> … </div>
+*/
+
+/* ─────────────────────────────────────────────────────────────────
+   PROSE · default · paper-warm cream + muted gold
+   ───────────────────────────────────────────────────────────────── */
+[data-theme="prose"][data-mode="light"] {
+  --t-bg:           #f4eee5;
+  --t-bg-2:         #fbf6ec;
+  --t-bg-3:         #ebe3d4;
+  --t-text:         #1a1814;
+  --t-text-2:       #5a554d;
+  --t-text-3:       #8e8980;
+  --t-border:       #d8cdb8;
+  --t-border-2:     #c4b89e;
+  --t-accent:       #9a7a3e;
+  --t-accent-soft:  rgba(154, 122, 62, 0.10);
+  --t-accent-fg:    #f4eee5;
+  --t-window-shadow:0 30px 70px rgba(80, 60, 30, 0.22);
+  --t-titlebar:     #efe7d8;
+  --t-disabled:     #c4b89e;
+}
+[data-theme="prose"][data-mode="dark"] {
+  --t-bg:           #0a0a0a;
+  --t-bg-2:         #16140f;
+  --t-bg-3:         #0d0c0a;
+  --t-text:         #e3dbd1;
+  --t-text-2:       #7d7770;
+  --t-text-3:       #4a4641;
+  --t-border:       #1d1d1d;
+  --t-border-2:     #2c2a26;
+  --t-accent:       #c8a45a;
+  --t-accent-soft:  rgba(200, 164, 90, 0.10);
+  --t-accent-fg:    #0a0a0a;
+  --t-window-shadow:0 40px 100px rgba(0,0,0,0.65);
+  --t-titlebar:     #1c1a17;
+  --t-disabled:     #2c2a26;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   MONO · shadcn neutral · the current/legacy default
+   ───────────────────────────────────────────────────────────────── */
+[data-theme="mono"][data-mode="light"] {
+  --t-bg:           #ffffff;
+  --t-bg-2:         #fafafa;
+  --t-bg-3:         #f4f4f5;
+  --t-text:         #09090b;
+  --t-text-2:       #52525b;
+  --t-text-3:       #a1a1aa;
+  --t-border:       #e4e4e7;
+  --t-border-2:     #d4d4d8;
+  --t-accent:       #18181b;
+  --t-accent-soft:  rgba(0, 0, 0, 0.05);
+  --t-accent-fg:    #fafafa;
+  --t-window-shadow:0 30px 70px rgba(0,0,0,0.12);
+  --t-titlebar:     #f4f4f5;
+  --t-disabled:     #d4d4d8;
+}
+[data-theme="mono"][data-mode="dark"] {
+  --t-bg:           #09090b;
+  --t-bg-2:         #18181b;
+  --t-bg-3:         #0c0c0e;
+  --t-text:         #fafafa;
+  --t-text-2:       #a1a1aa;
+  --t-text-3:       #71717a;
+  --t-border:       #27272a;
+  --t-border-2:     #3f3f46;
+  --t-accent:       #fafafa;
+  --t-accent-soft:  rgba(255,255,255,0.07);
+  --t-accent-fg:    #09090b;
+  --t-window-shadow:0 40px 100px rgba(0,0,0,0.6);
+  --t-titlebar:     #16161a;
+  --t-disabled:     #3f3f46;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   TERMY · phosphor green CRT · the deep cut
+   ───────────────────────────────────────────────────────────────── */
+[data-theme="termy"][data-mode="light"] {
+  --t-bg:           #eaf1de;
+  --t-bg-2:         #f1f6e7;
+  --t-bg-3:         #dce6c9;
+  --t-text:         #0e2e10;
+  --t-text-2:       #2d5530;
+  --t-text-3:       #6b8b6e;
+  --t-border:       #b8cba2;
+  --t-border-2:     #9ab584;
+  --t-accent:       #1d6b34;
+  --t-accent-soft:  rgba(29,107,52,0.10);
+  --t-accent-fg:    #eaf1de;
+  --t-window-shadow:0 30px 70px rgba(20, 50, 20, 0.20);
+  --t-titlebar:     #dfe7cc;
+  --t-disabled:     #9ab584;
+}
+[data-theme="termy"][data-mode="dark"] {
+  --t-bg:           #020806;
+  --t-bg-2:         #061008;
+  --t-bg-3:         #010604;
+  --t-text:         #4ade80;
+  --t-text-2:       #22c55e;
+  --t-text-3:       #166534;
+  --t-border:       #0a2114;
+  --t-border-2:     #143a25;
+  --t-accent:       #00ff7f;
+  --t-accent-soft:  rgba(0,255,127,0.10);
+  --t-accent-fg:    #020806;
+  --t-window-shadow:0 40px 100px rgba(0, 60, 30, 0.55);
+  --t-titlebar:     #040c08;
+  --t-disabled:     #143a25;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   Termy ONLY · phosphor glow on text + faint scanlines (the vibe)
+   Scoped to the picker root, so it never leaks to the desktop.
+   ───────────────────────────────────────────────────────────────── */
+[data-theme="termy"][data-mode="dark"] .t-scope {
+  text-shadow: 0 0 8px rgba(74, 222, 128, 0.55), 0 0 1px rgba(74, 222, 128, 0.9);
+}
+[data-theme="termy"][data-mode="dark"] .t-scope::before {
+  content: "";
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0,255,127,0.00) 0px,
+    rgba(0,255,127,0.00) 2px,
+    rgba(0,255,127,0.05) 3px,
+    rgba(0,255,127,0.00) 4px
+  );
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 2;
+  mix-blend-mode: screen;
+}

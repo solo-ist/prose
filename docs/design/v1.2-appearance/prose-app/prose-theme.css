@@ -1,0 +1,238 @@
+/* ──────────────────────────────────────────────────────────────────
+   prose-theme.css — "Prose" theme for the Prose app.
+   Overrides the default shadcn neutral tokens with the solo.ist
+   design-system palette: paper-warm cream + muted gold, on near-black.
+   Loaded after app.css so it wins by source order.
+
+   Tokens are stored as raw HSL triplets (no hsl()) so the existing
+   shadcn-style call sites — hsl(var(--background)), etc. — keep working.
+   ────────────────────────────────────────────────────────────────── */
+
+
+/* ─── LIGHT · paper-warm cream ──────────────────────────────────── */
+:root {
+  /* base surfaces */
+  --background:      38 39% 93%;   /* #f4eee5  paper */
+  --foreground:      40 11%  9%;   /* #1a1814  paper-deep */
+  --card:            40 50% 96%;   /* #fbf6ec  slight lift */
+  --card-foreground: 40 11%  9%;
+  --popover:         40 50% 97%;
+  --popover-foreground: 40 11%  9%;
+
+  /* primary = inverse high-contrast (button fills, etc) */
+  --primary:           40 11%  9%;
+  --primary-foreground: 38 39% 96%;
+
+  /* secondary surfaces — slightly tan paper */
+  --secondary:           38 22% 86%;
+  --secondary-foreground: 40 11% 15%;
+
+  /* muted — for chips, input bgs, dim text */
+  --muted:           38 22% 88%;
+  --muted-foreground: 36  9% 35%;   /* #5a554d  text-2-light */
+
+  /* accent-shadcn — used for hover bgs, active rows.
+     Gold-tinted cream so hovers read as "warm" not "neutral". */
+  --accent-shadcn:    38 38% 82%;
+  --accent-foreground: 40 11%  9%;
+
+  --destructive: 0 65% 45%;
+  --destructive-foreground: 38 39% 96%;
+
+  /* borders — soft, paper-edge */
+  --border-shadcn: 38 22% 78%;
+  --input:         38 22% 78%;
+
+  /* ring — the gold focus color */
+  --ring: 38 50% 50%;
+}
+
+
+/* ─── DARK · near-black + cream + gold ──────────────────────────── */
+html.dark {
+  --background:      36  4%  4%;   /* #0a0a0a  near-black, hint warm */
+  --foreground:      33 26% 85%;   /* #e3dbd1  cream */
+  --card:            36  6%  7%;
+  --card-foreground: 33 26% 85%;
+  --popover:         36  6%  8%;
+  --popover-foreground: 33 26% 85%;
+
+  --primary:           33 26% 85%;
+  --primary-foreground: 36  4%  4%;
+
+  --secondary:           36  6% 11%;
+  --secondary-foreground: 33 26% 85%;
+
+  --muted:            36  6% 11%;
+  --muted-foreground: 30  6% 47%;  /* #7d7770  text-2 */
+
+  /* very dim warm bg for hovers — never bright */
+  --accent-shadcn:    38 18% 12%;
+  --accent-foreground: 33 26% 85%;
+
+  --destructive: 0 60% 40%;
+  --destructive-foreground: 33 26% 85%;
+
+  /* hairline border — matches marketing exactly */
+  --border-shadcn: 0 0% 11%;     /* #1c1c1c */
+  --input:         0 0% 11%;
+
+  --ring: 38 50% 57%;             /* #c8a45a  gold */
+}
+
+
+/* ─── Touchpoints: places we want the gold to actually show ─────── */
+
+/* Active tab — gold underline + cream fill */
+.tab.active {
+  position: relative;
+  background: hsl(var(--accent-shadcn));
+  color: hsl(var(--foreground));
+  border-color: transparent;
+}
+.tab.active::after {
+  content: "";
+  position: absolute;
+  left: 10px; right: 10px; bottom: -1px;
+  height: 1.5px;
+  background: hsl(var(--ring));
+}
+
+/* Active file row — paper-gold tint */
+html.dark .file-row.active { background: rgba(200, 164, 90, 0.10); color: hsl(var(--foreground)); }
+:root      .file-row.active { background: rgba(154, 122,  62, 0.16); color: hsl(var(--foreground)); }
+
+/* File panel section labels — UPPERCASE mono micro-label, gold */
+.fp-section-label {
+  color: hsl(var(--ring));
+  font-weight: 500;
+  letter-spacing: 0.14em;
+}
+
+/* File panel head toggle — active in gold-tint */
+.fp-toggle button.active {
+  background: hsl(var(--ring) / 0.12);
+  color: hsl(var(--foreground));
+}
+
+/* Toolbar background a hair deeper than editor — paper edge */
+html.dark .toolbar { background: #0d0c0b; }
+:root      .toolbar { background: #efe7d8; }
+html.dark .statusbar { background: #0d0c0b; }
+:root      .statusbar { background: #efe7d8; }
+
+/* Chat panel — slightly deeper than editor, like a sidecar margin */
+html.dark .chat-panel { background: #0d0c0b; }
+:root      .chat-panel { background: #ede4d3; }
+.chat-panel { border-left-color: hsl(var(--border-shadcn)); }
+
+/* Code spans — the iconic gold-on-amber pill */
+.editor-doc code,
+.cp-msg .body code {
+  color: hsl(var(--ring));
+  background: hsl(var(--ring) / 0.10);
+  padding: 0.2em 0.45em;
+  border-radius: 4px;
+  font-size: 0.92em;
+  font-weight: 400;
+}
+
+/* Editor body — switch <em> to Fraunces italic, the brand signature */
+.editor-doc em,
+.cp-msg .body em {
+  font-family: "Fraunces", "Newsreader", Georgia, serif;
+  font-style: italic;
+  font-variation-settings: "opsz" 36, "SOFT" 30;
+  letter-spacing: -0.005em;
+}
+
+/* Headings — Plex Mono Thin, the wordmark register */
+.editor-doc h1 {
+  font-weight: 200;
+  letter-spacing: -0.03em;
+  font-size: 36px;
+}
+.editor-doc h2 {
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  font-size: 22px;
+  color: hsl(var(--foreground));
+}
+.editor-doc h3 {
+  font-weight: 400;
+  font-size: 14px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+  margin-top: 2em;
+}
+
+/* Blockquote — gold rule on the left */
+.editor-doc blockquote {
+  border-left: 2px solid hsl(var(--ring));
+  color: hsl(var(--foreground));
+  font-family: "Fraunces", "Newsreader", Georgia, serif;
+  font-style: italic;
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+/* Frontmatter — paper-edge */
+.editor-doc .frontmatter {
+  background: hsl(var(--ring) / 0.06);
+  border: 1px solid hsl(var(--ring) / 0.25);
+  color: hsl(var(--muted-foreground));
+}
+.editor-doc .frontmatter .k { color: hsl(var(--ring)); font-weight: 500; }
+
+/* Status bar — gold "saved" dot, warm "dirty" dot */
+.statusbar .saved-dot { background: hsl(var(--ring)); }
+.statusbar .dirty-dot { background: hsl(20 75% 55%); }
+
+/* Toolbar icon hover — subtle gold-tint */
+.icon-btn:hover { background: hsl(var(--ring) / 0.10); }
+.icon-btn.active { background: hsl(var(--ring) / 0.14); color: hsl(var(--foreground)); }
+
+/* Tab-new button hover same */
+.tab-new:hover { background: hsl(var(--ring) / 0.10); color: hsl(var(--foreground)); }
+
+/* Suggestion chip — re-tone from violet to brand gold */
+.cp-suggestion-chip {
+  background: hsl(var(--ring) / 0.10);
+  border-color: hsl(var(--ring) / 0.28);
+  color: hsl(var(--ring));
+}
+.cp-suggestion-chip:hover { background: hsl(var(--ring) / 0.16); }
+
+/* Assistant chat bubble — Fraunces-italic flourish on em already covers it.
+   Bubble bg stays a hint warm. */
+.cp-msg.assistant { background: hsl(var(--ring) / 0.04); }
+
+/* Diff suggestion — leave red/green semantics but lift contrast on cream bg */
+:root .diff-suggestion {
+  background: hsl(210 60% 90%);
+  border-color: hsl(210 60% 60%);
+}
+:root .diff-suggestion [data-diff-suggestion-old] {
+  background: hsl(0 60% 88%);
+  color: hsl(0 60% 30%);
+}
+:root .diff-suggestion [data-diff-suggestion-new] {
+  background: hsl(140 50% 88%);
+  color: hsl(140 50% 25%);
+}
+
+/* Body font — keep Plex Mono. But editor body specifically nudges up a
+   hair in line-height for paper readability. */
+.editor-doc p { line-height: 1.75; }
+
+/* Send button — gold instead of neutral primary */
+.cp-input .send-btn {
+  background: hsl(var(--ring));
+  color: #0a0a0a;
+}
+.cp-input .send-btn:not(:disabled):hover { opacity: 0.9; }
+
+/* Scrollbar — match cream/warm palette */
+::-webkit-scrollbar-thumb { background: hsl(var(--muted-foreground) / 0.25); }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.4); }

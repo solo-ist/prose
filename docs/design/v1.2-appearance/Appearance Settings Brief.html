@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>feat(appearance) · Unified Theme + App Icon picker</title>
+<link rel="stylesheet" href="design-tokens.css">
+<style>
+  :root {
+    --p-bg:        #0a0a0a;
+    --p-bg-2:      #14130f;
+    --p-bg-3:      #1b1a16;
+    --p-text:      #e3dbd1;
+    --p-text-2:    #a8a39a;
+    --p-text-3:    #7d7770;
+    --p-text-4:    #4a4641;
+    --p-border:    #1d1d1d;
+    --p-border-2:  #2c2a26;
+    --p-gold:      #c8a45a;
+    --p-gold-soft: rgba(200,164,90,0.10);
+    --p-mono:      "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+    --p-serif:     "Fraunces", "Newsreader", Georgia, serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--p-bg); color: var(--p-text); font-family: var(--p-mono); }
+  body {
+    min-height: 100vh;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+    background-size: 200px 200px;
+    background-attachment: fixed;
+    background-blend-mode: screen;
+  }
+  body::after {
+    content: ""; position: fixed; inset: 0;
+    background-image: inherit; background-size: 200px 200px;
+    opacity: 0.05; mix-blend-mode: screen; pointer-events: none;
+  }
+
+  .page {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 56px 48px 120px;
+    position: relative; z-index: 1;
+  }
+
+  /* ── Header ─────────────────────────────────────────── */
+  .repo-bar {
+    display: flex; align-items: center; gap: 0;
+    font-size: 11.5px; color: var(--p-text-3);
+    margin-bottom: 28px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--p-border);
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .repo-bar a, .repo-bar span { color: inherit; text-decoration: none; }
+  .repo-bar .sep { color: var(--p-text-4); margin: 0 6px; }
+  .repo-bar .pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 2px 8px;
+    background: var(--p-gold-soft);
+    border: 1px solid rgba(200,164,90,0.25);
+    color: var(--p-gold);
+    border-radius: 999px;
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    margin-left: 12px;
+  }
+  .repo-bar .pill .dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--p-gold);
+  }
+
+  .meta-row {
+    display: grid;
+    grid-template-columns: 90px 1fr;
+    gap: 4px 18px;
+    margin-bottom: 36px;
+    font-size: 12px;
+  }
+  .meta-row .k {
+    color: var(--p-text-3);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-size: 10px;
+    padding-top: 3px;
+  }
+  .meta-row .v { color: var(--p-text-2); font-weight: 300; line-height: 1.6; }
+  .meta-row .v code {
+    background: var(--p-gold-soft); color: var(--p-gold);
+    padding: 1px 5px; border-radius: 3px; font-size: 11px;
+  }
+  .meta-row .label-chip {
+    display: inline-block;
+    padding: 1px 8px;
+    border: 1px solid var(--p-border-2);
+    border-radius: 3px;
+    font-size: 10.5px;
+    color: var(--p-text);
+    margin-right: 4px;
+  }
+
+  /* ── Title ──────────────────────────────────────────── */
+  h1.title {
+    font-family: var(--p-mono);
+    font-weight: 200;
+    font-size: clamp(36px, 5vw, 56px);
+    letter-spacing: -0.035em;
+    line-height: 1.05;
+    color: var(--p-text);
+    margin-bottom: 18px;
+  }
+  h1.title em {
+    font-family: var(--p-serif);
+    font-style: italic;
+    font-variation-settings: "opsz" 144, "SOFT" 30;
+    font-weight: 360;
+    color: var(--p-gold);
+    letter-spacing: -0.02em;
+  }
+
+  /* ── TL;DR blockquote ───────────────────────────────── */
+  blockquote.tldr {
+    border-left: 2px solid var(--p-gold);
+    padding: 10px 0 10px 18px;
+    margin-bottom: 40px;
+    font-family: var(--p-serif);
+    font-style: italic;
+    font-variation-settings: "opsz" 36, "SOFT" 30;
+    font-size: 17px; line-height: 1.55;
+    color: var(--p-text);
+    max-width: 720px;
+  }
+  blockquote.tldr code {
+    font-family: var(--p-mono);
+    font-style: normal;
+    color: var(--p-gold);
+    background: var(--p-gold-soft);
+    padding: 1px 5px; border-radius: 3px;
+    font-size: 0.78em;
+  }
+
+  /* ── Section headers ────────────────────────────────── */
+  h2 {
+    display: flex; align-items: center; gap: 14px;
+    margin: 64px 0 18px;
+    font-family: var(--p-mono);
+    font-weight: 400; font-size: 11px;
+    letter-spacing: 0.20em; text-transform: uppercase;
+    color: var(--p-text-2);
+  }
+  h2 .num { color: var(--p-gold); font-weight: 500; }
+  h2::after {
+    content: ""; flex: 1; height: 1px;
+    background: var(--p-border);
+    max-width: 200px;
+  }
+  h3 {
+    font-family: var(--p-mono);
+    font-weight: 400;
+    font-size: 14px;
+    color: var(--p-text);
+    margin: 32px 0 12px;
+    letter-spacing: -0.01em;
+  }
+  h3 .num {
+    display: inline-block;
+    color: var(--p-gold);
+    margin-right: 8px;
+    font-weight: 400;
+  }
+  h4 {
+    font-family: var(--p-mono);
+    font-weight: 500;
+    font-size: 11.5px;
+    color: var(--p-text);
+    margin: 22px 0 10px;
+    letter-spacing: 0.05em;
+  }
+
+  /* ── Body ───────────────────────────────────────────── */
+  p {
+    font-size: 13.5px;
+    font-weight: 300;
+    line-height: 1.75;
+    color: var(--p-text-2);
+    margin-bottom: 14px;
+    max-width: 720px;
+  }
+  p strong { color: var(--p-text); font-weight: 400; }
+  p em {
+    font-family: var(--p-serif);
+    font-style: italic;
+    font-variation-settings: "opsz" 36, "SOFT" 30;
+    color: var(--p-text);
+  }
+  p code, li code, td code {
+    font-family: var(--p-mono);
+    color: var(--p-gold);
+    background: var(--p-gold-soft);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 0.86em;
+  }
+  a { color: var(--p-gold); text-decoration: none; border-bottom: 1px solid rgba(200,164,90,0.25); }
+  a:hover { border-bottom-color: var(--p-gold); }
+
+  /* ── Lists ──────────────────────────────────────────── */
+  ul, ol { list-style: none; padding: 0; max-width: 720px; }
+  ul.bullets > li, ol > li {
+    font-size: 13px; font-weight: 300;
+    line-height: 1.7;
+    color: var(--p-text-2);
+    padding-left: 20px; position: relative;
+    margin-bottom: 6px;
+  }
+  ul.bullets > li::before {
+    content: "·"; color: var(--p-gold);
+    position: absolute; left: 6px; top: 0;
+    font-size: 16px;
+  }
+  ol { counter-reset: q; }
+  ol > li {
+    counter-increment: q;
+    padding-left: 28px;
+  }
+  ol > li::before {
+    content: counter(q, decimal-leading-zero);
+    position: absolute; left: 0; top: 1px;
+    font-family: var(--p-mono); font-size: 10px;
+    color: var(--p-gold); letter-spacing: 0.05em;
+  }
+
+  /* ── Checklists ─────────────────────────────────────── */
+  ul.checks { display: flex; flex-direction: column; gap: 4px; max-width: 720px; }
+  ul.checks > li {
+    display: flex; align-items: flex-start; gap: 11px;
+    font-size: 13px; font-weight: 300; line-height: 1.6;
+    color: var(--p-text-2);
+    padding: 6px 0;
+    border-bottom: 1px solid var(--p-border);
+  }
+  ul.checks > li:last-child { border-bottom: none; }
+  ul.checks > li::before {
+    content: ""; flex-shrink: 0;
+    width: 14px; height: 14px;
+    border: 1px solid var(--p-text-3);
+    border-radius: 3px;
+    margin-top: 3px;
+    background: transparent;
+  }
+
+  /* ── Tables ─────────────────────────────────────────── */
+  .table-wrap { overflow-x: auto; margin: 14px 0 20px; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 12px;
+    font-family: var(--p-mono);
+  }
+  th, td {
+    text-align: left;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--p-border);
+    color: var(--p-text-2);
+    font-weight: 300;
+    line-height: 1.5;
+    vertical-align: top;
+  }
+  th {
+    color: var(--p-text-3);
+    font-weight: 400;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--p-border-2);
+    padding-bottom: 9px;
+  }
+  td strong { color: var(--p-text); font-weight: 400; }
+  td.swatch-cell {
+    font-family: var(--p-mono);
+  }
+  td .sw {
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  td .sw .chip {
+    width: 12px; height: 12px; border-radius: 2px;
+    border: 1px solid var(--p-border-2);
+    flex-shrink: 0;
+    display: inline-block;
+  }
+  td .hex { color: var(--p-gold); font-size: 11.5px; }
+
+  /* ── Code blocks ────────────────────────────────────── */
+  pre {
+    background: var(--p-bg-2);
+    border: 1px solid var(--p-border);
+    border-radius: 7px;
+    padding: 16px 18px;
+    font-family: var(--p-mono);
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--p-text-2);
+    overflow-x: auto;
+    margin: 8px 0 22px;
+    max-width: 720px;
+  }
+  pre .k { color: var(--p-gold); }
+  pre .c { color: var(--p-text-4); font-style: italic; font-family: var(--p-serif); }
+  pre .s { color: var(--p-text); }
+
+  /* ── File-paths inline ──────────────────────────────── */
+  .path {
+    font-family: var(--p-mono);
+    font-size: 11.5px;
+    color: var(--p-text);
+    background: var(--p-bg-2);
+    border: 1px solid var(--p-border);
+    padding: 1px 6px;
+    border-radius: 3px;
+  }
+
+  /* ── Asides / callouts ──────────────────────────────── */
+  .note {
+    border-left: 2px solid var(--p-text-3);
+    padding: 8px 0 8px 14px;
+    margin: 18px 0;
+    font-size: 12px;
+    color: var(--p-text-3);
+    font-family: var(--p-serif);
+    font-style: italic;
+    line-height: 1.5;
+    max-width: 720px;
+  }
+
+  /* ── Theme card mini-previews in scope ──────────────── */
+  .preview-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin: 8px 0 22px;
+    max-width: 720px;
+  }
+  .preview-card {
+    border: 1px solid var(--p-border);
+    border-radius: 8px;
+    padding: 14px;
+  }
+  .preview-card .head {
+    display: flex; align-items: baseline; gap: 8px;
+    margin-bottom: 8px;
+    font-size: 11.5px;
+  }
+  .preview-card .head .nm { color: var(--p-text); font-weight: 400; }
+  .preview-card .head .sub { color: var(--p-text-3); font-size: 10px; }
+  .preview-card .tag {
+    font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--p-gold);
+    margin-top: 4px;
+  }
+  .preview-card .tag.muted { color: var(--p-text-3); }
+  .tile {
+    height: 76px;
+    border-radius: 5px;
+    padding: 10px 12px;
+    display: flex; flex-direction: column; gap: 5px;
+    border: 1px solid;
+    margin-bottom: 8px;
+  }
+  .tile .dots { display: flex; gap: 3px; margin-bottom: 3px; }
+  .tile .dots span { width: 5px; height: 5px; border-radius: 50%; opacity: 0.7; }
+  .tile .bar { height: 4px; border-radius: 1px; }
+  .tile .row { display: flex; align-items: center; gap: 5px; margin-top: auto; }
+  .tile .row .acc { width: 6px; height: 6px; border-radius: 50%; }
+
+  /* footer */
+  .closing {
+    margin-top: 64px;
+    padding-top: 22px;
+    border-top: 1px solid var(--p-border);
+    font-size: 11px; color: var(--p-text-3);
+    display: flex; gap: 14px; flex-wrap: wrap;
+    align-items: center;
+  }
+  .closing .author {
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .closing .author .av {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--p-gold);
+    color: var(--p-bg);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 500;
+  }
+  .closing a.md-link {
+    color: var(--p-gold);
+    border: 1px solid rgba(200,164,90,0.25);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .closing a.md-link:hover { background: var(--p-gold-soft); border-color: var(--p-gold); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ── Repo bar ─────────────────────────────── -->
+  <div class="repo-bar">
+    <span>solo-ist</span><span class="sep">/</span><span style="color:var(--p-text)">prose</span>
+    <span class="sep">·</span><span>issues</span>
+    <span class="sep">·</span><span>new</span>
+    <span class="pill"><span class="dot"></span> Open</span>
+  </div>
+
+  <h1 class="title">
+    feat(appearance):<br>
+    Unified <em>Theme</em> + App Icon picker
+  </h1>
+
+  <blockquote class="tldr">
+    Replace the silent shadcn dark/light toggle with a real <strong>Appearance</strong> settings pane:
+    <strong>Mode</strong> (Light · Dark · System), <strong>Color</strong> (Termy · Prose · Mono),
+    and <strong>App Icon</strong> (11 options). Default lands on <code>Prose · Dark · Pilcrow ¶</code>
+    — paper-warm cream, muted gold, and the paragraph mark.
+  </blockquote>
+
+  <div class="meta-row">
+    <div class="k">Labels</div>
+    <div class="v">
+      <span class="label-chip">feat</span>
+      <span class="label-chip">appearance</span>
+      <span class="label-chip">settings</span>
+      <span class="label-chip">ux</span>
+    </div>
+    <div class="k">Milestone</div>
+    <div class="v"><code>v1.1</code></div>
+    <div class="k">Design</div>
+    <div class="v">
+      <span class="path">App Logo Picker.html</span>
+      &nbsp; <span class="path">Prose Theme.html</span>
+      &nbsp; <span class="path">App Logo.html</span>
+      &nbsp; <span class="path">themes.css</span>
+      &nbsp; <span class="path">prose-icons.jsx</span>
+    </div>
+  </div>
+
+
+  <!-- ── 01 · Why ─────────────────────────────── -->
+  <h2><span class="num">01</span><span>Why</span></h2>
+  <p>
+    The marketing site (<code>solo.ist</code>, <code>solo.ist/prose</code>) is dark, paper-warm,
+    set in IBM Plex Mono with Fraunces italic flourishes, and uses a single muted-gold accent
+    <code>#c8a45a</code>. The shipped app is cool shadcn-neutral (<code>240</code> hue, near-pure white
+    in light mode) — no gold, no italic, no continuity with the brand. The legacy icon is a CRT-green
+    pixel P. that reads as a 90s terminal, not a typographer's tool.
+  </p>
+  <p>
+    Result: launching Prose feels like opening <em>a different product</em> than the one the manifesto
+    promised. This issue closes the gap and adds a small amount of taste &mdash; pick your palette and
+    your dock mark without leaving the editor.
+  </p>
+
+
+  <!-- ── 02 · Scope ───────────────────────────── -->
+  <h2><span class="num">02</span><span>Scope</span></h2>
+  <p>Three controls, one pane, in <code>Settings → Appearance</code>.</p>
+
+  <h3><span class="num">2.1</span>Mode</h3>
+  <p>
+    <code>Light</code> · <code>Dark</code> · <code>System</code> — segmented control.
+    <strong>Default: Dark.</strong> System listens to
+    <code>window.matchMedia('(prefers-color-scheme: dark)')</code> <em>and</em>
+    <code>nativeTheme.shouldUseDarkColors</code> (over IPC) and updates live without a restart.
+  </p>
+
+  <h3><span class="num">2.2</span>Color</h3>
+  <p>Three themes, each fully defined for light + dark. <strong>Default: Prose.</strong></p>
+
+  <div class="preview-row">
+    <div class="preview-card">
+      <div class="tile" style="background:#020806; border-color:#0a2114;">
+        <div class="dots"><span style="background:#ff5f57"></span><span style="background:#febc2e"></span><span style="background:#28c840"></span></div>
+        <div class="bar" style="width:80%; background:#4ade80; opacity:0.85"></div>
+        <div class="bar" style="width:60%; background:#22c55e"></div>
+        <div class="row">
+          <span class="acc" style="background:#00ff7f"></span>
+          <span class="bar" style="width:28px; background:#166534"></span>
+          <span class="bar" style="width:14px; background:#166534; opacity:0.5"></span>
+        </div>
+      </div>
+      <div class="head">
+        <span class="nm">Termy</span>
+        <span class="sub">phosphor green</span>
+      </div>
+      <div class="tag muted">DEEP CUT</div>
+    </div>
+
+    <div class="preview-card" style="border-color: var(--p-gold); background: var(--p-gold-soft);">
+      <div class="tile" style="background:#0a0a0a; border-color:#1d1d1d;">
+        <div class="dots"><span style="background:#ff5f57"></span><span style="background:#febc2e"></span><span style="background:#28c840"></span></div>
+        <div class="bar" style="width:80%; background:#e3dbd1; opacity:0.85"></div>
+        <div class="bar" style="width:60%; background:#7d7770"></div>
+        <div class="row">
+          <span class="acc" style="background:#c8a45a"></span>
+          <span class="bar" style="width:28px; background:#4a4641"></span>
+          <span class="bar" style="width:14px; background:#4a4641; opacity:0.5"></span>
+        </div>
+      </div>
+      <div class="head">
+        <span class="nm">Prose</span>
+        <span class="sub">paper + gold</span>
+      </div>
+      <div class="tag">DEFAULT</div>
+    </div>
+
+    <div class="preview-card">
+      <div class="tile" style="background:#09090b; border-color:#27272a;">
+        <div class="dots"><span style="background:#ff5f57"></span><span style="background:#febc2e"></span><span style="background:#28c840"></span></div>
+        <div class="bar" style="width:80%; background:#fafafa; opacity:0.85"></div>
+        <div class="bar" style="width:60%; background:#a1a1aa"></div>
+        <div class="row">
+          <span class="acc" style="background:#fafafa"></span>
+          <span class="bar" style="width:28px; background:#71717a"></span>
+          <span class="bar" style="width:14px; background:#71717a; opacity:0.5"></span>
+        </div>
+      </div>
+      <div class="head">
+        <span class="nm">Mono</span>
+        <span class="sub">shadcn neutral</span>
+      </div>
+      <div class="tag muted">LEGACY 1.0</div>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>id</th><th>accent (dark)</th><th>bg (dark)</th><th>accent (light)</th><th>bg (light)</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>prose</strong></td>
+          <td class="swatch-cell"><span class="sw"><span class="chip" style="background:#c8a45a"></span><span class="hex">#c8a45a</span></span></td>
+          <td class="swatch-cell"><span class="sw"><span class="chip" style="background:#0a0a0a"></span><span class="hex">#0a0a0a</span></span></td>
+          <td class="swatch-cell"><span class="sw"><span class="chip" style="background:#9a7a3e"></span><span class="hex">#9a7a3e</span></span></td>
+          <td class="swatch-cell"><span class="sw"><span class="chip" style="background:#f4eee5"></span><span class="hex">#f4eee5</span></span></td>
+        </tr>
+        <tr>
+          <td><strong>mono</strong></td>
+          <td class="swatch-cell"><span class="sw"><span class="chip" style="background:#fafafa"></span><span class="hex">#fafafa</span></span></td>
+          <td class="swatch-cell"><span class="sw"><span class="chip" style="background:#09090b"></span><span class="hex">#09090b</span></span></td>
+          <td class="swatch-cell"><span class="sw"><span class="chip" style="background:#18181b"></span><span class="hex">#18181b</span></span></td>
+          <td class="swatch-cell"><span class="sw"><span class="chip" style="background:#ffffff"></span><span class="hex">#ffffff</span></span></td>
+        </tr>
+        <tr>
+          <td><strong>termy</strong></td>
+          <td class="swatch-cell"><span class="sw"><span class="chip" style="background:#00ff7f"></span><span class="hex">#00ff7f</span></span></td>
+          <td class="swatch-cell"><span class="sw"><span class="chip" style="background:#020806"></span><span class="hex">#020806</span></span></td>
+          <td class="swatch-cell"><span class="sw"><span class="chip" style="background:#1d6b34"></span><span class="hex">#1d6b34</span></span></td>
+          <td class="swatch-cell"><span class="sw"><span class="chip" style="background:#eaf1de"></span><span class="hex">#eaf1de</span></span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    Termy dark also gets a faint <code>text-shadow</code> phosphor glow and a 1px scanline overlay
+    (<code>repeating-linear-gradient</code>) — see <span class="path">themes.css</span>.
+  </p>
+
+  <h3><span class="num">2.3</span>App Icon</h3>
+  <p>
+    11 marks, all macOS squircles (22.37% radius), all built from the brand's existing material —
+    Plex Mono Thin, Fraunces italic, cream <code>#e3dbd1</code> + gold <code>#c8a45a</code>.
+    <strong>Default: Pilcrow ¶.</strong> Source: <span class="path">prose-icons.jsx</span>.
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>id</th><th>name</th><th>rationale</th></tr></thead>
+      <tbody>
+        <tr><td><code>pilcrow</code></td><td><strong>Pilcrow ¶</strong> <span style="color:var(--p-gold); font-size:9px; letter-spacing:0.14em; margin-left:6px;">DEFAULT</span></td><td>the paragraph mark — used by prose typographers since the 12th century. Fraunces italic.</td></tr>
+        <tr><td><code>refined-p</code></td><td>Refined P.</td><td>Plex Mono Thin · cream P + gold period · the wordmark made into a mark</td></tr>
+        <tr><td><code>fraunces-p</code></td><td>Italic P</td><td>Fraunces italic — the signature italic-in-mono move</td></tr>
+        <tr><td><code>p-ist</code></td><td>p.ist lockup</td><td>mini wordmark · "p" + ".ist" stacked</td></tr>
+        <tr><td><code>asterisk</code></td><td>Asterisk *</td><td>markdown emphasis</td></tr>
+        <tr><td><code>hash</code></td><td>Hash #</td><td>markdown heading</td></tr>
+        <tr><td><code>em-dash</code></td><td>Em dash + period</td><td>the brand's signature punctuation</td></tr>
+        <tr><td><code>caret</code></td><td>Cursor block (a|)</td><td>the editor caret, frozen</td></tr>
+        <tr><td><code>period</code></td><td>The period</td><td>reductive · atom of the brand · radial glow</td></tr>
+        <tr><td><code>prompt</code></td><td>Prompt <code>&gt;_</code></td><td>terminal lineage · agent-accessible</td></tr>
+        <tr><td><code>legacy</code></td><td>Legacy 1.0</td><td>the original green pixel P. — kept as a deep cut</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+
+  <!-- ── 03 · Tokens ──────────────────────────── -->
+  <h2><span class="num">03</span><span>Tokens</span></h2>
+  <p>
+    A single <span class="path">src/renderer/themes.css</span> defines <strong>14 tokens × 3 themes × 2 modes</strong>
+    (84 values). Scope via data attributes on the root: <code>&lt;html data-theme="prose" data-mode="dark"&gt;</code>.
+    Copy the file from the design project verbatim, no edits.
+  </p>
+
+<pre><span class="c">/* prose · dark — sample (see themes.css for all six variants) */</span>
+[data-theme="prose"][data-mode="dark"] {
+  <span class="k">--t-bg</span>:        #0a0a0a;
+  <span class="k">--t-bg-2</span>:      #16140f;
+  <span class="k">--t-bg-3</span>:      #0d0c0a;
+  <span class="k">--t-text</span>:      #e3dbd1;
+  <span class="k">--t-text-2</span>:    #7d7770;
+  <span class="k">--t-text-3</span>:    #4a4641;
+  <span class="k">--t-border</span>:    #1d1d1d;
+  <span class="k">--t-border-2</span>:  #2c2a26;
+  <span class="k">--t-accent</span>:    #c8a45a;
+  <span class="k">--t-accent-soft</span>:  <span class="s">rgba(200,164,90,0.10)</span>;
+  <span class="k">--t-accent-fg</span>: #0a0a0a;
+  <span class="k">--t-titlebar</span>:  #1c1a17;
+  <span class="k">--t-disabled</span>:  #2c2a26;
+  <span class="k">--t-window-shadow</span>: <span class="s">0 40px 100px rgba(0,0,0,0.65)</span>;
+}</pre>
+
+
+  <!-- ── 04 · Implementation ──────────────────── -->
+  <h2><span class="num">04</span><span>Implementation</span></h2>
+
+  <h3><span class="num">4.1</span>Files to change in <code>solo-ist/prose</code></h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>path</th><th>change</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="path">src/renderer/index.css</span></td>
+          <td>Strip shadcn <code>:root</code> / <code>html.dark</code> blocks. Import <code>themes.css</code>. Map shadcn-style usages (<code>hsl(var(--background))</code>) to the new <code>--t-*</code> tokens — or keep shadcn names as aliases pointing at <code>--t-*</code>.</td>
+        </tr>
+        <tr>
+          <td><span class="path">tailwind.config.cjs</span></td>
+          <td>Re-source <code>colors.*</code> from <code>--t-*</code>. Semantic Tailwind names stay (<code>bg-background</code>, <code>text-foreground</code>); the values change.</td>
+        </tr>
+        <tr>
+          <td><span class="path">src/renderer/components/layout/App.tsx</span></td>
+          <td>Apply <code>data-theme</code> + <code>data-mode</code> to <code>&lt;html&gt;</code> from <code>useAppearance()</code>. Drop the local <code>theme</code> state.</td>
+        </tr>
+        <tr>
+          <td><span class="path">src/renderer/components/layout/Toolbar.tsx</span></td>
+          <td>The Sun/Moon button stays as a quick mode toggle — but writes to the shared appearance store, no local state.</td>
+        </tr>
+        <tr>
+          <td><span class="path">src/renderer/components/layout/StatusBar.tsx</span></td>
+          <td>Tone the "saved" dot to <code>var(--t-accent)</code>; "dirty" dot to warm <code>#e09040</code>.</td>
+        </tr>
+        <tr>
+          <td><span class="path">src/main/index.ts</span></td>
+          <td>Add IPC handler <code>appearance:set-icon</code> that calls <code>app.dock.setIcon(nativeImage.createFromPath(...))</code> on macOS.</td>
+        </tr>
+        <tr>
+          <td><span class="path">electron-builder.yml</span></td>
+          <td>Bundle the 11 icon PNG sets under <code>resources/icons/</code>.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3><span class="num">4.2</span>Files to add</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>path</th><th>content</th></tr></thead>
+      <tbody>
+        <tr><td><span class="path">src/renderer/themes.css</span></td><td>Copy from design project.</td></tr>
+        <tr><td><span class="path">src/renderer/assets/fonts/Fraunces-Italic-VariableFont.ttf</span></td><td>Required for the Prose theme's <code>em</code> styling and the Pilcrow icon.</td></tr>
+        <tr><td><span class="path">src/renderer/components/settings/AppearancePane.tsx</span></td><td>The new pane. Three sections: Mode (segmented), Color (3 cards with nested-scope mini-previews), App Icon (6-col grid).</td></tr>
+        <tr><td><span class="path">src/renderer/components/settings/ThemeCard.tsx</span></td><td>Card with nested <code>[data-theme][data-mode]</code> so each preview tile renders in <em>its</em> theme regardless of the surrounding pane.</td></tr>
+        <tr><td><span class="path">src/renderer/components/settings/IconCell.tsx</span></td><td>78px icon thumbnail + label + DEFAULT/LEGACY badges.</td></tr>
+        <tr><td><span class="path">src/renderer/hooks/useAppearance.ts</span></td><td><code>{ theme, mode, effectiveMode, icon, setTheme, setMode, setIcon, resetAll }</code> — reads/writes <code>electron-store</code>, listens to <code>prefers-color-scheme</code>, applies data attrs.</td></tr>
+        <tr><td><span class="path">src/renderer/lib/prose-icons.tsx</span></td><td>Port the 11 icon components from <code>prose-icons.jsx</code>.</td></tr>
+        <tr><td><span class="path">resources/icons/{id}/icon-{16,32,64,128,256,512,1024}.png</span></td><td>Per-icon PNG sets. Render headlessly from <code>prose-icons.jsx</code> (see 4.3).</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3><span class="num">4.3</span>App-icon export pipeline</h3>
+  <p>
+    Single source of truth: <code>prose-icons.jsx</code>. <em>Don't hand-author PNGs.</em>
+  </p>
+<pre><span class="c">// scripts/build-icons.mjs (sketch)</span>
+<span class="c">// 1. spin up puppeteer</span>
+<span class="c">// 2. for each {id} in CATALOG:</span>
+<span class="c">//      for each size in [16, 32, 64, 128, 256, 512, 1024]:</span>
+<span class="c">//        render &lt;IconShell size={N}&gt; in a headless page</span>
+<span class="c">//        page.screenshot({ omitBackground: true })</span>
+<span class="c">//          → resources/icons/{id}/icon-{N}.png</span>
+<span class="c">// 3. (mac only) iconutil -c icns to bundle .icns sets</span></pre>
+
+  <h3><span class="num">4.4</span>Persistence + migration</h3>
+  <p>Store in <code>electron-store</code> under <code>appearance</code>:</p>
+<pre><span class="k">type</span> <span class="s">Appearance</span> = {
+  theme: <span class="s">'prose'</span> | <span class="s">'mono'</span> | <span class="s">'termy'</span>;
+  mode:  <span class="s">'light'</span> | <span class="s">'dark'</span> | <span class="s">'system'</span>;
+  icon:  IconId;
+};</pre>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th></th><th>new install</th><th>migrated from 1.x</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Theme</strong></td><td><code>prose</code></td><td><code>mono</code></td></tr>
+        <tr><td><strong>Mode</strong></td><td><code>dark</code></td><td>preserved</td></tr>
+        <tr><td><strong>Icon</strong></td><td><code>pilcrow</code></td><td><code>legacy</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    Migration intent: don't surprise existing users. Preserve their look exactly, then
+    surface a one-time toast on first launch — <em>"You can now pick the new Prose theme
+    and Pilcrow icon in Settings → Appearance"</em> — with an "Open Settings" action.
+  </div>
+
+
+  <!-- ── 05 · Acceptance ──────────────────────── -->
+  <h2><span class="num">05</span><span>Acceptance criteria</span></h2>
+  <ul class="checks">
+    <li><code>Settings → Appearance</code> shows Mode, Color, App Icon as three stacked sections.</li>
+    <li>All three themes render every component — toolbar, file panel, editor, tabs, chat panel, status bar, menus, popovers — with <strong>zero</strong> hard-coded hex colors leaking through.</li>
+    <li>Switching theme is ≤16ms paint, no flash, no layout shift.</li>
+    <li>Switching mode is instant; <code>System</code> follows the OS without a restart.</li>
+    <li>Switching icon swaps the macOS dock icon within ~200ms.</li>
+    <li><code>appearance</code> persists across restart and across app updates.</li>
+    <li>Migration from 1.x defaults to <code>mono</code> + <code>legacy</code> icon to preserve the existing look.</li>
+    <li>Prose theme: <code>em</code> is Fraunces italic; inline <code>code</code> is gold on amber.</li>
+    <li>Termy dark: text has a phosphor <code>text-shadow</code> glow + faint scanline overlay.</li>
+    <li>"Reset all to default" disables itself when already at defaults.</li>
+    <li>Color contrast meets <strong>WCAG AA</strong> for <code>--t-text</code> on <code>--t-bg</code> in all 6 theme/mode combinations.</li>
+    <li>No regressions in diff suggestions, AI annotations, MCP/agent flows, or reMarkable sync.</li>
+  </ul>
+
+
+  <!-- ── 06 · Out of scope ────────────────────── -->
+  <h2><span class="num">06</span><span>Out of scope</span></h2>
+  <ul class="bullets">
+    <li>Custom-palette builder (user-defined themes).</li>
+    <li>Per-window or per-document themes.</li>
+    <li>Editor font family / size choice — belongs in <code>Settings → Editor</code>.</li>
+    <li>Icon swap on Linux/Windows (no <code>app.dock</code> equivalent). Persist the preference; visual swap can land in a follow-up.</li>
+    <li>"Ambient" mode that tints the desktop wallpaper.</li>
+    <li>A Termy theme for the marketing site.</li>
+  </ul>
+
+
+  <!-- ── 07 · Open questions ──────────────────── -->
+  <h2><span class="num">07</span><span>Open questions</span></h2>
+  <ol>
+    <li><strong>Mono icon palette.</strong> Should <code>mono</code> retone the cream-and-gold icon thumbnails to neutral too? <em>Recommendation:</em> no — icons are brand marks, theme is system colors.</li>
+    <li><strong>System mode as default?</strong> Some users expect System to be the default; we shipped <code>Dark</code> first. Confirm.</li>
+    <li><strong>Migration UX.</strong> Toast on first launch after upgrade, or just leave it discoverable in Settings? <em>Recommendation:</em> one-time toast with an "Open Settings" action.</li>
+    <li><strong>Fraunces italic for <code>em</code> outside Prose theme?</strong> Mono and Termy users currently get plain mono italic. Pull Fraunces in for all themes, or keep it Prose-only?</li>
+  </ol>
+
+
+  <!-- ── Closing ──────────────────────────────── -->
+  <div class="closing">
+    <div class="author">
+      <span class="av">g</span>
+      <span>opened by <span style="color:var(--p-text)">guy</span> · today</span>
+    </div>
+    <span style="color:var(--p-text-4)">·</span>
+    <a class="md-link" href="Appearance Settings.md">↓ Markdown source</a>
+    <a class="md-link" href="App Logo Picker.html">↗ Prototype</a>
+  </div>
+
+</div>
+</body>
+</html>

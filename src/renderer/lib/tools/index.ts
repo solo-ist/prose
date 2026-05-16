@@ -41,6 +41,12 @@ import {
   executeCreateAndOpenFile
 } from './executors/file'
 
+// Tab executors
+import {
+  executeListTabs,
+  executeSelectTab
+} from './executors/tabs'
+
 /** Provenance context for AI-generated content tracking */
 export interface ToolProvenance {
   model: string
@@ -131,6 +137,12 @@ export async function executeTool(
         return await executeReadFile(validatedArgs)
       case 'create_and_open_file':
         return await executeCreateAndOpenFile(validatedArgs)
+
+      // Tab tools
+      case 'list_tabs':
+        return executeListTabs()
+      case 'select_tab':
+        return await executeSelectTab(validatedArgs)
 
       default:
         return toolError(`Tool "${toolName}" not implemented`, 'NOT_IMPLEMENTED')

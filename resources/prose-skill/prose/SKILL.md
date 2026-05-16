@@ -82,8 +82,10 @@ If MCP isn't usable, surface why and offer an alternative.
 | `suggest_edit` | `{ nodeId (req), content (req), comment?, search? }` → `{ suggested: true, suggestionId }`. User accepts/rejects in Prose. Always pass `search` (the original node text) so the server can match if `nodeId` is stale. |
 | `open_file` | Opens a file by absolute path. |
 | `create_and_open_file` | Writes a file (default save dir, auto-suffixes on collision) and opens it. `filename` is just a name, not a path. |
+| `list_tabs` | Returns all open tabs: `{ tabs: [{ tabId, title, path, isActive, isDirty, isPreview, documentId }] }`. Read-only; doesn't affect UI. Call this first when the user references a document by name ("go back to my novel", "switch to the draft"). |
+| `select_tab` | Switch to a tab by `tabId` (exact, from `list_tabs`) or `match` (case-insensitive substring of title or path filename). Returns `{ selected, tabId, title, path }`. On ambiguous match, returns `{ error: "ambiguous", candidates: [...] }` — ask the user to pick. |
 
-`get_outline` and `read_document` are read-only. `create_and_open_file` and `open_file` switch the active document and dismiss any pending `suggest_edit` overlay — render diffs LAST in multi-tool flows. The MCP exposes only these 5 tools; there's no "get current file path".
+`get_outline`, `read_document`, and `list_tabs` are read-only. `create_and_open_file`, `open_file`, and `select_tab` switch the active document and dismiss any pending `suggest_edit` overlay — render diffs LAST in multi-tool flows. When the user references a document that isn't currently active ("go back to X", "switch to my novel"), call `list_tabs` first to find it, then `select_tab` — don't guess a path or call `open_file` blindly.
 
 ## Outline + diff widgets (for MCP work)
 

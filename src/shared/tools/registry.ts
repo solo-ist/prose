@@ -6,12 +6,13 @@ import type { ToolConfig, ToolMode, ToolCategory } from './types'
 import { documentTools } from './schemas/document'
 import { editorTools } from './schemas/editor'
 import { fileTools } from './schemas/file'
+import { tabTools } from './schemas/tabs'
 import { zodToJsonSchema } from './utils'
 
 /**
  * All registered tools.
  */
-export const allTools = [...documentTools, ...editorTools, ...fileTools] as const
+export const allTools = [...documentTools, ...editorTools, ...fileTools, ...tabTools] as const
 
 /**
  * Tool name type (union of all tool names).
@@ -92,7 +93,9 @@ const mcpToolNames = [
   'create_and_open_file',
   'list_comments',
   'add_comment',
-  'resolve_comment'
+  'resolve_comment',
+  'list_tabs',
+  'select_tab'
 ] as const
 
 /**

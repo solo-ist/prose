@@ -78,7 +78,10 @@ export async function initAutoUpdater(mainWindow: BrowserWindow): Promise<void> 
       // observer in Electron's native auto-updater and trips a NOTREACHED
       // (electron_api_auto_updater.cc:118), which bails out before the actual
       // quit/relaunch — see Sentry PROSE-H.
-      if (installInvoked) return
+      if (installInvoked) {
+        console.warn('[Updater] install ignored — already invoked')
+        return
+      }
       installInvoked = true
       // electron-updater calls Electron's native autoUpdater.quitAndInstall(),
       // which closes all windows BEFORE firing `before-quit`. Our macOS

@@ -5,6 +5,9 @@ import { app } from 'electron'
 // handler checks `isQuitting()` to decide whether to honor or swallow the
 // close. Kept in its own module to avoid circular imports between `index.ts`
 // and modules like `updater.ts` that need to flip the flag.
+//
+// Main-process only — the module-level `app.on('before-quit', ...)` below
+// runs on import. Importing from a renderer/test context would fail.
 
 let quitting = false
 

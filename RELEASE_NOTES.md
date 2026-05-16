@@ -1,39 +1,44 @@
-# Prose v1.1.0
+# Prose v1.2.0
 
-Prose now goes wherever you write, edit, and take notes, from reMarkable notebook to inside Claude.
+A polish-and-stability release: editor papercuts smoothed out, MCP made friendlier for Claude collaborators, and a fresh batch of fixes from real-world use of v1.1.0.
 
 ## What's New
 
-### Prose in Claude
+### Editor
 
-- `prose://` **URL scheme** — open files in Prose from anywhere
-- **Prose markdown editor widget** — edit markdown directly in a Claude conversation; round-trip drafts between Claude and Prose without losing your place
-- Support for Outline and Suggested Edit diff review in Claude with widgets
-- **Prose Skill** — bundled Claude skill that turns Claude into a Prose-aware writing collaborator. Download from Help → Download Prose Skill, the toolbar, or Settings → Integrations.
-- **Two-step consent flow** — clear, no-AI-required onboarding for users
+- **Link hover affordances** — links in the editor now show a pointer cursor and surface the URL in the status bar on hover, matching how every other markdown app behaves
+- **Quick review panel** — wider default (330px) so AI-suggested edits have room to breathe
 
-### reMarkable Sync GA
+### MCP
 
-- Sync your reMarkable notebooks from the Cloud via reMarkable Connect
-- Convert handwritten notes to markdown using open-source reMarkable conversion Lambda
-- **Page-level incremental OCR** — re-OCR only what changed
-- **Per-notebook sync indicators** in the file explorer
-- **Parallel page sync** with real-time progress
-- **Failure handling** — surface OCR failure state, auto-retry transient OCR failures on the next sync (30-min staleness window), manual "Retry Sync" + "Report OCR Issue" context menu
-- **Cancel in-progress sync** — bail out cleanly when a sync is taking too long
-- **"Move to…"** for synced notebooks, sharing the same folder picker as Manage Notebooks
-- **Sync folder moves to reMarkable Connect** — folder reorganizations now round-trip
+- **Nested containers** in `get_outline` and `read_document` so Claude can navigate complex documents (lists inside callouts inside blockquotes) the way you wrote them
+- **`suggest_edit`** is more reliable across tricky markdown shapes
+- **Comments are visible** to MCP clients — Claude can now read and reason about the comments in your draft
 
-### Security
+### Reporting
 
-- **CVE cleanup** — `hono` and `fast-uri` overrides clear 7 transitive CVEs
-- Sanitization, SRI hashes, and race fixes throughout the artifact editor
+- **Error Reporting consent prompt** — clicking "Report a bug" from the toolbar offers to enable Error Reporting first, so the report you send actually carries the crash trace it needs
+
+## Fixes
+
+- Editor: frontmatter no longer destabilizes the document; comment modal click is restored (#449, #456)
+- Editor: image drag-and-drop now resolves paths correctly (#417)
+- Editor: "Copy Markdown" uses Electron's native clipboard so other apps actually receive the markdown (#481)
+- Persistence: IndexedDB auto-reconnects on `InvalidStateError` instead of leaving the app in a broken state (#377, #393)
+- About dialog: reads the version from `package.json` instead of a hardcoded string (#438)
+- Post-merge bug batch: misc papercuts from v1.1.0 cleaned up (#489, #490, #491, #492)
+
+## Under the Hood
+
+- LLM model IDs centralized through `getDefaultModel` so adding or swapping models touches one place (#389)
+- Web build is now self-contained — `build:buildinfo` chains automatically (#484)
+- CI: fork contributors can run E2E and Web E2E (#483, #485, #486); per-issue concurrency scope unblocks cross-issue parallelism (#470)
 
 ## Installation
 
 ### Direct Download
 
-Download `Prose-1.1.0-arm64.dmg`, open, and drag to Applications. The app is signed and notarized — no security bypass needed.
+Download `Prose-1.2.0-arm64.dmg`, open, and drag to Applications. The app is signed and notarized — no security bypass needed.
 
 ### Auto-Update
 
@@ -41,7 +46,7 @@ Existing users will be prompted to update automatically.
 
 ### Mac App Store
 
-A matching v1.1.0 build will follow on the Mac App Store.
+The Mac App Store build for this release will follow separately.
 
 ## Requirements
 
@@ -50,4 +55,4 @@ A matching v1.1.0 build will follow on the Mac App Store.
 
 ---
 
-**Full changelog:** https://github.com/solo-ist/prose/compare/v1.0.1...v1.1.0
+**Full changelog:** https://github.com/solo-ist/prose/compare/v1.1.0...v1.2.0

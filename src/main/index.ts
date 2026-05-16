@@ -38,12 +38,7 @@ import { getMcpHttpServer, getMcpBridge, getMcpSocketServer } from './mcp'
 import { initializeSpellcheck, setupContextMenu } from './spellcheck'
 import { initAutoUpdater } from './updater'
 import { IS_MAS_BUILD } from './env'
-
-// Track quit intent so macOS hide-on-close can be bypassed during actual quit
-let isQuitting = false
-app.on('before-quit', () => {
-  isQuitting = true
-})
+import { isQuitting } from './quitState'
 
 console.log('[Main] Environment loaded. OCR URL:', process.env.REMARKABLE_OCR_URL ? 'set' : 'not set')
 console.log('[Main] Google configured:', process.env.GOOGLE_CLIENT_ID ? 'ID set' : 'ID missing', process.env.GOOGLE_CLIENT_SECRET ? 'Secret set' : 'Secret missing')
@@ -282,7 +277,7 @@ function createWindow(): BrowserWindow {
   // and allows the window to be re-shown via dock click or Window menu.
   if (process.platform === 'darwin') {
     mainWindow.on('close', (e) => {
-      if (!isQuitting) {
+      if (!isQuitting()) {
         e.preventDefault()
         mainWindow.hide()
       }

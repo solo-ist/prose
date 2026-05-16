@@ -1,6 +1,7 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import { IS_MAS_BUILD } from './env'
+import { markQuitting } from './quitState'
 
 export async function initAutoUpdater(mainWindow: BrowserWindow): Promise<void> {
   if (IS_MAS_BUILD) {
@@ -28,6 +29,7 @@ export async function initAutoUpdater(mainWindow: BrowserWindow): Promise<void> 
     autoUpdater.allowPrerelease = false
 
     let updateDownloaded = false
+    let installInvoked = false
 
     autoUpdater.on('update-available', (info) => {
       console.log('[Updater] Update available:', info.version)
@@ -72,6 +74,18 @@ export async function initAutoUpdater(mainWindow: BrowserWindow): Promise<void> 
 
     ipcMain.handle('updater:install', () => {
       if (!updateDownloaded) return
+      // Re-entrancy guard: a second QuitAndInstall call double-registers an
+      // observer in Electron's native auto-updater and trips a NOTREACHED
+      // (electron_api_auto_updater.cc:118), which bails out before the actual
+      // quit/relaunch — see Sentry PROSE-H.
+      if (installInvoked) return
+      installInvoked = true
+      // electron-updater calls Electron's native autoUpdater.quitAndInstall(),
+      // which closes all windows BEFORE firing `before-quit`. Our macOS
+      // hide-on-close handler would otherwise swallow the close and leave the
+      // app running in the background, with the user seeing the window vanish
+      // but no relaunch.
+      markQuitting()
       autoUpdater.quitAndInstall()
     })
 

@@ -766,13 +766,17 @@ export function Editor() {
   // Show empty state when document is empty, untitled, and user hasn't started editing
   const showEmptyState = !isEditing && !document.path && !document.content && !document.isDirty
 
+  const pendingFrontmatter = useEditorStore((state) => state.pendingFrontmatter)
+
   // Check if document has frontmatter to display — uses stableFrontmatter so the
-  // visibility decision doesn't flip during body edits
+  // visibility decision doesn't flip during body edits. Also shows when there is a
+  // pending AI suggestion even if the document has no existing frontmatter.
   const showFrontmatter = useMemo(() => {
+    if (pendingFrontmatter !== null) return true
     if (stableFrontmatter && Object.keys(stableFrontmatter).length > 0) return true
     // Fall back to checking raw content (for content that still has --- markers)
     return hasFrontmatter(document.content)
-  }, [document.content, stableFrontmatter])
+  }, [document.content, stableFrontmatter, pendingFrontmatter])
 
   // Focus editor when transitioning from empty state to editing
   // (skip during preview tab navigation — editor is non-editable)

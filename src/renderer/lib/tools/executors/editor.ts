@@ -316,20 +316,31 @@ export function executeSuggestEdit(
 
   // Detect and strip frontmatter from the incoming content.
   // When Claude adds frontmatter via suggest_edit the --- delimiters render
-  // as a thematic break/heading in TipTap. Extract frontmatter and apply it
-  // directly to the store; insert only the body into the editor.
+  // as a thematic break/heading in TipTap. Extract frontmatter and stage it
+  // as a pending overlay in the FrontmatterEditor; insert only the body
+  // into TipTap (Option B, #488).
+  let frontmatterExtracted = false
   if (content.trimStart().startsWith('---')) {
     const { content: body, frontmatter } = parseMarkdown(content)
     if (Object.keys(frontmatter).length > 0) {
-      // Real frontmatter — apply it to the store and use the stripped body
-      // as the suggestion content.
-      useEditorStore.getState().setFrontmatter(frontmatter)
+      // Real frontmatter — stage as a pending overlay instead of applying
+      // immediately, so the user can accept or reject via FrontmatterEditor.
+      useEditorStore.getState().setPendingFrontmatter(frontmatter)
+      frontmatterExtracted = true
       content = body
     }
     // If parseMarkdown matched the regex but yielded no keys (e.g., bare
     // string YAML, malformed YAML, or a deliberate thematic break followed
     // by prose), leave content untouched. Otherwise we'd silently drop the
     // ---...--- block from the suggestion. See #490.
+  }
+
+  // Critical bug prevention (#488): when frontmatter was the only payload
+  // (body is empty after stripping), skip the AI suggestion mark entirely.
+  // Inserting an empty suggestion onto the nearest body node (usually H1)
+  // was the root cause of the spurious heading highlight.
+  if (frontmatterExtracted && !content.trim()) {
+    return toolSuccess({ suggested: true, suggestionId: generateId() })
   }
 
   // Find the node by ID, fall back to content matching if stale

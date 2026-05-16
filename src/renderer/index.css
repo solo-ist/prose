@@ -896,6 +896,76 @@
   50% { opacity: 0.7; }
 }
 
+/* Frontmatter pending overlay — shown when AI proposes frontmatter changes (#488) */
+.frontmatter-pending-overlay {
+  background: hsl(145 60% 20% / 0.25);
+  border-color: hsl(145 70% 45% / 0.6);
+}
+
+.dark .frontmatter-pending-overlay {
+  background: hsl(145 60% 15% / 0.35);
+  border-color: hsl(145 70% 40% / 0.5);
+}
+
+.frontmatter-pending-label {
+  color: hsl(145 70% 45%);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.dark .frontmatter-pending-label {
+  color: hsl(145 70% 55%);
+}
+
+.frontmatter-pending-value {
+  color: hsl(145 60% 55%);
+}
+
+.dark .frontmatter-pending-value {
+  color: hsl(145 60% 65%);
+}
+
+.frontmatter-pending-accept-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  background: hsl(145 60% 40%);
+  color: white;
+  border: none;
+  border-radius: 0.25rem;
+  font-size: 0.6875rem;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.frontmatter-pending-accept-btn:hover {
+  background: hsl(145 60% 35%);
+}
+
+.frontmatter-pending-reject-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.25rem;
+  font-size: 0.6875rem;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.frontmatter-pending-reject-btn:hover {
+  background: hsl(var(--accent));
+}
+
 /* Spell-check styling - more prominent squiggles */
 .prose-editor ::spelling-error {
   text-decoration: wavy underline hsl(0 75% 55%);

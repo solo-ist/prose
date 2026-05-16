@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import * as yaml from 'js-yaml'
-import { Lock, Plus, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { Lock, Plus, X, ChevronDown, ChevronUp, Check } from 'lucide-react'
 import { Input } from '../ui/input'
+import { useEditorStore } from '../../stores/editorStore'
 
 const PROTECTED_FIELDS = new Set(['google_doc_id', 'google_synced_at'])
 
@@ -46,6 +47,9 @@ export function serializeFrontmatter(frontmatter: Record<string, unknown>): stri
 export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [fields, setFields] = useState<Field[]>(() => frontmatterToFields(frontmatter))
+  const pendingFrontmatter = useEditorStore((state) => state.pendingFrontmatter)
+  const acceptPendingFrontmatter = useEditorStore((state) => state.acceptPendingFrontmatter)
+  const rejectPendingFrontmatter = useEditorStore((state) => state.rejectPendingFrontmatter)
 
   // Track whether the next prop change originated from our own onSave round-trip
   // so we don't clobber an in-progress local edit when the store echoes back.
@@ -84,7 +88,57 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
     setFields(prev => [...prev, { key: '', value: '', readonly: false, originalValue: '' }])
   }, [])
 
-  if (Object.keys(frontmatter).length === 0 && fields.length === 0) return null
+  // Accept handler: apply pending frontmatter to the store and sync local fields
+  const handleAcceptPending = useCallback(() => {
+    if (!pendingFrontmatter) return
+    acceptPendingFrontmatter()
+    // Sync local fields to reflect the newly accepted values so the editor
+    // shows the updated state immediately (the store update will also re-sync
+    // via the useEffect below, but setting here avoids a flash).
+    setFields(frontmatterToFields(pendingFrontmatter))
+    onSave(pendingFrontmatter)
+  }, [pendingFrontmatter, acceptPendingFrontmatter, onSave])
+
+  if (Object.keys(frontmatter).length === 0 && fields.length === 0 && !pendingFrontmatter) return null
+
+  // Pending frontmatter overlay — shown when AI proposes frontmatter changes via suggest_edit
+  if (pendingFrontmatter) {
+    const pendingFields = frontmatterToFields(pendingFrontmatter)
+    return (
+      <div className="mb-6 rounded-md border px-4 py-3 font-mono text-xs frontmatter-pending-overlay">
+        <div className="flex items-center justify-between mb-2">
+          <span className="frontmatter-pending-label">AI suggested frontmatter</span>
+          <div className="flex items-center gap-2">
+            <button
+              className="frontmatter-pending-accept-btn"
+              onClick={handleAcceptPending}
+              title="Accept frontmatter suggestion"
+            >
+              <Check className="w-3 h-3" />
+              Accept
+            </button>
+            <button
+              className="frontmatter-pending-reject-btn"
+              onClick={rejectPendingFrontmatter}
+              title="Reject frontmatter suggestion"
+            >
+              <X className="w-3 h-3" />
+              Reject
+            </button>
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          {pendingFields.map(({ key, value }) => (
+            <div key={key} className="flex items-center gap-1.5">
+              <span className="text-muted-foreground/70 shrink-0 w-32 truncate">{key}</span>
+              <span className="text-muted-foreground/40 shrink-0">:</span>
+              <span className="flex-1 truncate frontmatter-pending-value">{value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   // Collapsed view
   if (!isExpanded) {

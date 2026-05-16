@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from 'react'
-import { useChatStore, createMessageId } from '../stores/chatStore'
+import { useChatStore, createMessageId, type ToolMode } from '../stores/chatStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useEditorStore } from '../stores/editorStore'
 import { useEditorInstanceStore } from '../stores/editorInstanceStore'
@@ -12,6 +12,32 @@ import { executeTool, resolveToolPosition } from '../lib/tools'
 import { getToolsForClaudeAPI } from '../../shared/tools/registry'
 import { resolveModelName } from '../../shared/llm/models'
 import type { LLMMessage, LLMStreamToolCall, LLMContentBlock } from '../types'
+
+// Chat Mode (legacy internal key 'suggestions') gets a read-only tool subset
+// rather than zero tools, so the agent can ground itself in the document
+// without proposing edits. We can't filter by `category === 'document'` alone
+// — that category includes the mutating add_comment and resolve_comment tools.
+// Mutating comment tools move behind Editor Mode via `requiresMode` in Chunk 4
+// of #467; until then this explicit allowlist is the gate.
+//
+// Audit checkpoint: when #450 (list_tabs / select_tab) merges, decide whether
+// those new tools belong in Chat Mode and extend this set, or defer them to
+// Chunk 3.
+const CHAT_MODE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'read_document',
+  'read_selection',
+  'get_metadata',
+  'search_document',
+  'get_outline',
+  'list_comments'
+])
+
+function getToolsForToolMode(toolMode: ToolMode): ReturnType<typeof getToolsForClaudeAPI> {
+  if (toolMode === 'suggestions') {
+    return getToolsForClaudeAPI('full').filter((t) => CHAT_MODE_TOOL_NAMES.has(t.name))
+  }
+  return getToolsForClaudeAPI(toolMode)
+}
 
 // Module-level flag to ensure stream listeners are only registered once globally
 let streamListenersInitialized = false
@@ -303,7 +329,7 @@ export function useChat() {
         // Call LLM again with tool results
         const settingsState = useSettingsStore.getState()
         const editorState = useEditorStore.getState()
-        const tools = state.toolMode !== 'suggestions' ? getToolsForClaudeAPI(state.toolMode) : undefined
+        const tools = getToolsForToolMode(state.toolMode)
 
         try {
           await api.llmChatStream({
@@ -479,9 +505,9 @@ export function useChat() {
 
       // Initialize tool loop context if tools are enabled
       console.log('[useChat] toolMode:', toolMode)
-      let tools
+      let tools: ReturnType<typeof getToolsForToolMode> | undefined
       try {
-        tools = toolMode !== 'suggestions' ? getToolsForClaudeAPI(toolMode) : undefined
+        tools = getToolsForToolMode(toolMode)
         console.log('[useChat] tools:', tools?.length || 0)
         if (tools && tools.length > 0) {
           console.log('[useChat] First tool schema:', JSON.stringify(tools[0], null, 2))
@@ -490,7 +516,7 @@ export function useChat() {
         console.error('[useChat] Error getting tools:', toolErr)
         tools = undefined
       }
-      if (tools) {
+      if (tools && tools.length > 0) {
         toolLoopContextRef.current = {
           apiMessages,
           assistantMsgId,

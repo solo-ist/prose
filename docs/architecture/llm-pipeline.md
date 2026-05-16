@@ -120,7 +120,7 @@ The mark renders as `<span class="ai-suggestion-mark" data-ai-suggestion-id="...
 
 ### Accept / Reject
 
-- **Accept** (`acceptAISuggestion(id)`) — collects all nodes bearing the mark (a suggestion may span multiple text nodes if formatting splits the range), removes the mark, replaces the text range with `suggestedText`, then creates word-level diff annotations via `createWordDiffAnnotations()` for provenance tracking.
+- **Accept** (`acceptAISuggestion(id)`) — collects all nodes bearing the mark (a suggestion may span multiple text nodes if formatting splits the range), removes the mark, replaces the text range with `suggestedText`, then creates word-level diff annotations via `createWordDiffAnnotations()` for provenance tracking. The suggestion's `explanation` is copied onto the annotation so the post-accept tooltip can show the model's reason.
 - **Reject** (`rejectAISuggestion(id)`) — removes the mark only. No text change.
 
 ### Node ID System

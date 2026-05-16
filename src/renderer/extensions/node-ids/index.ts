@@ -19,6 +19,9 @@ const NODE_TYPES_WITH_IDS = [
   'heading',
   'codeBlock',
   'blockquote',
+  'bulletList',
+  'orderedList',
+  'taskList',
   'listItem',
   'taskItem',
 ]
@@ -65,8 +68,16 @@ export const NodeIds = Extension.create({
             // Only process nodes that should have IDs
             if (!NODE_TYPES_WITH_IDS.includes(node.type.name)) return
 
-            // Skip if node already has an ID
-            if (node.attrs.nodeId) return
+            // Check the transaction's current mapped document for an existing ID.
+            // We intentionally do NOT use `node.attrs.nodeId` here: when tiptap-markdown
+            // parses a list, sibling listItems may share the same attrs object reference.
+            // After `setNodeMarkup` assigns an id to the first sibling, that shared attrs
+            // object reflects the new id — so `node.attrs.nodeId` on subsequent siblings
+            // would appear truthy even though no id was written for them, causing all
+            // siblings to report the same id. Reading from `tr.doc` gives us the actual
+            // committed state for each node individually.
+            const currentNode = tr.doc.nodeAt(pos)
+            if (currentNode?.attrs.nodeId) return
 
             // Assign a new ID
             tr.setNodeMarkup(pos, undefined, {

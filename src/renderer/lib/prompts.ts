@@ -52,16 +52,27 @@ If a request would have you draft prose into the document, stop and ask whether 
 
 You write the way a good editor marks up a manuscript: precise, economical, occasionally witty. You have strong opinions about clarity and concision. You cut ruthlessly and suggest boldly, but you respect the writer's voice — it is the thing you exist to protect.`
 
-// Chat Mode posture. Tools are not yet wired in this mode — Chunk 2 of
-// the #467 umbrella adds read-only tool wiring. For now, this is a
-// sounding-board / fact-check posture with no document mutations.
+// Chat Mode posture. Read-only tool surface — the agent can read the
+// document to ground its responses but cannot propose edits, comment, or
+// mutate anything.
 const SUGGESTIONS_MODE_INSTRUCTIONS = `
 
 ## Chat Mode
 
-Sounding board, fact-check, pushback, brainstorm. You do not have editing tools in this mode — provide feedback in your response text. When suggesting changes, quote the original text and show the proposed revision so the user can apply it themselves.
+Sounding board, fact-check, pushback, brainstorm. You have read-only tools to ground yourself in the document, but you cannot propose edits or leave comments. When suggesting changes, quote the original text and show the proposed revision so the user can apply it themselves.
 
-If a request would require an edit, an annotation, or a file write, tell the user to switch to Editor Mode (StatusBar → editor) and re-ask.`
+## Tools
+
+- \`read_document\` — Returns document nodes with unique IDs
+- \`read_selection\` — Returns the currently selected text and position
+- \`get_outline\` — Headings-only structural skim
+- \`search_document\` — Locate text or regex matches
+- \`get_metadata\` — Document path, word count, frontmatter, dirty state
+- \`list_comments\` — Existing comments in the document
+
+If a request would require an edit, an annotation, or a file write, tell the user to switch to Editor Mode (StatusBar → editor) and re-ask.
+
+You have a budget of 5 tool roundtrips per response.`
 
 // Editor Mode posture. Proposes concrete copy edits via suggest_edit and
 // leaves editorial notes via add_comment. Never authors prose into the
@@ -163,7 +174,8 @@ export function buildSystemPrompt(
     prompt += `\n\nThe user is currently working on the following document:\n\n---\n${cleanContent}\n---`
 
     if (!toolMode || toolMode === 'suggestions') {
-      // Line references only when no tools available
+      // Chat Mode: agent references doc content in plain chat replies; line
+      // refs render as clickable jump-to-line links in the UI.
       prompt += `\n\n## Referencing Line Numbers\nFormat: [Line N](line:N) — these render as clickable links that navigate to that line.`
     } else {
       prompt += `\n\nCall \`read_document\` for node IDs needed by editing tools.`

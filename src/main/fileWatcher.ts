@@ -6,10 +6,11 @@
  * disposed and a new one is started. File-system events are forwarded to the
  * renderer via IPC push events:
  *
- *   file:watch:event  — { type: 'created' | 'deleted' | 'renamed', path: string }
+ *   file:watch:event  — { type: 'created' | 'deleted', path: string }
  *
- * A single event type keeps the renderer side simple: it can reload the
- * directory listing on any event regardless of type.
+ * Renames are reported as an unlink + add pair by chokidar (no native rename
+ * event), so we don't model them separately. The renderer just reloads on
+ * any event regardless of type.
  */
 
 import { ipcMain, BrowserWindow } from 'electron'
@@ -166,9 +167,10 @@ export function setupFileWatcherHandlers(): void {
 }
 
 /**
- * Tear down the watcher and IPC handlers on app quit.
- * Called from the app 'will-quit' event in src/main/index.ts. Routes through
- * the same queue so it can't race with an in-flight start/stop.
+ * Stop the active watcher on app quit. Called from the app 'will-quit' event
+ * in src/main/index.ts. Routes through the same queue so it can't race with
+ * an in-flight start/stop. IPC handler registrations are left in place — they
+ * get reclaimed by the process exit a moment later.
  */
 export async function teardownFileWatcher(): Promise<void> {
   await enqueueWatcherOp(() => stopWatcher())

@@ -15,13 +15,18 @@ import type { LLMMessage, LLMStreamToolCall, LLMContentBlock } from '../types'
 
 // Chat Mode gets a read-only tool subset rather than the full read+write
 // surface, so the agent can ground itself in the document without proposing
-// edits. We can't filter by `category === 'document'` alone — that category
-// includes the mutating add_comment and resolve_comment tools. Mutating
-// comment tools move behind Editor Mode via `requiresMode` in Chunk 4 of
-// #467; until then this explicit allowlist is the gate.
+// edits. Defense-in-depth alongside the registry-level mode gating:
+// `requiresMode` on each ToolConfig excludes mutating tools from Chat Mode at
+// the registry, AND this explicit allowlist ensures Chat Mode only ever
+// receives tools we have specifically vetted as read-only.
 //
-// Audit checkpoint: when new MCP/agent tools land (e.g., list_tabs, select_tab
-// from #450), decide whether they belong in Chat Mode and extend this set.
+// Why both layers: registry gating relies on every new tool author setting
+// `requiresMode` correctly; a tool added with `requiresMode: null` (the
+// default for read-only tools) would silently appear in Chat Mode. The
+// allowlist keeps the failure mode "tool missing" rather than "tool leaks."
+//
+// Audit checkpoint: when new tools land, decide whether they belong in
+// Chat Mode and extend this set.
 const CHAT_MODE_TOOL_NAMES: ReadonlySet<string> = new Set([
   'read_document',
   'read_selection',

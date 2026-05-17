@@ -145,7 +145,10 @@ export const addCommentConfig: ToolConfig<typeof addCommentSchema> = {
     'Add a comment to a node or range in the document. Provide nodeId (preferred, from read_document) or from/to positions. Returns { id } of the new comment.',
   schema: addCommentSchema,
   category: 'document',
-  requiresMode: null,
+  // Comments mutate document state; Chat Mode stays read-only. Editor Mode
+  // needs add_comment to deliver the non-authorship affordance: the agent
+  // can flag editorial issues without proposing replacement prose.
+  requiresMode: 'editor',
   dangerous: false
 }
 
@@ -163,7 +166,9 @@ export const resolveCommentConfig: ToolConfig<typeof resolveCommentSchema> = {
     'Resolve (remove) a comment by its ID. Use list_comments to see all comment IDs.',
   schema: resolveCommentSchema,
   category: 'document',
-  requiresMode: null,
+  // Sibling of add_comment — removing a comment is also a mutation, so it
+  // belongs in Editor Mode and up. list_comments stays read-only.
+  requiresMode: 'editor',
   dangerous: false
 }
 

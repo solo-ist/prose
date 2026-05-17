@@ -95,11 +95,18 @@ export const useEditorStore = create<EditorState>()(
     pendingFrontmatter: null,
 
     setDocument: (doc) =>
-      set((state) => ({
-        document: { ...state.document, ...doc },
-        // Invalidate cache when document changes
-        readCache: { content: null, documentId: null }
-      })),
+      set((state) => {
+        const documentIdChanged =
+          doc.documentId !== undefined && doc.documentId !== state.document.documentId
+        return {
+          document: { ...state.document, ...doc },
+          // Invalidate cache when document changes
+          readCache: { content: null, documentId: null },
+          // Clear any pending frontmatter overlay when switching documents,
+          // so a Tab A suggestion can't get accepted into Tab B.
+          ...(documentIdChanged ? { pendingFrontmatter: null } : {})
+        }
+      }),
 
     setContent: (content) =>
       set((state) => {

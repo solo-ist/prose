@@ -107,12 +107,11 @@ function prependFrontmatterNode(
     yamlBody = ''
   }
 
-  const status = pendingFrontmatter ? ' (pending suggestion)' : ''
   return [
     {
       id: 'frontmatter',
       type: 'frontmatter',
-      content: `---\n${yamlBody}\n---${status}`,
+      content: `---\n${yamlBody}\n---`,
     },
     ...nodes,
   ]

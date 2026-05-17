@@ -349,43 +349,57 @@ export function executeSuggestEdit(
     return toolSuccess({ suggested: true, suggestionId: generateId() })
   }
 
-  // Detect and strip frontmatter from the incoming content.
+  // Detect and stage frontmatter from the incoming content (Option B, #488).
   // When Claude adds frontmatter via suggest_edit the --- delimiters render
-  // as a thematic break/heading in TipTap. Extract frontmatter and stage it
-  // as a pending overlay in the FrontmatterEditor; insert only the body
-  // into TipTap (Option B, #488).
-  let frontmatterExtracted = false
+  // as a thematic break/heading in TipTap. Extract frontmatter, then commit it
+  // as a pending overlay only AFTER we know the suggest_edit will succeed
+  // (avoids the "error toast + unexpected overlay" failure mode where a stale
+  // nodeId would still pop the overlay).
+  let frontmatterToStage: Record<string, unknown> | null = null
   if (content.trimStart().startsWith('---')) {
     const { content: body, frontmatter } = parseMarkdown(content)
     if (Object.keys(frontmatter).length > 0) {
-      // Real frontmatter — stage as a pending overlay instead of applying
-      // immediately, so the user can accept or reject via FrontmatterEditor.
-      useEditorStore.getState().setPendingFrontmatter(frontmatter)
-      frontmatterExtracted = true
+      // Real frontmatter — stage for later commit.
+      frontmatterToStage = frontmatter
       content = body
-    } else if (FRONTMATTER_FENCE_REGEX.test(content.trimStart())) {
-      // The content has matched ---...--- fences but yielded no parseable
-      // YAML keys. Don't silently insert the malformed block into the body
-      // (that was the failure mode in the #508 review). Force a retry with
-      // a clear error so the model fixes the YAML or uses nodeId=frontmatter.
-      return toolError(
-        'Content is wrapped in --- delimiters but no valid YAML keys were found. ' +
-          'Either pass valid YAML between the delimiters, or call suggest_edit with ' +
-          "nodeId: 'frontmatter' to update the frontmatter block directly.",
-        'INVALID_FRONTMATTER'
-      )
+    } else {
+      // parseMarkdown matched the regex but produced no object. Two cases:
+      //   (a) malformed YAML attempt — should error (e.g., `## title: foo`)
+      //   (b) legitimate body content with a YAML scalar inside the fences
+      //       (e.g., `---\nsome text\n---\nbody`) — should pass through unchanged
+      //       to preserve #490's protection for thematic-break-style bodies.
+      // Distinguish by parsing the fence interior directly: if yaml.load
+      // throws, it's malformed (a). If it returns a scalar/array/null without
+      // throwing, it's legitimate body (b).
+      const fenceMatch = content.trimStart().match(FRONTMATTER_FENCE_REGEX)
+      if (fenceMatch) {
+        let yamlThrew = false
+        try {
+          parseYaml(fenceMatch[1])
+        } catch {
+          yamlThrew = true
+        }
+        if (yamlThrew) {
+          return toolError(
+            'Content is wrapped in --- delimiters but the YAML inside failed to parse. ' +
+              'Either pass valid YAML between the delimiters, or call suggest_edit with ' +
+              "nodeId: 'frontmatter' to update the frontmatter block directly.",
+            'INVALID_FRONTMATTER'
+          )
+        }
+        // YAML parsed but yielded no object — leave content unchanged so we
+        // don't silently drop a body block. See #490.
+      }
     }
-    // If parseMarkdown matched the regex but yielded no keys (e.g., bare
-    // string YAML, malformed YAML, or a deliberate thematic break followed
-    // by prose), leave content untouched. Otherwise we'd silently drop the
-    // ---...--- block from the suggestion. See #490.
   }
 
   // Critical bug prevention (#488): when frontmatter was the only payload
   // (body is empty after stripping), skip the AI suggestion mark entirely.
   // Inserting an empty suggestion onto the nearest body node (usually H1)
-  // was the root cause of the spurious heading highlight.
-  if (frontmatterExtracted && !content.trim()) {
+  // was the root cause of the spurious heading highlight. Commit the staged
+  // frontmatter here — frontmatter-only path doesn't need node lookup.
+  if (frontmatterToStage && !content.trim()) {
+    useEditorStore.getState().setPendingFrontmatter(frontmatterToStage)
     return toolSuccess({ suggested: true, suggestionId: generateId() })
   }
 
@@ -407,6 +421,13 @@ export function executeSuggestEdit(
 
   const { node, pos } = found
   const suggestionId = generateId()
+
+  // Node lookup succeeded — safe to commit staged frontmatter now. (Bug fix
+  // from #508 review: previously fired before lookup, causing an unexpected
+  // overlay to appear alongside a NODE_NOT_FOUND error toast.)
+  if (frontmatterToStage) {
+    useEditorStore.getState().setPendingFrontmatter(frontmatterToStage)
+  }
 
   // Get the original text content
   const originalText = node.textContent

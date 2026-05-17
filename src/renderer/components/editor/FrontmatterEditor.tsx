@@ -48,7 +48,6 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
   const [isExpanded, setIsExpanded] = useState(false)
   const [fields, setFields] = useState<Field[]>(() => frontmatterToFields(frontmatter))
   const pendingFrontmatter = useEditorStore((state) => state.pendingFrontmatter)
-  const acceptPendingFrontmatter = useEditorStore((state) => state.acceptPendingFrontmatter)
   const rejectPendingFrontmatter = useEditorStore((state) => state.rejectPendingFrontmatter)
 
   // Track whether the next prop change originated from our own onSave round-trip
@@ -88,16 +87,19 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
     setFields(prev => [...prev, { key: '', value: '', readonly: false, originalValue: '' }])
   }, [])
 
-  // Accept handler: apply pending frontmatter to the store and sync local fields
+  // Accept handler: clear the pending state and route the accepted frontmatter
+  // through onSave (which owns the store write + content reserialization).
+  // Avoids a double-write that would otherwise happen if we called
+  // acceptPendingFrontmatter (writes document.frontmatter) AND onSave (also
+  // routes to setFrontmatter). Sync local fields too so the editor reflects
+  // the new state without waiting for the prop round-trip.
   const handleAcceptPending = useCallback(() => {
     if (!pendingFrontmatter) return
-    acceptPendingFrontmatter()
-    // Sync local fields to reflect the newly accepted values so the editor
-    // shows the updated state immediately (the store update will also re-sync
-    // via the useEffect below, but setting here avoids a flash).
-    setFields(frontmatterToFields(pendingFrontmatter))
-    onSave(pendingFrontmatter)
-  }, [pendingFrontmatter, acceptPendingFrontmatter, onSave])
+    const accepted = pendingFrontmatter
+    rejectPendingFrontmatter() // clears pending state without touching frontmatter
+    setFields(frontmatterToFields(accepted))
+    onSave(accepted)
+  }, [pendingFrontmatter, rejectPendingFrontmatter, onSave])
 
   if (Object.keys(frontmatter).length === 0 && fields.length === 0 && !pendingFrontmatter) {
     return (
@@ -156,6 +158,27 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
 
   // Collapsed view
   if (!isExpanded) {
+    // Hide empty-key rows in the collapsed display — they're an in-progress
+    // editing state, not content worth showing. If nothing remains, fall back
+    // to the "+ Add frontmatter" affordance so the user can recover from
+    // adding-then-collapsing-without-typing.
+    const displayFields = fields.filter(f => f.key.trim())
+    if (displayFields.length === 0 && !pendingFrontmatter) {
+      return (
+        <button
+          className="mb-6 flex items-center gap-1 text-muted-foreground/40 hover:text-muted-foreground/80 transition-colors text-xs font-mono"
+          onClick={() => {
+            setFields(prev => prev.filter(f => f.key.trim()))
+            handleAdd()
+            setIsExpanded(true)
+          }}
+          title="Add frontmatter to this document"
+        >
+          <Plus className="w-3 h-3" />
+          Add frontmatter
+        </button>
+      )
+    }
     return (
       <div
         className="mb-6 rounded-md bg-muted/50 border border-border/50 px-4 py-3 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/70 transition-colors group"
@@ -164,7 +187,7 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
       >
         <div className="flex items-start justify-between gap-2">
           <div className="space-y-1.5 flex-1 min-w-0">
-            {fields.map(({ key, value }) => {
+            {displayFields.map(({ key, value }) => {
               const isDocId = key === 'google_doc_id'
               const displayValue = isDocId ? value.replace(/^['"]|['"]$/g, '') : value
               return (

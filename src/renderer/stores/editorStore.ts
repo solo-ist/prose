@@ -64,7 +64,6 @@ interface EditorState {
   toggleSourceMode: () => void
   // Pending frontmatter suggestion methods
   setPendingFrontmatter: (frontmatter: Record<string, unknown> | null) => void
-  acceptPendingFrontmatter: () => void
   rejectPendingFrontmatter: () => void
 }
 
@@ -223,15 +222,6 @@ export const useEditorStore = create<EditorState>()(
 
     // Pending frontmatter suggestion methods
     setPendingFrontmatter: (frontmatter) => set({ pendingFrontmatter: frontmatter }),
-
-    acceptPendingFrontmatter: () =>
-      set((state) => {
-        if (!state.pendingFrontmatter) return {}
-        return {
-          document: { ...state.document, frontmatter: state.pendingFrontmatter, isDirty: true },
-          pendingFrontmatter: null
-        }
-      }),
 
     rejectPendingFrontmatter: () => set({ pendingFrontmatter: null })
   }))

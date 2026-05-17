@@ -52,6 +52,7 @@ interface ChatState {
   setContext: (context: string | null) => void
   setAgentMode: (enabled: boolean) => void
   setToolMode: (mode: ToolMode) => void
+  cycleToolMode: () => void
 
   // Streaming actions
   startStreaming: (messageId: string, streamId: string) => void
@@ -220,9 +221,9 @@ export const useChatStore = create<ChatState>()(
 
     setAgentMode: (enabled) => set({
       agentMode: enabled,
-      // Legacy compatibility: Shift+Tab toggles between chat and create
-      // (the "agent off" vs "agent fully on" extremes). Users who want
-      // Editor Mode must pick it from the StatusBar dropdown.
+      // Legacy compatibility for any remaining callers: maps a boolean to
+      // the two extremes of the mode ladder. Keyboard cycling goes through
+      // cycleToolMode instead so Editor is reachable.
       toolMode: enabled ? 'create' : 'chat'
     }),
 
@@ -232,6 +233,17 @@ export const useChatStore = create<ChatState>()(
       // where the agent can author prose directly.
       agentMode: mode === 'create'
     }),
+
+    // Cycle through all three modes: chat → editor → create → chat.
+    // Used by the Shift+Tab keyboard shortcut so Editor Mode (the new
+    // safe-by-default mode) is reachable via keyboard, not just the
+    // StatusBar dropdown. Delegates to setToolMode so agentMode stays
+    // in sync.
+    cycleToolMode: () => {
+      const current = get().toolMode
+      const next: ToolMode = current === 'chat' ? 'editor' : current === 'editor' ? 'create' : 'chat'
+      get().setToolMode(next)
+    },
 
     // Streaming actions
     startStreaming: (messageId, streamId) =>

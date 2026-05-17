@@ -112,6 +112,7 @@ export function useChat() {
     setContext,
     setAgentMode,
     setToolMode,
+    cycleToolMode,
     startStreaming,
     appendStreamChunk,
     completeStreaming
@@ -694,6 +695,7 @@ export function useChat() {
     setPanelOpen,
     setContext,
     setAgentMode,
-    setToolMode
+    setToolMode,
+    cycleToolMode
   }
 }

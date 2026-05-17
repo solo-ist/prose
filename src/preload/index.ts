@@ -280,7 +280,7 @@ export interface ElectronAPI {
   // File watcher — subscribe to filesystem events for the File Explorer
   startWatchingDirectory: (dirPath: string) => Promise<void>
   stopWatchingDirectory: () => Promise<void>
-  onFileWatchEvent: (callback: (event: { type: 'created' | 'deleted' | 'renamed'; path: string }) => void) => () => void
+  onFileWatchEvent: (callback: (event: { type: 'created' | 'deleted'; path: string }) => void) => () => void
 }
 
 export interface FileItem {
@@ -540,8 +540,8 @@ const api: ElectronAPI = {
   // File watcher — subscribe to filesystem events for the File Explorer
   startWatchingDirectory: (dirPath: string) => ipcRenderer.invoke('file:watch:start', dirPath),
   stopWatchingDirectory: () => ipcRenderer.invoke('file:watch:stop'),
-  onFileWatchEvent: (callback: (event: { type: 'created' | 'deleted' | 'renamed'; path: string }) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, fileEvent: { type: 'created' | 'deleted' | 'renamed'; path: string }): void => {
+  onFileWatchEvent: (callback: (event: { type: 'created' | 'deleted'; path: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, fileEvent: { type: 'created' | 'deleted'; path: string }): void => {
       callback(fileEvent)
     }
     ipcRenderer.on('file:watch:event', handler)

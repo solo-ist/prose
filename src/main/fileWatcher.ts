@@ -24,9 +24,26 @@ export interface FileWatchEvent {
   path: string
 }
 
-// The single active watcher (null when no directory is being watched)
+// The single active watcher (null when no directory is being watched).
+// Single-window assumption: state is global; if Prose ever opens multiple
+// windows with different File Explorer roots, both will share one watcher
+// and broadcast each other's events. Revisit when adding multi-window.
 let activeWatcher: ReturnType<typeof chokidar.watch> | null = null
 let watchedDirectory: string | null = null
+
+/**
+ * Serialize lifecycle operations on the watcher. Without this, fire-and-forget
+ * IPC calls from the renderer can interleave at the main process — e.g., a
+ * `null → B` transition where `start(B)` resolves before `stop(null)` would
+ * leave the watcher torn down. The queue makes lifecycle ordering deterministic.
+ */
+let watcherOpQueue: Promise<void> = Promise.resolve()
+
+function enqueueWatcherOp(op: () => Promise<void>): Promise<void> {
+  // Chain on settled (not just resolved) so a failed op doesn't poison the queue.
+  watcherOpQueue = watcherOpQueue.then(op, op)
+  return watcherOpQueue
+}
 
 /**
  * Send a file-watch event to every open BrowserWindow renderer.
@@ -135,18 +152,19 @@ export function setupFileWatcherHandlers(): void {
       console.warn('[FileWatcher] Rejected path:', dirPath, '—', message)
       return
     }
-    await startWatcher(normalized)
+    await enqueueWatcherOp(() => startWatcher(normalized))
   })
 
   ipcMain.handle('file:watch:stop', async () => {
-    await stopWatcher()
+    await enqueueWatcherOp(() => stopWatcher())
   })
 }
 
 /**
  * Tear down the watcher and IPC handlers on app quit.
- * Called from the app 'will-quit' event in src/main/index.ts.
+ * Called from the app 'will-quit' event in src/main/index.ts. Routes through
+ * the same queue so it can't race with an in-flight start/stop.
  */
 export async function teardownFileWatcher(): Promise<void> {
-  await stopWatcher()
+  await enqueueWatcherOp(() => stopWatcher())
 }

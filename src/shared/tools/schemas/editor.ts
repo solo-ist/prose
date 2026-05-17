@@ -30,7 +30,7 @@ export const editConfig: ToolConfig<typeof editSchema> = {
     "Replace the content of a specific node by ID. Use read_document first to see all nodes with their IDs, then target the node you want to edit. Always include the search parameter with the original text for reliability. Special nodeId: pass 'frontmatter' with the COMPLETE new YAML (with or without --- fences) to direct-write the frontmatter block (no overlay, no search needed).",
   schema: editSchema,
   category: 'editor',
-  requiresMode: 'full', // Only available in Full Autonomy mode
+  requiresMode: 'create', // Direct writes — only available in Create Mode
   dangerous: false
 }
 
@@ -52,7 +52,7 @@ export const insertConfig: ToolConfig<typeof insertSchema> = {
   description: 'Insert text at the specified position in the document',
   schema: insertSchema,
   category: 'editor',
-  requiresMode: 'full',
+  requiresMode: 'create',
   dangerous: false
 }
 

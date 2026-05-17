@@ -55,7 +55,7 @@ You write the way a good editor marks up a manuscript: precise, economical, occa
 // Chat Mode posture. Read-only tool surface — the agent can read the
 // document to ground its responses but cannot propose edits, comment, or
 // mutate anything.
-const SUGGESTIONS_MODE_INSTRUCTIONS = `
+const CHAT_MODE_INSTRUCTIONS = `
 
 ## Chat Mode
 
@@ -74,12 +74,10 @@ If a request would require an edit, an annotation, or a file write, tell the use
 
 You have a budget of 5 tool roundtrips per response.`
 
-// Editor Mode posture. Proposes concrete copy edits via suggest_edit and
-// leaves editorial notes via add_comment. Never authors prose into the
-// document — that requires Create Mode. Will become the default in Chunk 3
-// of #467 (chatStore initialization flip); today's actual default is
-// Create Mode (legacy 'full'), so this PR doesn't claim the (default) tag.
-const PLAN_MODE_INSTRUCTIONS = `
+// Editor Mode posture. Default for new users. Proposes concrete copy edits
+// via suggest_edit and leaves editorial notes via add_comment. Never
+// authors prose into the document — that requires Create Mode.
+const EDITOR_MODE_INSTRUCTIONS = `
 
 ## Editor Mode
 
@@ -114,7 +112,7 @@ You have a budget of 5 tool roundtrips per response.`
 // Create Mode posture. Opt-in. The no-authorship rule is lifted; the user
 // has explicitly asked for LLM-authored prose. Persona constraints around
 // accuracy, structural diagnosis, and concision still apply.
-const FULL_MODE_INSTRUCTIONS = `
+const CREATE_MODE_INSTRUCTIONS = `
 
 ## Create Mode
 
@@ -159,13 +157,15 @@ export function buildSystemPrompt(
     prompt = `You are ${modelName}.\n\n` + prompt
   }
 
-  // Mode-specific tool instructions
-  if (!toolMode || toolMode === 'suggestions') {
-    prompt += SUGGESTIONS_MODE_INSTRUCTIONS
-  } else if (toolMode === 'plan') {
-    prompt += PLAN_MODE_INSTRUCTIONS
-  } else if (toolMode === 'full') {
-    prompt += FULL_MODE_INSTRUCTIONS
+  // Mode-specific tool instructions. Defaults to Editor when no mode supplied
+  // (matches the chatStore initial value).
+  const resolvedMode: ToolMode = toolMode ?? 'editor'
+  if (resolvedMode === 'chat') {
+    prompt += CHAT_MODE_INSTRUCTIONS
+  } else if (resolvedMode === 'editor') {
+    prompt += EDITOR_MODE_INSTRUCTIONS
+  } else if (resolvedMode === 'create') {
+    prompt += CREATE_MODE_INSTRUCTIONS
   }
 
   // Document context — always include full document regardless of tool mode
@@ -173,7 +173,7 @@ export function buildSystemPrompt(
     const cleanContent = stripCommentMarkup(documentContent)
     prompt += `\n\nThe user is currently working on the following document:\n\n---\n${cleanContent}\n---`
 
-    if (!toolMode || toolMode === 'suggestions') {
+    if (resolvedMode === 'chat') {
       // Chat Mode: agent references doc content in plain chat replies; line
       // refs render as clickable jump-to-line links in the UI.
       prompt += `\n\n## Referencing Line Numbers\nFormat: [Line N](line:N) — these render as clickable links that navigate to that line.`

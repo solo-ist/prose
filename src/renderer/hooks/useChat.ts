@@ -13,16 +13,15 @@ import { getToolsForClaudeAPI } from '../../shared/tools/registry'
 import { resolveModelName } from '../../shared/llm/models'
 import type { LLMMessage, LLMStreamToolCall, LLMContentBlock } from '../types'
 
-// Chat Mode (legacy internal key 'suggestions') gets a read-only tool subset
-// rather than zero tools, so the agent can ground itself in the document
-// without proposing edits. We can't filter by `category === 'document'` alone
-// — that category includes the mutating add_comment and resolve_comment tools.
-// Mutating comment tools move behind Editor Mode via `requiresMode` in Chunk 4
-// of #467; until then this explicit allowlist is the gate.
+// Chat Mode gets a read-only tool subset rather than the full read+write
+// surface, so the agent can ground itself in the document without proposing
+// edits. We can't filter by `category === 'document'` alone — that category
+// includes the mutating add_comment and resolve_comment tools. Mutating
+// comment tools move behind Editor Mode via `requiresMode` in Chunk 4 of
+// #467; until then this explicit allowlist is the gate.
 //
-// Audit checkpoint: when #450 (list_tabs / select_tab) merges, decide whether
-// those new tools belong in Chat Mode and extend this set, or defer them to
-// Chunk 3.
+// Audit checkpoint: when new MCP/agent tools land (e.g., list_tabs, select_tab
+// from #450), decide whether they belong in Chat Mode and extend this set.
 const CHAT_MODE_TOOL_NAMES: ReadonlySet<string> = new Set([
   'read_document',
   'read_selection',
@@ -33,8 +32,8 @@ const CHAT_MODE_TOOL_NAMES: ReadonlySet<string> = new Set([
 ])
 
 function getToolsForToolMode(toolMode: ToolMode): ReturnType<typeof getToolsForClaudeAPI> {
-  if (toolMode === 'suggestions') {
-    return getToolsForClaudeAPI('full').filter((t) => CHAT_MODE_TOOL_NAMES.has(t.name))
+  if (toolMode === 'chat') {
+    return getToolsForClaudeAPI('create').filter((t) => CHAT_MODE_TOOL_NAMES.has(t.name))
   }
   return getToolsForClaudeAPI(toolMode)
 }
@@ -347,7 +346,7 @@ export function useChat() {
             streamId: newStreamId,
             tools,
             maxToolRoundtrips: 5,
-            maxTokens: state.toolMode === 'suggestions' ? 3072 : 4096
+            maxTokens: state.toolMode === 'chat' ? 3072 : 4096
           })
         } catch (error) {
           console.error('[Chat] Tool loop error:', error)
@@ -547,7 +546,7 @@ export function useChat() {
           streamId,
           tools,
           maxToolRoundtrips: 5,
-          maxTokens: toolMode === 'suggestions' ? 3072 : 4096
+          maxTokens: toolMode === 'chat' ? 3072 : 4096
         })
       } catch (error) {
         console.error('[Chat] Error:', error)

@@ -41,15 +41,31 @@ export function getToolsByCategory(category: ToolCategory): ToolConfig[] {
 }
 
 /**
+ * Mode capability ladder: each mode includes everything below it.
+ *
+ *   chat   ⊂ editor ⊂ create
+ *
+ * A tool with `requiresMode: 'editor'` is available in editor and create, not chat.
+ * `requiresMode: 'create'` is create-only. `requiresMode: null` is available everywhere.
+ *
+ * Note: `chat` is at the bottom of the ladder for gating purposes — at runtime,
+ * Chat Mode's actual tool surface is narrowed further at the useChat call site
+ * to a read-only subset (see CHAT_MODE_TOOL_NAMES in src/renderer/hooks/useChat.ts).
+ */
+const MODE_LEVEL: Record<ToolMode, number> = {
+  chat: 0,
+  editor: 1,
+  create: 2
+}
+
+/**
  * Get all tools available in a given mode.
  */
 export function getToolsForMode(mode: ToolMode): ToolConfig[] {
+  const modeLevel = MODE_LEVEL[mode]
   return allTools.filter((tool) => {
     if (tool.requiresMode === null) return true
-    if (mode === 'full') return true // Full mode has access to all tools
-    if (mode === 'plan') return tool.requiresMode !== 'full' // Plan excludes full-only
-    // Suggestions mode: only tools that don't require full or plan
-    return tool.requiresMode === 'suggestions' || tool.requiresMode === null
+    return MODE_LEVEL[tool.requiresMode] <= modeLevel
   })
 }
 
@@ -60,16 +76,14 @@ export function isToolAvailableInMode(name: string, mode: ToolMode): boolean {
   const tool = getTool(name)
   if (!tool) return false
   if (tool.requiresMode === null) return true
-  if (mode === 'full') return true
-  if (mode === 'plan') return tool.requiresMode !== 'full'
-  return tool.requiresMode === null
+  return MODE_LEVEL[tool.requiresMode] <= MODE_LEVEL[mode]
 }
 
 /**
  * Get tools formatted for Claude API tool_use.
  * Returns array of tool definitions with JSON schema.
  */
-export function getToolsForClaudeAPI(mode: ToolMode = 'full'): Array<{
+export function getToolsForClaudeAPI(mode: ToolMode = 'create'): Array<{
   name: string
   description: string
   input_schema: Record<string, unknown>

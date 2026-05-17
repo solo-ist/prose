@@ -7,8 +7,15 @@ import type { z } from 'zod'
 
 /**
  * Tool execution modes that control which tools are available.
+ *
+ * - `chat`   — read-only. Sounding board / fact-check; agent cannot mutate the doc.
+ * - `editor` — propose copy edits via suggest_edit, leave editorial notes via add_comment. Default. No direct writes.
+ * - `create` — opt-in. Drafting allowed (`edit` / `insert` available). User has explicitly lifted the no-authorship rule.
+ *
+ * Renamed from `suggestions` / `plan` / `full` in #467 Chunk 3. Persisted state
+ * is migrated forward in `chatStore`; old values do not reach this type.
  */
-export type ToolMode = 'suggestions' | 'full' | 'plan'
+export type ToolMode = 'chat' | 'editor' | 'create'
 
 /**
  * Tool categories for organization and filtering.

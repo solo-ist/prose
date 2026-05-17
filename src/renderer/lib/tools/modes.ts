@@ -6,6 +6,12 @@
 import type { ToolMode } from '../../../shared/tools/types'
 import { getTool, isToolAvailableInMode } from '../../../shared/tools/registry'
 
+const MODE_LABEL: Record<ToolMode, string> = {
+  chat: 'Chat',
+  editor: 'Editor',
+  create: 'Create'
+}
+
 /**
  * Check if a tool can be executed in the current mode.
  * Returns an error message if not allowed, or null if allowed.
@@ -18,14 +24,7 @@ export function checkToolAccess(toolName: string, mode: ToolMode): string | null
   }
 
   if (!isToolAvailableInMode(toolName, mode)) {
-    const modeLabel =
-      mode === 'suggestions'
-        ? 'Suggestions'
-        : mode === 'plan'
-          ? 'Plan'
-          : 'Full Autonomy'
-
-    return `Tool "${toolName}" is not available in ${modeLabel} mode. Switch to Full Autonomy mode to use this tool.`
+    return `Tool "${toolName}" is not available in ${MODE_LABEL[mode]} Mode. Switch to Create Mode to use this tool.`
   }
 
   return null
@@ -35,5 +34,5 @@ export function checkToolAccess(toolName: string, mode: ToolMode): string | null
  * Get the default mode for the chat.
  */
 export function getDefaultMode(): ToolMode {
-  return 'suggestions'
+  return 'editor'
 }

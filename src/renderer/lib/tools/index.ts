@@ -62,7 +62,7 @@ export interface ToolProvenance {
 export async function executeTool(
   toolName: string,
   args: unknown,
-  mode: ToolMode = 'full',
+  mode: ToolMode = 'create',
   provenance?: ToolProvenance
 ): Promise<ToolResult> {
   // Check if tool exists

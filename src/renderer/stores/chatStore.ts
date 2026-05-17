@@ -8,14 +8,9 @@ import {
   generateConversationTitle
 } from '../lib/persistence'
 import type { ChatConversation } from '../lib/persistence'
+import type { ToolMode } from '../../shared/tools/types'
 
-/**
- * Tool modes control which tools are available to the AI.
- * - suggestions: Read-only + suggest_edit (safe default)
- * - full: All tools available (direct edits)
- * - plan: Proposes changes, user must approve
- */
-export type ToolMode = 'suggestions' | 'full' | 'plan'
+export type { ToolMode }
 
 interface ChatState {
   // Conversation management
@@ -83,8 +78,14 @@ export const useChatStore = create<ChatState>()(
     isLoading: false,
     isPanelOpen: false,
     context: null,
-    agentMode: true, // Legacy - maps to toolMode
-    toolMode: 'full', // Default to full for backwards compatibility with agentMode: true
+    // Editor is the default — safe-by-default posture: agent proposes copy
+    // edits and editorial notes but never authors prose into the document.
+    // Users opt into Create Mode via the StatusBar dropdown (or Shift+Tab,
+    // which still toggles chat ↔ create for legacy keyboard-shortcut users).
+    // agentMode is a legacy boolean kept in sync with toolMode for the
+    // small number of call sites that still read it (Editor.tsx Shift+Tab).
+    agentMode: false,
+    toolMode: 'editor',
     isInitializing: true, // Start as true, will be set to false after app init
     isStreaming: false,
     currentStreamId: null,
@@ -219,14 +220,17 @@ export const useChatStore = create<ChatState>()(
 
     setAgentMode: (enabled) => set({
       agentMode: enabled,
-      // Sync toolMode with agentMode for backwards compatibility
-      toolMode: enabled ? 'full' : 'suggestions'
+      // Legacy compatibility: Shift+Tab toggles between chat and create
+      // (the "agent off" vs "agent fully on" extremes). Users who want
+      // Editor Mode must pick it from the StatusBar dropdown.
+      toolMode: enabled ? 'create' : 'chat'
     }),
 
     setToolMode: (mode) => set({
       toolMode: mode,
-      // Sync agentMode with toolMode for backwards compatibility
-      agentMode: mode === 'full'
+      // Legacy agentMode is "true" only in Create Mode — the only mode
+      // where the agent can author prose directly.
+      agentMode: mode === 'create'
     }),
 
     // Streaming actions

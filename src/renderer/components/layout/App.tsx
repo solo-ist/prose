@@ -899,7 +899,7 @@ export function App() {
     const unsubscribe = window.api.onMcpToolInvoke(async (requestId, toolName, args) => {
       try {
         const documentId = useEditorStore.getState().document.documentId
-        const result = await executeTool(toolName, args, 'full', {
+        const result = await executeTool(toolName, args, 'create', {
           model: 'Claude (MCP)',
           conversationId: requestId,
           messageId: requestId,

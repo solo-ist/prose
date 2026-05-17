@@ -12,12 +12,8 @@ import { createWordDiffAnnotations } from '../../diffUtils'
 import { findNodeById, findNodeByContent, getNodesWithIds, flattenNodes } from '../../../extensions/node-ids'
 import { generateId } from '../../persistence'
 import { getAISuggestions } from '../../../extensions/ai-suggestions'
-import { parseMarkdown } from '../../markdown'
+import { parseMarkdown, FRONTMATTER_REGEX } from '../../markdown'
 import { load as parseYaml } from 'js-yaml'
-
-// Matches a complete ---...--- frontmatter fence at the start of a string.
-// Capture group 1 is the YAML body between the fences.
-const FRONTMATTER_FENCE_REGEX = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/
 
 /**
  * Get the TipTap editor instance.
@@ -136,6 +132,20 @@ export function executeEdit(
     return toolError('Node ID is required', 'INVALID_INPUT')
   }
 
+  // Special nodeId: 'frontmatter' — direct-write the frontmatter block via
+  // setFrontmatter. No overlay (edit is "direct write" semantics in Create
+  // Mode; the user has already opted in by enabling the edit tool). Accepts
+  // raw YAML or a ---wrapped block. Mirrors the parsing of the suggest_edit
+  // frontmatter branch but commits straight to document.frontmatter.
+  if (nodeId === 'frontmatter') {
+    const parsed = parseFrontmatterPayload(content)
+    if (parsed.kind === 'error') {
+      return toolError(parsed.message, 'INVALID_FRONTMATTER')
+    }
+    useEditorStore.getState().setFrontmatter(parsed.frontmatter)
+    return toolSuccess({ applied: true, nodeId })
+  }
+
   // Find the node by ID, fall back to content matching if stale
   let found = findNodeById(editor.state.doc, nodeId)
 
@@ -189,6 +199,36 @@ export function executeEdit(
     applied: true,
     nodeId
   })
+}
+
+/**
+ * Parse a frontmatter payload from a suggest_edit/edit call targeting
+ * nodeId: 'frontmatter'. Accepts raw YAML or a ---wrapped block. Returns
+ * a structured result so callers can choose error code/category.
+ */
+function parseFrontmatterPayload(
+  content: string
+): { kind: 'ok'; frontmatter: Record<string, unknown> } | { kind: 'error'; message: string } {
+  const trimmed = content.trim()
+  const yamlSource = FRONTMATTER_REGEX.test(trimmed)
+    ? trimmed.replace(FRONTMATTER_REGEX, '$1')
+    : trimmed
+
+  let loaded: unknown
+  try {
+    loaded = parseYaml(yamlSource)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { kind: 'error', message: `Frontmatter content failed to parse as YAML: ${message}` }
+  }
+  if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded)) {
+    return { kind: 'error', message: 'Frontmatter content must be a YAML mapping (key: value pairs).' }
+  }
+  const frontmatter = loaded as Record<string, unknown>
+  if (Object.keys(frontmatter).length === 0) {
+    return { kind: 'error', message: 'Frontmatter mapping is empty — provide at least one key: value pair.' }
+  }
+  return { kind: 'ok', frontmatter }
 }
 
 /**
@@ -320,40 +360,14 @@ export function executeSuggestEdit(
   }
 
   // Special nodeId: 'frontmatter' targets the frontmatter block directly
-  // (Option C, #488). Routes through the FrontmatterEditor overlay without
-  // requiring --- delimiters around the content. Accepts either raw YAML or
-  // a ---wrapped block.
+  // (Option C, #488). Routes through the FrontmatterEditor overlay (vs edit's
+  // direct write) without requiring --- delimiters.
   if (nodeId === 'frontmatter') {
-    const trimmed = content.trim()
-    const yamlSource = FRONTMATTER_FENCE_REGEX.test(trimmed)
-      ? trimmed.replace(FRONTMATTER_FENCE_REGEX, '$1')
-      : trimmed
-    let parsedFrontmatter: Record<string, unknown>
-    try {
-      const loaded = parseYaml(yamlSource)
-      if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded)) {
-        return toolError(
-          'Frontmatter content must be a YAML mapping (key: value pairs).',
-          'INVALID_FRONTMATTER'
-        )
-      }
-      parsedFrontmatter = loaded as Record<string, unknown>
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      return toolError(
-        `Frontmatter content failed to parse as YAML: ${message}`,
-        'INVALID_FRONTMATTER'
-      )
+    const parsed = parseFrontmatterPayload(content)
+    if (parsed.kind === 'error') {
+      return toolError(parsed.message, 'INVALID_FRONTMATTER')
     }
-    // Reject empty objects — staging {} would surface an empty green overlay
-    // the user has to click Reject on. Treat as a malformed call.
-    if (Object.keys(parsedFrontmatter).length === 0) {
-      return toolError(
-        'Frontmatter mapping is empty — provide at least one key: value pair.',
-        'INVALID_FRONTMATTER'
-      )
-    }
-    useEditorStore.getState().setPendingFrontmatter(parsedFrontmatter)
+    useEditorStore.getState().setPendingFrontmatter(parsed.frontmatter)
     return toolSuccess({ suggested: true, suggestionId: generateId() })
   }
 
@@ -379,7 +393,7 @@ export function executeSuggestEdit(
       // Distinguish by parsing the fence interior directly: if yaml.load
       // throws, it's malformed (a). If it returns a scalar/array/null without
       // throwing, it's legitimate body (b).
-      const fenceMatch = content.trimStart().match(FRONTMATTER_FENCE_REGEX)
+      const fenceMatch = content.trimStart().match(FRONTMATTER_REGEX)
       if (fenceMatch) {
         let yamlThrew = false
         try {

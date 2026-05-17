@@ -5,7 +5,11 @@ export interface ParsedMarkdown {
   frontmatter: Record<string, unknown>
 }
 
-const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/
+/**
+ * Matches a complete ---...--- frontmatter fence at the start of a string.
+ * Capture group 1 is the YAML body between the fences.
+ */
+export const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/
 
 export function parseMarkdown(raw: string): ParsedMarkdown {
   try {

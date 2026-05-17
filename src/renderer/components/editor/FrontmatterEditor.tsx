@@ -49,6 +49,7 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
   const [fields, setFields] = useState<Field[]>(() => frontmatterToFields(frontmatter))
   const pendingFrontmatter = useEditorStore((state) => state.pendingFrontmatter)
   const rejectPendingFrontmatter = useEditorStore((state) => state.rejectPendingFrontmatter)
+  const setStoredFrontmatter = useEditorStore((state) => state.setFrontmatter)
 
   // Track whether the next prop change originated from our own onSave round-trip
   // so we don't clobber an in-progress local edit when the store echoes back.
@@ -87,19 +88,19 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
     setFields(prev => [...prev, { key: '', value: '', readonly: false, originalValue: '' }])
   }, [])
 
-  // Accept handler: route the accepted frontmatter through onSave (which owns
-  // the store write + content reserialization), then clear the pending state.
-  // Order matters — onSave can no-op if the TipTap editor isn't mounted, so
-  // clearing pending first would silently drop the user's accept. Sync local
-  // fields too so the editor reflects the new state without waiting for the
-  // prop round-trip.
+  // Accept handler: write the accepted frontmatter directly to the store FIRST
+  // as a durable fallback, then call onSave to reserialize body content (which
+  // no-ops if the TipTap editor isn't mounted), then clear the pending state.
+  // The direct store write guarantees the user's accept can't be silently
+  // dropped even if onSave's editor-dependent code path is unavailable.
   const handleAcceptPending = useCallback(() => {
     if (!pendingFrontmatter) return
     const accepted = pendingFrontmatter
+    setStoredFrontmatter(accepted)
     setFields(frontmatterToFields(accepted))
     onSave(accepted)
-    rejectPendingFrontmatter() // clears pending state without touching frontmatter
-  }, [pendingFrontmatter, rejectPendingFrontmatter, onSave])
+    rejectPendingFrontmatter()
+  }, [pendingFrontmatter, setStoredFrontmatter, rejectPendingFrontmatter, onSave])
 
   if (Object.keys(frontmatter).length === 0 && fields.length === 0 && !pendingFrontmatter) {
     return (

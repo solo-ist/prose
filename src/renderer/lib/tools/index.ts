@@ -163,6 +163,7 @@ export function getAvailableTools(): string[] {
  * Re-export types and utilities.
  */
 export { checkToolAccess, getDefaultMode } from './modes'
+export { isToolAvailableInMode } from '../../../shared/tools/registry'
 export { resolveToolPosition }
 export type { ToolResult, ToolMode } from '../../../shared/tools/types'
 export { toolSuccess, toolError } from '../../../shared/tools/types'

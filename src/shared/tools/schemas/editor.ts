@@ -85,7 +85,9 @@ export const suggestEditConfig: ToolConfig<typeof suggestEditSchema> = {
     'Create an inline diff suggestion on a node. The user sees a highlighted comparison and can accept or reject it. Use read_document first to get node IDs. Always include the search parameter with the original text for reliability.',
   schema: suggestEditSchema,
   category: 'editor',
-  requiresMode: null, // Available in all modes
+  // Suggestions are still mutations of pending document state (the diff
+  // overlay). Editor Mode's defining capability; Chat Mode stays read-only.
+  requiresMode: 'editor',
   dangerous: false
 }
 
@@ -105,7 +107,8 @@ export const acceptDiffConfig: ToolConfig<typeof acceptDiffSchema> = {
   description: 'Accept a pending suggestion. If no ID provided, accepts all pending suggestions.',
   schema: acceptDiffSchema,
   category: 'editor',
-  requiresMode: null, // Available in all modes
+  // Accepting a diff commits a content mutation. Chat Mode stays read-only.
+  requiresMode: 'editor',
   dangerous: false
 }
 
@@ -125,7 +128,9 @@ export const rejectDiffConfig: ToolConfig<typeof rejectDiffSchema> = {
   description: 'Reject a pending suggestion. If no ID provided, rejects all pending suggestions.',
   schema: rejectDiffSchema,
   category: 'editor',
-  requiresMode: null, // Available in all modes
+  // Rejecting a diff dismisses pending state. Symmetric with accept_diff;
+  // belongs in Editor Mode so Chat stays purely read-only.
+  requiresMode: 'editor',
   dangerous: false
 }
 

@@ -43,7 +43,7 @@ PRs touching privilege-boundary paths auto-route to `hitl-full` regardless of sc
 - `src/preload/**` — context bridge / attack surface
 - `electron-builder.*`, `electron.vite.config.*` — build/packaging config
 
-With the security-gate short-circuit (383-2), these PRs skip scorer+PE entirely — the `pipeline-triage.yml` `security-gate-check` job detects `[SECURITY GATE]` in the review and posts `hitl-full` directly.
+With the security-gate short-circuit (383-2), these PRs skip scorer+PE entirely — the `pipeline-triage.yml` `security-gate-check` job detects the `<!-- security-gate: true -->` sentinel in the review and posts `hitl-full` directly.
 
 ## Workflow
 

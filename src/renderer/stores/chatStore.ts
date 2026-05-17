@@ -50,7 +50,6 @@ interface ChatState {
   togglePanel: () => void
   setPanelOpen: (open: boolean) => void
   setContext: (context: string | null) => void
-  setAgentMode: (enabled: boolean) => void
   setToolMode: (mode: ToolMode) => void
   cycleToolMode: () => void
 
@@ -81,10 +80,12 @@ export const useChatStore = create<ChatState>()(
     context: null,
     // Editor is the default — safe-by-default posture: agent proposes copy
     // edits and editorial notes but never authors prose into the document.
-    // Users opt into Create Mode via the StatusBar dropdown (or Shift+Tab,
-    // which still toggles chat ↔ create for legacy keyboard-shortcut users).
-    // agentMode is a legacy boolean kept in sync with toolMode for the
-    // small number of call sites that still read it (Editor.tsx Shift+Tab).
+    // Users opt into Create Mode via the StatusBar dropdown or Shift+Tab
+    // (cycleToolMode walks chat → editor → create → chat). agentMode is a
+    // legacy boolean kept in sync with toolMode === 'create' for the few
+    // remaining readers — currently ChatMessage.tsx's legacy <edit>-block
+    // auto-apply path (`agentMode=true` auto-applies; `agentMode=false`
+    // renders edit blocks as reviewable diffs).
     agentMode: false,
     toolMode: 'editor',
     isInitializing: true, // Start as true, will be set to false after app init
@@ -218,14 +219,6 @@ export const useChatStore = create<ChatState>()(
     setPanelOpen: (open) => set({ isPanelOpen: open }),
 
     setContext: (context) => set({ context }),
-
-    setAgentMode: (enabled) => set({
-      agentMode: enabled,
-      // Legacy compatibility for any remaining callers: maps a boolean to
-      // the two extremes of the mode ladder. Keyboard cycling goes through
-      // cycleToolMode instead so Editor is reachable.
-      toolMode: enabled ? 'create' : 'chat'
-    }),
 
     setToolMode: (mode) => set({
       toolMode: mode,

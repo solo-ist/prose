@@ -110,7 +110,6 @@ export function useChat() {
     togglePanel,
     setPanelOpen,
     setContext,
-    setAgentMode,
     setToolMode,
     cycleToolMode,
     startStreaming,
@@ -694,7 +693,6 @@ export function useChat() {
     togglePanel,
     setPanelOpen,
     setContext,
-    setAgentMode,
     setToolMode,
     cycleToolMode
   }

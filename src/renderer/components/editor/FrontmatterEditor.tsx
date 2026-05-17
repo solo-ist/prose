@@ -99,7 +99,21 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
     onSave(pendingFrontmatter)
   }, [pendingFrontmatter, acceptPendingFrontmatter, onSave])
 
-  if (Object.keys(frontmatter).length === 0 && fields.length === 0 && !pendingFrontmatter) return null
+  if (Object.keys(frontmatter).length === 0 && fields.length === 0 && !pendingFrontmatter) {
+    return (
+      <button
+        className="mb-6 flex items-center gap-1 text-muted-foreground/40 hover:text-muted-foreground/80 transition-colors text-xs font-mono"
+        onClick={() => {
+          handleAdd()
+          setIsExpanded(true)
+        }}
+        title="Add frontmatter to this document"
+      >
+        <Plus className="w-3 h-3" />
+        Add frontmatter
+      </button>
+    )
+  }
 
   // Pending frontmatter overlay — shown when AI proposes frontmatter changes via suggest_edit
   if (pendingFrontmatter) {

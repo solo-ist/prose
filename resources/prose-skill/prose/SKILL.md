@@ -181,6 +181,10 @@ After the widget, one short conversational line is enough — *"Review them in P
 
 Prefer minimal diffs (smallest containing node). For heading edits, verify the heading text verbatim against `get_outline` first. If `suggest_edit` returns "no match", re-read the document and retry with a fresh `nodeId`.
 
+### Frontmatter edits
+
+`read_document` exposes the frontmatter block as a synthetic node with `id: 'frontmatter'`, `type: 'frontmatter'`, and `content` containing the current YAML (`---\nkey: value\n---`). To propose changes — adding new fields, editing a slug, replacing the whole block — call `suggest_edit` with `nodeId: 'frontmatter'` and `content` set to the **complete** new frontmatter as YAML (with or without `---` fences). The user reviews and accepts via the FrontmatterEditor overlay, not a body-text diff. Do NOT try to target individual frontmatter fields — pass the full intended frontmatter every time. If a document has no frontmatter yet, the synthetic node is absent; you can still call `suggest_edit({ nodeId: 'frontmatter', content: '...' })` to propose adding one.
+
 ## Graceful degradation
 
 | Condition | Behavior |

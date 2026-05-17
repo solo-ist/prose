@@ -13,6 +13,11 @@ import { findNodeById, findNodeByContent, getNodesWithIds, flattenNodes } from '
 import { generateId } from '../../persistence'
 import { getAISuggestions } from '../../../extensions/ai-suggestions'
 import { parseMarkdown } from '../../markdown'
+import { load as parseYaml } from 'js-yaml'
+
+// Matches a complete ---...--- frontmatter fence at the start of a string.
+// Capture group 1 is the YAML body between the fences.
+const FRONTMATTER_FENCE_REGEX = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/
 
 /**
  * Get the TipTap editor instance.
@@ -314,6 +319,36 @@ export function executeSuggestEdit(
     return toolError('Node ID is required', 'INVALID_INPUT')
   }
 
+  // Special nodeId: 'frontmatter' targets the frontmatter block directly
+  // (Option C, #488). Routes through the FrontmatterEditor overlay without
+  // requiring --- delimiters around the content. Accepts either raw YAML or
+  // a ---wrapped block.
+  if (nodeId === 'frontmatter') {
+    const trimmed = content.trim()
+    const yamlSource = FRONTMATTER_FENCE_REGEX.test(trimmed)
+      ? trimmed.replace(FRONTMATTER_FENCE_REGEX, '$1')
+      : trimmed
+    let parsedFrontmatter: Record<string, unknown>
+    try {
+      const loaded = parseYaml(yamlSource)
+      if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded)) {
+        return toolError(
+          'Frontmatter content must be a YAML mapping (key: value pairs).',
+          'INVALID_FRONTMATTER'
+        )
+      }
+      parsedFrontmatter = loaded as Record<string, unknown>
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return toolError(
+        `Frontmatter content failed to parse as YAML: ${message}`,
+        'INVALID_FRONTMATTER'
+      )
+    }
+    useEditorStore.getState().setPendingFrontmatter(parsedFrontmatter)
+    return toolSuccess({ suggested: true, suggestionId: generateId() })
+  }
+
   // Detect and strip frontmatter from the incoming content.
   // When Claude adds frontmatter via suggest_edit the --- delimiters render
   // as a thematic break/heading in TipTap. Extract frontmatter and stage it
@@ -328,6 +363,17 @@ export function executeSuggestEdit(
       useEditorStore.getState().setPendingFrontmatter(frontmatter)
       frontmatterExtracted = true
       content = body
+    } else if (FRONTMATTER_FENCE_REGEX.test(content.trimStart())) {
+      // The content has matched ---...--- fences but yielded no parseable
+      // YAML keys. Don't silently insert the malformed block into the body
+      // (that was the failure mode in the #508 review). Force a retry with
+      // a clear error so the model fixes the YAML or uses nodeId=frontmatter.
+      return toolError(
+        'Content is wrapped in --- delimiters but no valid YAML keys were found. ' +
+          'Either pass valid YAML between the delimiters, or call suggest_edit with ' +
+          "nodeId: 'frontmatter' to update the frontmatter block directly.",
+        'INVALID_FRONTMATTER'
+      )
     }
     // If parseMarkdown matched the regex but yielded no keys (e.g., bare
     // string YAML, malformed YAML, or a deliberate thematic break followed

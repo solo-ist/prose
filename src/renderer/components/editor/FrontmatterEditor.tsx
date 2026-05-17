@@ -87,18 +87,18 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
     setFields(prev => [...prev, { key: '', value: '', readonly: false, originalValue: '' }])
   }, [])
 
-  // Accept handler: clear the pending state and route the accepted frontmatter
-  // through onSave (which owns the store write + content reserialization).
-  // Avoids a double-write that would otherwise happen if we called
-  // acceptPendingFrontmatter (writes document.frontmatter) AND onSave (also
-  // routes to setFrontmatter). Sync local fields too so the editor reflects
-  // the new state without waiting for the prop round-trip.
+  // Accept handler: route the accepted frontmatter through onSave (which owns
+  // the store write + content reserialization), then clear the pending state.
+  // Order matters — onSave can no-op if the TipTap editor isn't mounted, so
+  // clearing pending first would silently drop the user's accept. Sync local
+  // fields too so the editor reflects the new state without waiting for the
+  // prop round-trip.
   const handleAcceptPending = useCallback(() => {
     if (!pendingFrontmatter) return
     const accepted = pendingFrontmatter
-    rejectPendingFrontmatter() // clears pending state without touching frontmatter
     setFields(frontmatterToFields(accepted))
     onSave(accepted)
+    rejectPendingFrontmatter() // clears pending state without touching frontmatter
   }, [pendingFrontmatter, rejectPendingFrontmatter, onSave])
 
   if (Object.keys(frontmatter).length === 0 && fields.length === 0 && !pendingFrontmatter) {

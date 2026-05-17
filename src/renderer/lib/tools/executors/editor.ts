@@ -430,9 +430,8 @@ export function executeSuggestEdit(
   const { node, pos } = found
   const suggestionId = generateId()
 
-  // Node lookup succeeded — safe to commit staged frontmatter now. (Bug fix
-  // from #508 review: previously fired before lookup, causing an unexpected
-  // overlay to appear alongside a NODE_NOT_FOUND error toast.)
+  // Node lookup succeeded — safe to commit staged frontmatter now, so a stale
+  // nodeId can't pop an unexpected overlay alongside the error toast.
   if (frontmatterToStage) {
     useEditorStore.getState().setPendingFrontmatter(frontmatterToStage)
   }

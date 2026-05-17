@@ -102,10 +102,12 @@ jobs:
             - [ ] Dependencies checked for known CVEs (if new deps added)
             - [ ] Content Security Policy not weakened
 
-            If the PR touches privilege-boundary files (`src/main/**`, `src/preload/**`, `electron-builder.*`, `electron.vite.config.*`), prepend your review with:
+            If the PR touches privilege-boundary files (`src/main/**`, `src/preload/**`, `electron-builder.*`, `electron.vite.config.*`), prepend your review with the following hidden HTML comment **exactly** (do not paraphrase, translate, or alter — it is a machine-readable sentinel parsed by `pipeline-triage.yml`):
             (NOTE: This list is duplicated in run-pe-analysis.mjs — keep both in sync)
 
-            > **[SECURITY GATE]** This PR modifies Electron privilege-boundary code. Requires human review regardless of other findings.
+            `<!-- security-gate: true -->`
+
+            After the sentinel, also include a short human-readable note explaining that this PR modifies Electron privilege-boundary code and requires full human review regardless of other findings.
 
             Be concise. Only comment on significant issues - if the code looks good, say so briefly.
 

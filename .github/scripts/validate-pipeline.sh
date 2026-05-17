@@ -236,7 +236,25 @@ if $SENTINEL_OK; then
 fi
 echo ""
 
-# 19. Privilege-boundary path sync (383-7)
+# 19. Security-gate sentinel sync (#395)
+# claude.yml emits `<!-- security-gate: true -->` and pipeline-triage.yml
+# greps for the same sentinel. If either side drifts, the short-circuit
+# silently breaks and privilege-boundary PRs waste API calls on scorer+PE.
+echo "--- Check: Security-gate sentinel sync ---"
+SENTINEL_SYNC_OK=true
+for f in .github/workflows/claude.yml .github/workflows/pipeline-triage.yml; do
+  if ! grep -q "security-gate: true" "$f"; then
+    echo "FAIL: $f does not reference the 'security-gate: true' sentinel"
+    SENTINEL_SYNC_OK=false
+    ERRORS=$((ERRORS + 1))
+  fi
+done
+if $SENTINEL_SYNC_OK; then
+  echo "PASS"
+fi
+echo ""
+
+# 20. Privilege-boundary path sync (383-7)
 # The path list must be identical in claude.yml and run-pe-analysis.mjs
 echo "--- Check: Privilege-boundary path sync ---"
 PATHS_CLAUDE=$(grep -oE 'src/main/\*\*|src/preload/\*\*|electron-builder\.\*|electron\.vite\.config\.\*' .github/workflows/claude.yml | sort -u)

@@ -89,8 +89,9 @@ function expandPath(path: string): string {
 /**
  * Validate and sanitize a file path to prevent path traversal attacks.
  * Expands ~ paths and normalizes, then blocks any path containing traversal sequences.
+ * Exported so other main-process modules (e.g., fileWatcher) can apply the same gate.
  */
-function validatePath(inputPath: string): string {
+export function validatePath(inputPath: string): string {
   const expanded = expandPath(inputPath)
   const normalized = normalize(expanded)
 

@@ -243,8 +243,10 @@ export const useFileListStore = create<FileListState>()(
       // Try reading the parent — may fail in MAS sandbox
       const files = await window.api.listDirectory(parentPath, 1)
       if (files && files.length > 0) {
-        set({ rootPath: parentPath, files: [], expandedFolders: new Set() })
-        get().loadFiles()
+        // Route through setRootPath so the directory watcher follows the
+        // navigation. Setting rootPath inline would leave the watcher pinned
+        // to the previous directory and silently break live updates.
+        get().setRootPath(parentPath)
       } else {
         // Parent not accessible — prompt for folder access via Powerbox
         const result = await window.api.selectFolder(
@@ -261,8 +263,7 @@ export const useFileListStore = create<FileListState>()(
             }))
           }
           useSettingsStore.getState().saveSettings()
-          set({ rootPath: result.path, files: [], expandedFolders: new Set() })
-          get().loadFiles()
+          get().setRootPath(result.path)
         }
         // User cancelled — stay where we are
       }

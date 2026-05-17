@@ -14,10 +14,13 @@
 
 import { ipcMain, BrowserWindow } from 'electron'
 import chokidar from 'chokidar'
-import { normalize } from 'path'
+import { validatePath } from './ipc'
 
 export interface FileWatchEvent {
-  type: 'created' | 'deleted' | 'renamed'
+  // chokidar emits 'unlink' + 'add' for renames rather than a 'rename' event,
+  // so we don't model 'renamed' explicitly — the renderer just reloads on any
+  // event regardless of type.
+  type: 'created' | 'deleted'
   path: string
 }
 
@@ -54,11 +57,10 @@ async function stopWatcher(): Promise<void> {
 
 /**
  * Start watching a new directory. Disposes any existing watcher first.
- * The directory must already be validated (path traversal check) by the caller.
+ * Caller is responsible for path validation; this function takes an already-
+ * normalized absolute path (the IPC handler runs validatePath upstream).
  */
-async function startWatcher(dirPath: string): Promise<void> {
-  const normalized = normalize(dirPath)
-
+async function startWatcher(normalized: string): Promise<void> {
   // No-op if we're already watching this exact directory
   if (watchedDirectory === normalized) return
 
@@ -76,7 +78,7 @@ async function startWatcher(dirPath: string): Promise<void> {
     ignored: /(^|[/\\])\../,
     // Don't report the initial scan as added events
     ignoreInitial: true,
-    // Stabilize burst events (e.g., editor temp files) before firing
+    // Don't wait for write-finish; the renderer-side debounce coalesces bursts.
     awaitWriteFinish: false,
     // Use native OS events where available (FSEvents on macOS)
     usePolling: false,
@@ -123,11 +125,14 @@ async function startWatcher(dirPath: string): Promise<void> {
 export function setupFileWatcherHandlers(): void {
   ipcMain.handle('file:watch:start', async (_event, dirPath: string) => {
     if (!dirPath || typeof dirPath !== 'string') return
-    // Caller (renderer via store) must only pass already-validated paths.
-    // We normalize here as a belt-and-suspenders measure.
-    const normalized = normalize(dirPath)
-    if (normalized.includes('..')) {
-      console.warn('[FileWatcher] Rejected path traversal attempt:', dirPath)
+    // Project security rule: every filesystem IPC handler must validatePath().
+    // Expands ~ and blocks traversal sequences in one shared helper.
+    let normalized: string
+    try {
+      normalized = validatePath(dirPath)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.warn('[FileWatcher] Rejected path:', dirPath, '—', message)
       return
     }
     await startWatcher(normalized)

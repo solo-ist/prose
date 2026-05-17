@@ -12,8 +12,10 @@ import type { z } from 'zod'
  * - `editor` — propose copy edits via suggest_edit, leave editorial notes via add_comment. Default. No direct writes.
  * - `create` — opt-in. Drafting allowed (`edit` / `insert` available). User has explicitly lifted the no-authorship rule.
  *
- * Renamed from `suggestions` / `plan` / `full` in #467 Chunk 3. Persisted state
- * is migrated forward in `chatStore`; old values do not reach this type.
+ * Renamed from `suggestions` / `plan` / `full` in #467 Chunk 3. `toolMode`
+ * is in-memory only — `chatStore` does not use Zustand's `persist` middleware
+ * and `ChatConversation` does not carry `toolMode`. Each session re-initializes
+ * to the chatStore default, so no migration is needed.
  */
 export type ToolMode = 'chat' | 'editor' | 'create'
 

@@ -99,12 +99,15 @@ function prependFrontmatterNode(
   const active = pendingFrontmatter ?? frontmatter
   if (!active || Object.keys(active).length === 0) return nodes
 
-  // Serialize as YAML so the agent sees the keys it can address.
+  // Serialize as YAML so the agent sees the keys it can address. If dump
+  // somehow throws on in-memory data (it shouldn't, but defensively), skip
+  // the synthetic node entirely rather than emitting a broken `---\n\n---`
+  // block that would mislead the agent.
   let yamlBody: string
   try {
     yamlBody = dumpYaml(active, { lineWidth: -1, quotingType: '"', forceQuotes: false }).trimEnd()
   } catch {
-    yamlBody = ''
+    return nodes
   }
 
   return [

@@ -161,9 +161,10 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
     // Hide empty-key rows in the collapsed display — they're an in-progress
     // editing state, not content worth showing. If nothing remains, fall back
     // to the "+ Add frontmatter" affordance so the user can recover from
-    // adding-then-collapsing-without-typing.
+    // adding-then-collapsing-without-typing. (pendingFrontmatter is unreachable
+    // here — the pending overlay branch above returns earlier.)
     const displayFields = fields.filter(f => f.key.trim())
-    if (displayFields.length === 0 && !pendingFrontmatter) {
+    if (displayFields.length === 0) {
       return (
         <button
           className="mb-6 flex items-center gap-1 text-muted-foreground/40 hover:text-muted-foreground/80 transition-colors text-xs font-mono"

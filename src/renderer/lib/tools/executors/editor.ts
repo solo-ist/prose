@@ -345,6 +345,14 @@ export function executeSuggestEdit(
         'INVALID_FRONTMATTER'
       )
     }
+    // Reject empty objects — staging {} would surface an empty green overlay
+    // the user has to click Reject on. Treat as a malformed call.
+    if (Object.keys(parsedFrontmatter).length === 0) {
+      return toolError(
+        'Frontmatter mapping is empty — provide at least one key: value pair.',
+        'INVALID_FRONTMATTER'
+      )
+    }
     useEditorStore.getState().setPendingFrontmatter(parsedFrontmatter)
     return toolSuccess({ suggested: true, suggestionId: generateId() })
   }

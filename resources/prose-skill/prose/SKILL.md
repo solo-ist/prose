@@ -185,6 +185,8 @@ Prefer minimal diffs (smallest containing node). For heading edits, verify the h
 
 `read_document` exposes the frontmatter block as a synthetic node with `id: 'frontmatter'`, `type: 'frontmatter'`, and `content` containing the current YAML (`---\nkey: value\n---`). To propose changes — adding new fields, editing a slug, replacing the whole block — call `suggest_edit` with `nodeId: 'frontmatter'` and `content` set to the **complete** new frontmatter as YAML (with or without `---` fences). The user reviews and accepts via the FrontmatterEditor overlay, not a body-text diff. Do NOT try to target individual frontmatter fields — pass the full intended frontmatter every time. If a document has no frontmatter yet, the synthetic node is absent; you can still call `suggest_edit({ nodeId: 'frontmatter', content: '...' })` to propose adding one.
 
+**Pending-as-ground-truth gotcha:** while a frontmatter overlay is awaiting the user's accept/reject, `read_document` returns the **pending** frontmatter in the synthetic node, not the committed one. If you re-read mid-flight and refine, you're iterating on your own un-accepted draft. Either ask the user to accept the pending proposal first, or treat the pending values as the new baseline and update from there — do not assume what you see is the user's committed state.
+
 ## Graceful degradation
 
 | Condition | Behavior |

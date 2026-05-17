@@ -6,7 +6,7 @@ import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useChatStore, createMessageId } from '../../stores/chatStore'
 import { useCommandHistoryStore } from '../../stores/commandHistoryStore'
-import { executeTool, getAvailableTools } from '../../lib/tools'
+import { executeTool, getAvailableTools, isToolAvailableInMode } from '../../lib/tools'
 import { cn } from '../../lib/utils'
 import { useReviewStore } from '../../stores/reviewStore'
 
@@ -133,14 +133,16 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
   // Disable input while app is initializing (loading draft/conversations) or while loading
   const isDisabled = isLoading || isInitializing
 
-  // All available commands (including built-in shortcuts)
-  // Normalize aliases: get_outline → outline for consistent display
+  // All available commands (including built-in shortcuts) filtered by the
+  // current ToolMode — don't suggest /suggest_edit in Chat Mode if it would
+  // fail at checkToolAccess. Normalize aliases: get_outline → outline.
   const allCommands = useMemo(() => [
     ...getAvailableTools()
       .filter(t => t !== 'create_and_open_file')
+      .filter(t => isToolAvailableInMode(t, toolMode))
       .map(t => t === 'get_outline' ? 'outline' : t),
     'help', 'clear', 'new', 'quick-review', 'review-diff'
-  ], [])
+  ], [toolMode])
 
   // Parse the current command from input (e.g., "/list_files " -> "list_files")
   const activeCommand = useMemo(() => {
@@ -217,7 +219,6 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
     // Handle /help specially
     if (command.toolName === 'help') {
       const { addMessage } = useChatStore.getState()
-      const availableTools = getAvailableTools()
       addMessage({
         id: createMessageId(),
         role: 'user',

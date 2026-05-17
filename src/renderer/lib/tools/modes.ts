@@ -24,7 +24,13 @@ export function checkToolAccess(toolName: string, mode: ToolMode): string | null
   }
 
   if (!isToolAvailableInMode(toolName, mode)) {
-    return `Tool "${toolName}" is not available in ${MODE_LABEL[mode]} Mode. Switch to Create Mode to use this tool.`
+    // Point the user/agent at the *minimum* mode that exposes this tool — not
+    // always Create. A suggest_edit attempted from Chat Mode should say "Switch
+    // to Editor", not "Switch to Create". `tool.requiresMode` is guaranteed
+    // non-null here (the `requiresMode === null` branch in isToolAvailableInMode
+    // would have returned true already), but we default for type-safety.
+    const required = tool.requiresMode ? MODE_LABEL[tool.requiresMode] : 'Create'
+    return `Tool "${toolName}" is not available in ${MODE_LABEL[mode]} Mode. Switch to ${required} Mode to use this tool.`
   }
 
   return null

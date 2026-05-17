@@ -38,7 +38,13 @@ const CHAT_MODE_TOOL_NAMES: ReadonlySet<string> = new Set([
 
 function getToolsForToolMode(toolMode: ToolMode): ReturnType<typeof getToolsForClaudeAPI> {
   if (toolMode === 'chat') {
-    return getToolsForClaudeAPI('create').filter((t) => CHAT_MODE_TOOL_NAMES.has(t.name))
+    // Pass 'chat' to the registry filter first so layer 1 actually fires for
+    // Chat Mode — only tools with `requiresMode <= chat` survive. Then narrow
+    // further to the explicit allowlist. Both layers run in series, so a
+    // regression in either (a missing `requiresMode: 'editor'` on a future
+    // mutating tool, or a missing entry in the allowlist) is caught by the
+    // other.
+    return getToolsForClaudeAPI('chat').filter((t) => CHAT_MODE_TOOL_NAMES.has(t.name))
   }
   return getToolsForClaudeAPI(toolMode)
 }

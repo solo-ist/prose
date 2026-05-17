@@ -14,6 +14,7 @@
 
 import { ipcMain, BrowserWindow } from 'electron'
 import chokidar from 'chokidar'
+import { basename } from 'path'
 import { validatePath } from './ipc'
 
 export interface FileWatchEvent {
@@ -91,8 +92,12 @@ async function startWatcher(normalized: string): Promise<void> {
     // to detect top-level changes to trigger a reload. Watching recursively
     // would fire excessive events for large trees and is not needed.
     depth: 0,
-    // Ignore dotfiles — the File Explorer skips them too
-    ignored: /(^|[/\\])\../,
+    // Ignore dotfiles — match only the LEAF segment, never an ancestor.
+    // A naive `/(^|[/\\])\../` regex would suppress every event when the
+    // watched root sits beneath a hidden parent (e.g., `/Users/me/.config/notes`).
+    // The `!== normalized` guard preserves events on the watched root itself.
+    ignored: (filePath: string) =>
+      filePath !== normalized && basename(filePath).startsWith('.'),
     // Don't report the initial scan as added events
     ignoreInitial: true,
     // Don't wait for write-finish; the renderer-side debounce coalesces bursts.

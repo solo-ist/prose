@@ -211,14 +211,12 @@ export const useFileListStore = create<FileListState>()(
           // Verify the directory is actually readable (may fail in MAS sandbox)
           const files = await window.api.listDirectory(documentsPath)
           if (files && files.length > 0) {
-            set({ rootPath: documentsPath, isInitialized: true })
-            get().loadFiles()
-            // Start watching the initial directory
-            if (window.api.startWatchingDirectory) {
-              window.api.startWatchingDirectory(documentsPath).catch((err: unknown) => {
-                console.error('[FileListStore] Failed to start directory watcher:', err)
-              })
-            }
+            // Route through setRootPath so the watcher wiring stays in one
+            // place. Setting rootPath inline (the old pattern) duplicated
+            // the startWatchingDirectory call and was a foot-gun the day
+            // someone changed the watcher contract.
+            set({ isInitialized: true })
+            get().setRootPath(documentsPath)
           } else {
             // Can't read directory (sandbox) or genuinely empty — show picker prompt
             set({ isInitialized: true })

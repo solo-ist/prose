@@ -52,10 +52,13 @@ export function StatusBar() {
   // Internal keys stay as suggestions / plan / full until Chunk 3 of #467
   // renames the ToolMode union after #450 merges. Labels reflect the
   // target Chat / Editor / Create posture.
+  // The (default) marker on Editor will return when Chunk 3 flips
+  // chatStore's initial toolMode from 'full' to 'plan' — until then,
+  // claiming it here would mislead new users (who land in Create today).
   const modeConfig: Record<ToolMode, { label: string; description: string }> = {
     suggestions: { label: 'chat', description: 'Read-only — sounding board, fact-check, no edits' },
-    plan: { label: 'editor', description: 'Proposes copy edits and editorial notes (default)' },
-    full: { label: 'create', description: 'Drafts and applies edits directly (opt-in)' }
+    plan: { label: 'editor', description: 'Proposes copy edits and editorial notes' },
+    full: { label: 'create', description: 'Drafts and applies edits directly' }
   }
 
   const currentMode = modeConfig[toolMode]

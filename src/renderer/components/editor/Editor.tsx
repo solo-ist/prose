@@ -24,6 +24,7 @@ import { SearchHighlight } from '../../extensions/search-highlight'
 import { LinkHover } from '../../extensions/link-hover'
 import { PlainTextMode } from '../../extensions/plain-text-mode'
 import { ImageWithUpload } from '../../extensions/image'
+import { PersistentSelection } from '../../extensions/persistent-selection'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
@@ -194,6 +195,7 @@ export function Editor() {
           class: 'editor-image'
         }
       }),
+      PersistentSelection,
     ],
     content: initialContent,
     editorProps: {

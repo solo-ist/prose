@@ -415,6 +415,24 @@
   background: hsl(var(--primary) / 0.2);
 }
 
+/* Persistent visual selection while the editor is blurred.
+ * Painted by src/renderer/extensions/persistent-selection/ so users can
+ * still see what e.g. read_selection will operate against after focus
+ * moves to the chat input.
+ *
+ * Two-layer visual: a primary-tinted background for the common case,
+ * plus an inset outline that survives even when the inner content has
+ * its own background-image (e.g., .ai-annotation-replacement's
+ * linear-gradient). The outline paints on top of inner backgrounds, so
+ * users always see a selection boundary regardless of what mark or
+ * decoration wraps the range. */
+.prose-editor .persistent-selection {
+  background: hsl(var(--primary) / 0.2);
+  outline: 1.5px solid hsl(var(--primary) / 0.7);
+  outline-offset: -1.5px;
+  border-radius: 2px;
+}
+
 /* Diff Suggestions */
 .prose-editor .diff-suggestion {
   display: inline-flex;

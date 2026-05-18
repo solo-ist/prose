@@ -8,6 +8,7 @@ import { useChatStore, createMessageId } from '../../stores/chatStore'
 import { useFileListStore } from '../../stores/fileListStore'
 import { useCommandHistoryStore } from '../../stores/commandHistoryStore'
 import { executeTool, getAvailableTools, isToolAvailableInMode } from '../../lib/tools'
+import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { cn } from '../../lib/utils'
 import { useReviewStore } from '../../stores/reviewStore'
 
@@ -29,6 +30,11 @@ const toolDescriptions: Record<string, string> = {
   save_file: 'Save to file',
   list_files: 'List files in directory',
   read_file: 'Read file contents',
+  list_comments: 'List comments in document',
+  add_comment: 'Add a comment to selected text',
+  resolve_comment: 'Resolve (remove) a comment',
+  list_tabs: 'List open tabs',
+  select_tab: 'Switch to a different tab',
   help: 'Show available commands',
   clear: 'Start a new chat',
   new: 'New blank tab',
@@ -134,19 +140,31 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
   // Disable input while app is initializing (loading draft/conversations) or while loading
   const isDisabled = isLoading || isInitializing
 
+  // Track pending AI suggestion count so the review shortcuts can be
+  // contextual on whether there's anything to review. Same pattern as
+  // StatusBar.tsx — keys on editor + doc reference so edits invalidate
+  // the memo.
+  const suggestionCount = useMemo(() => {
+    if (!editor) return 0
+    return getAISuggestions(editor).length
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, editor?.state.doc])
+
   // All available commands (including built-in shortcuts) filtered by the
   // current ToolMode — don't suggest /suggest_edit in Chat Mode if it would
   // fail at checkToolAccess. Normalize aliases: get_outline → outline.
-  // The review-UI shortcuts (/quick-review, /review-diff) operate on pending
-  // suggestions, which Chat Mode can't produce — exclude them there too.
+  // The review-UI shortcuts (/quick-review, /review-diff) only show when
+  // there are pending suggestions to review — and never in Chat Mode,
+  // which can't produce suggestions in the first place.
   const allCommands = useMemo(() => {
     const tools = getAvailableTools()
       .filter(t => t !== 'create_and_open_file')
       .filter(t => isToolAvailableInMode(t, toolMode))
       .map(t => t === 'get_outline' ? 'outline' : t)
-    const reviewShortcuts = toolMode === 'chat' ? [] : ['quick-review', 'review-diff']
+    const showReviewShortcuts = toolMode !== 'chat' && suggestionCount > 0
+    const reviewShortcuts = showReviewShortcuts ? ['quick-review', 'review-diff'] : []
     return [...tools, 'help', 'clear', 'new', ...reviewShortcuts]
-  }, [toolMode])
+  }, [toolMode, suggestionCount])
 
   // Parse the current command from input (e.g., "/list_files " -> "list_files")
   const activeCommand = useMemo(() => {

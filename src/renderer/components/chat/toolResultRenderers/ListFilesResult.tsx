@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { FileTree } from '../../files/FileTree'
 import { useTabs } from '../../../hooks/useTabs'
 import { useFileListStore } from '../../../stores/fileListStore'
-import type { FileItem } from '../../../../shared/tools/types'
+import type { FileItem } from '../../../types'
 
 interface ListFilesResultProps {
   content: string
@@ -15,17 +15,18 @@ interface ListFilesPayload {
 }
 
 interface ListFilesEnvelope extends Partial<ListFilesPayload> {
-  success?: boolean
   data?: ListFilesPayload
-  error?: string
 }
 
 /**
- * The tool-result string in the chat may arrive either as the raw
- * payload `{ files: [...] }` or wrapped in a `{ success, data }`
- * envelope, depending on whether the renderer is invoked from a live
- * tool call (envelope) or a parsed-from-markdown rehydration (raw).
- * Accept both shapes.
+ * The tool-result string may arrive either as the raw payload
+ * `{ files: [...] }` or wrapped in a `{ data: { files } }` envelope,
+ * depending on whether the renderer is invoked from a live tool call
+ * (envelope) or a parsed-from-markdown rehydration (raw). Accept both.
+ *
+ * Error envelopes never reach here — ChatMessage only invokes the
+ * renderer when `part.success === true`. Failures fall back to the
+ * markdown render path.
  */
 function extractPayload(env: ListFilesEnvelope): ListFilesPayload {
   if (env.data?.files) return env.data
@@ -62,14 +63,6 @@ export function ListFilesResult({ content }: ListFilesResultProps) {
       <div className="text-xs text-muted-foreground">
         <div className="mb-1">Unable to parse file list result.</div>
         <pre className="text-[10px] overflow-x-auto whitespace-pre-wrap">{content}</pre>
-      </div>
-    )
-  }
-
-  if (parsed?.error || parsed?.success === false) {
-    return (
-      <div className="text-xs text-destructive">
-        {parsed.error ?? 'list_files failed.'}
       </div>
     )
   }

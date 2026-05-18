@@ -136,13 +136,16 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
   // All available commands (including built-in shortcuts) filtered by the
   // current ToolMode — don't suggest /suggest_edit in Chat Mode if it would
   // fail at checkToolAccess. Normalize aliases: get_outline → outline.
-  const allCommands = useMemo(() => [
-    ...getAvailableTools()
+  // The review-UI shortcuts (/quick-review, /review-diff) operate on pending
+  // suggestions, which Chat Mode can't produce — exclude them there too.
+  const allCommands = useMemo(() => {
+    const tools = getAvailableTools()
       .filter(t => t !== 'create_and_open_file')
       .filter(t => isToolAvailableInMode(t, toolMode))
-      .map(t => t === 'get_outline' ? 'outline' : t),
-    'help', 'clear', 'new', 'quick-review', 'review-diff'
-  ], [toolMode])
+      .map(t => t === 'get_outline' ? 'outline' : t)
+    const reviewShortcuts = toolMode === 'chat' ? [] : ['quick-review', 'review-diff']
+    return [...tools, 'help', 'clear', 'new', ...reviewShortcuts]
+  }, [toolMode])
 
   // Parse the current command from input (e.g., "/list_files " -> "list_files")
   const activeCommand = useMemo(() => {

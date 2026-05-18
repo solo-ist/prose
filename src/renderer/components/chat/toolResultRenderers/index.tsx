@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { ListFilesResult } from './ListFilesResult'
+import { RequestModeSwitchResult } from './RequestModeSwitchResult'
 
 /**
  * Per-tool result renderer registry. Keyed by the tool name; each entry
@@ -20,7 +21,8 @@ import { ListFilesResult } from './ListFilesResult'
 type ToolResultRenderer = (content: string) => ReactNode
 
 const toolResultRenderers: Record<string, ToolResultRenderer> = {
-  list_files: (content) => <ListFilesResult content={content} />
+  list_files: (content) => <ListFilesResult content={content} />,
+  request_mode_switch: (content) => <RequestModeSwitchResult content={content} />
 }
 
 export function renderToolResult(name: string, content: string): ReactNode | null {

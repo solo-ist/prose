@@ -33,7 +33,11 @@ const CHAT_MODE_TOOL_NAMES: ReadonlySet<string> = new Set([
   'get_metadata',
   'search_document',
   'get_outline',
-  'list_comments'
+  'list_comments',
+  // UX coordination: lets the agent offer the user a one-click mode
+  // switch when their request is out of scope for the current mode.
+  // It doesn't read or mutate anything — just renders a button.
+  'request_mode_switch'
 ])
 
 function getToolsForToolMode(toolMode: ToolMode): ReturnType<typeof getToolsForClaudeAPI> {
@@ -291,14 +295,22 @@ export function useChat() {
             currentErrorSignature = `${toolCall.name}:${result.error}`
           }
 
-          // Append tool execution info to the message
-          const resultSummary = result.success
-            ? (typeof result.data === 'string' ? result.data.slice(0, 100) : 'Success')
+          // Append tool execution info to the message using the same
+          // <tool-result> tag format as user-initiated slash commands.
+          // This unifies both paths so custom renderers in
+          // src/renderer/components/chat/toolResultRenderers/ get the
+          // full structured payload regardless of who triggered the
+          // tool call. Tools without a custom renderer fall back to
+          // the markdown render of the JSON, matching slash-command UX.
+          const resultText = result.success
+            ? (typeof result.data === 'string'
+                ? result.data
+                : '```json\n' + JSON.stringify(result.data, null, 2) + '\n```')
             : `Error: ${result.error}`
           state.updateMessage(assistantMsgId, {
             content:
               state.messages.find((m) => m.id === assistantMsgId)?.content +
-              `\n\n*[Tool: ${toolCall.name}] ${resultSummary}*`
+              `\n\n<tool-result name="${toolCall.name}" success="${result.success}">${resultText}</tool-result>`
           })
 
           // Add tool result message to API messages (summarized to reduce context)

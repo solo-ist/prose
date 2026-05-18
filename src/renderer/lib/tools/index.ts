@@ -47,6 +47,9 @@ import {
   executeSelectTab
 } from './executors/tabs'
 
+// UI-coordination executors
+import { executeRequestModeSwitch } from './executors/ui'
+
 /** Provenance context for AI-generated content tracking */
 export interface ToolProvenance {
   model: string
@@ -143,6 +146,10 @@ export async function executeTool(
         return executeListTabs()
       case 'select_tab':
         return await executeSelectTab(validatedArgs)
+
+      // UI-coordination tools
+      case 'request_mode_switch':
+        return executeRequestModeSwitch(validatedArgs as Parameters<typeof executeRequestModeSwitch>[0])
 
       default:
         return toolError(`Tool "${toolName}" not implemented`, 'NOT_IMPLEMENTED')

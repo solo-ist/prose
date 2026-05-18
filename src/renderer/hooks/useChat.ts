@@ -340,6 +340,15 @@ export function useChat() {
         const settingsState = useSettingsStore.getState()
         const editorState = useEditorStore.getState()
         const tools = getToolsForToolMode(state.toolMode)
+        // Mid-stream mode switches are rare (user toggles during tool loop)
+        // but the same idempotency logic applies. lastSentToolMode was set
+        // at the start of this stream, so this fires only on genuine mid-
+        // stream toggles.
+        const loopLastSent = state.lastSentToolMode
+        const loopModeJustSwitched = loopLastSent !== null && loopLastSent !== state.toolMode
+        if (loopModeJustSwitched) {
+          state.setLastSentToolMode(state.toolMode)
+        }
 
         try {
           await api.llmChatStream({
@@ -352,7 +361,8 @@ export function useChat() {
               editorState.document.content,
               state.toolMode,
               editorState.document.path,
-              resolveModelName(settingsState.settings.llm.model, settingsState.fetchedModels)
+              resolveModelName(settingsState.settings.llm.model, settingsState.fetchedModels),
+              loopModeJustSwitched
             ),
             streamId: newStreamId,
             tools,
@@ -538,6 +548,14 @@ export function useChat() {
       }
 
       console.log('[useChat] About to call llmChatStream')
+      // Detect mid-conversation mode switches so we can prepend a one-line
+      // note to the system prompt. Idempotent across multiple toggles:
+      // only the diff at send time matters, and we update lastSentToolMode
+      // immediately so the tool-loop continuation (later in this stream)
+      // doesn't re-fire the marker on every roundtrip.
+      const lastSent = useChatStore.getState().lastSentToolMode
+      const modeJustSwitched = lastSent !== null && lastSent !== toolMode
+      useChatStore.getState().setLastSentToolMode(toolMode)
       try {
         // Call streaming LLM (via Electron IPC or browser fallback)
         const api = getApi()
@@ -552,7 +570,8 @@ export function useChat() {
             useEditorStore.getState().document.content,
             toolMode,
             useEditorStore.getState().document.path,
-            resolveModelName(settings.llm.model, useSettingsStore.getState().fetchedModels)
+            resolveModelName(settings.llm.model, useSettingsStore.getState().fetchedModels),
+            modeJustSwitched
           ),
           streamId,
           tools,

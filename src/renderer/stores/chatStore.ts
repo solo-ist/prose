@@ -24,6 +24,12 @@ interface ChatState {
   context: string | null
   agentMode: boolean // Legacy - kept for backwards compatibility
   toolMode: ToolMode // New mode system
+  // Tracks the toolMode active at the last successful user message send,
+  // so we can detect mid-conversation mode switches and note them in the
+  // next system prompt. Idempotent across multiple toggles between sends —
+  // only the difference at send time matters. In-memory only (matches
+  // toolMode itself).
+  lastSentToolMode: ToolMode | null
 
   // Initialization state - prevents race conditions during app startup
   isInitializing: boolean
@@ -52,6 +58,7 @@ interface ChatState {
   setContext: (context: string | null) => void
   setToolMode: (mode: ToolMode) => void
   cycleToolMode: () => void
+  setLastSentToolMode: (mode: ToolMode | null) => void
 
   // Streaming actions
   startStreaming: (messageId: string, streamId: string) => void
@@ -88,6 +95,7 @@ export const useChatStore = create<ChatState>()(
     // renders edit blocks as reviewable diffs).
     agentMode: false,
     toolMode: 'editor',
+    lastSentToolMode: null,
     isInitializing: true, // Start as true, will be set to false after app init
     isStreaming: false,
     currentStreamId: null,
@@ -237,6 +245,8 @@ export const useChatStore = create<ChatState>()(
       const next: ToolMode = current === 'chat' ? 'editor' : current === 'editor' ? 'create' : 'chat'
       get().setToolMode(next)
     },
+
+    setLastSentToolMode: (mode) => set({ lastSentToolMode: mode }),
 
     // Streaming actions
     startStreaming: (messageId, streamId) =>

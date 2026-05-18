@@ -149,7 +149,8 @@ export function buildSystemPrompt(
   documentContent?: string,
   toolMode?: ToolMode,
   documentPath?: string | null,
-  modelName?: string
+  modelName?: string,
+  modeJustSwitched?: boolean
 ): string {
   let prompt = BASE_PROMPT
 
@@ -160,6 +161,18 @@ export function buildSystemPrompt(
   // Mode-specific tool instructions. Defaults to Editor when no mode supplied
   // (matches the chatStore initial value).
   const resolvedMode: ToolMode = toolMode ?? 'editor'
+
+  // Mid-conversation mode switch notice — surface a one-line note BEFORE
+  // the base persona so the agent sees the mode change first. Caller
+  // computes the boolean by comparing chatStore.lastSentToolMode with
+  // the current toolMode; this is idempotent across multiple toggles
+  // between sends.
+  if (modeJustSwitched) {
+    const modeLabel = resolvedMode.charAt(0).toUpperCase() + resolvedMode.slice(1)
+    prompt =
+      `Note: the user just switched to ${modeLabel} Mode mid-conversation. Earlier turns may have been in a different mode with different capabilities. Adopt the current mode's posture immediately.\n\n` +
+      prompt
+  }
   if (resolvedMode === 'chat') {
     prompt += CHAT_MODE_INSTRUCTIONS
   } else if (resolvedMode === 'editor') {

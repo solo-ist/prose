@@ -11,6 +11,7 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { CopyButton } from '../ui/copy-button'
 import { jumpToLine } from '../../lib/lineNavigation'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
+import { renderToolResult } from './toolResultRenderers'
 import avatarDark from '../../assets/avatar-dark.png'
 import avatarLight from '../../assets/avatar-light.png'
 
@@ -549,6 +550,12 @@ export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps)
                           // Not JSON, ignore
                         }
                       }
+                      // Per-tool custom renderer if one is registered; falls
+                      // back to markdown (JSON in <pre>) for unknown tools.
+                      const customBody =
+                        part.name && part.content && part.success
+                          ? renderToolResult(part.name, part.content)
+                          : null
                       return (
                         <ToolCallIndicator
                           key={idx}
@@ -556,7 +563,7 @@ export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps)
                           status={part.success ? 'success' : 'error'}
                           onClick={onClickHandler}
                         >
-                          {part.content && renderMarkdown(part.content, editor)}
+                          {customBody ?? (part.content && renderMarkdown(part.content, editor))}
                         </ToolCallIndicator>
                       )
                     }

@@ -5,6 +5,7 @@ import { useChat } from '../../hooks/useChat'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useChatStore, createMessageId } from '../../stores/chatStore'
+import { useFileListStore } from '../../stores/fileListStore'
 import { useCommandHistoryStore } from '../../stores/commandHistoryStore'
 import { executeTool, getAvailableTools, isToolAvailableInMode } from '../../lib/tools'
 import { cn } from '../../lib/utils'
@@ -275,20 +276,22 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
       return
     }
 
-    // Handle /list_files - get current file's directory first
+    // Handle /list_files - default to the file explorer's current root so
+    // chat-side results mirror what the user sees in the side panel.
+    // Fall back to the active file's directory, then home, if no explorer
+    // root is set (e.g., user closed the panel without ever opening it).
     if (command.toolName === 'list_files') {
+      const { rootPath } = useFileListStore.getState()
       const { document } = useEditorStore.getState()
-      const path = document.path
-      if (path) {
-        // Extract directory from file path
-        const dir = path.substring(0, path.lastIndexOf('/')) || '~'
-        // First get metadata, then list files
-        const enhancedCommand = { ...command, args: { path: dir }, rawArg: dir }
-        await handleSlashCommand(enhancedCommand, `/list_files ${dir}`)
-      } else {
-        // No current file, list home directory
-        await handleSlashCommand({ ...command, args: { path: '~' }, rawArg: '~' }, '/list_files ~')
+      let dir = rootPath
+      if (!dir && document.path) {
+        dir = document.path.substring(0, document.path.lastIndexOf('/')) || '~'
       }
+      if (!dir) {
+        dir = '~'
+      }
+      const enhancedCommand = { ...command, args: { path: dir }, rawArg: dir }
+      await handleSlashCommand(enhancedCommand, `/list_files ${dir}`)
       return
     }
 

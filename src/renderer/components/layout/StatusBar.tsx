@@ -95,7 +95,7 @@ export function StatusBar() {
       <div className="flex items-center gap-1">
         <button
           onClick={toggleSourceMode}
-          className="hover:text-foreground transition-colors cursor-pointer"
+          className="hover:text-foreground focus-visible:text-foreground focus-visible:outline-none transition-colors cursor-pointer"
         >
           {sourceMode ? 'source' : 'wysiwyg'}
         </button>
@@ -120,7 +120,7 @@ export function StatusBar() {
               <TooltipTrigger asChild>
                 <button
                   onClick={() => useReviewStore.getState().setReviewMode('quick')}
-                  className="text-violet-600 dark:text-violet-400 hover:text-violet-500 transition-colors cursor-pointer"
+                  className="text-violet-600 dark:text-violet-400 hover:text-violet-500 focus-visible:text-violet-500 focus-visible:outline-none transition-colors cursor-pointer"
                 >
                   {suggestionCount} suggestion{suggestionCount !== 1 ? 's' : ''}
                 </button>
@@ -138,7 +138,7 @@ export function StatusBar() {
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <button className="hover:text-foreground transition-colors cursor-pointer max-w-[120px] truncate">
+                <button className="hover:text-foreground focus-visible:text-foreground focus-visible:outline-none transition-colors cursor-pointer max-w-[120px] truncate">
                   {modelDisplayName}
                 </button>
               </DropdownMenuTrigger>
@@ -179,7 +179,7 @@ export function StatusBar() {
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <button className="hover:text-foreground transition-colors cursor-pointer">
+                <button className="hover:text-foreground focus-visible:text-foreground focus-visible:outline-none transition-colors cursor-pointer">
                   {currentMode.label}
                 </button>
               </DropdownMenuTrigger>

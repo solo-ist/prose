@@ -181,7 +181,7 @@ export function buildSystemPrompt(
   if (modeJustSwitched) {
     const modeLabel = resolvedMode.charAt(0).toUpperCase() + resolvedMode.slice(1)
     prompt =
-      `Note: the user just switched to ${modeLabel} Mode mid-conversation. Earlier turns may have been in a different mode with different capabilities. Adopt the current mode's posture immediately.\n\n` +
+      `Note: the user just switched to ${modeLabel} Mode mid-conversation. Their next message likely reflects a request you should now be able to fulfill directly with this mode's tools. **Do NOT call \`request_mode_switch\` in this turn** — they've already switched. Use the tools available in ${modeLabel} Mode to act on their request.\n\n` +
       prompt
   }
   if (resolvedMode === 'chat') {

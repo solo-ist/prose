@@ -7,7 +7,8 @@ import type { ToolMode } from '../../../../shared/tools/types'
  *
  * Does NOT actually change the mode — that would bypass the user's intent.
  * It just packages the agent's request as a tool result, which the chat-side
- * renderer (`RequestModeSwitchResult.tsx`) turns into a one-click button.
+ * renderer (`RequestModeSwitchResult.tsx` — `RequestModeSwitchBody` /
+ * `RequestModeSwitchActions`) turns into a one-click button.
  *
  * The user clicks the button; the renderer calls `setToolMode` and (for
  * "Switch & Run") `sendMessage(prompt_to_retry)`. Mode change is always

@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { cn } from '../../lib/utils'
 import type { ChatMessage as ChatMessageType } from '../../types'
-import { User, Wand2, Check, AlertCircle, ArrowRight, Sparkles, CheckCircle2, XCircle, RotateCcw } from 'lucide-react'
+import { User, Wand2, Check, AlertCircle, ArrowRight, Sparkles, CheckCircle2, XCircle, RotateCcw, ChevronDown } from 'lucide-react'
 import { parseEditBlocks, hasEditBlocks, stripEditBlocks, type EditBlock } from '../../lib/editBlocks'
 import { applyEditsAsDiffs, applyEditsDirect, type ApplyResult, type EditProvenance } from '../../lib/applyEdit'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
@@ -16,7 +16,16 @@ import avatarDark from '../../assets/avatar-dark.png'
 import avatarLight from '../../assets/avatar-light.png'
 
 // Tool call indicator component with AI sparkle styling
-function ToolCallIndicator({ name, status, onClick, children }: { name: string; status: 'executing' | 'success' | 'error'; onClick?: () => void; children?: React.ReactNode }) {
+function ToolCallIndicator({ name, status, onClick, children, actions, defaultExpanded = false }: { name: string; status: 'executing' | 'success' | 'error'; onClick?: () => void; children?: React.ReactNode; actions?: React.ReactNode; defaultExpanded?: boolean }) {
+  const [expanded, setExpanded] = useState(defaultExpanded)
+  const hasBody = children != null && status !== 'executing'
+  const hasActions = actions != null
+
+  const toggleExpanded = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setExpanded(v => !v)
+  }
+
   return (
     <div
       className={cn(
@@ -39,18 +48,33 @@ function ToolCallIndicator({ name, status, onClick, children }: { name: string; 
         ) : status === 'success' ? (
           <>
             <CheckCircle2 className="h-3.5 w-3.5" />
-            <span>{name}</span>
+            <span className="flex-1">{name}</span>
           </>
         ) : (
           <>
             <XCircle className="h-3.5 w-3.5" />
-            <span>{name}</span>
+            <span className="flex-1">{name}</span>
           </>
         )}
+        {hasBody && (
+          <button
+            type="button"
+            onClick={toggleExpanded}
+            aria-label={expanded ? 'Collapse details' : 'Expand details'}
+            className="ml-auto inline-flex h-5 w-5 items-center justify-center rounded text-current/70 hover:bg-current/10 hover:text-current focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-current/40"
+          >
+            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", !expanded && "-rotate-90")} />
+          </button>
+        )}
       </div>
-      {children && (
+      {hasBody && expanded && (
         <div className="px-3 py-2 text-xs font-mono text-muted-foreground border-t border-border bg-muted/10 max-h-48 overflow-auto">
           {children}
+        </div>
+      )}
+      {hasActions && (
+        <div className="px-3 py-2 border-t border-border bg-muted/5" onClick={(e) => e.stopPropagation()}>
+          {actions}
         </div>
       )}
     </div>
@@ -552,9 +576,13 @@ export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps)
                       }
                       // Per-tool custom renderer if one is registered; falls
                       // back to markdown (JSON in <pre>) for unknown tools.
-                      const customBody =
+                      // ctx scopes per-tool-call state (e.g., the
+                      // mode-switch acted/dismissed flag) into the owning
+                      // message's toolActions map, so it persists with the
+                      // conversation.
+                      const custom =
                         part.name && part.content && part.success
-                          ? renderToolResult(part.name, part.content)
+                          ? renderToolResult(part.name, part.content, { messageId: message.id, toolPartIdx: idx })
                           : null
                       return (
                         <ToolCallIndicator
@@ -562,8 +590,10 @@ export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps)
                           name={part.name || 'tool'}
                           status={part.success ? 'success' : 'error'}
                           onClick={onClickHandler}
+                          actions={custom?.actions}
+                          defaultExpanded={custom?.defaultExpanded}
                         >
-                          {customBody ?? (part.content && renderMarkdown(part.content, editor))}
+                          {custom?.body ?? (part.content && renderMarkdown(part.content, editor))}
                         </ToolCallIndicator>
                       )
                     }

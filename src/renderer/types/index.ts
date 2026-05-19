@@ -73,6 +73,16 @@ export interface ChatMessage {
   timestamp: Date
   hidden?: boolean
   isError?: boolean
+  /**
+   * Per-tool-call action state, keyed by the tool-result's index in
+   * `parseToolTags(content)`. Populated when the user interacts with an
+   * actionable tool result (currently `request_mode_switch` —
+   * 'switched' if they hit Switch & Run / Just Switch, 'dismissed' if
+   * Cancel). Persisted with the conversation so re-opening the chat
+   * shows a truthful record instead of re-clickable affordances for
+   * decisions already made.
+   */
+  toolActions?: Record<number, 'switched' | 'dismissed'>
 }
 
 export interface FileResult {

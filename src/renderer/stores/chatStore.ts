@@ -59,6 +59,13 @@ interface ChatState {
   setToolMode: (mode: ToolMode) => void
   cycleToolMode: () => void
   setLastSentToolMode: (mode: ToolMode | null) => void
+  /**
+   * Record an action taken on a tool result. Persists with the
+   * conversation so reopening the chat shows the truthful state
+   * (e.g., "Dismissed." or "Switched to Editor Mode.") instead of
+   * re-clickable buttons for decisions already made.
+   */
+  setToolCallAction: (messageId: string, toolPartIdx: number, action: 'switched' | 'dismissed') => void
 
   // Streaming actions
   startStreaming: (messageId: string, streamId: string) => void
@@ -247,6 +254,25 @@ export const useChatStore = create<ChatState>()(
     },
 
     setLastSentToolMode: (mode) => set({ lastSentToolMode: mode }),
+
+    setToolCallAction: (messageId, toolPartIdx, action) =>
+      set((state) => {
+        const updateOne = (msg: ChatMessage): ChatMessage =>
+          msg.id === messageId
+            ? { ...msg, toolActions: { ...(msg.toolActions ?? {}), [toolPartIdx]: action } }
+            : msg
+        const newMessages = state.messages.map(updateOne)
+
+        if (state.activeConversationId) {
+          const updatedConversations = state.conversations.map((c) =>
+            c.id === state.activeConversationId
+              ? { ...c, messages: newMessages, updatedAt: Date.now() }
+              : c
+          )
+          return { messages: newMessages, conversations: updatedConversations }
+        }
+        return { messages: newMessages }
+      }),
 
     // Streaming actions
     startStreaming: (messageId, streamId) =>

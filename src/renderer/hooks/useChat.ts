@@ -444,7 +444,7 @@ export function useChat() {
       console.log('[useChat] sendMessage passed initial check')
       // Read toolMode fresh from the store rather than relying on the
       // React-closure-captured value. Necessary because callers (notably
-      // RequestModeSwitchResult's "Switch & Run" path) may setToolMode
+      // RequestModeSwitchActions' "Switch & Run" path) may setToolMode
       // and then synchronously dispatch sendMessage in the same tick —
       // React hasn't re-rendered yet, and the captured `toolMode` would
       // be stale. Reading from the store always reflects the latest.

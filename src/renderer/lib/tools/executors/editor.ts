@@ -87,9 +87,11 @@ function nextFrame(): Promise<void> {
  * the same chain (a single transaction), so range replacement is atomic and
  * shares undo state with the first chunk.
  *
- * Subsequent chunks track the running insertion endpoint explicitly via the
- * doc-size delta, so user clicks or keystrokes mid-stream can't redirect
- * later chunks into the user's cursor position.
+ * Subsequent chunks track the running insertion endpoint via an explicit
+ * length accumulator (anchored once at end-of-insertion from TipTap's own
+ * selection placement, then advanced by each chunk's character count), so
+ * user clicks or keystrokes mid-stream can't redirect later chunks into
+ * the user's cursor position.
  */
 async function applyInsertion(
   editor: Editor,
@@ -109,24 +111,30 @@ async function applyInsertion(
     editor.chain().focus().setTextSelection(selection).insertContent(text).run()
     return
   }
-  const rangeSize = hasRange ? to! - from : 0
-  const sizeBefore = editor.state.doc.content.size
   editor.chain().focus().setTextSelection(selection).insertContent(chunks[0]).run()
-  // End of inserted content = from + (size of inserted chunk in PM coords).
-  // Inserted size = doc delta + chars removed by any range replace.
-  let pos = from + (editor.state.doc.content.size - sizeBefore) + rangeSize
-  // Subsequent chunks use a raw ProseMirror text insert rather than
-  // `insertContent`. `insertContent(string)` routes through the markdown
-  // parser, which treats top-level text as a paragraph node — so each
-  // chunk would land as its own paragraph instead of appending inline to
-  // the paragraph the first chunk just created (#553). `tr.insertText`
-  // inserts inline text into the surrounding block, preserving paragraph
-  // continuity and the intended word-by-word fill animation.
+  // Anchor the running endpoint at end-of-insertion using TipTap's own
+  // cursor placement (`selectionToInsertionEnd` in
+  // `node_modules/@tiptap/core/src/commands/insertContentAt.ts`), which
+  // leaves the cursor INSIDE the just-inserted textblock at the end of
+  // its text. Earlier doc-size arithmetic landed `pos` AFTER the closing
+  // paragraph token — a between-blocks position, where `tr.insertText`
+  // wraps the text in a new paragraph to fit the parent context,
+  // producing one paragraph per chunk.
+  //
+  // From there, advance `pos` by each chunk's character count rather than
+  // re-reading `editor.state.selection.from` after every dispatch. Two
+  // reasons: (1) subsequent chunks use raw `tr.insertText` (not
+  // `insertContent(string)`), which inserts plain text inline and adds
+  // exactly `chunks[i].length` PM units — so the accumulator is exact;
+  // (2) if the user clicks or types mid-stream, the live selection moves
+  // away from our insertion endpoint, but the accumulator stays
+  // independent — keeping later chunks landing at the running insertion
+  // point instead of redirecting into the user's cursor.
+  let pos = editor.state.selection.from
   for (let i = 1; i < chunks.length; i++) {
     await nextFrame()
-    const prev = editor.state.doc.content.size
     editor.view.dispatch(editor.state.tr.insertText(chunks[i], pos))
-    pos += editor.state.doc.content.size - prev
+    pos += chunks[i].length
   }
 }
 

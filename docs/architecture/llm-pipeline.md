@@ -49,7 +49,7 @@ const MAX_HISTORY_MESSAGES = 20   // context window pruning
 Two refs live outside the React hook so globally-registered IPC event handlers can access them:
 
 - **`pendingToolCallsRef`** — accumulates `{id, name, args}` from streaming `tool-call` events, tagged with `streamId`
-- **`toolLoopContextRef`** — tracks `{apiMessages, assistantMsgId, roundtripCount, lastErrorSignature}` across recursive stream restarts, tagged with `streamId`
+- **`toolLoopContextRef`** — tracks `{apiMessages, assistantMsgId, roundtripCount, lastErrorSignature, modeJustSwitched}` across recursive stream restarts, tagged with `streamId`. `modeJustSwitched` is set at turn start and preserved across continuations so the "you just switched modes" notice stays on the system prompt for every LLM call within a turn that began with a mode switch.
 
 Both are reset by `clearStreamRefs()` on abort, error, completion, or circuit-breaker stop.
 

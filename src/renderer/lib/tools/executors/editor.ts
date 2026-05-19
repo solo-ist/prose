@@ -115,7 +115,7 @@ export function resolveToolPosition(toolName: string, args: Record<string, unkno
     }
   }
 
-  if (toolName === 'delete_node' || toolName === 'move_cursor') {
+  if (toolName === 'delete_node') {
     const nodeId = args.nodeId as string
     const search = args.search as string | undefined
     if (!nodeId) return Infinity
@@ -725,6 +725,7 @@ export function executeDeleteNode(
 export function executeMoveCursor(args: {
   nodeId: string
   position?: 'start' | 'end'
+  search?: string
 }): ToolResult<{ moved: boolean; nodeId: string; position: 'start' | 'end' }> {
   const editor = getEditor()
 
@@ -736,14 +737,18 @@ export function executeMoveCursor(args: {
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
-  const { nodeId } = args
+  const { nodeId, search } = args
   const position = args.position ?? 'start'
 
   if (!nodeId) {
     return toolError('Node ID is required', 'INVALID_INPUT')
   }
 
-  const found = findNodeById(editor.state.doc, nodeId)
+  let found = findNodeById(editor.state.doc, nodeId)
+
+  if (!found && search) {
+    found = findNodeByContent(editor.state.doc, search)
+  }
 
   if (!found) {
     const available = flattenNodes(getNodesWithIds(editor.state.doc))

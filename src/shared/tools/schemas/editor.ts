@@ -191,7 +191,13 @@ export const moveCursorSchema = z.object({
     .enum(['start', 'end'])
     .optional()
     .default('start')
-    .describe('Where in the node to place the cursor: at the start (default) or end of its content.')
+    .describe('Where in the node to place the cursor: at the start (default) or end of its content.'),
+  search: z
+    .string()
+    .optional()
+    .describe(
+      'Original text content of the node (from read_document). Used as fallback to locate the node if nodeId is stale.'
+    )
 })
 
 export const moveCursorConfig: ToolConfig<typeof moveCursorSchema> = {

@@ -266,7 +266,7 @@ export function useChat() {
 
         // Sort editor-mutating tool calls by document position (descending)
         // so bottom-of-document edits execute first and don't shift positions above
-        const EDITOR_MUTATING_TOOLS = new Set(['edit', 'insert', 'suggest_edit'])
+        const EDITOR_MUTATING_TOOLS = new Set(['edit', 'insert', 'suggest_edit', 'delete_node'])
         const sortedToolCalls = [...toolCalls]
         if (sortedToolCalls.some(tc => EDITOR_MUTATING_TOOLS.has(tc.name))) {
           // Pre-resolve positions before any edits execute

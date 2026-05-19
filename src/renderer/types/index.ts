@@ -20,6 +20,12 @@ export interface Settings {
     fontSize: number
     lineHeight: number
     fontFamily: string
+    /**
+     * Cosmetic chunked streaming for agent-driven insertions/edits — text
+     * arrives word-by-word over ~200–500ms instead of appearing instantly.
+     * Falls back to instant apply when the user prefers reduced motion.
+     */
+    streamingEdits?: boolean
   }
   recovery?: {
     mode: 'silent' | 'prompt'

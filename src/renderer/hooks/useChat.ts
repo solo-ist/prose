@@ -90,6 +90,15 @@ const toolLoopContextRef = {
     assistantMsgId: string
     roundtripCount: number
     lastErrorSignature: string | null
+    // True if the turn started with a mode switch (Switch & Run or
+    // StatusBar toggle between sends). Propagates through every
+    // tool-loop continuation in the turn so the "you just switched"
+    // notice stays on the system prompt — without it, continuations
+    // after a legitimate read_document call lose the notice and the
+    // LLM pattern-matches against prior-mode assistant messages,
+    // hallucinating "I'm still in <old> Mode" despite the tool list
+    // and per-mode instructions reflecting the new mode.
+    modeJustSwitched: boolean
   } | null,
   streamId: null as string | null
 }
@@ -338,12 +347,16 @@ export function useChat() {
         const newStreamId = createMessageId()
         state.startStreaming(assistantMsgId, newStreamId)
 
-        // Update context for potential next tool loop with new streamId
+        // Update context for potential next tool loop with new streamId.
+        // Preserve `modeJustSwitched` across the whole turn so subsequent
+        // continuations keep the "you just switched" notice.
+        const priorTurnContext = toolLoopContextRef.current
         toolLoopContextRef.current = {
           apiMessages: updatedMessages,
           assistantMsgId,
           roundtripCount: roundtripCount + 1,
-          lastErrorSignature: currentErrorSignature
+          lastErrorSignature: currentErrorSignature,
+          modeJustSwitched: priorTurnContext?.modeJustSwitched ?? false
         }
         toolLoopContextRef.streamId = newStreamId
         pendingToolCallsRef.streamId = newStreamId
@@ -361,6 +374,11 @@ export function useChat() {
         if (loopModeJustSwitched) {
           state.setLastSentToolMode(state.toolMode)
         }
+        // The notice fires if the turn started with a switch (Switch &
+        // Run or pre-send StatusBar toggle) OR if the user toggled mode
+        // mid-loop. Either way we want the grounding text in the prompt.
+        const continuationModeJustSwitched =
+          toolLoopContextRef.current.modeJustSwitched || loopModeJustSwitched
 
         try {
           await api.llmChatStream({
@@ -374,7 +392,7 @@ export function useChat() {
               state.toolMode,
               editorState.document.path,
               resolveModelName(settingsState.settings.llm.model, settingsState.fetchedModels),
-              loopModeJustSwitched
+              continuationModeJustSwitched
             ),
             streamId: newStreamId,
             tools,
@@ -555,18 +573,6 @@ export function useChat() {
         console.error('[useChat] Error getting tools:', toolErr)
         tools = undefined
       }
-      if (tools && tools.length > 0) {
-        toolLoopContextRef.current = {
-          apiMessages,
-          assistantMsgId,
-          roundtripCount: 0,
-          lastErrorSignature: null
-        }
-        toolLoopContextRef.streamId = streamId
-        pendingToolCallsRef.streamId = streamId
-      }
-
-      console.log('[useChat] About to call llmChatStream')
       // Detect mid-conversation mode switches so we can prepend a one-line
       // note to the system prompt. Idempotent across multiple toggles:
       // only the diff at send time matters, and we update lastSentToolMode
@@ -575,6 +581,20 @@ export function useChat() {
       const lastSent = useChatStore.getState().lastSentToolMode
       const modeJustSwitched = lastSent !== null && lastSent !== toolMode
       useChatStore.getState().setLastSentToolMode(toolMode)
+
+      if (tools && tools.length > 0) {
+        toolLoopContextRef.current = {
+          apiMessages,
+          assistantMsgId,
+          roundtripCount: 0,
+          lastErrorSignature: null,
+          modeJustSwitched
+        }
+        toolLoopContextRef.streamId = streamId
+        pendingToolCallsRef.streamId = streamId
+      }
+
+      console.log('[useChat] About to call llmChatStream')
       try {
         // Call streaming LLM (via Electron IPC or browser fallback)
         const api = getApi()

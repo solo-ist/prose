@@ -281,15 +281,20 @@ export function executeInsert(
     return toolError('Text to insert is required', 'INVALID_INPUT')
   }
 
-  // Resolve insertion position uniformly so both the chain and the
-  // annotation use the same number.
-  let insertPos: number
+  // Resolve insertion range. Most positions collapse to a single point
+  // (insertFrom === insertTo), but `cursor` honors any active selection
+  // so a highlighted-then-asked-to-insert flow replaces the selection
+  // instead of leaving it stranded next to the new content.
+  let insertFrom: number
+  let insertTo: number
   switch (position) {
     case 'start':
-      insertPos = 0
+      insertFrom = 0
+      insertTo = 0
       break
     case 'end':
-      insertPos = editor.state.doc.content.size
+      insertFrom = editor.state.doc.content.size
+      insertTo = editor.state.doc.content.size
       break
     case 'after_node':
     case 'before_node': {
@@ -313,30 +318,39 @@ export function executeInsert(
           'NODE_NOT_FOUND'
         )
       }
-      insertPos =
+      insertFrom =
         position === 'after_node' ? found.pos + found.node.nodeSize : found.pos
+      insertTo = insertFrom
       break
     }
     case 'cursor':
     default:
-      insertPos = editor.state.selection.from
+      // Use the full selection range so non-empty selections are
+      // replaced by the inserted text. Matches the pre-#546 behavior
+      // and is what users intuitively expect when they highlight a
+      // span and ask the agent to write replacement prose.
+      insertFrom = editor.state.selection.from
+      insertTo = editor.state.selection.to
       break
   }
 
   try {
     const sizeBefore = editor.state.doc.content.size
-    editor.chain().focus().setTextSelection(insertPos).insertContent(text).run()
+    editor.chain().focus().setTextSelection({ from: insertFrom, to: insertTo }).insertContent(text).run()
     const sizeAfter = editor.state.doc.content.size
 
-    // Create AI annotation for provenance tracking
+    // Create AI annotation for provenance tracking.
+    // Inserted PM range = [insertFrom, insertFrom + insertedSize], where
+    // insertedSize accounts for both the doc-size delta and the original
+    // selection that got replaced. For a collapsed selection (the common
+    // case) this reduces to `sizeAfter - sizeBefore`.
     if (provenance && provenance.documentId && text.length > 0) {
+      const insertedSize = (sizeAfter - sizeBefore) + (insertTo - insertFrom)
       useAnnotationStore.getState().addAnnotation({
         documentId: provenance.documentId,
         type: 'insertion',
-        from: insertPos,
-        // Use the actual PM size delta instead of string length: insertContent()
-        // may produce multi-paragraph nodes where string length != PM position delta.
-        to: insertPos + (sizeAfter - sizeBefore),
+        from: insertFrom,
+        to: insertFrom + insertedSize,
         content: text,
         provenance: {
           model: provenance.model,

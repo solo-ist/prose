@@ -81,7 +81,7 @@ When the stream completes with tool calls:
 
 1. **Circuit breaker** — if `roundtripCount >= MAX_TOOL_ROUNDTRIPS`, append error and stop.
 2. **Build assistant content** — text blocks + `tool_use` blocks for the API message history.
-3. **Sort editor-mutating tools** — `edit`, `insert`, `suggest_edit` are sorted by document position descending (bottom-first) via `resolveToolPosition()`. Non-editor tools sort before editor tools.
+3. **Sort editor-mutating tools** — `edit`, `insert`, `suggest_edit`, `delete_node`, `move_cursor` are sorted by document position descending (bottom-first) via `resolveToolPosition()`. Non-editor tools sort before editor tools.
 4. **Execute each tool** — `executeTool(name, args, toolMode, provenance)` from `src/renderer/lib/tools/index.ts`.
 5. **Duplicate failure detection** — tracks `"${toolName}:${errorMessage}"` signature. If identical to the previous roundtrip's error, stops the loop.
 6. **Build tool results** — each result is summarized (strips `markdown` from `read_document`) and appended as a `role: 'tool'` message.

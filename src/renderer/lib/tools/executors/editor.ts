@@ -97,6 +97,20 @@ export function resolveToolPosition(toolName: string, args: Record<string, unkno
       case 'start': return 0
       case 'end': return editor.state.doc.content.size
       case 'cursor': return editor.state.selection.from
+      case 'after_node':
+      case 'before_node': {
+        const nodeId = args.nodeId as string | undefined
+        const search = args.search as string | undefined
+        if (!nodeId) return Infinity
+        let found = findNodeById(editor.state.doc, nodeId)
+        if (!found && search) {
+          found = findNodeByContent(editor.state.doc, search)
+        }
+        if (!found) return Infinity
+        return position === 'after_node'
+          ? found.pos + found.node.nodeSize
+          : found.pos
+      }
       default: return Infinity
     }
   }
@@ -233,11 +247,21 @@ function parseFrontmatterPayload(
 
 /**
  * insert - Insert text at the specified position.
+ *
+ * Positions:
+ *   - `cursor` — at the current selection (legacy; depends on where the
+ *     user has parked the cursor, so only correct when they said "here")
+ *   - `start` / `end` — document boundaries
+ *   - `after_node` / `before_node` — relative to a node located by
+ *     `nodeId` (preferred for "add to section X" — anchor on the
+ *     section's heading nodeId from `read_document`)
  */
 export function executeInsert(
   args: {
     text: string
-    position?: 'cursor' | 'start' | 'end'
+    position?: 'cursor' | 'start' | 'end' | 'after_node' | 'before_node'
+    nodeId?: string
+    search?: string
   },
   provenance?: ToolProvenance
 ): ToolResult<{ inserted: boolean; position: string }> {
@@ -251,13 +275,14 @@ export function executeInsert(
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
-  const { text, position = 'cursor' } = args
+  const { text, position = 'cursor', nodeId, search } = args
 
   if (!text) {
     return toolError('Text to insert is required', 'INVALID_INPUT')
   }
 
-  // Capture insertion position before modifying the document
+  // Resolve insertion position uniformly so both the chain and the
+  // annotation use the same number.
   let insertPos: number
   switch (position) {
     case 'start':
@@ -266,6 +291,32 @@ export function executeInsert(
     case 'end':
       insertPos = editor.state.doc.content.size
       break
+    case 'after_node':
+    case 'before_node': {
+      if (!nodeId) {
+        return toolError(
+          `nodeId is required when position is "${position}"`,
+          'INVALID_INPUT'
+        )
+      }
+      let found = findNodeById(editor.state.doc, nodeId)
+      if (!found && search) {
+        found = findNodeByContent(editor.state.doc, search)
+      }
+      if (!found) {
+        const available = flattenNodes(getNodesWithIds(editor.state.doc))
+        const nodeList = available
+          .map(n => `${n.nodeId} (${n.type}: "${n.textContent.substring(0, 40)}")`)
+          .join(', ')
+        return toolError(
+          `Anchor node "${nodeId}" not found. Available nodes: [${nodeList}]`,
+          'NODE_NOT_FOUND'
+        )
+      }
+      insertPos =
+        position === 'after_node' ? found.pos + found.node.nodeSize : found.pos
+      break
+    }
     case 'cursor':
     default:
       insertPos = editor.state.selection.from
@@ -274,23 +325,7 @@ export function executeInsert(
 
   try {
     const sizeBefore = editor.state.doc.content.size
-    switch (position) {
-      case 'start':
-        editor.chain().focus().setTextSelection(0).insertContent(text).run()
-        break
-      case 'end':
-        editor
-          .chain()
-          .focus()
-          .setTextSelection(editor.state.doc.content.size)
-          .insertContent(text)
-          .run()
-        break
-      case 'cursor':
-      default:
-        editor.chain().focus().insertContent(text).run()
-        break
-    }
+    editor.chain().focus().setTextSelection(insertPos).insertContent(text).run()
     const sizeAfter = editor.state.doc.content.size
 
     // Create AI annotation for provenance tracking

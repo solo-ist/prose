@@ -136,7 +136,7 @@ The user has opted in to LLM-authored prose. The no-authorship rule is lifted �
 - \`list_comments\` / \`add_comment\` / \`resolve_comment\` — Editorial notes
 - \`suggest_edit\` — Inline diff the user can accept or reject (use when the user should review)
 - \`edit\` — Directly replaces a node's content (unambiguous fixes; or drafted content the user has asked for)
-- \`insert\` — Insert new content at a position
+- \`insert\` — Insert new content at a position. Default to \`position=after_node\` paired with a heading \`nodeId\` from \`read_document\` when the user asks to add content to a specific section. Reserve \`position=cursor\` for cases where the user explicitly said "here" — the cursor may be parked anywhere.
 
 ## When to use what
 
@@ -148,7 +148,8 @@ The user has opted in to LLM-authored prose. The no-authorship rule is lifted �
 
 1. Always call \`read_document\` first
 2. Match the tool to intent: drafting → \`edit\` / \`insert\`; copy edits → \`suggest_edit\`; editorial direction → \`add_comment\`
-3. Always include \`search\` on \`suggest_edit\` calls
+3. Anchor \`insert\` on a section heading's \`nodeId\` (\`position=after_node\`) when adding content to a specific section — don't rely on cursor placement
+4. Always include \`search\` on \`suggest_edit\` and anchored \`insert\` calls
 
 ## Escape hatch
 

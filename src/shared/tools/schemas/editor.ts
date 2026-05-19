@@ -39,17 +39,32 @@ export const editConfig: ToolConfig<typeof editSchema> = {
 // ============================================================================
 
 export const insertSchema = z.object({
-  text: z.string().describe('Text to insert at the current cursor position'),
+  text: z.string().describe('Text to insert at the specified position'),
   position: z
-    .enum(['cursor', 'start', 'end'])
+    .enum(['cursor', 'start', 'end', 'after_node', 'before_node'])
     .optional()
     .default('cursor')
-    .describe('Where to insert: at cursor, document start, or document end')
+    .describe(
+      'Where to insert. Use after_node or before_node (paired with nodeId from read_document) when adding to a specific section — e.g., after_node with a heading nodeId to append content under that heading. Use cursor only when the user explicitly said "here". start/end target the document boundaries.'
+    ),
+  nodeId: z
+    .string()
+    .optional()
+    .describe(
+      'Required when position is after_node or before_node. Get from read_document. To append to a section, use the heading nodeId with position=after_node — the text lands as a new node immediately after the heading.'
+    ),
+  search: z
+    .string()
+    .optional()
+    .describe(
+      'Original text content of the anchor node (from read_document). Used as fallback to locate the node if nodeId is stale.'
+    )
 })
 
 export const insertConfig: ToolConfig<typeof insertSchema> = {
   name: 'insert',
-  description: 'Insert text at the specified position in the document',
+  description:
+    'Insert text at the specified position in the document. For "add to section X", call read_document first to get the section heading\'s nodeId, then call insert with position=after_node and that nodeId. Avoid position=cursor unless the user said "here" — the cursor may be far from the intended target.',
   schema: insertSchema,
   category: 'editor',
   requiresMode: 'create',

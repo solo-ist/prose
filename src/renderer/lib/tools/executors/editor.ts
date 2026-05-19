@@ -115,10 +115,17 @@ async function applyInsertion(
   // End of inserted content = from + (size of inserted chunk in PM coords).
   // Inserted size = doc delta + chars removed by any range replace.
   let pos = from + (editor.state.doc.content.size - sizeBefore) + rangeSize
+  // Subsequent chunks use a raw ProseMirror text insert rather than
+  // `insertContent`. `insertContent(string)` routes through the markdown
+  // parser, which treats top-level text as a paragraph node — so each
+  // chunk would land as its own paragraph instead of appending inline to
+  // the paragraph the first chunk just created (#553). `tr.insertText`
+  // inserts inline text into the surrounding block, preserving paragraph
+  // continuity and the intended word-by-word fill animation.
   for (let i = 1; i < chunks.length; i++) {
     await nextFrame()
     const prev = editor.state.doc.content.size
-    editor.chain().setTextSelection(pos).insertContent(chunks[i]).run()
+    editor.view.dispatch(editor.state.tr.insertText(chunks[i], pos))
     pos += editor.state.doc.content.size - prev
   }
 }

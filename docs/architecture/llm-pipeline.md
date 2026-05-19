@@ -83,7 +83,7 @@ When the stream completes with tool calls:
 1. **Circuit breaker** — if `roundtripCount >= MAX_TOOL_ROUNDTRIPS`, append error and stop.
 2. **Build assistant content** — text blocks + `tool_use` blocks for the API message history.
 3. **Sort editor-mutating tools** — `edit`, `insert`, `suggest_edit`, `delete_node` are sorted by document position descending (bottom-first) via `resolveToolPosition()`, so an earlier tool call can't shift positions out from under a later one. `move_cursor` is intentionally **not** in this set — it changes the selection, not document content, so it has no effect on subsequent positions. Non-editor tools sort before editor tools.
-4. **Execute each tool** — `executeTool(name, args, toolMode, provenance)` from `src/renderer/lib/tools/index.ts`.
+4. **Execute each tool** — `executeTool(name, args, toolMode, provenance)` from `src/renderer/lib/tools/index.ts`. `edit` and `insert` are async: when `settings.editor.streamingEdits` is on (default) and the user does not prefer reduced motion, content is inserted in word-level chunks across ~24 animation frames so the user perceives the edit arriving rather than appearing. Tool results resolve once all chunks have landed.
 5. **Duplicate failure detection** — tracks `"${toolName}:${errorMessage}"` signature. If identical to the previous roundtrip's error, stops the loop.
 6. **Build tool results** — each result is summarized (strips `markdown` from `read_document`) and appended as a `role: 'tool'` message.
 7. **Recursive restart** — generates new `streamId`, calls `startStreaming()` with the same `assistantMsgId`, updates both refs, calls `api.llmChatStream()` again.

@@ -28,6 +28,8 @@ import {
   executeAcceptDiff,
   executeRejectDiff,
   executeListDiffs,
+  executeDeleteNode,
+  executeMoveCursor,
   resolveToolPosition
 } from './executors/editor'
 
@@ -126,6 +128,10 @@ export async function executeTool(
         return executeRejectDiff(validatedArgs)
       case 'list_diffs':
         return executeListDiffs()
+      case 'delete_node':
+        return executeDeleteNode(validatedArgs, provenance)
+      case 'move_cursor':
+        return executeMoveCursor(validatedArgs)
 
       // File tools (async)
       case 'open_file':

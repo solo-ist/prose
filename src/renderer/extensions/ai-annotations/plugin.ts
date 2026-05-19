@@ -34,7 +34,12 @@ function showTooltip(annotation: AIAnnotation, event: MouseEvent) {
   tooltip.className = 'ai-annotation-tooltip'
 
   const ageString = formatAge(annotation.createdAt)
-  const typeLabel = annotation.type === 'insertion' ? 'AI Insertion' : 'AI Replacement'
+  const typeLabel =
+    annotation.type === 'insertion'
+      ? 'AI Insertion'
+      : annotation.type === 'deletion'
+        ? 'AI Deletion'
+        : 'AI Replacement'
 
   const header = document.createElement('div')
   header.className = 'ai-annotation-tooltip-header'

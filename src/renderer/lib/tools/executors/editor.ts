@@ -115,6 +115,18 @@ export function resolveToolPosition(toolName: string, args: Record<string, unkno
     }
   }
 
+  if (toolName === 'delete_node' || toolName === 'move_cursor') {
+    const nodeId = args.nodeId as string
+    const search = args.search as string | undefined
+    if (!nodeId) return Infinity
+
+    let found = findNodeById(editor.state.doc, nodeId)
+    if (!found && search) {
+      found = findNodeByContent(editor.state.doc, search)
+    }
+    return found ? found.pos : Infinity
+  }
+
   return Infinity
 }
 
@@ -633,6 +645,122 @@ export function executeRejectDiff(args: {
   } else {
     return toolError('Failed to reject suggestions', 'REJECT_FAILED')
   }
+}
+
+/**
+ * delete_node - Remove a node from the document by ID.
+ * Falls back to content matching if the nodeId is stale.
+ */
+export function executeDeleteNode(
+  args: {
+    nodeId: string
+    search?: string
+  },
+  provenance?: ToolProvenance
+): ToolResult<{ deleted: boolean; nodeId: string }> {
+  const editor = getEditor()
+
+  if (!editor) {
+    return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
+  }
+
+  if (isEditorReadOnly()) {
+    return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
+  }
+
+  const { nodeId, search } = args
+
+  if (!nodeId) {
+    return toolError('Node ID is required', 'INVALID_INPUT')
+  }
+
+  let found = findNodeById(editor.state.doc, nodeId)
+
+  if (!found && search) {
+    found = findNodeByContent(editor.state.doc, search)
+  }
+
+  if (!found) {
+    const available = flattenNodes(getNodesWithIds(editor.state.doc))
+    const nodeList = available.map(n => `${n.nodeId} (${n.type}: "${n.textContent.substring(0, 40)}")`).join(', ')
+    return toolError(
+      `Node with ID "${nodeId}" not found. Available nodes: [${nodeList}]`,
+      'NODE_NOT_FOUND'
+    )
+  }
+
+  const { node, pos } = found
+  const deletedText = node.textContent
+  const from = pos
+  const to = pos + node.nodeSize
+
+  editor.chain().focus().deleteRange({ from, to }).run()
+
+  // Log a deletion annotation for provenance. Range collapses to a single
+  // point at the deletion site so the annotation store treats it as a marker
+  // rather than highlighting text that no longer exists.
+  if (provenance && provenance.documentId) {
+    useAnnotationStore.getState().addAnnotation({
+      documentId: provenance.documentId,
+      type: 'deletion',
+      from,
+      to: from,
+      content: deletedText,
+      provenance: {
+        model: provenance.model,
+        conversationId: provenance.conversationId,
+        messageId: provenance.messageId,
+      },
+    })
+  }
+
+  return toolSuccess({ deleted: true, nodeId })
+}
+
+/**
+ * move_cursor - Move the user's text cursor to a specific node.
+ * Non-destructive selection change. Falls back to content matching if the
+ * nodeId is stale.
+ */
+export function executeMoveCursor(args: {
+  nodeId: string
+  position?: 'start' | 'end'
+}): ToolResult<{ moved: boolean; nodeId: string; position: 'start' | 'end' }> {
+  const editor = getEditor()
+
+  if (!editor) {
+    return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
+  }
+
+  if (isEditorReadOnly()) {
+    return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
+  }
+
+  const { nodeId } = args
+  const position = args.position ?? 'start'
+
+  if (!nodeId) {
+    return toolError('Node ID is required', 'INVALID_INPUT')
+  }
+
+  const found = findNodeById(editor.state.doc, nodeId)
+
+  if (!found) {
+    const available = flattenNodes(getNodesWithIds(editor.state.doc))
+    const nodeList = available.map(n => `${n.nodeId} (${n.type}: "${n.textContent.substring(0, 40)}")`).join(', ')
+    return toolError(
+      `Node with ID "${nodeId}" not found. Available nodes: [${nodeList}]`,
+      'NODE_NOT_FOUND'
+    )
+  }
+
+  const { node, pos } = found
+  // Node-content positions live inside the open/close tokens.
+  const target = position === 'end' ? pos + node.nodeSize - 1 : pos + 1
+
+  editor.chain().focus().setTextSelection(target).run()
+
+  return toolSuccess({ moved: true, nodeId, position })
 }
 
 /**

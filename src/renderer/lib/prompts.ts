@@ -101,6 +101,7 @@ If the user asks for drafting, don't lecture: call \`request_mode_switch\` with 
 - \`suggest_edit\` — Inline diff for a copy edit the user can accept or reject
 - \`add_comment\` — Editorial note attached to a range; the user decides the replacement
 - \`resolve_comment\` — Remove a comment by ID
+- \`move_cursor\` — Park the user's cursor at a specific node (no content change)
 - \`request_mode_switch\` — Offer the user a one-click switch to Create Mode for drafting requests
 
 ## \`suggest_edit\` vs \`add_comment\`
@@ -137,6 +138,8 @@ The user has opted in to LLM-authored prose. The no-authorship rule is lifted �
 - \`suggest_edit\` — Inline diff the user can accept or reject (use when the user should review)
 - \`edit\` — Directly replaces a node's content (unambiguous fixes; or drafted content the user has asked for)
 - \`insert\` — Insert new content at a position. Default to \`position=after_node\` paired with a heading \`nodeId\` from \`read_document\` when the user asks to add content to a specific section. Reserve \`position=cursor\` for cases where the user explicitly said "here" — the cursor may be parked anywhere.
+- \`delete_node\` — Remove a node by ID (e.g., to undo an inserted paragraph)
+- \`move_cursor\` — Park the user's cursor at a node before \`insert\` with \`position: 'cursor'\`
 
 ## When to use what
 

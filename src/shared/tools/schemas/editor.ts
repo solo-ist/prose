@@ -150,6 +150,62 @@ export const rejectDiffConfig: ToolConfig<typeof rejectDiffSchema> = {
 }
 
 // ============================================================================
+// delete_node
+// ============================================================================
+
+export const deleteNodeSchema = z.object({
+  nodeId: z
+    .string()
+    .describe(
+      'The ID of the node to delete. Get node IDs from read_document which lists all nodes with their IDs.'
+    ),
+  search: z
+    .string()
+    .optional()
+    .describe(
+      'Original text content of the node (from read_document). Used as fallback to locate the node if nodeId is stale.'
+    )
+})
+
+export const deleteNodeConfig: ToolConfig<typeof deleteNodeSchema> = {
+  name: 'delete_node',
+  description:
+    'Delete a specific node by ID. Use read_document first to see all nodes with their IDs, then target the node you want to remove. Include the search parameter with the original text for reliability if the node ID may be stale.',
+  schema: deleteNodeSchema,
+  category: 'editor',
+  requiresMode: 'create', // Destructive — only available in Create Mode
+  dangerous: false
+}
+
+// ============================================================================
+// move_cursor
+// ============================================================================
+
+export const moveCursorSchema = z.object({
+  nodeId: z
+    .string()
+    .describe(
+      'The ID of the node to move the cursor to. Get node IDs from read_document.'
+    ),
+  position: z
+    .enum(['start', 'end'])
+    .optional()
+    .default('start')
+    .describe('Where in the node to place the cursor: at the start (default) or end of its content.')
+})
+
+export const moveCursorConfig: ToolConfig<typeof moveCursorSchema> = {
+  name: 'move_cursor',
+  description:
+    "Move the user's text cursor to a specific node. Useful before calling insert with position 'cursor' to park the cursor at a known location. Use read_document first to get node IDs.",
+  schema: moveCursorSchema,
+  category: 'editor',
+  // Non-destructive selection change — available in Editor (and Create by inheritance).
+  requiresMode: 'editor',
+  dangerous: false
+}
+
+// ============================================================================
 // Export all editor tools
 // ============================================================================
 
@@ -158,5 +214,7 @@ export const editorTools = [
   insertConfig,
   suggestEditConfig,
   acceptDiffConfig,
-  rejectDiffConfig
+  rejectDiffConfig,
+  deleteNodeConfig,
+  moveCursorConfig
 ] as const

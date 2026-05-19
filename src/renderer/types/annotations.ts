@@ -8,7 +8,7 @@
 /**
  * Type of AI text modification
  */
-export type AnnotationType = 'insertion' | 'replacement'
+export type AnnotationType = 'insertion' | 'replacement' | 'deletion'
 
 /**
  * Provenance information about the AI that generated the text

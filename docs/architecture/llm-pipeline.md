@@ -70,6 +70,7 @@ All handlers validate `streamId === chatStore.currentStreamId` before processing
 |---------|-----------|---------|
 | `llm:stream` (invoke) | renderer → main | `LLMStreamRequest` (provider, model, messages, tools, streamId) |
 | `llm:stream:chunk` | main → renderer | `{streamId, delta}` — appended to streaming message |
+| `llm:stream:tool-call:start` | main → renderer | `{streamId, toolCallId, toolName}` — fired on `content_block_start` for `tool_use`. Renderer appends `<tool-drafting>` marker for the "Drafting…" chip. |
 | `llm:stream:tool-call` | main → renderer | `{streamId, id, name, args}` — accumulated in `pendingToolCallsRef` |
 | `llm:stream:complete` | main → renderer | `{streamId, content, toolCalls}` — triggers tool execution or completion |
 | `llm:stream:error` | main → renderer | `{streamId, error}` — appends actionable error guidance |
@@ -91,7 +92,7 @@ When the stream completes with tool calls:
 
 Two code paths:
 
-- **Anthropic with tools** — uses `@anthropic-ai/sdk` directly (not Vercel AI SDK) to avoid tool format translation. Converts `role: 'tool'` messages to Anthropic's `tool_result` format. Emits `chunk`, `tool-call`, and `complete` events.
+- **Anthropic with tools** — uses `@anthropic-ai/sdk` directly (not Vercel AI SDK) to avoid tool format translation. Converts `role: 'tool'` messages to Anthropic's `tool_result` format. Emits `chunk`, `tool-call:start` (on each `content_block_start` for `tool_use`, before any `input_json_delta`), `tool-call`, and `complete` events.
 - **Other providers** — uses Vercel AI SDK `streamText()`. No tool support. Emits `chunk` and `complete` only.
 
 Active streams tracked in `Map<string, AbortController>` for abort support.

@@ -176,16 +176,25 @@ export function buildSystemPrompt(
   // Mode-specific tool instructions. Defaults to Editor when no mode supplied
   // (matches the chatStore initial value).
   const resolvedMode: ToolMode = toolMode ?? 'editor'
+  const modeLabel = resolvedMode.charAt(0).toUpperCase() + resolvedMode.slice(1)
 
-  // Mid-conversation mode switch notice — surface a one-line note BEFORE
-  // the base persona so the agent sees the mode change first. Caller
-  // computes the boolean by comparing chatStore.lastSentToolMode with
-  // the current toolMode; this is idempotent across multiple toggles
-  // between sends.
+  // Top-of-prompt mode anchor. Always present, so the LLM has an
+  // authoritative signal that overrides any prior assistant turn in
+  // conversation history that may have claimed a different mode (the
+  // failure mode tracked in #551: the agent pattern-matches on its own
+  // prior "I'm in Editor Mode" reply and refuses to act in the new mode).
+  prompt =
+    `**CURRENT MODE: ${modeLabel}.** Your available tools and posture are defined by ${modeLabel} Mode (see "## ${modeLabel} Mode" section below). If any prior assistant turn in this conversation claimed a different mode, that claim is stale — disregard it and act according to ${modeLabel} Mode now.\n\n` +
+    prompt
+
+  // Mid-conversation mode switch notice — fires the turn after a switch.
+  // Reinforces the mode anchor with explicit "do not re-fire the switch
+  // tool" guidance. Caller computes the boolean by comparing
+  // chatStore.lastSentToolMode with the current toolMode; this is
+  // idempotent across multiple toggles between sends.
   if (modeJustSwitched) {
-    const modeLabel = resolvedMode.charAt(0).toUpperCase() + resolvedMode.slice(1)
     prompt =
-      `Note: the user just switched to ${modeLabel} Mode mid-conversation. Their next message likely reflects a request you should now be able to fulfill directly with this mode's tools. **Do NOT call \`request_mode_switch\` in this turn** — they've already switched. Use the tools available in ${modeLabel} Mode to act on their request.\n\n` +
+      `**MODE CHANGED.** The user just switched to ${modeLabel} Mode mid-conversation. Their next message reflects a request you should fulfill directly with ${modeLabel} Mode's tools. Do NOT call \`request_mode_switch\` in this turn — they've already switched.\n\n` +
       prompt
   }
   if (resolvedMode === 'chat') {

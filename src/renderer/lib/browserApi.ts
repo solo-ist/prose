@@ -13,6 +13,7 @@ import type {
   LLMStreamRequest,
   LLMStreamChunk,
   LLMStreamToolCall,
+  LLMStreamToolCallStart,
   LLMStreamComplete,
   LLMStreamError,
   ElectronAPI
@@ -380,6 +381,12 @@ export const browserApi: ElectronAPI = {
     const handler = (e: Event) => callback((e as CustomEvent).detail)
     window.addEventListener('llm:stream:tool-call', handler)
     return () => window.removeEventListener('llm:stream:tool-call', handler)
+  },
+
+  onLLMStreamToolCallStart: (callback: (start: LLMStreamToolCallStart) => void) => {
+    const handler = (e: Event) => callback((e as CustomEvent).detail)
+    window.addEventListener('llm:stream:tool-call:start', handler)
+    return () => window.removeEventListener('llm:stream:tool-call:start', handler)
   },
 
   onLLMStreamComplete: (callback: (complete: LLMStreamComplete) => void) => {

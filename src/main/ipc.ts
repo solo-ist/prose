@@ -809,6 +809,14 @@ export function setupIpcHandlers(): void {
           console.log('[LLM:stream] Content block start:', block.content_block.type)
           if (block.content_block.type === 'tool_use') {
             console.log('[LLM:stream] Tool use started:', block.content_block.name)
+            // Fire a drafting event before any input_json_delta arrives — the
+            // visible latency for tools like `insert`/`edit` is the LLM
+            // composing the input, not the tool's actual execution.
+            event.sender.send('llm:stream:tool-call:start', {
+              streamId,
+              toolCallId: block.content_block.id,
+              toolName: block.content_block.name
+            })
           }
         })
 

@@ -52,6 +52,12 @@ export interface LLMStreamToolCall {
   }
 }
 
+export interface LLMStreamToolCallStart {
+  streamId: string
+  toolCallId: string
+  toolName: string
+}
+
 export interface LLMStreamComplete {
   streamId: string
   content: string
@@ -190,6 +196,7 @@ export interface ElectronAPI {
   llmAbortStream: (streamId: string) => Promise<{ success: boolean }>
   onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => () => void
   onLLMStreamToolCall: (callback: (toolCall: LLMStreamToolCall) => void) => () => void
+  onLLMStreamToolCallStart: (callback: (start: LLMStreamToolCallStart) => void) => () => void
   onLLMStreamComplete: (callback: (complete: LLMStreamComplete) => void) => () => void
   onLLMStreamError: (callback: (error: LLMStreamError) => void) => () => void
   // Folder operations for quick save
@@ -473,6 +480,15 @@ const api: ElectronAPI = {
     ipcRenderer.on('llm:stream:tool-call', handler)
     return () => {
       ipcRenderer.removeListener('llm:stream:tool-call', handler)
+    }
+  },
+  onLLMStreamToolCallStart: (callback: (start: LLMStreamToolCallStart) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, start: LLMStreamToolCallStart): void => {
+      callback(start)
+    }
+    ipcRenderer.on('llm:stream:tool-call:start', handler)
+    return () => {
+      ipcRenderer.removeListener('llm:stream:tool-call:start', handler)
     }
   },
   onLLMStreamComplete: (callback: (complete: LLMStreamComplete) => void) => {

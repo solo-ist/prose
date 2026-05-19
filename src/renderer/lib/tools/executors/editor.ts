@@ -77,31 +77,49 @@ function nextFrame(): Promise<void> {
 }
 
 /**
- * Insert `text` at `insertPos` either instantly or in word-level chunks across
- * animation frames. Chunked transactions land within ~400ms total, which is
- * inside the ProseMirror history plugin's default newGroupDelay (500ms) — so
- * the whole insertion collapses into a single undo step.
+ * Insert `text` at `from`, or replace the range `[from, to]` when `to` is
+ * supplied, either instantly or in word-level chunks across animation frames.
+ * Chunked transactions land within ~400ms total — inside the ProseMirror
+ * history plugin's default newGroupDelay (500ms) — so the whole insertion
+ * collapses into a single undo step.
+ *
+ * When `to` is supplied, the range delete and the first chunk insert run in
+ * the same chain (a single transaction), so range replacement is atomic and
+ * shares undo state with the first chunk.
+ *
+ * Subsequent chunks track the running insertion endpoint explicitly via the
+ * doc-size delta, so user clicks or keystrokes mid-stream can't redirect
+ * later chunks into the user's cursor position.
  */
 async function applyInsertion(
   editor: Editor,
   text: string,
-  insertPos: number
+  from: number,
+  to?: number
 ): Promise<void> {
+  const hasRange = to !== undefined && to !== from
+  const selection = hasRange ? { from, to: to! } : from
+
   if (!shouldStreamInsertion()) {
-    editor.chain().focus().setTextSelection(insertPos).insertContent(text).run()
+    editor.chain().focus().setTextSelection(selection).insertContent(text).run()
     return
   }
   const chunks = buildStreamChunks(text)
   if (chunks.length <= 1) {
-    editor.chain().focus().setTextSelection(insertPos).insertContent(text).run()
+    editor.chain().focus().setTextSelection(selection).insertContent(text).run()
     return
   }
-  // Place cursor at insertion point, then stream each chunk at the cursor
-  // (which advances naturally after each insertContent call).
-  editor.chain().focus().setTextSelection(insertPos).insertContent(chunks[0]).run()
+  const rangeSize = hasRange ? to! - from : 0
+  const sizeBefore = editor.state.doc.content.size
+  editor.chain().focus().setTextSelection(selection).insertContent(chunks[0]).run()
+  // End of inserted content = from + (size of inserted chunk in PM coords).
+  // Inserted size = doc delta + chars removed by any range replace.
+  let pos = from + (editor.state.doc.content.size - sizeBefore) + rangeSize
   for (let i = 1; i < chunks.length; i++) {
     await nextFrame()
-    editor.commands.insertContent(chunks[i])
+    const prev = editor.state.doc.content.size
+    editor.chain().setTextSelection(pos).insertContent(chunks[i]).run()
+    pos += editor.state.doc.content.size - prev
   }
 }
 
@@ -287,27 +305,11 @@ export async function executeEdit(
   const contentEnd = pos + node.nodeSize - 1
 
   const sizeBefore = editor.state.doc.content.size
-  if (shouldStreamInsertion()) {
-    // Two-phase replace: collapse the existing range first, then stream the
-    // replacement in word chunks at the now-empty insertion point. The delete
-    // and the first inserted chunk are part of the same chain, so undo treats
-    // the collapse + initial chunk as a single step; subsequent rAF chunks
-    // fall inside the history plugin's newGroupDelay and merge into it.
-    editor
-      .chain()
-      .focus()
-      .setTextSelection({ from: contentStart, to: contentEnd })
-      .deleteSelection()
-      .run()
-    await applyInsertion(editor, content, contentStart)
-  } else {
-    editor
-      .chain()
-      .focus()
-      .setTextSelection({ from: contentStart, to: contentEnd })
-      .insertContent(content)
-      .run()
-  }
+  // Range-replace via applyInsertion: the selection delete + first chunk
+  // insert run in the same chain (atomic transaction). Subsequent rAF chunks
+  // fall inside the history plugin's newGroupDelay (500ms) and collapse into
+  // a single undo step.
+  await applyInsertion(editor, content, contentStart, contentEnd)
   const sizeAfter = editor.state.doc.content.size
 
   // Create word-level AI annotations for provenance tracking
@@ -465,6 +467,10 @@ export async function executeInsert(
     // selection that got replaced. For a collapsed selection (the common
     // case) this reduces to `sizeAfter - sizeBefore`.
     if (provenance && provenance.documentId && text.length > 0) {
+      // Use the actual PM size delta (plus any replaced range size) instead of
+      // string length: insertContent() may produce multi-paragraph nodes where
+      // string length != PM position delta, and the doc delta nets out any
+      // selection that was replaced.
       const insertedSize = (sizeAfter - sizeBefore) + (insertTo - insertFrom)
       useAnnotationStore.getState().addAnnotation({
         documentId: provenance.documentId,

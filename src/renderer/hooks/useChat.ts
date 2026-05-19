@@ -74,6 +74,13 @@ function stripDraftingTag(content: string, toolCallId: string): string {
   )
 }
 
+// Strip every drafting marker regardless of id. Used on terminal paths
+// (stream error, user abort, outer catch) where the per-id strip in the
+// tool-result loop won't run, otherwise the chip persists forever.
+function stripAllDraftingTags(content: string): string {
+  return content.replace(/<tool-drafting[^>]*><\/tool-drafting>/g, '')
+}
+
 // Maximum tool roundtrips before circuit breaker stops the loop
 const MAX_TOOL_ROUNDTRIPS = 5
 
@@ -470,8 +477,12 @@ export function useChat() {
           } else if (lowerError.includes('connect') || lowerError.includes('network') || lowerError.includes('timeout')) {
             guidance = ' Check your internet connection.'
           }
+          // Strip any orphan <tool-drafting> tags. They're normally cleared in
+          // onLLMStreamComplete's tool-result loop, but a stream error between
+          // content_block_start and that loop would leave them dangling.
+          const cleaned = stripAllDraftingTags(currentMsg?.content || '')
           state.updateMessage(state.streamingMessageId, {
-            content: (currentMsg?.content || '') + `\n\nError: ${error.error}${guidance}`,
+            content: cleaned + `\n\nError: ${error.error}${guidance}`,
             isError: true
           })
         }
@@ -708,6 +719,18 @@ export function useChat() {
     if (state.currentStreamId) {
       const api = getApi()
       api.llmAbortStream(state.currentStreamId)
+    }
+    // Strip orphan drafting tags before tearing down the stream — aborting
+    // mid-tool-input composition would otherwise leave a perpetual chip.
+    // Must run before completeStreaming() clears streamingMessageId.
+    if (state.streamingMessageId) {
+      const currentMsg = state.messages.find((m) => m.id === state.streamingMessageId)
+      if (currentMsg?.content) {
+        const cleaned = stripAllDraftingTags(currentMsg.content)
+        if (cleaned !== currentMsg.content) {
+          state.updateMessage(state.streamingMessageId, { content: cleaned })
+        }
+      }
     }
     // Clear stream refs before completing to prevent race conditions
     clearStreamRefs()

@@ -64,7 +64,7 @@ jobs:
           trigger_phrase: '/review'
           allowed_bots: 'claude,github-actions'
           show_full_output: true
-          claude_args: '--dangerously-skip-permissions'
+          claude_args: '--dangerously-skip-permissions --model claude-sonnet-4-6'
           prompt: |
             You are a code reviewer. Review PR #${{ github.event.issue.number }} in this repository.
 
@@ -231,7 +231,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           allowed_bots: 'github-actions'
           show_full_output: true
-          claude_args: '--dangerously-skip-permissions'
+          claude_args: '--dangerously-skip-permissions --model claude-sonnet-4-6'
           prompt: |
             You are an autonomous coding agent. Implement the changes described in the
             GitHub issue or comment that triggered this workflow. Do NOT list or browse

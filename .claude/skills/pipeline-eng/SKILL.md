@@ -152,6 +152,8 @@ When Anthropic releases new model versions, update all three files. Consider usi
 
 The `validate-pipeline.sh` script checks for stale model IDs — update its patterns when adding new models.
 
+**`claude-code-action@v1` model pinning.** The action does not expose a `model:` input — it delegates to the bundled Claude Code CLI, which the action rolls forward on every release. CLI defaults can change silently (the May 8–9 default shift to Opus 4.7 sent daily CI spend from ~$2 to $36 on identical workload). Always pass `--model <id>` via `claude_args` on every `claude-code-action@v1` invocation. Current pin: `claude-sonnet-4-6` in `claude.yml` (auto-review + `@claude` handler) and `pipeline-fix.yml`.
+
 ---
 
 ## Agent Dispatch

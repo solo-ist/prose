@@ -45,7 +45,7 @@ export const insertSchema = z.object({
     .optional()
     .default('cursor')
     .describe(
-      'Where to insert. Use after_node or before_node (paired with nodeId from read_document) when adding to a specific section — e.g., after_node with a heading nodeId to append content under that heading. Use cursor only when the user explicitly said "here". start/end target the document boundaries.'
+      'Where to insert. Use after_node or before_node (paired with nodeId from read_document) when adding to a specific section — e.g., after_node with a heading nodeId to append content under that heading. Use cursor when the user said "here", OR when the user has a non-empty selection and asks to replace it: position=cursor over a selection deletes the selected range and inserts the new text in its place. start/end target the document boundaries.'
     ),
   nodeId: z
     .string()
@@ -64,7 +64,7 @@ export const insertSchema = z.object({
 export const insertConfig: ToolConfig<typeof insertSchema> = {
   name: 'insert',
   description:
-    'Insert text at the specified position in the document. For "add to section X", call read_document first to get the section heading\'s nodeId, then call insert with position=after_node and that nodeId. Avoid position=cursor unless the user said "here" — the cursor may be far from the intended target.',
+    'Insert text at the specified position in the document. For "add to section X", call read_document first to get the section heading\'s nodeId, then call insert with position=after_node and that nodeId. For "replace this with X" when the user has a non-empty selection, use position=cursor — insert deletes the selection and inserts the new text in its place. Important: the selection-replace path depends on the selection still being live at call time. If you call other tools that may clear selection (e.g., read_document) between the user\'s request and the insert, the selection collapses and what was meant as a replacement becomes a plain cursor insert — read_selection is safer if you need to confirm the range before acting. Otherwise avoid position=cursor unless the user said "here".',
   schema: insertSchema,
   category: 'editor',
   requiresMode: 'create',

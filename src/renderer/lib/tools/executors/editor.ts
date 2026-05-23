@@ -261,6 +261,7 @@ export async function executeEdit(
   args: {
     nodeId: string
     content: string
+    comment?: string
     search?: string
   },
   provenance?: ToolProvenance
@@ -275,7 +276,7 @@ export async function executeEdit(
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
-  const { nodeId, content, search } = args
+  const { nodeId, content, comment, search } = args
 
   if (!nodeId) {
     return toolError('Node ID is required', 'INVALID_INPUT')
@@ -340,6 +341,7 @@ export async function executeEdit(
         conversationId: provenance.conversationId,
         messageId: provenance.messageId,
       },
+      explanation: comment,
     })
   }
 
@@ -395,6 +397,7 @@ export async function executeInsert(
     text: string
     position?: 'cursor' | 'start' | 'end' | 'after_node' | 'before_node'
     nodeId?: string
+    comment?: string
     search?: string
   },
   provenance?: ToolProvenance
@@ -409,7 +412,7 @@ export async function executeInsert(
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
-  const { text, position = 'cursor', nodeId, search } = args
+  const { text, position = 'cursor', nodeId, comment, search } = args
 
   if (!text) {
     return toolError('Text to insert is required', 'INVALID_INPUT')
@@ -487,17 +490,22 @@ export async function executeInsert(
       // string length != PM position delta, and the doc delta nets out any
       // selection that was replaced.
       const insertedSize = (sizeAfter - sizeBefore) + (insertTo - insertFrom)
-      useAnnotationStore.getState().addAnnotation({
+      // Route through createWordDiffAnnotations for visual consistency with
+      // edit/suggest_edit-accept annotations (word-level underline, explanation
+      // in tooltip). originalText is empty for pure insertions; the util
+      // promotes the type to 'insertion' automatically.
+      createWordDiffAnnotations({
         documentId: provenance.documentId,
-        type: 'insertion',
-        from: insertFrom,
-        to: insertFrom + insertedSize,
-        content: text,
+        originalText: '',
+        newText: text,
+        rangeFrom: insertFrom,
+        rangeTo: insertFrom + insertedSize,
         provenance: {
           model: provenance.model,
           conversationId: provenance.conversationId,
           messageId: provenance.messageId,
         },
+        explanation: comment,
       })
     }
 

@@ -16,6 +16,12 @@ export const editSchema = z.object({
       'The ID of the node to edit. Get node IDs from read_document which lists all nodes with their IDs.'
     ),
   content: z.string().describe('The new content for the node (replaces entire node content)'),
+  comment: z
+    .string()
+    .optional()
+    .describe(
+      'Brief rationale for the change, surfaced in the post-write annotation tooltip. Keep under 20 words.'
+    ),
   search: z
     .string()
     .optional()
@@ -52,6 +58,12 @@ export const insertSchema = z.object({
     .optional()
     .describe(
       'Required when position is after_node or before_node. Get from read_document. To append to a section, use the heading nodeId with position=after_node — the text lands as a new node immediately after the heading.'
+    ),
+  comment: z
+    .string()
+    .optional()
+    .describe(
+      'Brief rationale for the change, surfaced in the post-write annotation tooltip. Keep under 20 words.'
     ),
   search: z
     .string()

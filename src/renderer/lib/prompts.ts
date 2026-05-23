@@ -160,6 +160,7 @@ The user has opted in to LLM-authored prose. The no-authorship rule is lifted �
 2. Match the tool to intent: drafting → \`edit\` / \`insert\`; copy edits → \`suggest_edit\`; editorial direction → \`add_comment\`
 3. Anchor \`insert\` on a section heading's \`nodeId\` (\`position=after_node\`) when adding content to a specific section — don't rely on cursor placement
 4. Always include \`search\` on \`suggest_edit\` and anchored \`insert\` calls
+5. Include a one-line \`comment\` on \`edit\` and \`insert\` calls when there's a non-obvious reason for the change (e.g., "Tightened for rhythm" or "Added missing transition"). Keep under 20 words. Omit when the user's request is the full rationale.
 
 ## Escape hatch
 

@@ -369,3 +369,23 @@ useChatStore.subscribe(
     debouncedSave()
   }
 )
+
+// Persist toolMode globally whenever it changes.
+// Uses a lazy dynamic import to avoid a static circular dependency between
+// chatStore and settingsStore (settingsStore already lazy-imports chatStore
+// inside loadSettings()). The subscription fires after the store is
+// initialized so the import always resolves before the callback runs.
+// The guard (toolMode !== settings.toolMode) prevents a redundant write when
+// settingsStore.loadSettings() hydrates chatStore on boot — the value is
+// already persisted and does not need to be written back.
+useChatStore.subscribe(
+  (state) => state.toolMode,
+  (toolMode) => {
+    import('./settingsStore').then(({ useSettingsStore }) => {
+      const current = useSettingsStore.getState().settings.toolMode
+      if (current !== toolMode) {
+        useSettingsStore.getState().setPersistedToolMode(toolMode)
+      }
+    }).catch(() => { /* non-fatal */ })
+  }
+)

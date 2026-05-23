@@ -61,6 +61,11 @@ export interface Settings {
     googleDocs?: boolean
     remarkable?: boolean
   }
+  /**
+   * Persisted tool mode for the AI assistant (global, shared across all tabs/conversations).
+   * Defaults to 'editor' on first launch.
+   */
+  toolMode?: 'chat' | 'editor' | 'create'
 }
 
 export interface Document {

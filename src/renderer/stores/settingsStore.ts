@@ -4,6 +4,7 @@ import type { Settings } from '../types'
 import { initRendererSentry, setRendererSentryEnabled } from '../lib/sentry'
 import { getDefaultModel } from '../../shared/llm/models'
 import type { ModelInfo } from '../../shared/llm/models'
+import type { ToolMode } from '../../shared/tools/types'
 
 const MAX_RECENT_FILES = 15
 
@@ -70,6 +71,7 @@ interface SettingsState {
   setAIConsent: (consented: boolean) => void
   isAIConsentDialogOpen: boolean
   setAIConsentDialogOpen: (open: boolean) => void
+  setPersistedToolMode: (mode: ToolMode) => void
 }
 
 const defaultSettings: Settings = {
@@ -188,6 +190,13 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
       // Apply theme and set up listener
       applyTheme(theme)
       setupSystemThemeListener(theme, set)
+
+      // Hydrate chatStore toolMode from persisted settings (global, applies to all tabs).
+      // Import lazily to avoid a static top-level import that could cause sandbox issues.
+      // The persisted value takes priority; fall back to the store's in-memory default.
+      const persistedToolMode = settings.toolMode ?? defaultSettings.toolMode ?? 'editor'
+      const { useChatStore } = await import('./chatStore')
+      useChatStore.getState().setToolMode(persistedToolMode)
 
       // Initialize Sentry if user has opted in
       initRendererSentry(settings?.errorTracking?.enabled === true)
@@ -405,5 +414,12 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
     get().saveSettings()
   },
 
-  setAIConsentDialogOpen: (open) => set({ isAIConsentDialogOpen: open })
+  setAIConsentDialogOpen: (open) => set({ isAIConsentDialogOpen: open }),
+
+  setPersistedToolMode: (mode) => {
+    set((state) => ({
+      settings: { ...state.settings, toolMode: mode }
+    }))
+    get().saveSettings()
+  }
 })))

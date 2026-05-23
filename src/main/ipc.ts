@@ -124,7 +124,8 @@ const defaultSettings: Settings = {
   autosave: {
     mode: 'off',
     intervalSeconds: 30
-  }
+  },
+  toolMode: 'editor'
 }
 
 export function setupIpcHandlers(): void {

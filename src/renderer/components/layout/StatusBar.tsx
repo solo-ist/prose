@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useEffect, useRef, useState } from 'react'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
@@ -26,9 +26,48 @@ const isMacKeyboard =
 
 export function StatusBar() {
   const { document, cursorPosition } = useEditor()
-  const { settings, autosaveActive, setLLMConfig, saveSettings } = useSettings()
+  const { settings, isLoaded: settingsLoaded, autosaveActive, setLLMConfig, saveSettings } = useSettings()
   const { toolMode, setToolMode } = useChat()
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
+
+  // Track whether the upcoming toolMode change was initiated by a user click on
+  // the mode chip (no cue needed) vs. a programmatic change (pulse to signal it).
+  const userInitiatedRef = useRef(false)
+  // Suppress pulse on the initial settings-boot hydration (first load applies the
+  // persisted value silently; only subsequent in-session programmatic changes pulse).
+  const suppressNextPulseRef = useRef(true)
+  const [modeChipPulse, setModeChipPulse] = useState(false)
+  const prevToolModeRef = useRef(toolMode)
+
+  // Once settings finish loading for the first time, clear the boot-suppression
+  // flag so subsequent programmatic changes can pulse.
+  const settingsLoadedRef = useRef(false)
+  useEffect(() => {
+    if (settingsLoaded && !settingsLoadedRef.current) {
+      settingsLoadedRef.current = true
+      // Allow one toolMode change (the boot hydration) to pass silently, then
+      // lift the suppression on the next tick so real programmatic changes pulse.
+      setTimeout(() => { suppressNextPulseRef.current = false }, 0)
+    }
+  }, [settingsLoaded])
+
+  useEffect(() => {
+    if (toolMode === prevToolModeRef.current) return
+    prevToolModeRef.current = toolMode
+    if (userInitiatedRef.current) {
+      // User clicked the chip — clear the flag, no visual cue needed
+      userInitiatedRef.current = false
+      return
+    }
+    if (suppressNextPulseRef.current) {
+      // Boot-time hydration — suppress silently
+      return
+    }
+    // Programmatic change — briefly pulse the mode chip
+    setModeChipPulse(true)
+    const timer = setTimeout(() => setModeChipPulse(false), 1500)
+    return () => clearTimeout(timer)
+  }, [toolMode])
   const isAutosaving = useEditorStore((state) => state.isAutosaving)
   const sourceMode = useEditorStore((state) => state.sourceMode)
   const toggleSourceMode = useEditorStore((state) => state.toggleSourceMode)
@@ -179,7 +218,7 @@ export function StatusBar() {
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <button className="hover:text-foreground focus-visible:text-foreground focus-visible:outline-none transition-colors cursor-pointer">
+                <button className={`hover:text-foreground focus-visible:text-foreground focus-visible:outline-none transition-colors cursor-pointer${modeChipPulse ? ' animate-pulse text-primary' : ''}`}>
                   {currentMode.label}
                 </button>
               </DropdownMenuTrigger>
@@ -193,7 +232,10 @@ export function StatusBar() {
               ([mode, config]) => (
                 <DropdownMenuItem
                   key={mode}
-                  onClick={() => setToolMode(mode)}
+                  onClick={() => {
+                    userInitiatedRef.current = true
+                    setToolMode(mode)
+                  }}
                   className="cursor-pointer font-mono text-xs"
                 >
                   <span className="flex-1">{config.label}</span>

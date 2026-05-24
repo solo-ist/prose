@@ -8,7 +8,7 @@ import type { ToolMode } from '../../shared/tools/types'
 
 const MAX_RECENT_FILES = 15
 
-type SettingsTab = 'general' | 'editor' | 'llm' | 'integrations' | 'account'
+type SettingsTab = 'general' | 'appearance' | 'editor' | 'llm' | 'integrations' | 'account'
 
 export const AI_CONSENT_VERSION = 1
 

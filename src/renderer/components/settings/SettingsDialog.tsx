@@ -21,6 +21,7 @@ import { Button } from '../ui/button'
 import { Separator } from '../ui/separator'
 import { Slider } from '../ui/slider'
 import { Switch } from '../ui/switch'
+import { AppearancePane } from './AppearancePane'
 import { RemarkableIntegration } from './RemarkableIntegration'
 import { GoogleDocsIntegration } from './GoogleDocsIntegration'
 import { McpIntegration } from './McpIntegration'
@@ -59,8 +60,10 @@ export function SettingsDialog() {
     settings,
     isDialogOpen,
     dialogTab,
+    effectiveTheme,
     setDialogOpen,
     setDialogTab,
+    setAppearance,
     setLLMConfig,
     setEditorConfig,
     setRecoveryConfig,
@@ -102,6 +105,7 @@ export function SettingsDialog() {
 
   // Refs for scrollable tab content
   const generalTabRef = useRef<HTMLDivElement>(null)
+  const appearanceTabRef = useRef<HTMLDivElement>(null)
   const editorTabRef = useRef<HTMLDivElement>(null)
   const llmTabRef = useRef<HTMLDivElement>(null)
   const integrationsTabRef = useRef<HTMLDivElement>(null)
@@ -182,6 +186,7 @@ export function SettingsDialog() {
     // ensures it starts at the top when the user returns to it.
     const tabRefs: Record<string, React.RefObject<HTMLDivElement>> = {
       general: generalTabRef,
+      appearance: appearanceTabRef,
       editor: editorTabRef,
       llm: llmTabRef,
       integrations: integrationsTabRef,
@@ -244,8 +249,9 @@ export function SettingsDialog() {
         </DialogHeader>
 
         <Tabs value={dialogTab} onValueChange={handleTabChange} className="mt-4 flex-1 min-h-0 flex flex-col">
-          <TabsList className="grid w-full grid-cols-5 flex-shrink-0">
+          <TabsList className="grid w-full grid-cols-6 flex-shrink-0">
             <TabsTrigger value="general">General</TabsTrigger>
+            <TabsTrigger value="appearance">Appearance</TabsTrigger>
             <TabsTrigger value="editor">Editor</TabsTrigger>
             <TabsTrigger value="llm">LLM</TabsTrigger>
             <TabsTrigger value="integrations">Integrations</TabsTrigger>
@@ -394,6 +400,14 @@ export function SettingsDialog() {
                 }}
               />
             </div>
+          </TabsContent>
+
+          <TabsContent value="appearance" className="mt-4 overflow-y-auto flex-1 min-h-0 flex flex-col px-0 mx-0" ref={appearanceTabRef}>
+            <AppearancePane
+              appearance={settings.appearance}
+              effectiveMode={effectiveTheme}
+              onAppearanceChange={setAppearance}
+            />
           </TabsContent>
 
           <TabsContent value="editor" className="space-y-6 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={editorTabRef}>

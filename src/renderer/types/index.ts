@@ -48,6 +48,12 @@ interface SettingsBase {
     fontSize: number
     lineHeight: number
     fontFamily: string
+    /**
+     * Cosmetic chunked streaming for agent-driven insertions/edits — text
+     * arrives word-by-word over ~200–500ms instead of appearing instantly.
+     * Falls back to instant apply when the user prefers reduced motion.
+     */
+    streamingEdits?: boolean
   }
   recovery?: {
     mode: 'silent' | 'prompt'
@@ -83,6 +89,11 @@ interface SettingsBase {
     googleDocs?: boolean
     remarkable?: boolean
   }
+  /**
+   * Persisted tool mode for the AI assistant (global, shared across all tabs/conversations).
+   * Defaults to 'editor' on first launch.
+   */
+  toolMode?: 'chat' | 'editor' | 'create'
 }
 
 /**
@@ -121,6 +132,16 @@ export interface ChatMessage {
   timestamp: Date
   hidden?: boolean
   isError?: boolean
+  /**
+   * Per-tool-call action state, keyed by the tool-result's index in
+   * `parseToolTags(content)`. Populated when the user interacts with an
+   * actionable tool result (currently `request_mode_switch` —
+   * 'switched' if they hit Switch & Run / Just Switch, 'dismissed' if
+   * Cancel). Persisted with the conversation so re-opening the chat
+   * shows a truthful record instead of re-clickable affordances for
+   * decisions already made.
+   */
+  toolActions?: Record<number, 'switched' | 'dismissed'>
 }
 
 export interface FileResult {
@@ -346,6 +367,12 @@ export interface LLMStreamToolCall {
   }
 }
 
+export interface LLMStreamToolCallStart {
+  streamId: string
+  toolCallId: string
+  toolName: string
+}
+
 export interface LLMStreamComplete {
   streamId: string
   content: string
@@ -403,6 +430,7 @@ export interface ElectronAPI {
   llmAbortStream: (streamId: string) => Promise<{ success: boolean }>
   onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => () => void
   onLLMStreamToolCall: (callback: (toolCall: LLMStreamToolCall) => void) => () => void
+  onLLMStreamToolCallStart: (callback: (start: LLMStreamToolCallStart) => void) => () => void
   onLLMStreamComplete: (callback: (complete: LLMStreamComplete) => void) => () => void
   onLLMStreamError: (callback: (error: LLMStreamError) => void) => () => void
   // Folder operations for quick save

@@ -11,9 +11,12 @@ on:
         type: number
 
 jobs:
-  # 383-2: Short-circuit when review contains [SECURITY GATE] — skip scorer+PE,
-  # go straight to hitl-full. PRs touching privilege-boundary files always route
-  # hitl-full regardless of score, so running scorer+PE is pure API waste.
+  # 383-2: Short-circuit when review contains the `<!-- security-gate: true -->`
+  # sentinel — skip scorer+PE, go straight to hitl-full. PRs touching
+  # privilege-boundary files always route hitl-full regardless of score, so
+  # running scorer+PE is pure API waste. The sentinel is emitted by the review
+  # prompt in claude.yml; both files must reference `security-gate: true`
+  # (enforced by .github/scripts/validate-pipeline.sh).
   security-gate-check:
     if: >-
       github.event_name == 'workflow_dispatch' ||
@@ -55,7 +58,7 @@ jobs:
             REVIEW="$COMMENT_BODY"
           fi
 
-          if echo "$REVIEW" | grep -q '\[SECURITY GATE\]'; then
+          if echo "$REVIEW" | grep -q '<!-- security-gate: true -->'; then
             echo "::notice::Security gate detected — short-circuiting to hitl-full (skipping scorer+PE)"
             echo "shortcircuit=true" >> "$GITHUB_OUTPUT"
           else

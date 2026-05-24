@@ -508,6 +508,24 @@
   background: hsl(var(--primary) / 0.2);
 }
 
+/* Persistent visual selection while the editor is blurred.
+ * Painted by src/renderer/extensions/persistent-selection/ so users can
+ * still see what e.g. read_selection will operate against after focus
+ * moves to the chat input.
+ *
+ * Two-layer visual: a primary-tinted background for the common case,
+ * plus an inset outline that survives even when the inner content has
+ * its own background-image (e.g., .ai-annotation-replacement's
+ * linear-gradient). The outline paints on top of inner backgrounds, so
+ * users always see a selection boundary regardless of what mark or
+ * decoration wraps the range. */
+.prose-editor .persistent-selection {
+  background: hsl(var(--primary) / 0.2);
+  outline: 1.5px solid hsl(var(--primary) / 0.7);
+  outline-offset: -1.5px;
+  border-radius: 2px;
+}
+
 /* Diff Suggestions */
 .prose-editor .diff-suggestion {
   display: inline-flex;
@@ -989,6 +1007,76 @@
   50% { opacity: 0.7; }
 }
 
+/* Frontmatter pending overlay — shown when AI proposes frontmatter changes (#488) */
+.frontmatter-pending-overlay {
+  background: hsl(145 60% 20% / 0.25);
+  border-color: hsl(145 70% 45% / 0.6);
+}
+
+.dark .frontmatter-pending-overlay {
+  background: hsl(145 60% 15% / 0.35);
+  border-color: hsl(145 70% 40% / 0.5);
+}
+
+.frontmatter-pending-label {
+  color: hsl(145 70% 45%);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.dark .frontmatter-pending-label {
+  color: hsl(145 70% 55%);
+}
+
+.frontmatter-pending-value {
+  color: hsl(145 60% 55%);
+}
+
+.dark .frontmatter-pending-value {
+  color: hsl(145 60% 65%);
+}
+
+.frontmatter-pending-accept-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  background: hsl(145 60% 40%);
+  color: white;
+  border: none;
+  border-radius: 0.25rem;
+  font-size: 0.6875rem;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.frontmatter-pending-accept-btn:hover {
+  background: hsl(145 60% 35%);
+}
+
+.frontmatter-pending-reject-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.25rem;
+  font-size: 0.6875rem;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.frontmatter-pending-reject-btn:hover {
+  background: hsl(var(--accent));
+}
+
 /* Spell-check styling - more prominent squiggles */
 .prose-editor ::spelling-error {
   text-decoration: wavy underline hsl(0 75% 55%);
@@ -1017,15 +1105,27 @@
   border-radius: 0.125em;
 }
 
-/* Insertion type - violet text color (for imported/manual AI annotations) */
+/* Insertion type - unified with replacement: violet background highlight with
+ * legible text. (Previously violet text + transparent bg, whose hover used
+ * background-clip:text + transparent text-fill, making the text invisible on
+ * hover. #548 routes inserts through the same annotation path, so the visual
+ * register must match edits/suggest_edit-accepts.) */
 .prose-editor .ai-annotation-insertion {
-  color: hsl(262 83% 45% / calc(var(--annotation-opacity) * 0.9 + 0.1));
-  background: transparent;
-  border-bottom: none;
+  background: linear-gradient(
+    135deg,
+    hsl(262 83% 58% / calc(var(--annotation-opacity) * 0.25)) 0%,
+    hsl(270 70% 50% / calc(var(--annotation-opacity) * 0.15)) 100%
+  );
+  border-bottom: 2px solid hsl(262 83% 58% / calc(var(--annotation-opacity) * 0.5));
 }
 
 .dark .prose-editor .ai-annotation-insertion {
-  color: hsl(262 70% 70% / calc(var(--annotation-opacity) * 0.85 + 0.15));
+  background: linear-gradient(
+    135deg,
+    hsl(262 70% 50% / calc(var(--annotation-opacity) * 0.3)) 0%,
+    hsl(270 60% 45% / calc(var(--annotation-opacity) * 0.18)) 100%
+  );
+  border-bottom-color: hsl(262 70% 60% / calc(var(--annotation-opacity) * 0.6));
 }
 
 /* Replacement type - violet gradient (for AI chat suggestions) */
@@ -1053,47 +1153,37 @@
 }
 
 /* Shimmer animation keyframes */
-@keyframes shimmer-text {
-  0% { background-position: -200% center; }
-  100% { background-position: 200% center; }
-}
-
 @keyframes shimmer-bg {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
 
-/* Insertion hover - shimmer across text */
+/* Insertion hover - shimmer across background (unified with replacement; keeps
+ * text legible instead of clipping the gradient to transparent text). */
 .prose-editor .ai-annotation-insertion:hover {
   background: linear-gradient(
     90deg,
-    hsl(262 83% 45%) 0%,
-    hsl(262 83% 45%) 40%,
-    hsl(262 90% 65%) 50%,
-    hsl(262 83% 45%) 60%,
-    hsl(262 83% 45%) 100%
+    hsl(262 83% 58% / 0.2) 0%,
+    hsl(262 83% 58% / 0.2) 40%,
+    hsl(262 90% 70% / 0.4) 50%,
+    hsl(262 83% 58% / 0.2) 60%,
+    hsl(262 83% 58% / 0.2) 100%
   );
   background-size: 200% 100%;
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: shimmer-text 2s ease-in-out infinite;
+  animation: shimmer-bg 2s ease-in-out infinite;
 }
 
 .dark .prose-editor .ai-annotation-insertion:hover {
   background: linear-gradient(
     90deg,
-    hsl(262 70% 70%) 0%,
-    hsl(262 70% 70%) 40%,
-    hsl(262 85% 85%) 50%,
-    hsl(262 70% 70%) 60%,
-    hsl(262 70% 70%) 100%
+    hsl(262 70% 50% / 0.25) 0%,
+    hsl(262 70% 50% / 0.25) 40%,
+    hsl(262 80% 65% / 0.45) 50%,
+    hsl(262 70% 50% / 0.25) 60%,
+    hsl(262 70% 50% / 0.25) 100%
   );
   background-size: 200% 100%;
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: shimmer-text 2s ease-in-out infinite;
+  animation: shimmer-bg 2s ease-in-out infinite;
 }
 
 /* Replacement hover - shimmer across background */
@@ -1165,6 +1255,17 @@
   color: hsl(var(--muted-foreground));
   font-size: 0.65rem;
   margin-top: 0.25em;
+}
+
+.ai-annotation-tooltip-explanation {
+  color: hsl(var(--foreground));
+  font-size: 0.7rem;
+  margin-top: 0.5em;
+  padding-top: 0.4em;
+  border-top: 1px solid hsl(var(--border));
+  max-width: 24em;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* Pending suggestion state - pink dashed underline */

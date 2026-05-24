@@ -82,8 +82,10 @@ If MCP isn't usable, surface why and offer an alternative.
 | `suggest_edit` | `{ nodeId (req), content (req), comment?, search? }` → `{ suggested: true, suggestionId }`. User accepts/rejects in Prose. Always pass `search` (the original node text) so the server can match if `nodeId` is stale. |
 | `open_file` | Opens a file by absolute path. |
 | `create_and_open_file` | Writes a file (default save dir, auto-suffixes on collision) and opens it. `filename` is just a name, not a path. |
+| `list_tabs` | Returns all open tabs: `{ tabs: [{ tabId, title, path, isActive, isDirty, isPreview, documentId }] }`. Read-only; doesn't affect UI. Call this first when the user references a document by name ("go back to my novel", "switch to the draft"). |
+| `select_tab` | Switch to a tab by `tabId` (exact, from `list_tabs`) or `match` (case-insensitive substring of title or path filename). Returns `{ selected, tabId, title, path }`. On ambiguous match, returns `{ error: "ambiguous", candidates: [...] }` — ask the user to pick. |
 
-`get_outline` and `read_document` are read-only. `create_and_open_file` and `open_file` switch the active document and dismiss any pending `suggest_edit` overlay — render diffs LAST in multi-tool flows. The MCP exposes only these 5 tools; there's no "get current file path".
+`get_outline`, `read_document`, and `list_tabs` are read-only. `create_and_open_file`, `open_file`, and `select_tab` switch the active document and dismiss any pending `suggest_edit` overlay — render diffs LAST in multi-tool flows. When the user references a document that isn't currently active ("go back to X", "switch to my novel"), call `list_tabs` first to find it, then `select_tab` — don't guess a path or call `open_file` blindly.
 
 ## Outline + diff widgets (for MCP work)
 
@@ -180,6 +182,12 @@ After the widget, one short conversational line is enough — *"Review them in P
 **Render exactly one diff summary widget at the end of the batch.** Use the *Diff widget (batch summary)* template above — one widget regardless of edit count, with one row per `suggest_edit` call. This is a hard rule: never close out a batch without the summary widget; the user has no chat-side visibility into what you proposed otherwise. The Prose review overlay is the detailed accept/reject surface; the widget is the recognizability surface. Both matter.
 
 Prefer minimal diffs (smallest containing node). For heading edits, verify the heading text verbatim against `get_outline` first. If `suggest_edit` returns "no match", re-read the document and retry with a fresh `nodeId`.
+
+### Frontmatter edits
+
+`read_document` exposes the frontmatter block as a synthetic node with `id: 'frontmatter'`, `type: 'frontmatter'`, and `content` containing the current YAML (`---\nkey: value\n---`). To propose changes — adding new fields, editing a slug, replacing the whole block — call `suggest_edit` with `nodeId: 'frontmatter'` and `content` set to the **complete** new frontmatter as YAML (with or without `---` fences). The user reviews and accepts via the FrontmatterEditor overlay, not a body-text diff. Do NOT try to target individual frontmatter fields — pass the full intended frontmatter every time. If a document has no frontmatter yet, the synthetic node is absent; you can still call `suggest_edit({ nodeId: 'frontmatter', content: '...' })` to propose adding one.
+
+**Pending-as-ground-truth gotcha:** while a frontmatter overlay is awaiting the user's accept/reject, `read_document` returns the **pending** frontmatter in the synthetic node, not the committed one. If you re-read mid-flight and refine, you're iterating on your own un-accepted draft. Either ask the user to accept the pending proposal first, or treat the pending values as the new baseline and update from there — do not assume what you see is the user's committed state.
 
 ## Graceful degradation
 

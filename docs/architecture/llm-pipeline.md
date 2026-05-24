@@ -49,7 +49,7 @@ const MAX_HISTORY_MESSAGES = 20   // context window pruning
 Two refs live outside the React hook so globally-registered IPC event handlers can access them:
 
 - **`pendingToolCallsRef`** — accumulates `{id, name, args}` from streaming `tool-call` events, tagged with `streamId`
-- **`toolLoopContextRef`** — tracks `{apiMessages, assistantMsgId, roundtripCount, lastErrorSignature}` across recursive stream restarts, tagged with `streamId`
+- **`toolLoopContextRef`** — tracks `{apiMessages, assistantMsgId, roundtripCount, lastErrorSignature, modeJustSwitched}` across recursive stream restarts, tagged with `streamId`. `modeJustSwitched` is set at turn start and preserved across continuations so the "you just switched modes" notice stays on the system prompt for every LLM call within a turn that began with a mode switch.
 
 Both are reset by `clearStreamRefs()` on abort, error, completion, or circuit-breaker stop.
 
@@ -70,6 +70,7 @@ All handlers validate `streamId === chatStore.currentStreamId` before processing
 |---------|-----------|---------|
 | `llm:stream` (invoke) | renderer → main | `LLMStreamRequest` (provider, model, messages, tools, streamId) |
 | `llm:stream:chunk` | main → renderer | `{streamId, delta}` — appended to streaming message |
+| `llm:stream:tool-call:start` | main → renderer | `{streamId, toolCallId, toolName}` — fired on `content_block_start` for `tool_use`. Renderer appends `<tool-drafting>` marker for the "Drafting…" chip. |
 | `llm:stream:tool-call` | main → renderer | `{streamId, id, name, args}` — accumulated in `pendingToolCallsRef` |
 | `llm:stream:complete` | main → renderer | `{streamId, content, toolCalls}` — triggers tool execution or completion |
 | `llm:stream:error` | main → renderer | `{streamId, error}` — appends actionable error guidance |
@@ -81,8 +82,8 @@ When the stream completes with tool calls:
 
 1. **Circuit breaker** — if `roundtripCount >= MAX_TOOL_ROUNDTRIPS`, append error and stop.
 2. **Build assistant content** — text blocks + `tool_use` blocks for the API message history.
-3. **Sort editor-mutating tools** — `edit`, `insert`, `suggest_edit` are sorted by document position descending (bottom-first) via `resolveToolPosition()`. Non-editor tools sort before editor tools.
-4. **Execute each tool** — `executeTool(name, args, toolMode, provenance)` from `src/renderer/lib/tools/index.ts`.
+3. **Sort editor-mutating tools** — `edit`, `insert`, `suggest_edit`, `delete_node` are sorted by document position descending (bottom-first) via `resolveToolPosition()`, so an earlier tool call can't shift positions out from under a later one. `move_cursor` is intentionally **not** in this set — it changes the selection, not document content, so it has no effect on subsequent positions. Non-editor tools sort before editor tools.
+4. **Execute each tool** — `executeTool(name, args, toolMode, provenance)` from `src/renderer/lib/tools/index.ts`. `edit` and `insert` are async: when `settings.editor.streamingEdits` is on (default) and the user does not prefer reduced motion, content is inserted in word-level chunks across ~24 animation frames so the user perceives the edit arriving rather than appearing. Tool results resolve once all chunks have landed.
 5. **Duplicate failure detection** — tracks `"${toolName}:${errorMessage}"` signature. If identical to the previous roundtrip's error, stops the loop.
 6. **Build tool results** — each result is summarized (strips `markdown` from `read_document`) and appended as a `role: 'tool'` message.
 7. **Recursive restart** — generates new `streamId`, calls `startStreaming()` with the same `assistantMsgId`, updates both refs, calls `api.llmChatStream()` again.
@@ -91,7 +92,7 @@ When the stream completes with tool calls:
 
 Two code paths:
 
-- **Anthropic with tools** — uses `@anthropic-ai/sdk` directly (not Vercel AI SDK) to avoid tool format translation. Converts `role: 'tool'` messages to Anthropic's `tool_result` format. Emits `chunk`, `tool-call`, and `complete` events.
+- **Anthropic with tools** — uses `@anthropic-ai/sdk` directly (not Vercel AI SDK) to avoid tool format translation. Converts `role: 'tool'` messages to Anthropic's `tool_result` format. Emits `chunk`, `tool-call:start` (on each `content_block_start` for `tool_use`, before any `input_json_delta`), `tool-call`, and `complete` events.
 - **Other providers** — uses Vercel AI SDK `streamText()`. No tool support. Emits `chunk` and `complete` only.
 
 Active streams tracked in `Map<string, AbortController>` for abort support.
@@ -120,7 +121,7 @@ The mark renders as `<span class="ai-suggestion-mark" data-ai-suggestion-id="...
 
 ### Accept / Reject
 
-- **Accept** (`acceptAISuggestion(id)`) — collects all nodes bearing the mark (a suggestion may span multiple text nodes if formatting splits the range), removes the mark, replaces the text range with `suggestedText`, then creates word-level diff annotations via `createWordDiffAnnotations()` for provenance tracking.
+- **Accept** (`acceptAISuggestion(id)`) — collects all nodes bearing the mark (a suggestion may span multiple text nodes if formatting splits the range), removes the mark, replaces the text range with `suggestedText`, then creates word-level diff annotations via `createWordDiffAnnotations()` for provenance tracking. The suggestion's `explanation` is copied onto the annotation so the post-accept tooltip can show the model's reason.
 - **Reject** (`rejectAISuggestion(id)`) — removes the mark only. No text change.
 
 ### Node ID System

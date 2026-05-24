@@ -7,12 +7,136 @@ import type { ToolResult } from '../../../../shared/tools/types'
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useEditorStore } from '../../../stores/editorStore'
 import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
+import { useSettingsStore } from '../../../stores/settingsStore'
 import { useAnnotationStore } from '../../../extensions/ai-annotations'
 import { createWordDiffAnnotations } from '../../diffUtils'
 import { findNodeById, findNodeByContent, getNodesWithIds, flattenNodes } from '../../../extensions/node-ids'
 import { generateId } from '../../persistence'
 import { getAISuggestions } from '../../../extensions/ai-suggestions'
-import { parseMarkdown } from '../../markdown'
+import { parseMarkdown, FRONTMATTER_REGEX } from '../../markdown'
+import { load as parseYaml } from 'js-yaml'
+
+/**
+ * Target visible duration for a chunked streaming insertion. The number of
+ * chunks is capped so total wall time stays under ~400ms even for long
+ * paragraphs — long enough to perceive motion, short enough that the user
+ * isn't waiting on the agent.
+ */
+const STREAM_TARGET_FRAME_COUNT = 24
+
+/**
+ * Decide whether the next agent insertion should stream chunk-by-chunk.
+ * Falls back to instant apply when the user has disabled the setting or
+ * has `prefers-reduced-motion: reduce` set at the OS level.
+ */
+function shouldStreamInsertion(): boolean {
+  const enabled = useSettingsStore.getState().settings.editor.streamingEdits
+  if (enabled === false) return false
+  if (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  ) {
+    return false
+  }
+  return true
+}
+
+/**
+ * Split text into word-level chunks (word + trailing whitespace per chunk),
+ * then group into at most STREAM_TARGET_FRAME_COUNT chunks so total wall time
+ * stays bounded for long paragraphs.
+ */
+function buildStreamChunks(text: string): string[] {
+  // Token alternation: [word, space, word, space, ...]; either side may be empty.
+  const tokens = text.split(/(\s+)/)
+  const words: string[] = []
+  for (let i = 0; i < tokens.length; i += 2) {
+    const word = tokens[i] || ''
+    const space = tokens[i + 1] || ''
+    if (word || space) words.push(word + space)
+  }
+  if (words.length <= STREAM_TARGET_FRAME_COUNT) return words
+  const groupSize = Math.ceil(words.length / STREAM_TARGET_FRAME_COUNT)
+  const groups: string[] = []
+  for (let i = 0; i < words.length; i += groupSize) {
+    groups.push(words.slice(i, i + groupSize).join(''))
+  }
+  return groups
+}
+
+/** Yield to the browser so paint can happen between chunks. */
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => resolve())
+    } else {
+      setTimeout(resolve, 16)
+    }
+  })
+}
+
+/**
+ * Insert `text` at `from`, or replace the range `[from, to]` when `to` is
+ * supplied, either instantly or in word-level chunks across animation frames.
+ * Chunked transactions land within ~400ms total — inside the ProseMirror
+ * history plugin's default newGroupDelay (500ms) — so the whole insertion
+ * collapses into a single undo step.
+ *
+ * When `to` is supplied, the range delete and the first chunk insert run in
+ * the same chain (a single transaction), so range replacement is atomic and
+ * shares undo state with the first chunk.
+ *
+ * Subsequent chunks track the running insertion endpoint via an explicit
+ * length accumulator (anchored once at end-of-insertion from TipTap's own
+ * selection placement, then advanced by each chunk's character count), so
+ * user clicks or keystrokes mid-stream can't redirect later chunks into
+ * the user's cursor position.
+ */
+async function applyInsertion(
+  editor: Editor,
+  text: string,
+  from: number,
+  to?: number
+): Promise<void> {
+  const hasRange = to !== undefined && to !== from
+  const selection = hasRange ? { from, to: to! } : from
+
+  if (!shouldStreamInsertion()) {
+    editor.chain().focus().setTextSelection(selection).insertContent(text).run()
+    return
+  }
+  const chunks = buildStreamChunks(text)
+  if (chunks.length <= 1) {
+    editor.chain().focus().setTextSelection(selection).insertContent(text).run()
+    return
+  }
+  editor.chain().focus().setTextSelection(selection).insertContent(chunks[0]).run()
+  // Anchor the running endpoint at end-of-insertion using TipTap's own
+  // cursor placement (`selectionToInsertionEnd` in
+  // `node_modules/@tiptap/core/src/commands/insertContentAt.ts`), which
+  // leaves the cursor INSIDE the just-inserted textblock at the end of
+  // its text. Earlier doc-size arithmetic landed `pos` AFTER the closing
+  // paragraph token — a between-blocks position, where `tr.insertText`
+  // wraps the text in a new paragraph to fit the parent context,
+  // producing one paragraph per chunk.
+  //
+  // From there, advance `pos` by each chunk's character count rather than
+  // re-reading `editor.state.selection.from` after every dispatch. Two
+  // reasons: (1) subsequent chunks use raw `tr.insertText` (not
+  // `insertContent(string)`), which inserts plain text inline and adds
+  // exactly `chunks[i].length` PM units — so the accumulator is exact;
+  // (2) if the user clicks or types mid-stream, the live selection moves
+  // away from our insertion endpoint, but the accumulator stays
+  // independent — keeping later chunks landing at the running insertion
+  // point instead of redirecting into the user's cursor.
+  let pos = editor.state.selection.from
+  for (let i = 1; i < chunks.length; i++) {
+    await nextFrame()
+    editor.view.dispatch(editor.state.tr.insertText(chunks[i], pos))
+    pos += chunks[i].length
+  }
+}
 
 /**
  * Get the TipTap editor instance.
@@ -96,8 +220,34 @@ export function resolveToolPosition(toolName: string, args: Record<string, unkno
       case 'start': return 0
       case 'end': return editor.state.doc.content.size
       case 'cursor': return editor.state.selection.from
+      case 'after_node':
+      case 'before_node': {
+        const nodeId = args.nodeId as string | undefined
+        const search = args.search as string | undefined
+        if (!nodeId) return Infinity
+        let found = findNodeById(editor.state.doc, nodeId)
+        if (!found && search) {
+          found = findNodeByContent(editor.state.doc, search)
+        }
+        if (!found) return Infinity
+        return position === 'after_node'
+          ? found.pos + found.node.nodeSize
+          : found.pos
+      }
       default: return Infinity
     }
+  }
+
+  if (toolName === 'delete_node') {
+    const nodeId = args.nodeId as string
+    const search = args.search as string | undefined
+    if (!nodeId) return Infinity
+
+    let found = findNodeById(editor.state.doc, nodeId)
+    if (!found && search) {
+      found = findNodeByContent(editor.state.doc, search)
+    }
+    return found ? found.pos : Infinity
   }
 
   return Infinity
@@ -107,14 +257,15 @@ export function resolveToolPosition(toolName: string, args: Record<string, unkno
  * edit - Replace the content of a node by its ID.
  * Falls back to content matching if the nodeId is stale.
  */
-export function executeEdit(
+export async function executeEdit(
   args: {
     nodeId: string
     content: string
+    comment?: string
     search?: string
   },
   provenance?: ToolProvenance
-): ToolResult<{ applied: boolean; nodeId: string }> {
+): Promise<ToolResult<{ applied: boolean; nodeId: string }>> {
   const editor = getEditor()
 
   if (!editor) {
@@ -125,10 +276,24 @@ export function executeEdit(
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
-  const { nodeId, content, search } = args
+  const { nodeId, content, comment, search } = args
 
   if (!nodeId) {
     return toolError('Node ID is required', 'INVALID_INPUT')
+  }
+
+  // Special nodeId: 'frontmatter' — direct-write the frontmatter block via
+  // setFrontmatter. No overlay (edit is "direct write" semantics in Create
+  // Mode; the user has already opted in by enabling the edit tool). Accepts
+  // raw YAML or a ---wrapped block. Mirrors the parsing of the suggest_edit
+  // frontmatter branch but commits straight to document.frontmatter.
+  if (nodeId === 'frontmatter') {
+    const parsed = parseFrontmatterPayload(content)
+    if (parsed.kind === 'error') {
+      return toolError(parsed.message, 'INVALID_FRONTMATTER')
+    }
+    useEditorStore.getState().setFrontmatter(parsed.frontmatter)
+    return toolSuccess({ applied: true, nodeId })
   }
 
   // Find the node by ID, fall back to content matching if stale
@@ -156,12 +321,11 @@ export function executeEdit(
   const contentEnd = pos + node.nodeSize - 1
 
   const sizeBefore = editor.state.doc.content.size
-  editor
-    .chain()
-    .focus()
-    .setTextSelection({ from: contentStart, to: contentEnd })
-    .insertContent(content)
-    .run()
+  // Range-replace via applyInsertion: the selection delete + first chunk
+  // insert run in the same chain (atomic transaction). Subsequent rAF chunks
+  // fall inside the history plugin's newGroupDelay (500ms) and collapse into
+  // a single undo step.
+  await applyInsertion(editor, content, contentStart, contentEnd)
   const sizeAfter = editor.state.doc.content.size
 
   // Create word-level AI annotations for provenance tracking
@@ -177,6 +341,7 @@ export function executeEdit(
         conversationId: provenance.conversationId,
         messageId: provenance.messageId,
       },
+      explanation: comment,
     })
   }
 
@@ -187,15 +352,56 @@ export function executeEdit(
 }
 
 /**
- * insert - Insert text at the specified position.
+ * Parse a frontmatter payload from a suggest_edit/edit call targeting
+ * nodeId: 'frontmatter'. Accepts raw YAML or a ---wrapped block. Returns
+ * a structured result so callers can choose error code/category.
  */
-export function executeInsert(
+function parseFrontmatterPayload(
+  content: string
+): { kind: 'ok'; frontmatter: Record<string, unknown> } | { kind: 'error'; message: string } {
+  const trimmed = content.trim()
+  const yamlSource = FRONTMATTER_REGEX.test(trimmed)
+    ? trimmed.replace(FRONTMATTER_REGEX, '$1')
+    : trimmed
+
+  let loaded: unknown
+  try {
+    loaded = parseYaml(yamlSource)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { kind: 'error', message: `Frontmatter content failed to parse as YAML: ${message}` }
+  }
+  if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded)) {
+    return { kind: 'error', message: 'Frontmatter content must be a YAML mapping (key: value pairs).' }
+  }
+  const frontmatter = loaded as Record<string, unknown>
+  if (Object.keys(frontmatter).length === 0) {
+    return { kind: 'error', message: 'Frontmatter mapping is empty — provide at least one key: value pair.' }
+  }
+  return { kind: 'ok', frontmatter }
+}
+
+/**
+ * insert - Insert text at the specified position.
+ *
+ * Positions:
+ *   - `cursor` — at the current selection (legacy; depends on where the
+ *     user has parked the cursor, so only correct when they said "here")
+ *   - `start` / `end` — document boundaries
+ *   - `after_node` / `before_node` — relative to a node located by
+ *     `nodeId` (preferred for "add to section X" — anchor on the
+ *     section's heading nodeId from `read_document`)
+ */
+export async function executeInsert(
   args: {
     text: string
-    position?: 'cursor' | 'start' | 'end'
+    position?: 'cursor' | 'start' | 'end' | 'after_node' | 'before_node'
+    nodeId?: string
+    comment?: string
+    search?: string
   },
   provenance?: ToolProvenance
-): ToolResult<{ inserted: boolean; position: string }> {
+): Promise<ToolResult<{ inserted: boolean; position: string }>> {
   const editor = getEditor()
 
   if (!editor) {
@@ -206,63 +412,100 @@ export function executeInsert(
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
-  const { text, position = 'cursor' } = args
+  const { text, position = 'cursor', nodeId, comment, search } = args
 
   if (!text) {
     return toolError('Text to insert is required', 'INVALID_INPUT')
   }
 
-  // Capture insertion position before modifying the document
-  let insertPos: number
+  // Resolve insertion range. Most positions collapse to a single point
+  // (insertFrom === insertTo), but `cursor` honors any active selection
+  // so a highlighted-then-asked-to-insert flow replaces the selection
+  // instead of leaving it stranded next to the new content.
+  let insertFrom: number
+  let insertTo: number
   switch (position) {
     case 'start':
-      insertPos = 0
+      insertFrom = 0
+      insertTo = 0
       break
     case 'end':
-      insertPos = editor.state.doc.content.size
+      insertFrom = editor.state.doc.content.size
+      insertTo = editor.state.doc.content.size
       break
+    case 'after_node':
+    case 'before_node': {
+      if (!nodeId) {
+        return toolError(
+          `nodeId is required when position is "${position}"`,
+          'INVALID_INPUT'
+        )
+      }
+      let found = findNodeById(editor.state.doc, nodeId)
+      if (!found && search) {
+        found = findNodeByContent(editor.state.doc, search)
+      }
+      if (!found) {
+        const available = flattenNodes(getNodesWithIds(editor.state.doc))
+        const nodeList = available
+          .map(n => `${n.nodeId} (${n.type}: "${n.textContent.substring(0, 40)}")`)
+          .join(', ')
+        return toolError(
+          `Anchor node "${nodeId}" not found. Available nodes: [${nodeList}]`,
+          'NODE_NOT_FOUND'
+        )
+      }
+      insertFrom =
+        position === 'after_node' ? found.pos + found.node.nodeSize : found.pos
+      insertTo = insertFrom
+      break
+    }
     case 'cursor':
     default:
-      insertPos = editor.state.selection.from
+      // Use the full selection range so non-empty selections are
+      // replaced by the inserted text. Matches the pre-#546 behavior
+      // and is what users intuitively expect when they highlight a
+      // span and ask the agent to write replacement prose.
+      insertFrom = editor.state.selection.from
+      insertTo = editor.state.selection.to
       break
   }
 
   try {
     const sizeBefore = editor.state.doc.content.size
-    switch (position) {
-      case 'start':
-        editor.chain().focus().setTextSelection(0).insertContent(text).run()
-        break
-      case 'end':
-        editor
-          .chain()
-          .focus()
-          .setTextSelection(editor.state.doc.content.size)
-          .insertContent(text)
-          .run()
-        break
-      case 'cursor':
-      default:
-        editor.chain().focus().insertContent(text).run()
-        break
-    }
+    // Route through applyInsertion so the chunked-streaming path applies
+    // uniformly, and so range replacement (cursor case with non-empty
+    // selection) is atomic with the first chunk's insert.
+    await applyInsertion(editor, text, insertFrom, insertTo)
     const sizeAfter = editor.state.doc.content.size
 
-    // Create AI annotation for provenance tracking
+    // Create AI annotation for provenance tracking.
+    // Inserted PM range = [insertFrom, insertFrom + insertedSize], where
+    // insertedSize accounts for both the doc-size delta and the original
+    // selection that got replaced. For a collapsed selection (the common
+    // case) this reduces to `sizeAfter - sizeBefore`.
     if (provenance && provenance.documentId && text.length > 0) {
-      useAnnotationStore.getState().addAnnotation({
+      // Use the actual PM size delta (plus any replaced range size) instead of
+      // string length: insertContent() may produce multi-paragraph nodes where
+      // string length != PM position delta, and the doc delta nets out any
+      // selection that was replaced.
+      const insertedSize = (sizeAfter - sizeBefore) + (insertTo - insertFrom)
+      // Route through createWordDiffAnnotations for visual consistency with
+      // edit/suggest_edit-accept annotations (word-level underline, explanation
+      // in tooltip). originalText is empty for pure insertions; the util
+      // promotes the type to 'insertion' automatically.
+      createWordDiffAnnotations({
         documentId: provenance.documentId,
-        type: 'insertion',
-        from: insertPos,
-        // Use the actual PM size delta instead of string length: insertContent()
-        // may produce multi-paragraph nodes where string length != PM position delta.
-        to: insertPos + (sizeAfter - sizeBefore),
-        content: text,
+        originalText: '',
+        newText: text,
+        rangeFrom: insertFrom,
+        rangeTo: insertFrom + insertedSize,
         provenance: {
           model: provenance.model,
           conversationId: provenance.conversationId,
           messageId: provenance.messageId,
         },
+        explanation: comment,
       })
     }
 
@@ -314,22 +557,70 @@ export function executeSuggestEdit(
     return toolError('Node ID is required', 'INVALID_INPUT')
   }
 
-  // Detect and strip frontmatter from the incoming content.
+  // Special nodeId: 'frontmatter' targets the frontmatter block directly
+  // (Option C, #488). Routes through the FrontmatterEditor overlay (vs edit's
+  // direct write) without requiring --- delimiters.
+  if (nodeId === 'frontmatter') {
+    const parsed = parseFrontmatterPayload(content)
+    if (parsed.kind === 'error') {
+      return toolError(parsed.message, 'INVALID_FRONTMATTER')
+    }
+    useEditorStore.getState().setPendingFrontmatter(parsed.frontmatter)
+    return toolSuccess({ suggested: true, suggestionId: generateId() })
+  }
+
+  // Detect and stage frontmatter from the incoming content (Option B, #488).
   // When Claude adds frontmatter via suggest_edit the --- delimiters render
-  // as a thematic break/heading in TipTap. Extract frontmatter and apply it
-  // directly to the store; insert only the body into the editor.
+  // as a thematic break/heading in TipTap. Extract frontmatter, then commit it
+  // as a pending overlay only AFTER we know the suggest_edit will succeed
+  // (avoids the "error toast + unexpected overlay" failure mode where a stale
+  // nodeId would still pop the overlay).
+  let frontmatterToStage: Record<string, unknown> | null = null
   if (content.trimStart().startsWith('---')) {
     const { content: body, frontmatter } = parseMarkdown(content)
     if (Object.keys(frontmatter).length > 0) {
-      // Real frontmatter — apply it to the store and use the stripped body
-      // as the suggestion content.
-      useEditorStore.getState().setFrontmatter(frontmatter)
+      // Real frontmatter — stage for later commit.
+      frontmatterToStage = frontmatter
       content = body
+    } else {
+      // parseMarkdown matched the regex but produced no object. Two cases:
+      //   (a) malformed YAML attempt — should error (e.g., `## title: foo`)
+      //   (b) legitimate body content with a YAML scalar inside the fences
+      //       (e.g., `---\nsome text\n---\nbody`) — should pass through unchanged
+      //       to preserve #490's protection for thematic-break-style bodies.
+      // Distinguish by parsing the fence interior directly: if yaml.load
+      // throws, it's malformed (a). If it returns a scalar/array/null without
+      // throwing, it's legitimate body (b).
+      const fenceMatch = content.trimStart().match(FRONTMATTER_REGEX)
+      if (fenceMatch) {
+        let yamlThrew = false
+        try {
+          parseYaml(fenceMatch[1])
+        } catch {
+          yamlThrew = true
+        }
+        if (yamlThrew) {
+          return toolError(
+            'Content is wrapped in --- delimiters but the YAML inside failed to parse. ' +
+              'Either pass valid YAML between the delimiters, or call suggest_edit with ' +
+              "nodeId: 'frontmatter' to update the frontmatter block directly.",
+            'INVALID_FRONTMATTER'
+          )
+        }
+        // YAML parsed but yielded no object — leave content unchanged so we
+        // don't silently drop a body block. See #490.
+      }
     }
-    // If parseMarkdown matched the regex but yielded no keys (e.g., bare
-    // string YAML, malformed YAML, or a deliberate thematic break followed
-    // by prose), leave content untouched. Otherwise we'd silently drop the
-    // ---...--- block from the suggestion. See #490.
+  }
+
+  // Critical bug prevention (#488): when frontmatter was the only payload
+  // (body is empty after stripping), skip the AI suggestion mark entirely.
+  // Inserting an empty suggestion onto the nearest body node (usually H1)
+  // was the root cause of the spurious heading highlight. Commit the staged
+  // frontmatter here — frontmatter-only path doesn't need node lookup.
+  if (frontmatterToStage && !content.trim()) {
+    useEditorStore.getState().setPendingFrontmatter(frontmatterToStage)
+    return toolSuccess({ suggested: true, suggestionId: generateId() })
   }
 
   // Find the node by ID, fall back to content matching if stale
@@ -350,6 +641,12 @@ export function executeSuggestEdit(
 
   const { node, pos } = found
   const suggestionId = generateId()
+
+  // Node lookup succeeded — safe to commit staged frontmatter now, so a stale
+  // nodeId can't pop an unexpected overlay alongside the error toast.
+  if (frontmatterToStage) {
+    useEditorStore.getState().setPendingFrontmatter(frontmatterToStage)
+  }
 
   // Get the original text content
   const originalText = node.textContent
@@ -485,6 +782,127 @@ export function executeRejectDiff(args: {
   } else {
     return toolError('Failed to reject suggestions', 'REJECT_FAILED')
   }
+}
+
+/**
+ * delete_node - Remove a node from the document by ID.
+ * Falls back to content matching if the nodeId is stale.
+ */
+export function executeDeleteNode(
+  args: {
+    nodeId: string
+    search?: string
+  },
+  provenance?: ToolProvenance
+): ToolResult<{ deleted: boolean; nodeId: string }> {
+  const editor = getEditor()
+
+  if (!editor) {
+    return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
+  }
+
+  if (isEditorReadOnly()) {
+    return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
+  }
+
+  const { nodeId, search } = args
+
+  if (!nodeId) {
+    return toolError('Node ID is required', 'INVALID_INPUT')
+  }
+
+  let found = findNodeById(editor.state.doc, nodeId)
+
+  if (!found && search) {
+    found = findNodeByContent(editor.state.doc, search)
+  }
+
+  if (!found) {
+    const available = flattenNodes(getNodesWithIds(editor.state.doc))
+    const nodeList = available.map(n => `${n.nodeId} (${n.type}: "${n.textContent.substring(0, 40)}")`).join(', ')
+    return toolError(
+      `Node with ID "${nodeId}" not found. Available nodes: [${nodeList}]`,
+      'NODE_NOT_FOUND'
+    )
+  }
+
+  const { node, pos } = found
+  const deletedText = node.textContent
+  const from = pos
+  const to = pos + node.nodeSize
+
+  editor.chain().focus().deleteRange({ from, to }).run()
+
+  // Log a deletion annotation for provenance. Range collapses to a single
+  // point at the deletion site so the annotation store treats it as a marker
+  // rather than highlighting text that no longer exists.
+  if (provenance && provenance.documentId) {
+    useAnnotationStore.getState().addAnnotation({
+      documentId: provenance.documentId,
+      type: 'deletion',
+      from,
+      to: from,
+      content: deletedText,
+      provenance: {
+        model: provenance.model,
+        conversationId: provenance.conversationId,
+        messageId: provenance.messageId,
+      },
+    })
+  }
+
+  return toolSuccess({ deleted: true, nodeId })
+}
+
+/**
+ * move_cursor - Move the user's text cursor to a specific node.
+ * Non-destructive selection change. Falls back to content matching if the
+ * nodeId is stale.
+ */
+export function executeMoveCursor(args: {
+  nodeId: string
+  position?: 'start' | 'end'
+  search?: string
+}): ToolResult<{ moved: boolean; nodeId: string; position: 'start' | 'end' }> {
+  const editor = getEditor()
+
+  if (!editor) {
+    return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
+  }
+
+  if (isEditorReadOnly()) {
+    return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
+  }
+
+  const { nodeId, search } = args
+  const position = args.position ?? 'start'
+
+  if (!nodeId) {
+    return toolError('Node ID is required', 'INVALID_INPUT')
+  }
+
+  let found = findNodeById(editor.state.doc, nodeId)
+
+  if (!found && search) {
+    found = findNodeByContent(editor.state.doc, search)
+  }
+
+  if (!found) {
+    const available = flattenNodes(getNodesWithIds(editor.state.doc))
+    const nodeList = available.map(n => `${n.nodeId} (${n.type}: "${n.textContent.substring(0, 40)}")`).join(', ')
+    return toolError(
+      `Node with ID "${nodeId}" not found. Available nodes: [${nodeList}]`,
+      'NODE_NOT_FOUND'
+    )
+  }
+
+  const { node, pos } = found
+  // Node-content positions live inside the open/close tokens.
+  const target = position === 'end' ? pos + node.nodeSize - 1 : pos + 1
+
+  editor.chain().focus().setTextSelection(target).run()
+
+  return toolSuccess({ moved: true, nodeId, position })
 }
 
 /**

@@ -36,6 +36,9 @@ interface EditorState {
   annotationsVisible: boolean
   // Source view mode (CodeMirror raw markdown vs TipTap WYSIWYG)
   sourceMode: boolean
+  // Pending frontmatter suggestion from AI — shown as an overlay in FrontmatterEditor.
+  // null means no pending suggestion; a Record means an AI-proposed frontmatter diff awaiting accept/reject.
+  pendingFrontmatter: Record<string, unknown> | null
   setDocument: (doc: Partial<Document>) => void
   setContent: (content: string) => void
   setPath: (path: string | null) => void
@@ -59,6 +62,9 @@ interface EditorState {
   toggleAnnotationsVisible: () => void
   setSourceMode: (val: boolean) => void
   toggleSourceMode: () => void
+  // Pending frontmatter suggestion methods
+  setPendingFrontmatter: (frontmatter: Record<string, unknown> | null) => void
+  rejectPendingFrontmatter: () => void
 }
 
 function createInitialDocument(): Document {
@@ -85,13 +91,21 @@ export const useEditorStore = create<EditorState>()(
     isPreviewTab: false,
     annotationsVisible: true,
     sourceMode: false,
+    pendingFrontmatter: null,
 
     setDocument: (doc) =>
-      set((state) => ({
-        document: { ...state.document, ...doc },
-        // Invalidate cache when document changes
-        readCache: { content: null, documentId: null }
-      })),
+      set((state) => {
+        const documentIdChanged =
+          doc.documentId !== undefined && doc.documentId !== state.document.documentId
+        return {
+          document: { ...state.document, ...doc },
+          // Invalidate cache when document changes
+          readCache: { content: null, documentId: null },
+          // Clear any pending frontmatter overlay when switching documents,
+          // so a Tab A suggestion can't get accepted into Tab B.
+          ...(documentIdChanged ? { pendingFrontmatter: null } : {})
+        }
+      }),
 
     setContent: (content) =>
       set((state) => {
@@ -147,7 +161,8 @@ export const useEditorStore = create<EditorState>()(
         isRemarkableReadOnly: false,
         remarkableNotebookId: null,
         readCache: { content: null, documentId: null },
-        lastSelection: null
+        lastSelection: null,
+        pendingFrontmatter: null
       }),
 
     hydrateFromDraft: (draft) =>
@@ -203,7 +218,12 @@ export const useEditorStore = create<EditorState>()(
       set((state) => ({ annotationsVisible: !state.annotationsVisible })),
 
     setSourceMode: (val) => set({ sourceMode: val }),
-    toggleSourceMode: () => set((state) => ({ sourceMode: !state.sourceMode }))
+    toggleSourceMode: () => set((state) => ({ sourceMode: !state.sourceMode })),
+
+    // Pending frontmatter suggestion methods
+    setPendingFrontmatter: (frontmatter) => set({ pendingFrontmatter: frontmatter }),
+
+    rejectPendingFrontmatter: () => set({ pendingFrontmatter: null })
   }))
 )
 

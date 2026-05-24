@@ -121,8 +121,9 @@ export function createWordDiffAnnotations(params: {
   rangeFrom: number
   rangeTo: number
   provenance: { model: string; conversationId: string; messageId: string }
+  explanation?: string
 }): void {
-  const { documentId, originalText, newText, rangeFrom, rangeTo, provenance } = params
+  const { documentId, originalText, newText, rangeFrom, rangeTo, provenance, explanation } = params
   const annotationType: AnnotationType = originalText.trim() === '' ? 'insertion' : 'replacement'
   const store = useAnnotationStore.getState()
 
@@ -135,6 +136,7 @@ export function createWordDiffAnnotations(params: {
       to: rangeTo,
       content: newText,
       provenance,
+      explanation,
     })
     return
   }
@@ -163,6 +165,7 @@ export function createWordDiffAnnotations(params: {
         to: seg.to,
         content: seg.content,
         provenance,
+        explanation,
       })
     }
   } else {
@@ -174,6 +177,7 @@ export function createWordDiffAnnotations(params: {
       to: rangeTo,
       content: newText,
       provenance,
+      explanation,
     })
   }
 }

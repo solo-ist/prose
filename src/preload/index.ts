@@ -52,6 +52,12 @@ export interface LLMStreamToolCall {
   }
 }
 
+export interface LLMStreamToolCallStart {
+  streamId: string
+  toolCallId: string
+  toolName: string
+}
+
 export interface LLMStreamComplete {
   streamId: string
   content: string
@@ -190,6 +196,7 @@ export interface ElectronAPI {
   llmAbortStream: (streamId: string) => Promise<{ success: boolean }>
   onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => () => void
   onLLMStreamToolCall: (callback: (toolCall: LLMStreamToolCall) => void) => () => void
+  onLLMStreamToolCallStart: (callback: (start: LLMStreamToolCallStart) => void) => () => void
   onLLMStreamComplete: (callback: (complete: LLMStreamComplete) => void) => () => void
   onLLMStreamError: (callback: (error: LLMStreamError) => void) => () => void
   // Folder operations for quick save
@@ -277,6 +284,10 @@ export interface ElectronAPI {
   downloadSkill: () => Promise<{ success: boolean; error?: string }>
   // Build info
   isMasBuild: boolean
+  // File watcher — subscribe to filesystem events for the File Explorer
+  startWatchingDirectory: (dirPath: string) => Promise<void>
+  stopWatchingDirectory: () => Promise<void>
+  onFileWatchEvent: (callback: (event: { type: 'created' | 'deleted'; path: string }) => void) => () => void
 }
 
 export interface FileItem {
@@ -471,6 +482,15 @@ const api: ElectronAPI = {
       ipcRenderer.removeListener('llm:stream:tool-call', handler)
     }
   },
+  onLLMStreamToolCallStart: (callback: (start: LLMStreamToolCallStart) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, start: LLMStreamToolCallStart): void => {
+      callback(start)
+    }
+    ipcRenderer.on('llm:stream:tool-call:start', handler)
+    return () => {
+      ipcRenderer.removeListener('llm:stream:tool-call:start', handler)
+    }
+  },
   onLLMStreamComplete: (callback: (complete: LLMStreamComplete) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, complete: LLMStreamComplete): void => {
       callback(complete)
@@ -533,6 +553,18 @@ const api: ElectronAPI = {
   downloadSkill: () => ipcRenderer.invoke('skill:download'),
   // Build info
   isMasBuild: process.env.MAS_BUILD === '1',
+  // File watcher — subscribe to filesystem events for the File Explorer
+  startWatchingDirectory: (dirPath: string) => ipcRenderer.invoke('file:watch:start', dirPath),
+  stopWatchingDirectory: () => ipcRenderer.invoke('file:watch:stop'),
+  onFileWatchEvent: (callback: (event: { type: 'created' | 'deleted'; path: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, fileEvent: { type: 'created' | 'deleted'; path: string }): void => {
+      callback(fileEvent)
+    }
+    ipcRenderer.on('file:watch:event', handler)
+    return () => {
+      ipcRenderer.removeListener('file:watch:event', handler)
+    }
+  },
   // Window fullscreen state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, isFullscreen: boolean): void => {

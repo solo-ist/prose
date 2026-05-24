@@ -8,14 +8,9 @@ import {
   generateConversationTitle
 } from '../lib/persistence'
 import type { ChatConversation } from '../lib/persistence'
+import type { ToolMode } from '../../shared/tools/types'
 
-/**
- * Tool modes control which tools are available to the AI.
- * - suggestions: Read-only + suggest_edit (safe default)
- * - full: All tools available (direct edits)
- * - plan: Proposes changes, user must approve
- */
-export type ToolMode = 'suggestions' | 'full' | 'plan'
+export type { ToolMode }
 
 interface ChatState {
   // Conversation management
@@ -29,6 +24,12 @@ interface ChatState {
   context: string | null
   agentMode: boolean // Legacy - kept for backwards compatibility
   toolMode: ToolMode // New mode system
+  // Tracks the toolMode active at the last successful user message send,
+  // so we can detect mid-conversation mode switches and note them in the
+  // next system prompt. Idempotent across multiple toggles between sends —
+  // only the difference at send time matters. In-memory only (matches
+  // toolMode itself).
+  lastSentToolMode: ToolMode | null
 
   // Initialization state - prevents race conditions during app startup
   isInitializing: boolean
@@ -55,8 +56,16 @@ interface ChatState {
   togglePanel: () => void
   setPanelOpen: (open: boolean) => void
   setContext: (context: string | null) => void
-  setAgentMode: (enabled: boolean) => void
   setToolMode: (mode: ToolMode) => void
+  cycleToolMode: () => void
+  setLastSentToolMode: (mode: ToolMode | null) => void
+  /**
+   * Record an action taken on a tool result. Persists with the
+   * conversation so reopening the chat shows the truthful state
+   * (e.g., "Dismissed." or "Switched to Editor Mode.") instead of
+   * re-clickable buttons for decisions already made.
+   */
+  setToolCallAction: (messageId: string, toolPartIdx: number, action: 'switched' | 'dismissed') => void
 
   // Streaming actions
   startStreaming: (messageId: string, streamId: string) => void
@@ -83,8 +92,17 @@ export const useChatStore = create<ChatState>()(
     isLoading: false,
     isPanelOpen: false,
     context: null,
-    agentMode: true, // Legacy - maps to toolMode
-    toolMode: 'full', // Default to full for backwards compatibility with agentMode: true
+    // Editor is the default — safe-by-default posture: agent proposes copy
+    // edits and editorial notes but never authors prose into the document.
+    // Users opt into Create Mode via the StatusBar dropdown or Shift+Tab
+    // (cycleToolMode walks chat → editor → create → chat). agentMode is a
+    // legacy boolean kept in sync with toolMode === 'create' for the few
+    // remaining readers — currently ChatMessage.tsx's legacy <edit>-block
+    // auto-apply path (`agentMode=true` auto-applies; `agentMode=false`
+    // renders edit blocks as reviewable diffs).
+    agentMode: false,
+    toolMode: 'editor',
+    lastSentToolMode: null,
     isInitializing: true, // Start as true, will be set to false after app init
     isStreaming: false,
     currentStreamId: null,
@@ -217,17 +235,44 @@ export const useChatStore = create<ChatState>()(
 
     setContext: (context) => set({ context }),
 
-    setAgentMode: (enabled) => set({
-      agentMode: enabled,
-      // Sync toolMode with agentMode for backwards compatibility
-      toolMode: enabled ? 'full' : 'suggestions'
-    }),
-
     setToolMode: (mode) => set({
       toolMode: mode,
-      // Sync agentMode with toolMode for backwards compatibility
-      agentMode: mode === 'full'
+      // Legacy agentMode is "true" only in Create Mode — the only mode
+      // where the agent can author prose directly.
+      agentMode: mode === 'create'
     }),
+
+    // Cycle through all three modes: chat → editor → create → chat.
+    // Used by the Shift+Tab keyboard shortcut so Editor Mode (the new
+    // safe-by-default mode) is reachable via keyboard, not just the
+    // StatusBar dropdown. Delegates to setToolMode so agentMode stays
+    // in sync.
+    cycleToolMode: () => {
+      const current = get().toolMode
+      const next: ToolMode = current === 'chat' ? 'editor' : current === 'editor' ? 'create' : 'chat'
+      get().setToolMode(next)
+    },
+
+    setLastSentToolMode: (mode) => set({ lastSentToolMode: mode }),
+
+    setToolCallAction: (messageId, toolPartIdx, action) =>
+      set((state) => {
+        const updateOne = (msg: ChatMessage): ChatMessage =>
+          msg.id === messageId
+            ? { ...msg, toolActions: { ...(msg.toolActions ?? {}), [toolPartIdx]: action } }
+            : msg
+        const newMessages = state.messages.map(updateOne)
+
+        if (state.activeConversationId) {
+          const updatedConversations = state.conversations.map((c) =>
+            c.id === state.activeConversationId
+              ? { ...c, messages: newMessages, updatedAt: Date.now() }
+              : c
+          )
+          return { messages: newMessages, conversations: updatedConversations }
+        }
+        return { messages: newMessages }
+      }),
 
     // Streaming actions
     startStreaming: (messageId, streamId) =>
@@ -322,5 +367,25 @@ useChatStore.subscribe(
   (state) => state.conversations,
   () => {
     debouncedSave()
+  }
+)
+
+// Persist toolMode globally whenever it changes.
+// Uses a lazy dynamic import to avoid a static circular dependency between
+// chatStore and settingsStore (settingsStore already lazy-imports chatStore
+// inside loadSettings()). The subscription fires after the store is
+// initialized so the import always resolves before the callback runs.
+// The guard (toolMode !== settings.toolMode) prevents a redundant write when
+// settingsStore.loadSettings() hydrates chatStore on boot — the value is
+// already persisted and does not need to be written back.
+useChatStore.subscribe(
+  (state) => state.toolMode,
+  (toolMode) => {
+    import('./settingsStore').then(({ useSettingsStore }) => {
+      const current = useSettingsStore.getState().settings.toolMode
+      if (current !== toolMode) {
+        useSettingsStore.getState().setPersistedToolMode(toolMode)
+      }
+    }).catch(() => { /* non-fatal */ })
   }
 )

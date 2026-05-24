@@ -31,13 +31,24 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              username: context.payload.comment.user.login,
-            });
-            if (!['admin', 'write'].includes(data.permission)) {
-              core.setFailed(`User ${context.payload.comment.user.login} lacks write access`);
+            const username = context.payload.comment.user.login;
+            let permission;
+            try {
+              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username,
+              });
+              permission = data.permission;
+            } catch (err) {
+              if (err.status === 404) {
+                core.setFailed(`User ${username} lacks write access to this repository (not a collaborator)`);
+                return;
+              }
+              throw err;
+            }
+            if (!['admin', 'write'].includes(permission)) {
+              core.setFailed(`User ${username} lacks write access (permission: ${permission})`);
             }
 
       - name: Checkout repository
@@ -53,7 +64,7 @@ jobs:
           trigger_phrase: '/review'
           allowed_bots: 'claude,github-actions'
           show_full_output: true
-          claude_args: '--dangerously-skip-permissions'
+          claude_args: '--dangerously-skip-permissions --model claude-sonnet-4-6'
           prompt: |
             You are a code reviewer. Review PR #${{ github.event.issue.number }} in this repository.
 
@@ -102,10 +113,13 @@ jobs:
             - [ ] Dependencies checked for known CVEs (if new deps added)
             - [ ] Content Security Policy not weakened
 
-            If the PR touches privilege-boundary files (`src/main/**`, `src/preload/**`, `electron-builder.*`, `electron.vite.config.*`), prepend your review with:
-            (NOTE: This list is duplicated in run-pe-analysis.mjs — keep both in sync)
+            If the PR touches privilege-boundary files (`src/main/**`, `src/preload/**`, `electron-builder.*`, `electron.vite.config.*`), prepend your review with the following hidden HTML comment **exactly** (do not paraphrase, translate, or alter — it is a machine-readable sentinel parsed by `pipeline-triage.yml`):
 
-            > **[SECURITY GATE]** This PR modifies Electron privilege-boundary code. Requires human review regardless of other findings.
+            `<!-- security-gate: true -->`
+
+            After the sentinel, also include a short human-readable note explaining that this PR modifies Electron privilege-boundary code and requires full human review regardless of other findings.
+
+            (Maintainer note: the privilege-boundary path list above is duplicated in `run-pe-analysis.mjs` — keep both in sync.)
 
             Be concise. Only comment on significant issues - if the code looks good, say so briefly.
 
@@ -186,13 +200,23 @@ jobs:
             } else {
               username = context.payload.comment.user.login;
             }
-            const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              username,
-            });
-            if (!['admin', 'write'].includes(data.permission)) {
-              core.setFailed(`User ${username} lacks write access`);
+            let permission;
+            try {
+              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username,
+              });
+              permission = data.permission;
+            } catch (err) {
+              if (err.status === 404) {
+                core.setFailed(`User ${username} lacks write access to this repository (not a collaborator)`);
+                return;
+              }
+              throw err;
+            }
+            if (!['admin', 'write'].includes(permission)) {
+              core.setFailed(`User ${username} lacks write access (permission: ${permission})`);
             }
 
       - name: Checkout repository
@@ -207,7 +231,7 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           allowed_bots: 'github-actions'
           show_full_output: true
-          claude_args: '--dangerously-skip-permissions'
+          claude_args: '--dangerously-skip-permissions --model claude-sonnet-4-6'
           prompt: |
             You are an autonomous coding agent. Implement the changes described in the
             GitHub issue or comment that triggered this workflow. Do NOT list or browse

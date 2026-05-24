@@ -20,6 +20,7 @@ import { useSummaryStore } from '../../stores/summaryStore'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { ReviewContainer } from '../review/ReviewContainer'
+import { MODE_SWITCH_RUN_EVENT } from './toolResultRenderers/RequestModeSwitchResult'
 import { cn } from '../../lib/utils'
 
 export function ChatPanel() {
@@ -64,6 +65,20 @@ export function ChatPanel() {
       generateSummary(document.documentId, content)
     }
   }, [infoOpen, summary, isStale, isGenerating, hasApiKey, document.documentId, generateSummary])
+
+  // Listen for the "Switch & Run" button in request_mode_switch tool
+  // results. Renderer dispatches a CustomEvent so it doesn't have to
+  // own a useChat reference; we send the agent's suggested prompt here.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ prompt: string }>).detail
+      if (detail?.prompt) {
+        sendMessage(detail.prompt)
+      }
+    }
+    window.addEventListener(MODE_SWITCH_RUN_EVENT, handler)
+    return () => window.removeEventListener(MODE_SWITCH_RUN_EVENT, handler)
+  }, [sendMessage])
 
   // Track pending suggestion count
   const suggestionCount = useMemo(() => {

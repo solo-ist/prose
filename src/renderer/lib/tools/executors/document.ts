@@ -15,6 +15,7 @@ import { getAISuggestions } from '../../../extensions/ai-suggestions'
 import { isEditorReadOnly } from './editor'
 import { getApi } from '../../browserApi'
 import { generateId } from '../../persistence'
+import { dump as dumpYaml } from 'js-yaml'
 
 /**
  * Get the TipTap editor instance.
@@ -67,7 +68,7 @@ export function executeReadDocument(): ToolResult<{
   if (!editor) {
     // Fallback to raw content if editor not available
     return toolSuccess({
-      nodes: [],
+      nodes: prependFrontmatterNode([], store.document.frontmatter, store.pendingFrontmatter),
       markdown: store.document.content
     })
   }
@@ -79,9 +80,44 @@ export function executeReadDocument(): ToolResult<{
   const nodes: DocumentNode[] = nodesWithIds.map(toDocumentNode)
 
   return toolSuccess({
-    nodes,
+    nodes: prependFrontmatterNode(nodes, store.document.frontmatter, store.pendingFrontmatter),
     markdown: store.document.content
   })
+}
+
+/**
+ * Prepend a synthetic { id: 'frontmatter' } node to the document tree when
+ * the document has frontmatter (committed) or a pending overlay. Lets MCP
+ * consumers target the frontmatter block via suggest_edit with
+ * nodeId: 'frontmatter' (Option C, #488).
+ */
+function prependFrontmatterNode(
+  nodes: DocumentNode[],
+  frontmatter: Record<string, unknown>,
+  pendingFrontmatter: Record<string, unknown> | null
+): DocumentNode[] {
+  const active = pendingFrontmatter ?? frontmatter
+  if (!active || Object.keys(active).length === 0) return nodes
+
+  // Serialize as YAML so the agent sees the keys it can address. If dump
+  // somehow throws on in-memory data (it shouldn't, but defensively), skip
+  // the synthetic node entirely rather than emitting a broken `---\n\n---`
+  // block that would mislead the agent.
+  let yamlBody: string
+  try {
+    yamlBody = dumpYaml(active, { lineWidth: -1, quotingType: '"', forceQuotes: false }).trimEnd()
+  } catch {
+    return nodes
+  }
+
+  return [
+    {
+      id: 'frontmatter',
+      type: 'frontmatter',
+      content: `---\n${yamlBody}\n---`,
+    },
+    ...nodes,
+  ]
 }
 
 /**

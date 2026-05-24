@@ -39,6 +39,7 @@ import { initializeSpellcheck, setupContextMenu } from './spellcheck'
 import { initAutoUpdater } from './updater'
 import { IS_MAS_BUILD } from './env'
 import { isQuitting } from './quitState'
+import { setupFileWatcherHandlers, teardownFileWatcher } from './fileWatcher'
 
 console.log('[Main] Environment loaded. OCR URL:', process.env.REMARKABLE_OCR_URL ? 'set' : 'not set')
 console.log('[Main] Google configured:', process.env.GOOGLE_CLIENT_ID ? 'ID set' : 'ID missing', process.env.GOOGLE_CLIENT_SECRET ? 'Secret set' : 'Secret missing')
@@ -488,6 +489,7 @@ app.whenReady().then(async () => {
 
   const mainWindow = createWindow()
   setupIpcHandlers()
+  setupFileWatcherHandlers()
   createMenu(mainWindow)
   initAutoUpdater(mainWindow)
 
@@ -588,8 +590,9 @@ app.on('window-all-closed', () => {
   }
 })
 
-// Clean up socket server and auth token on quit
+// Clean up socket server, file watcher, and auth token on quit
 app.on('will-quit', async () => {
+  await teardownFileWatcher()
   const socketServer = getMcpSocketServer()
   await socketServer.stop()
 

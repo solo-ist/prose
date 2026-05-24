@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { cn } from '../../lib/utils'
 import type { ChatMessage as ChatMessageType } from '../../types'
-import { User, Wand2, Check, AlertCircle, ArrowRight, Sparkles, CheckCircle2, XCircle, RotateCcw } from 'lucide-react'
+import { User, Wand2, Check, AlertCircle, ArrowRight, Sparkles, CheckCircle2, XCircle, RotateCcw, ChevronDown } from 'lucide-react'
 import { parseEditBlocks, hasEditBlocks, stripEditBlocks, type EditBlock } from '../../lib/editBlocks'
 import { applyEditsAsDiffs, applyEditsDirect, type ApplyResult, type EditProvenance } from '../../lib/applyEdit'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
@@ -11,11 +11,29 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { CopyButton } from '../ui/copy-button'
 import { jumpToLine } from '../../lib/lineNavigation'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
+import { renderToolResult } from './toolResultRenderers'
 import avatarDark from '../../assets/avatar-dark.png'
 import avatarLight from '../../assets/avatar-light.png'
 
+// Single source of truth for the "drafting" verb shown while the LLM is
+// composing tool arguments. Update here to tune copy app-wide.
+const DRAFTING_LABEL = 'Drafting'
+
+type ToolCallStatus = 'drafting' | 'executing' | 'success' | 'error'
+
 // Tool call indicator component with AI sparkle styling
-function ToolCallIndicator({ name, status, onClick, children }: { name: string; status: 'executing' | 'success' | 'error'; onClick?: () => void; children?: React.ReactNode }) {
+function ToolCallIndicator({ name, status, onClick, children, actions, defaultExpanded = false }: { name: string; status: ToolCallStatus; onClick?: () => void; children?: React.ReactNode; actions?: React.ReactNode; defaultExpanded?: boolean }) {
+  const [expanded, setExpanded] = useState(defaultExpanded)
+  // Drafting and executing are mid-flight states: no body to expand yet.
+  const hasBody = children != null && status !== 'executing' && status !== 'drafting'
+  const hasActions = actions != null
+
+  const toggleExpanded = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setExpanded(v => !v)
+  }
+
+
   return (
     <div
       className={cn(
@@ -26,11 +44,17 @@ function ToolCallIndicator({ name, status, onClick, children }: { name: string; 
     >
       <div className={cn(
         "flex items-center gap-2 px-3 py-2 text-xs font-medium",
+        status === 'drafting' && "text-violet-600 dark:text-violet-400 bg-violet-500/5",
         status === 'executing' && "text-violet-600 dark:text-violet-400 bg-violet-500/5",
         status === 'success' && "text-emerald-600 dark:text-emerald-400 bg-emerald-500/5",
         status === 'error' && "text-red-600 dark:text-red-400 bg-red-500/5"
       )}>
-        {status === 'executing' ? (
+        {status === 'drafting' ? (
+          <>
+            <Sparkles className="h-3.5 w-3.5 animate-pulse" />
+            <span className="animate-pulse">{DRAFTING_LABEL} {name}…</span>
+          </>
+        ) : status === 'executing' ? (
           <>
             <Sparkles className="h-3.5 w-3.5 animate-pulse" />
             <span className="animate-pulse">{name}...</span>
@@ -38,18 +62,33 @@ function ToolCallIndicator({ name, status, onClick, children }: { name: string; 
         ) : status === 'success' ? (
           <>
             <CheckCircle2 className="h-3.5 w-3.5" />
-            <span>{name}</span>
+            <span className="flex-1">{name}</span>
           </>
         ) : (
           <>
             <XCircle className="h-3.5 w-3.5" />
-            <span>{name}</span>
+            <span className="flex-1">{name}</span>
           </>
         )}
+        {hasBody && (
+          <button
+            type="button"
+            onClick={toggleExpanded}
+            aria-label={expanded ? 'Collapse details' : 'Expand details'}
+            className="ml-auto inline-flex h-5 w-5 items-center justify-center rounded text-current/70 hover:bg-current/10 hover:text-current focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-current/40"
+          >
+            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", !expanded && "-rotate-90")} />
+          </button>
+        )}
       </div>
-      {children && (
+      {hasBody && expanded && (
         <div className="px-3 py-2 text-xs font-mono text-muted-foreground border-t border-border bg-muted/10 max-h-48 overflow-auto">
           {children}
+        </div>
+      )}
+      {hasActions && (
+        <div className="px-3 py-2 border-t border-border bg-muted/5" onClick={(e) => e.stopPropagation()}>
+          {actions}
         </div>
       )}
     </div>
@@ -57,9 +96,11 @@ function ToolCallIndicator({ name, status, onClick, children }: { name: string; 
 }
 
 // Parse tool tags from content
-function parseToolTags(content: string): { type: 'text' | 'tool-executing' | 'tool-result' | 'tool-inline'; name?: string; success?: boolean; content: string }[] {
-  const parts: { type: 'text' | 'tool-executing' | 'tool-result' | 'tool-inline'; name?: string; success?: boolean; content: string }[] = []
+function parseToolTags(content: string): { type: 'text' | 'tool-drafting' | 'tool-executing' | 'tool-result' | 'tool-inline'; name?: string; success?: boolean; content: string }[] {
+  const parts: { type: 'text' | 'tool-drafting' | 'tool-executing' | 'tool-result' | 'tool-inline'; name?: string; success?: boolean; content: string }[] = []
 
+  // Match tool-drafting tags: <tool-drafting id="..." name="..."></tool-drafting>
+  const draftingRegex = /<tool-drafting id="([^"]+)" name="([^"]+)"><\/tool-drafting>/g
   // Match tool-executing tags
   const executingRegex = /<tool-executing name="([^"]+)">([^<]*)<\/tool-executing>/g
   // Match tool-result tags
@@ -67,28 +108,35 @@ function parseToolTags(content: string): { type: 'text' | 'tool-executing' | 'to
   // Match inline tool results from streaming: *[Tool: name] result*
   const inlineRegex = /\*\[Tool: ([^\]]+)\] ([^*]+)\*/g
 
-  let lastIndex = 0
   let remaining = content
 
-  // First pass: extract tool-executing
-  remaining = remaining.replace(executingRegex, (match, name, text, offset) => {
+  // First pass: extract tool-drafting
+  remaining = remaining.replace(draftingRegex, (_match, _id, name) => {
+    return `\x00TOOL_DRAFT:${name}\x00`
+  })
+
+  // Next pass: extract tool-executing
+  remaining = remaining.replace(executingRegex, (_match, name, text) => {
     return `\x00TOOL_EXEC:${name}:${text}\x00`
   })
 
-  // Second pass: extract tool-result
-  remaining = remaining.replace(resultRegex, (match, name, success, text) => {
+  // Next pass: extract tool-result
+  remaining = remaining.replace(resultRegex, (_match, name, success, text) => {
     return `\x00TOOL_RESULT:${name}:${success}:${text}\x00`
   })
 
-  // Third pass: extract inline tool results
-  remaining = remaining.replace(inlineRegex, (match, name, result) => {
+  // Next pass: extract inline tool results
+  remaining = remaining.replace(inlineRegex, (_match, name, result) => {
     return `\x00TOOL_INLINE:${name}:${result}\x00`
   })
 
   // Split and process
   const segments = remaining.split('\x00').filter(Boolean)
   for (const segment of segments) {
-    if (segment.startsWith('TOOL_EXEC:')) {
+    if (segment.startsWith('TOOL_DRAFT:')) {
+      const [, name] = segment.match(/TOOL_DRAFT:(.+)/) || []
+      parts.push({ type: 'tool-drafting', name, content: '' })
+    } else if (segment.startsWith('TOOL_EXEC:')) {
       const [, name, text] = segment.match(/TOOL_EXEC:([^:]+):(.*)/) || []
       parts.push({ type: 'tool-executing', name, content: text || '' })
     } else if (segment.startsWith('TOOL_RESULT:')) {
@@ -531,6 +579,11 @@ export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps)
               return (
                 <div className="prose-chat space-y-2 break-words">
                   {toolParts.map((part, idx) => {
+                    if (part.type === 'tool-drafting') {
+                      return (
+                        <ToolCallIndicator key={idx} name={part.name || 'tool'} status="drafting" />
+                      )
+                    }
                     if (part.type === 'tool-executing') {
                       return (
                         <ToolCallIndicator key={idx} name={part.name || 'tool'} status="executing" />
@@ -549,14 +602,26 @@ export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps)
                           // Not JSON, ignore
                         }
                       }
+                      // Per-tool custom renderer if one is registered; falls
+                      // back to markdown (JSON in <pre>) for unknown tools.
+                      // ctx scopes per-tool-call state (e.g., the
+                      // mode-switch acted/dismissed flag) into the owning
+                      // message's toolActions map, so it persists with the
+                      // conversation.
+                      const custom =
+                        part.name && part.content && part.success
+                          ? renderToolResult(part.name, part.content, { messageId: message.id, toolPartIdx: idx })
+                          : null
                       return (
                         <ToolCallIndicator
                           key={idx}
                           name={part.name || 'tool'}
                           status={part.success ? 'success' : 'error'}
                           onClick={onClickHandler}
+                          actions={custom?.actions}
+                          defaultExpanded={custom?.defaultExpanded}
                         >
-                          {part.content && renderMarkdown(part.content, editor)}
+                          {custom?.body ?? (part.content && renderMarkdown(part.content, editor))}
                         </ToolCallIndicator>
                       )
                     }

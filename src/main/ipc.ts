@@ -89,8 +89,9 @@ function expandPath(path: string): string {
 /**
  * Validate and sanitize a file path to prevent path traversal attacks.
  * Expands ~ paths and normalizes, then blocks any path containing traversal sequences.
+ * Exported so other main-process modules (e.g., fileWatcher) can apply the same gate.
  */
-function validatePath(inputPath: string): string {
+export function validatePath(inputPath: string): string {
   const expanded = expandPath(inputPath)
   const normalized = normalize(expanded)
 
@@ -114,7 +115,8 @@ const defaultSettings: Settings = {
   editor: {
     fontSize: 16,
     lineHeight: 1.6,
-    fontFamily: "'IBM Plex Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace"
+    fontFamily: "'IBM Plex Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
+    streamingEdits: true
   },
   recovery: {
     mode: 'silent'
@@ -122,7 +124,8 @@ const defaultSettings: Settings = {
   autosave: {
     mode: 'off',
     intervalSeconds: 30
-  }
+  },
+  toolMode: 'editor'
 }
 
 export function setupIpcHandlers(): void {
@@ -808,6 +811,14 @@ export function setupIpcHandlers(): void {
           console.log('[LLM:stream] Content block start:', block.content_block.type)
           if (block.content_block.type === 'tool_use') {
             console.log('[LLM:stream] Tool use started:', block.content_block.name)
+            // Fire a drafting event before any input_json_delta arrives — the
+            // visible latency for tools like `insert`/`edit` is the LLM
+            // composing the input, not the tool's actual execution.
+            event.sender.send('llm:stream:tool-call:start', {
+              streamId,
+              toolCallId: block.content_block.id,
+              toolName: block.content_block.name
+            })
           }
         })
 

@@ -24,6 +24,7 @@ import { SearchHighlight } from '../../extensions/search-highlight'
 import { LinkHover } from '../../extensions/link-hover'
 import { PlainTextMode } from '../../extensions/plain-text-mode'
 import { ImageWithUpload } from '../../extensions/image'
+import { PersistentSelection } from '../../extensions/persistent-selection'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
@@ -60,7 +61,7 @@ export function Editor() {
   const sourceMode = useEditorStore((state) => state.sourceMode)
   const setSourceMode = useEditorStore((state) => state.setSourceMode)
   const { settings, effectiveTheme, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen } = useSettings()
-  const { setContext, agentMode, setAgentMode } = useChat()
+  const { setContext, cycleToolMode } = useChat()
   const { isChatOpen, isFileListOpen, toggleChat, toggleFileList, setChatOpen, setFileListOpen } = usePanelLayoutContext()
   const setEditorInstance = useEditorInstanceStore((state) => state.setEditor)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -194,6 +195,7 @@ export function Editor() {
           class: 'editor-image'
         }
       }),
+      PersistentSelection,
     ],
     content: initialContent,
     editorProps: {
@@ -643,9 +645,11 @@ export function Editor() {
       e.preventDefault()
       setShortcutsDialogOpen(true)
     } else if (e.shiftKey && e.key === 'Tab' && !isMod) {
-      // Shift+Tab: Toggle agent mode
+      // Shift+Tab: Cycle through tool modes (chat → editor → create → chat).
+      // Editor must be reachable via keyboard — it's the new safe-by-default
+      // mode, and the previous binary agentMode toggle skipped it.
       e.preventDefault()
-      setAgentMode(!agentMode)
+      cycleToolMode()
     } else if (isMod && e.key === 'k' && !e.shiftKey) {
       // Cmd+K: Insert/edit link
       e.preventDefault()
@@ -734,7 +738,7 @@ export function Editor() {
         }
       }
     }
-  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen, editor, setContext, setChatOpen, setFileListOpen, toggleChat, toggleFileList, isChatOpen, isFileListOpen, isFindOpen, openAddCommentDialog, openLinkPopover, agentMode, setAgentMode, toggleAnnotationsVisible])
+  }, [openFile, saveFile, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen, editor, setContext, setChatOpen, setFileListOpen, toggleChat, toggleFileList, isChatOpen, isFileListOpen, isFindOpen, openAddCommentDialog, openLinkPopover, cycleToolMode, toggleAnnotationsVisible])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
@@ -766,13 +770,21 @@ export function Editor() {
   // Show empty state when document is empty, untitled, and user hasn't started editing
   const showEmptyState = !isEditing && !document.path && !document.content && !document.isDirty
 
+  const pendingFrontmatter = useEditorStore((state) => state.pendingFrontmatter)
+
   // Check if document has frontmatter to display — uses stableFrontmatter so the
-  // visibility decision doesn't flip during body edits
+  // visibility decision doesn't flip during body edits. Also shows when there is a
+  // pending AI suggestion even if the document has no existing frontmatter. On
+  // editable docs without frontmatter, mount the FrontmatterEditor anyway so it
+  // can render the "+ Add frontmatter" affordance (suppress for empty state,
+  // read-only modes, and preview tabs).
   const showFrontmatter = useMemo(() => {
+    if (pendingFrontmatter !== null) return true
     if (stableFrontmatter && Object.keys(stableFrontmatter).length > 0) return true
-    // Fall back to checking raw content (for content that still has --- markers)
-    return hasFrontmatter(document.content)
-  }, [document.content, stableFrontmatter])
+    if (hasFrontmatter(document.content)) return true
+    if (!showEmptyState && !isRemarkableReadOnly && !isPreviewTab) return true
+    return false
+  }, [document.content, stableFrontmatter, pendingFrontmatter, showEmptyState, isRemarkableReadOnly, isPreviewTab])
 
   // Focus editor when transitioning from empty state to editing
   // (skip during preview tab navigation — editor is non-editable)

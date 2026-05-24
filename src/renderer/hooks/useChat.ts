@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from 'react'
-import { useChatStore, createMessageId } from '../stores/chatStore'
+import { useChatStore, createMessageId, type ToolMode } from '../stores/chatStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useEditorStore } from '../stores/editorStore'
 import { useEditorInstanceStore } from '../stores/editorInstanceStore'
@@ -11,10 +11,75 @@ import { getSuggestionsWithFeedback } from '../extensions/ai-suggestions'
 import { executeTool, resolveToolPosition } from '../lib/tools'
 import { getToolsForClaudeAPI } from '../../shared/tools/registry'
 import { resolveModelName } from '../../shared/llm/models'
-import type { LLMMessage, LLMStreamToolCall, LLMContentBlock } from '../types'
+import type { LLMMessage, LLMStreamToolCall, LLMStreamToolCallStart, LLMContentBlock } from '../types'
+
+// Chat Mode gets a read-only tool subset rather than the full read+write
+// surface, so the agent can ground itself in the document without proposing
+// edits. Defense-in-depth alongside the registry-level mode gating:
+// `requiresMode` on each ToolConfig excludes mutating tools from Chat Mode at
+// the registry, AND this explicit allowlist ensures Chat Mode only ever
+// receives tools we have specifically vetted as read-only.
+//
+// Why both layers: registry gating relies on every new tool author setting
+// `requiresMode` correctly; a tool added with `requiresMode: null` (the
+// default for read-only tools) would silently appear in Chat Mode. The
+// allowlist keeps the failure mode "tool missing" rather than "tool leaks."
+//
+// Audit checkpoint: when new tools land, decide whether they belong in
+// Chat Mode and extend this set.
+const CHAT_MODE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'read_document',
+  'read_selection',
+  'get_metadata',
+  'search_document',
+  'get_outline',
+  'list_comments',
+  // UX coordination: lets the agent offer the user a one-click mode
+  // switch when their request is out of scope for the current mode.
+  // It doesn't read or mutate anything — just renders a button.
+  'request_mode_switch'
+])
+
+function getToolsForToolMode(toolMode: ToolMode): ReturnType<typeof getToolsForClaudeAPI> {
+  if (toolMode === 'chat') {
+    // Pass 'chat' to the registry filter first so layer 1 actually fires for
+    // Chat Mode — only tools with `requiresMode <= chat` survive. Then narrow
+    // further to the explicit allowlist. Both layers run in series, so a
+    // regression in either (a missing `requiresMode: 'editor'` on a future
+    // mutating tool, or a missing entry in the allowlist) is caught by the
+    // other.
+    return getToolsForClaudeAPI('chat').filter((t) => CHAT_MODE_TOOL_NAMES.has(t.name))
+  }
+  return getToolsForClaudeAPI(toolMode)
+}
 
 // Module-level flag to ensure stream listeners are only registered once globally
 let streamListenersInitialized = false
+
+// Build a self-closing marker tag that ChatMessage's parseToolTags recognizes
+// as a "drafting" indicator (LLM is composing the tool's input). The matching
+// tag is stripped before the tool result summary is appended.
+function buildDraftingTag(toolCallId: string, toolName: string): string {
+  return `<tool-drafting id="${toolCallId}" name="${toolName}"></tool-drafting>`
+}
+
+// Strip a specific drafting marker once the tool has finished and its
+// result is about to be appended. Match the exact id; only one such tag
+// can exist per tool call.
+function stripDraftingTag(content: string, toolCallId: string): string {
+  const escapedId = toolCallId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return content.replace(
+    new RegExp(`<tool-drafting id="${escapedId}" name="[^"]+"></tool-drafting>`, 'g'),
+    ''
+  )
+}
+
+// Strip every drafting marker regardless of id. Used on terminal paths
+// (stream error, user abort, outer catch) where the per-id strip in the
+// tool-result loop won't run, otherwise the chip persists forever.
+function stripAllDraftingTags(content: string): string {
+  return content.replace(/<tool-drafting[^>]*><\/tool-drafting>/g, '')
+}
 
 // Maximum tool roundtrips before circuit breaker stops the loop
 const MAX_TOOL_ROUNDTRIPS = 5
@@ -50,6 +115,15 @@ const toolLoopContextRef = {
     assistantMsgId: string
     roundtripCount: number
     lastErrorSignature: string | null
+    // True if the turn started with a mode switch (Switch & Run or
+    // StatusBar toggle between sends). Propagates through every
+    // tool-loop continuation in the turn so the "you just switched"
+    // notice stays on the system prompt — without it, continuations
+    // after a legitimate read_document call lose the notice and the
+    // LLM pattern-matches against prior-mode assistant messages,
+    // hallucinating "I'm still in <old> Mode" despite the tool list
+    // and per-mode instructions reflecting the new mode.
+    modeJustSwitched: boolean
   } | null,
   streamId: null as string | null
 }
@@ -85,8 +159,8 @@ export function useChat() {
     togglePanel,
     setPanelOpen,
     setContext,
-    setAgentMode,
     setToolMode,
+    cycleToolMode,
     startStreaming,
     appendStreamChunk,
     completeStreaming
@@ -135,6 +209,23 @@ export function useChat() {
       } else {
         console.log('[useChat:toolCall] ✗ REJECTED - streamId mismatch')
       }
+    })
+
+    // Drafting indicator: fires when the LLM begins a tool_use content block,
+    // before any input_json_delta. For tools whose body the model has to
+    // compose (e.g., `insert`/`edit` with paragraph-length text), this is the
+    // chunk of latency users currently see as silence. We append a self-
+    // closing <tool-drafting> tag to the streaming assistant message so
+    // ChatMessage's parser renders a "Drafting…" chip. The tag is stripped
+    // once the tool result is appended in onLLMStreamComplete below.
+    const unsubToolCallStart = api.onLLMStreamToolCallStart((start: LLMStreamToolCallStart) => {
+      const state = useChatStore.getState()
+      if (start.streamId !== state.currentStreamId || !state.streamingMessageId) return
+      const currentMsg = state.messages.find((m) => m.id === state.streamingMessageId)
+      const existing = currentMsg?.content ?? ''
+      state.updateMessage(state.streamingMessageId, {
+        content: existing + buildDraftingTag(start.toolCallId, start.toolName)
+      })
     })
 
     const unsubComplete = api.onLLMStreamComplete(async (complete) => {
@@ -217,7 +308,7 @@ export function useChat() {
 
         // Sort editor-mutating tool calls by document position (descending)
         // so bottom-of-document edits execute first and don't shift positions above
-        const EDITOR_MUTATING_TOOLS = new Set(['edit', 'insert', 'suggest_edit'])
+        const EDITOR_MUTATING_TOOLS = new Set(['edit', 'insert', 'suggest_edit', 'delete_node'])
         const sortedToolCalls = [...toolCalls]
         if (sortedToolCalls.some(tc => EDITOR_MUTATING_TOOLS.has(tc.name))) {
           // Pre-resolve positions before any edits execute
@@ -255,14 +346,25 @@ export function useChat() {
             currentErrorSignature = `${toolCall.name}:${result.error}`
           }
 
-          // Append tool execution info to the message
-          const resultSummary = result.success
-            ? (typeof result.data === 'string' ? result.data.slice(0, 100) : 'Success')
+          // Append tool execution info using the same <tool-result> tag
+          // format as user-initiated slash commands so custom renderers in
+          // src/renderer/components/chat/toolResultRenderers/ get the full
+          // structured payload regardless of who triggered the tool call.
+          // Strip the matching drafting marker for this tool call first so
+          // we don't render the "Drafting…" chip alongside the result chip.
+          // Read latest state so prior-tool appends in this same loop
+          // iteration are preserved.
+          const resultText = result.success
+            ? (typeof result.data === 'string'
+                ? result.data
+                : '```json\n' + JSON.stringify(result.data, null, 2) + '\n```')
             : `Error: ${result.error}`
-          state.updateMessage(assistantMsgId, {
+          const latest = useChatStore.getState()
+          const previous = latest.messages.find((m) => m.id === assistantMsgId)?.content ?? ''
+          latest.updateMessage(assistantMsgId, {
             content:
-              state.messages.find((m) => m.id === assistantMsgId)?.content +
-              `\n\n*[Tool: ${toolCall.name}] ${resultSummary}*`
+              stripDraftingTag(previous, toolCall.id) +
+              `\n\n<tool-result name="${toolCall.name}" success="${result.success}">${resultText}</tool-result>`
           })
 
           // Add tool result message to API messages (summarized to reduce context)
@@ -290,12 +392,16 @@ export function useChat() {
         const newStreamId = createMessageId()
         state.startStreaming(assistantMsgId, newStreamId)
 
-        // Update context for potential next tool loop with new streamId
+        // Update context for potential next tool loop with new streamId.
+        // Preserve `modeJustSwitched` across the whole turn so subsequent
+        // continuations keep the "you just switched" notice.
+        const priorTurnContext = toolLoopContextRef.current
         toolLoopContextRef.current = {
           apiMessages: updatedMessages,
           assistantMsgId,
           roundtripCount: roundtripCount + 1,
-          lastErrorSignature: currentErrorSignature
+          lastErrorSignature: currentErrorSignature,
+          modeJustSwitched: priorTurnContext?.modeJustSwitched ?? false
         }
         toolLoopContextRef.streamId = newStreamId
         pendingToolCallsRef.streamId = newStreamId
@@ -303,7 +409,21 @@ export function useChat() {
         // Call LLM again with tool results
         const settingsState = useSettingsStore.getState()
         const editorState = useEditorStore.getState()
-        const tools = state.toolMode !== 'suggestions' ? getToolsForClaudeAPI(state.toolMode) : undefined
+        const tools = getToolsForToolMode(state.toolMode)
+        // Mid-stream mode switches are rare (user toggles during tool loop)
+        // but the same idempotency logic applies. lastSentToolMode was set
+        // at the start of this stream, so this fires only on genuine mid-
+        // stream toggles.
+        const loopLastSent = state.lastSentToolMode
+        const loopModeJustSwitched = loopLastSent !== null && loopLastSent !== state.toolMode
+        if (loopModeJustSwitched) {
+          state.setLastSentToolMode(state.toolMode)
+        }
+        // The notice fires if the turn started with a switch (Switch &
+        // Run or pre-send StatusBar toggle) OR if the user toggled mode
+        // mid-loop. Either way we want the grounding text in the prompt.
+        const continuationModeJustSwitched =
+          toolLoopContextRef.current.modeJustSwitched || loopModeJustSwitched
 
         try {
           await api.llmChatStream({
@@ -316,12 +436,13 @@ export function useChat() {
               editorState.document.content,
               state.toolMode,
               editorState.document.path,
-              resolveModelName(settingsState.settings.llm.model, settingsState.fetchedModels)
+              resolveModelName(settingsState.settings.llm.model, settingsState.fetchedModels),
+              continuationModeJustSwitched
             ),
             streamId: newStreamId,
             tools,
             maxToolRoundtrips: 5,
-            maxTokens: state.toolMode === 'suggestions' ? 3072 : 4096
+            maxTokens: state.toolMode === 'chat' ? 3072 : 4096
           })
         } catch (error) {
           console.error('[Chat] Tool loop error:', error)
@@ -356,8 +477,12 @@ export function useChat() {
           } else if (lowerError.includes('connect') || lowerError.includes('network') || lowerError.includes('timeout')) {
             guidance = ' Check your internet connection.'
           }
+          // Strip any orphan <tool-drafting> tags. They're normally cleared in
+          // onLLMStreamComplete's tool-result loop, but a stream error between
+          // content_block_start and that loop would leave them dangling.
+          const cleaned = stripAllDraftingTags(currentMsg?.content || '')
           state.updateMessage(state.streamingMessageId, {
-            content: (currentMsg?.content || '') + `\n\nError: ${error.error}${guidance}`,
+            content: cleaned + `\n\nError: ${error.error}${guidance}`,
             isError: true
           })
         }
@@ -373,6 +498,7 @@ export function useChat() {
       console.log('[useChat:listeners] CLEANUP - unsubscribing all listeners')
       unsubChunk()
       unsubToolCall()
+      unsubToolCallStart()
       unsubComplete()
       unsubError()
       streamListenersInitialized = false
@@ -384,6 +510,13 @@ export function useChat() {
       console.log('[useChat] sendMessage called with:', content?.substring(0, 50), 'isLoading:', isLoading)
       if (!content.trim() || isLoading) return
       console.log('[useChat] sendMessage passed initial check')
+      // Read toolMode fresh from the store rather than relying on the
+      // React-closure-captured value. Necessary because callers (notably
+      // RequestModeSwitchActions' "Switch & Run" path) may setToolMode
+      // and then synchronously dispatch sendMessage in the same tick —
+      // React hasn't re-rendered yet, and the captured `toolMode` would
+      // be stale. Reading from the store always reflects the latest.
+      const toolMode = useChatStore.getState().toolMode
 
       // Auto-create a conversation if there isn't one
       if (!activeConversationId) {
@@ -479,9 +612,9 @@ export function useChat() {
 
       // Initialize tool loop context if tools are enabled
       console.log('[useChat] toolMode:', toolMode)
-      let tools
+      let tools: ReturnType<typeof getToolsForToolMode> | undefined
       try {
-        tools = toolMode !== 'suggestions' ? getToolsForClaudeAPI(toolMode) : undefined
+        tools = getToolsForToolMode(toolMode)
         console.log('[useChat] tools:', tools?.length || 0)
         if (tools && tools.length > 0) {
           console.log('[useChat] First tool schema:', JSON.stringify(tools[0], null, 2))
@@ -490,12 +623,22 @@ export function useChat() {
         console.error('[useChat] Error getting tools:', toolErr)
         tools = undefined
       }
-      if (tools) {
+      // Detect mid-conversation mode switches so we can prepend a one-line
+      // note to the system prompt. Idempotent across multiple toggles:
+      // only the diff at send time matters, and we update lastSentToolMode
+      // immediately so the tool-loop continuation (later in this stream)
+      // doesn't re-fire the marker on every roundtrip.
+      const lastSent = useChatStore.getState().lastSentToolMode
+      const modeJustSwitched = lastSent !== null && lastSent !== toolMode
+      useChatStore.getState().setLastSentToolMode(toolMode)
+
+      if (tools && tools.length > 0) {
         toolLoopContextRef.current = {
           apiMessages,
           assistantMsgId,
           roundtripCount: 0,
-          lastErrorSignature: null
+          lastErrorSignature: null,
+          modeJustSwitched
         }
         toolLoopContextRef.streamId = streamId
         pendingToolCallsRef.streamId = streamId
@@ -516,12 +659,13 @@ export function useChat() {
             useEditorStore.getState().document.content,
             toolMode,
             useEditorStore.getState().document.path,
-            resolveModelName(settings.llm.model, useSettingsStore.getState().fetchedModels)
+            resolveModelName(settings.llm.model, useSettingsStore.getState().fetchedModels),
+            modeJustSwitched
           ),
           streamId,
           tools,
           maxToolRoundtrips: 5,
-          maxTokens: toolMode === 'suggestions' ? 3072 : 4096
+          maxTokens: toolMode === 'chat' ? 3072 : 4096
         })
       } catch (error) {
         console.error('[Chat] Error:', error)
@@ -575,6 +719,18 @@ export function useChat() {
     if (state.currentStreamId) {
       const api = getApi()
       api.llmAbortStream(state.currentStreamId)
+    }
+    // Strip orphan drafting tags before tearing down the stream — aborting
+    // mid-tool-input composition would otherwise leave a perpetual chip.
+    // Must run before completeStreaming() clears streamingMessageId.
+    if (state.streamingMessageId) {
+      const currentMsg = state.messages.find((m) => m.id === state.streamingMessageId)
+      if (currentMsg?.content) {
+        const cleaned = stripAllDraftingTags(currentMsg.content)
+        if (cleaned !== currentMsg.content) {
+          state.updateMessage(state.streamingMessageId, { content: cleaned })
+        }
+      }
     }
     // Clear stream refs before completing to prevent race conditions
     clearStreamRefs()
@@ -668,7 +824,7 @@ export function useChat() {
     togglePanel,
     setPanelOpen,
     setContext,
-    setAgentMode,
-    setToolMode
+    setToolMode,
+    cycleToolMode
   }
 }

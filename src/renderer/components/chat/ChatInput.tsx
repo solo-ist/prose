@@ -5,8 +5,10 @@ import { useChat } from '../../hooks/useChat'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useChatStore, createMessageId } from '../../stores/chatStore'
+import { useFileListStore } from '../../stores/fileListStore'
 import { useCommandHistoryStore } from '../../stores/commandHistoryStore'
-import { executeTool, getAvailableTools } from '../../lib/tools'
+import { executeTool, getAvailableTools, isToolAvailableInMode } from '../../lib/tools'
+import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { cn } from '../../lib/utils'
 import { useReviewStore } from '../../stores/reviewStore'
 
@@ -28,6 +30,11 @@ const toolDescriptions: Record<string, string> = {
   save_file: 'Save to file',
   list_files: 'List files in directory',
   read_file: 'Read file contents',
+  list_comments: 'List comments in document',
+  add_comment: 'Add a comment to selected text',
+  resolve_comment: 'Resolve (remove) a comment',
+  list_tabs: 'List open tabs',
+  select_tab: 'Switch to a different tab',
   help: 'Show available commands',
   clear: 'Start a new chat',
   new: 'New blank tab',
@@ -133,14 +140,31 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
   // Disable input while app is initializing (loading draft/conversations) or while loading
   const isDisabled = isLoading || isInitializing
 
-  // All available commands (including built-in shortcuts)
-  // Normalize aliases: get_outline → outline for consistent display
-  const allCommands = useMemo(() => [
-    ...getAvailableTools()
+  // Track pending AI suggestion count so the review shortcuts can be
+  // contextual on whether there's anything to review. Same pattern as
+  // StatusBar.tsx — keys on editor + doc reference so edits invalidate
+  // the memo.
+  const suggestionCount = useMemo(() => {
+    if (!editor) return 0
+    return getAISuggestions(editor).length
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, editor?.state.doc])
+
+  // All available commands (including built-in shortcuts) filtered by the
+  // current ToolMode — don't suggest /suggest_edit in Chat Mode if it would
+  // fail at checkToolAccess. Normalize aliases: get_outline → outline.
+  // The review-UI shortcuts (/quick-review, /review-diff) only show when
+  // there are pending suggestions to review — and never in Chat Mode,
+  // which can't produce suggestions in the first place.
+  const allCommands = useMemo(() => {
+    const tools = getAvailableTools()
       .filter(t => t !== 'create_and_open_file')
-      .map(t => t === 'get_outline' ? 'outline' : t),
-    'help', 'clear', 'new', 'quick-review', 'review-diff'
-  ], [])
+      .filter(t => isToolAvailableInMode(t, toolMode))
+      .map(t => t === 'get_outline' ? 'outline' : t)
+    const showReviewShortcuts = toolMode !== 'chat' && suggestionCount > 0
+    const reviewShortcuts = showReviewShortcuts ? ['quick-review', 'review-diff'] : []
+    return [...tools, 'help', 'clear', 'new', ...reviewShortcuts]
+  }, [toolMode, suggestionCount])
 
   // Parse the current command from input (e.g., "/list_files " -> "list_files")
   const activeCommand = useMemo(() => {
@@ -217,7 +241,6 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
     // Handle /help specially
     if (command.toolName === 'help') {
       const { addMessage } = useChatStore.getState()
-      const availableTools = getAvailableTools()
       addMessage({
         id: createMessageId(),
         role: 'user',
@@ -271,20 +294,22 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
       return
     }
 
-    // Handle /list_files - get current file's directory first
+    // Handle /list_files - default to the file explorer's current root so
+    // chat-side results mirror what the user sees in the side panel.
+    // Fall back to the active file's directory, then home, if no explorer
+    // root is set (e.g., user closed the panel without ever opening it).
     if (command.toolName === 'list_files') {
+      const { rootPath } = useFileListStore.getState()
       const { document } = useEditorStore.getState()
-      const path = document.path
-      if (path) {
-        // Extract directory from file path
-        const dir = path.substring(0, path.lastIndexOf('/')) || '~'
-        // First get metadata, then list files
-        const enhancedCommand = { ...command, args: { path: dir }, rawArg: dir }
-        await handleSlashCommand(enhancedCommand, `/list_files ${dir}`)
-      } else {
-        // No current file, list home directory
-        await handleSlashCommand({ ...command, args: { path: '~' }, rawArg: '~' }, '/list_files ~')
+      let dir = rootPath
+      if (!dir && document.path) {
+        dir = document.path.substring(0, document.path.lastIndexOf('/')) || '~'
       }
+      if (!dir) {
+        dir = '~'
+      }
+      const enhancedCommand = { ...command, args: { path: dir }, rawArg: dir }
+      await handleSlashCommand(enhancedCommand, `/list_files ${dir}`)
       return
     }
 

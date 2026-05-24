@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import * as yaml from 'js-yaml'
-import { Lock, Plus, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { Lock, Plus, X, ChevronDown, ChevronUp, Check } from 'lucide-react'
 import { Input } from '../ui/input'
+import { useEditorStore } from '../../stores/editorStore'
 
 const PROTECTED_FIELDS = new Set(['google_doc_id', 'google_synced_at'])
 
@@ -46,6 +47,9 @@ export function serializeFrontmatter(frontmatter: Record<string, unknown>): stri
 export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [fields, setFields] = useState<Field[]>(() => frontmatterToFields(frontmatter))
+  const pendingFrontmatter = useEditorStore((state) => state.pendingFrontmatter)
+  const rejectPendingFrontmatter = useEditorStore((state) => state.rejectPendingFrontmatter)
+  const setStoredFrontmatter = useEditorStore((state) => state.setFrontmatter)
 
   // Track whether the next prop change originated from our own onSave round-trip
   // so we don't clobber an in-progress local edit when the store echoes back.
@@ -84,10 +88,99 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
     setFields(prev => [...prev, { key: '', value: '', readonly: false, originalValue: '' }])
   }, [])
 
-  if (Object.keys(frontmatter).length === 0 && fields.length === 0) return null
+  // Accept handler: write the accepted frontmatter directly to the store FIRST
+  // as a durable fallback, then call onSave to reserialize body content (which
+  // no-ops if the TipTap editor isn't mounted), then clear the pending state.
+  // The direct store write guarantees the user's accept can't be silently
+  // dropped even if onSave's editor-dependent code path is unavailable.
+  const handleAcceptPending = useCallback(() => {
+    if (!pendingFrontmatter) return
+    const accepted = pendingFrontmatter
+    setStoredFrontmatter(accepted)
+    setFields(frontmatterToFields(accepted))
+    onSave(accepted)
+    rejectPendingFrontmatter()
+  }, [pendingFrontmatter, setStoredFrontmatter, rejectPendingFrontmatter, onSave])
+
+  if (Object.keys(frontmatter).length === 0 && fields.length === 0 && !pendingFrontmatter) {
+    return (
+      <button
+        className="mb-6 flex items-center gap-1 text-muted-foreground/40 hover:text-muted-foreground/80 transition-colors text-xs font-mono"
+        onClick={() => {
+          handleAdd()
+          setIsExpanded(true)
+        }}
+        title="Add frontmatter to this document"
+      >
+        <Plus className="w-3 h-3" />
+        Add frontmatter
+      </button>
+    )
+  }
+
+  // Pending frontmatter overlay — shown when AI proposes frontmatter changes via suggest_edit
+  if (pendingFrontmatter) {
+    const pendingFields = frontmatterToFields(pendingFrontmatter)
+    return (
+      <div className="mb-6 rounded-md border px-4 py-3 font-mono text-xs frontmatter-pending-overlay">
+        <div className="flex items-center justify-between mb-2">
+          <span className="frontmatter-pending-label">AI suggested frontmatter</span>
+          <div className="flex items-center gap-2">
+            <button
+              className="frontmatter-pending-accept-btn"
+              onClick={handleAcceptPending}
+              title="Accept frontmatter suggestion"
+            >
+              <Check className="w-3 h-3" />
+              Accept
+            </button>
+            <button
+              className="frontmatter-pending-reject-btn"
+              onClick={rejectPendingFrontmatter}
+              title="Reject frontmatter suggestion"
+            >
+              <X className="w-3 h-3" />
+              Reject
+            </button>
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          {pendingFields.map(({ key, value }) => (
+            <div key={key} className="flex items-center gap-1.5">
+              <span className="text-muted-foreground/70 shrink-0 w-32 truncate">{key}</span>
+              <span className="text-muted-foreground/40 shrink-0">:</span>
+              <span className="flex-1 truncate frontmatter-pending-value">{value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   // Collapsed view
   if (!isExpanded) {
+    // Hide empty-key rows in the collapsed display — they're an in-progress
+    // editing state, not content worth showing. If nothing remains, fall back
+    // to the "+ Add frontmatter" affordance so the user can recover from
+    // adding-then-collapsing-without-typing. (pendingFrontmatter is unreachable
+    // here — the pending overlay branch above returns earlier.)
+    const displayFields = fields.filter(f => f.key.trim())
+    if (displayFields.length === 0) {
+      return (
+        <button
+          className="mb-6 flex items-center gap-1 text-muted-foreground/40 hover:text-muted-foreground/80 transition-colors text-xs font-mono"
+          onClick={() => {
+            setFields(prev => prev.filter(f => f.key.trim()))
+            handleAdd()
+            setIsExpanded(true)
+          }}
+          title="Add frontmatter to this document"
+        >
+          <Plus className="w-3 h-3" />
+          Add frontmatter
+        </button>
+      )
+    }
     return (
       <div
         className="mb-6 rounded-md bg-muted/50 border border-border/50 px-4 py-3 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/70 transition-colors group"
@@ -96,7 +189,7 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
       >
         <div className="flex items-start justify-between gap-2">
           <div className="space-y-1.5 flex-1 min-w-0">
-            {fields.map(({ key, value }) => {
+            {displayFields.map(({ key, value }) => {
               const isDocId = key === 'google_doc_id'
               const displayValue = isDocId ? value.replace(/^['"]|['"]$/g, '') : value
               return (

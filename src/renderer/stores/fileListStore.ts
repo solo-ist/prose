@@ -13,6 +13,49 @@ export interface SyncProgress {
 
 type ViewMode = 'recent' | 'folder' | 'notebooks' | 'googledocs'
 
+/**
+ * Walk `newFiles` and re-attach `children` arrays from `oldFiles` for any
+ * directory whose path is in `expandedFolders`. Lets a depth-1 reload from
+ * the fs watcher preserve the user's deep expansion state — without this,
+ * every fs event would visibly collapse subtrees beneath direct children.
+ *
+ * Subtrees pulled from `oldFiles` are kept as-is (we don't re-fetch them).
+ * That can leave deep state slightly stale until the user collapses/reopens
+ * the folder, but it avoids an IPC burst per fs event.
+ */
+function mergeExpandedChildren(
+  newFiles: FileItem[],
+  oldFiles: FileItem[],
+  expandedFolders: Set<string>
+): FileItem[] {
+  if (expandedFolders.size === 0) return newFiles
+
+  // Flatten oldFiles into a path → node map so we can re-attach any depth.
+  const oldByPath = new Map<string, FileItem>()
+  const walk = (items: FileItem[]): void => {
+    for (const item of items) {
+      oldByPath.set(item.path, item)
+      if (item.children && item.children.length > 0) walk(item.children)
+    }
+  }
+  walk(oldFiles)
+
+  const merge = (items: FileItem[]): FileItem[] =>
+    items.map(item => {
+      if (item.isDirectory && expandedFolders.has(item.path)) {
+        const old = oldByPath.get(item.path)
+        if (old?.children && old.children.length > 0) {
+          // Recurse so an old subtree's own nested expansions get the same
+          // merge treatment if the depth-1 reload happens to include them.
+          return { ...item, children: merge(old.children) }
+        }
+      }
+      return item
+    })
+
+  return merge(newFiles)
+}
+
 interface FileListState {
   // Panel state
   isPanelOpen: boolean
@@ -68,6 +111,7 @@ interface FileListState {
   setRemarkableSyncProgress: (progress: SyncProgress | null) => void
   setRemarkableSyncError: (error: string | null) => void
   setRootPath: (path: string | null) => void
+  initFileWatcher: () => (() => void)
   initializeDefaultPath: () => Promise<void>
   navigateToParent: () => void
   loadFiles: () => Promise<void>
@@ -145,6 +189,58 @@ export const useFileListStore = create<FileListState>()(
       set({ rootPath: path, files: [], expandedFolders: new Set() })
       if (path) {
         get().loadFiles()
+        // Notify the main process to start watching this directory.
+        // Fire-and-forget — the watcher replacing an old one is handled in main.
+        if (window.api?.startWatchingDirectory) {
+          window.api.startWatchingDirectory(path).catch((err: unknown) => {
+            console.error('[FileListStore] Failed to start directory watcher:', err)
+          })
+        }
+      } else {
+        // No directory — tear down the watcher
+        if (window.api?.stopWatchingDirectory) {
+          window.api.stopWatchingDirectory().catch((err: unknown) => {
+            console.error('[FileListStore] Failed to stop directory watcher:', err)
+          })
+        }
+      }
+    },
+
+    /**
+     * Subscribe to file-system events pushed by the main process.
+     * Call once on app mount (e.g., in the top-level App component).
+     * Returns an unsubscribe function to be called on unmount.
+     *
+     * On any event, we reload the root directory listing. This is a
+     * simple full reload — fine for the shallow (depth-1) listing we
+     * show. We avoid trying to surgically patch the tree because the
+     * cost of a re-read is negligible and correctness is guaranteed.
+     */
+    initFileWatcher: () => {
+      if (!window.api?.onFileWatchEvent) {
+        // Running in web mode — no watcher support
+        return () => {}
+      }
+
+      let reloadTimeout: ReturnType<typeof setTimeout> | null = null
+
+      const unsubscribe = window.api.onFileWatchEvent((_event) => {
+        const { viewMode, rootPath } = get()
+        // Only react in folder view — other views don't use the file tree
+        if (viewMode !== 'folder' || !rootPath) return
+
+        // Debounce: batch rapid file-system events (e.g., editor save = unlink + write)
+        // into a single reload 150ms after the last event.
+        if (reloadTimeout !== null) clearTimeout(reloadTimeout)
+        reloadTimeout = setTimeout(() => {
+          reloadTimeout = null
+          get().loadFiles()
+        }, 150)
+      })
+
+      return () => {
+        if (reloadTimeout !== null) clearTimeout(reloadTimeout)
+        unsubscribe()
       }
     },
 
@@ -158,8 +254,12 @@ export const useFileListStore = create<FileListState>()(
           // Verify the directory is actually readable (may fail in MAS sandbox)
           const files = await window.api.listDirectory(documentsPath)
           if (files && files.length > 0) {
-            set({ rootPath: documentsPath, isInitialized: true })
-            get().loadFiles()
+            // Route through setRootPath so the watcher wiring stays in one
+            // place. Setting rootPath inline (the old pattern) duplicated
+            // the startWatchingDirectory call and was a foot-gun the day
+            // someone changed the watcher contract.
+            set({ isInitialized: true })
+            get().setRootPath(documentsPath)
           } else {
             // Can't read directory (sandbox) or genuinely empty — show picker prompt
             set({ isInitialized: true })
@@ -184,8 +284,10 @@ export const useFileListStore = create<FileListState>()(
       // Try reading the parent — may fail in MAS sandbox
       const files = await window.api.listDirectory(parentPath, 1)
       if (files && files.length > 0) {
-        set({ rootPath: parentPath, files: [], expandedFolders: new Set() })
-        get().loadFiles()
+        // Route through setRootPath so the directory watcher follows the
+        // navigation. Setting rootPath inline would leave the watcher pinned
+        // to the previous directory and silently break live updates.
+        get().setRootPath(parentPath)
       } else {
         // Parent not accessible — prompt for folder access via Powerbox
         const result = await window.api.selectFolder(
@@ -202,22 +304,30 @@ export const useFileListStore = create<FileListState>()(
             }))
           }
           useSettingsStore.getState().saveSettings()
-          set({ rootPath: result.path, files: [], expandedFolders: new Set() })
-          get().loadFiles()
+          get().setRootPath(result.path)
         }
         // User cancelled — stay where we are
       }
     },
 
     loadFiles: async () => {
-      const { rootPath } = get()
+      const { rootPath, expandedFolders, files: oldFiles } = get()
       if (!rootPath || !window.api) return
 
       set({ isLoading: true })
       try {
         // Use depth 1 for fast initial load - children loaded on demand
-        const files = await window.api.listDirectory(rootPath, 1)
-        set({ files, isLoading: false })
+        const fresh = await window.api.listDirectory(rootPath, 1)
+        // The fresh listing only includes direct children. If the user had
+        // any subfolders expanded (and their children fetched via
+        // loadFolderChildren), those `children` arrays would be wiped on
+        // every fs-event reload, causing deep expansions to silently
+        // collapse mid-edit. Re-attach previously-loaded children for any
+        // path still in expandedFolders so the user's tree state survives.
+        // This trades a small risk of stale deep state (until the user
+        // collapses/reopens) for not bursting IPC reads on every event.
+        const merged = mergeExpandedChildren(fresh, oldFiles, expandedFolders)
+        set({ files: merged, isLoading: false })
       } catch (error) {
         console.error('Failed to load files:', error)
         set({ files: [], isLoading: false })

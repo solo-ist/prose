@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+OpenAI Codex and other non-Claude agents use `AGENTS.md` as their repository entry point.
+Claude agents should also read `AGENTS.md` for shared cross-agent coordination rules, then use
+this file for Claude-specific workflows, skills, and deeper project context.
+
 ## Development Environment
 
 This project uses an **agentic, multi-agent development workflow**:

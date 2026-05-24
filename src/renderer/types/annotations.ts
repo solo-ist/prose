@@ -8,7 +8,7 @@
 /**
  * Type of AI text modification
  */
-export type AnnotationType = 'insertion' | 'replacement'
+export type AnnotationType = 'insertion' | 'replacement' | 'deletion'
 
 /**
  * Provenance information about the AI that generated the text
@@ -42,6 +42,8 @@ export interface AIAnnotation {
   content: string
   /** Provenance information about the AI source */
   provenance: AIProvenance
+  /** Model-supplied reason for the edit, preserved from the originating suggestion */
+  explanation?: string
 }
 
 /**

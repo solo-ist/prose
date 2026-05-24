@@ -14,7 +14,7 @@ export const readDocumentSchema = z.object({}).describe('No parameters required'
 export const readDocumentConfig: ToolConfig<typeof readDocumentSchema> = {
   name: 'read_document',
   description:
-    'Get the document as a structured node tree, each node with a unique ID. Returns { nodes: DocumentNode[], markdown }. DocumentNode shape: { id, type, content, children?: DocumentNode[] }. Container nodes (blockquote, bulletList, orderedList, listItem, taskItem) carry a children array with their nested nodes; their content is the concatenated text of all descendants. Leaf nodes (paragraph, heading, codeBlock) have no children. Node IDs are required for edit and suggest_edit calls — always target the most specific (innermost) node. Do NOT target a container when you mean to edit a specific child.',
+    "Get the document as a structured node tree, each node with a unique ID. Returns { nodes: DocumentNode[], markdown }. DocumentNode shape: { id, type, content, children?: DocumentNode[] }. Container nodes (blockquote, bulletList, orderedList, listItem, taskItem) carry a children array with their nested nodes; their content is the concatenated text of all descendants. Leaf nodes (paragraph, heading, codeBlock) have no children. Node IDs are required for edit and suggest_edit calls — always target the most specific (innermost) node. Do NOT target a container when you mean to edit a specific child. If the document has frontmatter, a synthetic node with id: 'frontmatter', type: 'frontmatter' is prepended to the nodes array — call suggest_edit with nodeId: 'frontmatter' and the COMPLETE new YAML (with or without --- fences) to propose frontmatter changes; do not try to address individual fields.",
   schema: readDocumentSchema,
   category: 'document',
   requiresMode: null, // Available in all modes
@@ -145,7 +145,10 @@ export const addCommentConfig: ToolConfig<typeof addCommentSchema> = {
     'Add a comment to a node or range in the document. Provide nodeId (preferred, from read_document) or from/to positions. Returns { id } of the new comment.',
   schema: addCommentSchema,
   category: 'document',
-  requiresMode: null,
+  // Comments mutate document state; Chat Mode stays read-only. Editor Mode
+  // needs add_comment to deliver the non-authorship affordance: the agent
+  // can flag editorial issues without proposing replacement prose.
+  requiresMode: 'editor',
   dangerous: false
 }
 
@@ -163,7 +166,9 @@ export const resolveCommentConfig: ToolConfig<typeof resolveCommentSchema> = {
     'Resolve (remove) a comment by its ID. Use list_comments to see all comment IDs.',
   schema: resolveCommentSchema,
   category: 'document',
-  requiresMode: null,
+  // Sibling of add_comment — removing a comment is also a mutation, so it
+  // belongs in Editor Mode and up. list_comments stays read-only.
+  requiresMode: 'editor',
   dangerous: false
 }
 

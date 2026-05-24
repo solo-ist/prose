@@ -24,14 +24,15 @@ const DEFAULT_ICON: IconId = 'pilcrow'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Make an arrow-key radio-group keyboard handler for a list of items. */
+/** Make an arrow-key radio-group keyboard handler for a list of items.
+ *  `selected` is the currently-selected value in the group. */
 function makeRadioKeyHandler<T extends string>(
   items: T[],
-  current: T,
+  selected: T,
   onSelect: (id: T) => void,
 ): React.KeyboardEventHandler<HTMLElement> {
   return (e) => {
-    const idx = items.indexOf(current)
+    const idx = items.indexOf(selected)
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
       e.preventDefault()
       onSelect(items[(idx + 1) % items.length])
@@ -40,7 +41,11 @@ function makeRadioKeyHandler<T extends string>(
       onSelect(items[(idx - 1 + items.length) % items.length])
     } else if (e.key === ' ' || e.key === 'Enter') {
       e.preventDefault()
-      onSelect(current)
+      // The focused button's id is stored in aria-checked; use e.currentTarget
+      // to read the id of the focused item. Skip if it's already selected.
+      const focusedId = (e.currentTarget as HTMLElement).dataset.radioId as T | undefined
+      if (focusedId === undefined || focusedId === selected) return
+      onSelect(focusedId)
     }
   }
 }
@@ -154,6 +159,7 @@ export function AppearancePane({ appearance, effectiveMode, onAppearanceChange }
                 role="radio"
                 aria-checked={selected}
                 tabIndex={selected ? 0 : -1}
+                data-radio-id={m.id}
                 onClick={() => handleModeSelect(m.id)}
                 onKeyDown={modeKeyHandler as React.KeyboardEventHandler<HTMLButtonElement>}
                 className={[
@@ -238,7 +244,9 @@ export function AppearancePane({ appearance, effectiveMode, onAppearanceChange }
             Using{' '}
             <span className="text-foreground">{currentTheme.name}</span>
             <span className="text-muted-foreground"> · </span>
-            <span className="text-foreground">{effectiveMode}</span>
+            <span className="text-foreground">
+              {mode === 'system' ? `System · ${effectiveMode}` : effectiveMode}
+            </span>
             <span className="text-muted-foreground"> · </span>
             <span className="text-foreground">{currentIcon.name}</span>
           </span>

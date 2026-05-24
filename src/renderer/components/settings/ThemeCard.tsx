@@ -51,6 +51,7 @@ export const ThemeCard = forwardRef<HTMLButtonElement, ThemeCardProps>(function 
       role="radio"
       aria-checked={selected}
       tabIndex={tabIndex}
+      data-radio-id={theme.id}
       onClick={() => onSelect(theme.id)}
       onKeyDown={onKeyDown}
       className={[

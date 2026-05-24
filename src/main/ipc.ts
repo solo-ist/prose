@@ -1593,8 +1593,15 @@ export function setupIpcHandlers(): void {
   })
 
   // Appearance: live dock icon swap (macOS only)
+  // VALID_ICON_IDS is an allowlist — iconId arrives from the untrusted renderer
+  // and must not be used in path construction without validation (path traversal).
+  const VALID_ICON_IDS = [
+    'pilcrow', 'refined-p', 'fraunces-p', 'p-ist', 'asterisk',
+    'hash', 'em-dash', 'caret', 'period', 'prompt', 'legacy',
+  ] as const
   ipcMain.handle('appearance:set-icon', (_event, iconId: string) => {
     if (process.platform !== 'darwin') return
+    if (!(VALID_ICON_IDS as readonly string[]).includes(iconId)) return
     const icnsPath = app.isPackaged
       ? join(process.resourcesPath, 'resources', 'icons', iconId, 'icon.icns')
       : join(__dirname, '../../resources/icons', iconId, 'icon.icns')

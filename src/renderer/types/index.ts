@@ -527,6 +527,8 @@ export interface ElectronAPI {
   updaterDownload?: () => Promise<{ success: boolean }>
   updaterInstall?: () => Promise<void>
   updaterCheck?: () => Promise<{ updateAvailable: boolean }>
+  // Appearance: live dock icon swap (macOS only; no-op on other platforms)
+  setAppIcon?: (iconId: IconId) => Promise<void>
 }
 
 declare global {

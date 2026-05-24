@@ -44,6 +44,7 @@ protocols:
       - prose
 
 mac:
+  icon: resources/icons/pilcrow/icon.icns
   category: public.app-category.productivity
   identity: Developer ID Application
   hardenedRuntime: true

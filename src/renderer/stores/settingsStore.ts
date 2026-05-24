@@ -292,6 +292,7 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
   },
 
   setAppearance: (patch) => {
+    const prevIcon = get().settings.appearance.icon
     const merged: Appearance = { ...get().settings.appearance, ...patch }
     const effectiveTheme = resolveEffectiveMode(merged.mode)
     set((state) => ({
@@ -301,6 +302,12 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
 
     applyAppearance(merged)
     setupSystemModeListener(merged, set)
+
+    // Live dock icon swap when the icon preference changes (macOS only)
+    if (patch.icon !== undefined && patch.icon !== prevIcon) {
+      window.api?.setAppIcon?.(patch.icon)
+    }
+
     get().saveSettings()
   },
 

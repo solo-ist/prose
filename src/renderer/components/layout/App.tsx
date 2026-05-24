@@ -16,6 +16,7 @@ import { AboutDialog } from '../settings/AboutDialog'
 import { ModelPickerDialog } from '../ModelPickerDialog'
 import { AIConsentDialog } from '../AIConsentDialog'
 import { EnableLoggingDialog } from '../EnableLoggingDialog'
+import { MigrationToast } from './MigrationToast'
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -988,6 +989,7 @@ export function App() {
         <DefaultHandlerPrompt />
         <AIConsentDialog />
         <EnableLoggingDialog />
+        <MigrationToast />
 
         {/* Google Docs Import Dialog */}
         <AlertDialog open={googleDocsEnabled && importDialogOpen} onOpenChange={(open) => {

@@ -77,6 +77,7 @@ interface SettingsState {
   setModelPickerOpen: (open: boolean) => void
   fetchModels: () => Promise<void>
   setAppearance: (patch: Partial<Appearance>) => void
+  markMigrationToastShown: () => void
   setLLMConfig: (config: Partial<Settings['llm']>) => void
   setEditorConfig: (config: Partial<Settings['editor']>) => void
   setRecoveryConfig: (config: Partial<NonNullable<Settings['recovery']>>) => void
@@ -308,6 +309,19 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
       window.api?.setAppIcon?.(patch.icon)
     }
 
+    get().saveSettings()
+  },
+
+  // One-time post-migration toast (#499 PR 4). Flips the persisted
+  // `migrationToastShown` sentinel so the toast never fires again.
+  markMigrationToastShown: () => {
+    if (get().settings.appearance.migrationToastShown) return
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        appearance: { ...state.settings.appearance, migrationToastShown: true }
+      }
+    }))
     get().saveSettings()
   },
 

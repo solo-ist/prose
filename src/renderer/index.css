@@ -744,6 +744,41 @@
   font-style: italic;
 }
 
+/* Prose theme — editor typography (#499 PR 4).
+   Scoped to `.theme-prose .prose-editor` so it ONLY affects the editor body
+   under the Prose theme — chat, settings, diff views, and other themes are
+   untouched. The editor root class is `.prose-editor` (see Editor.tsx), not
+   `.ProseMirror`. Only the Fraunces *italic* variable font is bundled, so it
+   is applied exclusively to italic contexts (em, blockquote). */
+.theme-prose .prose-editor em {
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+  font-variation-settings: 'opsz' 40, 'SOFT' 30;
+}
+
+.theme-prose .prose-editor blockquote {
+  border-left-color: hsl(var(--primary));
+  font-family: 'Fraunces', serif;
+  font-style: italic;
+}
+
+/* Inline code: gold on a warm amber wash. pre code (code blocks) is reset below. */
+.theme-prose .prose-editor code {
+  background: hsl(var(--primary) / 0.13);
+  color: hsl(var(--primary));
+}
+
+.theme-prose .prose-editor pre code {
+  background: none;
+  color: inherit;
+}
+
+.theme-prose .prose-editor h1 {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-weight: 200;
+  letter-spacing: -0.03em;
+}
+
 /* Focus styles */
 .focus-visible:focus {
   outline: 2px solid hsl(var(--ring));

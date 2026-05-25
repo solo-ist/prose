@@ -3,6 +3,7 @@
 ## Source of Truth
 
 - [CLAUDE.md](../CLAUDE.md) — development guidelines, architecture, security rules, workflow
+- [roadmap.md](roadmap.md) — overarching roadmap: distribution model, epics, and wave sequencing (the [project board](https://github.com/orgs/solo-ist/projects/5/views/1) tracks live priority)
 - [MVP.md](../MVP.md) — what ships, what's broken, launch blockers
 - [CONTRIBUTING.md](../CONTRIBUTING.md) — setup and contribution guide for human contributors
 - [SECURITY.md](../SECURITY.md) — vulnerability reporting and security practices
@@ -21,5 +22,4 @@
 
 ## Retired
 
-- [roadmap.md](roadmap.md) — superseded by the [project board](https://github.com/orgs/solo-ist/projects/5/views/1)
 - [QA_feedback.md](QA_feedback.md) — superseded by Circuit Electron QA

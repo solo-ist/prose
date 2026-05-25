@@ -16,7 +16,7 @@ This project uses an **agentic, multi-agent development workflow**:
 - **Cloud agents** (via GitHub Actions) handle PR reviews, automated fixes, and pipeline triage. Local agents handle implementation, QA, and complex features.
 - **The CI pipeline is self-enhancing** — automated review (`claude.yml`), scoring (`pipeline-triage.yml`), and auto-fix (`ci-gate.yml`) run on every PR. Skills and workflows evolve alongside the codebase.
 - **Be mindful of concurrent sessions.** Other terminal sessions or worktree agents may be running builds, dev servers, or tests at the same time. Check for port conflicts before starting servers. Use PID files (not `pkill` patterns) for process management. Use `gh` CLI (not GitHub MCP) for all GitHub operations. Always `git fetch origin` before comparing branches — another session may have pushed.
-- **The project board** (GitHub Projects #5) tracks priority and in-progress work. Move items to "In Progress" when starting, back to "Do First" if pausing. Never mutate board field definitions — only move items between existing columns.
+- **The project board** (GitHub Projects #5) tracks priority and in-progress work. Move items to "In Progress" when starting, back to "Do First" if pausing. Never mutate board field definitions — only move items between existing columns. The overarching roadmap narrative (epics, waves, sequencing) lives in [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Commands
 

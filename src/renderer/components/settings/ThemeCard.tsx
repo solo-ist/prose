@@ -16,8 +16,8 @@ export interface ThemeCardEntry {
 }
 
 export const THEMES: ThemeCardEntry[] = [
-  { id: 'mono',  name: 'Mono',  subtitle: 'shadcn neutral',  tag: 'LEGACY 1.0' },
-  { id: 'prose', name: 'Prose', subtitle: 'paper + gold',    tag: 'DEFAULT', official: true },
+  { id: 'mono',  name: 'Mono',  subtitle: 'shadcn neutral',  tag: 'DEFAULT' },
+  { id: 'prose', name: 'Prose', subtitle: 'paper + gold',    tag: 'NEW', official: true },
   { id: 'termy', name: 'Termy', subtitle: 'phosphor green',  tag: 'DEEP CUT' },
 ]
 

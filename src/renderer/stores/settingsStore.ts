@@ -238,7 +238,7 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
       // Hydrate chatStore toolMode from persisted settings (global, applies to all tabs).
       // Import lazily to avoid a static top-level import that could cause sandbox issues.
       // The persisted value takes priority; fall back to the store's in-memory default.
-      const persistedToolMode = settings.toolMode ?? defaultSettings.toolMode ?? 'editor'
+      const persistedToolMode = migrated.toolMode ?? defaultSettings.toolMode ?? 'editor'
       const { useChatStore } = await import('./chatStore')
       useChatStore.getState().setToolMode(persistedToolMode)
 

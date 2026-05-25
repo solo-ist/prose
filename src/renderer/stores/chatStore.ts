@@ -22,7 +22,6 @@ interface ChatState {
   isLoading: boolean
   isPanelOpen: boolean
   context: string | null
-  agentMode: boolean // Legacy - kept for backwards compatibility
   toolMode: ToolMode // New mode system
   // Tracks the toolMode active at the last successful user message send,
   // so we can detect mid-conversation mode switches and note them in the
@@ -95,12 +94,7 @@ export const useChatStore = create<ChatState>()(
     // Editor is the default — safe-by-default posture: agent proposes copy
     // edits and editorial notes but never authors prose into the document.
     // Users opt into Create Mode via the StatusBar dropdown or Shift+Tab
-    // (cycleToolMode walks chat → editor → create → chat). agentMode is a
-    // legacy boolean kept in sync with toolMode === 'create' for the few
-    // remaining readers — currently ChatMessage.tsx's legacy <edit>-block
-    // auto-apply path (`agentMode=true` auto-applies; `agentMode=false`
-    // renders edit blocks as reviewable diffs).
-    agentMode: false,
+    // (cycleToolMode walks chat → editor → create → chat).
     toolMode: 'editor',
     lastSentToolMode: null,
     isInitializing: true, // Start as true, will be set to false after app init
@@ -235,18 +229,12 @@ export const useChatStore = create<ChatState>()(
 
     setContext: (context) => set({ context }),
 
-    setToolMode: (mode) => set({
-      toolMode: mode,
-      // Legacy agentMode is "true" only in Create Mode — the only mode
-      // where the agent can author prose directly.
-      agentMode: mode === 'create'
-    }),
+    setToolMode: (mode) => set({ toolMode: mode }),
 
     // Cycle through all three modes: chat → editor → create → chat.
     // Used by the Shift+Tab keyboard shortcut so Editor Mode (the new
     // safe-by-default mode) is reachable via keyboard, not just the
-    // StatusBar dropdown. Delegates to setToolMode so agentMode stays
-    // in sync.
+    // StatusBar dropdown.
     cycleToolMode: () => {
       const current = get().toolMode
       const next: ToolMode = current === 'chat' ? 'editor' : current === 'editor' ? 'create' : 'chat'

@@ -1,12 +1,8 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import { useState, useCallback } from 'react'
 import { cn } from '../../lib/utils'
 import type { ChatMessage as ChatMessageType } from '../../types'
-import { User, Wand2, Check, AlertCircle, ArrowRight, Sparkles, CheckCircle2, XCircle, RotateCcw, ChevronDown } from 'lucide-react'
-import { parseEditBlocks, hasEditBlocks, stripEditBlocks, type EditBlock } from '../../lib/editBlocks'
-import { applyEditsAsDiffs, applyEditsDirect, type ApplyResult, type EditProvenance } from '../../lib/applyEdit'
+import { User, AlertCircle, Sparkles, CheckCircle2, XCircle, RotateCcw, ChevronDown } from 'lucide-react'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
-import { useChatStore } from '../../stores/chatStore'
-import { useEditorStore } from '../../stores/editorStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { CopyButton } from '../ui/copy-button'
 import { jumpToLine } from '../../lib/lineNavigation'
@@ -396,62 +392,13 @@ function renderMarkdown(content: string, editor: any): React.ReactNode {
   return elements
 }
 
-// Component to preview edit blocks with old/new text
-function EditBlockPreview({ blocks }: { blocks: EditBlock[] }) {
-  return (
-    <div className="space-y-2">
-      {blocks.map((block) => (
-        <div
-          key={block.id}
-          className="rounded-md border border-border bg-muted/30 p-3 text-xs"
-        >
-          <div className="flex items-start gap-2">
-            <div className="flex-1 min-w-0">
-              <div className="text-muted-foreground line-through whitespace-pre-wrap break-words">
-                {block.search}
-              </div>
-            </div>
-            <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0 mt-0.5" />
-            <div className="flex-1 min-w-0">
-              <div className="text-green-600 dark:text-green-400 whitespace-pre-wrap break-words">
-                {block.replace}
-              </div>
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-
 export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps) {
   const [showTimestamp, setShowTimestamp] = useState(false)
-  const [applyState, setApplyState] = useState<'idle' | 'applied' | 'error'>('idle')
-  const [applyResults, setApplyResults] = useState<ApplyResult[]>([])
-  const appliedRef = useRef(false)
   const editor = useEditorInstanceStore((state) => state.editor)
-  const agentMode = useChatStore((state) => state.agentMode)
-  const activeConversationId = useChatStore((state) => state.activeConversationId)
-  const documentId = useEditorStore((state) => state.document.documentId)
   const settings = useSettingsStore((state) => state.settings)
   // Agent avatar mirrors the selected app icon (updates live when it changes).
   const selectedIcon = PROSE_ICONS.find((i) => i.id === settings.appearance.icon) ?? PROSE_ICONS[0]
-  const llmModel = settings.llm.model
   const isUser = message.role === 'user'
-  const containsEdits = !isUser && hasEditBlocks(message.content)
-  const editBlocks = containsEdits ? parseEditBlocks(message.content) : []
-  const editCount = editBlocks.length
-
-  // Create provenance data for AI annotation tracking
-  const provenance = useMemo<EditProvenance | undefined>(() => {
-    if (!llmModel || !activeConversationId) return undefined
-    return {
-      model: llmModel,
-      conversationId: activeConversationId,
-      messageId: message.id,
-    }
-  }, [llmModel, activeConversationId, message.id])
 
   // Scroll editor to a suggestion by its ID
   const scrollToSuggestion = useCallback((suggestionId: string) => {
@@ -463,40 +410,6 @@ export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps)
       editor.commands.scrollIntoView()
     }
   }, [editor])
-
-  // Auto-apply edits in agent mode when streaming completes
-  useEffect(() => {
-    if (
-      agentMode &&
-      containsEdits &&
-      editBlocks.length > 0 &&
-      editor &&
-      !isStreaming &&
-      !appliedRef.current &&
-      applyState === 'idle'
-    ) {
-      appliedRef.current = true
-      const results = applyEditsDirect(editor, editBlocks, provenance, documentId)
-      setApplyResults(results)
-      const allSucceeded = results.every((r) => r.success)
-      setApplyState(allSucceeded ? 'applied' : 'error')
-    }
-  }, [agentMode, containsEdits, editBlocks, editor, isStreaming, applyState, provenance, documentId])
-
-  const handleApplyEdits = useCallback(() => {
-    if (!editor || !containsEdits) return
-
-    const results = agentMode
-      ? applyEditsDirect(editor, editBlocks, provenance, documentId)
-      : applyEditsAsDiffs(editor, editBlocks, undefined, provenance, documentId)
-    setApplyResults(results)
-
-    const allSucceeded = results.every((r) => r.success)
-    setApplyState(allSucceeded ? 'applied' : 'error')
-  }, [editor, editBlocks, containsEdits, agentMode, provenance, documentId])
-
-  // For assistant messages with edit blocks, strip them from display
-  const displayContent = containsEdits ? stripEditBlocks(message.content) : message.content
 
   return (
     <div
@@ -557,7 +470,7 @@ export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps)
             <div className="space-y-2">
               <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive dark:text-red-400">
                 <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                <span className="break-words">{displayContent}</span>
+                <span className="break-words">{message.content}</span>
               </div>
               {onRetry && (
                 <button
@@ -571,7 +484,7 @@ export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps)
             </div>
           ) : (() => {
             // Parse tool tags for assistant messages
-            const toolParts = parseToolTags(displayContent)
+            const toolParts = parseToolTags(message.content)
             const hasToolParts = toolParts.some(p => p.type !== 'text')
 
             if (hasToolParts) {
@@ -639,10 +552,10 @@ export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps)
             }
 
             // No tool parts - render normally
-            if (displayContent.trim()) {
+            if (message.content.trim()) {
               return (
                 <div className="prose-chat break-words">
-                  {renderMarkdown(displayContent, editor)}
+                  {renderMarkdown(message.content, editor)}
                   {isStreaming && (
                     <span className="inline-block w-2 h-4 bg-primary/50 animate-pulse ml-0.5 align-middle" />
                   )}
@@ -650,68 +563,13 @@ export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps)
               )
             }
 
-            if (containsEdits) {
-              return (
-                <p className="text-muted-foreground italic">
-                  Suggested {editCount} edit{editCount !== 1 ? 's' : ''} to the document.
-                </p>
-              )
-            }
-
             if (isStreaming) {
               return <span className="inline-block w-2 h-4 bg-primary/50 animate-pulse" />
             }
 
-            return <div className="prose-chat break-words">{renderMarkdown(displayContent, editor)}</div>
+            return <div className="prose-chat break-words">{renderMarkdown(message.content, editor)}</div>
           })()}
         </div>
-        {/* Show preview only in non-agent mode */}
-        {containsEdits && editBlocks.length > 0 && !agentMode && (
-          <EditBlockPreview blocks={editBlocks} />
-        )}
-        {containsEdits && (
-          <div className="flex items-center gap-2">
-            {/* Show apply button only in non-agent mode */}
-            {applyState === 'idle' && !agentMode && (
-              <button
-                onClick={handleApplyEdits}
-                disabled={!editor}
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
-                  editor
-                    ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-                    : 'bg-muted text-muted-foreground cursor-not-allowed'
-                )}
-              >
-                <Wand2 className="h-3 w-3" />
-                Apply {editCount} Edit{editCount !== 1 ? 's' : ''}
-              </button>
-            )}
-            {applyState === 'applied' && (
-              <span className="inline-flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
-                <Check className="h-3 w-3" />
-                {agentMode ? `Applied ${editCount} edit${editCount !== 1 ? 's' : ''}` : 'Applied to document'}
-              </span>
-            )}
-            {applyState === 'error' && (
-              <div className="space-y-1">
-                <span className="inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
-                  <AlertCircle className="h-3 w-3" />
-                  Some edits failed
-                </span>
-                <ul className="text-xs text-muted-foreground">
-                  {applyResults
-                    .filter((r) => !r.success)
-                    .map((r, i) => (
-                      <li key={i} className="break-words">
-                        {r.error}
-                      </li>
-                    ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
         <p
           className={cn(
             'text-xs text-muted-foreground transition-opacity duration-200',

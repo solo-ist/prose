@@ -13,7 +13,6 @@ import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import { Markdown } from 'tiptap-markdown'
 import { FocusMode } from '../../lib/focusMode'
-import { DiffSuggestion } from '../../extensions/diff-suggestions'
 import { Comment } from '../../extensions/comments'
 import { AISuggestion } from '../../extensions/ai-suggestions'
 import { useSuggestionStore } from '../../extensions/ai-suggestions/store'
@@ -172,14 +171,6 @@ export function Editor() {
         transformCopiedText: true
       }),
       FocusMode,
-      DiffSuggestion.configure({
-        className: 'diff-suggestion',
-        showButtons: true,
-        buttons: {
-          accept: '✓',
-          reject: '✗',
-        },
-      }),
       Comment,
       AISuggestion,
       AIAnnotations.configure({

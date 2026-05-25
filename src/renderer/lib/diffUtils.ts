@@ -1,8 +1,8 @@
 /**
  * Shared word-level diff utilities and editor scroll helpers.
  *
- * Extracted from diff-suggestions/nodeview.ts for reuse across
- * inline diff nodeviews and review panels.
+ * Used by the ai-suggestions extension, the review panels
+ * (Quick Review / Side-by-side), and the editor tool executors.
  */
 
 import type { Editor } from '@tiptap/core'

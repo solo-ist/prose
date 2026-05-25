@@ -102,10 +102,11 @@ Wait for the user to review the report. Then use **only safe operations**.
 gh issue close <NUMBER> --repo solo-ist/prose --comment "..."
 ```
 
-**Removing closed items from board:**
+**Archiving completed/closed items** (the board has no Done column — archive is the terminal state):
 ```bash
-gh project item-delete 5 --owner solo-ist --id <ITEM_ID>
+gh project item-archive 5 --owner solo-ist --id <ITEM_ID>
 ```
+Prefer `item-archive` over `item-delete`: archiving is reversible (`item-unarchive`) and preserves the tracked record. Reserve `item-delete` for items added by mistake that should leave no trace.
 
 **Moving items between columns:**
 ```bash
@@ -131,6 +132,8 @@ Current status options on the Prose Roadmap board:
 | **Quick Wins** | Low effort, high value — ship alongside bigger work |
 | **On Hold** | Blocked or paused |
 
+There is **no Done/terminal column** — every option above is an active-work bucket. When an issue is closed or its PR merges, archive its board item (`gh project item-archive`); do not leave it sitting in an active column, and do not delete it.
+
 ## Dangerous Operations — DO NOT USE
 
 **NEVER use `updateProjectV2Field` to modify single-select field options.** This GraphQL mutation replaces option IDs, which silently disconnects every board item from its status — effectively wiping the entire board. This has happened before and required manual recovery.
@@ -139,8 +142,9 @@ If the board needs a new status column or option changes, tell the user to do it
 
 Safe operations are limited to:
 - `gh project item-edit` — move items between existing columns
-- `gh project item-delete` — remove items from the board
+- `gh project item-archive` — archive completed/closed items (reversible terminal state; the board has no Done column)
 - `gh project item-add` — add items to the board
+- `gh project item-delete` — remove an item entirely (use only for mistaken additions; prefer archive for done work)
 
 ## Key Principles
 
@@ -148,4 +152,5 @@ Safe operations are limited to:
 - **Evidence over assumptions.** Link to the merged PR or commit that completed the work.
 - **Board is source of truth for priority.** If an issue isn't on the board, it's not prioritized.
 - **Stale != irrelevant.** Flag staleness, but let the user decide disposition.
+- **Done items are archived, not deleted.** There is no Done column — archive closed/merged items off the active board with `item-archive` (reversible). Don't leave them in an active column; don't `item-delete` them.
 - **Never mutate field definitions.** Only move items between existing columns.

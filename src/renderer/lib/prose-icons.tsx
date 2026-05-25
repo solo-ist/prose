@@ -389,12 +389,31 @@ export function IconLegacy() {
 interface IconThumbProps {
   Component: ComponentType
   size?: number
+  /** Clip to a circle (e.g. for chat avatars) instead of the app-icon squircle. */
+  circle?: boolean
 }
 
-export function IconThumb({ Component, size = 96 }: IconThumbProps) {
-  const scale = size / 320
-  const wrap: CSSProperties = { width: size, height: size, position: 'relative', flexShrink: 0 }
-  const inner: CSSProperties = { position: 'absolute', top: 0, left: 0, transform: `scale(${scale})`, transformOrigin: 'top left' }
+export function IconThumb({ Component, size = 96, circle = false }: IconThumbProps) {
+  // In circle mode, zoom the 320px shell a touch so its squircle background
+  // fully fills the circular clip — otherwise the shell's cut corners leave
+  // transparent notches at the diagonals.
+  const fill = circle ? 1.2 : 1
+  const scale = (size * fill) / 320
+  const offset = (size * (fill - 1)) / 2
+  const wrap: CSSProperties = {
+    width: size,
+    height: size,
+    position: 'relative',
+    flexShrink: 0,
+    ...(circle ? { borderRadius: '50%', overflow: 'hidden' } : {}),
+  }
+  const inner: CSSProperties = {
+    position: 'absolute',
+    top: -offset,
+    left: -offset,
+    transform: `scale(${scale})`,
+    transformOrigin: 'top left',
+  }
   return (
     <div style={wrap}>
       <div style={inner}>
@@ -417,13 +436,9 @@ export interface ProseIconEntry {
 
 export const PROSE_ICONS: ProseIconEntry[] = [
   { id: 'pilcrow', name: 'Pilcrow', subtitle: '¶ · paragraph mark', Component: IconPilcrow, official: true },
-  { id: 'refined-p', name: 'Refined P.', subtitle: 'Plex Mono Thin · cream + gold', Component: IconRefinedP },
   { id: 'fraunces-p', name: 'Italic P', subtitle: 'Fraunces · the signature italic', Component: IconFrauncesP },
-  { id: 'p-ist', name: 'p.ist lockup', subtitle: 'mini wordmark', Component: IconPIstLockup },
   { id: 'asterisk', name: 'Asterisk', subtitle: '* · markdown emphasis', Component: IconAsterisk },
   { id: 'hash', name: 'Hash', subtitle: '# · markdown heading', Component: IconHash },
-  { id: 'em-dash', name: 'Em dash', subtitle: '—. · signature punctuation', Component: IconEmDash },
-  { id: 'caret', name: 'Cursor block', subtitle: 'a| · the editor caret', Component: IconCaret },
   { id: 'period', name: 'The period', subtitle: 'reductive · atom of the brand', Component: IconPeriod },
   { id: 'prompt', name: 'Prompt', subtitle: '>_ · agent-accessible', Component: IconPrompt },
   { id: 'legacy', name: 'Legacy', subtitle: 'classic pixel P. (1.0)', Component: IconLegacy, legacy: true },

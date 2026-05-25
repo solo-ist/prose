@@ -105,7 +105,7 @@ export function validatePath(inputPath: string): string {
 }
 
 const defaultSettings: Settings = {
-  appearance: { color: 'prose', mode: 'dark', icon: 'pilcrow', migrationToastShown: true },
+  appearance: { color: 'mono', mode: 'system', icon: 'pilcrow', migrationToastShown: true },
   llm: {
     provider: 'anthropic',
     model: getDefaultModel('anthropic'),
@@ -1596,19 +1596,23 @@ export function setupIpcHandlers(): void {
   // VALID_ICON_IDS is an allowlist — iconId arrives from the untrusted renderer
   // and must not be used in path construction without validation (path traversal).
   const VALID_ICON_IDS = [
-    'pilcrow', 'refined-p', 'fraunces-p', 'p-ist', 'asterisk',
-    'hash', 'em-dash', 'caret', 'period', 'prompt', 'legacy',
+    'pilcrow', 'fraunces-p', 'asterisk', 'hash', 'period', 'prompt', 'legacy',
   ] as const
   ipcMain.handle('appearance:set-icon', (_event, iconId: string) => {
     if (process.platform !== 'darwin') return
     if (!(VALID_ICON_IDS as readonly string[]).includes(iconId)) return
-    const icnsPath = app.isPackaged
-      ? join(process.resourcesPath, 'resources', 'icons', iconId, 'icon.icns')
-      : join(__dirname, '../../resources/icons', iconId, 'icon.icns')
-    const img = nativeImage.createFromPath(icnsPath)
-    if (!img.isEmpty()) {
-      app.dock.setIcon(img)
+    // Use the 1024px PNG, not the .icns — nativeImage.createFromPath loads PNG
+    // reliably for app.dock.setIcon, whereas .icns frequently loads empty
+    // (the "doesn't actually switch" symptom).
+    const iconPath = app.isPackaged
+      ? join(process.resourcesPath, 'resources', 'icons', iconId, 'icon-1024.png')
+      : join(__dirname, '../../resources/icons', iconId, 'icon-1024.png')
+    const img = nativeImage.createFromPath(iconPath)
+    if (img.isEmpty()) {
+      console.warn(`[appearance:set-icon] icon image failed to load: ${iconPath}`)
+      return
     }
+    app.dock.setIcon(img)
   })
 
   ipcMain.handle('skill:download', async (): Promise<{ success: boolean; error?: string }> => {

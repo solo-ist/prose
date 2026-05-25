@@ -12,8 +12,7 @@ import { CopyButton } from '../ui/copy-button'
 import { jumpToLine } from '../../lib/lineNavigation'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { renderToolResult } from './toolResultRenderers'
-import avatarDark from '../../assets/avatar-dark.png'
-import avatarLight from '../../assets/avatar-light.png'
+import { PROSE_ICONS, IconThumb } from '../../lib/prose-icons'
 
 // Single source of truth for the "drafting" verb shown while the LLM is
 // composing tool arguments. Update here to tune copy app-wide.
@@ -46,7 +45,7 @@ function ToolCallIndicator({ name, status, onClick, children, actions, defaultEx
         "flex items-center gap-2 px-3 py-2 text-xs font-medium",
         status === 'drafting' && "text-violet-600 dark:text-violet-400 bg-violet-500/5",
         status === 'executing' && "text-violet-600 dark:text-violet-400 bg-violet-500/5",
-        status === 'success' && "text-emerald-600 dark:text-emerald-400 bg-emerald-500/5",
+        status === 'success' && "text-primary bg-primary/5",
         status === 'error' && "text-red-600 dark:text-red-400 bg-red-500/5"
       )}>
         {status === 'drafting' ? (
@@ -436,7 +435,8 @@ export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps)
   const activeConversationId = useChatStore((state) => state.activeConversationId)
   const documentId = useEditorStore((state) => state.document.documentId)
   const settings = useSettingsStore((state) => state.settings)
-  const effectiveTheme = useSettingsStore((state) => state.effectiveTheme)
+  // Agent avatar mirrors the selected app icon (updates live when it changes).
+  const selectedIcon = PROSE_ICONS.find((i) => i.id === settings.appearance.icon) ?? PROSE_ICONS[0]
   const llmModel = settings.llm.model
   const isUser = message.role === 'user'
   const containsEdits = !isUser && hasEditBlocks(message.content)
@@ -511,12 +511,15 @@ export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps)
       <div className="flex flex-col items-center gap-2 w-8 shrink-0">
         <div
           className={cn(
-            'flex h-8 w-8 shrink-0 items-center justify-center rounded-full overflow-hidden',
+            'flex h-8 w-8 shrink-0 items-center justify-center',
+            // Both avatars are circular with the theme-accent highlight ring.
+            // The agent avatar is the selected app icon (IconThumb clips itself
+            // to a circle), so it just needs the ring here.
             isUser
               ? settings.google?.picture
-                ? effectiveTheme === 'dark' ? 'ring-2 ring-[#004400]' : 'ring-2 ring-[#40ff40]'
-                : 'bg-primary/10'
-              : 'bg-[#020901] ring-2 ring-[#004400]'
+                ? 'rounded-full overflow-hidden ring-2 ring-primary/50'
+                : 'rounded-full bg-primary/10 ring-2 ring-primary/50'
+              : 'rounded-full ring-2 ring-primary/50'
           )}
         >
           {isUser ? (
@@ -530,11 +533,7 @@ export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps)
               <User className="h-4 w-4 text-primary" />
             )
           ) : (
-            <img
-              src={effectiveTheme === 'dark' ? avatarDark : avatarLight}
-              alt="Prose"
-              className="h-5 w-5 object-contain"
-            />
+            <IconThumb Component={selectedIcon.Component} size={32} circle />
           )}
         </div>
         {!isUser && (
@@ -627,7 +626,9 @@ export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps)
                     }
                     // Regular text
                     return part.content.trim() ? (
-                      <div key={idx}>{renderMarkdown(part.content, editor)}</div>
+                      // Trim so trailing newlines between the text and a tool call
+                      // don't render as stray <br>s (extra gap above the block).
+                      <div key={idx}>{renderMarkdown(part.content.trim(), editor)}</div>
                     ) : null
                   })}
                   {isStreaming && (

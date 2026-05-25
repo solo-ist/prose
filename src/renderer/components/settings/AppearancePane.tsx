@@ -78,6 +78,8 @@ interface AppearancePaneProps {
 
 export function AppearancePane({ appearance, effectiveMode, onAppearanceChange }: AppearancePaneProps) {
   const { color, mode, icon } = appearance
+  // Capitalized for display (e.g. "System · Light", matching the mode labels).
+  const effectiveModeLabel = effectiveMode === 'dark' ? 'Dark' : 'Light'
 
   const isAllDefault =
     color === DEFAULT_COLOR &&
@@ -135,7 +137,7 @@ export function AppearancePane({ appearance, effectiveMode, onAppearanceChange }
           <span className="text-foreground">{currentTheme.name}</span>
           <span className="mx-1.5">·</span>
           <span>
-            {mode === 'system' ? `System · ${effectiveMode}` : effectiveMode}
+            {mode === 'system' ? `System · ${effectiveModeLabel}` : effectiveModeLabel}
           </span>
           <span className="mx-1.5">·</span>
           <span className="text-foreground">{currentIcon.name}</span>
@@ -175,7 +177,7 @@ export function AppearancePane({ appearance, effectiveMode, onAppearanceChange }
                 {m.label}
                 {m.id === 'system' && mode === 'system' && (
                   <span className="text-[9px] opacity-70 ml-0.5 tracking-[0.05em]">
-                    · {effectiveMode}
+                    · {effectiveModeLabel}
                   </span>
                 )}
               </button>
@@ -245,7 +247,7 @@ export function AppearancePane({ appearance, effectiveMode, onAppearanceChange }
             <span className="text-foreground">{currentTheme.name}</span>
             <span className="text-muted-foreground"> · </span>
             <span className="text-foreground">
-              {mode === 'system' ? `System · ${effectiveMode}` : effectiveMode}
+              {mode === 'system' ? `System · ${effectiveModeLabel}` : effectiveModeLabel}
             </span>
             <span className="text-muted-foreground"> · </span>
             <span className="text-foreground">{currentIcon.name}</span>

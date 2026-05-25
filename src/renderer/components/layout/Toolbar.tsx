@@ -38,6 +38,7 @@ import {
 import { TabBar } from './TabBar'
 import {
   Moon,
+  Monitor,
   Sun,
   Settings,
   PanelLeftClose,
@@ -134,8 +135,18 @@ export function Toolbar() {
     ? useTabStore.getState().getTabById(pendingCloseTabId)
     : null
 
+  // Conditional 3-state cycle that always starts with a *visible* flip:
+  // from System, jump to the opposite of what the OS is currently showing;
+  // then to the OS-matching value; then back to System.
+  //   OS light:  system → dark → light → system
+  //   OS dark:   system → light → dark → system
   const toggleTheme = () => {
-    setAppearance({ mode: effectiveTheme === 'dark' ? 'light' : 'dark' })
+    const osDark = typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
+    const osValue = osDark ? 'dark' : 'light'
+    const opposite = osDark ? 'light' : 'dark'
+    const mode = settings.appearance.mode
+    const next = mode === 'system' ? opposite : mode === opposite ? osValue : 'system'
+    setAppearance({ mode: next })
   }
 
   const handleCopy = async () => {
@@ -352,15 +363,21 @@ export function Toolbar() {
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={toggleTheme} disabled={!isLoaded} aria-label="Toggle theme">
-                {effectiveTheme === 'dark' ? (
+              <Button variant="ghost" size="icon" onClick={toggleTheme} disabled={!isLoaded} aria-label="Toggle appearance mode">
+                {settings.appearance.mode === 'system' ? (
+                  <Monitor className="h-4 w-4" />
+                ) : settings.appearance.mode === 'light' ? (
                   <Sun className="h-4 w-4" />
                 ) : (
                   <Moon className="h-4 w-4" />
                 )}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Toggle theme</TooltipContent>
+            <TooltipContent>
+              {settings.appearance.mode === 'system'
+                ? `System · ${effectiveTheme === 'dark' ? 'Dark' : 'Light'}`
+                : settings.appearance.mode === 'light' ? 'Light' : 'Dark'}
+            </TooltipContent>
           </Tooltip>
 
           {googleDocsEnabled && <Tooltip>

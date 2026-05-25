@@ -27,13 +27,9 @@ const SIZES = [16, 32, 64, 128, 256, 512, 1024]
 // All 11 icon IDs — must match PROSE_ICONS in prose-icons.tsx
 const ICON_IDS = [
   'pilcrow',
-  'refined-p',
   'fraunces-p',
-  'p-ist',
   'asterisk',
   'hash',
-  'em-dash',
-  'caret',
   'period',
   'prompt',
   'legacy',
@@ -92,8 +88,8 @@ function IconShell({ children, size = 320, bg = NEAR_BLACK, grain = true, light 
       background: bg,
       overflow: 'hidden',
       boxShadow: light
-        ? '0 10px 36px rgba(0,0,0,0.14), inset 0 0 0 1px rgba(0,0,0,0.06)'
-        : '0 14px 44px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(255,255,255,0.045)',
+        ? '0 3px 10px rgba(0,0,0,0.12), inset 0 0 0 1px rgba(0,0,0,0.06)'
+        : '0 3px 10px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.06)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
@@ -390,18 +386,31 @@ const ICON_MAP = {
   'legacy': IconLegacy,
 };
 
-// All 11 icons in one page, each wrapped so we can locate them by id
+// Render ONE icon at a time into a fixed transparent canvas. Rendering all 11
+// stacked at the same position let the last one (legacy) leak into every
+// screenshot — so we re-render per icon instead. The 320px shell sits centered
+// in a 400px transparent canvas → ~10% macOS safe-area margin on every side.
+const CANVAS = 400;
 const root = document.getElementById('root');
-ReactDOM.render(
-  h(Fragment, null,
-    ...Object.entries(ICON_MAP).map(([id, Component]) =>
-      h('div', { id: 'icon-' + id, style: { display: 'inline-block', position: 'absolute', top: 0, left: 0 } },
-        h(Component, null)
-      )
-    )
-  ),
-  root
-);
+
+window.__renderIcon = function (id) {
+  const Component = ICON_MAP[id];
+  ReactDOM.render(
+    h('div', {
+      id: 'icon-canvas',
+      style: {
+        width: CANVAS,
+        height: CANVAS,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'transparent',
+        transformOrigin: 'top left',
+      }
+    }, h(Component, null)),
+    root
+  );
+};
 
 window.__ICONS_READY__ = true;
 </script>
@@ -478,6 +487,7 @@ async function main() {
     // Give fonts extra time to load (Google Fonts)
     await page.waitForTimeout(2000)
 
+    const CANVAS = 400 // must match window.__renderIcon's canvas size
     let totalPngs = 0
     const pngMaps = new Map() // id -> Map<size, Buffer>
 
@@ -485,38 +495,30 @@ async function main() {
       const pngMap = new Map()
       pngMaps.set(id, pngMap)
 
+      // Render ONLY this icon, so no other icon can leak into its screenshot.
+      await page.evaluate((id) => window.__renderIcon(id), id)
+      await page.waitForTimeout(200) // let React render + layout settle
+
       for (const size of SIZES) {
-        // Set viewport to exactly the icon size
         await page.setViewportSize({ width: size, height: size })
 
-        // Locate the element by id
-        const el = page.locator(`#icon-${id}`)
+        // Scale the 400px transparent canvas down/up to exactly `size` pixels.
+        await page.evaluate(({ size, CANVAS }) => {
+          const el = document.getElementById('icon-canvas')
+          if (el) el.style.transform = `scale(${size / CANVAS})`
+        }, { size, CANVAS })
 
-        // Scale the 320×320 shell to exactly `size` pixels by setting CSS transform
-        await page.evaluate(({ id, size }) => {
-          const scale = size / 320
-          const el = document.getElementById('icon-' + id)
-          if (el) {
-            el.style.transform = `scale(${scale})`
-            el.style.transformOrigin = 'top left'
-            el.style.width = '320px'
-            el.style.height = '320px'
-          }
-        }, { id, size })
-
-        // Screenshot just this element at native size
-        const screenshot = await el.screenshot({
-          type: 'png',
-          omitBackground: false,
-        })
+        // Capture with a transparent backdrop so the safe-area margin and the
+        // squircle's rounded corners stay transparent.
+        const el = page.locator('#icon-canvas')
+        const screenshot = await el.screenshot({ type: 'png', omitBackground: true })
 
         const outPath = join(ICONS_DIR, id, `icon-${size}.png`)
         writeFileSync(outPath, screenshot)
         pngMap.set(size, screenshot)
         totalPngs++
-        process.stdout.write(`  [${id}] ${size}px... `)
-        console.log('ok')
       }
+      console.log(`  [${id}] 7 sizes ... ok`)
     }
 
     console.log()

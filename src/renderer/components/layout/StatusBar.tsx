@@ -91,9 +91,9 @@ export function StatusBar() {
   // ToolMode union renamed to chat / editor / create in #467 Chunk 3.
   // Editor is the actual default — chatStore initializes new users into it.
   const modeConfig: Record<ToolMode, { label: string; description: string }> = {
-    chat: { label: 'chat', description: 'Read-only — sounding board, fact-check, no edits' },
-    editor: { label: 'editor', description: 'Proposes copy edits and editorial notes (default)' },
-    create: { label: 'create', description: 'Drafts and applies edits directly (opt-in)' }
+    chat: { label: 'Chat', description: 'Read-only — sounding board, fact-check, no edits' },
+    editor: { label: 'Editor', description: 'Proposes copy edits and editorial notes (default)' },
+    create: { label: 'Create', description: 'Drafts and applies edits directly (opt-in)' }
   }
 
   const currentMode = modeConfig[toolMode]
@@ -101,7 +101,8 @@ export function StatusBar() {
   // Get available models for current provider
   const availableModels = getModelsForProvider(settings.llm.provider as LLMProvider)
   const currentModel = availableModels.find(m => m.id === settings.llm.model)
-  const modelDisplayName = currentModel?.name || settings.llm.model.split('/').pop() || settings.llm.model
+  // Compact display for the status bar — drop the "Claude " prefix (e.g. "Sonnet 4.6").
+  const modelDisplayName = (currentModel?.name || settings.llm.model.split('/').pop() || settings.llm.model).replace(/^Claude\s+/, '')
 
   const handleModelChange = async (modelId: string) => {
     setLLMConfig({ model: modelId })
@@ -136,7 +137,7 @@ export function StatusBar() {
           onClick={toggleSourceMode}
           className="hover:text-foreground focus-visible:text-foreground focus-visible:outline-none transition-colors cursor-pointer"
         >
-          {sourceMode ? 'source' : 'wysiwyg'}
+          {sourceMode ? 'Source' : 'WYSIWYG'}
         </button>
         <span className="text-muted-foreground/40 mx-1">|</span>
 

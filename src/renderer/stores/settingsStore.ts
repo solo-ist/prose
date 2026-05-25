@@ -13,20 +13,22 @@ type SettingsTab = 'general' | 'appearance' | 'editor' | 'llm' | 'integrations' 
 export const AI_CONSENT_VERSION = 1
 
 const FRESH_INSTALL_APPEARANCE: Appearance = {
-  color: 'prose',
-  mode: 'dark',
+  color: 'mono',
+  mode: 'system',
   icon: 'pilcrow',
   // Fresh installs never had a legacy theme to migrate from, so the v1.2
   // migration toast must not fire for them.
   migrationToastShown: true,
 }
 
+// Migrated users keep their color/mode (derived from the legacy theme) but
+// adopt the new default Pilcrow icon.
 const LEGACY_THEME_TO_APPEARANCE: Record<LegacyTheme, Appearance> = {
-  light:               { color: 'mono',  mode: 'light',  icon: 'legacy', migrationToastShown: false },
-  dark:                { color: 'mono',  mode: 'dark',   icon: 'legacy', migrationToastShown: false },
-  system:              { color: 'mono',  mode: 'system', icon: 'legacy', migrationToastShown: false },
-  'termy-green-light': { color: 'termy', mode: 'light',  icon: 'legacy', migrationToastShown: false },
-  'termy-green-dark':  { color: 'termy', mode: 'dark',   icon: 'legacy', migrationToastShown: false },
+  light:               { color: 'mono',  mode: 'light',  icon: 'pilcrow', migrationToastShown: false },
+  dark:                { color: 'mono',  mode: 'dark',   icon: 'pilcrow', migrationToastShown: false },
+  system:              { color: 'mono',  mode: 'system', icon: 'pilcrow', migrationToastShown: false },
+  'termy-green-light': { color: 'termy', mode: 'light',  icon: 'pilcrow', migrationToastShown: false },
+  'termy-green-dark':  { color: 'termy', mode: 'dark',   icon: 'pilcrow', migrationToastShown: false },
 }
 
 function resolveEffectiveMode(mode: Appearance['mode']): 'dark' | 'light' {
@@ -218,6 +220,11 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
       // Apply appearance and (re)attach the system-mode listener
       applyAppearance(migrated.appearance)
       setupSystemModeListener(migrated.appearance, set)
+
+      // Re-apply the saved dock icon on launch (macOS only; no-op elsewhere) —
+      // otherwise the dock reverts to the bundle default until the user next
+      // changes the icon. This is what makes the icon choice persist visually.
+      window.api.setAppIcon?.(migrated.appearance.icon)
 
       // If we migrated a legacy theme field, persist the cleaned shape so the
       // next launch reads the new schema and the migration code path becomes

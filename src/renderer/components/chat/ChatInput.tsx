@@ -681,16 +681,12 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
     return () => clearTimeout(timer)
   }, [])
 
-  // Auto-resize textarea
+  // Auto-resize textarea — always use scrollHeight so empty and non-empty
+  // states produce the same single-line height and there is no layout jump.
   useEffect(() => {
     if (textareaRef.current) {
-      if (!message) {
-        // When empty, clear inline style and let CSS h-6 control height
-        textareaRef.current.style.height = ''
-      } else {
-        textareaRef.current.style.height = 'auto'
-        textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 96)}px`
-      }
+      textareaRef.current.style.height = 'auto'
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 96)}px`
     }
   }, [message])
 
@@ -825,7 +821,7 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={isInitializing ? "Loading..." : "/CMD"}
-            className="flex-1 h-6 max-h-[96px] resize-none bg-transparent font-mono text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none disabled:opacity-50"
+            className="flex-1 max-h-[96px] resize-none bg-transparent font-mono text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none disabled:opacity-50"
             disabled={isDisabled}
             rows={1}
           />

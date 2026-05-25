@@ -92,10 +92,17 @@ export async function initAutoUpdater(mainWindow: BrowserWindow): Promise<void> 
 
     let updateDownloaded = false
     let installInvoked = false
+    // Set if quitAndInstall() throws before it can quit/relaunch. Gates the
+    // before-quit auto-apply so a persistently failing install can't trap the
+    // user in a can't-quit loop — the staged update simply retries on next
+    // launch instead.
+    let installFailed = false
 
     // Single guarded entry point for applying a staged update. Both the explicit
     // install button (updater:install) and the auto-install-on-quit path funnel
     // through here so the macOS quit/relaunch hardening is applied uniformly.
+    // Returns true once quitAndInstall has been handed off, false if it could
+    // not start (no update, re-entrant call, or a thrown failure).
     const installUpdate = (): boolean => {
       if (!updateDownloaded) return false
       // Re-entrancy guard: a second QuitAndInstall double-registers an observer
@@ -114,8 +121,19 @@ export async function initAutoUpdater(mainWindow: BrowserWindow): Promise<void> 
       // but no relaunch.
       markQuitting()
       logger.info('Applying staged update via quitAndInstall')
-      autoUpdater.quitAndInstall()
-      return true
+      try {
+        autoUpdater.quitAndInstall()
+        return true
+      } catch (err) {
+        // quitAndInstall threw before it could quit/relaunch. Re-arm so an
+        // explicit "Restart" can retry this session, and flag the failure so the
+        // before-quit handler stops intercepting (the user must still be able to
+        // quit). The staged update stays in pending/ and retries on next launch.
+        installInvoked = false
+        installFailed = true
+        logger.error('quitAndInstall failed:', err instanceof Error ? err.message : String(err))
+        return false
+      }
     }
 
     autoUpdater.on('update-available', (info) => {
@@ -161,9 +179,13 @@ export async function initAutoUpdater(mainWindow: BrowserWindow): Promise<void> 
     // quitAndInstall can drive a clean quit+relaunch itself rather than racing a
     // half-finished termination.
     app.on('before-quit', (event) => {
-      if (!updateDownloaded || installInvoked) return
+      if (!updateDownloaded || installInvoked || installFailed) return
       event.preventDefault()
-      installUpdate()
+      // If quitAndInstall can't even start, honor the user's quit so they're
+      // never left unable to exit; the update retries on next launch.
+      if (!installUpdate()) {
+        app.quit()
+      }
     })
 
     // IPC handlers

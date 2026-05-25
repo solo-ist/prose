@@ -21,7 +21,7 @@ export const THEMES: ThemeCardEntry[] = [
   { id: 'termy', name: 'Termy', subtitle: 'phosphor green',  tag: 'DEEP CUT' },
 ]
 
-export const DEFAULT_COLOR: ColorTheme = 'prose'
+export const DEFAULT_COLOR: ColorTheme = 'mono'
 
 interface ThemeCardProps {
   theme: ThemeCardEntry

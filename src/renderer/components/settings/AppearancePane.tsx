@@ -19,7 +19,9 @@ const MODES: { id: ThemeMode; label: string; Icon: typeof Sun }[] = [
   { id: 'system', label: 'System', Icon: Monitor },
 ]
 
-const DEFAULT_MODE: ThemeMode = 'dark'
+// Must match FRESH_INSTALL_APPEARANCE in settingsStore (mono / system / pilcrow)
+// so "Reset all to default" and the at-defaults check agree with fresh installs.
+const DEFAULT_MODE: ThemeMode = 'system'
 const DEFAULT_ICON: IconId = 'pilcrow'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

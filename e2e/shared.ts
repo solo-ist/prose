@@ -27,7 +27,7 @@ export const selectors = {
   notebooksButton: '[aria-label="reMarkable notebooks"]',
 
   // Toolbar buttons
-  toggleTheme: '[aria-label="Toggle theme"]',
+  toggleTheme: '[aria-label="Toggle appearance mode"]',
   copyMarkdown: '[aria-label="Copy Markdown"]',
   sourceMode: '[aria-label="Source mode"], [aria-label="WYSIWYG mode"]',
   hideAnnotations:

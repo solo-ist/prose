@@ -681,12 +681,19 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
     return () => clearTimeout(timer)
   }, [])
 
-  // Auto-resize textarea — always use scrollHeight so empty and non-empty
-  // states produce the same single-line height and there is no layout jump.
+  // Auto-resize textarea. Reset to the intrinsic single-line (rows=1) height,
+  // then grow to fit content. We only read scrollHeight when there IS content:
+  // for the empty state the intrinsic `auto` height is stable, whereas a
+  // scrollHeight read taken on mount races the chat panel's open transition
+  // (ChatPanel's `transition-all`) and can latch onto a stale, oversized value
+  // that never corrects until the first keystroke. Keeping empty on `auto`
+  // makes the resting height equal the single-line height — no layout jump.
   useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto'
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 96)}px`
+    const textarea = textareaRef.current
+    if (!textarea) return
+    textarea.style.height = 'auto'
+    if (message) {
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 96)}px`
     }
   }, [message])
 

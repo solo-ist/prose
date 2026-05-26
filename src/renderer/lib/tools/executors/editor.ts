@@ -660,12 +660,6 @@ export function executeSuggestEdit(
   const { node, pos } = found
   const suggestionId = generateId()
 
-  // Node lookup succeeded — safe to commit staged frontmatter now, so a stale
-  // nodeId can't pop an unexpected overlay alongside the error toast.
-  if (frontmatterToStage) {
-    useEditorStore.getState().setPendingFrontmatter(frontmatterToStage)
-  }
-
   // Get the original text content
   const originalText = node.textContent
 
@@ -709,6 +703,14 @@ export function executeSuggestEdit(
         `complete replacement text (not just a fragment).`,
       'SUGGESTION_DESTRUCTIVE'
     )
+  }
+
+  // Node lookup succeeded AND the suggestion cleared the destructive-edit guard —
+  // only now is it safe to commit staged frontmatter, so neither a stale nodeId
+  // (NODE_NOT_FOUND) nor a rejected destructive edit can pop the frontmatter
+  // overlay alongside an error toast (preserving the invariant from #488).
+  if (frontmatterToStage) {
+    useEditorStore.getState().setPendingFrontmatter(frontmatterToStage)
   }
 
   // Select the text content of the node and apply the AI suggestion mark

@@ -44,9 +44,12 @@ function parseMarkdownToSlice(editor: Editor, schema: Schema, text: string): Sli
   const html = parser.parse(text) as string
   if (typeof html !== 'string') return null
 
-  // Wrap in a <div> so ProseMirror's DOMParser sees a single root element.
-  const wrapper = document.createElement('div')
-  wrapper.innerHTML = html
+  // Parse the markdown-derived HTML into an inert, detached document via
+  // DOMParser instead of assigning innerHTML on a live element. Per the project
+  // security rule we never inject LLM-derived HTML into the live DOM; a document
+  // from DOMParser.parseFromString executes no scripts and fires no event
+  // handlers — we only read its structure to build a ProseMirror slice.
+  const parsedDoc = new DOMParser().parseFromString(html, 'text/html')
 
   // parseSlice returns a slice with maxOpen ends (openStart/openEnd = 1 for a
   // fragment of paragraphs). That open slice is exactly what makes tr.replace
@@ -55,7 +58,7 @@ function parseMarkdownToSlice(editor: Editor, schema: Schema, text: string): Sli
   // paragraphs (verified: a 3-paragraph suggestion produces 3 paragraph nodes).
   // Caveat: replacing a *heading's* content with multi-block text merges the
   // first block into the heading; that's the related insert-anchor case in #571.
-  return ProseMirrorDOMParser.fromSchema(schema).parseSlice(wrapper)
+  return ProseMirrorDOMParser.fromSchema(schema).parseSlice(parsedDoc.body)
 }
 
 /**

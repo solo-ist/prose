@@ -336,7 +336,8 @@ export function Editor() {
   }, [editor, setEditorInstance])
 
   // Cache selection on selectionUpdate for read_selection fallback
-  // This preserves the selection when chat input steals focus
+  // This preserves the selection when chat input steals focus.
+  // Also computes and pushes the live cursor position to editorStore (#564).
   useEffect(() => {
     if (!editor) return
 
@@ -346,6 +347,15 @@ export function Editor() {
         const text = editor.state.doc.textBetween(from, to)
         useEditorStore.getState().setLastSelection({ text, from, to })
       }
+
+      // Derive line/column from the resolved head position
+      const $head = editor.state.selection.$head
+      // Count newlines before the cursor to find the 1-based line number
+      const textBeforeCursor = editor.state.doc.textBetween(0, $head.pos, '\n')
+      const lines = textBeforeCursor.split('\n')
+      const line = lines.length
+      const column = lines[lines.length - 1].length + 1
+      useEditorStore.getState().setCursorPosition(line, column)
     }
 
     editor.on('selectionUpdate', handleSelectionUpdate)

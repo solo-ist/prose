@@ -94,7 +94,7 @@ function createAppTheme(fontSize: number, lineHeight: number, fontFamily: string
       backgroundColor: 'hsl(var(--muted) / 0.3)',
     },
     '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
-      backgroundColor: 'hsl(var(--primary) / 0.15)',
+      backgroundColor: 'hsl(var(--selection))',
     },
     '.cm-scroller': {
       overflow: 'auto',

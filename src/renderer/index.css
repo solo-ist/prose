@@ -31,6 +31,7 @@
     --border: 240 5.9% 90%;
     --input: 240 5.9% 90%;
     --ring: 240 5.9% 10%;
+    --selection: 240 5.9% 10% / 0.18;
     --radius: 0.5rem;
 
     /* Feature-semantic color tokens — Mono light baseline.
@@ -133,6 +134,7 @@
     --border: 240 3.7% 15.9%;
     --input: 240 3.7% 15.9%;
     --ring: 240 4.9% 83.9%;
+    --selection: 0 0% 70% / 0.22;
 
     /* Feature-semantic token overrides — Mono dark baseline.
        Every value equals the original hardcoded dark literal exactly. */
@@ -201,6 +203,7 @@
     --border: 120 30% 15%;
     --input: 120 30% 15%;
     --ring: 120 100% 70%;
+    --selection: 120 60% 40% / 0.3;
   }
 
   .termy-green-light {
@@ -223,6 +226,7 @@
     --border: 120 25% 80%;
     --input: 120 25% 80%;
     --ring: 120 60% 25%;
+    --selection: 120 60% 25% / 0.18;
   }
 
   /* v1.2 Appearance themes — generated from docs/design/v1.2-appearance/themes.css
@@ -514,7 +518,7 @@
 .source-editor .cm-selectionBackground,
 .source-editor .cm-focused .cm-selectionBackground,
 .source-editor .cm-content ::selection {
-  background: hsl(var(--primary) / 0.2) !important;
+  background: hsl(var(--selection)) !important;
 }
 
 /* Fold all/unfold all toggle — flex child of .cm-editor, above .cm-scroller */
@@ -802,7 +806,7 @@
 
 /* Selection */
 ::selection {
-  background: hsl(var(--primary) / 0.2);
+  background: hsl(var(--selection));
 }
 
 /* Persistent visual selection while the editor is blurred.

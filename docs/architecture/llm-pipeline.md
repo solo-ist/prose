@@ -93,7 +93,7 @@ When the stream completes with tool calls:
 Two code paths:
 
 - **Anthropic with tools** — uses `@anthropic-ai/sdk` directly (not Vercel AI SDK) to avoid tool format translation. Converts `role: 'tool'` messages to Anthropic's `tool_result` format. Emits `chunk`, `tool-call:start` (on each `content_block_start` for `tool_use`, before any `input_json_delta`), `tool-call`, and `complete` events.
-- **Other providers** — uses Vercel AI SDK `streamText()`. No tool support. Emits `chunk` and `complete` only.
+- **Anthropic without tools** — uses Vercel AI SDK `streamText()` via `@ai-sdk/anthropic`. No tool support. Emits `chunk` and `complete` only. (Anthropic is the only supported provider; all legacy multi-provider code has been removed.)
 
 Active streams tracked in `Map<string, AbortController>` for abort support.
 

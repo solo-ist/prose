@@ -20,7 +20,7 @@ This project uses an **agentic, multi-agent development workflow**:
 - **Cloud agents** (via GitHub Actions) handle PR reviews, automated fixes, and pipeline triage. Local agents handle implementation, QA, and complex features.
 - **The CI pipeline is self-enhancing** — automated review (`claude.yml`), scoring (`pipeline-triage.yml`), and auto-fix (`ci-gate.yml`) run on every PR. Skills and workflows evolve alongside the codebase.
 - **Be mindful of concurrent sessions.** Other terminal sessions or worktree agents may be running builds, dev servers, or tests at the same time. Check for port conflicts before starting servers. Use PID files (not `pkill` patterns) for process management. Use `gh` CLI (not GitHub MCP) for all GitHub operations. Always `git fetch origin` before comparing branches — another session may have pushed.
-- **The project board** (GitHub Projects #5) tracks priority and in-progress work. Move items to "In Progress" when starting, back to "Do First" if pausing. Never mutate board field definitions — only move items between existing columns. The overarching roadmap narrative (epics, waves, sequencing) lives in [`docs/roadmap.md`](docs/roadmap.md).
+- **The project board** (GitHub Projects #5) tracks priority and in-progress work. Board #5 has no "In Progress" column — status columns are: **User Requested**, **Do First**, **Do Next**, **Later**, **Quick Wins**, **On Hold**. Never mutate board field definitions — only move items between existing columns. The overarching roadmap narrative (epics, waves, sequencing) lives in [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Commands
 
@@ -187,17 +187,19 @@ When running as Electron:
 
 ### IPC Channels
 
-Most handlers live in `src/main/ipc.ts` (69 across 12 namespaces). A few sit closer to their feature: `sentry:setEnabled` and `renderer:ready` in `src/main/index.ts`, `updater:*` (3) in `src/main/updater.ts`, and `mcp:tool:result` in `src/main/mcp/bridge.ts`.
+Most handlers live in `src/main/ipc.ts` (72 across 14 namespaces). A few sit closer to their feature: `sentry:setEnabled` and `renderer:ready` in `src/main/index.ts`, `updater:*` (3) in `src/main/updater.ts`, `file:watch:start` and `file:watch:stop` in `src/main/fileWatcher.ts`, and `mcp:tool:result` (via `ipcMain.on`, not `handle`) in `src/main/mcp/bridge.ts`.
 
-- `file:*` (17) - File operations (open, save, read, rename, delete, trash, duplicate, etc.)
+- `file:*` (19) - File operations (open, save, read, rename, delete, trash, duplicate, watch, etc.) — 17 handlers in `ipc.ts`, plus `file:watch:start` and `file:watch:stop` in `fileWatcher.ts`
 - `settings:*` (4) - Settings persistence, secure storage check, API key test
-- `llm:chat`, `llm:stream`, `llm:stream:abort` - LLM API calls (streaming via Anthropic SDK)
+- `llm:chat`, `llm:fetchModels`, `llm:stream`, `llm:stream:abort` - LLM API calls (streaming via Anthropic SDK)
 - `remarkable:*` (20) - reMarkable tablet sync (register, validate, sync, sync:abort, OCR, folder move, etc.)
 - `google:*` (13) - Google Docs OAuth, sync, pull, import, metadata management
 - `mcp:*` (3) - MCP server status, install, uninstall for Claude Desktop
 - `sentry:setEnabled` - Toggle Sentry error tracking from renderer
 - `updater:*` (3) - Auto-update check, download, install (Electron auto-updater)
 - `skill:download` - Download an external skill for use inside Prose
+- `clipboard:*` (1) - Write text to system clipboard
+- `appearance:*` (1) - Set app icon
 - `window:*`, `shell:*`, `recentFiles:*`, `emoji:*`, `fileAssociation:*` - Utility handlers
 
 ### State Management

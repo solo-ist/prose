@@ -40,7 +40,7 @@ Prose is a minimal, distraction-free markdown editor for macOS. Think iA Writer 
 **Sync**
 
 - reMarkable tablet sync via rmapi-js — handwritten notes → markdown via OCR
-- Google Docs sync planned for v1.1
+- Google Docs bidirectional sync — implemented and feature-flagged (opt-in via Settings → Integrations)
 
 **Philosophy**
 
@@ -81,7 +81,7 @@ npm run build:mac
 
 ## Configuration
 
-Prose stores settings at \~/.prose/settings.json (and uses macOS Keychain via Electron safeStorage for API credentials).
+Prose stores settings at `~/Library/Application Support/Prose/settings.json` on macOS (and uses macOS Keychain via Electron safeStorage for API credentials). The legacy `~/.prose/settings.json` path is migrated automatically on first launch.
 
 ```json
 {
@@ -187,7 +187,7 @@ Commits generally follow Conventional Commits style.
 - \[x\] Inline diff review
 - \[x\] MCP server
 - \[x\] reMarkable sync
-- \[ \] Google Docs sync (v1.1)
+- \[x\] Google Docs bidirectional sync (feature-flagged, opt-in)
 - \[ \] Audio transcription (Phase 1: cloud + mic)
 - \[ \] Vector context for large documents
 - \[ \] Authorship annotations (human vs AI)

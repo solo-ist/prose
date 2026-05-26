@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useRef, useState } from 'react'
+import { useMemo, useEffect, useRef, useState, useCallback } from 'react'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
@@ -81,11 +81,29 @@ export function StatusBar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, editor?.state.doc])
 
-  const wordCount = document.content
-    .split(/\s+/)
-    .filter((word) => word.length > 0).length
+  // Live word/char count from editor state, not debounced store (#563)
+  const [wordCount, setWordCount] = useState(0)
+  const [charCount, setCharCount] = useState(0)
 
-  const charCount = document.content.length
+  const updateCounts = useCallback(() => {
+    if (editor) {
+      const doc = editor.state.doc
+      const text = doc.textBetween(0, doc.content.size, '\n')
+      setCharCount(text.length)
+      setWordCount(text.split(/\s+/).filter((w) => w.length > 0).length)
+    } else {
+      const text = document.content
+      setCharCount(text.length)
+      setWordCount(text.split(/\s+/).filter((w) => w.length > 0).length)
+    }
+  }, [editor, document.content])
+
+  useEffect(() => {
+    updateCounts()
+    if (!editor) return
+    editor.on('update', updateCounts)
+    return () => { editor.off('update', updateCounts) }
+  }, [editor, updateCounts])
 
   // Mode configuration.
   // ToolMode union renamed to chat / editor / create in #467 Chunk 3.

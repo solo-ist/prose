@@ -346,6 +346,12 @@ export function Editor() {
         const text = editor.state.doc.textBetween(from, to)
         useEditorStore.getState().setLastSelection({ text, from, to })
       }
+
+      // Update cursor position for status bar (#564)
+      const headPos = editor.state.selection.$head.pos
+      const textBefore = editor.state.doc.textBetween(0, headPos, '\n')
+      const lines = textBefore.split('\n')
+      useEditorStore.getState().setCursorPosition(lines.length, (lines[lines.length - 1]?.length ?? 0) + 1)
     }
 
     editor.on('selectionUpdate', handleSelectionUpdate)

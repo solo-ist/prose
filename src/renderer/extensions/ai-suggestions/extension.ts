@@ -48,9 +48,13 @@ function parseMarkdownToSlice(editor: Editor, schema: Schema, text: string): Sli
   const wrapper = document.createElement('div')
   wrapper.innerHTML = html
 
-  // parseSlice preserves the block boundaries from the HTML and maps them to
-  // the ProseMirror schema. The openStart/openEnd context flags default to 0
-  // (closed top-level slice), which is correct for a whole-node replacement.
+  // parseSlice returns a slice with maxOpen ends (openStart/openEnd = 1 for a
+  // fragment of paragraphs). That open slice is exactly what makes tr.replace
+  // close the host node at markFrom, insert the inner blocks as siblings, and
+  // reopen at markTo — so a whole-paragraph replacement yields clean sibling
+  // paragraphs (verified: a 3-paragraph suggestion produces 3 paragraph nodes).
+  // Caveat: replacing a *heading's* content with multi-block text merges the
+  // first block into the heading; that's the related insert-anchor case in #571.
   return ProseMirrorDOMParser.fromSchema(schema).parseSlice(wrapper)
 }
 

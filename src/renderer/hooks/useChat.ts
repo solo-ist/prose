@@ -505,9 +505,9 @@ export function useChat() {
   }, [])
 
   const sendMessage = useCallback(
-    async (content: string, options?: { hidden?: boolean }) => {
+    async (content: string, options?: { hidden?: boolean }): Promise<boolean> => {
       console.log('[useChat] sendMessage called with:', content?.substring(0, 50), 'isLoading:', isLoading)
-      if (!content.trim() || isLoading) return
+      if (!content.trim() || isLoading) return false
       console.log('[useChat] sendMessage passed initial check')
       // Read toolMode fresh from the store rather than relying on the
       // React-closure-captured value. Necessary because callers (notably
@@ -531,7 +531,7 @@ export function useChat() {
           content: 'AI features are not enabled. Enable them in Settings → LLM to use the assistant.',
           timestamp: new Date()
         })
-        return
+        return false
       }
 
       // Validate config first
@@ -546,7 +546,7 @@ export function useChat() {
           content: `${configError}. Please configure your API settings (Cmd+,).`,
           timestamp: new Date()
         })
-        return
+        return false
       }
       console.log('[useChat] Config validated successfully')
 
@@ -694,6 +694,7 @@ export function useChat() {
         completeStreaming()
         clearStreamRefs()
       }
+      return true
     },
     [
       context,
@@ -747,11 +748,12 @@ export function useChat() {
     const commentsPrompt = buildCommentsPrompt(comments)
 
     // Send the message (this will trigger agent mode to apply edits)
-    await sendMessage(commentsPrompt)
+    const dispatched = await sendMessage(commentsPrompt)
 
-    // Remove all comments after sending (they'll be processed by AI)
-    // We do this immediately since the user triggered "Process Comments"
-    editor.commands.unsetAllComments()
+    // Only remove comments if the message was actually dispatched to the AI
+    if (dispatched) {
+      editor.commands.unsetAllComments()
+    }
   }, [sendMessage])
 
   // Process a single comment by id — same prompt shape as processComments,
@@ -764,8 +766,10 @@ export function useChat() {
     if (!target) return
 
     const commentsPrompt = buildCommentsPrompt([target])
-    await sendMessage(commentsPrompt)
-    editor.commands.unsetComment(commentId)
+    const dispatched = await sendMessage(commentsPrompt)
+    if (dispatched) {
+      editor.commands.unsetComment(commentId)
+    }
   }, [sendMessage])
 
   // Helper to get current comment count

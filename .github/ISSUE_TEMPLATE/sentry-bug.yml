@@ -1,0 +1,26 @@
+name: Sentry-tracked bug
+description: Manually file a GitHub issue for a known Sentry error
+labels: ["bug", "sentry"]
+body:
+  - type: input
+    id: sentry-id
+    attributes:
+      label: Sentry short ID
+      description: e.g. PROSE-123 — enables resolve-via-commit
+      placeholder: PROSE-
+    validations:
+      required: true
+  - type: input
+    id: sentry-url
+    attributes:
+      label: Sentry issue URL
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: What were you doing when it crashed?
+  - type: textarea
+    id: repro
+    attributes:
+      label: Repro steps (if known)

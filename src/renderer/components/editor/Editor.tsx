@@ -46,6 +46,7 @@ import { AISuggestionPopover } from '../AISuggestionPopover'
 import { CommentPopover } from '../CommentPopover'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import type { AISuggestionData } from '../../extensions/ai-suggestions/types'
+import { useCommentStore } from '../../extensions/comments/store'
 import { LinkPopover } from './LinkPopover'
 import { SourceEditor, SourceEditorHandle } from './SourceEditor'
 import { getApi } from '../../lib/browserApi'
@@ -437,6 +438,32 @@ export function Editor() {
       return () => clearTimeout(timer)
     }
   }, [editor, document.documentId, pendingSuggestions, suggestionStoreDocumentId])
+
+  // Subscribe to pending comment marks reactively for restoration
+  const pendingComments = useCommentStore((state) => state.pendingComments)
+  const commentStoreDocumentId = useCommentStore((state) => state.documentId)
+
+  // Restore comment marks when document changes or pending comments are loaded
+  useEffect(() => {
+    if (!editor || !document.documentId) return
+
+    // Only restore if there are pending comments and they match current document
+    if (pendingComments.length > 0 && commentStoreDocumentId === document.documentId) {
+      console.log(`[Editor:${SESSION_ID}] Restoring comments:`, {
+        documentId: document.documentId,
+        count: pendingComments.length
+      })
+
+      // Small delay to ensure editor content is fully loaded (same pattern as suggestions)
+      const timer = setTimeout(() => {
+        editor.commands.restoreComments(pendingComments)
+        // Clear pending comments from memory after restoring
+        useCommentStore.getState().clearComments()
+      }, 100)
+
+      return () => clearTimeout(timer)
+    }
+  }, [editor, document.documentId, pendingComments, commentStoreDocumentId])
 
   // Auto-focus editor once when document loads (not on every content change)
   const hasFocusedRef = useRef(false)

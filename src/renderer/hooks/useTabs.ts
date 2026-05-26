@@ -6,6 +6,8 @@ import { useChatStore, setCurrentDocumentId } from '../stores/chatStore'
 import { useAnnotationStore } from '../extensions/ai-annotations'
 import { useSuggestionStore } from '../extensions/ai-suggestions/store'
 import { getAISuggestions } from '../extensions/ai-suggestions'
+import { useCommentStore } from '../extensions/comments/store'
+import { getComments } from '../extensions/comments'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFileListStore } from '../stores/fileListStore'
 import { parseMarkdown, serializeMarkdown, prepareTextContent } from '../lib/markdown'
@@ -22,6 +24,7 @@ import {
   loadAnnotations,
   deleteAnnotations,
   deleteSuggestions,
+  deleteComments,
   SESSION_ID
 } from '../lib/persistence'
 import type { DraftState } from '../lib/persistence'
@@ -89,14 +92,21 @@ export function useTabs() {
     // Save annotations for current document
     await useAnnotationStore.getState().saveAnnotations()
 
-    // Save AI suggestions for current document
+    // Save AI suggestions and comment marks for current document
     const editor = useEditorInstanceStore.getState().editor
     if (editor) {
-      const suggestions = getAISuggestions(editor)
       const docId = activeTab.documentId
+
+      const suggestions = getAISuggestions(editor)
       console.log(`[useTabs:${SESSION_ID}] Saving suggestions:`, { documentId: docId, count: suggestions.length })
       if (docId) {
         await useSuggestionStore.getState().saveSuggestions(docId, suggestions)
+      }
+
+      const comments = getComments(editor)
+      console.log(`[useTabs:${SESSION_ID}] Saving comments:`, { documentId: docId, count: comments.length })
+      if (docId) {
+        await useCommentStore.getState().saveComments(docId, comments)
       }
     }
 
@@ -160,6 +170,11 @@ export function useTabs() {
     console.log(`[useTabs:${SESSION_ID}] loading suggestions for:`, newDocumentId)
     await useSuggestionStore.getState().loadSuggestions(newDocumentId)
     console.log(`[useTabs:${SESSION_ID}] suggestions loaded:`, useSuggestionStore.getState().pendingSuggestions.length)
+
+    // Load comment marks for the target document
+    console.log(`[useTabs:${SESSION_ID}] loading comments for:`, newDocumentId)
+    await useCommentStore.getState().loadComments(newDocumentId)
+    console.log(`[useTabs:${SESSION_ID}] comments loaded:`, useCommentStore.getState().pendingComments.length)
 
     // Clear reMarkable read-only state
     useEditorStore.getState().setRemarkableReadOnly(false, null)
@@ -245,6 +260,9 @@ export function useTabs() {
 
     // Clear suggestions
     useSuggestionStore.getState().setDocumentId(newDocumentId)
+
+    // Clear comment marks
+    useCommentStore.getState().setDocumentId(newDocumentId)
 
     // Clear reMarkable read-only state
     useEditorStore.getState().setRemarkableReadOnly(false, null)
@@ -375,6 +393,9 @@ export function useTabs() {
     // Load suggestions for the document
     await useSuggestionStore.getState().loadSuggestions(newDocumentId)
 
+    // Load comment marks for the document
+    await useCommentStore.getState().loadComments(newDocumentId)
+
     // Clear reMarkable read-only state
     useEditorStore.getState().setRemarkableReadOnly(false, null)
 
@@ -484,6 +505,7 @@ export function useTabs() {
       await loadChatForDocument(newDocumentId)
       await useAnnotationStore.getState().loadAnnotations(newDocumentId)
       await useSuggestionStore.getState().loadSuggestions(newDocumentId)
+      await useCommentStore.getState().loadComments(newDocumentId)
       useEditorStore.getState().setRemarkableReadOnly(false, null)
       setEditing(true)
 
@@ -546,6 +568,7 @@ export function useTabs() {
     await loadChatForDocument(newDocumentId)
     await useAnnotationStore.getState().loadAnnotations(newDocumentId)
     await useSuggestionStore.getState().loadSuggestions(newDocumentId)
+    await useCommentStore.getState().loadComments(newDocumentId)
     useEditorStore.getState().setRemarkableReadOnly(false, null)
     setEditing(true)
 
@@ -584,6 +607,7 @@ export function useTabs() {
       await deleteConversations(tab.documentId)
       await deleteAnnotations(tab.documentId)
       await deleteSuggestions(tab.documentId)
+      await deleteComments(tab.documentId)
     }
 
     // If we closed the last tab, create a new one
@@ -618,6 +642,7 @@ export function useTabs() {
       await deleteConversations(tab.documentId)
       await deleteAnnotations(tab.documentId)
       await deleteSuggestions(tab.documentId)
+      await deleteComments(tab.documentId)
     }
 
     // If we closed the last tab, create a new one
@@ -645,6 +670,7 @@ export function useTabs() {
         await deleteConversations(tab.documentId)
         await deleteAnnotations(tab.documentId)
         await deleteSuggestions(tab.documentId)
+        await deleteComments(tab.documentId)
       }
     }
 
@@ -666,6 +692,7 @@ export function useTabs() {
         await deleteConversations(tab.documentId)
         await deleteAnnotations(tab.documentId)
         await deleteSuggestions(tab.documentId)
+        await deleteComments(tab.documentId)
       }
     }
 

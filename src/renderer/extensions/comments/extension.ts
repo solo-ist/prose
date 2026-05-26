@@ -35,6 +35,10 @@ declare module '@tiptap/core' {
        * Remove all comments
        */
       unsetAllComments: () => ReturnType
+      /**
+       * Restore comment marks from persisted data (used after tab switch)
+       */
+      restoreComments: (comments: CommentData[]) => ReturnType
     }
   }
 }
@@ -175,6 +179,90 @@ export const Comment = Mark.create<CommentOptions>({
         () =>
         ({ commands }) => {
           return commands.unsetComment()
+        },
+
+      restoreComments:
+        (comments) =>
+        ({ tr, state, dispatch }) => {
+          if (!dispatch || comments.length === 0) return false
+
+          const { doc, schema } = state
+          let restored = 0
+
+          for (const comment of comments) {
+            // Use the stored marked text to locate where the comment mark should be applied.
+            // We search for the first occurrence of the marked text in the document.
+            const searchText = comment.markedText
+            if (!searchText) {
+              console.warn('[Comment] Cannot restore comment without markedText:', comment.id)
+              continue
+            }
+
+            const docText = doc.textContent
+            const textIndex = docText.indexOf(searchText)
+            if (textIndex === -1) {
+              console.warn('[Comment] Cannot find markedText in document:', {
+                id: comment.id,
+                markedText: searchText.substring(0, 50)
+              })
+              continue
+            }
+
+            // Walk the document to map char index → ProseMirror positions
+            let charCount = 0
+            let foundStart = -1
+            let foundEnd = -1
+
+            doc.descendants((node, nodePos) => {
+              if (foundStart !== -1 && foundEnd !== -1) return false
+
+              if (node.isText && node.text) {
+                const nodeText = node.text
+                const nodeStart = charCount
+                const nodeEnd = charCount + nodeText.length
+
+                if (foundStart === -1 && textIndex >= nodeStart && textIndex < nodeEnd) {
+                  foundStart = nodePos + (textIndex - nodeStart)
+                }
+
+                const targetEnd = textIndex + searchText.length
+                if (foundStart !== -1 && targetEnd > nodeStart && targetEnd <= nodeEnd) {
+                  foundEnd = nodePos + (targetEnd - nodeStart)
+                  return false
+                }
+
+                charCount += nodeText.length
+              }
+            })
+
+            if (foundStart === -1 || foundEnd === -1) {
+              console.warn('[Comment] Could not map text position for comment:', comment.id)
+              continue
+            }
+
+            const mark = schema.marks.comment.create({
+              id: comment.id,
+              comment: comment.comment,
+              createdAt: comment.createdAt,
+            })
+
+            tr.addMark(foundStart, foundEnd, mark)
+            restored++
+
+            console.log('[Comment] Restored comment mark:', {
+              id: comment.id,
+              from: foundStart,
+              to: foundEnd
+            })
+          }
+
+          if (restored > 0) {
+            dispatch(tr)
+            console.log('[Comment] Restored', restored, 'of', comments.length, 'comments')
+            return true
+          }
+
+          return false
         },
     }
   },

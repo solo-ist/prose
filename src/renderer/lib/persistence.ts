@@ -63,7 +63,7 @@ export interface EmojiCacheEntry {
 
 // Database constants
 const DB_NAME = 'prose-db'
-const DB_VERSION = 7
+const DB_VERSION = 8
 const STORES = {
   DRAFTS: 'drafts',
   CONVERSATIONS: 'conversations',
@@ -71,7 +71,8 @@ const STORES = {
   COMMAND_HISTORY: 'command_history',
   SUGGESTIONS: 'suggestions',
   EMOJI_CACHE: 'emoji_cache',
-  SUMMARIES: 'summaries'
+  SUMMARIES: 'summaries',
+  COMMENTS: 'comments'
 } as const
 
 // Recovery types
@@ -102,6 +103,7 @@ export interface DatabaseBackup {
  * v5: (no schema change, version alignment)
  * v6: Added emoji_cache store (LLM-generated emoji icons for tabs)
  * v7: Added summaries store (AI-generated document summaries)
+ * v8: Added comments store (persists comment marks across tab switches)
  *
  * When bumping version:
  * 1. Update DB_VERSION above
@@ -395,6 +397,9 @@ function getDB(): Promise<IDBDatabase> {
               if (!db.objectStoreNames.contains(STORES.SUMMARIES)) {
                 db.createObjectStore(STORES.SUMMARIES)
               }
+              if (!db.objectStoreNames.contains(STORES.COMMENTS)) {
+                db.createObjectStore(STORES.COMMENTS)
+              }
             }
           })
 
@@ -485,6 +490,9 @@ function getDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORES.SUMMARIES)) {
         db.createObjectStore(STORES.SUMMARIES)
+      }
+      if (!db.objectStoreNames.contains(STORES.COMMENTS)) {
+        db.createObjectStore(STORES.COMMENTS)
       }
     }
   })
@@ -908,6 +916,90 @@ export async function deleteSuggestions(documentId: string): Promise<void> {
     })
   }, ensureSuggestionsStore).catch((error) => {
     console.error('Failed to delete suggestions:', error)
+  })
+}
+
+// ============ Comment Operations ============
+
+/**
+ * Save comment marks for a document (keyed by documentId).
+ * Comments are stored as plain data and re-applied as marks after tab switch.
+ */
+export async function saveComments(
+  documentId: string,
+  comments: import('../extensions/comments/types').CommentData[]
+): Promise<void> {
+  console.log(`[persistence:${SESSION_ID}] saveComments:`, { documentId, count: comments.length })
+  await withDb(async (db) => {
+    if (!db.objectStoreNames.contains(STORES.COMMENTS)) {
+      console.warn('[persistence] comments store missing - skipping save')
+      return
+    }
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(STORES.COMMENTS, 'readwrite')
+      const store = transaction.objectStore(STORES.COMMENTS)
+      const request = store.put(comments, documentId)
+
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => {
+        console.log(`[persistence:${SESSION_ID}] saveComments SUCCESS:`, { documentId })
+        resolve()
+      }
+    })
+  }).catch((error) => {
+    console.error('Failed to save comments:', error)
+  })
+}
+
+/**
+ * Load comment marks for a document.
+ */
+export async function loadComments(
+  documentId: string
+): Promise<import('../extensions/comments/types').CommentData[]> {
+  console.log(`[persistence:${SESSION_ID}] loadComments:`, { documentId })
+  return withDb(async (db) => {
+    if (!db.objectStoreNames.contains(STORES.COMMENTS)) {
+      console.warn('[persistence] comments store missing - returning empty')
+      return []
+    }
+    return new Promise<import('../extensions/comments/types').CommentData[]>((resolve, reject) => {
+      const transaction = db.transaction(STORES.COMMENTS, 'readonly')
+      const store = transaction.objectStore(STORES.COMMENTS)
+      const request = store.get(documentId)
+
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => {
+        const result = request.result ?? []
+        console.log(`[persistence:${SESSION_ID}] loadComments SUCCESS:`, { documentId, count: result.length })
+        resolve(result)
+      }
+    })
+  }).then((result) => result ?? []).catch((error) => {
+    console.error('Failed to load comments:', error)
+    return []
+  })
+}
+
+/**
+ * Delete comment marks for a document (e.g., when closing an unsaved tab).
+ */
+export async function deleteComments(documentId: string): Promise<void> {
+  await withDb(async (db) => {
+    if (!db.objectStoreNames.contains(STORES.COMMENTS)) {
+      console.warn('[persistence] comments store missing - skipping delete')
+      return
+    }
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(STORES.COMMENTS, 'readwrite')
+      const store = transaction.objectStore(STORES.COMMENTS)
+      const request = store.delete(documentId)
+
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve()
+    })
+  }).catch((error) => {
+    console.error('Failed to delete comments:', error)
   })
 }
 

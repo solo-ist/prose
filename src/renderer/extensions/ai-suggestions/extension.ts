@@ -6,10 +6,53 @@
  */
 
 import { Mark, mergeAttributes } from '@tiptap/core'
+import type { Editor } from '@tiptap/core'
+import type { Schema, Slice } from '@tiptap/pm/model'
+import { DOMParser as ProseMirrorDOMParser } from '@tiptap/pm/model'
 import type { MarkSerializerSpec } from 'prosemirror-markdown'
 import type { AISuggestionOptions, AISuggestionData, SuggestionType } from './types'
 import { useAnnotationStore } from '../ai-annotations'
 import { createWordDiffAnnotations } from '../../lib/diffUtils'
+
+/**
+ * Returns true when `text` contains block-level structure that would be lost
+ * if inserted as a flat schema.text() node — specifically, when it has at
+ * least one blank-line paragraph separator (the CommonMark block delimiter).
+ *
+ * Single-run content (a sentence, a phrase, inline edits) never contains
+ * `\n\n`, so the fast path is the overwhelmingly common case.
+ */
+function isMultiBlock(text: string): boolean {
+  return text.includes('\n\n')
+}
+
+/**
+ * Parse a markdown string into a ProseMirror Slice using the editor's
+ * configured tiptap-markdown parser, preserving block structure (paragraphs,
+ * headings, lists, etc.). Used only for multi-block acceptance so that
+ * inline accepts keep the existing schema.text() path byte-for-byte.
+ *
+ * Returns null if the editor doesn't have a markdown parser in storage
+ * (e.g., during tests) so callers can fall back to the text path.
+ */
+function parseMarkdownToSlice(editor: Editor, schema: Schema, text: string): Slice | null {
+  const parser = editor.storage?.markdown?.parser
+  if (!parser || typeof parser.parse !== 'function') return null
+
+  // Parse without inline:true so block structure (paragraph breaks, headings,
+  // etc.) is preserved. The parser renders to an HTML string.
+  const html = parser.parse(text) as string
+  if (typeof html !== 'string') return null
+
+  // Wrap in a <div> so ProseMirror's DOMParser sees a single root element.
+  const wrapper = document.createElement('div')
+  wrapper.innerHTML = html
+
+  // parseSlice preserves the block boundaries from the HTML and maps them to
+  // the ProseMirror schema. The openStart/openEnd context flags default to 0
+  // (closed top-level slice), which is correct for a whole-node replacement.
+  return ProseMirrorDOMParser.fromSchema(schema).parseSlice(wrapper)
+}
 
 /**
  * Markdown serializer for AI suggestion marks - outputs just the text content
@@ -279,7 +322,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
 
       acceptAISuggestion:
         (id) =>
-        ({ tr, state, dispatch }) => {
+        ({ tr, state, dispatch, editor }) => {
           if (!dispatch) return false
 
           const { doc } = state
@@ -312,9 +355,28 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           // Remove the mark first
           tr.removeMark(markFrom, markTo, state.schema.marks.aiSuggestion)
 
-          // Replace the text with suggested text, or delete if empty
+          // Replace the text with suggested text, or delete if empty.
+          //
+          // Multi-block path (#578 structural fix): when suggestedText contains
+          // `\n\n` it has paragraph-level structure that schema.text() would
+          // collapse into a single inline run. Parse it through the
+          // tiptap-markdown parser instead to preserve block nodes.
+          //
+          // Single-block path (the overwhelmingly common case — a sentence or
+          // phrase edit): schema.text() is kept byte-for-byte so annotation
+          // position math and current behaviour are untouched.
           if (suggestedText.length > 0) {
-            tr.replaceWith(markFrom, markTo, state.schema.text(suggestedText))
+            if (isMultiBlock(suggestedText)) {
+              const slice = parseMarkdownToSlice(editor, state.schema, suggestedText)
+              if (slice) {
+                tr.replace(markFrom, markTo, slice)
+              } else {
+                // Parser unavailable — fall back to flat text rather than dropping the edit.
+                tr.replaceWith(markFrom, markTo, state.schema.text(suggestedText))
+              }
+            } else {
+              tr.replaceWith(markFrom, markTo, state.schema.text(suggestedText))
+            }
           } else {
             tr.delete(markFrom, markTo)
           }
@@ -338,7 +400,12 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
 
           dispatch(tr)
 
-          // Create word-level annotations after dispatch so positions reference the updated document.
+          // Create word-level annotations after dispatch so positions reference
+          // the updated document. tr.mapping.map() correctly accounts for the
+          // size of the inserted content regardless of whether it was inserted
+          // as a flat text node or a multi-block slice — the ReplaceStep maps
+          // positions at/after markTo forward by (inserted size − replaced size)
+          // in both cases.
           if (docId && suggestedText.length > 0) {
             const newFrom = tr.mapping.map(markFrom, -1)
             const newTo = tr.mapping.map(markTo, 1)
@@ -406,7 +473,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
 
       acceptAllAISuggestions:
         () =>
-        ({ tr, state, dispatch }) => {
+        ({ tr, state, dispatch, editor }) => {
           if (!dispatch) return false
 
           const { doc } = state
@@ -458,11 +525,24 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           // Sort by position descending so we can apply from end to start
           suggestions.sort((a, b) => b.from - a.from)
 
-          // Apply each suggestion
+          // Apply each suggestion. Processing end-to-start means earlier
+          // suggestions' positions are not shifted by later ones.
+          // Multi-block suggestions are parsed through the markdown parser to
+          // preserve paragraph structure; single-run suggestions use the
+          // existing schema.text() path unchanged.
           for (const suggestion of suggestions) {
             tr.removeMark(suggestion.from, suggestion.to, state.schema.marks.aiSuggestion)
             if (suggestion.suggestedText.length > 0) {
-              tr.replaceWith(suggestion.from, suggestion.to, state.schema.text(suggestion.suggestedText))
+              if (isMultiBlock(suggestion.suggestedText)) {
+                const slice = parseMarkdownToSlice(editor, state.schema, suggestion.suggestedText)
+                if (slice) {
+                  tr.replace(suggestion.from, suggestion.to, slice)
+                } else {
+                  tr.replaceWith(suggestion.from, suggestion.to, state.schema.text(suggestion.suggestedText))
+                }
+              } else {
+                tr.replaceWith(suggestion.from, suggestion.to, state.schema.text(suggestion.suggestedText))
+              }
             } else {
               tr.delete(suggestion.from, suggestion.to)
             }

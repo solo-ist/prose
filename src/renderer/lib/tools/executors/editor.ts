@@ -696,11 +696,12 @@ export function executeSuggestEdit(
     return toolError(
       `Suggestion rejected: the proposed replacement (${suggestedText.length} chars) is less than ` +
         `${Math.round(DESTRUCTIVE_RATIO_THRESHOLD * 100)}% of the target node's content ` +
-        `(${originalText.length} chars). Applying it would silently discard most of the node. ` +
-        `To fix a localized issue, narrow the scope: use a shorter nodeId whose text matches ` +
-        `only the sentence or phrase you intend to change, or use the \`search\` parameter ` +
-        `to target a smaller block. If the intent is to replace the whole node, pass the ` +
-        `complete replacement text (not just a fragment).`,
+        `(${originalText.length} chars), which usually means a localized edit was about to ` +
+        `overwrite the entire node. To fix a small issue, narrow the scope: target a shorter ` +
+        `nodeId (or use the \`search\` parameter) matching only the sentence or phrase you intend ` +
+        `to change. Deliberately shortening or summarizing a node over ${LARGE_NODE_THRESHOLD} ` +
+        `chars is intentionally blocked here to prevent silent data loss — apply it as smaller ` +
+        `targeted edits instead.`,
       'SUGGESTION_DESTRUCTIVE'
     )
   }

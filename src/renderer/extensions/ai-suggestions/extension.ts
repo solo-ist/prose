@@ -39,8 +39,14 @@ function parseMarkdownToSlice(editor: Editor, schema: Schema, text: string): Sli
   const parser = editor.storage?.markdown?.parser
   if (!parser || typeof parser.parse !== 'function') return null
 
-  // Parse without inline:true so block structure (paragraph breaks, headings,
-  // etc.) is preserved. The parser renders to an HTML string.
+  // tiptap-markdown's storage.markdown.parser.parse() returns an HTML *string*
+  // (NOT a ProseMirror Node), verified against the bundled tiptap-markdown
+  // version — a 3-paragraph suggestion round-trips to 3 paragraph nodes. Parsed
+  // without inline:true so block structure (paragraph breaks, headings) survives.
+  // The typeof guard is a safety net: if a future library upgrade changes this to
+  // return a Node, we degrade gracefully to the flat schema.text() path (the
+  // multi-block fix stops firing, but nothing breaks). If that ever happens,
+  // handle the Node return here rather than relying on the silent fallback.
   const html = parser.parse(text) as string
   if (typeof html !== 'string') return null
 

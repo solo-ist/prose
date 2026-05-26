@@ -618,7 +618,25 @@ export function executeSuggestEdit(
   // Inserting an empty suggestion onto the nearest body node (usually H1)
   // was the root cause of the spurious heading highlight. Commit the staged
   // frontmatter here — frontmatter-only path doesn't need node lookup.
+  //
+  // #516 — tighten this fall-through: require nodeId === 'frontmatter' OR
+  // that the nodeId resolves to a real node. A bogus/stale nodeId should not
+  // silently pop the overlay alongside the error toast; it must return
+  // NODE_NOT_FOUND with guidance so the agent can correct its call.
   if (frontmatterToStage && !content.trim()) {
+    if (nodeId !== 'frontmatter') {
+      const resolvedForFm = findNodeById(editor.state.doc, nodeId)
+      if (!resolvedForFm) {
+        const available = flattenNodes(getNodesWithIds(editor.state.doc))
+        const nodeList = available.map(n => `${n.nodeId} (${n.type}: "${n.textContent.substring(0, 40)}")`).join(', ')
+        return toolError(
+          `Node with ID "${nodeId}" not found, and the content is frontmatter-only. ` +
+            `Use nodeId: 'frontmatter' to target the frontmatter block directly. ` +
+            `Available body nodes: [${nodeList}]`,
+          'NODE_NOT_FOUND'
+        )
+      }
+    }
     useEditorStore.getState().setPendingFrontmatter(frontmatterToStage)
     return toolSuccess({ suggested: true, suggestionId: generateId() })
   }
@@ -656,6 +674,42 @@ export function executeSuggestEdit(
   // "# New Title" for an H1), strip the matching prefix so the diff popover
   // shows just the visible text instead of the raw markdown source.
   const suggestedText = stripLeadingBlockMarkup(content, node.type.name, node.attrs?.level)
+
+  // Defensive guard (#578): a localized edit (e.g., fix a typo in the first
+  // sentence) must never silently overwrite the majority of a large node.
+  // When a node is large (≥200 chars) and the suggested replacement is smaller
+  // than 25% of the original, the suggestion is almost certainly a partial
+  // edit that would cause silent data loss if accepted. Surface an error
+  // instead so the agent can re-scope its call.
+  //
+  // This threshold intentionally does NOT fire for:
+  //   • Deletions/truncations where the agent explicitly targets a large node
+  //     and produces a replacement close to or greater than 25% of the original.
+  //   • Normal edits (typo fix on a short node, or a rewrite of comparable length).
+  //   • Empty suggestions (handled upstream — the check below would fire, but
+  //     empty is a separate case worth a distinct message).
+  //
+  // The root cause of #578: the entire body was collapsed into a single large
+  // paragraph node, so a "fix first sentence" call targeted 1800 chars but the
+  // model returned only ~80 chars — a 4% ratio, caught by this guard.
+  const LARGE_NODE_THRESHOLD = 200
+  const DESTRUCTIVE_RATIO_THRESHOLD = 0.25
+  if (
+    originalText.length >= LARGE_NODE_THRESHOLD &&
+    suggestedText.length > 0 &&
+    suggestedText.length < originalText.length * DESTRUCTIVE_RATIO_THRESHOLD
+  ) {
+    return toolError(
+      `Suggestion rejected: the proposed replacement (${suggestedText.length} chars) is less than ` +
+        `${Math.round(DESTRUCTIVE_RATIO_THRESHOLD * 100)}% of the target node's content ` +
+        `(${originalText.length} chars). Applying it would silently discard most of the node. ` +
+        `To fix a localized issue, narrow the scope: use a shorter nodeId whose text matches ` +
+        `only the sentence or phrase you intend to change, or use the \`search\` parameter ` +
+        `to target a smaller block. If the intent is to replace the whole node, pass the ` +
+        `complete replacement text (not just a fragment).`,
+      'SUGGESTION_DESTRUCTIVE'
+    )
+  }
 
   // Select the text content of the node and apply the AI suggestion mark
   const contentStart = pos + 1

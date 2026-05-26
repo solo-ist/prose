@@ -479,7 +479,11 @@ export async function executeInsert(
         const slice = parseMarkdownToSlice(editor, editor.state.schema, text)
         if (slice) {
           const sizeBefore = editor.state.doc.content.size
-          editor.view.dispatch(editor.state.tr.insert(insertFrom, slice.content))
+          try {
+            editor.view.dispatch(editor.state.tr.insert(insertFrom, slice.content))
+          } catch (e) {
+            return toolError(`Failed to insert text: ${e}`, 'INSERT_FAILED')
+          }
           const sizeAfter = editor.state.doc.content.size
 
           if (provenance && provenance.documentId && text.length > 0) {

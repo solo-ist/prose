@@ -320,6 +320,19 @@ export async function executeEdit(
   const contentStart = pos + 1
   const contentEnd = pos + node.nodeSize - 1
 
+  // Snapshot existing annotations within this node's range BEFORE the edit.
+  // applyInsertion issues a range-replace transaction; ProseMirror's position
+  // mapping collapses all positions inside the deleted range to the insertion
+  // point, which causes updatePositions() to drop every annotation covering the
+  // old node content — including those on unchanged neighbour words.  By
+  // capturing them now we can restore them at their remapped positions after
+  // the edit (see createWordDiffAnnotations for the remap logic).
+  const priorAnnotations = provenance && provenance.documentId && content.length > 0
+    ? useAnnotationStore.getState().annotations.filter(
+        (a) => a.documentId === provenance.documentId && a.to > contentStart && a.from < contentEnd
+      )
+    : []
+
   const sizeBefore = editor.state.doc.content.size
   // Range-replace via applyInsertion: the selection delete + first chunk
   // insert run in the same chain (atomic transaction). Subsequent rAF chunks
@@ -342,6 +355,7 @@ export async function executeEdit(
         messageId: provenance.messageId,
       },
       explanation: comment,
+      priorAnnotations,
     })
   }
 

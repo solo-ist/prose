@@ -109,10 +109,62 @@ export function computeWordDiff(original: string, suggested: string): { old: Dif
 }
 
 /**
+ * Compute, for each unchanged word in a word diff, its character-offset range in
+ * both the original and new text.  Used to remap prior annotations that covered an
+ * unchanged word into the coordinate space of the freshly-written text.
+ *
+ * Returns a parallel list of { oldFrom, oldTo, newFrom, newTo } ranges (all
+ * relative to the start of their respective strings, not absolute PM positions).
+ */
+export function computeUnchangedWordRanges(
+  originalText: string,
+  newText: string
+): Array<{ oldFrom: number; oldTo: number; newFrom: number; newTo: number }> {
+  const diff = computeWordDiff(originalText, newText)
+  const result: Array<{ oldFrom: number; oldTo: number; newFrom: number; newTo: number }> = []
+
+  // Walk old segments to build a map: unchanged word text → old offset ranges
+  // (keyed by word so we can look up the corresponding new offset below)
+  const oldOffsets: Array<{ text: string; from: number; to: number; type: string }> = []
+  let oldOff = 0
+  for (const seg of diff.old) {
+    oldOffsets.push({ text: seg.text, from: oldOff, to: oldOff + seg.text.length, type: seg.type })
+    oldOff += seg.text.length
+  }
+
+  // Walk new segments; for every unchanged word find its paired old segment
+  let oldUnchangedIdx = 0
+  let newOff = 0
+  for (const seg of diff.new) {
+    const segEnd = newOff + seg.text.length
+    if (seg.type === 'unchanged' && seg.text.trim()) {
+      // Advance to the next unchanged word in old
+      while (oldUnchangedIdx < oldOffsets.length && (oldOffsets[oldUnchangedIdx].type !== 'unchanged' || !oldOffsets[oldUnchangedIdx].text.trim())) {
+        oldUnchangedIdx++
+      }
+      if (oldUnchangedIdx < oldOffsets.length) {
+        const old = oldOffsets[oldUnchangedIdx]
+        result.push({ oldFrom: old.from, oldTo: old.to, newFrom: newOff, newTo: segEnd })
+        oldUnchangedIdx++
+      }
+    }
+    newOff = segEnd
+  }
+
+  return result
+}
+
+/**
  * Create word-level AI annotations for a text replacement.
  * Uses computeWordDiff to annotate only the changed words instead of the entire range.
  * Falls back to a single full-range annotation for multi-paragraph replacements
  * (PM positions diverge from string offsets across paragraph boundaries).
+ *
+ * `priorAnnotations` — optional snapshot of annotations that existed on the node
+ * before the edit (captured before ProseMirror's position mapping invalidated them).
+ * Unchanged words whose prior annotation is found here will have that annotation
+ * preserved at its remapped absolute position, so a neighbour word's provenance mark
+ * survives a single-word edit without being clobbered.
  */
 export function createWordDiffAnnotations(params: {
   documentId: string
@@ -122,12 +174,13 @@ export function createWordDiffAnnotations(params: {
   rangeTo: number
   provenance: { model: string; conversationId: string; messageId: string }
   explanation?: string
+  priorAnnotations?: import('../types/annotations').AIAnnotation[]
 }): void {
-  const { documentId, originalText, newText, rangeFrom, rangeTo, provenance, explanation } = params
+  const { documentId, originalText, newText, rangeFrom, rangeTo, provenance, explanation, priorAnnotations } = params
   const annotationType: AnnotationType = originalText.trim() === '' ? 'insertion' : 'replacement'
   const store = useAnnotationStore.getState()
 
-  // Multi-paragraph: fall back to full-range annotation
+  // Multi-paragraph: fall back to full-range annotation (no word-level remap)
   if (newText.includes('\n')) {
     store.addAnnotation({
       documentId,
@@ -143,6 +196,61 @@ export function createWordDiffAnnotations(params: {
 
   const diff = computeWordDiff(originalText, newText)
 
+  // --- Restore prior annotations for unchanged words ---
+  // Prior annotations were captured before applyInsertion; ProseMirror's position
+  // mapping collapses all positions inside the replaced range, so they are gone
+  // from the store by the time we get here.  Re-add them using the new-text offsets
+  // of the unchanged words so the neighbour-word provenance mark survives.
+  if (priorAnnotations && priorAnnotations.length > 0) {
+    const unchangedRanges = computeUnchangedWordRanges(originalText, newText)
+    // originalContentStart is the absolute PM position of char 0 in the old text,
+    // which equals rangeFrom (both executeEdit and executeInsert pass contentStart as rangeFrom).
+    const originalContentStart = rangeFrom
+
+    for (const range of unchangedRanges) {
+      // Absolute positions of this word in the OLD document
+      const oldAbsFrom = originalContentStart + range.oldFrom
+      const oldAbsTo = originalContentStart + range.oldTo
+
+      // Find prior annotations whose range overlaps this unchanged word
+      for (const prior of priorAnnotations) {
+        if (prior.to <= oldAbsFrom || prior.from >= oldAbsTo) continue
+
+        // Clamp the annotation to the word boundary (handles partial overlaps)
+        const clampedOldFrom = Math.max(prior.from, oldAbsFrom)
+        const clampedOldTo = Math.min(prior.to, oldAbsTo)
+
+        // Convert old-relative offsets to new-relative offsets
+        const oldRelFrom = clampedOldFrom - originalContentStart
+        const oldRelTo = clampedOldTo - originalContentStart
+
+        // Map old-text char offsets to new-text char offsets via the unchanged-word pair
+        // (linear mapping within the word — fine because the word text is identical)
+        const wordOldLen = range.oldTo - range.oldFrom
+        const wordNewLen = range.newTo - range.newFrom
+        const scale = wordNewLen / Math.max(wordOldLen, 1)
+        const newRelFrom = range.newFrom + Math.round((oldRelFrom - range.oldFrom) * scale)
+        const newRelTo = range.newFrom + Math.round((oldRelTo - range.oldFrom) * scale)
+
+        const newAbsFrom = rangeFrom + newRelFrom
+        const newAbsTo = rangeFrom + newRelTo
+
+        if (newAbsFrom >= newAbsTo) continue
+
+        store.addAnnotation({
+          documentId: prior.documentId,
+          type: prior.type,
+          from: newAbsFrom,
+          to: newAbsTo,
+          content: prior.content,
+          provenance: prior.provenance,
+          explanation: prior.explanation,
+        })
+      }
+    }
+  }
+
+  // --- Add annotations for newly-changed (added) words ---
   const addedSegments: { from: number; to: number; content: string }[] = []
   let charOffset = 0
   for (const segment of diff.new) {

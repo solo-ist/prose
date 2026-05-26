@@ -373,11 +373,25 @@ export function Editor() {
     }
   }, [editor, document.content, document.documentId])
 
-  // Register editor instance in store for cross-component access
+  // Register editor instance in store for cross-component access.
+  // On cleanup (HMR remount or unmount), snapshot any live AI suggestions into
+  // the suggestion store so the next mount can replay them via the existing
+  // restoreAISuggestions useEffect — without touching the autosave pipeline.
   useEffect(() => {
     setEditorInstance(editor)
-    return () => setEditorInstance(null)
-  }, [editor, setEditorInstance])
+    return () => {
+      setEditorInstance(null)
+      // Snapshot live suggestions for HMR replay (option 2 from issue #531).
+      // Only runs when there is an editor with an active document — skips
+      // clean unmounts where document.documentId is empty (e.g., empty state).
+      if (editor && document.documentId) {
+        const liveSuggestions = getAISuggestions(editor)
+        if (liveSuggestions.length > 0) {
+          useSuggestionStore.getState().snapshotSuggestions(document.documentId, liveSuggestions)
+        }
+      }
+    }
+  }, [editor, setEditorInstance, document.documentId])
 
   // Cache selection on selectionUpdate for read_selection fallback
   // This preserves the selection when chat input steals focus.

@@ -34,6 +34,13 @@ interface SuggestionPersistenceState {
 
   /** Delete suggestions from IndexedDB for a document */
   deleteSuggestions: (documentId: string) => Promise<void>
+
+  /**
+   * Snapshot live suggestions into memory so they survive an HMR remount.
+   * Called by Editor's cleanup on unmount; the existing restoreAISuggestions
+   * useEffect picks them up on the next mount without touching IndexedDB.
+   */
+  snapshotSuggestions: (documentId: string, suggestions: AISuggestionData[]) => void
 }
 
 export const useSuggestionStore = create<SuggestionPersistenceState>((set, get) => ({
@@ -86,5 +93,16 @@ export const useSuggestionStore = create<SuggestionPersistenceState>((set, get) 
     if (state.documentId === documentId) {
       set({ pendingSuggestions: [] })
     }
+  },
+
+  snapshotSuggestions: (documentId: string, suggestions: AISuggestionData[]) => {
+    if (suggestions.length === 0) return
+
+    console.log('[SuggestionStore] Snapshotting live suggestions for HMR replay:', {
+      documentId,
+      count: suggestions.length
+    })
+
+    set({ documentId, pendingSuggestions: suggestions })
   }
 }))

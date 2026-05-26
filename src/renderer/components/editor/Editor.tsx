@@ -2,6 +2,20 @@ import { useEffect, useLayoutEffect, useRef, useCallback, useState, useMemo } fr
 import { useEditor as useTipTapEditor, EditorContent } from '@tiptap/react'
 import { EditorState } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
+import { createLowlight } from 'lowlight'
+import javascript from 'highlight.js/lib/languages/javascript'
+import typescript from 'highlight.js/lib/languages/typescript'
+import json from 'highlight.js/lib/languages/json'
+import bash from 'highlight.js/lib/languages/bash'
+import python from 'highlight.js/lib/languages/python'
+import css from 'highlight.js/lib/languages/css'
+import xml from 'highlight.js/lib/languages/xml'
+import hlMarkdown from 'highlight.js/lib/languages/markdown'
+import rust from 'highlight.js/lib/languages/rust'
+import go from 'highlight.js/lib/languages/go'
+import sql from 'highlight.js/lib/languages/sql'
+import yaml from 'highlight.js/lib/languages/yaml'
 import Placeholder from '@tiptap/extension-placeholder'
 import Link from '@tiptap/extension-link'
 import Underline from '@tiptap/extension-underline'
@@ -49,6 +63,31 @@ import type { AISuggestionData } from '../../extensions/ai-suggestions/types'
 import { LinkPopover } from './LinkPopover'
 import { SourceEditor, SourceEditorHandle } from './SourceEditor'
 import { getApi } from '../../lib/browserApi'
+
+// Lowlight instance with a curated set of common languages.
+// Using individual imports (not the full `common` preset) keeps the bundle
+// smaller: ~12 grammars vs the 37-language common set.
+const lowlight = createLowlight()
+lowlight.register('javascript', javascript)
+lowlight.register('js', javascript)
+lowlight.register('typescript', typescript)
+lowlight.register('ts', typescript)
+lowlight.register('json', json)
+lowlight.register('bash', bash)
+lowlight.register('sh', bash)
+lowlight.register('shell', bash)
+lowlight.register('python', python)
+lowlight.register('py', python)
+lowlight.register('css', css)
+lowlight.register('html', xml)
+lowlight.register('xml', xml)
+lowlight.register('markdown', hlMarkdown)
+lowlight.register('md', hlMarkdown)
+lowlight.register('rust', rust)
+lowlight.register('go', go)
+lowlight.register('sql', sql)
+lowlight.register('yaml', yaml)
+lowlight.register('yml', yaml)
 
 export function Editor() {
   const { document, setContent, openFile, saveFile } = useEditor()
@@ -135,7 +174,11 @@ export function Editor() {
       StarterKit.configure({
         heading: {
           levels: [1, 2, 3, 4, 5, 6]
-        }
+        },
+        codeBlock: false
+      }),
+      CodeBlockLowlight.configure({
+        lowlight,
       }),
       Placeholder.configure({
         placeholder: 'Start writing...'

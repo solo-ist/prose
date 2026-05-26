@@ -1617,6 +1617,165 @@
   box-shadow: 0 0 0 1px hsl(var(--comment) / 0.7);
 }
 
+/* Syntax highlighting — highlight.js token colors for CodeBlockLowlight.
+   Light mode: GitHub-inspired palette. Dark mode: muted-but-readable tokens
+   that contrast against the dark code block background (hsl(var(--muted))). */
+
+/* Base code block reset */
+.prose-editor pre[class*="language-"] code,
+.prose-editor pre code.hljs {
+  background: none;
+  padding: 0;
+}
+
+/* Light mode token colors */
+.prose-editor .hljs-comment,
+.prose-editor .hljs-quote {
+  color: #6a737d;
+  font-style: italic;
+}
+
+.prose-editor .hljs-keyword,
+.prose-editor .hljs-selector-tag,
+.prose-editor .hljs-literal {
+  color: #d73a49;
+}
+
+.prose-editor .hljs-string,
+.prose-editor .hljs-doctag {
+  color: #032f62;
+}
+
+.prose-editor .hljs-number,
+.prose-editor .hljs-regexp,
+.prose-editor .hljs-variable,
+.prose-editor .hljs-template-variable {
+  color: #005cc5;
+}
+
+.prose-editor .hljs-built_in,
+.prose-editor .hljs-builtin-name {
+  color: #e36209;
+}
+
+.prose-editor .hljs-type,
+.prose-editor .hljs-class .hljs-title {
+  color: #6f42c1;
+}
+
+.prose-editor .hljs-attr,
+.prose-editor .hljs-attribute {
+  color: #005cc5;
+}
+
+.prose-editor .hljs-title,
+.prose-editor .hljs-section,
+.prose-editor .hljs-name {
+  color: #6f42c1;
+  font-weight: 600;
+}
+
+.prose-editor .hljs-function,
+.prose-editor .hljs-title.hljs-function {
+  color: #6f42c1;
+}
+
+.prose-editor .hljs-tag {
+  color: #22863a;
+}
+
+.prose-editor .hljs-meta,
+.prose-editor .hljs-meta .hljs-string {
+  color: #6a737d;
+}
+
+.prose-editor .hljs-addition {
+  color: #22863a;
+  background: #f0fff4;
+}
+
+.prose-editor .hljs-deletion {
+  color: #b31d28;
+  background: #ffeef0;
+}
+
+.prose-editor .hljs-emphasis {
+  font-style: italic;
+}
+
+.prose-editor .hljs-strong {
+  font-weight: 600;
+}
+
+/* Dark mode token overrides */
+.dark .prose-editor .hljs-comment,
+.dark .prose-editor .hljs-quote {
+  color: #8b949e;
+}
+
+.dark .prose-editor .hljs-keyword,
+.dark .prose-editor .hljs-selector-tag,
+.dark .prose-editor .hljs-literal {
+  color: #ff7b72;
+}
+
+.dark .prose-editor .hljs-string,
+.dark .prose-editor .hljs-doctag {
+  color: #a5d6ff;
+}
+
+.dark .prose-editor .hljs-number,
+.dark .prose-editor .hljs-regexp,
+.dark .prose-editor .hljs-variable,
+.dark .prose-editor .hljs-template-variable {
+  color: #79c0ff;
+}
+
+.dark .prose-editor .hljs-built_in,
+.dark .prose-editor .hljs-builtin-name {
+  color: #ffa657;
+}
+
+.dark .prose-editor .hljs-type,
+.dark .prose-editor .hljs-class .hljs-title {
+  color: #d2a8ff;
+}
+
+.dark .prose-editor .hljs-attr,
+.dark .prose-editor .hljs-attribute {
+  color: #79c0ff;
+}
+
+.dark .prose-editor .hljs-title,
+.dark .prose-editor .hljs-section,
+.dark .prose-editor .hljs-name {
+  color: #d2a8ff;
+}
+
+.dark .prose-editor .hljs-function,
+.dark .prose-editor .hljs-title.hljs-function {
+  color: #d2a8ff;
+}
+
+.dark .prose-editor .hljs-tag {
+  color: #7ee787;
+}
+
+.dark .prose-editor .hljs-meta,
+.dark .prose-editor .hljs-meta .hljs-string {
+  color: #8b949e;
+}
+
+.dark .prose-editor .hljs-addition {
+  color: #aff5b4;
+  background: rgba(46, 160, 67, 0.15);
+}
+
+.dark .prose-editor .hljs-deletion {
+  color: #ffdcd7;
+  background: rgba(248, 81, 73, 0.15);
+}
+
 /* Table styles */
 .prose-editor table.prose-table {
   border-collapse: collapse;

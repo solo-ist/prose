@@ -516,6 +516,11 @@ export interface ElectronAPI {
   downloadSkill?: () => Promise<{ success: boolean; error?: string }>
   // Build info
   isMasBuild?: boolean
+  // File watcher — Electron-only live reload support for the File Explorer
+  startWatchingDirectory?: (dirPath: string) => Promise<void>
+  stopWatchingDirectory?: () => Promise<void>
+  setWatchedExpandedFolders?: (folderPaths: string[]) => Promise<void>
+  onFileWatchEvent?: (callback: (event: { type: 'created' | 'deleted' | 'changed'; path: string }) => void) => () => void
   // Auto-updater
   onUpdateAvailable?: (callback: (info: { version: string; releaseNotes?: string }) => void) => () => void
   onDownloadProgress?: (callback: (progress: { percent: number }) => void) => () => void

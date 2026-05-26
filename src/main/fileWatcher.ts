@@ -6,7 +6,7 @@
  * disposed and a new one is started. File-system events are forwarded to the
  * renderer via IPC push events:
  *
- *   file:watch:event  — { type: 'created' | 'deleted', path: string }
+ *   file:watch:event  — { type: 'created' | 'deleted' | 'changed', path: string }
  *
  * Renames are reported as an unlink + add pair by chokidar (no native rename
  * event), so we don't model them separately. The renderer just reloads on
@@ -15,23 +15,30 @@
 
 import { ipcMain, BrowserWindow } from 'electron'
 import chokidar from 'chokidar'
-import { basename } from 'path'
+import { basename, isAbsolute, relative } from 'path'
 import { validatePath } from './ipc'
 
 export interface FileWatchEvent {
   // chokidar emits 'unlink' + 'add' for renames rather than a 'rename' event,
   // so we don't model 'renamed' explicitly — the renderer just reloads on any
   // event regardless of type.
-  type: 'created' | 'deleted'
+  type: 'created' | 'deleted' | 'changed'
   path: string
 }
 
-// The single active watcher (null when no directory is being watched).
+type ChokidarWatcher = ReturnType<typeof chokidar.watch>
+
+// The single active root watcher (null when no directory is being watched).
 // Single-window assumption: state is global; if Prose ever opens multiple
 // windows with different File Explorer roots, both will share one watcher
 // and broadcast each other's events. Revisit when adding multi-window.
-let activeWatcher: ReturnType<typeof chokidar.watch> | null = null
+let activeWatcher: ChokidarWatcher | null = null
 let watchedDirectory: string | null = null
+
+// Additional shallow watchers for expanded folders beneath watchedDirectory.
+// This keeps work bounded to visible tree state instead of recursively watching
+// the entire root directory.
+const expandedFolderWatchers = new Map<string, ChokidarWatcher>()
 
 /**
  * Serialize lifecycle operations on the watcher. Without this, fire-and-forget
@@ -58,40 +65,11 @@ function sendEvent(event: FileWatchEvent): void {
   }
 }
 
-/**
- * Stop and dispose the current watcher, if any.
- */
-async function stopWatcher(): Promise<void> {
-  if (activeWatcher) {
-    try {
-      await activeWatcher.close()
-    } catch {
-      // Ignore close errors
-    }
-    activeWatcher = null
-    watchedDirectory = null
-    console.log('[FileWatcher] Watcher stopped')
-  }
-}
-
-/**
- * Start watching a new directory. Disposes any existing watcher first.
- * Caller is responsible for path validation; this function takes an already-
- * normalized absolute path (the IPC handler runs validatePath upstream).
- */
-async function startWatcher(normalized: string): Promise<void> {
-  // No-op if we're already watching this exact directory
-  if (watchedDirectory === normalized) return
-
-  await stopWatcher()
-
-  console.log('[FileWatcher] Starting watcher for:', normalized)
-
+function createShallowWatcher(normalized: string): ChokidarWatcher {
   const watcher = chokidar.watch(normalized, {
-    // Watch only the immediate children of the directory, not subdirectories.
-    // The File Explorer uses lazy loading for subdirectories, so we only need
-    // to detect top-level changes to trigger a reload. Watching recursively
-    // would fire excessive events for large trees and is not needed.
+    // Watch only the immediate children of this directory, not subdirectories.
+    // The File Explorer uses lazy loading for subdirectories; expanded folders
+    // get their own shallow watcher when needed.
     depth: 0,
     // Ignore dotfiles — match only the LEAF segment, never an ancestor.
     // A naive `/(^|[/\\])\../` regex would suppress every event when the
@@ -118,6 +96,10 @@ async function startWatcher(normalized: string): Promise<void> {
     sendEvent({ type: 'created', path: dirPath })
   })
 
+  watcher.on('change', (filePath) => {
+    sendEvent({ type: 'changed', path: filePath })
+  })
+
   watcher.on('unlink', (filePath) => {
     sendEvent({ type: 'deleted', path: filePath })
   })
@@ -126,14 +108,96 @@ async function startWatcher(normalized: string): Promise<void> {
     sendEvent({ type: 'deleted', path: dirPath })
   })
 
-  // chokidar fires 'unlink' + 'add' for renames; we map that via the 'add'
-  // event above. No native 'rename' event needed — the renderer just reloads.
+  // chokidar fires 'unlink' + 'add' for renames; we map that via the events
+  // above. No native 'rename' event needed — the renderer just reloads.
 
   watcher.on('error', (error) => {
     console.error('[FileWatcher] Watcher error:', error)
   })
 
-  activeWatcher = watcher
+  return watcher
+}
+
+async function closeExpandedFolderWatchers(): Promise<void> {
+  const closes = Array.from(expandedFolderWatchers.values()).map(async (watcher) => {
+    try {
+      await watcher.close()
+    } catch {
+      // Ignore close errors
+    }
+  })
+  expandedFolderWatchers.clear()
+  await Promise.all(closes)
+}
+
+function isWatchableExpandedFolder(dirPath: string): boolean {
+  if (!watchedDirectory || dirPath === watchedDirectory) return false
+  const relativePath = relative(watchedDirectory, dirPath)
+  return relativePath !== '' && !relativePath.startsWith('..') && !isAbsolute(relativePath)
+}
+
+async function syncExpandedFolderWatchers(expandedFolders: string[]): Promise<void> {
+  if (!watchedDirectory) {
+    await closeExpandedFolderWatchers()
+    return
+  }
+
+  const nextExpandedFolders = new Set(
+    expandedFolders.filter(isWatchableExpandedFolder)
+  )
+
+  const closeRemoved = Array.from(expandedFolderWatchers.entries()).map(
+    async ([dirPath, watcher]) => {
+      if (nextExpandedFolders.has(dirPath)) return
+      expandedFolderWatchers.delete(dirPath)
+      try {
+        await watcher.close()
+      } catch {
+        // Ignore close errors
+      }
+      console.log('[FileWatcher] Expanded folder watcher stopped:', dirPath)
+    }
+  )
+  await Promise.all(closeRemoved)
+
+  for (const dirPath of nextExpandedFolders) {
+    if (expandedFolderWatchers.has(dirPath)) continue
+    console.log('[FileWatcher] Starting expanded folder watcher for:', dirPath)
+    expandedFolderWatchers.set(dirPath, createShallowWatcher(dirPath))
+  }
+}
+
+/**
+ * Stop and dispose the current watcher, if any.
+ */
+async function stopWatcher(): Promise<void> {
+  await closeExpandedFolderWatchers()
+  if (activeWatcher) {
+    try {
+      await activeWatcher.close()
+    } catch {
+      // Ignore close errors
+    }
+    activeWatcher = null
+    watchedDirectory = null
+    console.log('[FileWatcher] Watcher stopped')
+  }
+}
+
+/**
+ * Start watching a new directory. Disposes any existing watcher first.
+ * Caller is responsible for path validation; this function takes an already-
+ * normalized absolute path (the IPC handler runs validatePath upstream).
+ */
+async function startWatcher(normalized: string): Promise<void> {
+  // No-op if we're already watching this exact directory
+  if (watchedDirectory === normalized) return
+
+  await stopWatcher()
+
+  console.log('[FileWatcher] Starting watcher for:', normalized)
+
+  activeWatcher = createShallowWatcher(normalized)
   watchedDirectory = normalized
 }
 
@@ -144,6 +208,7 @@ async function startWatcher(normalized: string): Promise<void> {
  * Channels:
  *   file:watch:start  (invokable) — start watching a directory
  *   file:watch:stop   (invokable) — stop the current watcher
+ *   file:watch:set-expanded-folders (invokable) — sync expanded folder paths
  */
 export function setupFileWatcherHandlers(): void {
   ipcMain.handle('file:watch:start', async (_event, dirPath: string) => {
@@ -163,6 +228,21 @@ export function setupFileWatcherHandlers(): void {
 
   ipcMain.handle('file:watch:stop', async () => {
     await enqueueWatcherOp(() => stopWatcher())
+  })
+
+  ipcMain.handle('file:watch:set-expanded-folders', async (_event, folderPaths: string[]) => {
+    if (!Array.isArray(folderPaths)) return
+    const normalizedPaths: string[] = []
+    for (const folderPath of folderPaths) {
+      if (!folderPath || typeof folderPath !== 'string') continue
+      try {
+        normalizedPaths.push(validatePath(folderPath))
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        console.warn('[FileWatcher] Rejected expanded folder path:', folderPath, '—', message)
+      }
+    }
+    await enqueueWatcherOp(() => syncExpandedFolderWatchers(normalizedPaths))
   })
 }
 

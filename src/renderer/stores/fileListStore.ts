@@ -56,6 +56,59 @@ function mergeExpandedChildren(
   return merge(newFiles)
 }
 
+function collectVisibleExpandedFolderPaths(
+  files: FileItem[],
+  expandedFolders: Set<string>
+): string[] {
+  const paths: string[] = []
+
+  const walk = (items: FileItem[]): void => {
+    for (const item of items) {
+      if (!item.isDirectory || !expandedFolders.has(item.path)) continue
+      paths.push(item.path)
+      if (item.children) walk(item.children)
+    }
+  }
+
+  walk(files)
+  return paths
+}
+
+function syncWatchedExpandedFolders(
+  files: FileItem[],
+  expandedFolders: Set<string>
+): void {
+  if (!window.api?.setWatchedExpandedFolders) return
+
+  window.api.setWatchedExpandedFolders(
+    collectVisibleExpandedFolderPaths(files, expandedFolders)
+  ).catch((err: unknown) => {
+    console.error('[FileListStore] Failed to sync expanded folder watchers:', err)
+  })
+}
+
+function isDescendantPath(path: string, folderPath: string): boolean {
+  return path.startsWith(`${folderPath}/`) || path.startsWith(`${folderPath}\\`)
+}
+
+function findDeepestVisibleExpandedAncestor(
+  path: string,
+  files: FileItem[],
+  expandedFolders: Set<string>
+): string | null {
+  const visibleExpandedFolders = collectVisibleExpandedFolderPaths(files, expandedFolders)
+  let deepest: string | null = null
+
+  for (const folderPath of visibleExpandedFolders) {
+    if (!isDescendantPath(path, folderPath)) continue
+    if (!deepest || folderPath.length > deepest.length) {
+      deepest = folderPath
+    }
+  }
+
+  return deepest
+}
+
 interface FileListState {
   // Panel state
   isPanelOpen: boolean
@@ -223,18 +276,52 @@ export const useFileListStore = create<FileListState>()(
       }
 
       let reloadTimeout: ReturnType<typeof setTimeout> | null = null
+      let pendingEventPaths: string[] = []
 
-      const unsubscribe = window.api.onFileWatchEvent((_event) => {
+      const unsubscribe = window.api.onFileWatchEvent((event) => {
         const { viewMode, rootPath } = get()
         // Only react in folder view — other views don't use the file tree
         if (viewMode !== 'folder' || !rootPath) return
 
         // Debounce: batch rapid file-system events (e.g., editor save = unlink + write)
         // into a single reload 150ms after the last event.
+        pendingEventPaths.push(event.path)
         if (reloadTimeout !== null) clearTimeout(reloadTimeout)
-        reloadTimeout = setTimeout(() => {
+        reloadTimeout = setTimeout(async () => {
           reloadTimeout = null
-          get().loadFiles()
+          const eventPaths = pendingEventPaths
+          pendingEventPaths = []
+          const {
+            files,
+            expandedFolders,
+            loadFiles,
+            loadFolderChildren
+          } = get()
+          const expandedFoldersToReload = new Set<string>()
+          let shouldReloadRoot = false
+
+          for (const path of eventPaths) {
+            const expandedAncestor = findDeepestVisibleExpandedAncestor(
+              path,
+              files,
+              expandedFolders
+            )
+
+            if (expandedAncestor) {
+              expandedFoldersToReload.add(expandedAncestor)
+            } else {
+              shouldReloadRoot = true
+            }
+          }
+
+          if (shouldReloadRoot) {
+            await loadFiles()
+          }
+          await Promise.all(
+            Array.from(expandedFoldersToReload, (folderPath) =>
+              loadFolderChildren(folderPath)
+            )
+          )
         }, 150)
       })
 
@@ -328,9 +415,11 @@ export const useFileListStore = create<FileListState>()(
         // collapses/reopens) for not bursting IPC reads on every event.
         const merged = mergeExpandedChildren(fresh, oldFiles, expandedFolders)
         set({ files: merged, isLoading: false })
+        syncWatchedExpandedFolders(merged, expandedFolders)
       } catch (error) {
         console.error('Failed to load files:', error)
         set({ files: [], isLoading: false })
+        syncWatchedExpandedFolders([], expandedFolders)
       }
     },
 
@@ -363,7 +452,9 @@ export const useFileListStore = create<FileListState>()(
           })
         }
 
-        set({ files: updateFolder(files) })
+        const updatedFiles = updateFolder(files)
+        set({ files: updatedFiles })
+        syncWatchedExpandedFolders(updatedFiles, get().expandedFolders)
       } catch (error) {
         console.error('Failed to load folder children:', error)
       } finally {
@@ -477,6 +568,7 @@ export const useFileListStore = create<FileListState>()(
       }
 
       set({ expandedFolders: newExpanded })
+      syncWatchedExpandedFolders(get().files, newExpanded)
     },
 
     setExpanded: (path, expanded) => {
@@ -488,6 +580,7 @@ export const useFileListStore = create<FileListState>()(
         newExpanded.delete(path)
       }
       set({ expandedFolders: newExpanded })
+      syncWatchedExpandedFolders(get().files, newExpanded)
     },
 
     revealAndSelectPath: (path: string) => {
@@ -542,6 +635,7 @@ export const useFileListStore = create<FileListState>()(
       }
 
       set({ expandedFolders: newExpanded, selectedPath: targetPath })
+      syncWatchedExpandedFolders(get().files, newExpanded)
     }
   }))
 )

@@ -287,7 +287,8 @@ export interface ElectronAPI {
   // File watcher — subscribe to filesystem events for the File Explorer
   startWatchingDirectory: (dirPath: string) => Promise<void>
   stopWatchingDirectory: () => Promise<void>
-  onFileWatchEvent: (callback: (event: { type: 'created' | 'deleted'; path: string }) => void) => () => void
+  setWatchedExpandedFolders: (folderPaths: string[]) => Promise<void>
+  onFileWatchEvent: (callback: (event: { type: 'created' | 'deleted' | 'changed'; path: string }) => void) => () => void
   // Appearance: live dock icon swap (macOS only; no-op on other platforms)
   setAppIcon: (iconId: IconId) => Promise<void>
 }
@@ -558,8 +559,9 @@ const api: ElectronAPI = {
   // File watcher — subscribe to filesystem events for the File Explorer
   startWatchingDirectory: (dirPath: string) => ipcRenderer.invoke('file:watch:start', dirPath),
   stopWatchingDirectory: () => ipcRenderer.invoke('file:watch:stop'),
-  onFileWatchEvent: (callback: (event: { type: 'created' | 'deleted'; path: string }) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, fileEvent: { type: 'created' | 'deleted'; path: string }): void => {
+  setWatchedExpandedFolders: (folderPaths: string[]) => ipcRenderer.invoke('file:watch:set-expanded-folders', folderPaths),
+  onFileWatchEvent: (callback: (event: { type: 'created' | 'deleted' | 'changed'; path: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, fileEvent: { type: 'created' | 'deleted' | 'changed'; path: string }): void => {
       callback(fileEvent)
     }
     ipcRenderer.on('file:watch:event', handler)

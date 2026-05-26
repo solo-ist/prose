@@ -6,12 +6,16 @@ OpenAI Codex and other non-Claude agents use `AGENTS.md` as their repository ent
 Claude agents should also read `AGENTS.md` for shared cross-agent coordination rules, then use
 this file for Claude-specific workflows, skills, and deeper project context.
 
+## Roadmap & Planning — read `docs/roadmap.md` first
+
+**Before any planning, prioritization, sequencing, or parallelization work** — including "what should we work on / what's next," scoping a wave or epic, or proposing how to split work across agents — **read [`docs/roadmap.md`](docs/roadmap.md) first.** It is the canonical, resumable source of truth for *what* we're building, *in what order* (the wave model), and *how the work is parallelized* (the three concurrent Wave 1 tracks and the **A→B→C merge ladder**). The sequencing and parallelization strategy already lives there — build on it, don't reinvent it. The [project board (#5)](https://github.com/orgs/solo-ist/projects/5/views/1) is the live queue; the roadmap is the narrative + operating model (column = phase, milestone = wave). It changes frequently, so **read the current version**: if your branch may be behind `main`, run `git fetch origin` and read `git show origin/main:docs/roadmap.md` (or sync first) — a stale worktree can show an outdated or even retired roadmap.
+
 ## Development Environment
 
 This project uses an **agentic, multi-agent development workflow**:
 
 - **Multiple Claude Code agents** may run simultaneously on the same machine — across terminal sessions, git worktrees, different branches, or different repos. Never assume you're the only agent running.
-- **Prefer Agent Teams and git worktrees** for parallelizing independent work. Use `isolation: "worktree"` when spawning agents that need to make changes without conflicting with the main working tree. This avoids branch conflicts and lets multiple agents write code simultaneously.
+- **Prefer Agent Teams and git worktrees** for parallelizing independent work. Use `isolation: "worktree"` when spawning agents that need to make changes without conflicting with the main working tree. This avoids branch conflicts and lets multiple agents write code simultaneously. **Branch new worktrees off freshly-fetched `origin/main`** (`git fetch origin` first) — a worktree cut from a stale base shows outdated docs, including an old `roadmap.md`.
 - **Worktree git commands**: Always use `git -C <worktree-path> <subcommand>` instead of `cd <path> && git <subcommand>`. Single commands match the `Bash(git:*)` allowlist; compound `cd && git` chains get flagged for manual approval, which blocks unattended agents.
 - **Cloud agents** (via GitHub Actions) handle PR reviews, automated fixes, and pipeline triage. Local agents handle implementation, QA, and complex features.
 - **The CI pipeline is self-enhancing** — automated review (`claude.yml`), scoring (`pipeline-triage.yml`), and auto-fix (`ci-gate.yml`) run on every PR. Skills and workflows evolve alongside the codebase.
@@ -37,9 +41,10 @@ npm run build:linux  # Build Linux distributable
 
 Before writing any code, complete this checklist:
 
-1. **Branch**: Create or switch to issue branch: `git checkout -b issue-<number>-<description>`
-2. **Docs**: For complex issues, create `docs/issues/<number>/plan.md`
-3. **Verify**: Run `git branch --show-current` to confirm you're not on `main`
+1. **Roadmap**: Read [`docs/roadmap.md`](docs/roadmap.md) — confirm where the issue sits (wave / track) and how it sequences against other work. (Mandatory for any planning/sequencing/parallelization task.)
+2. **Branch**: Create or switch to issue branch: `git checkout -b issue-<number>-<description>`
+3. **Docs**: For complex issues, create `docs/issues/<number>/plan.md`
+4. **Verify**: Run `git branch --show-current` to confirm you're not on `main`
 
 ## Before Presenting Work for Review
 

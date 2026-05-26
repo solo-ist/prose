@@ -35,8 +35,12 @@ Key areas:
 - `src/renderer/` - React app, TipTap editor, Zustand stores, UI components.
 - `src/shared/` - Shared schemas, tools, LLM utilities, and cross-process types.
 - `src/mcp-stdio/` - Stdio MCP server used by Claude Desktop.
-- `docs/` - Architecture notes, patterns, issue plans, troubleshooting, and release docs.
+- `docs/` - Architecture notes, patterns, issue plans, troubleshooting, release docs, and `docs/roadmap.md` (the canonical roadmap + operating model).
 - `.claude/` - Claude Code settings, hooks, and skills. Do not treat these as Codex configuration.
+
+## Roadmap & Planning
+
+Before any planning, prioritization, sequencing, or parallelization work — including "what to work on next," scoping a wave or epic, or splitting work across agents — read [`docs/roadmap.md`](docs/roadmap.md) first. It is the canonical, resumable source for what is being built, in what order (the wave model), and how work is parallelized (three concurrent Wave 1 tracks on an A→B→C merge ladder). The strategy already exists there; build on it rather than reinventing it. Project board #5 is the live queue; the roadmap is the narrative and operating model. It changes frequently, so read the current version — if your branch may be behind `main`, run `git fetch origin` and read `git show origin/main:docs/roadmap.md` rather than a possibly-stale worktree copy. Branch new worktrees off freshly-fetched `origin/main`.
 
 ## Commands
 

@@ -12,7 +12,7 @@ import { useAnnotationStore } from '../../../extensions/ai-annotations'
 import { createWordDiffAnnotations } from '../../diffUtils'
 import { findNodeById, findNodeByContent, getNodesWithIds, flattenNodes } from '../../../extensions/node-ids'
 import { generateId } from '../../persistence'
-import { getAISuggestions } from '../../../extensions/ai-suggestions'
+import { getAISuggestions, parseMarkdownToSlice } from '../../../extensions/ai-suggestions'
 import { parseMarkdown, FRONTMATTER_REGEX } from '../../markdown'
 import { load as parseYaml } from 'js-yaml'
 
@@ -458,6 +458,51 @@ export async function executeInsert(
       insertFrom =
         position === 'after_node' ? found.pos + found.node.nodeSize : found.pos
       insertTo = insertFrom
+
+      // Block-anchor insert: `insertFrom` is a between-block-nodes position at
+      // document depth. Routing through setTextSelection + insertContent would
+      // resolve that position to the nearest text cursor — biasing toward the
+      // anchor heading's inline content when the heading is the last block, or
+      // when bias resolution happens to snap backward. The inserted markdown
+      // would then land INSIDE the heading node (inheriting heading styling).
+      //
+      // Fix (#571): bypass the selection-based path entirely for after_node /
+      // before_node. Parse the markdown text into a proper ProseMirror Slice
+      // using the same parseMarkdownToSlice helper used by suggestion acceptance
+      // (#578). Then dispatch a direct tr.insert() at the exact between-block
+      // position, which guarantees the content is placed as a sibling block
+      // rather than merged into the anchor heading's inline content.
+      //
+      // When the parser is unavailable (tests / edge case), fall through to
+      // applyInsertion so there is always a useful result.
+      {
+        const slice = parseMarkdownToSlice(editor, editor.state.schema, text)
+        if (slice) {
+          const sizeBefore = editor.state.doc.content.size
+          editor.view.dispatch(editor.state.tr.insert(insertFrom, slice.content))
+          const sizeAfter = editor.state.doc.content.size
+
+          if (provenance && provenance.documentId && text.length > 0) {
+            const insertedSize = (sizeAfter - sizeBefore) + (insertTo - insertFrom)
+            createWordDiffAnnotations({
+              documentId: provenance.documentId,
+              originalText: '',
+              newText: text,
+              rangeFrom: insertFrom,
+              rangeTo: insertFrom + insertedSize,
+              provenance: {
+                model: provenance.model,
+                conversationId: provenance.conversationId,
+                messageId: provenance.messageId,
+              },
+              explanation: comment,
+            })
+          }
+
+          return toolSuccess({ inserted: true, position })
+        }
+        // Parser unavailable — fall through to the generic applyInsertion path.
+      }
       break
     }
     case 'cursor':

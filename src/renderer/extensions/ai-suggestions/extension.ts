@@ -29,13 +29,14 @@ function isMultiBlock(text: string): boolean {
 /**
  * Parse a markdown string into a ProseMirror Slice using the editor's
  * configured tiptap-markdown parser, preserving block structure (paragraphs,
- * headings, lists, etc.). Used only for multi-block acceptance so that
- * inline accepts keep the existing schema.text() path byte-for-byte.
+ * headings, lists, etc.). Used for multi-block suggestion acceptance and for
+ * block-anchor insertions (after_node / before_node) so that content is placed
+ * as a document-level sibling rather than being absorbed into the anchor node.
  *
  * Returns null if the editor doesn't have a markdown parser in storage
  * (e.g., during tests) so callers can fall back to the text path.
  */
-function parseMarkdownToSlice(editor: Editor, schema: Schema, text: string): Slice | null {
+export function parseMarkdownToSlice(editor: Editor, schema: Schema, text: string): Slice | null {
   const parser = editor.storage?.markdown?.parser
   if (!parser || typeof parser.parse !== 'function') return null
 

@@ -215,6 +215,7 @@ Zustand stores in `src/renderer/stores/`:
 - `summaryStore` - AI-generated document summaries, staleness tracking
 - `commandHistoryStore` - Per-tool argument history, persisted to IndexedDB
 - `linkHoverStore` - Currently hovered link URL for tooltip
+- `notificationStore` - Bespoke in-app toasts (the app uses no toast library; rendered by `components/layout/Notifications.tsx`)
 
 ### Feature Flags
 
@@ -244,6 +245,8 @@ Client-side persistence uses IndexedDB (`src/renderer/lib/persistence.ts`). When
 **Anthropic is the only provider.** All legacy multi-provider code (OpenAI, OpenRouter, Ollama) has been removed. The `Settings` type defines `provider: 'anthropic'` only.
 
 LLM calls flow: `useChat` hook → `getApi().llmChatStream()` → IPC → main process → Anthropic SDK (with tools) or Vercel AI SDK (without)
+
+**Gating AI entry points:** any UI or background path that triggers an LLM call must gate on the single source of truth in `lib/llm.ts` — `isAIConfigured(settings)` / `aiAvailability(settings)` (consent **and** valid config), or the `useAIConfigured()` hook in components. Disable user-initiated controls with an explanation when unavailable, fire `notifyAINotConfigured()` for blocked actions whose surface may be hidden, and silently no-op auto-fired calls (e.g. summaries). Never destroy user content (comments, suggestions) on a blocked call.
 
 Tool pipeline, stream lifecycle, and tool modes: see `docs/architecture/llm-pipeline.md`.
 

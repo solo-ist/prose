@@ -51,21 +51,22 @@ Group **open items only** by status column and present the current state:
 |--------|---------|
 | **User Requested** | Feature requests from users — needs triage into another column |
 | **Do First** | Highest priority — work on these now |
-| **In Progress** | Actively being worked on by a human or agent |
 | **Do Next** | Next up after current work completes |
 | **Later** | Backlog — not yet prioritized |
 | **Quick Wins** | Low-effort items that can ship alongside bigger work |
 | **On Hold** | Blocked or waiting on external factors |
 
+There is no "In Progress" column — detect in-flight work via open PRs and `issue-<number>-*` branches, not a board status.
+
 Flag any column imbalances:
 - "Do First" is empty → refill from "Do Next"
 - "Do First" is overloaded (5+ items) → suggest narrowing focus
-- "In Progress" has items with no recent activity → flag as potentially stale
+- In-flight work (an item with a linked open PR or `issue-<number>-*` branch) has gone quiet → flag as potentially stale
 - "User Requested" has untriaged items → flag for review
 
 ### 3. Assess Readiness
 
-For each item in "Do First", "In Progress", and "Do Next", evaluate:
+For each item in "Do First" and "Do Next", evaluate:
 
 - **Well-defined?** Has a description with clear scope, or needs decomposition
 - **Blocked?** Dependencies on other issues, external factors, or missing information
@@ -76,7 +77,7 @@ For each item in "Do First", "In Progress", and "Do Next", evaluate:
 
 Apply these prioritization heuristics in order:
 
-1. **Board order is primary signal** — "Do First" > "In Progress" > "Do Next" > "Quick Wins"
+1. **Board order is primary signal** — "Do First" > "Do Next" > "Quick Wins"
 2. **Bugs before features** — bugs degrade existing experience
 3. **Launch blockers first** — if release is approaching, these gate shipping
 4. **Quick wins pair well** — a small fix alongside a bigger feature maintains momentum
@@ -93,8 +94,7 @@ Output a structured recommendation:
 ### Board Overview
 | Column | Count | Notes |
 |--------|-------|-------|
-| Do First | 3 | All well-defined |
-| In Progress | 1 | #127 — active |
+| Do First | 3 | #127 has an open PR (in flight) |
 | Do Next | 4 | #55 needs decomposition |
 | Quick Wins | 3 | Ready to ship |
 | ... | | |

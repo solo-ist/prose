@@ -47,7 +47,7 @@ For each open issue, check if it's likely completed:
 
 - **Linked merged PRs**: Issue referenced in a merged PR's body or commit messages
 - **Closed branches**: An `issue-<number>-*` branch exists but the issue is open
-- **Stale "In Progress"**: On the board as In Progress but no activity in 30+ days
+- **Stale in-flight work**: A linked open PR or `issue-<number>-*` branch exists but the issue has had no activity in 30+ days (may have been quietly merged or abandoned)
 
 Flag these as candidates for closing. Do NOT close automatically.
 
@@ -140,13 +140,12 @@ Current status options on the Prose Roadmap board:
 |--------|---------|
 | **User Requested** | Feature requests from users — needs triage |
 | **Do First** | Highest priority — work on these now |
-| **In Progress** | Actively being worked on by a human or agent |
 | **Do Next** | Next up after current work completes |
 | **Later** | Backlog — not yet prioritized |
 | **Quick Wins** | Low effort, high value — ship alongside bigger work |
 | **On Hold** | Blocked or paused |
 
-There is **no Done/terminal column** — every option above is an active-work bucket. When an issue is closed or its PR merges, archive its board item (`gh project item-archive`); do not leave it sitting in an active column, and do not delete it.
+There is **no Done/terminal column** — every option above is an active-work bucket — and **no "In Progress" column**; track in-flight work via open PRs and `issue-<number>-*` branches, not a board status. When an issue is closed or its PR merges, archive its board item (`gh project item-archive`); do not leave it sitting in an active column, and do not delete it.
 
 ## Dangerous Operations — DO NOT USE
 

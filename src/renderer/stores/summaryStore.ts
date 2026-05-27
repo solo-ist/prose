@@ -7,6 +7,7 @@ import {
 } from '../lib/persistence'
 import { useSettingsStore } from './settingsStore'
 import { getApi } from '../lib/browserApi'
+import { isAIConfigured } from '../lib/llm'
 
 interface SummaryState {
   summary: string | null
@@ -56,8 +57,11 @@ export const useSummaryStore = create<SummaryState>()((set, get) => ({
     if (!content || content.trim().length === 0) return
     if (get().isGenerating) return
 
+    // Auto-fired on doc open from many call sites — silently no-op when AI
+    // isn't usable (no consent or no valid config) instead of firing a
+    // doomed request. Shared check so this agrees with every other entry point.
     const { settings } = useSettingsStore.getState()
-    if (!settings.llm.apiKey) return
+    if (!isAIConfigured(settings)) return
 
     set({ isGenerating: true, error: null, generatingForDocumentId: documentId })
 

@@ -8,6 +8,8 @@ import { createPortal } from 'react-dom'
 import type { Editor } from '@tiptap/core'
 import { Trash2, X, Sparkles } from 'lucide-react'
 import { useChat } from '../hooks/useChat'
+import { useAIConfigured } from '../hooks/useAIConfigured'
+import { aiUnavailableMessage } from '../lib/llm'
 
 interface CommentPopoverProps {
   editor: Editor
@@ -30,6 +32,7 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
   const [adjustedPosition, setAdjustedPosition] = useState<{ x: number; y: number } | null>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
   const { processComment } = useChat()
+  const ai = useAIConfigured()
 
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {
@@ -141,7 +144,11 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
       <div className="comment-label">Comment:</div>
       <div className="comment-text">{popover.commentText}</div>
       <div className="actions">
-        <button className="process-btn" onClick={handleProcess}>
+        <button
+          className="process-btn"
+          onClick={handleProcess}
+          disabled={!ai.available}
+        >
           <Sparkles size={16} />
           Process
         </button>
@@ -154,6 +161,9 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
           Close
         </button>
       </div>
+      {!ai.available && ai.reason && (
+        <div className="ai-hint">{aiUnavailableMessage(ai.reason)}</div>
+      )}
     </div>,
     document.body
   )

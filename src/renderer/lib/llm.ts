@@ -76,6 +76,44 @@ export function validateConfig(config: Settings['llm']): string | null {
   return null
 }
 
+/** Why AI can't be used right now, or `null` when it can. */
+export type AIUnavailableReason = 'no-consent' | 'no-config'
+
+export interface AIAvailability {
+  available: boolean
+  reason: AIUnavailableReason | null
+}
+
+/**
+ * Single source of truth for "can the app make an AI request right now."
+ * AI is available only when the user has consented to AI data disclosure
+ * AND the LLM config validates (model + API key present). Every AI entry
+ * point — chat send, comment/suggestion processing, auto-summaries — should
+ * gate on this instead of ad-hoc `!!apiKey` / `validateConfig` checks so they
+ * all agree on the same answer (and so the user gets one consistent message).
+ *
+ * Consent is requested by a launch-time modal independent of these controls,
+ * so gating on it here never traps a user: declining consent disables AI
+ * controls, and re-enabling lives in Settings.
+ */
+export function aiAvailability(settings: Settings): AIAvailability {
+  if (!settings.aiConsent?.consented) return { available: false, reason: 'no-consent' }
+  if (validateConfig(settings.llm) !== null) return { available: false, reason: 'no-config' }
+  return { available: true, reason: null }
+}
+
+/** Boolean convenience wrapper around {@link aiAvailability}. */
+export function isAIConfigured(settings: Settings): boolean {
+  return aiAvailability(settings).available
+}
+
+/** User-facing copy for why AI is unavailable. Used by tooltips and toasts. */
+export function aiUnavailableMessage(reason: AIUnavailableReason): string {
+  return reason === 'no-consent'
+    ? 'AI features are turned off. Enable them in Settings (⌘,) to use the assistant.'
+    : 'AI isn’t configured. Add an API key in Settings (⌘,) to use the assistant.'
+}
+
 /**
  * Comprehensive configuration validation with warnings.
  */

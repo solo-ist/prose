@@ -3,7 +3,8 @@ import { useChatStore, createMessageId, type ToolMode } from '../stores/chatStor
 import { useSettingsStore } from '../stores/settingsStore'
 import { useEditorStore } from '../stores/editorStore'
 import { useEditorInstanceStore } from '../stores/editorInstanceStore'
-import { validateConfig } from '../lib/llm'
+import { aiAvailability, aiUnavailableMessage } from '../lib/llm'
+import { notifyAINotConfigured } from '../lib/notifyAI'
 import { buildSystemPrompt, buildCommentsPrompt, buildSuggestionRepliesPrompt } from '../lib/prompts'
 import { getApi } from '../lib/browserApi'
 import { getComments } from '../extensions/comments'
@@ -522,33 +523,24 @@ export function useChat() {
         addConversation(document.documentId)
       }
 
-      // Check AI consent before making any API calls
-      if (!settings.aiConsent?.consented) {
-        const consentMsgId = createMessageId()
+      // Gate every AI request on the single availability check (consent +
+      // valid config). On a blocked path, record the reason in the chat AND
+      // fire a visible toast — the chat panel may be closed when this is
+      // triggered from a comment/suggestion action, which is the #631 gap
+      // where the user saw no feedback at all. Returning false lets callers
+      // (processComment/processComments/processSuggestionReplies) preserve the
+      // user's content instead of deleting it.
+      const availability = aiAvailability(settings)
+      if (!availability.available && availability.reason) {
         addMessage({
-          id: consentMsgId,
+          id: createMessageId(),
           role: 'assistant',
-          content: 'AI features are not enabled. Enable them in Settings → LLM to use the assistant.',
+          content: aiUnavailableMessage(availability.reason),
           timestamp: new Date()
         })
+        notifyAINotConfigured()
         return false
       }
-
-      // Validate config first
-      console.log('[useChat] Validating config:', settings.llm?.provider, settings.llm?.model)
-      const configError = validateConfig(settings.llm)
-      if (configError) {
-        console.log('[useChat] Config error:', configError)
-        const errorMsgId = createMessageId()
-        addMessage({
-          id: errorMsgId,
-          role: 'assistant',
-          content: `${configError}. Please configure your API settings (Cmd+,).`,
-          timestamp: new Date()
-        })
-        return false
-      }
-      console.log('[useChat] Config validated successfully')
 
       // Get context from store and clear it
       const messageContext = context

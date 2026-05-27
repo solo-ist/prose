@@ -10,13 +10,15 @@ import { useNotificationStore, type AppNotification } from '../../stores/notific
  */
 function Toast({ notification }: { notification: AppNotification }) {
   const dismiss = useNotificationStore((s) => s.dismiss)
-  const { id, message, actionLabel, onAction, durationMs } = notification
+  const { id, message, actionLabel, onAction, durationMs, triggeredAt } = notification
 
+  // `triggeredAt` changes when an existing toast (same id) is re-triggered, so
+  // the timer restarts from the latest trigger instead of the first.
   useEffect(() => {
     if (!durationMs) return
     const timer = setTimeout(() => dismiss(id), durationMs)
     return () => clearTimeout(timer)
-  }, [id, durationMs, dismiss])
+  }, [id, durationMs, triggeredAt, dismiss])
 
   return (
     <div

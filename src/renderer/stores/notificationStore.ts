@@ -9,13 +9,16 @@ export interface AppNotification {
   onAction?: () => void
   /** ms before auto-dismiss. 0 / undefined keeps it until dismissed. */
   durationMs?: number
+  /** Stamp set on every show/refresh so the renderer can reset its dismiss
+   *  timer when an existing toast (same id) is re-triggered. Set internally. */
+  triggeredAt: number
 }
 
 interface NotificationState {
   notifications: AppNotification[]
   /** Show a toast. Returns its id. Passing an existing id refreshes that toast
-   *  in place instead of stacking a duplicate. */
-  notify: (n: Omit<AppNotification, 'id'> & { id?: string }) => string
+   *  in place (and resets its timer) instead of stacking a duplicate. */
+  notify: (n: Omit<AppNotification, 'id' | 'triggeredAt'> & { id?: string }) => string
   dismiss: (id: string) => void
 }
 
@@ -31,7 +34,12 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   notifications: [],
   notify: ({ id, durationMs, ...rest }) => {
     const notifId = id ?? `notif-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const next: AppNotification = { id: notifId, durationMs: durationMs ?? DEFAULT_DURATION_MS, ...rest }
+    const next: AppNotification = {
+      id: notifId,
+      durationMs: durationMs ?? DEFAULT_DURATION_MS,
+      triggeredAt: Date.now(),
+      ...rest
+    }
     const exists = get().notifications.some((n) => n.id === notifId)
     set((s) => ({
       notifications: exists

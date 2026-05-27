@@ -14,7 +14,7 @@ import { MessageSquare, History, Plus, Trash2, Sparkles, Info, Loader2 } from 'l
 import { useChatStore } from '../../stores/chatStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
-import { useSettingsStore } from '../../stores/settingsStore'
+import { useAIConfigured } from '../../hooks/useAIConfigured'
 import { useReviewStore, useReviewMode } from '../../stores/reviewStore'
 import { useSummaryStore } from '../../stores/summaryStore'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
@@ -42,7 +42,7 @@ export function ChatPanel() {
 
   // Summary store
   const { summary, isGenerating, isStale, error, loadForDocument: loadSummary, generateSummary } = useSummaryStore()
-  const hasApiKey = useSettingsStore((s) => !!s.settings.llm.apiKey)
+  const aiAvailable = useAIConfigured().available
 
   // Reading time
   const wordCount = document.content.split(/\s+/).filter((w: string) => w.length > 0).length
@@ -58,13 +58,13 @@ export function ChatPanel() {
 
   // Auto-generate if panel is open and no summary or stale
   useEffect(() => {
-    if (!infoOpen || isGenerating || !hasApiKey) return
+    if (!infoOpen || isGenerating || !aiAvailable) return
     if (!summary || isStale) {
       const content = useEditorStore.getState().document.content
       if (!content?.trim()) return
       generateSummary(document.documentId, content)
     }
-  }, [infoOpen, summary, isStale, isGenerating, hasApiKey, document.documentId, generateSummary])
+  }, [infoOpen, summary, isStale, isGenerating, aiAvailable, document.documentId, generateSummary])
 
   // Listen for the "Switch & Run" button in request_mode_switch tool
   // results. Renderer dispatches a CustomEvent so it doesn't have to

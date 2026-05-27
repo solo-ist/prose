@@ -134,7 +134,7 @@ export function setupIpcHandlers(): void {
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],
       filters: [
-        { name: 'Markdown', extensions: ['md', 'markdown', 'txt'] },
+        { name: 'Documents', extensions: ['md', 'markdown', 'txt', 'html', 'htm'] },
         { name: 'All Files', extensions: ['*'] }
       ]
     })
@@ -162,6 +162,13 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('file:read', async (_event, path: string) => {
     const safePath = validatePath(path)
     return await readFile(safePath, 'utf-8')
+  })
+
+  // File: Read binary file as base64
+  ipcMain.handle('file:readBase64', async (_event, path: string) => {
+    const safePath = validatePath(path)
+    const buffer = await readFile(safePath)
+    return Buffer.from(buffer).toString('base64')
   })
 
   // File: Save As dialog
@@ -192,6 +199,23 @@ export function setupIpcHandlers(): void {
       defaultPath: defaultFilename,
       filters: [
         { name: 'Text Files', extensions: ['txt'] }
+      ]
+    })
+
+    if (result.canceled || !result.filePath) {
+      return null
+    }
+
+    await writeFile(result.filePath, content, 'utf-8')
+    return result.filePath
+  })
+
+  // File: Export as HTML
+  ipcMain.handle('file:exportHtml', async (_event, content: string, defaultFilename?: string) => {
+    const result = await dialog.showSaveDialog({
+      defaultPath: defaultFilename,
+      filters: [
+        { name: 'HTML Files', extensions: ['html'] }
       ]
     })
 

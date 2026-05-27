@@ -4,6 +4,7 @@ import { useChatStore, setCurrentDocumentId } from '../stores/chatStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFileListStore } from '../stores/fileListStore'
 import { parseMarkdown, serializeMarkdown, extractFirstH1, prepareTextContent } from '../lib/markdown'
+import { extractMarkdownFromHtml } from '../lib/htmlExport'
 import {
   generateId,
   generateIdFromPath,
@@ -69,7 +70,17 @@ export function useEditor() {
     await saveCurrentConversation(document.documentId)
 
     try {
-      const raw = await window.api.readFile(filePath)
+      let raw = await window.api.readFile(filePath)
+      const isHtml = filePath.endsWith('.html') || filePath.endsWith('.htm')
+      if (isHtml) {
+        const extracted = extractMarkdownFromHtml(raw)
+        if (extracted) {
+          raw = extracted
+        } else {
+          console.warn('[useEditor] HTML file has no embedded Prose markdown:', filePath)
+          return false
+        }
+      }
       const isTxt = filePath.endsWith('.txt')
       const parsed = parseMarkdown(isTxt ? prepareTextContent(raw) : raw)
       const newDocumentId = await generateIdFromPath(filePath)
@@ -123,8 +134,19 @@ export function useEditor() {
 
     const result = await window.api.openFile()
     if (result) {
+      let content = result.content
+      const isHtml = result.path.endsWith('.html') || result.path.endsWith('.htm')
+      if (isHtml) {
+        const extracted = extractMarkdownFromHtml(content)
+        if (extracted) {
+          content = extracted
+        } else {
+          console.warn('[useEditor] HTML file has no embedded Prose markdown:', result.path)
+          return false
+        }
+      }
       const isTxt = result.path.endsWith('.txt')
-      const parsed = parseMarkdown(isTxt ? prepareTextContent(result.content) : result.content)
+      const parsed = parseMarkdown(isTxt ? prepareTextContent(content) : content)
       // Use path-based ID for saved files so chat history persists
       const newDocumentId = await generateIdFromPath(result.path)
 

@@ -406,7 +406,9 @@ export interface ElectronAPI {
   saveFile: (path: string, content: string) => Promise<void>
   saveFileAs: (content: string) => Promise<string | null>
   exportTxt: (content: string, defaultFilename?: string) => Promise<string | null>
+  exportHtml: (content: string, defaultFilename?: string) => Promise<string | null>
   readFile: (path: string) => Promise<string>
+  readFileBase64: (path: string) => Promise<string>
   loadSettings: () => Promise<SettingsOnDisk>
   saveSettings: (settings: Settings) => Promise<void>
   testApiKey: (request: TestApiKeyRequest) => Promise<TestApiKeyResult>

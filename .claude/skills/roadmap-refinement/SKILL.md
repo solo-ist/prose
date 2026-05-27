@@ -7,6 +7,10 @@ description: Audit open issues and project board. Flags done-but-open issues, bo
 
 Audit the backlog and project board, then present findings for approval before making changes.
 
+## Keep `docs/roadmap.md` in sync
+
+`docs/roadmap.md` is the canonical roadmap *narrative* — what we're building, the wave model, the track structure, and the A→B→C merge ladder. The [project board (#5)](https://github.com/orgs/solo-ist/projects/5/views/1) is the live *queue* (column = phase, milestone = wave). **These two must stay consistent.** Board cleanup that changes the narrative — an epic completes, a wave's scope shifts because issues were closed or superseded, track sequencing changes — must be reflected in `docs/roadmap.md` in the *same* pass, or the doc silently drifts out of date. Read the doc before auditing; propose doc edits alongside the board edits.
+
 ## Usage
 
 ```
@@ -26,6 +30,8 @@ gh issue list --repo solo-ist/prose --state open --limit 200 --json number,title
 gh pr list --repo solo-ist/prose --state all --limit 200 --json number,title,state,mergedAt,body,headRefName,closedAt
 gh project item-list 5 --owner solo-ist --format json --limit 500
 ```
+
+Also read the current `docs/roadmap.md` — it is the narrative the board should match, so you can flag where the two have drifted. If your worktree may be behind `main`, read the live version with `git show origin/main:docs/roadmap.md` after `git fetch origin`.
 
 Use `--jq` for data extraction instead of piping to external processors (e.g., `python3`, `jq`). This keeps each command as a single `gh` invocation that matches the Bash allowlist:
 
@@ -85,10 +91,16 @@ Output a structured report:
 |---|-------|---------------|----------------|
 | 30 | Old feature | 2025-10-01 | Close or re-prioritize |
 
+### Roadmap Doc Updates (`docs/roadmap.md`)
+| Section | Drift | Proposed Edit |
+|---------|-------|---------------|
+| Wave 1 / Track B | #312 shipped but still listed as in-flight | Move to "shipped" / retire from active wave |
+
 ### Summary
 - X issues ready to close
 - X board items need status updates
 - X stale issues to review
+- X `docs/roadmap.md` sections need updating to match the board
 ```
 
 ### 6. Execute on Approval
@@ -117,6 +129,8 @@ gh project item-edit --project-id <PROJECT_ID> --id <ITEM_ID> --field-id <STATUS
 ```bash
 gh project item-add 5 --owner solo-ist --url <ISSUE_URL>
 ```
+
+**Updating the roadmap narrative:** When approved board changes alter the roadmap (an epic completes, a wave's scope shifts, sequencing changes), edit `docs/roadmap.md` in the same pass so the narrative and the board stay consistent. This is a normal file edit — commit it on a branch / open a PR; it is *not* a `gh project` operation. Don't archive a completed epic's board items without also retiring it from the doc's active waves.
 
 ## Board Columns
 
@@ -153,4 +167,5 @@ Safe operations are limited to:
 - **Board is source of truth for priority.** If an issue isn't on the board, it's not prioritized.
 - **Stale != irrelevant.** Flag staleness, but let the user decide disposition.
 - **Done items are archived, not deleted.** There is no Done column — archive closed/merged items off the active board with `item-archive` (reversible). Don't leave them in an active column; don't `item-delete` them.
+- **The doc and the board move together.** `docs/roadmap.md` is the narrative; board #5 is the queue. Any cleanup that changes the narrative gets reflected in the doc in the same pass — never let the doc drift behind the board.
 - **Never mutate field definitions.** Only move items between existing columns.

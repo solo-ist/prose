@@ -7,6 +7,10 @@ description: Analyze the project board and open issues to recommend what to work
 
 Read the project board and open issues, then recommend what to tackle next.
 
+## Read `docs/roadmap.md` first — and keep it in sync
+
+`docs/roadmap.md` is the canonical roadmap *narrative*: what we're building, the wave model, the track structure, and the A→B→C merge ladder. The [project board (#5)](https://github.com/orgs/solo-ist/projects/5/views/1) is the live *queue* (column = phase, milestone = wave). Ground every recommendation in the doc's sequencing — board order is the primary signal, but the doc explains *why* that order exists. **If you (with approval) move cards in a way that changes the narrative, reflect it in `docs/roadmap.md` in the same pass** so the two don't drift.
+
 ## Usage
 
 ```
@@ -26,6 +30,8 @@ gh project item-list 5 --owner solo-ist --format json --limit 500
 gh issue list --repo solo-ist/prose --state open --limit 200 --json number,title,labels,updatedAt,createdAt,comments,body,milestone
 gh pr list --repo solo-ist/prose --state open --limit 50 --json number,title,state,body,headRefName
 ```
+
+Also read the current `docs/roadmap.md` for the wave/track/merge-ladder context behind the board's ordering. If your worktree may be behind `main`, read the live version with `git show origin/main:docs/roadmap.md` after `git fetch origin`.
 
 Use `--jq` for data extraction instead of piping to external processors (e.g., `python3`, `jq`). This keeps each command as a single `gh` invocation that matches the Bash allowlist:
 
@@ -74,7 +80,7 @@ Apply these prioritization heuristics in order:
 2. **Bugs before features** — bugs degrade existing experience
 3. **Launch blockers first** — if release is approaching, these gate shipping
 4. **Quick wins pair well** — a small fix alongside a bigger feature maintains momentum
-5. **Logical sequencing** — does issue A unblock issue B? Do A first.
+5. **Logical sequencing** — does issue A unblock issue B? Do A first. The wave/track model and A→B→C merge ladder in `docs/roadmap.md` define much of this sequencing — follow it.
 6. **Avoid context-switching** — prefer issues in the same area of the codebase
 
 ### 5. Present Recommendations
@@ -133,6 +139,8 @@ gh project item-delete 5 --owner solo-ist --id <ITEM_ID>
 
 Never move items without explicit approval.
 
+**Keep the doc in sync:** If approved board moves change the roadmap narrative (re-sequencing a wave, promoting a track, retiring a shipped epic), edit `docs/roadmap.md` to match in the same change. That's a normal file edit on a branch — not a `gh project` operation.
+
 ## Dangerous Operations — DO NOT USE
 
 **NEVER use `updateProjectV2Field` to modify single-select field options.** This GraphQL mutation replaces option IDs, which silently disconnects every board item from its status — effectively wiping the entire board. This has happened before and required manual recovery.
@@ -146,4 +154,5 @@ If the board needs a new status column or option changes, tell the user to do it
 - **Pragmatic sequencing.** Prefer shipping a bug fix + quick win over starting a multi-day feature.
 - **Context-aware.** If there are open PRs or in-progress branches, factor that in.
 - **Opinionated but deferential.** Give a clear recommendation, but the user decides.
+- **The doc and the board move together.** `docs/roadmap.md` is the narrative behind the board's order; if approved moves change that narrative, update the doc in the same pass.
 - **Never mutate field definitions.** Only move items between existing columns.

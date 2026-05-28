@@ -34,12 +34,14 @@ import {
 } from '../ui/dialog'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
-import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, ChevronRight, ChevronDown, Folder, FolderOpen, FolderInput, Download, Trash2, FilePlus, ClipboardPaste, ExternalLink, X, Globe, Edit3, RefreshCw, Loader2, AlertTriangle, Bug } from 'lucide-react'
+import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, ChevronRight, ChevronDown, Folder, FolderOpen, FolderInput, Download, Trash2, FilePlus, ClipboardPaste, ExternalLink, X, Globe, Edit3, RefreshCw, Loader2, AlertTriangle, Bug, Boxes, Star } from 'lucide-react'
 import { useSettings } from '../../hooks/useSettings'
 import { cn } from '../../lib/utils'
 import { getApi } from '../../lib/browserApi'
 import { requestBugReport } from '../EnableLoggingDialog'
 import type { RemarkableNotebookMetadata, RemarkableCloudNotebook, GoogleDocEntry } from '../../types'
+import { ProjectsPanel } from './ProjectsPanel'
+import { useActiveProject } from '../../stores/projectsStore'
 
 export function FileListPanel() {
   const {
@@ -81,6 +83,7 @@ export function FileListPanel() {
   const remarkableEnabled = useSettingsStore((state) => remarkableFlag && state.settings.remarkable?.enabled && !!state.settings.remarkable?.deviceToken)
   const googleConnected = useSettingsStore((state) => googleDocsFlag && !!state.settings.google)
   const googleSyncDirectory = useSettingsStore((state) => state.settings.google?.syncDirectory)
+  const activeProject = useActiveProject()
 
   // Switch away from notebooks view if reMarkable becomes disconnected
   useEffect(() => {
@@ -904,7 +907,13 @@ export function FileListPanel() {
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-medium truncate" title={viewMode === 'folder' ? rootPath || undefined : undefined}>
-            {viewMode === 'recent' ? 'Recent' : viewMode === 'notebooks' ? 'Notebooks' : viewMode === 'googledocs' ? 'Google Docs' : folderName}
+            {viewMode === 'recent' ? 'Recent'
+              : viewMode === 'notebooks' ? 'Notebooks'
+              : viewMode === 'googledocs' ? 'Google Docs'
+              : viewMode === 'projects' ? 'Projects'
+              : viewMode === 'favorites' ? 'Favorites'
+              : viewMode === 'folder' && activeProject ? activeProject.name
+              : folderName}
           </h2>
           {viewMode === 'notebooks' && (
             <Tooltip>
@@ -1041,6 +1050,36 @@ export function FileListPanel() {
               <TooltipContent>reMarkable notebooks</TooltipContent>
             </Tooltip>
           )}
+          {/* Projects view */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn("h-8 w-8", viewMode === 'projects' && "bg-muted")}
+                onClick={() => setViewMode(viewMode === 'projects' ? 'folder' : 'projects')}
+                aria-label="Projects"
+              >
+                <Boxes className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Projects</TooltipContent>
+          </Tooltip>
+          {/* Favorites view */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn("h-8 w-8", viewMode === 'favorites' && "bg-muted")}
+                onClick={() => setViewMode(viewMode === 'favorites' ? 'folder' : 'favorites')}
+                aria-label="Favorites"
+              >
+                <Star className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Favorites</TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
@@ -1076,7 +1115,11 @@ export function FileListPanel() {
 
       {/* Content */}
       <ScrollArea className="flex-1">
-        {viewMode === 'recent' ? (
+        {viewMode === 'projects' ? (
+          <ProjectsPanel mode="projects" />
+        ) : viewMode === 'favorites' ? (
+          <ProjectsPanel mode="favorites" />
+        ) : viewMode === 'recent' ? (
           // Recent files view
           recentFiles.length === 0 ? (
             <div className="p-4 text-sm text-muted-foreground">
@@ -1370,6 +1413,47 @@ export function FileListPanel() {
                   <ClipboardPaste className="h-4 w-4 mr-2" />
                   Paste
                   <ContextMenuShortcut>⌘V</ContextMenuShortcut>
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  onClick={async () => {
+                    const { useProjectsStore: ps } = await import('../../stores/projectsStore')
+                    // Add current root as a project without switching (already here)
+                    if (!rootPath) return
+                    const { useSettingsStore: ss } = await import('../../stores/settingsStore')
+                    const existing = ss.getState().settings.projects ?? []
+                    if (existing.some((p) => p.path === rootPath)) return
+                    const name = rootPath.split('/').pop() || rootPath
+                    ss.getState().addProject({
+                      id: self.crypto.randomUUID(),
+                      name,
+                      path: rootPath,
+                      createdAt: new Date().toISOString(),
+                    })
+                  }}
+                  disabled={!rootPath}
+                >
+                  <Boxes className="h-4 w-4 mr-2" />
+                  Add as Project
+                </ContextMenuItem>
+                <ContextMenuItem
+                  onClick={async () => {
+                    if (!rootPath) return
+                    const { useSettingsStore: ss } = await import('../../stores/settingsStore')
+                    const existing = ss.getState().settings.favorites ?? []
+                    if (existing.some((f) => f.path === rootPath)) return
+                    const name = rootPath.split('/').pop() || rootPath
+                    ss.getState().addFavorite({
+                      id: self.crypto.randomUUID(),
+                      name,
+                      path: rootPath,
+                      addedAt: new Date().toISOString(),
+                    })
+                  }}
+                  disabled={!rootPath}
+                >
+                  <Star className="h-4 w-4 mr-2" />
+                  Add to Favorites
                 </ContextMenuItem>
               </ContextMenuContent>
             </ContextMenu>

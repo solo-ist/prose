@@ -1,5 +1,31 @@
 import type { ToolResult } from '../../shared/tools/types'
 
+/**
+ * A named project — a root-folder workspace. Think Obsidian vaults or
+ * VS Code workspaces. Each project optionally carries a MAS security-scoped
+ * bookmark so the sandbox can re-open the directory without re-prompting.
+ */
+export interface Project {
+  id: string            // UUID
+  name: string          // User-visible label (defaults to folder basename)
+  path: string          // Absolute path to the root folder
+  bookmark?: string     // MAS security-scoped bookmark (base64), null on non-MAS
+  createdAt: string     // ISO timestamp
+  lastOpenedAt?: string // ISO timestamp — updated on switch
+}
+
+/**
+ * A favorited folder for quick navigation. Favorites are global (not tied to
+ * a specific project) and persist across project switches.
+ */
+export interface Favorite {
+  id: string            // UUID
+  name: string          // User-visible label (defaults to folder basename)
+  path: string          // Absolute path to the folder
+  bookmark?: string     // MAS security-scoped bookmark (base64), null on non-MAS
+  addedAt: string       // ISO timestamp
+}
+
 // v1.2 Appearance — see issue #499. The flat legacy `theme` field is replaced
 // with a structured `appearance` object. The on-disk shape may still contain
 // the legacy `theme` field; the renderer's loadSettings migrates it.
@@ -90,6 +116,21 @@ interface SettingsBase {
    * Defaults to 'editor' on first launch.
    */
   toolMode?: 'chat' | 'editor' | 'create'
+  /**
+   * Named workspace projects. Ordered by most-recently-opened first.
+   * Each project carries its own security-scoped bookmark for MAS sandbox access.
+   */
+  projects?: Project[]
+  /**
+   * The ID of the currently-active project. Null/undefined = no project
+   * selected (legacy single-folder mode — `defaultSaveDirectory` is used).
+   */
+  activeProjectId?: string | null
+  /**
+   * Globally-favorited folders for quick-navigation. Favorites are not
+   * tied to a specific project; they appear in every project's file explorer.
+   */
+  favorites?: Favorite[]
 }
 
 /**

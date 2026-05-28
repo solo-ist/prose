@@ -11,7 +11,9 @@ export interface SyncProgress {
   phase: RemarkableSyncPhase
 }
 
-type ViewMode = 'recent' | 'folder' | 'notebooks' | 'googledocs'
+type ViewMode = 'recent' | 'folder' | 'notebooks' | 'googledocs' | 'projects' | 'favorites'
+
+export type { ViewMode }
 
 /**
  * Walk `newFiles` and re-attach `children` arrays from `oldFiles` for any

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
-import type { Appearance, LegacyTheme, Settings, SettingsOnDisk } from '../types'
+import type { Appearance, Favorite, LegacyTheme, Project, Settings, SettingsOnDisk } from '../types'
 import { initRendererSentry, setRendererSentryEnabled } from '../lib/sentry'
 import { getDefaultModel } from '../../shared/llm/models'
 import type { ModelInfo } from '../../shared/llm/models'
@@ -97,6 +97,15 @@ interface SettingsState {
   isAIConsentDialogOpen: boolean
   setAIConsentDialogOpen: (open: boolean) => void
   setPersistedToolMode: (mode: ToolMode) => void
+  // Projects
+  addProject: (project: Project) => void
+  updateProject: (id: string, patch: Partial<Omit<Project, 'id'>>) => void
+  removeProject: (id: string) => void
+  setActiveProject: (id: string | null) => void
+  // Favorites
+  addFavorite: (favorite: Favorite) => void
+  removeFavorite: (id: string) => void
+  updateFavorite: (id: string, patch: Partial<Omit<Favorite, 'id'>>) => void
 }
 
 const defaultSettings: Settings = {
@@ -485,6 +494,100 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
   setPersistedToolMode: (mode) => {
     set((state) => ({
       settings: { ...state.settings, toolMode: mode }
+    }))
+    get().saveSettings()
+  },
+
+  // -------------------------------------------------------------------------
+  // Projects
+  // -------------------------------------------------------------------------
+
+  addProject: (project) => {
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        projects: [...(state.settings.projects ?? []), project]
+      }
+    }))
+    get().saveSettings()
+  },
+
+  updateProject: (id, patch) => {
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        projects: (state.settings.projects ?? []).map((p) =>
+          p.id === id ? { ...p, ...patch } : p
+        )
+      }
+    }))
+    get().saveSettings()
+  },
+
+  removeProject: (id) => {
+    set((state) => {
+      const updated = (state.settings.projects ?? []).filter((p) => p.id !== id)
+      const activeId = state.settings.activeProjectId
+      return {
+        settings: {
+          ...state.settings,
+          projects: updated,
+          // Clear active project if the removed project was active
+          activeProjectId: activeId === id ? null : activeId
+        }
+      }
+    })
+    get().saveSettings()
+  },
+
+  setActiveProject: (id) => {
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        activeProjectId: id,
+        // Update lastOpenedAt on the project when switching to it
+        projects: id === null
+          ? state.settings.projects
+          : (state.settings.projects ?? []).map((p) =>
+              p.id === id ? { ...p, lastOpenedAt: new Date().toISOString() } : p
+            )
+      }
+    }))
+    get().saveSettings()
+  },
+
+  // -------------------------------------------------------------------------
+  // Favorites
+  // -------------------------------------------------------------------------
+
+  addFavorite: (favorite) => {
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        favorites: [...(state.settings.favorites ?? []), favorite]
+      }
+    }))
+    get().saveSettings()
+  },
+
+  removeFavorite: (id) => {
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        favorites: (state.settings.favorites ?? []).filter((f) => f.id !== id)
+      }
+    }))
+    get().saveSettings()
+  },
+
+  updateFavorite: (id, patch) => {
+    set((state) => ({
+      settings: {
+        ...state.settings,
+        favorites: (state.settings.favorites ?? []).map((f) =>
+          f.id === id ? { ...f, ...patch } : f
+        )
+      }
     }))
     get().saveSettings()
   }

@@ -66,8 +66,29 @@ interface LLMStreamRequest extends LLMRequest {
 // Track active streams for abort support
 const activeStreams = new Map<string, AbortController>()
 
-// Security-scoped bookmark stop function (MAS sandbox)
+// Security-scoped bookmark stop function (MAS sandbox) — single bookmark for
+// the legacy `masDirectoryBookmark` / `defaultSaveDirectory` path.
 let stopAccessingBookmark: (() => void) | null = null
+
+// Stop-functions for project and favorite bookmarks, keyed by their UUID.
+// Populated in settings:load; torn down when a project/favorite is removed
+// (settings:save handles persistence; the stop fn is released on next load).
+const projectBookmarkStopFns = new Map<string, () => void>()
+const favoriteBookmarkStopFns = new Map<string, () => void>()
+
+/**
+ * Activate a security-scoped bookmark (MAS only) and return the stop function.
+ * Returns null if not a MAS build or bookmark is missing.
+ */
+function activateBookmark(bookmark: string | undefined, label: string): (() => void) | null {
+  if (!IS_MAS_BUILD || !bookmark) return null
+  try {
+    return app.startAccessingSecurityScopedResource(bookmark)
+  } catch (err) {
+    console.warn(`[settings:load] Security-scoped bookmark invalid (${label}):`, err)
+    return null
+  }
+}
 
 function getSettingsPath(): string { return join(getSettingsDir(), 'settings.json') }
 const ANTHROPIC_KEY_PATH = join(LEGACY_SETTINGS_DIR, '.remarkable-anthropic-key') // Legacy path for migration
@@ -562,6 +583,56 @@ export function setupIpcHandlers(): void {
             await writeFile(getSettingsPath(), JSON.stringify(rawSettings, null, 2), 'utf-8')
           } catch { /* best effort */ }
         }
+      }
+
+      // Restore security-scoped bookmarks for all projects (MAS only)
+      if (IS_MAS_BUILD && Array.isArray(rawSettings.projects)) {
+        // Stop any previously-activated project bookmark stop fns
+        for (const [, stop] of projectBookmarkStopFns) {
+          try { stop() } catch { /* best effort */ }
+        }
+        projectBookmarkStopFns.clear()
+
+        const validProjects = []
+        for (const project of rawSettings.projects) {
+          if (project.bookmark) {
+            const stop = activateBookmark(project.bookmark, `project:${project.id}`)
+            if (stop) {
+              projectBookmarkStopFns.set(project.id, stop)
+              validProjects.push(project)
+            } else {
+              // Bookmark invalid — keep the project but clear the stale bookmark
+              validProjects.push({ ...project, bookmark: undefined })
+            }
+          } else {
+            validProjects.push(project)
+          }
+        }
+        rawSettings.projects = validProjects
+      }
+
+      // Restore security-scoped bookmarks for all favorites (MAS only)
+      if (IS_MAS_BUILD && Array.isArray(rawSettings.favorites)) {
+        for (const [, stop] of favoriteBookmarkStopFns) {
+          try { stop() } catch { /* best effort */ }
+        }
+        favoriteBookmarkStopFns.clear()
+
+        const validFavorites = []
+        for (const fav of rawSettings.favorites) {
+          if (fav.bookmark) {
+            const stop = activateBookmark(fav.bookmark, `favorite:${fav.id}`)
+            if (stop) {
+              favoriteBookmarkStopFns.set(fav.id, stop)
+              validFavorites.push(fav)
+            } else {
+              validFavorites.push({ ...fav, bookmark: undefined })
+            }
+          } else {
+            validFavorites.push(fav)
+          }
+        }
+        rawSettings.favorites = validFavorites
       }
 
       return rawSettings

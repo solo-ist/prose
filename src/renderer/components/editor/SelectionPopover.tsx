@@ -3,8 +3,39 @@ import { Editor } from '@tiptap/react'
 import { NodeSelection } from '@tiptap/pm/state'
 import { MessageSquarePlus, Bot, Bold, Italic, Link, Code } from 'lucide-react'
 import { Button } from '../ui/button'
-import { useAnnotationStore, getAnnotationsInRange } from '../../extensions/ai-annotations'
+import { useAnnotationStore } from '../../extensions/ai-annotations'
 import { useEditorStore } from '../../stores/editorStore'
+
+/**
+ * Whether the range [from, to) is *fully* covered by AI annotation(s).
+ *
+ * The toggle reflects "is the selected text annotated?", which is a coverage
+ * question — every character of the selection must lie within an annotation.
+ * The previous check used a loose any-overlap test, so a neighbouring
+ * annotation that merely reached into the selection (e.g. a prior edit's
+ * annotation whose mapped range overlaps the selected span) lit the button up
+ * for text that wasn't itself annotated. Requiring full coverage means an
+ * un-annotated selection — even adjacent to or partially overlapping an
+ * annotation — reads as not annotated, and toggling no longer trims a
+ * neighbour's annotation across the span.
+ */
+function isRangeFullyAnnotated(
+  annotations: { from: number; to: number }[],
+  from: number,
+  to: number
+): boolean {
+  if (from >= to) return false
+  const overlapping = annotations
+    .filter((a) => a.from < to && a.to > from)
+    .sort((a, b) => a.from - b.from)
+  let cursor = from
+  for (const a of overlapping) {
+    if (a.from > cursor) return false // uncovered gap before this annotation
+    cursor = Math.max(cursor, a.to)
+    if (cursor >= to) return true
+  }
+  return cursor >= to
+}
 
 interface SelectionPopoverProps {
   editor: Editor | null
@@ -22,7 +53,7 @@ export function SelectionPopover({ editor, onAddComment, onToggleLink }: Selecti
 
   // Check if current selection has an AI annotation
   const hasAIAnnotation = selectionRange
-    ? getAnnotationsInRange(annotations, selectionRange.from, selectionRange.to).length > 0
+    ? isRangeFullyAnnotated(annotations, selectionRange.from, selectionRange.to)
     : false
 
   const updatePosition = useCallback(() => {

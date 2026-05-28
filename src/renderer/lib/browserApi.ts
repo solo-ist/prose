@@ -155,6 +155,11 @@ export const browserApi: ElectronAPI = {
     throw new Error('Cannot read files by path in browser mode')
   },
 
+  readFileBase64: async (_path: string): Promise<string> => {
+    // In browser mode, we can't read arbitrary paths
+    throw new Error('Cannot read files by path in browser mode')
+  },
+
   loadSettings: async (): Promise<Settings> => {
     try {
       const stored = localStorage.getItem(SETTINGS_KEY)

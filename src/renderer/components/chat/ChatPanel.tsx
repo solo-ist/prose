@@ -20,6 +20,8 @@ import { useSummaryStore } from '../../stores/summaryStore'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { ReviewContainer } from '../review/ReviewContainer'
+import { AIEditsHistoryPanel } from '../editor/AIEditsHistoryPanel'
+import { useEditHistoryStore } from '../../stores/editHistoryStore'
 import { MODE_SWITCH_RUN_EVENT } from './toolResultRenderers/RequestModeSwitchResult'
 import { cn } from '../../lib/utils'
 
@@ -28,6 +30,7 @@ export function ChatPanel() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const reviewMode = useReviewMode()
   const [infoOpen, setInfoOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   const {
     conversations,
@@ -79,6 +82,9 @@ export function ChatPanel() {
     window.addEventListener(MODE_SWITCH_RUN_EVENT, handler)
     return () => window.removeEventListener(MODE_SWITCH_RUN_EVENT, handler)
   }, [sendMessage])
+
+  // Track edit history count for badge on history button
+  const historyEntryCount = useEditHistoryStore((s) => s.entries.filter((e) => !e.dismissed).length)
 
   // Track pending suggestion count
   const suggestionCount = useMemo(() => {
@@ -155,6 +161,14 @@ export function ChatPanel() {
     )
   }
 
+  if (historyOpen) {
+    return (
+      <div className="flex h-full flex-col bg-muted/20">
+        <AIEditsHistoryPanel onClose={() => setHistoryOpen(false)} />
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full flex-col bg-muted/20">
       {/* Action bar */}
@@ -164,8 +178,27 @@ export function ChatPanel() {
             <Button
               variant="ghost"
               size="icon"
+              className={cn("h-7 w-7 relative", historyOpen && "bg-accent")}
+              onClick={() => { setHistoryOpen(!historyOpen); if (infoOpen) setInfoOpen(false) }}
+              aria-label="AI edits history"
+            >
+              <History className="h-3.5 w-3.5" />
+              {historyEntryCount > 0 && !historyOpen && (
+                <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground leading-none">
+                  {historyEntryCount > 99 ? '99+' : historyEntryCount}
+                </span>
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>AI edits history</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
               className={cn("h-7 w-7", infoOpen && "bg-accent")}
-              onClick={() => setInfoOpen(!infoOpen)}
+              onClick={() => { setInfoOpen(!infoOpen); if (historyOpen) setHistoryOpen(false) }}
               aria-label="Document info"
             >
               <Info className="h-3.5 w-3.5" />

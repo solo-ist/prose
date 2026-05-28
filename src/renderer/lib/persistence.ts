@@ -1,6 +1,7 @@
 import type { Document, ChatMessage } from '../types'
 import type { AIAnnotation } from '../types/annotations'
 import type { AISuggestionData } from '../extensions/ai-suggestions/types'
+import type { EditHistoryEntry } from '../types/editHistory'
 
 // Session ID for debugging multi-process scenarios
 // Using last 4 chars of a unique ID + timestamp for readability
@@ -63,7 +64,7 @@ export interface EmojiCacheEntry {
 
 // Database constants
 const DB_NAME = 'prose-db'
-const DB_VERSION = 8
+const DB_VERSION = 9
 const STORES = {
   DRAFTS: 'drafts',
   CONVERSATIONS: 'conversations',
@@ -72,7 +73,8 @@ const STORES = {
   SUGGESTIONS: 'suggestions',
   EMOJI_CACHE: 'emoji_cache',
   SUMMARIES: 'summaries',
-  COMMENTS: 'comments'
+  COMMENTS: 'comments',
+  EDIT_HISTORY: 'edit_history'
 } as const
 
 // Recovery types
@@ -104,6 +106,7 @@ export interface DatabaseBackup {
  * v6: Added emoji_cache store (LLM-generated emoji icons for tabs)
  * v7: Added summaries store (AI-generated document summaries)
  * v8: Added comments store (persists comment marks across tab switches)
+ * v9: Added edit_history store (permanent AI edit history log, refs #386)
  *
  * When bumping version:
  * 1. Update DB_VERSION above
@@ -400,6 +403,9 @@ function getDB(): Promise<IDBDatabase> {
               if (!db.objectStoreNames.contains(STORES.COMMENTS)) {
                 db.createObjectStore(STORES.COMMENTS)
               }
+              if (!db.objectStoreNames.contains(STORES.EDIT_HISTORY)) {
+                db.createObjectStore(STORES.EDIT_HISTORY)
+              }
             }
           })
 
@@ -493,6 +499,9 @@ function getDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORES.COMMENTS)) {
         db.createObjectStore(STORES.COMMENTS)
+      }
+      if (!db.objectStoreNames.contains(STORES.EDIT_HISTORY)) {
+        db.createObjectStore(STORES.EDIT_HISTORY)
       }
     }
   })
@@ -1182,5 +1191,71 @@ export async function deleteSummary(documentId: string): Promise<void> {
     })
   }).catch((error) => {
     console.error('Failed to delete summary:', error)
+  })
+}
+
+// ============ Edit History Operations ============
+
+/**
+ * Save the edit history ledger for a document.
+ * The entire array is written atomically under the documentId key.
+ */
+export async function saveEditHistory(
+  documentId: string,
+  entries: EditHistoryEntry[]
+): Promise<void> {
+  await withDb(async (db) => {
+    if (!db.objectStoreNames.contains(STORES.EDIT_HISTORY)) return
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(STORES.EDIT_HISTORY, 'readwrite')
+      const store = transaction.objectStore(STORES.EDIT_HISTORY)
+      const request = store.put(entries, documentId)
+
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve()
+    })
+  }).catch((error) => {
+    console.error('Failed to save edit history:', error)
+  })
+}
+
+/**
+ * Load the edit history ledger for a document.
+ */
+export async function loadEditHistory(
+  documentId: string
+): Promise<EditHistoryEntry[]> {
+  return withDb(async (db) => {
+    if (!db.objectStoreNames.contains(STORES.EDIT_HISTORY)) return []
+    return new Promise<EditHistoryEntry[]>((resolve, reject) => {
+      const transaction = db.transaction(STORES.EDIT_HISTORY, 'readonly')
+      const store = transaction.objectStore(STORES.EDIT_HISTORY)
+      const request = store.get(documentId)
+
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve(request.result ?? [])
+    })
+  }).then((result) => result ?? []).catch((error) => {
+    console.error('Failed to load edit history:', error)
+    return []
+  })
+}
+
+/**
+ * Delete the edit history ledger for a document.
+ */
+export async function deleteEditHistory(documentId: string): Promise<void> {
+  await withDb(async (db) => {
+    if (!db.objectStoreNames.contains(STORES.EDIT_HISTORY)) return
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(STORES.EDIT_HISTORY, 'readwrite')
+      const store = transaction.objectStore(STORES.EDIT_HISTORY)
+      const request = store.delete(documentId)
+
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve()
+    })
+  }).catch((error) => {
+    console.error('Failed to delete edit history:', error)
   })
 }

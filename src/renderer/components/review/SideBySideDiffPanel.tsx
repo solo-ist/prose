@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
-import { Check, X, CheckCheck, XCircle, MessageSquare } from 'lucide-react'
+import { Check, X, CheckCheck, XCircle, MessageSquare, ArrowLeftRight } from 'lucide-react'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useReviewStore } from '../../stores/reviewStore'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
@@ -11,6 +11,9 @@ import { cn } from '../../lib/utils'
  * Side-by-side diff panel showing all suggestions as diff hunks.
  * Each hunk has original (left) and suggested (right) text with word-level highlighting,
  * plus individual and bulk accept/reject controls.
+ *
+ * Owns its own header row (title, cross-link to Quick Review, close button) since
+ * ReviewContainer was simplified in the #385 redesign.
  */
 export function SideBySideDiffPanel() {
   const editor = useEditorInstanceStore((state) => state.editor)
@@ -85,20 +88,47 @@ export function SideBySideDiffPanel() {
 
   if (total === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-sm text-muted-foreground p-4">
-        No suggestions to review.
+      <div className="flex flex-col h-full">
+        <div className="flex items-center justify-between border-b border-border pl-4 pr-2 py-2.5 shrink-0">
+          <h2 className="text-sm font-medium">Side-by-Side Diff</h2>
+          <button
+            onClick={() => setReviewMode(null)}
+            className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="Close review"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="flex items-center justify-center flex-1 text-sm text-muted-foreground p-4">
+          No suggestions to review.
+        </div>
       </div>
     )
   }
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header with bulk actions */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-border shrink-0">
-        <span className="text-xs text-muted-foreground">
-          {total} suggestion{total !== 1 ? 's' : ''} remaining
+      {/* Header — title, cross-link to Quick Review, bulk actions, close */}
+      <div className="flex items-center border-b border-border pl-4 pr-2 py-2.5 shrink-0 gap-2">
+        {/* Title + mode cross-link */}
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <h2 className="text-sm font-medium shrink-0">Side-by-Side Diff</h2>
+          <button
+            onClick={() => setReviewMode('quick')}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+          >
+            <ArrowLeftRight className="h-3 w-3 shrink-0" />
+            <span>Quick review</span>
+          </button>
+        </div>
+
+        {/* Count */}
+        <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+          {total} suggestion{total !== 1 ? 's' : ''}
         </span>
-        <div className="flex items-center gap-2">
+
+        {/* Bulk actions */}
+        <div className="flex items-center gap-1 shrink-0">
           <button
             onClick={handleRejectAll}
             className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium border border-border hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 transition-colors"
@@ -114,6 +144,15 @@ export function SideBySideDiffPanel() {
             Accept All
           </button>
         </div>
+
+        {/* Close */}
+        <button
+          onClick={() => setReviewMode(null)}
+          className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0"
+          aria-label="Close review (Esc)"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
 
       {/* Scrollable hunk list */}

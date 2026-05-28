@@ -12,16 +12,6 @@ import { usePanelLayoutContext } from '../../hooks/usePanelLayout'
 import { isMacOS, getApi } from '../../lib/browserApi'
 import { buildProseHtml } from '../../lib/htmlExport'
 import { extractFirstH1 } from '../../lib/markdown'
-
-function extractTitle(content: string, path?: string | null): string {
-  const h1 = extractFirstH1(content)
-  if (h1) return h1
-  if (path) {
-    const filename = path.split('/').pop() || ''
-    return filename.replace(/\.(md|markdown|txt)$/, '')
-  }
-  return 'Untitled'
-}
 import { useTabTier } from '../../hooks/useTabTier'
 import { useGoogleDocsEnabled } from '../../lib/featureFlags'
 import { Button } from '../ui/button'
@@ -79,6 +69,16 @@ import {
   FileText,
   Sparkles
 } from 'lucide-react'
+
+function extractTitle(content: string, path?: string | null): string {
+  const h1 = extractFirstH1(content)
+  if (h1) return h1
+  if (path) {
+    const filename = path.split('/').pop() || ''
+    return filename.replace(/\.(md|markdown|txt)$/, '')
+  }
+  return 'Untitled'
+}
 
 export function Toolbar() {
   const { document, openFile, saveFile, saveFileAs, newFile, quickSaveWithTitle } = useEditor()
@@ -255,12 +255,16 @@ export function Toolbar() {
   const handleExportHtml = async () => {
     const editor = useEditorInstanceStore.getState().editor
     if (!editor || !document.content) return
-    const editorHtml = editor.getHTML()
-    const title = extractTitle(document.content, document.path)
-    const docDir = document.path ? document.path.substring(0, document.path.lastIndexOf('/')) || null : null
-    const html = await buildProseHtml(editorHtml, document.content, document.frontmatter, title, docDir)
-    const defaultName = (title || 'document') + '.html'
-    await getApi().exportHtml(html, defaultName)
+    try {
+      const editorHtml = editor.getHTML()
+      const title = extractTitle(document.content, document.path)
+      const docDir = document.path ? document.path.substring(0, document.path.lastIndexOf('/')) || null : null
+      const html = await buildProseHtml(editorHtml, document.content, document.frontmatter, title, docDir)
+      const defaultName = (title || 'document') + '.html'
+      await getApi().exportHtml(html, defaultName)
+    } catch (err) {
+      console.error('Failed to export HTML:', err)
+    }
   }
 
   const handleNewFile = async () => {

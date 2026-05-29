@@ -279,16 +279,24 @@ export function QuickReviewPanel() {
       {/* This is the core of the redesign: the action row lives right above */}
       {/* the suggestion content so the user can read + act without moving   */}
       {/* their eyes/cursor to the bottom of the panel.                      */}
+      {/*                                                                     */}
+      {/* Hover fix: motion.div carries the MotionValue backgroundColor for  */}
+      {/* drag-reactive lighting; the inner <button> uses Tailwind hover      */}
+      {/* classes without being overridden by an inline style MotionValue.    */}
       <div className="flex items-stretch gap-2 px-4 pt-3 pb-2 shrink-0">
-        <motion.button
-          onClick={handleReject}
+        <motion.div
           style={{ backgroundColor: rejectBg, borderColor: rejectBorderColor }}
-          className="flex-1 flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium border border-border hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 transition-colors"
-          aria-label="Reject suggestion (Backspace)"
+          className="flex-1 rounded-md border border-border"
         >
-          <X className="h-3.5 w-3.5 shrink-0" />
-          Reject
-        </motion.button>
+          <button
+            onClick={handleReject}
+            className="w-full h-full flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium hover:bg-destructive/10 hover:text-destructive transition-colors"
+            aria-label="Reject suggestion (Backspace)"
+          >
+            <X className="h-3.5 w-3.5 shrink-0" />
+            Reject
+          </button>
+        </motion.div>
 
         {/* Feedback toggle — compact icon-only button between Reject and Accept */}
         {!showFeedbackForm && !current.userReply && (
@@ -301,15 +309,19 @@ export function QuickReviewPanel() {
           </button>
         )}
 
-        <motion.button
-          onClick={handleAccept}
+        <motion.div
           style={{ backgroundColor: acceptBg, borderColor: acceptBorderColor }}
-          className="flex-1 flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium border border-border hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400 hover:border-emerald-500/30 transition-colors"
-          aria-label="Accept suggestion (Enter)"
+          className="flex-1 rounded-md border border-border"
         >
-          <Check className="h-3.5 w-3.5 shrink-0" />
-          Accept
-        </motion.button>
+          <button
+            onClick={handleAccept}
+            className="w-full h-full flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
+            aria-label="Accept suggestion (Enter)"
+          >
+            <Check className="h-3.5 w-3.5 shrink-0" />
+            Accept
+          </button>
+        </motion.div>
       </div>
 
       {/* ── Row 3: Diff card — the main content ───────────────────────── */}
@@ -401,11 +413,15 @@ export function QuickReviewPanel() {
             </div>
           ) : null}
 
-          {/* Keyboard hint — subtle, tucked at the bottom of the card */}
-          <div className="mt-4 text-[10px] text-muted-foreground/40 text-center select-none">
-            ← swipe to reject · swipe to accept →
-          </div>
         </motion.div>
+      </div>
+
+      {/* ── Row 4: Keyboard / gesture hint — always visible, pinned ──────── */}
+      {/* Outside the scrollable card so it never scrolls off-screen.         */}
+      <div className="shrink-0 px-4 pb-3 pt-1 text-[10px] text-muted-foreground/40 text-center select-none leading-relaxed">
+        ← swipe to reject · swipe to accept →
+        <span className="mx-1">·</span>
+        ↵ accept · ⌫ reject · ← → navigate
       </div>
     </div>
   )

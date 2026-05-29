@@ -28,6 +28,19 @@ import { loadEditHistory, saveEditHistory, deleteEditHistory } from '../lib/pers
 
 type EditHistoryStore = EditHistoryState & EditHistoryActions
 
+// Per-document promise chain used to serialize concurrent saveEditHistory calls.
+// Rapid successive recordEdit calls each write the full entries blob; without
+// serialization an out-of-order async completion can clobber a newer write with
+// an older snapshot. Chaining on a per-document tail ensures each save starts
+// only after the previous one for that document has settled.
+const saveQueues = new Map<string, Promise<void>>()
+
+function enqueueSave(docId: string, entries: EditHistoryEntry[]): void {
+  const prev = saveQueues.get(docId) ?? Promise.resolve()
+  const next = prev.then(() => saveEditHistory(docId, entries)).catch(() => {/* swallow – store already updated */})
+  saveQueues.set(docId, next)
+}
+
 export const useEditHistoryStore = create<EditHistoryStore>((set, get) => ({
   entries: [],
   documentId: null,
@@ -40,10 +53,18 @@ export const useEditHistoryStore = create<EditHistoryStore>((set, get) => ({
     // Optimistic update: prepend (newest first)
     set((state) => ({ entries: [entry, ...state.entries] }))
 
-    // Persist
-    const { documentId, entries } = get()
-    if (documentId) {
-      await saveEditHistory(documentId, entries)
+    // Persist using the entry's own documentId so the first edit(s) of a
+    // session are not silently dropped while loadHistory is still resolving
+    // (during which get().documentId is null).
+    const persistDocId = entryData.documentId || get().documentId
+    if (persistDocId) {
+      // Snapshot the up-to-date entries array *after* the optimistic set above.
+      const { entries } = get()
+      enqueueSave(persistDocId, entries)
+    }
+    // Also seed the store's documentId if it hasn't been set yet.
+    if (!get().documentId && entryData.documentId) {
+      set({ documentId: entryData.documentId })
     }
   },
 
@@ -55,7 +76,7 @@ export const useEditHistoryStore = create<EditHistoryStore>((set, get) => ({
     }))
     const { documentId, entries } = get()
     if (documentId) {
-      await saveEditHistory(documentId, entries)
+      enqueueSave(documentId, entries)
     }
   },
 
@@ -67,7 +88,7 @@ export const useEditHistoryStore = create<EditHistoryStore>((set, get) => ({
     }))
     const { documentId, entries } = get()
     if (documentId) {
-      await saveEditHistory(documentId, entries)
+      enqueueSave(documentId, entries)
     }
   },
 

@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '../ui/dropdown-menu'
-import { MessageSquare, History, Plus, Trash2, Sparkles, Info, Loader2 } from 'lucide-react'
+import { MessageSquare, History, Clock, Plus, Trash2, Sparkles, Info, Loader2 } from 'lucide-react'
 import { useChatStore } from '../../stores/chatStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
@@ -182,7 +182,7 @@ export function ChatPanel() {
               onClick={() => { setHistoryOpen(!historyOpen); if (infoOpen) setInfoOpen(false) }}
               aria-label="AI edits history"
             >
-              <History className="h-3.5 w-3.5" />
+              <Clock className="h-3.5 w-3.5" />
               {historyEntryCount > 0 && !historyOpen && (
                 <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground leading-none">
                   {historyEntryCount > 99 ? '99+' : historyEntryCount}

@@ -83,7 +83,7 @@ const favoriteBookmarkStopFns = new Map<string, () => void>()
 function activateBookmark(bookmark: string | undefined, label: string): (() => void) | null {
   if (!IS_MAS_BUILD || !bookmark) return null
   try {
-    return app.startAccessingSecurityScopedResource(bookmark)
+    return app.startAccessingSecurityScopedResource(bookmark) as () => void
   } catch (err) {
     console.warn(`[settings:load] Security-scoped bookmark invalid (${label}):`, err)
     return null
@@ -586,6 +586,7 @@ export function setupIpcHandlers(): void {
       }
 
       // Restore security-scoped bookmarks for all projects (MAS only)
+      let staleBookmarksCleared = false
       if (IS_MAS_BUILD && Array.isArray(rawSettings.projects)) {
         // Stop any previously-activated project bookmark stop fns
         for (const [, stop] of projectBookmarkStopFns) {
@@ -603,6 +604,7 @@ export function setupIpcHandlers(): void {
             } else {
               // Bookmark invalid — keep the project but clear the stale bookmark
               validProjects.push({ ...project, bookmark: undefined })
+              staleBookmarksCleared = true
             }
           } else {
             validProjects.push(project)
@@ -626,13 +628,22 @@ export function setupIpcHandlers(): void {
               favoriteBookmarkStopFns.set(fav.id, stop)
               validFavorites.push(fav)
             } else {
+              // Bookmark invalid — keep the favorite but clear the stale bookmark
               validFavorites.push({ ...fav, bookmark: undefined })
+              staleBookmarksCleared = true
             }
           } else {
             validFavorites.push(fav)
           }
         }
         rawSettings.favorites = validFavorites
+      }
+
+      // Persist cleared stale bookmarks so the warning doesn't repeat on every launch
+      if (staleBookmarksCleared) {
+        try {
+          await writeFile(getSettingsPath(), JSON.stringify(rawSettings, null, 2), 'utf-8')
+        } catch { /* best effort */ }
       }
 
       return rawSettings

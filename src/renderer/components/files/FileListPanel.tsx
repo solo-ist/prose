@@ -25,6 +25,12 @@ import {
   ContextMenuTrigger
 } from '../ui/context-menu'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu'
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -34,14 +40,14 @@ import {
 } from '../ui/dialog'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
-import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, ChevronRight, ChevronDown, Folder, FolderOpen, FolderInput, Download, Trash2, FilePlus, ClipboardPaste, ExternalLink, X, Globe, Edit3, RefreshCw, Loader2, AlertTriangle, Bug, Boxes, Star } from 'lucide-react'
+import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, ChevronLeft, ChevronRight, ChevronDown, Folder, FolderOpen, FolderInput, Download, Trash2, FilePlus, ClipboardPaste, ExternalLink, X, Globe, Edit3, RefreshCw, Loader2, AlertTriangle, Bug, Boxes, Star, MoreHorizontal } from 'lucide-react'
 import { useSettings } from '../../hooks/useSettings'
 import { cn } from '../../lib/utils'
 import { getApi } from '../../lib/browserApi'
 import { requestBugReport } from '../EnableLoggingDialog'
 import type { RemarkableNotebookMetadata, RemarkableCloudNotebook, GoogleDocEntry } from '../../types'
 import { ProjectsPanel } from './ProjectsPanel'
-import { useActiveProject } from '../../stores/projectsStore'
+import { useProjects, useProjectsStore } from '../../stores/projectsStore'
 
 export function FileListPanel() {
   const {
@@ -83,7 +89,15 @@ export function FileListPanel() {
   const remarkableEnabled = useSettingsStore((state) => remarkableFlag && state.settings.remarkable?.enabled && !!state.settings.remarkable?.deviceToken)
   const googleConnected = useSettingsStore((state) => googleDocsFlag && !!state.settings.google)
   const googleSyncDirectory = useSettingsStore((state) => state.settings.google?.syncDirectory)
-  const activeProject = useActiveProject()
+  const projects = useProjects()
+  const { switchToProject, exitToRoot } = useProjectsStore()
+  const defaultSaveDirectory = useSettingsStore((s) => s.settings.defaultSaveDirectory)
+  // The project whose folder contains the current view root (handles drill-down
+  // into project subfolders). Base root and projects are separate, peer locations.
+  const currentProject = projects.find(
+    (p) => !!rootPath && (rootPath === p.path || rootPath.startsWith(p.path + '/'))
+  ) ?? null
+  const baseFolderName = defaultSaveDirectory?.split('/').pop() || 'Home'
 
   // Switch away from notebooks view if reMarkable becomes disconnected
   useEffect(() => {
@@ -248,6 +262,33 @@ export function FileListPanel() {
     setOperationError(null)
     setNewFileDialogOpen(true)
   }
+
+  // Add a path to the persisted pointer list (folders → projects/favorites,
+  // files → favorites). Idempotent: dedup by path so re-adding is a no-op.
+  const addPathAsProject = useCallback((path: string) => {
+    const existing = useSettingsStore.getState().settings.projects ?? []
+    if (existing.some((p) => p.path === path)) return
+    const name = path.split('/').pop() || path
+    useSettingsStore.getState().addProject({
+      id: self.crypto.randomUUID(),
+      name,
+      path,
+      createdAt: new Date().toISOString(),
+    })
+  }, [])
+
+  const addPathAsFavorite = useCallback((path: string, isDirectory: boolean) => {
+    const existing = useSettingsStore.getState().settings.favorites ?? []
+    if (existing.some((f) => f.path === path)) return
+    const name = path.split('/').pop() || path
+    useSettingsStore.getState().addFavorite({
+      id: self.crypto.randomUUID(),
+      name,
+      path,
+      isDirectory,
+      addedAt: new Date().toISOString(),
+    })
+  }, [])
 
   const handleCreateNewFile = async () => {
     const targetDir = newFileTargetDir || rootPath
@@ -906,15 +947,65 @@ export function FileListPanel() {
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-medium truncate" title={viewMode === 'folder' ? rootPath || undefined : undefined}>
-            {viewMode === 'recent' ? 'Recent'
-              : viewMode === 'notebooks' ? 'Notebooks'
-              : viewMode === 'googledocs' ? 'Google Docs'
-              : viewMode === 'projects' ? 'Projects'
-              : viewMode === 'favorites' ? 'Favorites'
-              : viewMode === 'folder' && activeProject ? activeProject.name
-              : folderName}
-          </h2>
+          {viewMode === 'folder' && projects.length > 0 ? (
+            <div className="flex min-w-0 items-center gap-1">
+              {currentProject && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0"
+                      onClick={() => exitToRoot()}
+                      aria-label="Back to root folder"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Back to root folder</TooltipContent>
+                </Tooltip>
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className="flex min-w-0 items-center gap-1 rounded px-1 py-0.5 hover:bg-muted/50"
+                    title={currentProject?.path ?? rootPath ?? undefined}
+                  >
+                    <span className="truncate text-sm font-medium">{currentProject ? currentProject.name : folderName}</span>
+                    <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem
+                    className={cn(!currentProject && "bg-muted")}
+                    onClick={() => exitToRoot()}
+                  >
+                    <Folder className="h-4 w-4 mr-2 shrink-0" />
+                    <span className="truncate">{baseFolderName}</span>
+                  </DropdownMenuItem>
+                  {projects.map((p) => (
+                    <DropdownMenuItem
+                      key={p.id}
+                      className={cn(p.id === currentProject?.id && "bg-muted")}
+                      onClick={() => switchToProject(p.id)}
+                    >
+                      <Boxes className="h-4 w-4 mr-2 shrink-0" />
+                      <span className="truncate">{p.name}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          ) : (
+            <h2 className="text-sm font-medium truncate" title={viewMode === 'folder' ? rootPath || undefined : undefined}>
+              {viewMode === 'recent' ? 'Recent'
+                : viewMode === 'notebooks' ? 'Notebooks'
+                : viewMode === 'googledocs' ? 'Google Docs'
+                : viewMode === 'projects' ? 'Projects'
+                : viewMode === 'favorites' ? 'Favorites'
+                : folderName}
+            </h2>
+          )}
           {viewMode === 'notebooks' && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -988,7 +1079,9 @@ export function FileListPanel() {
                 size="icon"
                 className={cn("h-8 w-8", viewMode === 'folder' && "bg-muted")}
                 onClick={() => {
-                  if (viewMode === 'folder') {
+                  if (currentProject) {
+                    exitToRoot()
+                  } else if (viewMode === 'folder') {
                     loadFiles()
                   } else {
                     setViewMode('folder')
@@ -1001,54 +1094,39 @@ export function FileListPanel() {
             </TooltipTrigger>
             <TooltipContent>Files</TooltipContent>
           </Tooltip>
-          {googleConnected && (
-            <Tooltip>
-              <TooltipTrigger asChild>
+          {(googleConnected || remarkableEnabled) && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className={cn("h-8 w-8", viewMode === 'googledocs' && "bg-muted")}
-                  onClick={() => {
-                    if (viewMode === 'googledocs') {
-                      googleSync().catch((err) => {
-                        console.error('[FileListPanel] Manual Google sync failed:', err)
-                      })
-                    } else {
-                      setViewMode('googledocs')
-                    }
-                  }}
-                  aria-label="Google Docs"
+                  className={cn("h-8 w-8", (viewMode === 'googledocs' || viewMode === 'notebooks') && "bg-muted")}
+                  aria-label="More sources"
                 >
-                  <Globe className="h-4 w-4" />
+                  <MoreHorizontal className="h-4 w-4" />
                 </Button>
-              </TooltipTrigger>
-              <TooltipContent>Google Docs</TooltipContent>
-            </Tooltip>
-          )}
-          {remarkableEnabled && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn("h-8 w-8", viewMode === 'notebooks' && "bg-muted")}
-                  onClick={() => {
-                    console.log('[FileListPanel] notebooks button clicked, current viewMode:', viewMode)
-                    if (viewMode === 'notebooks') {
-                      sync().catch((err) => {
-                        console.error('[FileListPanel] Manual sync failed:', err)
-                      })
-                    } else {
-                      setViewMode('notebooks')
-                    }
-                  }}
-                  aria-label="reMarkable notebooks"
-                >
-                  <BookOpen className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>reMarkable notebooks</TooltipContent>
-            </Tooltip>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {googleConnected && (
+                  <DropdownMenuItem
+                    className={cn(viewMode === 'googledocs' && "bg-muted")}
+                    onClick={() => setViewMode('googledocs')}
+                  >
+                    <Globe className="h-4 w-4 mr-2" />
+                    Google Docs
+                  </DropdownMenuItem>
+                )}
+                {remarkableEnabled && (
+                  <DropdownMenuItem
+                    className={cn(viewMode === 'notebooks' && "bg-muted")}
+                    onClick={() => setViewMode('notebooks')}
+                  >
+                    <BookOpen className="h-4 w-4 mr-2" />
+                    reMarkable notebooks
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
           {/* Projects view */}
           <Tooltip>
@@ -1057,7 +1135,7 @@ export function FileListPanel() {
                 variant="ghost"
                 size="icon"
                 className={cn("h-8 w-8", viewMode === 'projects' && "bg-muted")}
-                onClick={() => setViewMode(viewMode === 'projects' ? 'folder' : 'projects')}
+                onClick={() => setViewMode('projects')}
                 aria-label="Projects"
               >
                 <Boxes className="h-4 w-4" />
@@ -1072,7 +1150,7 @@ export function FileListPanel() {
                 variant="ghost"
                 size="icon"
                 className={cn("h-8 w-8", viewMode === 'favorites' && "bg-muted")}
-                onClick={() => setViewMode(viewMode === 'favorites' ? 'folder' : 'favorites')}
+                onClick={() => setViewMode('favorites')}
                 aria-label="Favorites"
               >
                 <Star className="h-4 w-4" />
@@ -1352,15 +1430,18 @@ export function FileListPanel() {
                     if (sourcePath && rootPath) handleFileDrop(sourcePath, rootPath)
                   }}
                 >
-                  {/* Parent directory navigation */}
-                  <button
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50 text-muted-foreground mb-1"
-                    onClick={navigateToParent}
-                    title="Go to parent folder"
-                  >
-                    <ChevronUp className="h-4 w-4 shrink-0" />
-                    <span className="truncate">..</span>
-                  </button>
+                  {/* Parent directory navigation — hidden at a project's root,
+                      which is the upward-traversal ceiling while in a project. */}
+                  {!(currentProject && rootPath === currentProject.path) && (
+                    <button
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50 text-muted-foreground mb-1"
+                      onClick={navigateToParent}
+                      title="Go to parent folder"
+                    >
+                      <ChevronUp className="h-4 w-4 shrink-0" />
+                      <span className="truncate">..</span>
+                    </button>
+                  )}
                   {/* New untitled document */}
                   <button
                     className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50 text-muted-foreground mb-1"
@@ -1398,6 +1479,8 @@ export function FileListPanel() {
                       onRenameComplete={handleRenameComplete}
                       onRenameCancel={handleRenameCancel}
                       onNewFile={handleNewFileInDir}
+                      onAddProject={addPathAsProject}
+                      onAddFavorite={addPathAsFavorite}
                       onFileDrop={handleFileDrop}
                     />
                   )}
@@ -1416,40 +1499,14 @@ export function FileListPanel() {
                 </ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem
-                  onClick={async () => {
-                    const { useProjectsStore: ps } = await import('../../stores/projectsStore')
-                    // Add current root as a project without switching (already here)
-                    if (!rootPath) return
-                    const { useSettingsStore: ss } = await import('../../stores/settingsStore')
-                    const existing = ss.getState().settings.projects ?? []
-                    if (existing.some((p) => p.path === rootPath)) return
-                    const name = rootPath.split('/').pop() || rootPath
-                    ss.getState().addProject({
-                      id: self.crypto.randomUUID(),
-                      name,
-                      path: rootPath,
-                      createdAt: new Date().toISOString(),
-                    })
-                  }}
+                  onClick={() => rootPath && addPathAsProject(rootPath)}
                   disabled={!rootPath}
                 >
                   <Boxes className="h-4 w-4 mr-2" />
                   Add as Project
                 </ContextMenuItem>
                 <ContextMenuItem
-                  onClick={async () => {
-                    if (!rootPath) return
-                    const { useSettingsStore: ss } = await import('../../stores/settingsStore')
-                    const existing = ss.getState().settings.favorites ?? []
-                    if (existing.some((f) => f.path === rootPath)) return
-                    const name = rootPath.split('/').pop() || rootPath
-                    ss.getState().addFavorite({
-                      id: self.crypto.randomUUID(),
-                      name,
-                      path: rootPath,
-                      addedAt: new Date().toISOString(),
-                    })
-                  }}
+                  onClick={() => rootPath && addPathAsFavorite(rootPath, true)}
                   disabled={!rootPath}
                 >
                   <Star className="h-4 w-4 mr-2" />

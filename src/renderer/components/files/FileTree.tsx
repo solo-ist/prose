@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import type { FileItem } from '../../types'
-import { ChevronRight, ChevronDown, FileText, FileType, Folder, FolderOpen, Loader2, Trash2, Edit3, ExternalLink, Copy, Scissors, ClipboardPaste, FilePlus } from 'lucide-react'
+import { ChevronRight, ChevronDown, FileText, FileType, Folder, FolderOpen, Loader2, Trash2, Edit3, ExternalLink, Copy, Scissors, ClipboardPaste, FilePlus, Boxes, Star } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { useFavorites } from '../../stores/projectsStore'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -35,6 +36,8 @@ interface FileTreeProps {
   onRenameComplete?: (oldPath: string, newName: string) => void
   onRenameCancel?: () => void
   onNewFile?: (dirPath: string) => void
+  onAddProject?: (path: string) => void
+  onAddFavorite?: (path: string, isDirectory: boolean) => void
   onFileDrop?: (sourcePath: string, targetDirPath: string) => void
   depth?: number
 }
@@ -63,6 +66,8 @@ export function FileTree({
   onRenameComplete,
   onRenameCancel,
   onNewFile,
+  onAddProject,
+  onAddFavorite,
   onFileDrop,
   depth = 0
 }: FileTreeProps) {
@@ -94,6 +99,8 @@ export function FileTree({
           onRenameComplete={onRenameComplete}
           onRenameCancel={onRenameCancel}
           onNewFile={onNewFile}
+          onAddProject={onAddProject}
+          onAddFavorite={onAddFavorite}
           onFileDrop={onFileDrop}
           depth={depth}
         />
@@ -126,6 +133,8 @@ interface FileTreeItemProps {
   onRenameComplete?: (oldPath: string, newName: string) => void
   onRenameCancel?: () => void
   onNewFile?: (dirPath: string) => void
+  onAddProject?: (path: string) => void
+  onAddFavorite?: (path: string, isDirectory: boolean) => void
   onFileDrop?: (sourcePath: string, targetDirPath: string) => void
   depth: number
 }
@@ -154,6 +163,8 @@ function FileTreeItem({
   onRenameComplete,
   onRenameCancel,
   onNewFile,
+  onAddProject,
+  onAddFavorite,
   onFileDrop,
   depth
 }: FileTreeItemProps) {
@@ -162,6 +173,9 @@ function FileTreeItem({
   const isLoading = loadingFolders?.has(item.path) ?? false
   const isRenaming = renamingPath === item.path
   const isCut = clipboardOperation === 'cut' && clipboardPath === item.path
+  // Denote favorite files in the tree (folders keep their folder icon).
+  const favorites = useFavorites()
+  const isFavorite = !item.isDirectory && favorites.some((f) => f.path === item.path)
 
   // Inline rename state
   const [renameValue, setRenameValue] = useState('')
@@ -348,7 +362,9 @@ function FileTreeItem({
         ) : (
           <>
             <span className="w-3.5" />
-            {item.name.endsWith('.txt') ? (
+            {isFavorite ? (
+              <Star className="h-4 w-4 shrink-0 fill-amber-400 text-amber-400" />
+            ) : item.name.endsWith('.txt') ? (
               <FileType className="h-4 w-4 shrink-0 text-muted-foreground" />
             ) : (
               <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -429,6 +445,15 @@ function FileTreeItem({
           </ContextMenuItem>
         </>
       )}
+      {onAddFavorite && (
+        <>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={() => onAddFavorite(item.path, false)}>
+            <Star className="h-4 w-4 mr-2" />
+            Add to Favorites
+          </ContextMenuItem>
+        </>
+      )}
       {(onFileTrash || onFileDelete) && (
         <>
           <ContextMenuSeparator />
@@ -469,6 +494,19 @@ function FileTreeItem({
             Show in Finder
           </ContextMenuItem>
         </>
+      )}
+      {(onAddProject || onAddFavorite) && <ContextMenuSeparator />}
+      {onAddProject && (
+        <ContextMenuItem onClick={() => onAddProject(item.path)}>
+          <Boxes className="h-4 w-4 mr-2" />
+          Add as Project
+        </ContextMenuItem>
+      )}
+      {onAddFavorite && (
+        <ContextMenuItem onClick={() => onAddFavorite(item.path, true)}>
+          <Star className="h-4 w-4 mr-2" />
+          Add to Favorites
+        </ContextMenuItem>
       )}
     </ContextMenuContent>
   )
@@ -512,6 +550,8 @@ function FileTreeItem({
           onRenameComplete={onRenameComplete}
           onRenameCancel={onRenameCancel}
           onNewFile={onNewFile}
+          onAddProject={onAddProject}
+          onAddFavorite={onAddFavorite}
           onFileDrop={onFileDrop}
           depth={depth + 1}
         />

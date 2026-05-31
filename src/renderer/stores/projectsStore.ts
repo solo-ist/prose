@@ -19,6 +19,13 @@ import type { Favorite, Project } from '../types'
 import { getApi } from '../lib/browserApi'
 import { useSettingsStore } from './settingsStore'
 
+// Stable empty-array references for the selector hooks below. Returning a fresh
+// `[]` from a Zustand selector on every call makes useSyncExternalStore treat the
+// snapshot as changed each render → infinite re-render ("Maximum update depth
+// exceeded"). These constants keep the reference stable when the field is unset.
+const EMPTY_PROJECTS: Project[] = []
+const EMPTY_FAVORITES: Favorite[] = []
+
 export type ProjectsPanelTab = 'projects' | 'favorites'
 
 interface ProjectsState {
@@ -51,6 +58,12 @@ interface ProjectsState {
    * explorer to the project root.
    */
   switchToProject: (projectId: string) => Promise<void>
+  /**
+   * Exit the active project back to the selected root folder (the stable
+   * defaultSaveDirectory). Clears the active project. Projects are additive
+   * pointers, so the selected root is preserved across project navigation.
+   */
+  exitToRoot: () => Promise<void>
 
   /**
    * Navigate the file explorer to a favorite folder.
@@ -177,7 +190,9 @@ export const useProjectsStore = create<ProjectsState>()(
       if (!project) return
 
       useSettingsStore.getState().setActiveProject(projectId)
-      useSettingsStore.getState().setDefaultSaveDirectory(project.path)
+      // Note: the selected root (defaultSaveDirectory) is intentionally NOT
+      // changed here — it stays stable as the base the Back button returns to.
+      // Projects are additive pointers layered over the selected root.
 
       // Sync the legacy single-bookmark slot so the existing startAccessingSecurityScopedResource
       // call in settings:load still works on the next launch.
@@ -190,6 +205,19 @@ export const useProjectsStore = create<ProjectsState>()(
 
       const fileList = await getFileListStore()
       fileList.setRootPath(project.path)
+      fileList.setViewMode('folder')
+    },
+
+    exitToRoot: async (): Promise<void> => {
+      set({ operationError: null })
+      const baseRoot = useSettingsStore.getState().settings.defaultSaveDirectory
+      useSettingsStore.getState().setActiveProject(null)
+      useSettingsStore.getState().saveSettings()
+
+      const fileList = await getFileListStore()
+      if (baseRoot) {
+        fileList.setRootPath(baseRoot)
+      }
       fileList.setViewMode('folder')
     },
 
@@ -219,15 +247,15 @@ export const useProjectsStore = create<ProjectsState>()(
 
 // Convenience selector hooks
 export function useProjects(): Project[] {
-  return useSettingsStore((s) => s.settings.projects ?? [])
+  return useSettingsStore((s) => s.settings.projects ?? EMPTY_PROJECTS)
 }
 
 export function useFavorites(): Favorite[] {
-  return useSettingsStore((s) => s.settings.favorites ?? [])
+  return useSettingsStore((s) => s.settings.favorites ?? EMPTY_FAVORITES)
 }
 
 export function useActiveProject(): Project | null {
-  const projects = useSettingsStore((s) => s.settings.projects ?? [])
+  const projects = useSettingsStore((s) => s.settings.projects ?? EMPTY_PROJECTS)
   const activeId = useSettingsStore((s) => s.settings.activeProjectId)
   if (!activeId) return null
   return projects.find((p) => p.id === activeId) ?? null

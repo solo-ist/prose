@@ -6,7 +6,7 @@
  * the header toggle buttons can stay consistent with the rest of FileListPanel.
  */
 import { useState } from 'react'
-import { FolderOpen, Plus, Trash2, Star, Folder, ChevronRight } from 'lucide-react'
+import { FolderOpen, Plus, Trash2, Star, Folder, ChevronRight, Boxes } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import {
@@ -34,6 +34,7 @@ import {
   useActiveProject,
 } from '../../stores/projectsStore'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useTabs } from '../../hooks/useTabs'
 
 // ---- sub-types -------------------------------------------------------
 
@@ -60,11 +61,7 @@ function ProjectItem({ id, name, path, isActive, onSwitch, onRename, onRemove }:
           onClick={() => onSwitch(id)}
           title={path}
         >
-          {isActive ? (
-            <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
-          ) : (
-            <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
-          )}
+          <Boxes className="h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <div className="truncate font-medium">{name}</div>
             {name !== folderName && (
@@ -166,6 +163,7 @@ export function ProjectsPanel({ mode }: ProjectsPanelProps) {
     operationError,
     setOperationError,
   } = useProjectsStore()
+  const { openFileInTab } = useTabs()
 
   // Rename dialog state
   const [renameTarget, setRenameTarget] = useState<{
@@ -213,7 +211,7 @@ export function ProjectsPanel({ mode }: ProjectsPanelProps) {
   if (mode === 'projects') {
     return (
       <div className="flex h-full flex-col">
-        <ScrollArea className="flex-1">
+        <ScrollArea className="flex-1 [&>[data-radix-scroll-area-viewport]>div]:!block">
           {projects.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-6 text-center">
               <FolderOpen className="h-8 w-8 text-muted-foreground/50 mb-3" />
@@ -339,7 +337,7 @@ export function ProjectsPanel({ mode }: ProjectsPanelProps) {
   // Favorites mode
   return (
     <div className="flex h-full flex-col">
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 [&>[data-radix-scroll-area-viewport]>div]:!block">
         {favorites.length === 0 ? (
           <div className="flex flex-col items-center justify-center p-6 text-center">
             <Star className="h-8 w-8 text-muted-foreground/50 mb-3" />
@@ -367,7 +365,14 @@ export function ProjectsPanel({ mode }: ProjectsPanelProps) {
                   id={fav.id}
                   name={fav.name}
                   path={fav.path}
-                  onNavigate={(id) => navigateToFavorite(id)}
+                  onNavigate={(id) => {
+                    const f = favorites.find((x) => x.id === id)
+                    if (f && f.isDirectory === false) {
+                      void openFileInTab(f.path)
+                    } else {
+                      void navigateToFavorite(id)
+                    }
+                  }}
                   onRename={(id, name) => handleRenameOpen('favorite', id, name)}
                   onRemove={(id) => {
                     const f = favorites.find((x) => x.id === id)

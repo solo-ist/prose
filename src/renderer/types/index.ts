@@ -20,8 +20,9 @@ export interface Project {
  */
 export interface Favorite {
   id: string            // UUID
-  name: string          // User-visible label (defaults to folder basename)
-  path: string          // Absolute path to the folder
+  name: string          // User-visible label (defaults to basename)
+  path: string          // Absolute path to the folder or file
+  isDirectory?: boolean // true = folder (navigate), false = file (open in tab); undefined = legacy folder
   bookmark?: string     // MAS security-scoped bookmark (base64), null on non-MAS
   addedAt: string       // ISO timestamp
 }

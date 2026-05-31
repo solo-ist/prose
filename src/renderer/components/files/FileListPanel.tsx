@@ -90,14 +90,60 @@ export function FileListPanel() {
   const googleConnected = useSettingsStore((state) => googleDocsFlag && !!state.settings.google)
   const googleSyncDirectory = useSettingsStore((state) => state.settings.google?.syncDirectory)
   const projects = useProjects()
-  const { switchToProject, exitToRoot } = useProjectsStore()
+  const { exitToRoot } = useProjectsStore()
   const defaultSaveDirectory = useSettingsStore((s) => s.settings.defaultSaveDirectory)
   // The project whose folder contains the current view root (handles drill-down
   // into project subfolders). Base root and projects are separate, peer locations.
   const currentProject = projects.find(
     (p) => !!rootPath && (rootPath === p.path || rootPath.startsWith(p.path + '/'))
   ) ?? null
-  const baseFolderName = defaultSaveDirectory?.split('/').pop() || 'Home'
+
+  // Return from an open project to the Projects list (stay in the Projects panel).
+  const backToProjectsList = () => {
+    useSettingsStore.getState().setActiveProject(null)
+    setRootPath(defaultSaveDirectory ?? null)
+    setViewMode('projects')
+  }
+
+  // Responsive header: measure the (stable) header width and spill overflowing
+  // view-toggles into a ··· menu when there isn't room for all of them inline.
+  const headerRef = useRef<HTMLDivElement>(null)
+  const [headerWidth, setHeaderWidth] = useState(0)
+  useEffect(() => {
+    const el = headerRef.current
+    if (!el) return
+    const ro = new ResizeObserver((entries) => {
+      for (const e of entries) setHeaderWidth(e.contentRect.width)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  // View toggles in priority order (earliest stay inline longest).
+  const viewToggles = [
+    {
+      key: 'folder', Icon: Folder, label: 'Files', active: viewMode === 'folder',
+      onClick: () => {
+        if (currentProject) exitToRoot()
+        else if (viewMode === 'folder') loadFiles()
+        else setViewMode('folder')
+      },
+    },
+    { key: 'projects', Icon: Boxes, label: 'Projects', active: viewMode === 'projects', onClick: () => setViewMode('projects') },
+    { key: 'favorites', Icon: Star, label: 'Favorites', active: viewMode === 'favorites', onClick: () => setViewMode('favorites') },
+    { key: 'recent', Icon: History, label: 'Recent files', active: viewMode === 'recent', onClick: () => setViewMode('recent') },
+    ...(googleConnected ? [{ key: 'googledocs', Icon: Globe, label: 'Google Docs', active: viewMode === 'googledocs', onClick: () => setViewMode('googledocs') }] : []),
+    ...(remarkableEnabled ? [{ key: 'notebooks', Icon: BookOpen, label: 'reMarkable notebooks', active: viewMode === 'notebooks', onClick: () => setViewMode('notebooks') }] : []),
+  ]
+  const TOGGLE_PX = 36 // 32px button + 4px gap
+  // Title gets a real min-width: shown at >=120px, otherwise hidden entirely
+  // (rather than shrinking to a sliver) so the toggles collapse into ··· sooner.
+  const showHeaderTitle = headerWidth === 0 || headerWidth >= 192
+  const toggleBudget = headerWidth > 0 ? headerWidth - (showHeaderTitle ? 120 : 0) : Infinity
+  const maxInlineToggles = Math.max(1, Math.floor(toggleBudget / TOGGLE_PX))
+  const togglesOverflow = viewToggles.length > maxInlineToggles
+  const inlineToggles = togglesOverflow ? viewToggles.slice(0, maxInlineToggles - 1) : viewToggles
+  const overflowToggles = togglesOverflow ? viewToggles.slice(maxInlineToggles - 1) : []
 
   // Switch away from notebooks view if reMarkable becomes disconnected
   useEffect(() => {
@@ -945,56 +991,25 @@ export function FileListPanel() {
   return (
     <div ref={containerRef} className="flex h-full flex-col bg-muted/20" data-testid="file-list-panel" tabIndex={-1}>
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <div className="flex items-center gap-2">
-          {viewMode === 'folder' && projects.length > 0 ? (
+      <div ref={headerRef} className="flex items-center gap-2 border-b border-border px-4 py-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          {showHeaderTitle && (viewMode === 'projects' && currentProject ? (
             <div className="flex min-w-0 items-center gap-1">
-              {currentProject && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 shrink-0"
-                      onClick={() => exitToRoot()}
-                      aria-label="Back to root folder"
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Back to root folder</TooltipContent>
-                </Tooltip>
-              )}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    className="flex min-w-0 items-center gap-1 rounded px-1 py-0.5 hover:bg-muted/50"
-                    title={currentProject?.path ?? rootPath ?? undefined}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 shrink-0"
+                    onClick={backToProjectsList}
+                    aria-label="Back to projects"
                   >
-                    <span className="truncate text-sm font-medium">{currentProject ? currentProject.name : folderName}</span>
-                    <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuItem
-                    className={cn(!currentProject && "bg-muted")}
-                    onClick={() => exitToRoot()}
-                  >
-                    <Folder className="h-4 w-4 mr-2 shrink-0" />
-                    <span className="truncate">{baseFolderName}</span>
-                  </DropdownMenuItem>
-                  {projects.map((p) => (
-                    <DropdownMenuItem
-                      key={p.id}
-                      className={cn(p.id === currentProject?.id && "bg-muted")}
-                      onClick={() => switchToProject(p.id)}
-                    >
-                      <Boxes className="h-4 w-4 mr-2 shrink-0" />
-                      <span className="truncate">{p.name}</span>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Back to projects</TooltipContent>
+              </Tooltip>
+              <span className="truncate text-sm font-medium" title={currentProject.path}>{currentProject.name}</span>
             </div>
           ) : (
             <h2 className="text-sm font-medium truncate" title={viewMode === 'folder' ? rootPath || undefined : undefined}>
@@ -1005,7 +1020,7 @@ export function FileListPanel() {
                 : viewMode === 'favorites' ? 'Favorites'
                 : folderName}
             </h2>
-          )}
+          ))}
           {viewMode === 'notebooks' && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1056,108 +1071,50 @@ export function FileListPanel() {
             </Tooltip>
           )}
         </div>
-        <div className="flex items-center gap-1">
-          {/* View toggle buttons */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn("h-8 w-8", viewMode === 'recent' && "bg-muted")}
-                onClick={() => setViewMode('recent')}
-                aria-label="Recent files"
-              >
-                <History className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Recent files</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn("h-8 w-8", viewMode === 'folder' && "bg-muted")}
-                onClick={() => {
-                  if (currentProject) {
-                    exitToRoot()
-                  } else if (viewMode === 'folder') {
-                    loadFiles()
-                  } else {
-                    setViewMode('folder')
-                  }
-                }}
-                aria-label="Files"
-              >
-                <Folder className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Files</TooltipContent>
-          </Tooltip>
-          {(googleConnected || remarkableEnabled) && (
+        <div className="flex shrink-0 items-center gap-1">
+          {/* View toggles — responsive: overflow into a ··· menu when narrow */}
+          {inlineToggles.map((t) => (
+            <Tooltip key={t.key}>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn("h-8 w-8", t.active && "bg-muted")}
+                  onClick={t.onClick}
+                  aria-label={t.label}
+                >
+                  <t.Icon className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t.label}</TooltipContent>
+            </Tooltip>
+          ))}
+          {overflowToggles.length > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className={cn("h-8 w-8", (viewMode === 'googledocs' || viewMode === 'notebooks') && "bg-muted")}
-                  aria-label="More sources"
+                  className={cn("h-8 w-8", overflowToggles.some((t) => t.active) && "bg-muted")}
+                  aria-label="More views"
                 >
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {googleConnected && (
+                {overflowToggles.map((t) => (
                   <DropdownMenuItem
-                    className={cn(viewMode === 'googledocs' && "bg-muted")}
-                    onClick={() => setViewMode('googledocs')}
+                    key={t.key}
+                    className={cn(t.active && "bg-muted")}
+                    onClick={t.onClick}
                   >
-                    <Globe className="h-4 w-4 mr-2" />
-                    Google Docs
+                    <t.Icon className="h-4 w-4 mr-2" />
+                    {t.label}
                   </DropdownMenuItem>
-                )}
-                {remarkableEnabled && (
-                  <DropdownMenuItem
-                    className={cn(viewMode === 'notebooks' && "bg-muted")}
-                    onClick={() => setViewMode('notebooks')}
-                  >
-                    <BookOpen className="h-4 w-4 mr-2" />
-                    reMarkable notebooks
-                  </DropdownMenuItem>
-                )}
+                ))}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-          {/* Projects view */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn("h-8 w-8", viewMode === 'projects' && "bg-muted")}
-                onClick={() => setViewMode('projects')}
-                aria-label="Projects"
-              >
-                <Boxes className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Projects</TooltipContent>
-          </Tooltip>
-          {/* Favorites view */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn("h-8 w-8", viewMode === 'favorites' && "bg-muted")}
-                onClick={() => setViewMode('favorites')}
-                aria-label="Favorites"
-              >
-                <Star className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Favorites</TooltipContent>
-          </Tooltip>
         </div>
       </div>
 
@@ -1193,7 +1150,7 @@ export function FileListPanel() {
 
       {/* Content */}
       <ScrollArea className="flex-1">
-        {viewMode === 'projects' ? (
+        {viewMode === 'projects' && !currentProject ? (
           <ProjectsPanel mode="projects" />
         ) : viewMode === 'favorites' ? (
           <ProjectsPanel mode="favorites" />

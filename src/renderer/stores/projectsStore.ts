@@ -205,7 +205,9 @@ export const useProjectsStore = create<ProjectsState>()(
 
       const fileList = await getFileListStore()
       fileList.setRootPath(project.path)
-      fileList.setViewMode('folder')
+      // Stay in the Projects panel — opening a project browses its files in
+      // place; the Files panel remains the separate base-root navigator.
+      fileList.setViewMode('projects')
     },
 
     exitToRoot: async (): Promise<void> => {

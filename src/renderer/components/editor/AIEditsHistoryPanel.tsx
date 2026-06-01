@@ -293,6 +293,7 @@ function formatModelName(model: string): string {
   if (!model || model === 'external') return 'External'
   const cleaned = model
     .replace(/^claude[-/]?/, '')
+    .replace(/-\d{6,}$/, '')   // drop a trailing date stamp (e.g. -20251001)
     .replace(/-(\d)/g, '.$1')
     .replace(/-/g, ' ')
     .trim()

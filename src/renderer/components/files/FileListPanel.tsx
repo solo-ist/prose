@@ -963,7 +963,7 @@ export function FileListPanel() {
               <Button
                 variant="ghost"
                 size="icon"
-                className={cn("h-8 w-8", viewMode === 'recent' && "bg-muted")}
+                className={cn("h-8 w-8", viewMode === 'recent' && "bg-accent text-accent-foreground")}
                 onClick={() => setViewMode('recent')}
                 aria-label="Recent files"
               >
@@ -977,7 +977,7 @@ export function FileListPanel() {
               <Button
                 variant="ghost"
                 size="icon"
-                className={cn("h-8 w-8", viewMode === 'folder' && "bg-muted")}
+                className={cn("h-8 w-8", viewMode === 'folder' && "bg-accent text-accent-foreground")}
                 onClick={() => {
                   if (viewMode === 'folder') {
                     loadFiles()
@@ -998,7 +998,7 @@ export function FileListPanel() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className={cn("h-8 w-8", viewMode === 'googledocs' && "bg-muted")}
+                  className={cn("h-8 w-8", viewMode === 'googledocs' && "bg-accent text-accent-foreground")}
                   onClick={() => {
                     if (viewMode === 'googledocs') {
                       googleSync().catch((err) => {
@@ -1022,7 +1022,7 @@ export function FileListPanel() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className={cn("h-8 w-8", viewMode === 'notebooks' && "bg-muted")}
+                  className={cn("h-8 w-8", viewMode === 'notebooks' && "bg-accent text-accent-foreground")}
                   onClick={() => {
                     console.log('[FileListPanel] notebooks button clicked, current viewMode:', viewMode)
                     if (viewMode === 'notebooks') {

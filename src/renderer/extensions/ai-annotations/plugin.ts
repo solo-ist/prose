@@ -163,6 +163,10 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
         const annotationsChanged = storeAnnotations !== pluginState.annotations
         const visibilityChanged = storeVisible !== isVisible
         const needsRefresh = Date.now() - pluginState.lastRefresh > ANNOTATION_CONSTANTS.REFRESH_INTERVAL_MS
+        // Explicit force-rebuild signal (e.g. after a tab switch re-loads annotations
+        // for the current document). Guarantees decorations rebuild from the store
+        // even if the annotations array reference happens to match.
+        const forceRebuild = tr.getMeta(aiAnnotationsPluginKey)?.rebuildDecorations === true
 
         isVisible = storeVisible
 
@@ -216,7 +220,7 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
         }
 
         // Rebuild decorations if needed
-        if (annotationsChanged || visibilityChanged || needsRefresh || tr.docChanged) {
+        if (annotationsChanged || visibilityChanged || needsRefresh || tr.docChanged || forceRebuild) {
           const decorations: Decoration[] = []
           const createdThisSession = storeState.createdThisSession
 
@@ -325,11 +329,39 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
       },
     },
 
-    view() {
-      // Subscribe when plugin view is created (after DB init)
+    view(editorView) {
+      // Subscribe when plugin view is created (after DB init). Decorations are
+      // derived from the store, so whenever annotations (or visibility) change —
+      // a new edit is marked, one is removed, or a tab switch re-loads them — we
+      // must trigger a rebuild. apply() only re-derives on a transaction, and a
+      // bare store mutation isn't one, so we dispatch a force-rebuild meta tx.
+      //
+      // The dispatch is deferred via queueMicrotask and coalesced behind a flag:
+      // store mutations can occur *inside* apply() (updatePositions on docChanged),
+      // and dispatching synchronously there would nest dispatches. Deferring runs
+      // the rebuild after the current dispatch settles. The rebuild path doesn't
+      // mutate the store (no docChanged), so it can't loop.
+      let lastAnnotations = useAnnotationStore.getState().annotations
+      let lastVisible = useAnnotationStore.getState().isVisible
+      let rebuildScheduled = false
+
       unsubscribe = useAnnotationStore.subscribe((state) => {
         currentAnnotations = state.annotations
         isVisible = state.isVisible
+
+        const changed = state.annotations !== lastAnnotations || state.isVisible !== lastVisible
+        lastAnnotations = state.annotations
+        lastVisible = state.isVisible
+        if (!changed || rebuildScheduled) return
+
+        rebuildScheduled = true
+        queueMicrotask(() => {
+          rebuildScheduled = false
+          if (editorView.isDestroyed) return
+          editorView.dispatch(
+            editorView.state.tr.setMeta(aiAnnotationsPluginKey, { rebuildDecorations: true })
+          )
+        })
       })
 
       return {

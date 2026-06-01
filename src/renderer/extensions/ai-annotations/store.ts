@@ -7,12 +7,6 @@
 import { create } from 'zustand'
 import type { AIAnnotation, AnnotationState, AnnotationActions } from '../../types/annotations'
 import { generateId, saveAnnotations, loadAnnotations } from '../../lib/persistence'
-// Lazy import via dynamic access to avoid circular-dependency issues at module-load time.
-// The editHistoryStore module is loaded after this one during app init.
-function getEditHistoryStore() {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return require('../../stores/editHistoryStore').useEditHistoryStore
-}
 
 type AnnotationStore = AnnotationState & AnnotationActions & {
   // Session-scoped set of annotation IDs created (not loaded) this session
@@ -77,23 +71,6 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
       set({ isLoadingDocument: false })
       console.log('[AnnotationStore] addAnnotation complete, position updates resumed')
     })
-
-    // Record in permanent edit history ledger (fire-and-forget)
-    try {
-      const historyStore = getEditHistoryStore()
-      historyStore.getState().recordEdit({
-        id: generateId(),
-        documentId: annotation.documentId,
-        annotationId: id,
-        type: annotation.type,
-        appliedAt: annotation.createdAt,
-        content: annotation.content,
-        provenance: annotation.provenance,
-        explanation: annotation.explanation,
-      })
-    } catch {
-      // Never let history recording failure break annotation creation
-    }
 
     return id
   },
@@ -295,14 +272,6 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
       })
       // Clear the "created this session" set - loaded annotations should animate
       set({ annotations, documentId, createdThisSession: new Set() })
-
-      // Also load edit history for this document (fire-and-forget)
-      try {
-        const historyStore = getEditHistoryStore()
-        historyStore.getState().loadHistory(documentId)
-      } catch {
-        // History load failure should never block annotation loading
-      }
     } catch (error) {
       console.error('Failed to load annotations:', error)
       set({ annotations: [], documentId })

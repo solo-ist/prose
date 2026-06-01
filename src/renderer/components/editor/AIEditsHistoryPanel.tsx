@@ -11,7 +11,7 @@
  * toggle in the ChatPanel header.
  */
 
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import { Wand2, LocateFixed, X, Eye, EyeOff } from 'lucide-react'
 import { useAnnotationStore } from '../../extensions/ai-annotations/store'
 import { useEditorStore } from '../../stores/editorStore'
@@ -23,13 +23,14 @@ import { cn } from '../../lib/utils'
 
 export function AIEditsHistoryPanel() {
   const annotations = useAnnotationStore((s) => s.annotations)
-  const isLoadingDocument = useAnnotationStore((s) => s.isLoadingDocument)
   const removeAnnotation = useAnnotationStore((s) => s.removeAnnotation)
   const editor = useEditorInstanceStore((s) => s.editor)
 
   // Newest first, grouped by calendar day.
-  const sorted = [...annotations].sort((a, b) => b.createdAt - a.createdAt)
-  const groups = groupAnnotationsByDate(sorted)
+  const groups = useMemo(
+    () => groupAnnotationsByDate([...annotations].sort((a, b) => b.createdAt - a.createdAt)),
+    [annotations]
+  )
 
   const handleJump = useCallback(
     (annotation: AIAnnotation) => {
@@ -51,7 +52,7 @@ export function AIEditsHistoryPanel() {
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {annotations.length === 0 ? (
-          isLoadingDocument ? <LoadingState /> : <EmptyState />
+          <EmptyState />
         ) : (
           <div className="py-1">
             {groups.map((group) => (
@@ -74,14 +75,6 @@ export function AIEditsHistoryPanel() {
 }
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
-
-function LoadingState() {
-  return (
-    <div className="flex items-center justify-center h-full p-6 text-xs text-muted-foreground">
-      Loading…
-    </div>
-  )
-}
 
 function EmptyState() {
   return (
@@ -204,16 +197,21 @@ function HistoryEntryRow({ annotation, onJump, onRemove }: HistoryEntryRowProps)
 }
 
 function TypeBadge({ type }: { type: AnnotationType }) {
+  const palette =
+    type === 'insertion'
+      ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+      : type === 'deletion'
+        ? 'bg-rose-500/10 text-rose-700 dark:text-rose-400'
+        : 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
+  const symbol = type === 'insertion' ? '+' : type === 'deletion' ? '−' : '~'
   return (
     <span
       className={cn(
         'inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-medium uppercase tracking-wider',
-        type === 'insertion'
-          ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-          : 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
+        palette
       )}
     >
-      {type === 'insertion' ? '+' : '~'} {type}
+      {symbol} {type}
     </span>
   )
 }

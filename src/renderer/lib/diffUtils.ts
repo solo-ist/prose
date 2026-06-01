@@ -260,7 +260,6 @@ export function createWordDiffAnnotations(params: {
   let charOffset = 0
   let runStartOffset: number | null = null // char offset (into newText) where the run opened
   let runEndOffset = 0                      // char offset just past the last 'added' segment in the run
-  let pendingWhitespace = 0                 // whitespace buffered since the last 'added' segment
 
   const flushRun = () => {
     if (runStartOffset === null) return
@@ -270,7 +269,6 @@ export function createWordDiffAnnotations(params: {
       content: newText.slice(runStartOffset, runEndOffset),
     })
     runStartOffset = null
-    pendingWhitespace = 0
   }
 
   for (const segment of diff.new) {
@@ -278,13 +276,12 @@ export function createWordDiffAnnotations(params: {
       if (runStartOffset === null) runStartOffset = charOffset
       charOffset += segment.text.length
       runEndOffset = charOffset // run ends at the end of this added segment (interior ws now included)
-      pendingWhitespace = 0
     } else {
-      // 'unchanged' (or stray 'removed'): whitespace-only between added segments is
-      // interior; a real word closes the run.
-      if (runStartOffset !== null && segment.text.trim() === '') {
-        pendingWhitespace += segment.text.length
-      } else {
+      // A whitespace-only 'unchanged' segment between added segments keeps the run
+      // open — it's absorbed because runEndOffset jumps to the end of the next added
+      // segment. A real unchanged word closes the run. Trailing whitespace is excluded
+      // because runEndOffset never advances past the last added segment.
+      if (!(runStartOffset !== null && segment.text.trim() === '')) {
         flushRun()
       }
       charOffset += segment.text.length

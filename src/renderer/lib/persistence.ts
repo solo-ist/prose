@@ -63,7 +63,7 @@ export interface EmojiCacheEntry {
 
 // Database constants
 const DB_NAME = 'prose-db'
-const DB_VERSION = 8
+const DB_VERSION = 9
 const STORES = {
   DRAFTS: 'drafts',
   CONVERSATIONS: 'conversations',
@@ -104,6 +104,9 @@ export interface DatabaseBackup {
  * v6: Added emoji_cache store (LLM-generated emoji icons for tabs)
  * v7: Added summaries store (AI-generated document summaries)
  * v8: Added comments store (persists comment marks across tab switches)
+ * v9: (reserved) edit_history store was added then removed during development —
+ *     the AI edit history now derives from the annotations store, so no separate
+ *     store is created. Existing dev DBs may carry a harmless orphaned edit_history.
  *
  * When bumping version:
  * 1. Update DB_VERSION above

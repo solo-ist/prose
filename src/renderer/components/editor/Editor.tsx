@@ -447,35 +447,20 @@ export function Editor() {
     checkLinkedNotebook()
   }, [document.path])
 
-  // Subscribe to annotations reactively for restoration
-  const annotations = useAnnotationStore((state) => state.annotations)
+  // Trigger annotation load when the document changes. The ai-annotations plugin
+  // subscribes to the store and rebuilds its decorations on any store change
+  // (including after this async load and on add/remove), so no manual decoration
+  // dispatch is needed here.
   const annotationStoreDocumentId = useAnnotationStore((state) => state.documentId)
 
-  // Load and restore annotations when document changes
   useEffect(() => {
     if (!editor || !document.documentId) return
-
-    const annotationStore = useAnnotationStore.getState()
-
-    // Set document ID and load annotations if needed
     if (annotationStoreDocumentId !== document.documentId) {
+      const annotationStore = useAnnotationStore.getState()
       annotationStore.setDocumentId(document.documentId)
       annotationStore.loadAnnotations(document.documentId)
     }
-
-    // Force decoration rebuild when annotations change
-    // Small delay to ensure editor content is fully loaded
-    if (annotations.length > 0 && annotationStoreDocumentId === document.documentId) {
-      console.log(`[Editor:${SESSION_ID}] Restoring annotations:`, {
-        documentId: document.documentId,
-        count: annotations.length
-      })
-      const timer = setTimeout(() => {
-        editor.view.dispatch(editor.state.tr)
-      }, 100)
-      return () => clearTimeout(timer)
-    }
-  }, [editor, document.documentId, annotations, annotationStoreDocumentId])
+  }, [editor, document.documentId, annotationStoreDocumentId])
 
   // Subscribe to pending suggestions reactively for restoration
   const pendingSuggestions = useSuggestionStore((state) => state.pendingSuggestions)

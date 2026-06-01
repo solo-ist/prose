@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '../ui/dropdown-menu'
-import { MessageSquare, History, Plus, Trash2, Sparkles, Info, Loader2 } from 'lucide-react'
+import { MessageSquare, History, Bot, Plus, Trash2, Sparkles, Info, Loader2 } from 'lucide-react'
 import { useChatStore } from '../../stores/chatStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
@@ -20,6 +20,8 @@ import { useSummaryStore } from '../../stores/summaryStore'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { ReviewContainer } from '../review/ReviewContainer'
+import { AIEditsHistoryPanel } from '../editor/AIEditsHistoryPanel'
+import { useAnnotationStore } from '../../extensions/ai-annotations/store'
 import { MODE_SWITCH_RUN_EVENT } from './toolResultRenderers/RequestModeSwitchResult'
 import { cn } from '../../lib/utils'
 
@@ -28,6 +30,7 @@ export function ChatPanel() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const reviewMode = useReviewMode()
   const [infoOpen, setInfoOpen] = useState(false)
+  const [sidebarMode, setSidebarMode] = useState<'chat' | 'history'>('chat')
 
   const {
     conversations,
@@ -79,6 +82,9 @@ export function ChatPanel() {
     window.addEventListener(MODE_SWITCH_RUN_EVENT, handler)
     return () => window.removeEventListener(MODE_SWITCH_RUN_EVENT, handler)
   }, [sendMessage])
+
+  // Annotation count for the badge on the history toggle
+  const annotationCount = useAnnotationStore((s) => s.annotations.length)
 
   // Track pending suggestion count
   const suggestionCount = useMemo(() => {
@@ -157,204 +163,251 @@ export function ChatPanel() {
 
   return (
     <div className="flex h-full flex-col bg-muted/20">
-      {/* Action bar */}
-      <div className="flex items-center justify-end border-b border-border px-2 py-1">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn("h-7 w-7", infoOpen && "bg-accent")}
-              onClick={() => setInfoOpen(!infoOpen)}
-              aria-label="Document info"
-            >
-              <Info className="h-3.5 w-3.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Document info</TooltipContent>
-        </Tooltip>
-        {conversations.length > 0 && (
-            <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      aria-label="Chat history"
-                    >
-                      <History className="h-3.5 w-3.5" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent>Chat history</TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent align="end" className="w-64">
-                {conversations.map((conversation) => (
-                  <DropdownMenuItem
-                    key={conversation.id}
-                    className="flex items-center justify-between gap-2 cursor-pointer"
-                    onClick={() => handleSelectConversation(conversation.id)}
-                  >
-                    <span
-                      className={`truncate flex-1 ${
-                        conversation.id === activeConversationId
-                          ? 'font-medium'
-                          : ''
-                      }`}
-                    >
-                      {conversation.title ?? 'New Chat'}
-                    </span>
-                    {conversations.length > 1 && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 shrink-0 opacity-50 hover:opacity-100"
-                        onClick={(e) =>
-                          handleDeleteConversation(e, conversation.id)
-                        }
-                        aria-label="Delete conversation"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    )}
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleNewChat} className="cursor-pointer">
-                  <Plus className="h-4 w-4 mr-2" />
-                  New Chat
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+      {/* Mode toggle header (Chat | History) — sibling toggles, File-Explorer convention */}
+      <div className="flex items-center justify-between border-b border-border px-2 py-1">
+        <div className="flex items-center gap-0.5">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7"
-                onClick={handleNewChat}
-                aria-label="New chat"
+                className={cn("h-7 w-7", sidebarMode === 'chat' && "bg-accent text-accent-foreground")}
+                onClick={() => setSidebarMode('chat')}
+                aria-label="AI chat"
               >
-                <Plus className="h-3.5 w-3.5" />
+                <MessageSquare className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>New chat</TooltipContent>
+            <TooltipContent>AI chat</TooltipContent>
           </Tooltip>
-          {visibleMessages.length > 0 && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn("h-7 w-7 relative", sidebarMode === 'history' && "bg-accent text-accent-foreground")}
+                onClick={() => setSidebarMode('history')}
+                aria-label="AI edits history"
+              >
+                <Bot className="h-3.5 w-3.5" />
+                {annotationCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 flex h-3.5 min-w-[14px] w-auto px-0.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground leading-none">
+                    {annotationCount > 99 ? '99+' : annotationCount}
+                  </span>
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>AI edits history</TooltipContent>
+          </Tooltip>
+        </div>
+
+        {/* Chat-mode actions */}
+        {sidebarMode === 'chat' && (
+          <div className="flex items-center gap-0.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn("h-7 w-7", infoOpen && "bg-accent text-accent-foreground")}
+                  onClick={() => setInfoOpen(!infoOpen)}
+                  aria-label="Document info"
+                >
+                  <Info className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Document info</TooltipContent>
+            </Tooltip>
+            {conversations.length > 0 && (
+              <DropdownMenu>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        aria-label="Chat history"
+                      >
+                        <History className="h-3.5 w-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>Chat history</TooltipContent>
+                </Tooltip>
+                <DropdownMenuContent align="end" className="w-64">
+                  {conversations.map((conversation) => (
+                    <DropdownMenuItem
+                      key={conversation.id}
+                      className="flex items-center justify-between gap-2 cursor-pointer"
+                      onClick={() => handleSelectConversation(conversation.id)}
+                    >
+                      <span
+                        className={`truncate flex-1 ${
+                          conversation.id === activeConversationId
+                            ? 'font-medium'
+                            : ''
+                        }`}
+                      >
+                        {conversation.title ?? 'New Chat'}
+                      </span>
+                      {conversations.length > 1 && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 shrink-0 opacity-50 hover:opacity-100"
+                          onClick={(e) =>
+                            handleDeleteConversation(e, conversation.id)
+                          }
+                          aria-label="Delete conversation"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      )}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleNewChat} className="cursor-pointer">
+                    <Plus className="h-4 w-4 mr-2" />
+                    New Chat
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7"
-                  onClick={clearMessages}
-                  aria-label="Clear chat"
+                  onClick={handleNewChat}
+                  aria-label="New chat"
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
+                  <Plus className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Clear messages</TooltipContent>
+              <TooltipContent>New chat</TooltipContent>
             </Tooltip>
-          )}
-      </div>
-
-      {/* Collapsible summary panel */}
-      <div className={cn(
-        "overflow-hidden transition-all duration-200 ease-in-out",
-        infoOpen ? "max-h-60 border-b border-border" : "max-h-0"
-      )}>
-        <div className="mx-2 my-2 rounded-md bg-muted/50 border border-border/60 px-3 py-2">
-          <div className="flex items-center justify-between mb-1.5">
-            <h3 className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Summary</h3>
-            <span className="text-[10px] text-muted-foreground/70">~{readingTime} min read</span>
-          </div>
-          {isGenerating ? (
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              <span>Generating...</span>
-            </div>
-          ) : error ? (
-            <p className="text-xs text-destructive">{error}</p>
-          ) : summary ? (
-            <p className="text-xs leading-relaxed">{summary}</p>
-          ) : (
-            <p className="text-xs text-muted-foreground">No summary yet</p>
-          )}
-        </div>
-      </div>
-
-      {/* Messages */}
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
-        {visibleMessages.length === 0 ? (
-          <div className="flex items-center justify-center p-8 py-16">
-            <div className="text-center">
-              <MessageSquare className="mx-auto h-12 w-12 text-muted-foreground/30" />
-              <p className="mt-4 text-sm text-muted-foreground">
-                No messages yet
-              </p>
-              <p className="mt-2 text-xs text-muted-foreground/60">
-                Select text and press{' '}
-                <kbd className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium">
-                  ⌘⇧K
-                </kbd>{' '}
-                to add context
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="divide-y divide-border/50">
-            {visibleMessages.map((message, index) => (
-              <ChatMessage
-                key={message.id}
-                message={message}
-                isStreaming={
-                  isStreaming &&
-                  index === visibleMessages.length - 1 &&
-                  message.role === 'assistant'
-                }
-                onRetry={message.isError ? () => handleRetry(message.id) : undefined}
-              />
-            ))}
-            {/* Show "Thinking..." only when loading but not yet streaming */}
-            {isLoading && !isStreaming && (
-              <div className="flex gap-3 p-4 bg-muted/30">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/20">
-                  <div className="h-4 w-4 animate-pulse rounded-full bg-primary/50" />
-                </div>
-                <div className="flex items-center">
-                  <span className="text-sm text-muted-foreground">
-                    Thinking...
-                  </span>
-                </div>
-              </div>
+            {visibleMessages.length > 0 && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={clearMessages}
+                    aria-label="Clear chat"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Clear messages</TooltipContent>
+              </Tooltip>
             )}
           </div>
         )}
       </div>
 
-      {/* Suggestion review chip */}
-      {suggestionCount > 0 && (
-        <div className="px-4 py-3">
-          <button
-            onClick={() => useReviewStore.getState().setReviewMode('quick')}
-            className="w-full flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/30 text-violet-600 dark:text-violet-400 transition-colors"
-          >
-            <Sparkles className="h-3 w-3" />
-            Review {suggestionCount} suggestion{suggestionCount !== 1 ? 's' : ''}
-          </button>
-        </div>
-      )}
+      {sidebarMode === 'history' ? (
+        <AIEditsHistoryPanel />
+      ) : (
+        <>
+          {/* Collapsible summary panel */}
+          <div className={cn(
+            "overflow-hidden transition-all duration-200 ease-in-out",
+            infoOpen ? "max-h-60 border-b border-border" : "max-h-0"
+          )}>
+            <div className="mx-2 my-2 rounded-md bg-muted/50 border border-border/60 px-3 py-2">
+              <div className="flex items-center justify-between mb-1.5">
+                <h3 className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Summary</h3>
+                <span className="text-[10px] text-muted-foreground/70">~{readingTime} min read</span>
+              </div>
+              {isGenerating ? (
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span>Generating...</span>
+                </div>
+              ) : error ? (
+                <p className="text-xs text-destructive">{error}</p>
+              ) : summary ? (
+                <p className="text-xs leading-relaxed">{summary}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">No summary yet</p>
+              )}
+            </div>
+          </div>
 
-      {/* Input */}
-      <ChatInput
-        onSend={sendMessage}
-        isLoading={isLoading}
-        isStreaming={isStreaming}
-        onStop={stopGeneration}
-      />
+          {/* Messages */}
+          <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
+            {visibleMessages.length === 0 ? (
+              <div className="flex items-center justify-center p-8 py-16">
+                <div className="text-center">
+                  <MessageSquare className="mx-auto h-12 w-12 text-muted-foreground/30" />
+                  <p className="mt-4 text-sm text-muted-foreground">
+                    No messages yet
+                  </p>
+                  <p className="mt-2 text-xs text-muted-foreground/60">
+                    Select text and press{' '}
+                    <kbd className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium">
+                      ⌘⇧K
+                    </kbd>{' '}
+                    to add context
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="divide-y divide-border/50">
+                {visibleMessages.map((message, index) => (
+                  <ChatMessage
+                    key={message.id}
+                    message={message}
+                    isStreaming={
+                      isStreaming &&
+                      index === visibleMessages.length - 1 &&
+                      message.role === 'assistant'
+                    }
+                    onRetry={message.isError ? () => handleRetry(message.id) : undefined}
+                  />
+                ))}
+                {/* Show "Thinking..." only when loading but not yet streaming */}
+                {isLoading && !isStreaming && (
+                  <div className="flex gap-3 p-4 bg-muted/30">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/20">
+                      <div className="h-4 w-4 animate-pulse rounded-full bg-primary/50" />
+                    </div>
+                    <div className="flex items-center">
+                      <span className="text-sm text-muted-foreground">
+                        Thinking...
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Suggestion review chip */}
+          {suggestionCount > 0 && (
+            <div className="px-4 py-3">
+              <button
+                onClick={() => useReviewStore.getState().setReviewMode('quick')}
+                className="w-full flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/30 text-violet-600 dark:text-violet-400 transition-colors"
+              >
+                <Sparkles className="h-3 w-3" />
+                Review {suggestionCount} suggestion{suggestionCount !== 1 ? 's' : ''}
+              </button>
+            </div>
+          )}
+
+          {/* Input */}
+          <ChatInput
+            onSend={sendMessage}
+            isLoading={isLoading}
+            isStreaming={isStreaming}
+            onStop={stopGeneration}
+          />
+        </>
+      )}
     </div>
   )
 }

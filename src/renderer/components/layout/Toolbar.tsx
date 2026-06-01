@@ -384,7 +384,8 @@ export function Toolbar() {
                 size="icon"
                 onClick={toggleAnnotationsVisible}
                 aria-label={annotationsVisible ? 'Hide AI annotations' : 'Show AI annotations'}
-                className={annotationsVisible ? '' : 'text-muted-foreground'}
+                aria-pressed={annotationsVisible}
+                className={annotationsVisible ? 'bg-accent text-accent-foreground' : 'text-muted-foreground'}
               >
                 {annotationsVisible ? (
                   <Eye className="h-4 w-4" />

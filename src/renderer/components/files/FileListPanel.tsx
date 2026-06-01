@@ -47,7 +47,7 @@ import { getApi } from '../../lib/browserApi'
 import { requestBugReport } from '../EnableLoggingDialog'
 import type { RemarkableNotebookMetadata, RemarkableCloudNotebook, GoogleDocEntry } from '../../types'
 import { ProjectsPanel } from './ProjectsPanel'
-import { useProjects, useProjectsStore } from '../../stores/projectsStore'
+import { useProjects, useFavorites, useProjectsStore } from '../../stores/projectsStore'
 
 export function FileListPanel() {
   const {
@@ -90,6 +90,10 @@ export function FileListPanel() {
   const googleConnected = useSettingsStore((state) => googleDocsFlag && !!state.settings.google)
   const googleSyncDirectory = useSettingsStore((state) => state.settings.google?.syncDirectory)
   const projects = useProjects()
+  const favorites = useFavorites()
+  // Subscribe to favorites once here and pass a path Set down the tree, so each
+  // FileTreeItem doesn't hold its own settingsStore subscription (O(1), not O(nodes)).
+  const favoritePaths = useMemo(() => new Set(favorites.map((f) => f.path)), [favorites])
   const { exitToRoot } = useProjectsStore()
   const defaultSaveDirectory = useSettingsStore((s) => s.settings.defaultSaveDirectory)
   // The project whose folder contains the current view root (handles drill-down
@@ -132,8 +136,19 @@ export function FileListPanel() {
     { key: 'projects', Icon: Boxes, label: 'Projects', active: viewMode === 'projects', onClick: () => setViewMode('projects') },
     { key: 'favorites', Icon: Star, label: 'Favorites', active: viewMode === 'favorites', onClick: () => setViewMode('favorites') },
     { key: 'recent', Icon: History, label: 'Recent files', active: viewMode === 'recent', onClick: () => setViewMode('recent') },
-    ...(googleConnected ? [{ key: 'googledocs', Icon: Globe, label: 'Google Docs', active: viewMode === 'googledocs', onClick: () => setViewMode('googledocs') }] : []),
-    ...(remarkableEnabled ? [{ key: 'notebooks', Icon: BookOpen, label: 'reMarkable notebooks', active: viewMode === 'notebooks', onClick: () => setViewMode('notebooks') }] : []),
+    ...(googleConnected ? [{
+      key: 'googledocs', Icon: Globe, label: 'Google Docs', active: viewMode === 'googledocs',
+      // Clicking while already in this view triggers a manual sync (parity with the folder/notebook toggles).
+      onClick: () => viewMode === 'googledocs'
+        ? googleSync().catch((err) => console.error('[FileListPanel] Manual Google sync failed:', err))
+        : setViewMode('googledocs'),
+    }] : []),
+    ...(remarkableEnabled ? [{
+      key: 'notebooks', Icon: BookOpen, label: 'reMarkable notebooks', active: viewMode === 'notebooks',
+      onClick: () => viewMode === 'notebooks'
+        ? sync().catch((err) => console.error('[FileListPanel] Manual sync failed:', err))
+        : setViewMode('notebooks'),
+    }] : []),
   ]
   const TOGGLE_PX = 36 // 32px button + 4px gap
   // Title gets a real min-width: shown at >=120px, otherwise hidden entirely
@@ -1079,7 +1094,7 @@ export function FileListPanel() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className={cn("h-8 w-8", t.active && "bg-muted")}
+                  className={cn("h-8 w-8", t.active && "bg-accent text-accent-foreground")}
                   onClick={t.onClick}
                   aria-label={t.label}
                 >
@@ -1095,7 +1110,7 @@ export function FileListPanel() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className={cn("h-8 w-8", overflowToggles.some((t) => t.active) && "bg-muted")}
+                  className={cn("h-8 w-8", overflowToggles.some((t) => t.active) && "bg-accent text-accent-foreground")}
                   aria-label="More views"
                 >
                   <MoreHorizontal className="h-4 w-4" />
@@ -1415,6 +1430,7 @@ export function FileListPanel() {
                   ) : (
                     <FileTree
                       items={files}
+                      favoritePaths={favoritePaths}
                       expandedFolders={expandedFolders}
                       selectedPath={selectedPath}
                       loadingFolders={loadingFolders}

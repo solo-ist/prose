@@ -71,8 +71,8 @@ const activeStreams = new Map<string, AbortController>()
 let stopAccessingBookmark: (() => void) | null = null
 
 // Stop-functions for project and favorite bookmarks, keyed by their UUID.
-// Populated in settings:load; torn down when a project/favorite is removed
-// (settings:save handles persistence; the stop fn is released on next load).
+// Populated in settings:load and reconciled in settings:save — when a project or
+// favorite is removed, its stop fn is released promptly (not left until next load).
 const projectBookmarkStopFns = new Map<string, () => void>()
 const favoriteBookmarkStopFns = new Map<string, () => void>()
 
@@ -656,6 +656,25 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('settings:save', async (_event, settings: Settings) => {
     try {
       await mkdir(getSettingsDir(), { recursive: true })
+
+      // MAS: promptly release security-scoped bookmarks for any project/favorite
+      // removed since the last load, instead of leaking the stop fn until next load.
+      if (IS_MAS_BUILD) {
+        const projectIds = new Set((settings.projects ?? []).map((p) => p.id))
+        for (const [id, stop] of projectBookmarkStopFns) {
+          if (!projectIds.has(id)) {
+            try { stop() } catch { /* best effort */ }
+            projectBookmarkStopFns.delete(id)
+          }
+        }
+        const favoriteIds = new Set((settings.favorites ?? []).map((f) => f.id))
+        for (const [id, stop] of favoriteBookmarkStopFns) {
+          if (!favoriteIds.has(id)) {
+            try { stop() } catch { /* best effort */ }
+            favoriteBookmarkStopFns.delete(id)
+          }
+        }
+      }
 
       if (credentialStore.isAvailable()) {
         // Store API key securely; save settings without it

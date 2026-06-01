@@ -250,28 +250,53 @@ export function createWordDiffAnnotations(params: {
     }
   }
 
-  // --- Add annotations for newly-changed (added) words ---
-  const addedSegments: { from: number; to: number; content: string }[] = []
+  // --- Add annotations for newly-changed (added) regions ---
+  // Coalesce consecutive 'added' segments into a single contiguous span so one
+  // logical edit becomes one annotation (and one history row), not one per word.
+  // Whitespace-only 'unchanged' segments *between* added segments are interior to
+  // the run and absorbed into the span; a non-whitespace ('word') 'unchanged'
+  // segment closes the current run. Trailing buffered whitespace is excluded.
+  const mergedRuns: { from: number; to: number; content: string }[] = []
   let charOffset = 0
-  for (const segment of diff.new) {
-    if (segment.type === 'added') {
-      addedSegments.push({
-        from: rangeFrom + charOffset,
-        to: rangeFrom + charOffset + segment.text.length,
-        content: segment.text,
-      })
-    }
-    charOffset += segment.text.length
+  let runStartOffset: number | null = null // char offset (into newText) where the run opened
+  let runEndOffset = 0                      // char offset just past the last 'added' segment in the run
+
+  const flushRun = () => {
+    if (runStartOffset === null) return
+    mergedRuns.push({
+      from: rangeFrom + runStartOffset,
+      to: rangeFrom + runEndOffset,
+      content: newText.slice(runStartOffset, runEndOffset),
+    })
+    runStartOffset = null
   }
 
-  if (addedSegments.length > 0) {
-    for (const seg of addedSegments) {
+  for (const segment of diff.new) {
+    if (segment.type === 'added') {
+      if (runStartOffset === null) runStartOffset = charOffset
+      charOffset += segment.text.length
+      runEndOffset = charOffset // run ends at the end of this added segment (interior ws now included)
+    } else {
+      // A whitespace-only 'unchanged' segment between added segments keeps the run
+      // open — it's absorbed because runEndOffset jumps to the end of the next added
+      // segment. A real unchanged word closes the run. Trailing whitespace is excluded
+      // because runEndOffset never advances past the last added segment.
+      if (!(runStartOffset !== null && segment.text.trim() === '')) {
+        flushRun()
+      }
+      charOffset += segment.text.length
+    }
+  }
+  flushRun()
+
+  if (mergedRuns.length > 0) {
+    for (const run of mergedRuns) {
       store.addAnnotation({
         documentId,
         type: annotationType,
-        from: seg.from,
-        to: seg.to,
-        content: seg.content,
+        from: run.from,
+        to: run.to,
+        content: run.content,
         provenance,
         explanation,
       })

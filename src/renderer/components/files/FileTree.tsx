@@ -2,7 +2,6 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import type { FileItem } from '../../types'
 import { ChevronRight, ChevronDown, FileText, FileType, Folder, FolderOpen, Loader2, Trash2, Edit3, ExternalLink, Copy, Scissors, ClipboardPaste, FilePlus, Boxes, Star } from 'lucide-react'
 import { cn } from '../../lib/utils'
-import { useFavorites } from '../../stores/projectsStore'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -12,8 +11,12 @@ import {
   ContextMenuTrigger
 } from '../ui/context-menu'
 
+const EMPTY_FAVORITE_PATHS: ReadonlySet<string> = new Set()
+
 interface FileTreeProps {
   items: FileItem[]
+  /** Set of favorited file paths, subscribed once at the root and threaded down. */
+  favoritePaths?: ReadonlySet<string>
   expandedFolders: Set<string>
   selectedPath: string | null
   loadingFolders?: Set<string>
@@ -44,6 +47,7 @@ interface FileTreeProps {
 
 export function FileTree({
   items,
+  favoritePaths = EMPTY_FAVORITE_PATHS,
   expandedFolders,
   selectedPath,
   loadingFolders,
@@ -77,6 +81,7 @@ export function FileTree({
         <FileTreeItem
           key={item.path}
           item={item}
+          favoritePaths={favoritePaths}
           expandedFolders={expandedFolders}
           selectedPath={selectedPath}
           loadingFolders={loadingFolders}
@@ -111,6 +116,7 @@ export function FileTree({
 
 interface FileTreeItemProps {
   item: FileItem
+  favoritePaths: ReadonlySet<string>
   expandedFolders: Set<string>
   selectedPath: string | null
   loadingFolders?: Set<string>
@@ -141,6 +147,7 @@ interface FileTreeItemProps {
 
 function FileTreeItem({
   item,
+  favoritePaths,
   expandedFolders,
   selectedPath,
   loadingFolders,
@@ -174,8 +181,8 @@ function FileTreeItem({
   const isRenaming = renamingPath === item.path
   const isCut = clipboardOperation === 'cut' && clipboardPath === item.path
   // Denote favorite files in the tree (folders keep their folder icon).
-  const favorites = useFavorites()
-  const isFavorite = !item.isDirectory && favorites.some((f) => f.path === item.path)
+  // favoritePaths is subscribed once at the root and threaded down (no per-item subscription).
+  const isFavorite = !item.isDirectory && favoritePaths.has(item.path)
 
   // Inline rename state
   const [renameValue, setRenameValue] = useState('')
@@ -528,6 +535,7 @@ function FileTreeItem({
       {item.isDirectory && isExpanded && item.children && (
         <FileTree
           items={item.children}
+          favoritePaths={favoritePaths}
           expandedFolders={expandedFolders}
           selectedPath={selectedPath}
           loadingFolders={loadingFolders}

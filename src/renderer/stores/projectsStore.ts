@@ -171,6 +171,7 @@ export const useProjectsStore = create<ProjectsState>()(
           path: result.path,
           bookmark: result.bookmark ?? undefined,
           addedAt: new Date().toISOString(),
+          isDirectory: true, // the picker is folder-only — be explicit rather than relying on undefined
         }
 
         useSettingsStore.getState().addFavorite(favorite)
@@ -220,6 +221,8 @@ export const useProjectsStore = create<ProjectsState>()(
       if (baseRoot) {
         fileList.setRootPath(baseRoot)
       }
+      // Drop to the base-root Files navigator (contrast: FileListPanel.backToProjectsList
+      // clears the active project but stays in the 'projects' panel).
       fileList.setViewMode('folder')
     },
 
@@ -235,10 +238,18 @@ export const useProjectsStore = create<ProjectsState>()(
     },
 
     removeProject: (projectId: string): void => {
+      const wasActive = useSettingsStore.getState().settings.activeProjectId === projectId
       useSettingsStore.getState().removeProject(projectId)
-      // If we removed the active project, fall back to the first remaining project
-      // or null (single-folder mode). The file explorer root is NOT changed here —
-      // caller is responsible for navigating away if needed.
+      // If the removed project was the active one, the explorer would otherwise keep
+      // showing its folder with no project header. Navigate back to the base root
+      // (defaultSaveDirectory) so the view matches the now-removed state.
+      if (wasActive) {
+        const baseRoot = useSettingsStore.getState().settings.defaultSaveDirectory
+        void getFileListStore().then((fileList) => {
+          if (baseRoot) fileList.setRootPath(baseRoot)
+          fileList.setViewMode('folder')
+        })
+      }
     },
 
     removeFavorite: (favoriteId: string): void => {

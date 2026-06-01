@@ -102,7 +102,10 @@ export function FileListPanel() {
     (p) => !!rootPath && (rootPath === p.path || rootPath.startsWith(p.path + '/'))
   ) ?? null
 
-  // Return from an open project to the Projects list (stay in the Projects panel).
+  // Return from an open project to the Projects list — deliberately stays in the
+  // 'projects' panel (unlike projectsStore.exitToRoot, which clears the active
+  // project AND drops to the 'folder' base-root navigator). Both clear the active
+  // project; the difference is which panel you land in.
   const backToProjectsList = () => {
     useSettingsStore.getState().setActiveProject(null)
     setRootPath(defaultSaveDirectory ?? null)

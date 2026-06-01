@@ -98,9 +98,11 @@ export function FileListPanel() {
   const defaultSaveDirectory = useSettingsStore((s) => s.settings.defaultSaveDirectory)
   // The project whose folder contains the current view root (handles drill-down
   // into project subfolders). Base root and projects are separate, peer locations.
-  const currentProject = projects.find(
-    (p) => !!rootPath && (rootPath === p.path || rootPath.startsWith(p.path + '/'))
-  ) ?? null
+  // Match the longest path prefix so nested projects (e.g. /docs and /docs/work)
+  // resolve to the most specific one, not whichever appears first in the array.
+  const currentProject = projects
+    .filter((p) => !!rootPath && (rootPath === p.path || rootPath.startsWith(p.path + '/')))
+    .sort((a, b) => b.path.length - a.path.length)[0] ?? null
 
   // Return from an open project to the Projects list — deliberately stays in the
   // 'projects' panel (unlike projectsStore.exitToRoot, which clears the active

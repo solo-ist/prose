@@ -287,15 +287,20 @@ function formatGroupLabel(timestamp: number): string {
 
 /**
  * Compact display name for a model string.
- * e.g. "claude-sonnet-4-6" → "Sonnet 4.6"; "external"/"Imported" → as-is, title-cased.
+ * e.g. "claude-sonnet-4-6" → "Sonnet 4.6", "claude-haiku-4-5-20251001" → "Haiku 4.5",
+ * "external" → "External", "Imported" → "Imported".
+ * Treats the first token as the name (title-cased) and joins the remaining
+ * version tokens with dots, after dropping any trailing date stamp.
  */
 function formatModelName(model: string): string {
   if (!model || model === 'external') return 'External'
-  const cleaned = model
+  const tokens = model
     .replace(/^claude[-/]?/, '')
-    .replace(/-\d{6,}$/, '')   // drop a trailing date stamp (e.g. -20251001)
-    .replace(/-(\d)/g, '.$1')
-    .replace(/-/g, ' ')
-    .trim()
-  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1)
+    .replace(/[-\s]?\d{6,}$/, '') // drop a trailing date stamp (e.g. -20251001)
+    .split('-')
+    .filter(Boolean)
+  if (tokens.length === 0) return model
+  const name = tokens[0].charAt(0).toUpperCase() + tokens[0].slice(1)
+  const version = tokens.slice(1).join('.')
+  return version ? `${name} ${version}` : name
 }

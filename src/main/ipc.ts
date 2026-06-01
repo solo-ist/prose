@@ -90,6 +90,20 @@ function activateBookmark(bookmark: string | undefined, label: string): (() => v
   }
 }
 
+/**
+ * Return a copy of settings with secrets (LLM API key, reMarkable device token)
+ * blanked, for safe persistence to plaintext settings.json. Secrets live in
+ * credentialStore; any write-back from settings:load (stale-bookmark cleanup,
+ * migrations) must strip them so they never land on disk. Mirrors settings:save.
+ */
+function stripSecretsForDisk(settings: Settings): Settings {
+  return {
+    ...settings,
+    llm: { ...settings.llm, apiKey: '' },
+    ...(settings.remarkable ? { remarkable: { ...settings.remarkable, deviceToken: '' } } : {}),
+  }
+}
+
 function getSettingsPath(): string { return join(getSettingsDir(), 'settings.json') }
 const ANTHROPIC_KEY_PATH = join(LEGACY_SETTINGS_DIR, '.remarkable-anthropic-key') // Legacy path for migration
 const REMARKABLE_CREDENTIAL_KEY = 'remarkable-anthropic-key'
@@ -534,7 +548,7 @@ export function setupIpcHandlers(): void {
         try {
           await credentialStore.set(LLM_API_KEY, rawSettings.llm.apiKey)
           rawSettings.llm = { ...rawSettings.llm, apiKey: '' }
-          await writeFile(getSettingsPath(), JSON.stringify(rawSettings, null, 2), 'utf-8')
+          await writeFile(getSettingsPath(), JSON.stringify(stripSecretsForDisk(rawSettings), null, 2), 'utf-8')
           console.log('[settings:load] Migrated plaintext API key to secure storage')
         } catch (err) {
           console.error('[settings:load] Migration failed:', err)
@@ -546,7 +560,7 @@ export function setupIpcHandlers(): void {
         try {
           await credentialStore.set(REMARKABLE_DEVICE_TOKEN, rawSettings.remarkable.deviceToken)
           rawSettings.remarkable = { ...rawSettings.remarkable, deviceToken: '' }
-          await writeFile(getSettingsPath(), JSON.stringify(rawSettings, null, 2), 'utf-8')
+          await writeFile(getSettingsPath(), JSON.stringify(stripSecretsForDisk(rawSettings), null, 2), 'utf-8')
           console.log('[settings:load] Migrated plaintext reMarkable device token to secure storage')
         } catch (err) {
           console.error('[settings:load] reMarkable token migration failed:', err)
@@ -580,7 +594,7 @@ export function setupIpcHandlers(): void {
           rawSettings.masDirectoryBookmark = undefined
           rawSettings.defaultSaveDirectory = undefined
           try {
-            await writeFile(getSettingsPath(), JSON.stringify(rawSettings, null, 2), 'utf-8')
+            await writeFile(getSettingsPath(), JSON.stringify(stripSecretsForDisk(rawSettings), null, 2), 'utf-8')
           } catch { /* best effort */ }
         }
       }
@@ -642,7 +656,7 @@ export function setupIpcHandlers(): void {
       // Persist cleared stale bookmarks so the warning doesn't repeat on every launch
       if (staleBookmarksCleared) {
         try {
-          await writeFile(getSettingsPath(), JSON.stringify(rawSettings, null, 2), 'utf-8')
+          await writeFile(getSettingsPath(), JSON.stringify(stripSecretsForDisk(rawSettings), null, 2), 'utf-8')
         } catch { /* best effort */ }
       }
 

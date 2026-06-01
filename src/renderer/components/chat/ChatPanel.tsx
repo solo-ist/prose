@@ -191,7 +191,7 @@ export function ChatPanel() {
               >
                 <Bot className="h-3.5 w-3.5" />
                 {annotationCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground leading-none">
+                  <span className="absolute -top-0.5 -right-0.5 flex h-3.5 min-w-[14px] w-auto px-0.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground leading-none">
                     {annotationCount > 99 ? '99+' : annotationCount}
                   </span>
                 )}

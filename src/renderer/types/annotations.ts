@@ -124,8 +124,8 @@ export interface AnnotationDecorationMeta {
 export const ANNOTATION_CONSTANTS = {
   /** Maximum age before fully faded (7 days in ms) */
   MAX_AGE_MS: 7 * 24 * 60 * 60 * 1000,
-  /** Minimum opacity (never fully invisible for accessibility) */
-  MIN_OPACITY: 0.05,
+  /** Minimum opacity (perceptible resting floor; never fades to invisible) */
+  MIN_OPACITY: 0.3,
   /** How often to recalculate opacity (every 5 minutes) */
   REFRESH_INTERVAL_MS: 5 * 60 * 1000,
 } as const

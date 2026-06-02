@@ -129,7 +129,6 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
             }
 
             const opacity = calculateOpacity(annotation.createdAt, opts.maxAge)
-            if (opacity < ANNOTATION_CONSTANTS.MIN_OPACITY) continue
 
             decorations.push(
               Decoration.inline(annotation.from, annotation.to, {
@@ -243,7 +242,6 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
               }
 
               const opacity = calculateOpacity(annotation.createdAt, opts.maxAge)
-              if (opacity < ANNOTATION_CONSTANTS.MIN_OPACITY) continue
 
               decorations.push(
                 Decoration.inline(annotation.from, annotation.to, {

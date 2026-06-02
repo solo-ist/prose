@@ -13,6 +13,8 @@ export interface CommentData {
   markedText: string
   comment: string
   createdAt: number
+  /** 0-based index of which occurrence of markedText this comment anchors to. Missing in older data → treated as 0. */
+  occurrenceIndex?: number
   from: number
   to: number
 }

@@ -1,7 +1,7 @@
 /**
  * reMarkable Cloud API client wrapper using rmapi-js
  */
-import { register as rmapiRegister, remarkable, type RemarkableApi, type Entry, type DocumentType } from 'rmapi-js'
+import { register as rmapiRegister, remarkable, type RemarkableApi, type Entry, type CollectionEntry, type DocumentType } from 'rmapi-js'
 
 export interface RemarkableNotebook {
   id: string
@@ -122,29 +122,46 @@ export function disconnect(): void {
 function createClient(api: RemarkableApi): RemarkableClient {
   return {
     async listNotebooks(): Promise<RemarkableNotebook[]> {
-      const items = await api.listItems(true)
+      // v10: listItems() uses the low-level API (no rm-filename header issues)
+      const items = await api.listItems()
 
-      return items.map((item: Entry): RemarkableNotebook => {
-        const isDocument = item.type === 'DocumentType'
-        const doc = item as DocumentType
+      return items
+        .filter((item: Entry): item is DocumentType | CollectionEntry => {
+          // Exclude TemplateType entries (new in v10) — we only care about
+          // user documents and folders
+          return item.type === 'DocumentType' || item.type === 'CollectionType'
+        })
+        .map((item): RemarkableNotebook => {
+          const isDocument = item.type === 'DocumentType'
+          const doc = item as DocumentType
 
-        return {
-          id: item.id,
-          hash: item.hash,
-          name: item.visibleName,
-          parent: item.parent === '' ? null : item.parent === 'trash' ? 'trash' : item.parent,
-          type: item.type === 'CollectionType' ? 'folder' : 'notebook',
-          fileType: isDocument ? doc.fileType : undefined,
-          lastModified: item.lastModified,
-          lastOpened: isDocument ? doc.lastOpened : undefined,
-          pinned: item.pinned
-        }
-      }).filter(item => item.parent !== 'trash') // Exclude trashed items
+          // v10: `parent` is optional (undefined means root, same as empty string in v9)
+          const rawParent = item.parent
+          const parent =
+            rawParent === undefined || rawParent === ''
+              ? null
+              : rawParent === 'trash'
+                ? 'trash'
+                : rawParent
+
+          return {
+            id: item.id,
+            hash: item.hash,
+            name: item.visibleName,
+            parent,
+            type: item.type === 'CollectionType' ? 'folder' : 'notebook',
+            fileType: isDocument ? doc.fileType : undefined,
+            lastModified: item.lastModified,
+            lastOpened: isDocument ? doc.lastOpened : undefined,
+            pinned: item.pinned
+          }
+        })
+        .filter(item => item.parent !== 'trash') // Exclude trashed items
     },
 
     async downloadNotebook(id: string, hash: string): Promise<Uint8Array> {
-      // getDocument returns a zip containing all notebook files
-      return await api.getDocument(hash)
+      // v10: getDocument now requires both id and hash (was hash-only in v9)
+      return await api.getDocument(id, hash)
     },
 
     async moveNotebook(hash: string, newParentId: string): Promise<string> {

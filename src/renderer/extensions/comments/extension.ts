@@ -134,12 +134,18 @@ export const Comment = Mark.create<CommentOptions>({
           // Compute how many non-overlapping occurrences of markedText appear
           // in the document strictly before the selection start (from).
           // This is the 0-based occurrence index for this comment.
+          //
+          // IMPORTANT: `from` is a ProseMirror position (counts node-boundary
+          // tokens), while `matchIdx` is a char offset into doc.textContent.
+          // Convert `from` to char-space first via textBetween so the comparison
+          // is in the same coordinate system.
           const docText = state.doc.textContent
+          const charsBefore = state.doc.textBetween(0, from, '').length
           let occurrenceIndex = 0
           let searchOffset = 0
           while (true) {
             const matchIdx = docText.indexOf(markedText, searchOffset)
-            if (matchIdx === -1 || matchIdx >= from) break
+            if (matchIdx === -1 || matchIdx >= charsBefore) break
             occurrenceIndex++
             searchOffset = matchIdx + markedText.length
           }
@@ -362,11 +368,15 @@ export function getComments(editor: { state: { doc: { descendants: (fn: (node: {
 
     // Compute occurrenceIndex: how many non-overlapping prior occurrences of
     // markedText exist in the full document text before data.from.
+    //
+    // IMPORTANT: `data.from` is a ProseMirror position, not a char offset.
+    // Convert to char-space via textBetween before comparing against matchIdx.
+    const charsBefore = editor.state.doc.textBetween(0, data.from, '').length
     let occurrenceIndex = 0
     let searchOffset = 0
     while (true) {
       const matchIdx = docText.indexOf(markedText, searchOffset)
-      if (matchIdx === -1 || matchIdx >= data.from) break
+      if (matchIdx === -1 || matchIdx >= charsBefore) break
       occurrenceIndex++
       searchOffset = matchIdx + markedText.length
     }

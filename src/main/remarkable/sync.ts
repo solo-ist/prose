@@ -428,6 +428,11 @@ async function processNotebookWithOCR(
     // OCR only the changed/new pages
     const newCache: Record<string, PageOCRCacheEntry> = { ...cachedPages }
     let ocrResults: Array<{ id: string; markdown: string; confidence: number }> = []
+    // Pages OCR couldn't transcribe this run. extractTextBatched now degrades
+    // gracefully (a failed batch retries page-by-page), so these are the pages
+    // that failed even in isolation — marked inline so the notebook documents
+    // its own gaps instead of silently dropping content.
+    const failedPageIds = new Set<string>()
 
     if (pagesToOCR.length > 0) {
       console.log(`[OCR] Calling extractTextBatched with ${pagesToOCR.length} pages`)
@@ -439,6 +444,7 @@ async function processNotebookWithOCR(
 
       if (result.failedPages.length > 0) {
         console.log(`[OCR] Failed pages:`, result.failedPages)
+        for (const id of result.failedPages) failedPageIds.add(id)
         onProgress?.({ message: `Warning: ${result.failedPages.length} pages failed OCR`, notebookName, phase: 'ocr' })
       }
 
@@ -454,6 +460,17 @@ async function processNotebookWithOCR(
           confidence: page.confidence
         }
       }
+
+      // Total failure: we attempted pages this run, every one failed, and there
+      // is no cached content from a prior sync to fall back on. Return null so
+      // the caller stamps the OCR-failure sentinel (warning icon + Retry Sync).
+      // A PARTIAL failure (some pages succeeded) falls through and saves a
+      // usable notebook below — a notebook with one gap beats no notebook.
+      if (ocrResults.length === 0 && Object.keys(cachedPages).length === 0) {
+        console.warn(`[OCR] All ${pagesToOCR.length} pages failed for "${notebookName}" — treating as OCR failure`)
+        onProgress?.({ message: `OCR failed for all pages of "${notebookName}"`, notebookName, phase: 'ocr' })
+        return null
+      }
     }
 
     // Assemble all pages in order — merge cached and fresh results
@@ -467,10 +484,15 @@ async function processNotebookWithOCR(
 
     console.log(`[OCR] Ordered ${orderedPages.length} pages`)
 
-    // Combine all markdown with page separators
+    // Combine all markdown with page separators. Pages OCR couldn't transcribe
+    // get a visible placeholder so the gap is obvious and recoverable (Retry
+    // Sync re-attempts), rather than rendering as a silently blank page.
     const markdownParts = orderedPages.map((page, index) => {
       const pageHeader = orderedPages.length > 1 ? `<!-- Page ${index + 1} -->\n\n` : ''
-      return pageHeader + page.markdown
+      const body = failedPageIds.has(page.id)
+        ? '*[This page could not be transcribed. Use “Retry Sync” to try again.]*'
+        : page.markdown
+      return pageHeader + body
     })
 
     const combinedMarkdown = markdownParts.join('\n\n---\n\n')

@@ -105,6 +105,29 @@ function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
   })
 }
 
+/**
+ * 4xx statuses that are transient and worth retrying with backoff (the rest of
+ * the 4xx range — auth, bad request — are not). 429 is the important one: the
+ * sync processes notebooks concurrently, so rate-limit responses are expected
+ * under load and must not fail a whole notebook on the first hit.
+ */
+const RETRYABLE_STATUSES = new Set([408, 425, 429])
+
+/** Upper bound on a server-suggested Retry-After so one slow hint can't stall the sync. */
+const RETRY_AFTER_CAP_MS = 10_000
+
+/**
+ * Parse a Retry-After header into milliseconds. Supports the common
+ * delta-seconds form (e.g. "5"); the HTTP-date form is ignored (returns 0) as
+ * this API uses delta-seconds. Result is capped at RETRY_AFTER_CAP_MS.
+ */
+function parseRetryAfter(value: string | null): number {
+  if (!value) return 0
+  const seconds = Number(value)
+  if (!Number.isFinite(seconds) || seconds <= 0) return 0
+  return Math.min(seconds * 1000, RETRY_AFTER_CAP_MS)
+}
+
 export async function extractTextFromPages(
   pages: Array<{ id: string; data: Buffer }>,
   anthropicApiKey: string,
@@ -163,10 +186,19 @@ export async function extractTextFromPages(
           // Ignore JSON parse errors
         }
 
-        // Only retry on 5xx (server) errors, not 4xx (client) errors
-        if (response.status >= 500 && attempt < MAX_ATTEMPTS - 1) {
-          console.warn(`[OCR] Server error (${response.status}), retrying in ${RETRY_DELAYS[attempt]}ms (retry ${attempt + 1}/${MAX_ATTEMPTS - 1})`)
-          await abortableDelay(RETRY_DELAYS[attempt], signal)
+        // Retry on 5xx (server) errors AND on the transient 4xx statuses that
+        // mean "back off and try again": 429 (rate limited — common when the
+        // sync runs notebooks concurrently and hammers the Lambda), 408
+        // (request timeout), 425 (too early). Other 4xx (auth, bad request)
+        // are genuine client errors and are not retried.
+        const isRetryableStatus = response.status >= 500 || RETRYABLE_STATUSES.has(response.status)
+        if (isRetryableStatus && attempt < MAX_ATTEMPTS - 1) {
+          // Honor Retry-After when the server sends it (429s often do), but
+          // floor it at the exponential-backoff delay and cap it so a large
+          // server-suggested value can't stall the whole sync.
+          const delayMs = Math.max(RETRY_DELAYS[attempt], parseRetryAfter(response.headers.get('retry-after')))
+          console.warn(`[OCR] Retryable status ${response.status}, retrying in ${delayMs}ms (retry ${attempt + 1}/${MAX_ATTEMPTS - 1})`)
+          await abortableDelay(delayMs, signal)
           lastError = new Error(errorMessage)
           continue
         }
@@ -249,10 +281,43 @@ export async function extractTextBatched(
   for (let i = 0; i < pages.length; i += BATCH_SIZE) {
     if (signal?.aborted) throw new DOMException('OCR aborted', 'AbortError')
     const batch = pages.slice(i, i + BATCH_SIZE)
-    const result = await extractTextFromPages(batch, anthropicApiKey, signal)
 
-    allResults.push(...result.pages)
-    allFailed.push(...result.failedPages)
+    try {
+      const result = await extractTextFromPages(batch, anthropicApiKey, signal)
+      allResults.push(...result.pages)
+      allFailed.push(...result.failedPages)
+    } catch (error) {
+      // Cancellation must abort the whole notebook, not be swallowed as a
+      // failed batch.
+      if ((error as { name?: string })?.name === 'AbortError') throw error
+
+      // A whole-batch failure (timeout, payload size, retries exhausted) used
+      // to throw and discard the ENTIRE notebook — one oversized/dense page
+      // could take all its batch-mates down with it. Instead, fall back to
+      // OCR'ing each page in the batch on its own so only the genuinely bad
+      // page is lost. Pages that still fail are recorded in failedPages; the
+      // notebook keeps every page we can read.
+      const reason = error instanceof Error ? error.message : 'unknown error'
+      if (batch.length === 1) {
+        console.warn(`[OCR] Page ${batch[0].id.slice(0, 8)} failed: ${reason}`)
+        allFailed.push(batch[0].id)
+      } else {
+        console.warn(`[OCR] Batch of ${batch.length} failed (${reason}); retrying pages individually`)
+        for (const page of batch) {
+          if (signal?.aborted) throw new DOMException('OCR aborted', 'AbortError')
+          try {
+            const single = await extractTextFromPages([page], anthropicApiKey, signal)
+            allResults.push(...single.pages)
+            allFailed.push(...single.failedPages)
+          } catch (pageError) {
+            if ((pageError as { name?: string })?.name === 'AbortError') throw pageError
+            const pageReason = pageError instanceof Error ? pageError.message : 'unknown error'
+            console.warn(`[OCR] Page ${page.id.slice(0, 8)} failed individually: ${pageReason}`)
+            allFailed.push(page.id)
+          }
+        }
+      }
+    }
 
     onProgress?.(Math.min(i + BATCH_SIZE, pages.length), pages.length)
   }

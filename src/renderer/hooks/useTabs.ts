@@ -59,6 +59,7 @@ export function useTabs() {
   const getTabByPath = useTabStore((state) => state.getTabByPath)
   const getTabById = useTabStore((state) => state.getTabById)
   const pushClosedTab = useTabStore((state) => state.pushClosedTab)
+  const popClosedTab = useTabStore((state) => state.popClosedTab)
   const reopenLastClosedTabStore = useTabStore((state) => state.reopenLastClosedTab)
 
   const document = useEditorStore((state) => state.document)
@@ -694,6 +695,21 @@ export function useTabs() {
   const closeOtherTabs = useCallback(async (keepTabId: string) => {
     const tabsToClose = tabs.filter(t => t.id !== keepTabId && !t.isDirty)
 
+    // Snapshot non-preview tabs onto the closed-tab stack (most-recently-seen first)
+    for (const tab of [...tabsToClose].reverse()) {
+      if (!tab.isPreview) {
+        pushClosedTab({
+          path: tab.path,
+          title: tab.title,
+          baseTitle: tab.baseTitle,
+          isDirty: tab.isDirty,
+          content: tab.content,
+          frontmatter: tab.frontmatter,
+          cursorPosition: tab.cursorPosition
+        })
+      }
+    }
+
     // Close all non-dirty tabs
     for (const tab of tabsToClose) {
       if (!tab.path) {
@@ -710,12 +726,27 @@ export function useTabs() {
     if (activeTabId !== keepTabId) {
       await switchToTab(keepTabId)
     }
-  }, [tabs, activeTabId, switchToTab])
+  }, [tabs, activeTabId, switchToTab, pushClosedTab])
 
   /**
    * Close all tabs
    */
   const closeAllTabs = useCallback(async () => {
+    // Snapshot non-preview tabs onto the closed-tab stack (most-recently-seen first)
+    for (const tab of [...tabs].reverse()) {
+      if (!tab.isPreview) {
+        pushClosedTab({
+          path: tab.path,
+          title: tab.title,
+          baseTitle: tab.baseTitle,
+          isDirty: tab.isDirty,
+          content: tab.content,
+          frontmatter: tab.frontmatter,
+          cursorPosition: tab.cursorPosition
+        })
+      }
+    }
+
     // Close all non-dirty tabs
     for (const tab of tabs) {
       if (!tab.isDirty && !tab.path) {
@@ -730,7 +761,7 @@ export function useTabs() {
 
     // Create a new blank tab
     await createNewTab()
-  }, [tabs, createNewTab])
+  }, [tabs, createNewTab, pushClosedTab])
 
   /**
    * Update the active tab when editor content changes
@@ -840,14 +871,29 @@ export function useTabs() {
   /**
    * Reopen the most recently closed tab, restoring its content (including unsaved edits).
    * No-op if the closed-tab stack is empty.
+   *
+   * Race safety: the snapshot is popped atomically first; the async documentId
+   * derivation happens after the pop, so rapid double-presses each consume a
+   * distinct snapshot rather than both racing on the same top entry.
+   *
+   * Duplicate guard: if the snapshot's path is already open in a live tab, we
+   * pop the snapshot, switch to the existing tab, and do not create a duplicate.
    */
   const reopenLastClosedTab = useCallback(async () => {
-    const closedTabs = useTabStore.getState().closedTabs
-    if (closedTabs.length === 0) return
+    // Atomically pop the top snapshot — no await before this point.
+    const snapshot = popClosedTab()
+    if (!snapshot) return
 
-    const snapshot = closedTabs[0]
+    // If a tab for this path is already open, just switch to it.
+    if (snapshot.path) {
+      const existing = getTabByPath(snapshot.path)
+      if (existing) {
+        await switchToTab(existing.id)
+        return
+      }
+    }
 
-    // Derive documentId: path-backed tabs get a stable ID from path; untitled tabs get fresh ID
+    // Derive documentId after the pop (no TOCTOU risk — snapshot already claimed).
     let documentId: string
     if (snapshot.path) {
       documentId = await generateIdFromPath(snapshot.path)
@@ -861,12 +907,8 @@ export function useTabs() {
     // Pause annotation position updates during document loading
     useAnnotationStore.getState().setLoadingDocument(true)
 
-    // Pop snapshot from store and create tab
-    const tabId = reopenLastClosedTabStore(documentId)
-    if (!tabId) {
-      useAnnotationStore.getState().setLoadingDocument(false)
-      return
-    }
+    // Create the new tab in the store
+    const tabId = reopenLastClosedTabStore(snapshot, documentId)
 
     // Load the restored content into editorStore
     setDocument({
@@ -899,7 +941,7 @@ export function useTabs() {
     setTimeout(() => {
       useAnnotationStore.getState().setLoadingDocument(false)
     }, 100)
-  }, [saveCurrentTabState, reopenLastClosedTabStore, setDocument, setCursorPosition, loadChatForDocument, setEditing])
+  }, [popClosedTab, getTabByPath, switchToTab, saveCurrentTabState, reopenLastClosedTabStore, setDocument, setCursorPosition, loadChatForDocument, setEditing])
 
   return {
     tabs,

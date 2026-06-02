@@ -49,7 +49,8 @@ interface TabState {
 
   // Closed-tab history
   pushClosedTab: (snapshot: ClosedTabSnapshot) => void
-  reopenLastClosedTab: (documentId: string) => string | null
+  popClosedTab: () => ClosedTabSnapshot | null
+  reopenLastClosedTab: (snapshot: ClosedTabSnapshot, documentId: string) => string
 
   // Utility
   getNextUntitledNumber: () => number
@@ -75,11 +76,15 @@ export const useTabStore = create<TabState>()(
       })
     },
 
-    reopenLastClosedTab: (documentId) => {
+    popClosedTab: () => {
       const state = get()
       if (state.closedTabs.length === 0) return null
-
       const [snapshot, ...rest] = state.closedTabs
+      set({ closedTabs: rest })
+      return snapshot
+    },
+
+    reopenLastClosedTab: (snapshot, documentId) => {
       const tab: Tab = {
         id: generateId(),
         documentId,
@@ -94,8 +99,7 @@ export const useTabStore = create<TabState>()(
 
       set((state) => ({
         tabs: [...state.tabs, tab],
-        activeTabId: tab.id,
-        closedTabs: rest
+        activeTabId: tab.id
       }))
 
       return tab.id

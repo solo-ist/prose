@@ -41,6 +41,12 @@ module.exports = async function afterPack(context) {
     [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
     // Disable --inspect and related CLI flags — prevents attaching debuggers to production builds
     [FuseV1Options.EnableNodeCliInspectArguments]: false,
+    // Validate the embedded asar at runtime against the hash electron-builder
+    // writes into Info.plist (ElectronAsarIntegrity) — launch fails if the
+    // bundled app code is tampered with on disk after signing.
+    [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
+    // Refuse to load app code from loose files outside the asar archive.
+    [FuseV1Options.OnlyLoadAppFromAsar]: true,
   })
 
   console.log('[Fuses] Fuses flipped successfully')

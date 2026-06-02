@@ -427,7 +427,11 @@ app.whenReady().then(async () => {
     is.dev ? "script-src 'self' 'unsafe-eval'" : "script-src 'self'",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
-    "connect-src 'self' https://api.anthropic.com https://accounts.google.com https://www.googleapis.com https://docs.googleapis.com https://oauth2.googleapis.com https://*.ingest.sentry.io",
+    // sentry-ipc: is @sentry/electron's renderer→main transport scheme; without it
+    // the renderer SDK's envelope POSTs are refused by CSP (heavy console spam in MAS,
+    // and crash reports never reach the main process). https://*.ingest.sentry.io is
+    // the upload endpoint used by the main process itself.
+    "connect-src 'self' https://api.anthropic.com https://accounts.google.com https://www.googleapis.com https://docs.googleapis.com https://oauth2.googleapis.com https://*.ingest.sentry.io sentry-ipc:",
     // img-src https: is needed for documents with remote images (![](https://...))
     // Tightening this would require a proxy or URL allowlist
     "img-src 'self' data: https: local-file:",

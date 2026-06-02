@@ -142,12 +142,14 @@ export const Comment = Mark.create<CommentOptions>({
           const docText = state.doc.textContent
           const charsBefore = state.doc.textBetween(0, from, '').length
           let occurrenceIndex = 0
-          let searchOffset = 0
-          while (true) {
-            const matchIdx = docText.indexOf(markedText, searchOffset)
-            if (matchIdx === -1 || matchIdx >= charsBefore) break
-            occurrenceIndex++
-            searchOffset = matchIdx + markedText.length
+          if (markedText) {
+            let searchOffset = 0
+            while (true) {
+              const matchIdx = docText.indexOf(markedText, searchOffset)
+              if (matchIdx === -1 || matchIdx >= charsBefore) break
+              occurrenceIndex++
+              searchOffset = matchIdx + markedText.length
+            }
           }
 
           const commentData: CommentData = {
@@ -375,12 +377,14 @@ export function getComments(editor: { state: { doc: { descendants: (fn: (node: {
     // Convert to char-space via textBetween before comparing against matchIdx.
     const charsBefore = editor.state.doc.textBetween(0, data.from, '').length
     let occurrenceIndex = 0
-    let searchOffset = 0
-    while (true) {
-      const matchIdx = docText.indexOf(markedText, searchOffset)
-      if (matchIdx === -1 || matchIdx >= charsBefore) break
-      occurrenceIndex++
-      searchOffset = matchIdx + markedText.length
+    if (markedText) {
+      let searchOffset = 0
+      while (true) {
+        const matchIdx = docText.indexOf(markedText, searchOffset)
+        if (matchIdx === -1 || matchIdx >= charsBefore) break
+        occurrenceIndex++
+        searchOffset = matchIdx + markedText.length
+      }
     }
 
     comments.push({

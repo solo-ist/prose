@@ -698,8 +698,9 @@ export function useTabs() {
     // Subset used only for IndexedDB cleanup of untitled docs
     const tabsToCleanUp = allTabsToRemove.filter(t => !t.isDirty)
 
-    // Snapshot every non-preview tab that will be removed (most-recently-seen first)
-    for (const tab of [...allTabsToRemove].reverse()) {
+    // Snapshot every non-preview tab that will be removed (oldest→newest so
+    // the last push — newest tab — lands on top of the stack after prepending)
+    for (const tab of allTabsToRemove) {
       if (!tab.isPreview) {
         pushClosedTab({
           path: tab.path,

@@ -735,9 +735,11 @@ export function useTabs() {
    * Close all tabs
    */
   const closeAllTabs = useCallback(async () => {
-    // Snapshot every non-preview tab (dirty included — store removes ALL tabs)
-    // Push most-recently-seen first so the last tab closed is first to be reopened
-    for (const tab of [...tabs].reverse()) {
+    // Snapshot every non-preview tab (dirty included — store removes ALL tabs).
+    // Push oldest→newest: pushClosedTab prepends, so the last push (newest tab)
+    // lands on top of the stack. When >10 tabs are closed, slice(0, CLOSED_TABS_MAX)
+    // drops the tail (oldest), keeping the most-recently-open 10 reopenable.
+    for (const tab of tabs) {
       if (!tab.isPreview) {
         pushClosedTab({
           path: tab.path,

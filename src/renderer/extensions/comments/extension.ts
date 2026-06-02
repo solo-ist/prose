@@ -330,7 +330,7 @@ export const Comment = Mark.create<CommentOptions>({
 /**
  * Extract all comments from the editor
  */
-export function getComments(editor: { state: { doc: { descendants: (fn: (node: { marks: Array<{ type: { name: string }; attrs: { id: string; comment: string; createdAt: number } }>; nodeSize: number; textContent: string }, pos: number) => void) => void; textBetween: (from: number, to: number, blockSeparator?: string) => string } } }): CommentData[] {
+export function getComments(editor: { state: { doc: { descendants: (fn: (node: { marks: Array<{ type: { name: string }; attrs: { id: string; comment: string; createdAt: number } }>; nodeSize: number; textContent: string }, pos: number) => void) => void; textBetween: (from: number, to: number, blockSeparator?: string) => string; textContent: string } } }): CommentData[] {
   // Map to collect all text nodes for each comment ID
   const commentMap = new Map<string, {
     texts: string[]

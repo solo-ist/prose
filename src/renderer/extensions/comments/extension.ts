@@ -236,11 +236,13 @@ export const Comment = Mark.create<CommentOptions>({
             let currentOccurrence = 0
             let searchOffset = 0
             let textIndex = -1
+            let foundTarget = false
             while (true) {
               const matchIdx = docText.indexOf(searchText, searchOffset)
               if (matchIdx === -1) break
               textIndex = matchIdx // track last found as fallback
               if (currentOccurrence === targetOccurrence) {
+                foundTarget = true
                 break
               }
               currentOccurrence++
@@ -253,7 +255,7 @@ export const Comment = Mark.create<CommentOptions>({
               })
               continue
             }
-            if (currentOccurrence !== targetOccurrence) {
+            if (!foundTarget) {
               // Fewer occurrences than expected (text changed); fell back to last found
               console.warn('[Comment] occurrenceIndex out of range, using last occurrence:', {
                 id: comment.id,

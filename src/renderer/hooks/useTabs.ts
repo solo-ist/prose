@@ -693,10 +693,13 @@ export function useTabs() {
    * Close all tabs except one
    */
   const closeOtherTabs = useCallback(async (keepTabId: string) => {
-    const tabsToClose = tabs.filter(t => t.id !== keepTabId && !t.isDirty)
+    // All tabs being removed by the store action (dirty included — store removes ALL others)
+    const allTabsToRemove = tabs.filter(t => t.id !== keepTabId)
+    // Subset used only for IndexedDB cleanup of untitled docs
+    const tabsToCleanUp = allTabsToRemove.filter(t => !t.isDirty)
 
-    // Snapshot non-preview tabs onto the closed-tab stack (most-recently-seen first)
-    for (const tab of [...tabsToClose].reverse()) {
+    // Snapshot every non-preview tab that will be removed (most-recently-seen first)
+    for (const tab of [...allTabsToRemove].reverse()) {
       if (!tab.isPreview) {
         pushClosedTab({
           path: tab.path,
@@ -710,8 +713,8 @@ export function useTabs() {
       }
     }
 
-    // Close all non-dirty tabs
-    for (const tab of tabsToClose) {
+    // Clean up IndexedDB data only for non-dirty untitled tabs
+    for (const tab of tabsToCleanUp) {
       if (!tab.path) {
         await deleteConversations(tab.documentId)
         await deleteAnnotations(tab.documentId)
@@ -732,7 +735,8 @@ export function useTabs() {
    * Close all tabs
    */
   const closeAllTabs = useCallback(async () => {
-    // Snapshot non-preview tabs onto the closed-tab stack (most-recently-seen first)
+    // Snapshot every non-preview tab (dirty included — store removes ALL tabs)
+    // Push most-recently-seen first so the last tab closed is first to be reopened
     for (const tab of [...tabs].reverse()) {
       if (!tab.isPreview) {
         pushClosedTab({
@@ -747,7 +751,7 @@ export function useTabs() {
       }
     }
 
-    // Close all non-dirty tabs
+    // Clean up IndexedDB data only for non-dirty untitled tabs
     for (const tab of tabs) {
       if (!tab.isDirty && !tab.path) {
         await deleteConversations(tab.documentId)
@@ -907,8 +911,8 @@ export function useTabs() {
     // Pause annotation position updates during document loading
     useAnnotationStore.getState().setLoadingDocument(true)
 
-    // Create the new tab in the store
-    const tabId = reopenLastClosedTabStore(snapshot, documentId)
+    // Create the new tab in the store (store sets activeTabId internally)
+    reopenLastClosedTabStore(snapshot, documentId)
 
     // Load the restored content into editorStore
     setDocument({
@@ -938,6 +942,9 @@ export function useTabs() {
       useFileListStore.getState().revealAndSelectPath(snapshot.path)
     }
 
+    // Mirrors the same delay used in switchToTab/openFileInTab: gives the editor
+    // time to fully mount the restored content before re-enabling annotation
+    // position mapping (prevents the plugin from dropping marks on the new doc).
     setTimeout(() => {
       useAnnotationStore.getState().setLoadingDocument(false)
     }, 100)

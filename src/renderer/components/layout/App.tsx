@@ -76,7 +76,7 @@ export function App() {
 
   const googleDocsEnabled = useGoogleDocsEnabled()
   const { openFile, openFileFromPath, saveFile, saveFileAs, newFile } = useEditor()
-  const { createNewTab, openFileInTab } = useTabs()
+  const { createNewTab, openFileInTab, reopenLastClosedTab } = useTabs()
   const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, isAboutDialogOpen, setAboutDialogOpen, isModelPickerOpen, setModelPickerOpen, settings, effectiveTheme, autosaveActive, isLoaded: settingsLoaded } = useSettings()
   const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false)
   const [pendingDraft, setPendingDraft] = useState<DraftState | null>(null)
@@ -822,6 +822,9 @@ export function App() {
           // Delegate to Toolbar which handles the dirty-state confirmation dialog
           window.dispatchEvent(new CustomEvent('menu:closeTab'))
           break
+        case 'reopenClosedTab':
+          reopenLastClosedTab()
+          break
         case 'googleSync':
           if (isGoogleDocsEnabled()) handleGoogleSync()
           break
@@ -853,7 +856,7 @@ export function App() {
     })
 
     return unsubscribe
-  }, [openFileInTab, saveFile, saveFileAs, createNewTab, setDialogOpen, toggleChat, toggleFileList, isFileListOpen, setShortcutsDialogOpen, setAboutDialogOpen, editor, handleGoogleSync, handleGoogleImport])
+  }, [openFileInTab, saveFile, saveFileAs, createNewTab, setDialogOpen, toggleChat, toggleFileList, isFileListOpen, setShortcutsDialogOpen, setAboutDialogOpen, editor, handleGoogleSync, handleGoogleImport, reopenLastClosedTab])
 
   // Handle menu:new custom event (dispatched by Editor keyboard handler for Cmd+N in web mode)
   useEffect(() => {

@@ -141,6 +141,13 @@ export function createMenu(mainWindow: BrowserWindow): void {
             sendMenuAction('closeTab')
           }
         },
+        {
+          label: 'Reopen Closed Tab',
+          accelerator: 'CmdOrCtrl+Shift+T',
+          click: (): void => {
+            sendMenuAction('reopenClosedTab')
+          }
+        },
         { type: 'separator' },
         {
           label: 'Save',

@@ -45,7 +45,7 @@ AI edits arrive as inline comments, like notes from a collaborator — never sil
 Accepted AI edits are tracked with human/AI provenance you can toggle on or off, plus a permanent edits-history ledger for the document — so months later you still know which words were yours.
 
 **Organize Your Way**
-Pin Projects and Favorites in the file explorer to keep the documents you live in one click away. Multi-tab editing, session restore, and single-click preview keep a big workspace navigable.
+Pin Projects and Favorites in the file explorer to keep the documents you live in one click away. Multi-tab editing, session restore, single-click preview, and reopen-closed-tab (⌘⇧T) keep a big workspace navigable.
 
 **A Clean, Minimal Editor**
 Pure markdown editing on TipTap. YAML frontmatter parsed and preserved, never rendered. Code-block syntax highlighting, light and dark themes, autosave, configurable fonts, and standard shortcuts. Export to self-contained HTML when you need to share. The words are what matter.
@@ -73,8 +73,9 @@ Prose is now **free**. This release also brings:
 - **AI edits history** — a permanent per-document ledger of every accepted AI change.
 - **Quick Review redesign** — accept/reject actions sit right above the diff for faster passes.
 - **Projects & Favorites** — pin the folders and files you work in most.
+- **Reopen Closed Tab** — bring back the last tab you closed with ⌘⇧T.
 - **Export to HTML** — self-contained HTML with the markdown embedded for round-trip editing.
-- **Code-block syntax highlighting**, refreshed selection styling, live word/character count, and a batch of editor and stability fixes.
+- **Code-block syntax highlighting**, refreshed selection styling, live word/character count, sharper comment placement, and a batch of editor and stability fixes.
 
 Plain `.md` files. Your keys stay yours.
 

@@ -1,6 +1,6 @@
 # Prose Roadmap
 
-**Status:** Active · **Updated:** 2026-05-26 · **Live priority:** [Project board #5](https://github.com/orgs/solo-ist/projects/5/views/1)
+**Status:** Active · **Updated:** 2026-06-01 · **Live priority:** [Project board #5](https://github.com/orgs/solo-ist/projects/5/views/1)
 
 > **Reading this cold?** Top-to-bottom this tells you the strategy, the phase we're in, what to pick up next, and how work flows — enough to resume mid-stream. This doc is the narrative + operating model; the **project board is the live queue** and the **milestones mirror the waves**. For dev/security/build conventions, see [`../CLAUDE.md`](../CLAUDE.md).
 
@@ -8,13 +8,13 @@
 
 ## You are here
 
-- **Active wave: Wave 0 — QoL & Bug Fixes** (20 issues). Runs as sequenced cloud-agent batches followed by local human-in-the-loop QA.
-- **Grab-next, fully unblocked:** the two P1 data-loss fixes — [#578](https://github.com/solo-ist/prose/issues/578) (`suggest_edit` clobbers a single-paragraph doc) and [#595](https://github.com/solo-ist/prose/issues/595) (comments dropped on tab switch). Do these as individual PRs with careful QA. Then the batched P2–P5 polish/correctness fixes.
-- **One caveat in Wave 0:** [#536](https://github.com/solo-ist/prose/issues/536) (Sentry→GitHub) splits into an agent-doable repo slice (labels + issue template) and a manual Sentry-console slice (human only) — see the note on the issue.
-- **Next:** **Wave 0.5 — MAS Refresh** (the next App Store release: QoL fixes + rebrand + drop to free), then **Wave 1 — Core Build-Out** (three parallel tracks, gated by the spikes).
+- **Active wave: Wave 0.5 — MAS Refresh** (8 issues, *Do Next*). The next App Store release — bundles Wave 0's shipped QoL/feature work with the rebrand ([#612](https://github.com/solo-ist/prose/issues/612)/[#613](https://github.com/solo-ist/prose/issues/613)), drop-to-free pricing ([#615](https://github.com/solo-ist/prose/issues/615)), and MAS hardening ([#391](https://github.com/solo-ist/prose/issues/391) Sentry CSP, [#376](https://github.com/solo-ist/prose/issues/376) asar fuses).
+- **Grab-next / critical path:** [#487](https://github.com/solo-ist/prose/issues/487) — `masDev` local launch fails (Launchd 163). Local MAS-sandbox QA is broken, so verification currently falls back to the slow TestFlight upload cycle. **Being debugged first** to restore a tight local loop before the rest of the refresh.
+- **The cheap bulk:** [#615](https://github.com/solo-ist/prose/issues/615) (free pricing — config), [#612](https://github.com/solo-ist/prose/issues/612) (screenshots + icon), [#613](https://github.com/solo-ist/prose/issues/613) (App Store description + persona copy — the current copy in [`app-store-copy.md`](app-store-copy.md) is stale). [#409](https://github.com/solo-ist/prose/issues/409) (universal binary) and [#317](https://github.com/solo-ist/prose/issues/317) (agent-driven macOS UI testing) are deprioritized.
+- **Hard boundary:** never submit for App Store review — TestFlight upload is the automation edge; submission is a human action. MAS `buildVersion` is global-monotonic — never reset it on a marketing-version bump.
+- **Wave 0 — done.** Shipped in **v1.5.0** (2026-05-28 — P1–P5 bug/QoL batch + [#641](https://github.com/solo-ist/prose/issues/641) HTML export) and **v1.6.0** (2026-06-01 — [#385](https://github.com/solo-ist/prose/issues/385) Quick Review redesign · [#386](https://github.com/solo-ist/prose/issues/386) AI edits history · [#380](https://github.com/solo-ist/prose/issues/380) Projects & Favorites first pass). **v1.6.1** (2026-06-02) is now the latest published GitHub release (DMG/ZIP, notarized), adding a follow-up batch — #645 annotation visibility, #646 reopen-closed-tab, #648 comment anchoring, plus reMarkable fixes #652/#667. MAS is still deferred to this Wave 0.5 run. Stragglers still open: [#384](https://github.com/solo-ist/prose/issues/384) Homebrew Cask (now unblocked by the notarized DMG) and [#536](https://github.com/solo-ist/prose/issues/536) Sentry→GitHub (hybrid: agent repo slice + manual Sentry-console slice). [#380](https://github.com/solo-ist/prose/issues/380) stays open pending follow-up [#654](https://github.com/solo-ist/prose/issues/654).
+- **Next:** **Wave 1 — Core Build-Out** — three concurrent tracks on the **A→B→C merge ladder**, gated by the spikes ([#601](https://github.com/solo-ist/prose/issues/601)/[#602](https://github.com/solo-ist/prose/issues/602) for Track C, [#616](https://github.com/solo-ist/prose/issues/616) for Track B).
 - **Deferred (On Hold):** Wave 2 (Generative Codebase), vision/research, and the parked Authorship Annotations cluster.
-- **No feature work is mid-flight in code right now** (no open feature PRs). The board is the queue; pick from the active columns.
-- **Recently shipped:** auto-update relaunch (#577), chat-input layout jump (#584), and this roadmap/board refresh (#614).
 
 ## How work flows (operating model)
 
@@ -62,8 +62,8 @@ The phases run roughly in order: **Wave 0 → Wave 0.5 → (Spikes) → Wave 1 �
 | [#603](https://github.com/solo-ist/prose/issues/603) | Light confirmation that generative/terminal gates cleanly out of MAS. Expect "yes." |
 | [#616](https://github.com/solo-ist/prose/issues/616) | Research the official reMarkable app + competitive landscape to validate Track B's parity scope before building it. |
 
-### Wave 0 — QoL & Bug Fixes · *active · Do First + Quick Wins*
-Sequenced cloud-agent batches + local QA. Suggested order: P1 first (individual PRs), then P2–P3 batched polish, then P4/P5 by subsystem.
+### Wave 0 — QoL & Bug Fixes · *done — shipped v1.5.0 + v1.6.0 + v1.6.1*
+Shipped as sequenced cloud-agent batches + local QA. The P1–P5 bug/QoL batch landed in v1.5.0; the three features (#385/#386/#380) in v1.6.0; a follow-up batch (#645/#646/#648/#652/#667) in v1.6.1. Stragglers still open: #384 (Homebrew) and #536 (Sentry→GitHub hybrid); #380 held for follow-up #654.
 
 | Issue | Group | Captures |
 |---|---|---|
@@ -88,8 +88,8 @@ Sequenced cloud-agent batches + local QA. Suggested order: P1 first (individual 
 | [#380](https://github.com/solo-ist/prose/issues/380) | feature | Projects & Favorites in the file explorer. |
 | [#494](https://github.com/solo-ist/prose/issues/494) | docs | Fresh CLAUDE.md / docs accuracy audit. |
 
-### Wave 0.5 — MAS Refresh · *Do Next*
-Bundles with Wave 0's QoL fixes so the **next MAS release** ships fixes + new branding + free pricing together.
+### Wave 0.5 — MAS Refresh · *active · Do Next*
+Bundles with Wave 0's shipped QoL fixes so the **next MAS release** ships fixes + new branding + free pricing together. Driven by [`launch/wave-0.5-mas-refresh.md`](launch/wave-0.5-mas-refresh.md). Sequencing: debug #487 first (restores local MAS QA), then the hardening pair (#391, #376), then the cheap config/asset/copy bulk (#615, #612, #613), with #409/#317 deprioritized.
 
 | Issue | Captures |
 |---|---|

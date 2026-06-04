@@ -132,7 +132,7 @@ export async function executeSelectTab(args: {
     // toggle-back — so serialize the LIVE editor state here instead of
     // trusting editorStore.document.content.
     const liveEditor = useEditorInstanceStore.getState().editor
-    const liveContent = liveEditor
+    const liveContent = liveEditor?.storage?.markdown?.getMarkdown != null
       ? serializeMarkdown(liveEditor.storage.markdown.getMarkdown(), document.frontmatter)
       : document.content
     if (activeTab) {

@@ -362,6 +362,14 @@ export function Editor() {
 
       isUpdatingFromStore.current = false
 
+      // The setContent/updateState above dispatched the document-load transaction
+      // which correctly skipped position updates (isLoadingDocument was true). Now
+      // that the load transaction has fired, clear the guard immediately so the
+      // NEXT user-initiated transaction (e.g. accept_diff) runs updatePositions.
+      // The 100ms setTimeout in select_tab / executeOpenFile remains as a fallback
+      // for tab switches where content didn't change.
+      useAnnotationStore.getState().setLoadingDocument(false)
+
       // Scroll to top when new content is loaded
       const editorContainer = editor.view.dom.closest('.overflow-auto')
       if (editorContainer) {

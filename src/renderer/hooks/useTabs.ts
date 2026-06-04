@@ -11,6 +11,7 @@ import { getComments } from '../extensions/comments'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFileListStore } from '../stores/fileListStore'
 import { parseMarkdown, serializeMarkdown, prepareTextContent } from '../lib/markdown'
+import { pipelineLog } from '../lib/aiPipelineLog'
 import {
   generateId,
   generateIdFromPath,
@@ -138,6 +139,13 @@ export function useTabs() {
 
     // Save current tab state first
     await saveCurrentTabState()
+
+    pipelineLog('tab:switch', {
+      toTabId: tabId,
+      toDocId: targetTab.documentId,
+      fromDocId: useAnnotationStore.getState().documentId,
+      annotationCountBefore: useAnnotationStore.getState().annotations.length,
+    })
 
     // Pause annotation position updates during document loading
     // This prevents the plugin from deleting annotations when doc content changes
@@ -849,6 +857,15 @@ export function useTabs() {
 
       // Rename the file
       await window.api.renameFile(tab.path, newPath)
+
+      pipelineLog('tab:rename', {
+        oldPath: tab.path,
+        newPath,
+        tabDocId: tab.documentId,
+        // NOTE (#674): documentId is path-derived for saved files but is NOT
+        // migrated here yet — annotations stored under the old id orphan on
+        // the next fresh open. Logged so the gap is visible until fixed.
+      })
 
       // Update tab
       updateTab(tabId, {

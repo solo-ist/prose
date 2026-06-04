@@ -7,6 +7,7 @@
 import { create } from 'zustand'
 import type { AIAnnotation, AnnotationState, AnnotationActions } from '../../types/annotations'
 import { generateId, saveAnnotations, loadAnnotations } from '../../lib/persistence'
+import { pipelineLog } from '../../lib/aiPipelineLog'
 
 type AnnotationStore = AnnotationState & AnnotationActions & {
   // Session-scoped set of annotation IDs created (not loaded) this session
@@ -33,6 +34,15 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
 
     // Ensure store's documentId matches the annotation's documentId for correct persistence
     const currentDocId = get().documentId
+    pipelineLog('annotation:create', {
+      id,
+      from: annotationData.from,
+      to: annotationData.to,
+      type: annotationData.type,
+      content: annotationData.content?.substring(0, 30),
+      annotationDocId: annotationData.documentId,
+      storeDocId: currentDocId,
+    })
     console.log('[AnnotationStore] addAnnotation:', {
       id,
       from: annotationData.from,
@@ -259,6 +269,12 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
     console.log('[AnnotationStore] loadAnnotations called:', { documentId })
     try {
       const annotations = await loadAnnotations(documentId)
+      pipelineLog('annotation:load', {
+        documentId,
+        count: annotations.length,
+        replacedCount: get().annotations.length,
+        previousDocId: get().documentId,
+      })
       console.log('[AnnotationStore] Loaded from IndexedDB:', {
         documentId,
         count: annotations.length,
@@ -289,6 +305,7 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
 
     try {
       await saveAnnotations(documentId, annotations)
+      pipelineLog('annotation:save', { documentId, count: annotations.length })
       console.log('[AnnotationStore] Saved successfully:', { documentId, count: annotations.length })
     } catch (error) {
       console.error('Failed to save annotations:', error)

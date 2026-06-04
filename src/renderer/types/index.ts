@@ -111,6 +111,8 @@ interface SettingsBase {
   featureFlags?: {
     googleDocs?: boolean
     remarkable?: boolean
+    /** AI edit pipeline debug logging (#672) — see lib/aiPipelineLog.ts. Default: off. */
+    aiPipelineDebug?: boolean
   }
   /**
    * Persisted tool mode for the AI assistant (global, shared across all tabs/conversations).

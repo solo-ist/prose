@@ -1,12 +1,37 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { App } from './components/layout/App'
-import { initDB } from './lib/persistence'
+import { initDB, loadAnnotations as loadAnnotationsFromDB } from './lib/persistence'
 import { useCommandHistoryStore } from './stores/commandHistoryStore'
 import { seedEmojiCache } from './lib/emojiService'
 import { ErrorBoundary } from './lib/sentry'
+import { dumpPipelineLog, clearPipelineLog } from './lib/aiPipelineLog'
+import { executeTool } from './lib/tools'
+import { useAnnotationStore } from './extensions/ai-annotations'
+import { getApi } from './lib/browserApi'
 import './lib/remarkableBridge'
 import './index.css'
+
+// Debug + test seams — same always-on tier as window.__prose_editor
+// (editorInstanceStore.ts). __prose_debug is the bug-report workflow for the
+// AI pipeline log (#672); __prose_tools lets Playwright drive the real tool
+// pipeline (executors, mode checks, schema validation) with zero LLM
+// involvement and inspect annotation state live and from IndexedDB.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+;(window as any).__prose_debug = {
+  exportLog: dumpPipelineLog,
+  clearLog: clearPipelineLog,
+  copyLog: async () => {
+    await getApi().copyToClipboard(dumpPipelineLog())
+  },
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+;(window as any).__prose_tools = {
+  executeTool,
+  getAnnotations: () => useAnnotationStore.getState().annotations,
+  getAnnotationDocId: () => useAnnotationStore.getState().documentId,
+  loadAnnotationsFromDB,
+}
 
 function SentryFallback() {
   return (

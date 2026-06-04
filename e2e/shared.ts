@@ -323,6 +323,68 @@ export async function preseedSettings(page: Page): Promise<void> {
   await page.waitForLoadState('networkidle')
 }
 
+// ---------------------------------------------------------------------------
+// AI tool pipeline helpers (window.__prose_tools seam — see renderer/main.tsx)
+// ---------------------------------------------------------------------------
+
+/** Result shape mirrored from src/shared/tools/types.ts ToolResult */
+export interface ProseToolResult {
+  success: boolean
+  data?: unknown
+  error?: string
+  code?: string
+}
+
+/**
+ * Execute a tool through the REAL pipeline (registry lookup, mode access
+ * check, Zod validation, executor) with zero LLM involvement.
+ */
+export async function executeProseTool(
+  page: Page,
+  toolName: string,
+  args: Record<string, unknown>,
+  mode: 'chat' | 'editor' | 'create' = 'create',
+): Promise<ProseToolResult> {
+  return page.evaluate(
+    async ({ name, toolArgs, toolMode }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const tools = (window as any).__prose_tools
+      return tools.executeTool(name, toolArgs, toolMode)
+    },
+    { name: toolName, toolArgs: args, toolMode: mode },
+  )
+}
+
+/** Live annotation store contents. */
+export async function getAnnotations(page: Page): Promise<Array<Record<string, unknown>>> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return page.evaluate(() => (window as any).__prose_tools.getAnnotations())
+}
+
+/** The annotation store's current documentId. */
+export async function getAnnotationDocId(page: Page): Promise<string | null> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return page.evaluate(() => (window as any).__prose_tools.getAnnotationDocId())
+}
+
+/** Annotations as persisted in IndexedDB for a documentId (post-restart checks). */
+export async function readAnnotationsFromDB(
+  page: Page,
+  documentId: string,
+): Promise<Array<Record<string, unknown>>> {
+  return page.evaluate(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (docId) => (window as any).__prose_tools.loadAnnotationsFromDB(docId),
+    documentId,
+  )
+}
+
+/** Export the AI pipeline debug log (requires featureFlags.aiPipelineDebug). */
+export async function exportPipelineLog(page: Page): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return page.evaluate(() => (window as any).__prose_debug.exportLog())
+}
+
 /** Check if a TipTap mark is currently active. */
 export async function isMarkActive(page: Page, mark: string): Promise<boolean> {
   return page.evaluate((m) => {

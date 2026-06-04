@@ -44,6 +44,15 @@ export interface AIAnnotation {
   provenance: AIProvenance
   /** Model-supplied reason for the edit, preserved from the originating suggestion */
   explanation?: string
+  /**
+   * The annotation's range collapsed under position mapping (its text was
+   * replaced/deleted by a later edit). Detached annotations stay in the
+   * history panel and IndexedDB — history is an immutable per-document log
+   * (#674) — but render no decoration; from/to keep the last valid values.
+   * Optional and JSON-compatible: existing stored annotations read as
+   * not-detached.
+   */
+  detached?: boolean
 }
 
 /**
@@ -72,6 +81,13 @@ export interface AnnotationState {
   documentId: string | null
   /** Whether document is being loaded (skip position updates during tab switches) */
   isLoadingDocument: boolean
+  /**
+   * In-flight IndexedDB write from the most recent addAnnotation. Tab-switch
+   * paths await this before loading the next document's annotations so a
+   * just-created annotation can't be lost to the fire-and-forget save race
+   * (#674).
+   */
+  pendingSave: Promise<void> | null
 }
 
 /**

@@ -114,6 +114,9 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
 
         if (isVisible) {
           for (const annotation of currentAnnotations) {
+            // Detached annotations are history-only (#674) — no decoration,
+            // and their stale positions must not hit the bounds warning.
+            if (annotation.detached) continue
             if (annotation.from < 0 || annotation.to > doc.nodeSize - 2 || annotation.from >= annotation.to) {
               console.warn('[AIAnnotations:plugin] Skipping invalid annotation (init):', {
                 id: annotation.id,
@@ -225,6 +228,9 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
 
           if (isVisible) {
             for (const annotation of storeAnnotations) {
+              // Detached annotations are history-only (#674) — no decoration,
+              // and their stale positions must not hit the bounds warning.
+              if (annotation.detached) continue
               // Validate bounds
               const maxPos = doc.nodeSize - 2
               if (annotation.from < 0 || annotation.to > maxPos || annotation.from >= annotation.to) {

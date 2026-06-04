@@ -24,7 +24,11 @@ import {
   saveAnnotations,
   loadAnnotations,
   deleteAnnotations,
+  saveSuggestions,
+  loadSuggestions,
   deleteSuggestions,
+  saveComments,
+  loadComments,
   deleteComments,
   SESSION_ID
 } from '../lib/persistence'
@@ -93,7 +97,11 @@ export function useTabs() {
     // Save conversations for current document
     await saveCurrentConversation(document.documentId)
 
-    // Save annotations for current document
+    // Save annotations for current document. Await any in-flight write from
+    // addAnnotation first (#674) — a just-created annotation's fire-and-forget
+    // save racing the tab switch was a "history entries vanished" path.
+    const pendingSave = useAnnotationStore.getState().pendingSave
+    if (pendingSave) await pendingSave
     await useAnnotationStore.getState().saveAnnotations()
 
     // Save AI suggestions and comment marks for current document
@@ -150,6 +158,13 @@ export function useTabs() {
     // Pause annotation position updates during document loading
     // This prevents the plugin from deleting annotations when doc content changes
     useAnnotationStore.getState().setLoadingDocument(true)
+
+    // Pre-set the annotation store's documentId BEFORE setDocument (#674):
+    // Editor.tsx's recovery effect fires its own (unguarded) loadAnnotations
+    // whenever annotationStoreDocumentId !== document.documentId — pre-
+    // setting makes the effect see a match immediately, killing the
+    // double-load race with the awaited loadAnnotations below.
+    useAnnotationStore.getState().setDocumentId(targetTab.documentId)
 
     // Activate the new tab
     setActiveTab(tabId)
@@ -245,6 +260,10 @@ export function useTabs() {
       frontmatter: initialFrontmatter,
       cursorPosition: { line: 1, column: 1 }
     })
+
+    // Pre-set the annotation store's documentId before setDocument so the
+    // Editor.tsx recovery effect doesn't fire a competing load (#674).
+    useAnnotationStore.getState().setDocumentId(newDocumentId)
 
     // Set up new document in editorStore
     setDocument({
@@ -383,6 +402,10 @@ export function useTabs() {
       })
     }
 
+    // Pre-set the annotation store's documentId before setDocument so the
+    // Editor.tsx recovery effect doesn't fire a competing load (#674).
+    useAnnotationStore.getState().setDocumentId(newDocumentId)
+
     // Set up document in editorStore
     setDocument({
       documentId: newDocumentId,
@@ -501,6 +524,10 @@ export function useTabs() {
 
       setActiveTab(previewTab.id)
 
+      // Pre-set the annotation store's documentId before setDocument so the
+      // Editor.tsx recovery effect doesn't fire a competing load (#674).
+      useAnnotationStore.getState().setDocumentId(newDocumentId)
+
       // Load document into editor
       setDocument({
         documentId: newDocumentId,
@@ -564,6 +591,10 @@ export function useTabs() {
         cursorPosition: { line: 1, column: 1 }
       })
     }
+
+    // Pre-set the annotation store's documentId before setDocument so the
+    // Editor.tsx recovery effect doesn't fire a competing load (#674).
+    useAnnotationStore.getState().setDocumentId(newDocumentId)
 
     setDocument({
       documentId: newDocumentId,
@@ -858,27 +889,65 @@ export function useTabs() {
       // Rename the file
       await window.api.renameFile(tab.path, newPath)
 
+      // Migrate path-derived persistence (#674): documentId is
+      // SHA-256(path) for saved files, so a rename changes the identity the
+      // NEXT fresh open computes. Copy annotations/conversations/suggestions/
+      // comments to the new key so they don't orphan. The old keys are left
+      // in place (harmless; a future cleanup sweep can collect them).
+      const oldDocumentId = await generateIdFromPath(tab.path)
+      const newDocumentId = await generateIdFromPath(newPath)
       pipelineLog('tab:rename', {
         oldPath: tab.path,
         newPath,
-        tabDocId: tab.documentId,
-        // NOTE (#674): documentId is path-derived for saved files but is NOT
-        // migrated here yet — annotations stored under the old id orphan on
-        // the next fresh open. Logged so the gap is visible until fixed.
+        oldDocId: oldDocumentId,
+        newDocId: newDocumentId,
       })
+      if (oldDocumentId !== newDocumentId) {
+        const [annotations, conversations, suggestions, comments] = await Promise.all([
+          loadAnnotations(oldDocumentId),
+          loadConversations(oldDocumentId),
+          loadSuggestions(oldDocumentId),
+          loadComments(oldDocumentId),
+        ])
+        await Promise.all([
+          annotations.length > 0
+            ? saveAnnotations(newDocumentId, annotations.map((a) => ({ ...a, documentId: newDocumentId })))
+            : Promise.resolve(),
+          conversations.length > 0 ? saveConversations(newDocumentId, conversations) : Promise.resolve(),
+          suggestions.length > 0 ? saveSuggestions(newDocumentId, suggestions) : Promise.resolve(),
+          comments.length > 0 ? saveComments(newDocumentId, comments) : Promise.resolve(),
+        ])
+        pipelineLog('tab:rename:migrated', {
+          newDocId: newDocumentId,
+          annotations: annotations.length,
+          conversations: conversations.length,
+          suggestions: suggestions.length,
+          comments: comments.length,
+        })
+      }
 
-      // Update tab
+      // Update tab (including its documentId — the old path-derived id no
+      // longer matches what a fresh open of newPath would compute)
       updateTab(tabId, {
         path: newPath,
-        title: sanitized
+        title: sanitized,
+        documentId: newDocumentId
       })
 
-      // Update editor store if this is the active document
+      // Update editor store + annotation store if this is the active document
       if (document.path === tab.path) {
+        useAnnotationStore.getState().setDocumentId(newDocumentId)
         useEditorStore.getState().setDocument({
           ...document,
-          path: newPath
+          path: newPath,
+          documentId: newDocumentId
         })
+        setCurrentDocumentId(newDocumentId)
+        // Re-point in-memory annotations at the new identity so the next
+        // saveAnnotations writes to the migrated key
+        useAnnotationStore.setState((s) => ({
+          annotations: s.annotations.map((a) => ({ ...a, documentId: newDocumentId })),
+        }))
       }
 
       // Refresh file list
@@ -933,6 +1002,10 @@ export function useTabs() {
 
     // Create the new tab in the store (store sets activeTabId internally)
     reopenLastClosedTabStore(snapshot, documentId)
+
+    // Pre-set the annotation store's documentId before setDocument so the
+    // Editor.tsx recovery effect doesn't fire a competing load (#674).
+    useAnnotationStore.getState().setDocumentId(documentId)
 
     // Load the restored content into editorStore
     setDocument({

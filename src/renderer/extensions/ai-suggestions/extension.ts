@@ -573,63 +573,81 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           const originalText = attrs.originalText || ''
           const explanation = attrs.explanation || ''
 
+          // Capture annotations overlapping the replaced range BEFORE
+          // dispatch (#674) — position mapping will collapse them; passing
+          // them to createWordDiffAnnotations lets unchanged words keep
+          // their prior provenance marks (parity with executeEdit's
+          // priorAnnotations capture in executors/editor.ts).
+          const priorAnnotations = docId
+            ? annotationStore.annotations.filter(
+                (a) => !a.detached && a.documentId === docId && a.to > markFrom && a.from < markTo
+              )
+            : []
+
           dispatch(tr)
 
-          // Create word-level annotations after dispatch so positions reference
-          // the updated document. tr.mapping.map() correctly accounts for the
-          // size of the inserted content regardless of whether it was inserted
-          // as a flat text node or a multi-block slice — the ReplaceStep maps
-          // positions at/after markTo forward by (inserted size − replaced size)
-          // in both cases.
+          // Create word-level annotations in a MICROTASK (#674). TipTap
+          // applies the command's transaction after the command body returns
+          // — creating annotations inline here would run BEFORE the
+          // aiAnnotations plugin maps existing annotations through this
+          // transaction, and addAnnotation's position-update pause would
+          // then swallow that mapping pass entirely. The result was stale
+          // positions on every pre-existing annotation (collapse-detection
+          // starved → entries never detached, decorations drifted). Deferring
+          // lets the plugin map (and detach) old annotations first; the new
+          // annotation's coordinates come from tr.mapping and stay valid.
           if (docId && suggestedText.length > 0) {
             const provenance = {
               model,
               conversationId: attrs.provenanceConversationId || '',
               messageId: attrs.provenanceMessageId || '',
             }
-            if (conversion && conversion.singleTextblock) {
-              // Converted node sits at its pre-replace position (nothing
-              // before it shifted); content starts one position inside the
-              // node's opening token — word-diff offsets index that content.
-              createWordDiffAnnotations({
-                documentId: docId,
-                originalText,
-                newText: annotationNewText,
-                rangeFrom: conversion.insertedAt + 1,
-                rangeTo: conversion.insertedAt + 1 + conversion.visibleText.length,
-                provenance,
-                explanation: explanation || undefined,
-              })
-            } else if (conversion) {
-              // Wrapper conversion (blockquote/list) or multi-node result:
-              // nested structure breaks linear text-offset math — record a
-              // single full-range annotation over the inserted content.
-              useAnnotationStore.getState().addAnnotation({
-                documentId: docId,
-                type: 'replacement',
-                from: conversion.insertedAt,
-                to: conversion.insertedAt + conversion.insertedSize,
-                content: conversion.visibleText,
-                provenance,
-                explanation: explanation || undefined,
-              })
-            } else {
-              const newFrom = tr.mapping.map(markFrom, -1)
-              const newTo = tr.mapping.map(markTo, 1)
-              console.log('[AISuggestion] Creating annotation:', { docId, model, from: newFrom, to: newTo })
-              createWordDiffAnnotations({
-                documentId: docId,
-                originalText,
-                // Parsed visible text when the inline-markdown path fired —
-                // word-diff offsets must index the rendered document, not the
-                // raw markdown source.
-                newText: annotationNewText,
-                rangeFrom: newFrom,
-                rangeTo: newTo,
-                provenance,
-                explanation: explanation || undefined,
-              })
-            }
+            queueMicrotask(() => {
+              if (conversion && conversion.singleTextblock) {
+                // Converted node sits at its pre-replace position (nothing
+                // before it shifted); content starts one position inside the
+                // node's opening token — word-diff offsets index that content.
+                createWordDiffAnnotations({
+                  documentId: docId,
+                  originalText,
+                  newText: annotationNewText,
+                  rangeFrom: conversion.insertedAt + 1,
+                  rangeTo: conversion.insertedAt + 1 + conversion.visibleText.length,
+                  provenance,
+                  explanation: explanation || undefined,
+                })
+              } else if (conversion) {
+                // Wrapper conversion (blockquote/list) or multi-node result:
+                // nested structure breaks linear text-offset math — record a
+                // single full-range annotation over the inserted content.
+                useAnnotationStore.getState().addAnnotation({
+                  documentId: docId,
+                  type: 'replacement',
+                  from: conversion.insertedAt,
+                  to: conversion.insertedAt + conversion.insertedSize,
+                  content: conversion.visibleText,
+                  provenance,
+                  explanation: explanation || undefined,
+                })
+              } else {
+                const newFrom = tr.mapping.map(markFrom, -1)
+                const newTo = tr.mapping.map(markTo, 1)
+                console.log('[AISuggestion] Creating annotation:', { docId, model, from: newFrom, to: newTo })
+                createWordDiffAnnotations({
+                  documentId: docId,
+                  originalText,
+                  // Parsed visible text when the inline-markdown path fired —
+                  // word-diff offsets must index the rendered document, not the
+                  // raw markdown source.
+                  newText: annotationNewText,
+                  rangeFrom: newFrom,
+                  rangeTo: newTo,
+                  provenance,
+                  explanation: explanation || undefined,
+                  priorAnnotations,
+                })
+              }
+            })
           } else {
             console.warn('[AISuggestion] Cannot create annotation - missing docId:', { docId, suggestedText: suggestedText.length })
           }
@@ -693,6 +711,12 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             to: number
             suggestedText: string
             blockConversionIntent: string | null
+            originalText: string
+            explanation: string
+            provenanceModel: string
+            provenanceConversationId: string
+            provenanceMessageId: string
+            documentId: string
           }> = []
 
           // First pass: collect all unique suggestion IDs and their ranges
@@ -722,7 +746,13 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
                     from,
                     to,
                     suggestedText: mark.attrs.suggestedText || '',
-                    blockConversionIntent: mark.attrs.blockConversionIntent ?? null
+                    blockConversionIntent: mark.attrs.blockConversionIntent ?? null,
+                    originalText: mark.attrs.originalText || '',
+                    explanation: mark.attrs.explanation || '',
+                    provenanceModel: mark.attrs.provenanceModel || '',
+                    provenanceConversationId: mark.attrs.provenanceConversationId || '',
+                    provenanceMessageId: mark.attrs.provenanceMessageId || '',
+                    documentId: mark.attrs.documentId || ''
                   })
                 }
               }
@@ -741,10 +771,21 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           // later (higher-position) replacements have already been applied.
           // Path selection mirrors acceptAISuggestion: blockConversion →
           // multiBlock → inline → literal.
+          // Collected per-suggestion data for post-dispatch annotation
+          // creation (#674): accept-all previously created NO annotations,
+          // so batch-accepted edits never appeared in the history panel.
+          const applied: Array<{
+            suggestion: (typeof suggestions)[number]
+            conversion: ReturnType<typeof applyBlockConversion>
+            annotationNewText: string
+          }> = []
+
           for (const suggestion of suggestions) {
             tr.removeMark(suggestion.from, suggestion.to, state.schema.marks.aiSuggestion)
+            let conversion: ReturnType<typeof applyBlockConversion> = null
+            let annotationNewText = suggestion.suggestedText
             if (suggestion.suggestedText.length > 0) {
-              const conversion = suggestion.blockConversionIntent
+              conversion = suggestion.blockConversionIntent
                 ? applyBlockConversion(
                     tr,
                     doc,
@@ -757,6 +798,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
                 : null
               if (conversion) {
                 pipelineLog('accept:path', { id: suggestion.id, path: 'blockConversion', batch: true })
+                annotationNewText = conversion.visibleText
               } else if (isMultiBlock(suggestion.suggestedText)) {
                 const slice = parseMarkdownToSlice(editor, state.schema, suggestion.suggestedText)
                 if (slice) {
@@ -768,10 +810,12 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
                 const inline = parseInlineSuggestion(editor, state.schema, suggestion.suggestedText)
                 if (inline) {
                   tr.replace(suggestion.from, suggestion.to, inline.slice)
+                  annotationNewText = inline.text
                 } else {
                   tr.replaceWith(suggestion.from, suggestion.to, state.schema.text(suggestion.suggestedText))
                 }
               }
+              applied.push({ suggestion, conversion, annotationNewText })
             } else {
               tr.delete(suggestion.from, suggestion.to)
             }
@@ -782,6 +826,67 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           }
 
           dispatch(tr)
+
+          // Create annotations in a MICROTASK after the transaction actually
+          // applies (see acceptAISuggestion — TipTap applies the tr after the
+          // command body returns; inline creation would starve existing
+          // annotations of this transaction's position mapping). Pre-dispatch
+          // coordinates map through the full accumulated step list:
+          // end-to-start processing means each suggestion's own step leaves
+          // its range-start boundary stable, and later (lower-position) steps
+          // shift it by their length delta — exactly what tr.mapping.map
+          // computes. priorAnnotations restoration is intentionally skipped
+          // in the batch path (it would need a per-step snapshot);
+          // overlapping older annotations detach rather than vanish (#674).
+          queueMicrotask(() => {
+            const annotationStore = useAnnotationStore.getState()
+            for (const { suggestion, conversion, annotationNewText } of applied) {
+              const docId = suggestion.documentId || annotationStore.documentId
+              if (!docId) {
+                console.warn('[AISuggestion] acceptAll: cannot create annotation - missing docId:', suggestion.id)
+                continue
+              }
+              const provenance = {
+                model: suggestion.provenanceModel || 'unknown',
+                conversationId: suggestion.provenanceConversationId,
+                messageId: suggestion.provenanceMessageId,
+              }
+              if (conversion && conversion.singleTextblock) {
+                const base = tr.mapping.map(conversion.insertedAt, -1)
+                createWordDiffAnnotations({
+                  documentId: docId,
+                  originalText: suggestion.originalText,
+                  newText: annotationNewText,
+                  rangeFrom: base + 1,
+                  rangeTo: base + 1 + conversion.visibleText.length,
+                  provenance,
+                  explanation: suggestion.explanation || undefined,
+                })
+              } else if (conversion) {
+                const base = tr.mapping.map(conversion.insertedAt, -1)
+                annotationStore.addAnnotation({
+                  documentId: docId,
+                  type: 'replacement',
+                  from: base,
+                  to: base + conversion.insertedSize,
+                  content: conversion.visibleText,
+                  provenance,
+                  explanation: suggestion.explanation || undefined,
+                })
+              } else {
+                createWordDiffAnnotations({
+                  documentId: docId,
+                  originalText: suggestion.originalText,
+                  newText: annotationNewText,
+                  rangeFrom: tr.mapping.map(suggestion.from, -1),
+                  rangeTo: tr.mapping.map(suggestion.to, 1),
+                  provenance,
+                  explanation: suggestion.explanation || undefined,
+                })
+              }
+            }
+          })
+
           return true
         },
 

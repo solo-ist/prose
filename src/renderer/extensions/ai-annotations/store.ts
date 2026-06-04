@@ -21,6 +21,7 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
   isVisible: true,
   documentId: null,
   isLoadingDocument: false,
+  pendingSave: null,
   createdThisSession: new Set(),
 
   // Add a new annotation
@@ -70,8 +71,14 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
       }))
     }
 
-    // Auto-save after adding
-    get().saveAnnotations()
+    // Auto-save after adding. Track the in-flight write so tab switches can
+    // await it — a fire-and-forget save racing loadAnnotations(nextDoc) was
+    // one of the "history entries vanished" paths (#674).
+    const savePromise = get().saveAnnotations()
+    set({ pendingSave: savePromise })
+    savePromise.finally(() => {
+      if (get().pendingSave === savePromise) set({ pendingSave: null })
+    })
 
     // Track that this annotation was created this session (should not animate)
     get().createdThisSession.add(id)
@@ -139,10 +146,17 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
       return
     }
 
+    let detachedThisPass = 0
     set((state) => {
       const updatedAnnotations: AIAnnotation[] = []
 
       for (const annotation of state.annotations) {
+        // Detached annotations are history-only — their positions are stale
+        // by definition, so they pass through untouched (#674).
+        if (annotation.detached) {
+          updatedAnnotations.push(annotation)
+          continue
+        }
         const mapped = mapping(annotation.from, annotation.to)
 
         if (mapped) {
@@ -162,17 +176,34 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
             to: mapped.to,
           })
         } else {
-          console.log('[AnnotationStore] updatePositions - annotation deleted by mapping:', {
+          // Range collapsed (the annotated text was replaced/deleted by a
+          // later edit). Detach instead of deleting (#674): the entry stays
+          // in the history panel and IndexedDB — history is an immutable
+          // per-document log — but renders no decoration.
+          pipelineLog('annotation:detach', {
+            id: annotation.id,
+            from: annotation.from,
+            to: annotation.to,
+            reason: 'mapping-collapse',
+          })
+          console.log('[AnnotationStore] updatePositions - annotation detached by mapping:', {
             id: annotation.id,
             from: annotation.from,
             to: annotation.to
           })
+          detachedThisPass++
+          updatedAnnotations.push({ ...annotation, detached: true })
         }
-        // If mapping returns null, the annotation was deleted
       }
 
       return { annotations: updatedAnnotations }
     })
+    // Persist only when a detach happened — this path runs on every
+    // docChanged transaction (including typing), so unconditional saves
+    // would hammer IndexedDB.
+    if (detachedThisPass > 0) {
+      get().saveAnnotations()
+    }
   },
 
   // Update positions with proper handling of insertions inside annotations
@@ -191,10 +222,16 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
       insertions,
       annotationCount: get().annotations.length
     })
+    let detachedThisPass = 0
     set((state) => {
       const updatedAnnotations: AIAnnotation[] = []
 
       for (const annotation of state.annotations) {
+        // Detached annotations are history-only — pass through untouched (#674).
+        if (annotation.detached) {
+          updatedAnnotations.push(annotation)
+          continue
+        }
         // Check if any insertion was strictly inside this annotation
         const insertionInside = insertions.find(
           (ins) => ins.pos > annotation.from && ins.pos < annotation.to
@@ -235,6 +272,19 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
               content: annotation.content.slice(insertionInside.pos - annotation.from),
             })
           }
+
+          // Both remnants collapsed — keep ONE detached entry carrying the
+          // original annotation so the history record survives (#674).
+          if (beforeFrom >= beforeTo && afterFrom >= afterTo) {
+            pipelineLog('annotation:detach', {
+              id: annotation.id,
+              from: annotation.from,
+              to: annotation.to,
+              reason: 'split-collapse',
+            })
+            detachedThisPass++
+            updatedAnnotations.push({ ...annotation, detached: true })
+          }
         } else {
           // No insertion inside, just map positions normally
           const mappedFrom = mapPos(annotation.from, 1)
@@ -246,12 +296,25 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
               from: mappedFrom,
               to: mappedTo,
             })
+          } else {
+            // Range collapsed — detach, don't delete (#674).
+            pipelineLog('annotation:detach', {
+              id: annotation.id,
+              from: annotation.from,
+              to: annotation.to,
+              reason: 'mapping-collapse',
+            })
+            detachedThisPass++
+            updatedAnnotations.push({ ...annotation, detached: true })
           }
         }
       }
 
       return { annotations: updatedAnnotations }
     })
+    if (detachedThisPass > 0) {
+      get().saveAnnotations()
+    }
   },
 
   // Toggle visibility

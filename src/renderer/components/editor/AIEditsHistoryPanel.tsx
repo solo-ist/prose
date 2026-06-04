@@ -35,6 +35,9 @@ export function AIEditsHistoryPanel() {
   const handleJump = useCallback(
     (annotation: AIAnnotation) => {
       if (!editor) return
+      // Detached entries are history-only (#674): the annotated text was
+      // replaced by a later edit, so the stored positions are stale.
+      if (annotation.detached) return
       editor.commands.setTextSelection({ from: annotation.from, to: annotation.to })
       editor.commands.focus()
 
@@ -125,6 +128,7 @@ interface HistoryEntryRowProps {
 function HistoryEntryRow({ annotation, onJump, onRemove }: HistoryEntryRowProps) {
   const snippet = annotation.content.slice(0, 80).replace(/\n/g, ' ')
   const isLong = annotation.content.length > 80
+  const detached = annotation.detached === true
 
   return (
     <div
@@ -137,14 +141,25 @@ function HistoryEntryRow({ annotation, onJump, onRemove }: HistoryEntryRowProps)
           onJump(annotation)
         }
       }}
-      title="Jump to in document"
-      className="group px-3 py-2.5 hover:bg-muted/40 transition-colors cursor-pointer focus:outline-none focus:bg-muted/40"
+      title={detached ? 'This edit was later replaced — history record only' : 'Jump to in document'}
+      className={cn(
+        'group px-3 py-2.5 hover:bg-muted/40 transition-colors focus:outline-none focus:bg-muted/40',
+        detached ? 'opacity-60 cursor-default' : 'cursor-pointer'
+      )}
     >
       <div className="flex items-start justify-between gap-2">
         {/* Left: type badge + snippet */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 mb-1">
             <TypeBadge type={annotation.type} />
+            {detached && (
+              <span
+                data-testid="annotation-detached-badge"
+                className="inline-flex items-center rounded px-1 py-0.5 text-[9px] font-medium uppercase tracking-wider bg-muted text-muted-foreground"
+              >
+                superseded
+              </span>
+            )}
             <span className="text-[10px] text-muted-foreground/70 shrink-0">
               {formatModelName(annotation.provenance.model)}
             </span>
@@ -167,12 +182,14 @@ function HistoryEntryRow({ annotation, onJump, onRemove }: HistoryEntryRowProps)
           )}
         </div>
 
-        {/* Right: jump affordance (always visible) + remove (on hover) */}
+        {/* Right: jump affordance (hidden for detached) + remove (on hover) */}
         <div className="flex items-center gap-1 shrink-0">
-          <LocateFixed
-            aria-hidden="true"
-            className="h-3.5 w-3.5 text-muted-foreground/50 group-hover:text-foreground transition-colors"
-          />
+          {!detached && (
+            <LocateFixed
+              aria-hidden="true"
+              className="h-3.5 w-3.5 text-muted-foreground/50 group-hover:text-foreground transition-colors"
+            />
+          )}
 
           <Tooltip>
             <TooltipTrigger asChild>

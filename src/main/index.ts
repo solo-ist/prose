@@ -37,6 +37,9 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 // directory so e2e/QA harnesses never touch the real profile. Mirrors the
 // PROSE_USER_DATA_DIR override in paths.ts (which covers the pre-ready Sentry
 // read above). No-op unless the harness sets the env var.
+// Ordering invariant: hoisted imports (ipc.ts, menu.ts, ...) load before this
+// statement runs, so none of them may call app.getPath('userData') at module
+// top level — only inside handlers/functions that run after this override.
 if (process.env.PROSE_USER_DATA_DIR) {
   app.setPath('userData', process.env.PROSE_USER_DATA_DIR)
 }

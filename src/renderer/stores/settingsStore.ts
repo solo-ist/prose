@@ -147,7 +147,19 @@ function migrateOnDiskSettings(raw: SettingsOnDisk): Settings {
     resolved = FRESH_INSTALL_APPEARANCE
   }
 
-  return { ...rest, appearance: resolved }
+  // Heal a base root clobbered by addProjectFromPicker in v1.6.0/v1.6.1, which
+  // set defaultSaveDirectory to the newly added project's path. The explorer's
+  // back-navigation (backToProjectsList / exitToRoot) returns to
+  // defaultSaveDirectory, so a base root equal to a project path resolved
+  // straight back into the project — trapping navigation inside it. Clearing
+  // it falls back to the documents default; the Files panel's folder picker
+  // re-sets it on the next explicit pick.
+  let defaultSaveDirectory = rest.defaultSaveDirectory
+  if (defaultSaveDirectory && (rest.projects ?? []).some((p) => p.path === defaultSaveDirectory)) {
+    defaultSaveDirectory = undefined
+  }
+
+  return { ...rest, defaultSaveDirectory, appearance: resolved }
 }
 
 // Single tracked cleanup for the prefers-color-scheme listener. Stored at
@@ -235,10 +247,10 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
       // changes the icon. This is what makes the icon choice persist visually.
       window.api.setAppIcon?.(migrated.appearance.icon)
 
-      // If we migrated a legacy theme field, persist the cleaned shape so the
-      // next launch reads the new schema and the migration code path becomes
-      // a no-op for this user.
-      if (raw.theme) {
+      // If we migrated a legacy theme field or healed a project-clobbered
+      // base root, persist the cleaned shape so the next launch reads the
+      // new values and the migration code path becomes a no-op for this user.
+      if (raw.theme || raw.defaultSaveDirectory !== migrated.defaultSaveDirectory) {
         get().saveSettings().catch((err) => {
           console.warn('[settings] failed to persist migrated appearance:', err)
         })

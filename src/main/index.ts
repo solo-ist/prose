@@ -32,6 +32,14 @@ try {
 
 import { app, shell, BrowserWindow, session, protocol } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+
+// Test seam: redirect userData (settings, IndexedDB, caches) to an isolated
+// directory so e2e/QA harnesses never touch the real profile. Mirrors the
+// PROSE_USER_DATA_DIR override in paths.ts (which covers the pre-ready Sentry
+// read above). No-op unless the harness sets the env var.
+if (process.env.PROSE_USER_DATA_DIR) {
+  app.setPath('userData', process.env.PROSE_USER_DATA_DIR)
+}
 import { setupIpcHandlers } from './ipc'
 import { createMenu } from './menu'
 import { getMcpHttpServer, getMcpBridge, getMcpSocketServer } from './mcp'

@@ -25,8 +25,16 @@ export * from './shared'
  * In CI, launches from the built output (requires `npm run build` first).
  * Locally, can optionally launch from source via electron-vite dev.
  */
-export async function launchApp(): Promise<{ app: ElectronApplication; page: Page }> {
+export async function launchApp(
+  options?: { env?: Record<string, string> },
+): Promise<{ app: ElectronApplication; page: Page }> {
   const projectRoot = resolve(__dirname, '..')
+  // Merge env overrides over the inherited environment — Playwright's `env`
+  // replaces the child process environment wholesale, so the spread keeps
+  // PATH etc. intact. Used by tests that need an isolated HOME (userData).
+  const env = options?.env
+    ? { ...(process.env as Record<string, string>), ...options.env }
+    : undefined
 
   // Try to find a packaged build first (electron-builder output)
   let appPath: string
@@ -54,10 +62,12 @@ export async function launchApp(): Promise<{ app: ElectronApplication; page: Pag
     app = await electron.launch({
       executablePath: appInfo.executable,
       args: [appInfo.main],
+      ...(env ? { env } : {}),
     })
   } else {
     app = await electron.launch({
       args: [appPath],
+      ...(env ? { env } : {}),
     })
   }
 

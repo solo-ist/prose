@@ -21,6 +21,11 @@ export const LEGACY_SETTINGS_DIR = join(homedir(), '.prose')
  * Use this ONLY for code that runs before app.whenReady() (e.g., early Sentry init).
  */
 export function getUserDataPath(): string {
+  // Test seam: e2e/QA harnesses set PROSE_USER_DATA_DIR to isolate the
+  // profile (settings, IndexedDB, caches) from the developer's real one.
+  // index.ts applies the same override to app.getPath('userData') via
+  // app.setPath, keeping both resolution paths consistent.
+  if (process.env.PROSE_USER_DATA_DIR) return process.env.PROSE_USER_DATA_DIR
   switch (process.platform) {
     case 'darwin':
       return join(homedir(), 'Library', 'Application Support', 'prose')

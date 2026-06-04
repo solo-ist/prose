@@ -131,7 +131,12 @@ export const useProjectsStore = create<ProjectsState>()(
           const fileList = await getFileListStore()
           fileList.setRootPath(project.path)
           useSettingsStore.getState().setActiveProject(project.id)
-          useSettingsStore.getState().setDefaultSaveDirectory(project.path)
+          // Note: defaultSaveDirectory (the stable base root the explorer's
+          // Back button returns to) is intentionally NOT changed — pointing it
+          // at the project's path made backToProjectsList/exitToRoot resolve
+          // back into the project, trapping navigation inside it (TestFlight
+          // v1.6.1 report). Projects are additive pointers over the base root,
+          // same contract as switchToProject below.
           // Persist bookmark in the legacy single-bookmark slot too so the
           // existing settings:load bookmark restoration still works.
           if (project.bookmark) {
@@ -218,9 +223,11 @@ export const useProjectsStore = create<ProjectsState>()(
       useSettingsStore.getState().saveSettings()
 
       const fileList = await getFileListStore()
-      if (baseRoot) {
-        fileList.setRootPath(baseRoot)
-      }
+      // No base root configured (fresh install, or healed after the
+      // defaultSaveDirectory clobber) — drop to the folder-picker empty state
+      // rather than leaving rootPath inside the project, which would render
+      // the project's files in the Files panel and look like being stuck.
+      fileList.setRootPath(baseRoot ?? null)
       // Drop to the base-root Files navigator (contrast: FileListPanel.backToProjectsList
       // clears the active project but stays in the 'projects' panel).
       fileList.setViewMode('folder')
@@ -246,7 +253,10 @@ export const useProjectsStore = create<ProjectsState>()(
       if (wasActive) {
         const baseRoot = useSettingsStore.getState().settings.defaultSaveDirectory
         void getFileListStore().then((fileList) => {
-          if (baseRoot) fileList.setRootPath(baseRoot)
+          // Same null-fallback as exitToRoot: without a base root, drop to the
+          // folder-picker empty state instead of lingering inside the removed
+          // project's folder.
+          fileList.setRootPath(baseRoot ?? null)
           fileList.setViewMode('folder')
         })
       }

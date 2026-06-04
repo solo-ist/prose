@@ -69,6 +69,45 @@ export function parseMarkdownToSlice(editor: Editor, schema: Schema, text: strin
 }
 
 /**
+ * Parse a single-line suggestion whose only markdown structure is inline
+ * marks (bold/italic/code/links) into a ProseMirror slice, returning the
+ * slice and its visible text. Returns null — meaning "use the byte-for-byte
+ * schema.text() path" — for anything else:
+ *   • plain text with no markdown syntax (visible text === raw text), so the
+ *     overwhelmingly common case keeps its exact current behaviour;
+ *   • multi-line input (block structure is the multi-block path's job;
+ *     soft-breaks would desync annotation offsets);
+ *   • parses to multiple blocks or a non-textblock (e.g. `- item` → list);
+ *   • produces non-text inline nodes (images, breaks) whose positions don't
+ *     map 1:1 onto visible-text offsets used by word-diff annotations.
+ *
+ * Why: suggestions arrive as markdown (read_document serializes the doc as
+ * markdown, so the model replies in kind), but acceptance inserted the raw
+ * string — `**bold**` landed as literal asterisks in the WYSIWYG doc
+ * (TestFlight v1.6.1 report). The returned visible text must be used as the
+ * annotation `newText` so word-diff offsets index the rendered document.
+ */
+function parseInlineSuggestion(
+  editor: Editor,
+  schema: Schema,
+  suggestedText: string
+): { slice: Slice; text: string } | null {
+  if (suggestedText.includes('\n')) return null
+  const slice = parseMarkdownToSlice(editor, schema, suggestedText)
+  if (!slice || slice.content.childCount !== 1) return null
+  const block = slice.content.firstChild
+  if (!block || !block.isTextblock) return null
+  let marksOnly = true
+  block.content.forEach((inline) => {
+    if (!inline.isText) marksOnly = false
+  })
+  if (!marksOnly) return null
+  const text = block.textContent
+  if (text === suggestedText) return null
+  return { slice, text }
+}
+
+/**
  * Markdown serializer for AI suggestion marks - outputs just the text content
  */
 export const aiSuggestionMarkdownSerializer: MarkSerializerSpec = {
@@ -376,9 +415,16 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           // collapse into a single inline run. Parse it through the
           // tiptap-markdown parser instead to preserve block nodes.
           //
-          // Single-block path (the overwhelmingly common case — a sentence or
-          // phrase edit): schema.text() is kept byte-for-byte so annotation
-          // position math and current behaviour are untouched.
+          // Inline-markdown path: a single-line suggestion carrying inline
+          // syntax (`**bold**`, `*italic*`, `` `code` ``, links) parses into
+          // real marks instead of landing as literal characters; the parsed
+          // visible text replaces suggestedText for annotation offsets.
+          //
+          // Plain single-block path (the overwhelmingly common case — a
+          // sentence or phrase edit with no markdown): schema.text() is kept
+          // byte-for-byte so annotation position math and current behaviour
+          // are untouched.
+          let annotationNewText = suggestedText
           if (suggestedText.length > 0) {
             if (isMultiBlock(suggestedText)) {
               const slice = parseMarkdownToSlice(editor, state.schema, suggestedText)
@@ -389,7 +435,13 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
                 tr.replaceWith(markFrom, markTo, state.schema.text(suggestedText))
               }
             } else {
-              tr.replaceWith(markFrom, markTo, state.schema.text(suggestedText))
+              const inline = parseInlineSuggestion(editor, state.schema, suggestedText)
+              if (inline) {
+                tr.replace(markFrom, markTo, inline.slice)
+                annotationNewText = inline.text
+              } else {
+                tr.replaceWith(markFrom, markTo, state.schema.text(suggestedText))
+              }
             }
           } else {
             tr.delete(markFrom, markTo)
@@ -427,7 +479,10 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             createWordDiffAnnotations({
               documentId: docId,
               originalText,
-              newText: suggestedText,
+              // Parsed visible text when the inline-markdown path fired —
+              // word-diff offsets must index the rendered document, not the
+              // raw markdown source.
+              newText: annotationNewText,
               rangeFrom: newFrom,
               rangeTo: newTo,
               provenance: {
@@ -542,8 +597,9 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           // Apply each suggestion. Processing end-to-start means earlier
           // suggestions' positions are not shifted by later ones.
           // Multi-block suggestions are parsed through the markdown parser to
-          // preserve paragraph structure; single-run suggestions use the
-          // existing schema.text() path unchanged.
+          // preserve paragraph structure; single-line suggestions with inline
+          // markdown parse to real marks (same contract as acceptAISuggestion);
+          // plain single-run suggestions use the schema.text() path unchanged.
           for (const suggestion of suggestions) {
             tr.removeMark(suggestion.from, suggestion.to, state.schema.marks.aiSuggestion)
             if (suggestion.suggestedText.length > 0) {
@@ -555,7 +611,12 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
                   tr.replaceWith(suggestion.from, suggestion.to, state.schema.text(suggestion.suggestedText))
                 }
               } else {
-                tr.replaceWith(suggestion.from, suggestion.to, state.schema.text(suggestion.suggestedText))
+                const inline = parseInlineSuggestion(editor, state.schema, suggestion.suggestedText)
+                if (inline) {
+                  tr.replace(suggestion.from, suggestion.to, inline.slice)
+                } else {
+                  tr.replaceWith(suggestion.from, suggestion.to, state.schema.text(suggestion.suggestedText))
+                }
               }
             } else {
               tr.delete(suggestion.from, suggestion.to)

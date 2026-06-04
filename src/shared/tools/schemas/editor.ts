@@ -33,7 +33,7 @@ export const editSchema = z.object({
 export const editConfig: ToolConfig<typeof editSchema> = {
   name: 'edit',
   description:
-    "Replace the content of a specific node by ID. Use read_document first to see all nodes with their IDs, then target the node you want to edit. Always include the search parameter with the original text for reliability. Special nodeId: pass 'frontmatter' with the COMPLETE new YAML (with or without --- fences) to direct-write the frontmatter block (no overlay, no search needed).",
+    "Replace the content of a specific node by ID. Use read_document first to see all nodes with their IDs, then target the node you want to edit. Always include the search parameter with the original text for reliability. Special nodeId: pass 'frontmatter' with the COMPLETE new YAML (with or without --- fences) to direct-write the frontmatter block (no overlay, no search needed). Not supported on plain-text .txt documents (returns PLAIN_TEXT_DOCUMENT — markdown would be flattened; create a .md copy via create_and_open_file instead).",
   schema: editSchema,
   category: 'editor',
   requiresMode: 'create', // Direct writes — only available in Create Mode
@@ -109,7 +109,7 @@ export const suggestEditSchema = z.object({
 export const suggestEditConfig: ToolConfig<typeof suggestEditSchema> = {
   name: 'suggest_edit',
   description:
-    'Create an inline diff suggestion on a node. The user sees a highlighted comparison and can accept or reject it. Use read_document first to get node IDs. Always include the search parameter with the original text for reliability.',
+    'Create an inline diff suggestion on a node. The user sees a highlighted comparison and can accept or reject it. Use read_document first to get node IDs. Always include the search parameter with the original text for reliability. Block-type conversion is supported: content opening with block markup (e.g. "# Title", "> quote", "- item") on a top-level paragraph or heading converts the node to that type when accepted. Not supported: table nodes (returns TABLE_NODE_NOT_SUPPORTED — use the edit tool to replace the whole table) and plain-text .txt documents (returns PLAIN_TEXT_DOCUMENT — create a .md copy via create_and_open_file instead).',
   schema: suggestEditSchema,
   category: 'editor',
   // Suggestions are still mutations of pending document state (the diff

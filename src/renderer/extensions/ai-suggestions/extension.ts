@@ -7,12 +7,14 @@
 
 import { Mark, mergeAttributes } from '@tiptap/core'
 import type { Editor } from '@tiptap/core'
-import type { Schema, Slice } from '@tiptap/pm/model'
-import { DOMParser as ProseMirrorDOMParser } from '@tiptap/pm/model'
+import type { Schema, Node as PMNode } from '@tiptap/pm/model'
+import { DOMParser as ProseMirrorDOMParser, Slice } from '@tiptap/pm/model'
+import type { Transaction } from '@tiptap/pm/state'
 import type { MarkSerializerSpec } from 'prosemirror-markdown'
 import type { AISuggestionOptions, AISuggestionData, SuggestionType } from './types'
 import { useAnnotationStore } from '../ai-annotations'
 import { createWordDiffAnnotations } from '../../lib/diffUtils'
+import { pipelineLog } from '../../lib/aiPipelineLog'
 
 /**
  * Returns true when `text` contains block-level structure that would be lost
@@ -108,6 +110,71 @@ function parseInlineSuggestion(
 }
 
 /**
+ * Visible text of a parsed slice — top-level blocks' text joined by newline.
+ * Used as the popover display text and the annotation `newText` for
+ * block-converted suggestions (#673): annotation offsets must index the
+ * rendered document, not the raw markdown source.
+ */
+export function sliceVisibleText(slice: Slice): string {
+  const parts: string[] = []
+  slice.content.forEach((child) => {
+    parts.push(child.textContent)
+  })
+  return parts.join('\n')
+}
+
+/**
+ * Block-type conversion on accept (#673): parse the suggestion's original
+ * markdown (`blockConversionIntent` mark attr) and replace the WHOLE host
+ * textblock with the parsed block(s) as a closed slice — converting the
+ * node's type (paragraph → heading/blockquote/list/codeBlock, heading level
+ * changes). A closed slice (openStart/openEnd = 0) substitutes complete
+ * nodes; an open slice here would merge the parsed content back into the
+ * host node and lose the conversion.
+ *
+ * `from`/`to` are the suggestion mark's range in the CURRENT doc coordinates
+ * of `tr` — callers batching multiple conversions must process end-to-start.
+ *
+ * Returns the inserted geometry for annotation creation, or null when the
+ * host node or parser is unavailable (caller falls through to the text
+ * replacement paths).
+ */
+function applyBlockConversion(
+  tr: Transaction,
+  doc: PMNode,
+  editor: Editor,
+  schema: Schema,
+  from: number,
+  to: number,
+  intentMarkdown: string
+): { insertedAt: number; insertedSize: number; singleTextblock: boolean; visibleText: string } | null {
+  let blockPos = -1
+  let blockNodeSize = 0
+  doc.nodesBetween(from, to, (node, pos) => {
+    if (node.isTextblock) {
+      blockPos = pos
+      blockNodeSize = node.nodeSize
+      return false
+    }
+    return true
+  })
+  if (blockPos < 0) return null
+
+  const slice = parseMarkdownToSlice(editor, schema, intentMarkdown)
+  if (!slice || slice.content.childCount === 0) return null
+
+  const closed = new Slice(slice.content, 0, 0)
+  tr.replace(blockPos, blockPos + blockNodeSize, closed)
+
+  return {
+    insertedAt: blockPos,
+    insertedSize: slice.content.size,
+    singleTextblock: slice.content.childCount === 1 && slice.content.firstChild!.isTextblock,
+    visibleText: sliceVisibleText(slice),
+  }
+}
+
+/**
  * Markdown serializer for AI suggestion marks - outputs just the text content
  */
 export const aiSuggestionMarkdownSerializer: MarkSerializerSpec = {
@@ -133,6 +200,8 @@ declare module '@tiptap/core' {
         provenanceConversationId?: string
         provenanceMessageId?: string
         documentId?: string
+        /** Raw markdown for a block-type conversion (#673); null/absent = text replacement */
+        blockConversionIntent?: string | null
       }) => ReturnType
       /**
        * Set user reply on an AI suggestion by ID
@@ -271,6 +340,18 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           return { 'data-document-id': attributes.documentId }
         },
       },
+      // Raw markdown of a block-type conversion (#673) — set by
+      // executeSuggestEdit when the suggestion's content opens with block
+      // markup differing from the host node. The accept path parses it and
+      // replaces the whole host node, converting its type.
+      blockConversionIntent: {
+        default: null,
+        parseHTML: (element) => element.getAttribute('data-ai-block-intent'),
+        renderHTML: (attributes) => {
+          if (!attributes.blockConversionIntent) return {}
+          return { 'data-ai-block-intent': attributes.blockConversionIntent }
+        },
+      },
     }
   },
 
@@ -308,6 +389,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             createdAt: Date.now(),
             from,
             to,
+            blockConversionIntent: attrs.blockConversionIntent ?? null,
           }
 
           const result = commands.setMark(this.name, {
@@ -321,6 +403,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             provenanceConversationId: attrs.provenanceConversationId || '',
             provenanceMessageId: attrs.provenanceMessageId || '',
             documentId: attrs.documentId || '',
+            blockConversionIntent: attrs.blockConversionIntent ?? null,
           })
 
           if (result && this.options.onSuggestionAdded) {
@@ -410,6 +493,11 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
 
           // Replace the text with suggested text, or delete if empty.
           //
+          // Block-conversion path (#673): the suggestion carries a
+          // blockConversionIntent (raw markdown opening with block markup that
+          // differs from the host node, e.g. `# Title` on a paragraph). Parse
+          // it and replace the WHOLE host node — converting its type.
+          //
           // Multi-block path (#578 structural fix): when suggestedText contains
           // `\n\n` it has paragraph-level structure that schema.text() would
           // collapse into a single inline run. Parse it through the
@@ -424,19 +512,32 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           // sentence or phrase edit with no markdown): schema.text() is kept
           // byte-for-byte so annotation position math and current behaviour
           // are untouched.
+          const blockIntent =
+            (suggestionAttrs as { blockConversionIntent?: string | null }).blockConversionIntent ?? null
           let annotationNewText = suggestedText
+          let acceptPath: 'blockConversion' | 'multiBlock' | 'inline' | 'literal' | 'delete' = 'literal'
+          let conversion: ReturnType<typeof applyBlockConversion> = null
           if (suggestedText.length > 0) {
-            if (isMultiBlock(suggestedText)) {
+            if (blockIntent) {
+              conversion = applyBlockConversion(tr, state.doc, editor, state.schema, markFrom, markTo, blockIntent)
+            }
+            if (conversion) {
+              annotationNewText = conversion.visibleText
+              acceptPath = 'blockConversion'
+            } else if (isMultiBlock(suggestedText)) {
+              acceptPath = 'multiBlock'
               const slice = parseMarkdownToSlice(editor, state.schema, suggestedText)
               if (slice) {
                 tr.replace(markFrom, markTo, slice)
               } else {
                 // Parser unavailable — fall back to flat text rather than dropping the edit.
+                acceptPath = 'literal'
                 tr.replaceWith(markFrom, markTo, state.schema.text(suggestedText))
               }
             } else {
               const inline = parseInlineSuggestion(editor, state.schema, suggestedText)
               if (inline) {
+                acceptPath = 'inline'
                 tr.replace(markFrom, markTo, inline.slice)
                 annotationNewText = inline.text
               } else {
@@ -444,8 +545,16 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
               }
             }
           } else {
+            acceptPath = 'delete'
             tr.delete(markFrom, markTo)
           }
+          pipelineLog('accept:path', {
+            id,
+            path: acceptPath,
+            markFrom,
+            markTo,
+            suggestedTextPreview: suggestedText.substring(0, 60),
+          })
 
           // Create AI annotation for provenance tracking
           const attrs = suggestionAttrs as {
@@ -473,25 +582,54 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           // positions at/after markTo forward by (inserted size − replaced size)
           // in both cases.
           if (docId && suggestedText.length > 0) {
-            const newFrom = tr.mapping.map(markFrom, -1)
-            const newTo = tr.mapping.map(markTo, 1)
-            console.log('[AISuggestion] Creating annotation:', { docId, model, from: newFrom, to: newTo })
-            createWordDiffAnnotations({
-              documentId: docId,
-              originalText,
-              // Parsed visible text when the inline-markdown path fired —
-              // word-diff offsets must index the rendered document, not the
-              // raw markdown source.
-              newText: annotationNewText,
-              rangeFrom: newFrom,
-              rangeTo: newTo,
-              provenance: {
-                model,
-                conversationId: attrs.provenanceConversationId || '',
-                messageId: attrs.provenanceMessageId || '',
-              },
-              explanation: explanation || undefined,
-            })
+            const provenance = {
+              model,
+              conversationId: attrs.provenanceConversationId || '',
+              messageId: attrs.provenanceMessageId || '',
+            }
+            if (conversion && conversion.singleTextblock) {
+              // Converted node sits at its pre-replace position (nothing
+              // before it shifted); content starts one position inside the
+              // node's opening token — word-diff offsets index that content.
+              createWordDiffAnnotations({
+                documentId: docId,
+                originalText,
+                newText: annotationNewText,
+                rangeFrom: conversion.insertedAt + 1,
+                rangeTo: conversion.insertedAt + 1 + conversion.visibleText.length,
+                provenance,
+                explanation: explanation || undefined,
+              })
+            } else if (conversion) {
+              // Wrapper conversion (blockquote/list) or multi-node result:
+              // nested structure breaks linear text-offset math — record a
+              // single full-range annotation over the inserted content.
+              useAnnotationStore.getState().addAnnotation({
+                documentId: docId,
+                type: 'replacement',
+                from: conversion.insertedAt,
+                to: conversion.insertedAt + conversion.insertedSize,
+                content: conversion.visibleText,
+                provenance,
+                explanation: explanation || undefined,
+              })
+            } else {
+              const newFrom = tr.mapping.map(markFrom, -1)
+              const newTo = tr.mapping.map(markTo, 1)
+              console.log('[AISuggestion] Creating annotation:', { docId, model, from: newFrom, to: newTo })
+              createWordDiffAnnotations({
+                documentId: docId,
+                originalText,
+                // Parsed visible text when the inline-markdown path fired —
+                // word-diff offsets must index the rendered document, not the
+                // raw markdown source.
+                newText: annotationNewText,
+                rangeFrom: newFrom,
+                rangeTo: newTo,
+                provenance,
+                explanation: explanation || undefined,
+              })
+            }
           } else {
             console.warn('[AISuggestion] Cannot create annotation - missing docId:', { docId, suggestedText: suggestedText.length })
           }
@@ -554,6 +692,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             from: number
             to: number
             suggestedText: string
+            blockConversionIntent: string | null
           }> = []
 
           // First pass: collect all unique suggestion IDs and their ranges
@@ -582,7 +721,8 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
                     id: mark.attrs.id,
                     from,
                     to,
-                    suggestedText: mark.attrs.suggestedText || ''
+                    suggestedText: mark.attrs.suggestedText || '',
+                    blockConversionIntent: mark.attrs.blockConversionIntent ?? null
                   })
                 }
               }
@@ -595,15 +735,29 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           suggestions.sort((a, b) => b.from - a.from)
 
           // Apply each suggestion. Processing end-to-start means earlier
-          // suggestions' positions are not shifted by later ones.
-          // Multi-block suggestions are parsed through the markdown parser to
-          // preserve paragraph structure; single-line suggestions with inline
-          // markdown parse to real marks (same contract as acceptAISuggestion);
-          // plain single-run suggestions use the schema.text() path unchanged.
+          // suggestions' positions are not shifted by later ones — which also
+          // makes the block-conversion whole-node replacement safe here: each
+          // suggestion's pre-dispatch coordinates stay valid because all
+          // later (higher-position) replacements have already been applied.
+          // Path selection mirrors acceptAISuggestion: blockConversion →
+          // multiBlock → inline → literal.
           for (const suggestion of suggestions) {
             tr.removeMark(suggestion.from, suggestion.to, state.schema.marks.aiSuggestion)
             if (suggestion.suggestedText.length > 0) {
-              if (isMultiBlock(suggestion.suggestedText)) {
+              const conversion = suggestion.blockConversionIntent
+                ? applyBlockConversion(
+                    tr,
+                    doc,
+                    editor,
+                    state.schema,
+                    suggestion.from,
+                    suggestion.to,
+                    suggestion.blockConversionIntent
+                  )
+                : null
+              if (conversion) {
+                pipelineLog('accept:path', { id: suggestion.id, path: 'blockConversion', batch: true })
+              } else if (isMultiBlock(suggestion.suggestedText)) {
                 const slice = parseMarkdownToSlice(editor, state.schema, suggestion.suggestedText)
                 if (slice) {
                   tr.replace(suggestion.from, suggestion.to, slice)
@@ -741,6 +895,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
               provenanceConversationId: suggestion.provenanceConversationId || '',
               provenanceMessageId: suggestion.provenanceMessageId || '',
               documentId: suggestion.documentId || '',
+              blockConversionIntent: suggestion.blockConversionIntent ?? null,
             })
 
             tr.addMark(foundStart, foundEnd, mark)
@@ -788,6 +943,7 @@ export function getAISuggestions(editor: {
                 provenanceConversationId?: string
                 provenanceMessageId?: string
                 documentId?: string
+                blockConversionIntent?: string | null
               }
             }>
             nodeSize: number
@@ -818,6 +974,7 @@ export function getAISuggestions(editor: {
           provenanceConversationId: mark.attrs.provenanceConversationId || undefined,
           provenanceMessageId: mark.attrs.provenanceMessageId || undefined,
           documentId: mark.attrs.documentId || undefined,
+          blockConversionIntent: mark.attrs.blockConversionIntent ?? null,
         })
       }
     })

@@ -28,6 +28,14 @@ export interface AISuggestionData {
   provenanceConversationId?: string
   provenanceMessageId?: string
   documentId?: string
+  /**
+   * Raw markdown of a block-type conversion (#673) — present when the
+   * suggestion's content opened with block markup differing from the host
+   * node (e.g. `# Title` on a paragraph). The accept path parses this and
+   * replaces the whole host node, converting its type. Null/absent = plain
+   * text replacement.
+   */
+  blockConversionIntent?: string | null
 }
 
 export interface AISuggestionOptions {

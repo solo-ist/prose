@@ -12,8 +12,9 @@ import { useAnnotationStore } from '../../../extensions/ai-annotations'
 import { createWordDiffAnnotations } from '../../diffUtils'
 import { findNodeById, findNodeByContent, getNodesWithIds, flattenNodes } from '../../../extensions/node-ids'
 import { generateId } from '../../persistence'
-import { getAISuggestions, parseMarkdownToSlice } from '../../../extensions/ai-suggestions'
+import { getAISuggestions, parseMarkdownToSlice, sliceVisibleText } from '../../../extensions/ai-suggestions'
 import { parseMarkdown, FRONTMATTER_REGEX } from '../../markdown'
+import { pipelineLog } from '../../aiPipelineLog'
 import { load as parseYaml } from 'js-yaml'
 
 /**
@@ -193,6 +194,60 @@ function stripLeadingBlockMarkup(content: string, nodeType: string, level?: numb
 }
 
 /**
+ * True when the open document is a .txt file rendered in PlainTextMode.
+ * PlainTextMode's appendTransaction flattens every structured node (headings,
+ * blockquotes, lists) and strips all marks on every transaction — any
+ * markdown formatting an AI edit produces would be silently destroyed.
+ */
+function isPlainTextDocument(editor: Editor): boolean {
+  return editor.storage?.plainTextMode?.enabled === true
+}
+
+/** Node types whose internals suggest_edit cannot mark safely. */
+const TABLE_NODE_TYPES = new Set(['table', 'tableRow', 'tableHeader', 'tableCell'])
+
+/**
+ * Detect a block-type conversion intent (#673): the suggestion's content
+ * carries leading block markup that differs from the host node's type, e.g.
+ * `# Title` targeting a paragraph, or `## Sub` targeting an H1. Returns the
+ * raw markdown to parse at accept-time, or null when the suggestion is a
+ * plain text edit for the existing node (same type and level — the existing
+ * stripLeadingBlockMarkup path remains correct).
+ *
+ * Deliberately conservative: only fires for TOP-LEVEL paragraph/heading
+ * hosts. Nested hosts (list items, blockquote children, table cells) keep the
+ * current text-replacement semantics — converting those is ambiguous (does
+ * `- item` on a quoted paragraph mean "make the quote a list" or "make the
+ * paragraph inside the quote a list"?).
+ */
+function detectBlockConversion(
+  content: string,
+  hostType: string,
+  hostLevel: number | undefined,
+  isTopLevel: boolean
+): string | null {
+  if (!isTopLevel) return null
+  if (hostType !== 'paragraph' && hostType !== 'heading') return null
+
+  const trimmed = content.replace(/^[\r\n]+/, '')
+
+  const headingMatch = trimmed.match(/^(#{1,6})\s+/)
+  if (headingMatch) {
+    const level = headingMatch[1].length
+    // Same type AND same level → plain text edit, not a conversion
+    if (hostType === 'heading' && hostLevel === level) return null
+    return trimmed
+  }
+
+  if (/^>\s/.test(trimmed)) return trimmed
+  if (/^(?:[-*+]|\d+\.)\s+/.test(trimmed)) return trimmed
+  if (/^```/.test(trimmed)) return trimmed
+  // Heading host whose replacement carries no block markup → plain text edit
+  return null
+}
+
+
+/**
  * Resolve the target document position for an editor-mutating tool call.
  * Used to sort tool calls by position (descending) before batch execution,
  * so bottom-of-document edits don't shift positions of earlier edits.
@@ -277,6 +332,24 @@ export async function executeEdit(
   }
 
   const { nodeId, content, comment, search } = args
+
+  pipelineLog('edit:start', {
+    nodeId,
+    contentLength: content?.length ?? 0,
+    isPlainText: isPlainTextDocument(editor),
+  })
+
+  if (isPlainTextDocument(editor)) {
+    pipelineLog('edit:result', { nodeId, blocked: 'PLAIN_TEXT_DOCUMENT' })
+    return toolError(
+      'This document is a plain-text (.txt) file — markdown formatting is ' +
+        'intentionally flattened in plain-text mode, so formatting in this edit ' +
+        'would be silently destroyed. To apply markdown formatting, create a ' +
+        'markdown copy instead: call create_and_open_file with a .md filename ' +
+        'and the fully formatted content, then continue editing there.',
+      'PLAIN_TEXT_DOCUMENT'
+    )
+  }
 
   if (!nodeId) {
     return toolError('Node ID is required', 'INVALID_INPUT')
@@ -616,6 +689,25 @@ export function executeSuggestEdit(
   const { nodeId, comment, search } = args
   let { content } = args
 
+  pipelineLog('suggest_edit:start', {
+    nodeId,
+    contentLength: content?.length ?? 0,
+    contentPreview: content?.substring(0, 60),
+    isPlainText: isPlainTextDocument(editor),
+  })
+
+  if (isPlainTextDocument(editor)) {
+    pipelineLog('suggest_edit:result', { nodeId, blocked: 'PLAIN_TEXT_DOCUMENT' })
+    return toolError(
+      'This document is a plain-text (.txt) file — markdown formatting is ' +
+        'intentionally flattened in plain-text mode, so this suggestion would be ' +
+        'silently destroyed. To apply markdown formatting, create a markdown ' +
+        'copy instead: call create_and_open_file with a .md filename and the ' +
+        'fully formatted content, then continue editing there.',
+      'PLAIN_TEXT_DOCUMENT'
+    )
+  }
+
   if (!nodeId) {
     return toolError('Node ID is required', 'INVALID_INPUT')
   }
@@ -723,14 +815,66 @@ export function executeSuggestEdit(
   const { node, pos } = found
   const suggestionId = generateId()
 
+  // Table internals can't host a whole-node suggestion mark: the mark spans
+  // inline content, but table semantics live in the row/cell STRUCTURE, so an
+  // accepted replacement lands literal pipe text and corrupts the GFM
+  // serialization (#673). Note: table nodes themselves carry no nodeId
+  // (NODE_TYPES_WITH_IDS) — the reachable targets are the PARAGRAPHS inside
+  // cells, so the guard must check ancestors, not just the resolved node.
+  const $resolvedPos = editor.state.doc.resolve(pos)
+  let insideTable = TABLE_NODE_TYPES.has(node.type.name)
+  for (let d = $resolvedPos.depth; d > 0 && !insideTable; d--) {
+    if (TABLE_NODE_TYPES.has($resolvedPos.node(d).type.name)) insideTable = true
+  }
+  if (insideTable) {
+    pipelineLog('suggest_edit:result', { nodeId, blocked: 'TABLE_NODE_NOT_SUPPORTED' })
+    return toolError(
+      'suggest_edit cannot target table nodes — the suggestion mark cannot ' +
+        'represent table structure, and accepting it would corrupt the table. ' +
+        'To change a table, use the edit tool to replace the entire table ' +
+        '(pass the full updated GFM table as content), or insert a new table ' +
+        'with insert(position: "after_node").',
+      'TABLE_NODE_NOT_SUPPORTED'
+    )
+  }
+
   // Get the original text content
   const originalText = node.textContent
+
+  // Block-type conversion intent (#673): when the suggestion's content opens
+  // with block markup that differs from the host node (e.g. `# Title` on a
+  // paragraph, `## Sub` on an H1, `> quote` / `- item` / ``` on a paragraph),
+  // the raw markdown is preserved on the mark and the ACCEPT path replaces
+  // the whole node through the markdown parser — converting its type instead
+  // of inserting literal syntax characters.
+  let blockConversionIntent = detectBlockConversion(
+    content,
+    node.type.name,
+    node.attrs?.level,
+    $resolvedPos.depth === 0
+  )
 
   // Normalize suggested text to match the target node's shape. If the target
   // is a heading and the LLM wrapped the replacement in markdown syntax (e.g.
   // "# New Title" for an H1), strip the matching prefix so the diff popover
   // shows just the visible text instead of the raw markdown source.
-  const suggestedText = stripLeadingBlockMarkup(content, node.type.name, node.attrs?.level)
+  // For block conversions, the popover text is the parsed visible text of the
+  // converted content.
+  let suggestedText: string
+  if (blockConversionIntent) {
+    const slice = parseMarkdownToSlice(editor, editor.state.schema, blockConversionIntent)
+    if (slice) {
+      suggestedText = sliceVisibleText(slice)
+    } else {
+      // Markdown parser unavailable — drop the conversion intent so the
+      // accept path doesn't attempt (and fail) the same parse; degrade to
+      // the plain text-replacement behavior.
+      blockConversionIntent = null
+      suggestedText = stripLeadingBlockMarkup(content, node.type.name, node.attrs?.level)
+    }
+  } else {
+    suggestedText = stripLeadingBlockMarkup(content, node.type.name, node.attrs?.level)
+  }
 
   // Defensive guard (#578): a localized edit (e.g., fix a typo in the first
   // sentence) must never silently overwrite the majority of a large node.
@@ -795,8 +939,17 @@ export function executeSuggestEdit(
       provenanceConversationId: provenance?.conversationId || '',
       provenanceMessageId: provenance?.messageId || '',
       documentId: provenance?.documentId || '',
+      blockConversionIntent,
     })
     .run()
+
+  pipelineLog('suggest_edit:result', {
+    suggestionId,
+    nodeId,
+    hostType: node.type.name,
+    blockConversion: !!blockConversionIntent,
+    suggestedTextPreview: suggestedText.substring(0, 60),
+  })
 
   return toolSuccess({
     suggested: true,

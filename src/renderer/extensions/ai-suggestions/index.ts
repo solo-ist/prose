@@ -1,4 +1,4 @@
-export { AISuggestion, getAISuggestions, getSuggestionsWithFeedback, aiSuggestionMarkdownSerializer, parseMarkdownToSlice } from './extension'
+export { AISuggestion, getAISuggestions, getSuggestionsWithFeedback, aiSuggestionMarkdownSerializer, parseMarkdownToSlice, sliceVisibleText } from './extension'
 export { useSuggestionStore } from './store'
 export type {
   AISuggestionMark,

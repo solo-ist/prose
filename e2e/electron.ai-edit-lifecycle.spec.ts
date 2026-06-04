@@ -51,9 +51,28 @@ async function nodeIdByText(testPage: Page, text: string): Promise<string> {
   return match!.id
 }
 
+/**
+ * The annotation store suppresses position mapping for ~100ms after tab and
+ * document switches (setLoadingDocument). An edit dispatched inside that
+ * window is excluded from mapping — its collapse/detach effects on existing
+ * annotations never run. Poll the seam until the window closes so accepts
+ * always get a real mapping pass (this is what made the detach assertion
+ * CI-flaky: three fast IPC roundtrips can land inside the window).
+ */
+async function waitForMappingResumed(testPage: Page): Promise<void> {
+  await expect
+    .poll(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      async () => testPage.evaluate(() => (window as any).__prose_tools.isAnnotationMappingPaused()),
+      { timeout: 5_000 },
+    )
+    .toBe(false)
+}
+
 async function suggestAndAccept(testPage: Page, nodeId: string, content: string): Promise<void> {
   const suggested = await executeProseTool(testPage, 'suggest_edit', { nodeId, content })
   expect(suggested.success).toBe(true)
+  await waitForMappingResumed(testPage)
   const accepted = await executeProseTool(testPage, 'accept_diff', {
     id: (suggested.data as { suggestionId: string }).suggestionId,
   })
@@ -134,6 +153,7 @@ test.describe('Electron — AI edit annotation lifecycle', () => {
     }
 
     // Batch accept — previously created ZERO annotations
+    await waitForMappingResumed(page)
     const acceptAll = await executeProseTool(page, 'accept_diff', {})
     expect(acceptAll.success).toBe(true)
 

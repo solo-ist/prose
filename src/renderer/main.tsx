@@ -30,6 +30,11 @@ import './index.css'
   executeTool,
   getAnnotations: () => useAnnotationStore.getState().annotations,
   getAnnotationDocId: () => useAnnotationStore.getState().documentId,
+  // True while the annotation store suppresses position mapping (the ~100ms
+  // window after tab/document switches). Tests poll this before dispatching
+  // edits whose annotation mapping they assert on — an edit landing inside
+  // the window is excluded from mapping (#674 known limitation).
+  isAnnotationMappingPaused: () => useAnnotationStore.getState().isLoadingDocument,
   loadAnnotationsFromDB,
 }
 

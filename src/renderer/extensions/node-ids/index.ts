@@ -64,6 +64,16 @@ export const NodeIds = Extension.create({
           let modified = false
           const tr = newState.tr
 
+          // Pre-collect every id currently in the document so a regenerated
+          // id can't collide with a real, not-yet-visited node's id (a fresh
+          // id checked only against already-seen nodes could otherwise match
+          // an unvisited unique id and wrongly displace it).
+          const existingIds = new Set<string>()
+          newState.doc.descendants((node) => {
+            const id = node.attrs.nodeId
+            if (typeof id === 'string' && id) existingIds.add(id)
+          })
+
           // Track every id we've kept or assigned this pass, so we can both
           // generate collision-free new ids AND detect duplicates. Duplicates
           // arise when ProseMirror copies the `nodeId` attribute across a node
@@ -73,7 +83,7 @@ export const NodeIds = Extension.create({
           const seen = new Set<string>()
           const freshId = (): string => {
             let id = generateNodeId()
-            while (seen.has(id)) id = generateNodeId()
+            while (existingIds.has(id) || seen.has(id)) id = generateNodeId()
             return id
           }
 

@@ -14,7 +14,7 @@ with the rebrand, drop-to-free pricing, and MAS hardening so the App Store build
 
 - **Never submit for App Store review.** Upload to **App Store Connect / TestFlight** is the
   automation edge; clicking "Submit for Review" is always a human decision and action.
-- **`buildVersion` is global-monotonic.** Currently `"22"` in `electron-builder.yml`.
+- **`buildVersion` is global-monotonic.** Currently `"23"` in `electron-builder.yml`.
   Every upload to App Store Connect must use a strictly higher integer than any prior upload —
   **never reset it** when bumping the marketing version (`package.json` `version`, currently `1.6.1`).
 - **Never change sandbox flags** (`contextIsolation: true`, `nodeIntegration: false`) or the MAS
@@ -128,16 +128,18 @@ npm run build:mas            # MAS_BUILD=1 npm run build && electron-builder --m
 # 3. Build the dev target for local sandbox QA (the thing #487 currently breaks)
 npx electron-builder --mac mas-dev   # → dist/mas-dev-arm64/Prose.app
 
-# 4. Upload to App Store Connect / TestFlight (human-gated edge — automation STOPS here)
-#    NOTE: Apple has deprecated `altool` for App Store delivery — prefer the Transporter app
-#    or `xcrun iTMSTransporter`. altool still ships in Xcode (26.5 here) and works as a fallback.
-#    Supply the Key ID + Issuer UUID via env (never hardcode them); the .p8 private key
-#    lives under ~/.appstoreconnect/private_keys/.
-xcrun altool --upload-app \
-  --type macos \
-  --file dist/mas-arm64/Prose-<version>.pkg \
-  --apiKey "$ASC_KEY_ID" \
-  --apiIssuer "$ASC_ISSUER_ID"
+# 4. Upload to App Store Connect / TestFlight (upload is the automation boundary — review
+#    submission is always a human action)
+#    NOTE: Apple has deprecated `altool` for App Store delivery — use the Transporter app or
+#    `xcrun iTMSTransporter` (resolves to Transporter.app's binary when installed; verified
+#    working for v1.6.1 build 23 on 2026-06-03). Supply the Key ID + Issuer UUID via env
+#    (never hardcode them); the .p8 private key lives under ~/.appstoreconnect/private_keys/
+#    (a default iTMSTransporter lookup path).
+#    NOTE: the artifact name includes the arch: dist/mas-arm64/Prose-<version>-arm64.pkg
+xcrun iTMSTransporter -m upload \
+  -assetFile dist/mas-arm64/Prose-<version>-arm64.pkg \
+  -apiKey "$ASC_KEY_ID" \
+  -apiIssuer "$ASC_ISSUER_ID"
 ```
 
 The notarized DMG/ZIP for the **self-distributed** channel ship separately via `release.yml`
@@ -147,11 +149,14 @@ on a `v*` tag (already published through **v1.6.1**, the current latest release)
 
 ## Pre-submission gate (all human-confirmed)
 
-- [ ] `buildVersion` incremented above the last App Store Connect upload.
-- [ ] reMarkable + MCP correctly gated out of the MAS build (`IS_MAS_BUILD`).
-- [ ] Sentry opt-in still defaults off; `sentry-ipc` works in MAS (#391).
-- [ ] App launches signed with asar fuses enabled (#376).
+- [x] `buildVersion` incremented above the last App Store Connect upload.
+      *(23 > 22; v1.6.1 build 23 uploaded to App Store Connect 2026-06-03 via `xcrun iTMSTransporter`.)*
+- [x] reMarkable + MCP correctly gated out of the MAS build (`IS_MAS_BUILD`).
+      *(Build ran with `MAS_BUILD=1`; gating is compile-time via `src/main/env.ts`. Spot-check on TestFlight.)*
+- [ ] Sentry opt-in still defaults off; `sentry-ipc` works in MAS (#391). *(Code merged in v1.6.1; verify on the TestFlight install.)*
+- [ ] App launches signed with asar fuses enabled (#376). *(Fuses verified on the Developer-ID smoke test; the MAS target intentionally skips fuse flipping — sandbox provides equivalent protection. Verify launch on TestFlight.)*
 - [ ] Pricing set to free in App Store Connect (#615).
 - [ ] New screenshots + icon + description uploaded (#612, #613).
+- [ ] App Privacy label updated: declare **optional Crash Data (not linked to identity)** now that opt-in Sentry works on MAS (#391) — no longer "Data Not Collected."
 - [ ] TestFlight build verified on a real install (covers what #487's local loop can't).
 - [ ] **STOP** — submission for review is a human action.

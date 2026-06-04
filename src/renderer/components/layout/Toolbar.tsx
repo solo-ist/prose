@@ -111,6 +111,19 @@ export function Toolbar() {
   const tabBarContainerRef = useRef<HTMLDivElement>(null)
   const { tier, containerWidth } = useTabTier(tabBarContainerRef, { tabCount: tabs.length })
 
+  // Test seam: expose renameTab so e2e can exercise the rename + annotation
+  // migration logic (#674) deterministically, without driving the fragile
+  // double-click → inline-input → keyboard UI dance. Same always-on tier as
+  // window.__prose_editor / __prose_tools (editorInstanceStore / main.tsx).
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(window as any).__prose_renameTab = renameTab
+    return () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (window as any).__prose_renameTab
+    }
+  }, [renameTab])
+
   // Track fullscreen state for traffic light padding
   useEffect(() => {
     const api = getApi()

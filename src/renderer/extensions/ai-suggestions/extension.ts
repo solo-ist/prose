@@ -630,6 +630,13 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
                   explanation: explanation || undefined,
                 })
               } else {
+                // Coordinate-consistency note (#677 review): priorAnnotations
+                // carry PRE-dispatch from/to, while rangeFrom is mapped
+                // through tr. This command's only position-shifting step is
+                // the mark-range replacement itself (removeMark doesn't move
+                // positions), so map(markFrom, -1) === markFrom and
+                // diffUtils' originalContentStart (= rangeFrom) stays in the
+                // same coordinate space as the prior annotations.
                 const newFrom = tr.mapping.map(markFrom, -1)
                 const newTo = tr.mapping.map(markTo, 1)
                 console.log('[AISuggestion] Creating annotation:', { docId, model, from: newFrom, to: newTo })
@@ -845,6 +852,16 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
               if (!docId) {
                 console.warn('[AISuggestion] acceptAll: cannot create annotation - missing docId:', suggestion.id)
                 continue
+              }
+              // Surface the fallback (#677 review): if a tab switch ever
+              // raced this microtask, the store's documentId would be the
+              // NEW tab's — make that visible rather than silently
+              // mis-keying the annotation.
+              if (!suggestion.documentId) {
+                console.warn('[AISuggestion] acceptAll: annotation documentId fell back to store documentId:', {
+                  suggestionId: suggestion.id,
+                  docId,
+                })
               }
               const provenance = {
                 model: suggestion.provenanceModel || 'unknown',

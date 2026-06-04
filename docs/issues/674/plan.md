@@ -22,7 +22,16 @@ disappeared, except two"). Follows #671/#672/#673.
 | **Annotation creation ran before the accept transaction applied.** TipTap applies a command's `tr` after the command body returns, so `createWordDiffAnnotations` → `addAnnotation` (which pauses position updates) executed *before* the aiAnnotations plugin mapped the transaction — the pause swallowed the mapping pass entirely. Every pre-existing annotation kept stale positions forever: collapse-detection starved (entries never detached/cleaned) and decorations drifted after each accept. | Both accept commands defer annotation creation to a `queueMicrotask` — the plugin maps (and detaches) old annotations first; the new annotation's coordinates come from `tr.mapping` and remain valid. |
 | **`executeSelectTab` (select_tab tool) had drifted from `useTabs.switchToTab`**: it saved only the conversation before switching — agent-driven tab switches silently discarded the active tab's unsaved content, annotations, suggestions, and comments. Worse, the editor→store content sync is debounced 500ms (Editor.tsx onUpdate), so an agent accepting an edit and switching tabs immediately snapshotted pre-edit content and reverted the edit on toggle-back. | The executor now mirrors the full save-then-load sequence and serializes the **live editor state** (`getMarkdown()` + `serializeMarkdown`) instead of trusting the debounced `document.content`; pre-sets documentId; loads comments too. |
 
-## Known limitation (follow-up candidate)
+## Known limitations (follow-up candidates)
+
+**Partial-collapse splits still drop the lost half quietly.** When an
+insertion splits an annotation and only ONE remnant survives mapping, the
+collapsed half vanishes without a history record (pre-existing behavior; the
+detach-don't-delete rule fires only when BOTH remnants collapse — detaching
+the original alongside a live remnant would duplicate its content in the
+panel). Flagged in #677 review; revisit if partial-collapse data loss shows
+up in practice.
+
 
 The annotation store suppresses position mapping for ~100ms after tab and
 document switches (`setLoadingDocument` + `setTimeout`). Any edit transaction

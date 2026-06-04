@@ -8,6 +8,7 @@ import { ErrorBoundary } from './lib/sentry'
 import { dumpPipelineLog, clearPipelineLog } from './lib/aiPipelineLog'
 import { executeTool } from './lib/tools'
 import { useAnnotationStore } from './extensions/ai-annotations'
+import { useTabStore } from './stores/tabStore'
 import { getApi } from './lib/browserApi'
 import './lib/remarkableBridge'
 import './index.css'
@@ -35,6 +36,7 @@ import './index.css'
   // edits whose annotation mapping they assert on — an edit landing inside
   // the window is excluded from mapping (#674 known limitation).
   isAnnotationMappingPaused: () => useAnnotationStore.getState().isLoadingDocument,
+  getActiveTabId: () => useTabStore.getState().activeTabId,
   loadAnnotationsFromDB,
 }
 

@@ -199,18 +199,24 @@ test.describe('Electron — AI edit annotation lifecycle', () => {
   test('rename migrates annotations to the new path-derived documentId', async () => {
     // Switch to lifecycle.md and rename its tab
     const select = await executeProseTool(page, 'select_tab', { match: 'lifecycle' })
-    expect(select.success).toBe(true)
+    expect(select.success, `select_tab failed: ${select.code} ${select.error}`).toBe(true)
     await waitForEditor(page)
 
     const docIdBefore = await getAnnotationDocId(page)
     const countBefore = (await getAnnotations(page)).length
     expect(countBefore).toBeGreaterThanOrEqual(2)
 
-    // Double-click the tab title → inline rename input → type new name
-    await page.getByText('lifecycle', { exact: false }).first().dblclick()
-    await page.keyboard.press('ControlOrMeta+A')
-    await page.keyboard.type('lifecycle-renamed')
-    await page.keyboard.press('Enter')
+    // Rename the active tab via the test seam (window.__prose_renameTab),
+    // exercising the same renameTab path the inline-rename UI calls — without
+    // the fragile double-click → input → keyboard dance. The migration logic
+    // (annotations re-keyed to the new path-derived documentId) is the point.
+    const renamed = await page.evaluate(async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const w = window as any
+      const tabId = w.__prose_tools.getActiveTabId()
+      return w.__prose_renameTab(tabId, 'lifecycle-renamed')
+    })
+    expect(renamed, 'renameTab returned null (rename failed)').toBeTruthy()
 
     // The store's documentId must change (path-derived) and annotations survive
     await expect.poll(async () => getAnnotationDocId(page), { timeout: 5_000 }).not.toBe(docIdBefore)

@@ -200,9 +200,14 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
     })
     // Persist only when a detach happened — this path runs on every
     // docChanged transaction (including typing), so unconditional saves
-    // would hammer IndexedDB.
+    // would hammer IndexedDB. Track the write in pendingSave so a tab
+    // switch racing this save awaits it (same invariant as addAnnotation).
     if (detachedThisPass > 0) {
-      get().saveAnnotations()
+      const savePromise = get().saveAnnotations()
+      set({ pendingSave: savePromise })
+      savePromise.finally(() => {
+        if (get().pendingSave === savePromise) set({ pendingSave: null })
+      })
     }
   },
 
@@ -312,8 +317,13 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
 
       return { annotations: updatedAnnotations }
     })
+    // Tracked save — see updatePositions for rationale.
     if (detachedThisPass > 0) {
-      get().saveAnnotations()
+      const savePromise = get().saveAnnotations()
+      set({ pendingSave: savePromise })
+      savePromise.finally(() => {
+        if (get().pendingSave === savePromise) set({ pendingSave: null })
+      })
     }
   },
 

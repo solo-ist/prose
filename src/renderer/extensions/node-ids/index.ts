@@ -64,6 +64,19 @@ export const NodeIds = Extension.create({
           let modified = false
           const tr = newState.tr
 
+          // Track every id we've kept or assigned this pass, so we can both
+          // generate collision-free new ids AND detect duplicates. Duplicates
+          // arise when ProseMirror copies the `nodeId` attribute across a node
+          // split (Enter mid-paragraph, or an insert that produces a sibling) —
+          // both halves carry the same id, and without dedup they persist
+          // forever, breaking id-based targeting (#681).
+          const seen = new Set<string>()
+          const freshId = (): string => {
+            let id = generateNodeId()
+            while (seen.has(id)) id = generateNodeId()
+            return id
+          }
+
           newState.doc.descendants((node, pos) => {
             // Only process nodes that should have IDs
             if (!NODE_TYPES_WITH_IDS.includes(node.type.name)) return
@@ -77,12 +90,22 @@ export const NodeIds = Extension.create({
             // siblings to report the same id. Reading from `tr.doc` gives us the actual
             // committed state for each node individually.
             const currentNode = tr.doc.nodeAt(pos)
-            if (currentNode?.attrs.nodeId) return
+            const existingId = currentNode?.attrs.nodeId as string | null | undefined
 
-            // Assign a new ID
+            // Keep the first occurrence of a real, not-yet-seen id.
+            if (existingId && !seen.has(existingId)) {
+              seen.add(existingId)
+              return
+            }
+
+            // Either no id, or a duplicate of one already seen this pass →
+            // assign a fresh collision-free id (first occurrence above keeps
+            // the original, so annotations/suggestions on it still resolve).
+            const newId = freshId()
+            seen.add(newId)
             tr.setNodeMarkup(pos, undefined, {
-              ...node.attrs,
-              nodeId: generateNodeId(),
+              ...(currentNode ?? node).attrs,
+              nodeId: newId,
             })
             modified = true
           })

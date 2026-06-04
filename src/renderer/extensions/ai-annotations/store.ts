@@ -15,6 +15,25 @@ type AnnotationStore = AnnotationState & AnnotationActions & {
   createdThisSession: Set<string>
 }
 
+/**
+ * Run saveAnnotations and record the in-flight write in `pendingSave` so
+ * tab-switch code (saveCurrentTabState / select_tab) can await it before
+ * loading the next document (#674). Every mutator that persists must route
+ * through this — leaving any path on a bare fire-and-forget save reopens the
+ * "annotation lost to a tab-switch race" gap. Clears pendingSave only if it
+ * still points at this write (a newer save supersedes it).
+ */
+function trackedSave(
+  get: () => AnnotationStore,
+  set: (partial: Partial<AnnotationStore>) => void
+): void {
+  const savePromise = get().saveAnnotations()
+  set({ pendingSave: savePromise })
+  savePromise.finally(() => {
+    if (get().pendingSave === savePromise) set({ pendingSave: null })
+  })
+}
+
 export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
   // Initial state
   annotations: [],
@@ -71,14 +90,10 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
       }))
     }
 
-    // Auto-save after adding. Track the in-flight write so tab switches can
-    // await it — a fire-and-forget save racing loadAnnotations(nextDoc) was
-    // one of the "history entries vanished" paths (#674).
-    const savePromise = get().saveAnnotations()
-    set({ pendingSave: savePromise })
-    savePromise.finally(() => {
-      if (get().pendingSave === savePromise) set({ pendingSave: null })
-    })
+    // Auto-save after adding. Tracked so tab switches await it — a
+    // fire-and-forget save racing loadAnnotations(nextDoc) was one of the
+    // "history entries vanished" paths (#674).
+    trackedSave(get, set)
 
     // Track that this annotation was created this session (should not animate)
     get().createdThisSession.add(id)
@@ -98,7 +113,7 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
       annotations: state.annotations.filter((a) => a.id !== id),
     }))
 
-    get().saveAnnotations()
+    trackedSave(get, set)
   },
 
   // Remove annotations in a range, splitting partially-overlapping ones into remnants
@@ -135,7 +150,7 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
       return { annotations: updated }
     })
 
-    get().saveAnnotations()
+    trackedSave(get, set)
   },
 
   // Update positions after document edits using ProseMirror position mapping
@@ -200,14 +215,10 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
     })
     // Persist only when a detach happened — this path runs on every
     // docChanged transaction (including typing), so unconditional saves
-    // would hammer IndexedDB. Track the write in pendingSave so a tab
-    // switch racing this save awaits it (same invariant as addAnnotation).
+    // would hammer IndexedDB. Tracked so a tab switch racing this save
+    // awaits it (same invariant as addAnnotation).
     if (detachedThisPass > 0) {
-      const savePromise = get().saveAnnotations()
-      set({ pendingSave: savePromise })
-      savePromise.finally(() => {
-        if (get().pendingSave === savePromise) set({ pendingSave: null })
-      })
+      trackedSave(get, set)
     }
   },
 
@@ -319,11 +330,7 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
     })
     // Tracked save — see updatePositions for rationale.
     if (detachedThisPass > 0) {
-      const savePromise = get().saveAnnotations()
-      set({ pendingSave: savePromise })
-      savePromise.finally(() => {
-        if (get().pendingSave === savePromise) set({ pendingSave: null })
-      })
+      trackedSave(get, set)
     }
   },
 

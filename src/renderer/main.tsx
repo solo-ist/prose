@@ -40,17 +40,20 @@ import './index.css'
   getActiveTabId: () => useTabStore.getState().activeTabId,
   loadAnnotationsFromDB,
 }
-// Test seam (same always-on tier as __prose_tools/__prose_debug): lets
-// Playwright drive the chat surface with zero LLM — seed a conversation and
-// inject messages (e.g. an assistant turn carrying a request_mode_switch
-// tool-result tag) to render deterministic chat states. Used by the marketing
-// screenshot generator (e2e/electron.screenshot-chat.spec.ts).
+// Test seam — INTENTIONALLY always-on, same tier as __prose_tools/__prose_debug.
+// Lets Playwright drive the chat surface with zero LLM: seed a conversation and
+// inject messages to render deterministic chat states (e.g. an assistant turn
+// whose content carries a request_mode_switch tool-result tag → the real card),
+// used by the marketing screenshot generator (e2e/electron.screenshot-chat.spec.ts).
+// Note: addMessage can synthesize assistant turns with actionable tool-result
+// tags — that's deliberate. Reachable only from the app's own renderer scripts
+// (contextIsolation: true; the window only ever loads the local bundle, no remote
+// content), so the surface is bounded. Kept minimal: only what the generator needs.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ;(window as any).__prose_chat = {
   addConversation: (d: string) => useChatStore.getState().addConversation(d),
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   addMessage: (m: any) => useChatStore.getState().addMessage(m),
-  setToolMode: (m: 'chat' | 'editor' | 'create') => useChatStore.getState().setToolMode(m),
 }
 
 function SentryFallback() {

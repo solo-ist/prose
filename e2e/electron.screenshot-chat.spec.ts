@@ -5,8 +5,8 @@
  * Mocked deterministically: injects a user prompt + an assistant message that
  * carries the REAL request_mode_switch tool-result tag, so the card rendered
  * is the actual RequestModeSwitchResult component (visually identical to a live
- * exchange). Requires the temporary window.__prose_chat seam (main.tsx) — built
- * locally, removed before commit. No API key, no live call.
+ * exchange). Uses the always-on window.__prose_chat test seam (main.tsx),
+ * same tier as __prose_tools. No API key, no live call.
  */
 import { test, expect, _electron as electron } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'

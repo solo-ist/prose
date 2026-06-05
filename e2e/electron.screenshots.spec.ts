@@ -29,7 +29,6 @@ const FIXTURE = join(REPO, 'e2e/fixtures/a-chorus-of-human-voices.md')
 const HERO_NAME = 'A Chorus of Human Voices.md'
 const LEVERAGE_NAME = 'The Great Leverage Inversion.md'
 const SHOTS = '/tmp/prose-shots'
-mkdirSync(SHOTS, { recursive: true })
 
 // Generator — excluded from the normal e2e suite; opt in with SHOOT=1.
 test.skip(process.env.SHOOT !== '1', 'marketing screenshot generator (run with SHOOT=1)')
@@ -110,11 +109,13 @@ async function closeChat(): Promise<void> {
   await page.waitForTimeout(300)
 }
 
-async function openHero(): Promise<void> {
-  const opened = await executeProseTool(page, 'open_file', { path: join(essays, HERO_NAME) })
+async function openDoc(path: string): Promise<void> {
+  const opened = await executeProseTool(page, 'open_file', { path })
   expect(opened.success).toBe(true)
   await waitForEditor(page)
 }
+
+const openHero = (): Promise<void> => openDoc(join(essays, HERO_NAME))
 
 async function scrollTop(): Promise<void> {
   await page.evaluate(() => {
@@ -122,6 +123,17 @@ async function scrollTop(): Promise<void> {
     const sc = pm?.closest('[class*="overflow"]') as HTMLElement | null
     if (sc) sc.scrollTop = 0
   })
+}
+
+// open_file re-focuses an already-open tab without reloading, so scenes share
+// one doc/tab. Clear any pending suggestions a prior scene left before seeding,
+// keeping each suggestion scene independent (and the tab bar clean).
+async function clearSuggestions(): Promise<void> {
+  await page.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(window as any).__prose_editor?.commands?.rejectAllAISuggestions?.()
+  })
+  await page.waitForTimeout(250)
 }
 
 // Focused typo/grammar copyedits — first the post's real issues, then a few
@@ -136,6 +148,7 @@ async function seedCopyedits(): Promise<string[]> {
 
 test.beforeAll(async () => {
   test.setTimeout(120_000)
+  mkdirSync(SHOTS, { recursive: true })
   const profile = mkdtempSync(join(tmpdir(), 'prose-shots-profile-'))
   docsDir = mkdtempSync(join(tmpdir(), 'prose-shots-docs-'))
 
@@ -211,6 +224,7 @@ test('03 review every suggestion (light)', async () => {
   await openHero()
   await closeChat()
   await setFilesVisible(false)
+  await clearSuggestions()
   await seedCopyedits()
   // Open Quick Review via the status-bar suggestion chip.
   await page.getByRole('button', { name: /\d+ suggestion/ }).first().click()
@@ -225,6 +239,7 @@ test('04 edits history — activity (dark)', async () => {
   await setMode('dark')
   await openHero()
   await setFilesVisible(false)
+  await clearSuggestions()
   const ids = await seedCopyedits()
   ids.push(await suggest('dredded', (s) => s.replace('dredded', 'dreaded'), 'Typo.'))
   for (const id of ids) {

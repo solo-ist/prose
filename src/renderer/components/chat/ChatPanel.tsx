@@ -201,7 +201,10 @@ export function ChatPanel() {
           >
             Activity
             {activityCount > 0 && (
-              <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/15 px-1 text-[10px] font-semibold text-primary leading-none">
+              <span
+                data-testid="activity-count-badge"
+                className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/15 px-1 text-[10px] font-semibold text-primary leading-none"
+              >
                 {activityCount > 99 ? '99+' : activityCount}
               </span>
             )}

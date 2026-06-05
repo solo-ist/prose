@@ -1,12 +1,14 @@
 # Prose
 
-> The markdown editor for the agentic era.
+> Personal software for the AI era — optional AI that doesn't write for you.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-c8a45a.svg)](LICENSE) [![Platform: macOS](https://img.shields.io/badge/Platform-macOS-lightgrey.svg)](#) ![Built with Electron](https://img.shields.io/badge/Built%20with-Electron-47848f.svg)
 
-Prose is a minimal, distraction-free markdown editor for macOS. Think iA Writer meets Cursor: focus-first writing with an integrated AI chat sidebar, inline diff review, and an MCP server that lets Claude Desktop read and edit your active document directly.
+Prose is a free, open-source, distraction-free markdown editor for macOS. Prose is opinionated, while offering you *choice*. We believe that when it comes to creative work, **AI shouldn't write for you.** That's why Prose ships with three AI modes: Chat, Editor, and Create. Use Chat Mode to bounce ideas, Editor to fix typos and grammar errors, or rip through the rote stuff at lightning speed with Create Mode.
 
-**Your files stay as plain** `.md`**. Your API keys stay yours. Your writing stays yours.**
+Don't like AI? Use it as a clean, fast, local-first editor.
+
+**Your files stay yours. Your API keys are yours. Your writing stays yours.**
 
 ---
 
@@ -14,51 +16,74 @@ Prose is a minimal, distraction-free markdown editor for macOS. Think iA Writer 
 
 ---
 
-## Features
+## Why Prose
 
-**Editor**
+**Respectful AI.** \
+AI augments your skills instead of replacing them — find a typo, fix grammar, pressure-test an idea, the way a good editor would. It never touches the page silently.
 
-- Distraction-free TipTap editor with full markdown serialization
-- YAML frontmatter support — parsed and preserved, never rendered
-- Autosave with debounce
-- Light and dark mode
-- Standard markdown keyboard shortcuts
+**Free and Open.**\
+Free on the Mac App Store, MIT-licensed on GitHub — the same codebase, every line readable. Prose exists to be useful, not to manufacture dependency.
 
-**AI**
+**Privacy First.**\
+No accounts, no analytics, no telemetry. API keys live in the macOS Keychain. Crash reporting is opt-in and off by default.
 
-- Integrated chat sidebar — bring your own Anthropic API key
-- Add selected text or full document as chat context
-- Inline diff review: AI suggestions shown as tracked changes, accept or reject individually
-- API keys encrypted via Electron safeStorage (macOS Keychain, Windows DPAPI, or Linux libsecret)
+**Local-first, Plain Files.**\
+Your documents are ordinary `.md` / `.txt` files. Open them anywhere, back them up anywhere — they'll outlast this app.
 
-**MCP Server**
-
-- Prose ships an [MCP](https://modelcontextprotocol.io) server
-- Connect Claude Desktop once; Claude can then open, read, and edit your active document without leaving your workflow
-- Available tools: `read_document`, `suggest_edit`, `open_file`, `create_and_open_file`, `get_outline`
-
-**Sync**
-
-- reMarkable tablet sync via rmapi-js — handwritten notes → markdown via OCR
-- Google Docs bidirectional sync — implemented and feature-flagged (opt-in via Settings → Integrations)
-
-**Philosophy**
-
-- **Local-first** — No required internet. Write on a plane, in a cabin, when the API is down. Your editor works when you do.
-- **Plain files** — `.md` documents openable anywhere. They'll outlast this app.
-- **Open source** — Read every line, fork it, build on it. MIT licensed. Prose exists to be useful — not to manufacture dependency.
+**Bring your own API Key.**\
+Prose talks to Anthropic directly with your key. No middleman, no markup, no subscription, no training on your words.
 
 ---
 
-## Getting Started
+## Features
 
-**Free to build on. Beautiful on Mac.**
+**The Editor**
 
-### Download
+- Distraction-free TipTap / ProseMirror editor with full markdown round-trip
+- YAML frontmatter parsed, preserved, and rendered elegantly
+- Code-block syntax highlighting, live word / character count, light + dark mode, multiple themes
+- Multi-tab editing with session restore and single-click preview
+- Autosave with debounce; standard markdown keyboard shortcuts
 
-[**Mac App Store →**](#) — sandboxed, auto-updates, Keychain credential storage
+**AI Three Ways** — All optional, all BYOK
 
-[**GitHub Releases →**](https://github.com/solo-ist/prose/releases) — direct download, free
+- **Chat** — Talk through a draft; pressure-test structure and ideas without touching the text
+- **Editor** — A copyeditor that flags typos and grammar issues with suggestions you approve
+- **Create** — Let AI take over for the uncreative, rote, or mechanical work you don't need to do by hand
+
+**Review and track every change**
+
+- AI edits arrive as inline comments and tracked suggestions — never silent rewrites
+- Accept or reject each one individually inline, blast through in Quick Review, or dig in with a thorough side-by-side diff
+- A persistent, per-document activity log of every AI edit — with the model that made it and the reason why captured for posterity
+- Authorship highlighting marks non-human words, so you always know what you wrote vs. what AI did
+- Your document stays clean until you say so
+
+**Organize**
+
+- Pin **Projects** and **Favorites** in the file explorer to keep the documents you live in one click away
+
+**MCP server**
+
+- Prose ships an [MCP](https://modelcontextprotocol.io) server! Connect Claude Desktop once and it can read and edit your active document directly
+- Tools: `read_document`, `get_outline`, `suggest_edit`, `open_file`, `create_and_open_file`
+
+**Sync** — OSS builds, opt-in
+
+- reMarkable tablet sync via rmapi-js — handwritten notes → markdown via OCR
+- Google Docs bidirectional sync — feature-flagged, opt-in via Settings → Integrations
+
+---
+
+## Getting started
+
+### Download — Free Everywhere
+
+[**Mac App Store →**](#) — sandboxed, auto-updating, Keychain credential storage
+
+[**GitHub Releases →**](https://github.com/solo-ist/prose/releases) — notarized direct download with auto-update
+
+Both are free, from the same codebase. The only differences are sandbox-related; there's no paid tier and no feature held hostage behind one.
 
 ### Build from source
 
@@ -81,7 +106,7 @@ npm run build:mac
 
 ## Configuration
 
-Prose stores settings at `~/Library/Application Support/Prose/settings.json` on macOS (and uses macOS Keychain via Electron safeStorage for API credentials). The legacy `~/.prose/settings.json` path is migrated automatically on first launch.
+Prose stores settings at `~/Library/Application Support/Prose/settings.json` on macOS, and uses the macOS Keychain (via Electron `safeStorage`) for API credentials. The legacy `~/.prose/settings.json` path is migrated automatically on first launch.
 
 ```json
 {
@@ -93,24 +118,27 @@ Prose stores settings at `~/Library/Application Support/Prose/settings.json` on 
   "editor": {
     "fontSize": 16,
     "lineHeight": 1.65,
-    "fontFamily": "iA Writer Mono, monospace"
+    "fontFamily": "IBM Plex Mono, monospace"
   }
 }
 ```
 
 ---
 
-## MCP Server
+## MCP server
 
 **Your editor has an API now.**
 
-Point Claude Desktop at Prose and your editor becomes an agent-accessible workspace — Claude can read your document, suggest edits, and apply them without a single copy-paste. To connect:
+Prose ships an MCP server, so Claude Desktop can read and edit your active document directly — no copy-paste. Install it from **Settings → Integrations → Install MCP Server**: Prose copies the server, writes Claude Desktop's config for you, and prompts you to restart Claude Desktop. (OSS / direct builds only — the sandboxed App Store build can't install it.)
+
+Under the hood, that adds an entry like this to `claude_desktop_config.json` — you don't write it by hand:
 
 ```json
 {
   "mcpServers": {
-    "prose": {
-      "command": "prose-mcp"
+    "Prose": {
+      "command": "/path/to/node",
+      "args": ["~/Library/Application Support/Prose/mcp-server/mcp-stdio.cjs"]
     }
   }
 }
@@ -120,27 +148,38 @@ Point Claude Desktop at Prose and your editor becomes an agent-accessible worksp
 
 | Tool | Description |
 | --- | --- |
-| `read_document` | Returns the full markdown content of the active document |
-| `get_outline` | Returns heading structure and node IDs |
-| `suggest_edit` | Applies an edit to a specific node by ID |
-| `open_file` | Opens a file by path |
-| `create_and_open_file` | Creates a new `.md` file and opens it |
+| `read_document` | Returns the document as a structured node tree (each node with an ID) plus its markdown |
+| `get_outline` | Returns the heading structure with levels |
+| `open_file` | Opens a file by path, switching the active document |
+| `create_and_open_file` | Creates a new markdown file, saves it to disk, and opens it |
+| `suggest_edit` | Proposes an inline diff on a node — a tracked change to accept or reject (supports block-type conversion) |
+| `list_comments` | Lists every comment in the active document |
+| `add_comment` | Adds a comment to a node or range |
+| `resolve_comment` | Resolves (removes) a comment by ID |
+| `list_tabs` | Lists open tabs — title, path, active / dirty state |
+| `select_tab` | Switches the active tab by ID or name match |
+
+Edits from Claude Desktop land as suggestions, not silent writes — the same review flow as in-app AI.
 
 ---
 
-## Keyboard Shortcuts
+## Keyboard shortcuts
 
 | Action | Shortcut |
 | --- | --- |
-| Toggle AI chat | `⌘⇧L` |
+| New document / new tab | `⌘N` / `⌘T` |
+| Open… | `⌘O` |
+| Reopen closed tab | `⌘⇧T` |
+| Save / Save as… | `⌘S` / `⌘⇧S` |
+| Copy markdown | `⌘⇧C` |
+| Convert to plain text / markdown | `⌘⌥T` / `⌘⌥M` |
+| Add comment | `⌘⇧A` |
+| Find | `⌘F` |
+| Toggle source view | `⌘⇧E` |
+| Toggle file list | `⌘⇧H` |
+| Toggle chat panel | `⌘⇧L` |
 | Add selection to chat | `⌘⇧K` |
-| Send message | `⌘↵` |
-| Toggle source view | `⌘⇧Y` |
-| Toggle file list | `⌘⇧N` |
-| Accept all diffs | `⌘⇧A` |
-| Copy markdown | `⌘⇧T` |
-| Open file | `⌘O` |
-| Save | `⌘S` |
+| Send chat message | `↵` |
 | Settings | `⌘,` |
 
 ---
@@ -152,8 +191,8 @@ Point Claude Desktop at Prose and your editor becomes an agent-accessible worksp
 | Desktop shell | Electron |
 | Renderer | React + TypeScript |
 | Editor | TipTap + ProseMirror |
-| UI | Tailwind CSS + ShadCN/ui |
-| LLM abstraction | Vercel AI SDK |
+| UI | Tailwind CSS + shadcn/ui |
+| LLM | Anthropic SDK + Vercel AI SDK |
 | reMarkable sync | rmapi-js |
 | Packaging | electron-builder |
 | Build tool | electron-vite |
@@ -164,35 +203,41 @@ Point Claude Desktop at Prose and your editor becomes an agent-accessible worksp
 
 Prose ships two builds from one codebase:
 
-**Mac App Store** — sandboxed, macOS Keychain for credentials, Apple's update mechanism, `IS_MAS_BUILD` flag excludes OSS-only features.
+**Mac App Store** — free, sandboxed, macOS Keychain for credentials, Apple's update mechanism. The `IS_MAS_BUILD` flag gates a few OSS-only features the sandbox can't allow.
 
-**OSS / Direct** — GitHub releases, `electron-updater` for auto-updates, full feature set including system audio capture (planned).
+**OSS / Direct** — free, GitHub Releases, `electron-updater` for auto-updates, full feature set including reMarkable and Google Docs sync (opt-in).
 
-**App Store: $0.99 · GitHub Release: Free · Source: MIT**
+**Free everywhere · MIT-licensed · No subscription required to write.**
 
 ---
 
 ## Contributing
 
-Issues and PRs are welcome. For large changes, please open an issue first to discuss.
+**Fork it. Make it yours.**
 
-Commits generally follow Conventional Commits style.
+Prose is a starting point, not a finished product. If you have an idea for how your editor should work, run with it — change anything, and shape your own instance around the way *you* write. You shouldn't need permission to bend your own tools.
+
+This repo is where we share that work back. Build something other people would want, and open a pull request — good ideas belong to everyone who can use them. For anything substantial, open an issue first so we can talk it through, and skim the [roadmap](docs/roadmap.md) before you start: a lot is already planned, and it's better to build alongside it than to reinvent the wheel.
+
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/).
 
 ---
 
 ## Roadmap
 
-- \[x\] Core markdown editor
-- \[x\] AI chat sidebar with BYOK
-- \[x\] Inline diff review
-- \[x\] MCP server
-- \[x\] reMarkable sync
-- \[x\] Google Docs bidirectional sync (feature-flagged, opt-in)
-- \[ \] Audio transcription (Phase 1: cloud + mic)
-- \[ \] Vector context for large documents
-- \[ \] Authorship annotations (human vs AI)
+**Shipped** — core editor · AI chat with BYOK · Chat / Editor / Create modes · inline + side-by-side review · per-document Activity log and authorship highlighting · Projects & Favorites · HTML export · MCP server · reMarkable and Google Docs sync.
 
-See [open issues](https://github.com/solo-ist/prose/issues) and the [project board](https://github.com/orgs/solo-ist/projects) for current priorities.
+**Now — free on the Mac App Store.** Dropping the price, refreshing the branding, and hardening the sandboxed build.
+
+**Next — Core Build-Out**, three tracks in parallel:
+
+- **A smarter desktop app** — let the agent drive the app itself: resize panels, navigate the file explorer, change allowlisted settings (never credentials), plus a universal slash-command palette and richer streaming indicators. Always gated, always undoable.
+- **reMarkable parity** — a real notebook view, cover-image thumbnails, EPUB / PDF import, and two-way typed-document sync.
+- **An optional paid platform** — an at-cost, opt-in web layer for managed convenience (a hosted web editor and services), sold on the web and signed into with your own account. The editor stays free everywhere; this is a co-op, not a profit center.
+
+**Later — the generative deep end** (OSS builds only): a sandboxed terminal tab running Claude Code, so Prose can help change its own codebase and open a pull request.
+
+The full, living plan — waves, tracks, and sequencing — lives in [`docs/roadmap.md`](docs/roadmap.md). The [project board](https://github.com/orgs/solo-ist/projects/5) is the live queue.
 
 ---
 

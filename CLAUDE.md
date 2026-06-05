@@ -303,7 +303,7 @@ Prose exposes itself as an MCP server to Claude Desktop via two components:
 - `src/main/mcp/` - Socket server + HTTP bridge inside the Electron main process. Relays tool calls to the renderer via IPC.
 - `src/mcp-stdio/` - Standalone stdio server that Claude Desktop launches. Connects to the running app via Unix socket; auto-launches Prose if not running.
 
-Exposes 5 tools: `read_document`, `get_outline`, `open_file`, `suggest_edit`, `create_and_open_file`.
+Exposes 10 tools (the `mcpToolNames` subset in `src/shared/tools/registry.ts`): `read_document`, `get_outline`, `open_file`, `suggest_edit`, `create_and_open_file`, `list_comments`, `add_comment`, `resolve_comment`, `list_tabs`, `select_tab`.
 
 ### Shared Code
 

@@ -7,8 +7,9 @@
  * annotation (un-marks the AI authorship; the text itself is left untouched), and
  * un-marking in the document removes the row. Fully idempotent in both directions.
  *
- * Surface: rendered inside the chat sidebar when the user selects the History
- * toggle in the ChatPanel header.
+ * Surface: rendered inside the chat sidebar when the user selects the Activity
+ * tab in the ChatPanel header. The superseded filter lives in that tab header;
+ * this panel receives the resulting `hideSuperseded` flag as a prop.
  */
 
 import { useCallback, useMemo } from 'react'

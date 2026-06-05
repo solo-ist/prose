@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '../ui/dropdown-menu'
-import { MessageSquare, History, Bot, Plus, Trash2, Sparkles, Info, Loader2 } from 'lucide-react'
+import { MessageSquare, History, Plus, Trash2, Sparkles, Info, Loader2, Filter } from 'lucide-react'
 import { useChatStore } from '../../stores/chatStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
@@ -30,7 +30,11 @@ export function ChatPanel() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const reviewMode = useReviewMode()
   const [infoOpen, setInfoOpen] = useState(false)
-  const [sidebarMode, setSidebarMode] = useState<'chat' | 'history'>('chat')
+  const [sidebarMode, setSidebarMode] = useState<'chat' | 'activity'>('chat')
+  // Filter superseded (detached) entries out of the Activity list. Lifted here
+  // because the toggle lives in this header but the filtering happens in
+  // AIEditsHistoryPanel.
+  const [hideSuperseded, setHideSuperseded] = useState(false)
 
   const {
     conversations,
@@ -83,8 +87,15 @@ export function ChatPanel() {
     return () => window.removeEventListener(MODE_SWITCH_RUN_EVENT, handler)
   }, [sendMessage])
 
-  // Annotation count for the badge on the history toggle
-  const annotationCount = useAnnotationStore((s) => s.annotations.length)
+  // Annotation counts for the Activity tab badge + filter affordance.
+  const annotations = useAnnotationStore((s) => s.annotations)
+  const supersededCount = useMemo(
+    () => annotations.reduce((n, a) => (a.detached ? n + 1 : n), 0),
+    [annotations]
+  )
+  // Badge reflects what's currently shown: total when including superseded,
+  // current-only when the filter is engaged.
+  const activityCount = hideSuperseded ? annotations.length - supersededCount : annotations.length
 
   // Track pending suggestion count
   const suggestionCount = useMemo(() => {
@@ -163,42 +174,64 @@ export function ChatPanel() {
 
   return (
     <div className="flex h-full flex-col bg-muted/20">
-      {/* Mode toggle header (Chat | History) — sibling toggles, File-Explorer convention */}
-      <div className="flex items-center justify-between border-b border-border px-2 py-1">
-        <div className="flex items-center gap-0.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn("h-7 w-7", sidebarMode === 'chat' && "bg-accent text-accent-foreground")}
-                onClick={() => setSidebarMode('chat')}
-                aria-label="AI chat"
-              >
-                <MessageSquare className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>AI chat</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn("h-7 w-7 relative", sidebarMode === 'history' && "bg-accent text-accent-foreground")}
-                onClick={() => setSidebarMode('history')}
-                aria-label="AI edits history"
-              >
-                <Bot className="h-3.5 w-3.5" />
-                {annotationCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 flex h-3.5 min-w-[14px] w-auto px-0.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground leading-none">
-                    {annotationCount > 99 ? '99+' : annotationCount}
-                  </span>
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>AI edits history</TooltipContent>
-          </Tooltip>
+      {/* Tab header (Chat | Activity) with the Activity count badge + filter */}
+      <div className="flex items-center justify-between border-b border-border px-3 py-1">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setSidebarMode('chat')}
+            aria-pressed={sidebarMode === 'chat'}
+            className={cn(
+              'text-sm border-b-2 pb-1 -mb-px transition-colors',
+              sidebarMode === 'chat'
+                ? 'text-foreground border-primary font-medium'
+                : 'text-muted-foreground border-transparent hover:text-foreground'
+            )}
+          >
+            Chat
+          </button>
+          <button
+            onClick={() => setSidebarMode('activity')}
+            aria-pressed={sidebarMode === 'activity'}
+            className={cn(
+              'flex items-center gap-1.5 text-sm border-b-2 pb-1 -mb-px transition-colors',
+              sidebarMode === 'activity'
+                ? 'text-foreground border-primary font-medium'
+                : 'text-muted-foreground border-transparent hover:text-foreground'
+            )}
+          >
+            Activity
+            {activityCount > 0 && (
+              <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/15 px-1 text-[10px] font-semibold text-primary leading-none">
+                {activityCount > 99 ? '99+' : activityCount}
+              </span>
+            )}
+          </button>
+
+          {/* Filter: hide/show superseded — only when there's something to filter */}
+          {sidebarMode === 'activity' && supersededCount > 0 && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    'h-6 w-6',
+                    hideSuperseded ? 'bg-accent text-primary' : 'text-muted-foreground hover:text-foreground'
+                  )}
+                  onClick={() => setHideSuperseded((v) => !v)}
+                  aria-pressed={hideSuperseded}
+                  aria-label={hideSuperseded ? 'Show superseded edits' : 'Hide superseded edits'}
+                >
+                  <Filter className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {hideSuperseded
+                  ? 'Showing current edits · click to include superseded'
+                  : 'Hide superseded edits'}
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
 
         {/* Chat-mode actions */}
@@ -308,8 +341,11 @@ export function ChatPanel() {
         )}
       </div>
 
-      {sidebarMode === 'history' ? (
-        <AIEditsHistoryPanel />
+      {sidebarMode === 'activity' ? (
+        <AIEditsHistoryPanel
+          hideSuperseded={hideSuperseded}
+          onShowAll={() => setHideSuperseded(false)}
+        />
       ) : (
         <>
           {/* Collapsible summary panel */}

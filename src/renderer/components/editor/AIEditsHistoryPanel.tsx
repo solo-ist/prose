@@ -11,8 +11,8 @@
  * toggle in the ChatPanel header.
  */
 
-import { useCallback, useMemo, useState } from 'react'
-import { Wand2, LocateFixed, X, Eye, EyeOff, ListFilter } from 'lucide-react'
+import { useCallback, useMemo } from 'react'
+import { Wand2, Crosshair, X, Eye, EyeOff, Filter } from 'lucide-react'
 import { useAnnotationStore } from '../../extensions/ai-annotations/store'
 import { useEditorStore } from '../../stores/editorStore'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
@@ -21,19 +21,21 @@ import type { AIAnnotation, AnnotationType } from '../../types/annotations'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { cn } from '../../lib/utils'
 
-export function AIEditsHistoryPanel() {
+interface AIEditsHistoryPanelProps {
+  /** Hide superseded (detached) entries. Owned by ChatPanel's tab header. */
+  hideSuperseded: boolean
+  /** Clear the filter (wired to the filtered-empty "Show all" affordance). */
+  onShowAll: () => void
+}
+
+export function AIEditsHistoryPanel({ hideSuperseded, onShowAll }: AIEditsHistoryPanelProps) {
   const annotations = useAnnotationStore((s) => s.annotations)
   const removeAnnotation = useAnnotationStore((s) => s.removeAnnotation)
   const editor = useEditorInstanceStore((s) => s.editor)
 
-  // Filter out superseded (detached) entries — those whose annotated text was
-  // replaced by a later edit (#674). Local UI state; resets when the panel
-  // unmounts. The toggle only surfaces when there's something to filter.
-  const [hideSuperseded, setHideSuperseded] = useState(false)
-  const supersededCount = useMemo(
-    () => annotations.reduce((n, a) => (a.detached ? n + 1 : n), 0),
-    [annotations]
-  )
+  // Superseded (detached) entries are history-only — their annotated text was
+  // replaced by a later edit (#674). The filter toggle lives in ChatPanel's
+  // tab header; this panel just honours the resulting flag.
   const visibleAnnotations = useMemo(
     () => (hideSuperseded ? annotations.filter((a) => !a.detached) : annotations),
     [annotations, hideSuperseded]
@@ -65,38 +67,12 @@ export function AIEditsHistoryPanel() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header: filter superseded toggle — only when there's something to filter */}
-      {supersededCount > 0 && (
-        <div className="flex items-center justify-end border-b border-border/40 px-3 py-1.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => setHideSuperseded((v) => !v)}
-                aria-pressed={hideSuperseded}
-                aria-label={hideSuperseded ? 'Show superseded edits' : 'Hide superseded edits'}
-                className={cn(
-                  'flex items-center justify-center h-6 w-6 rounded transition-colors',
-                  hideSuperseded
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-muted-foreground hover:bg-muted'
-                )}
-              >
-                <ListFilter className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="left">
-              {hideSuperseded ? 'Show superseded' : 'Hide superseded'}
-            </TooltipContent>
-          </Tooltip>
-        </div>
-      )}
-
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {annotations.length === 0 ? (
           <EmptyState />
         ) : visibleAnnotations.length === 0 ? (
-          <FilteredEmptyState onShowAll={() => setHideSuperseded(false)} />
+          <FilteredEmptyState onShowAll={onShowAll} />
         ) : (
           <div className="py-1">
             {groups.map((group) => (
@@ -137,7 +113,7 @@ function EmptyState() {
 function FilteredEmptyState({ onShowAll }: { onShowAll: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center h-full p-6 text-center gap-2">
-      <ListFilter className="h-8 w-8 text-muted-foreground/30" />
+      <Filter className="h-8 w-8 text-muted-foreground/30" />
       <p className="text-xs text-muted-foreground">All edits are superseded</p>
       <button
         onClick={onShowAll}
@@ -183,8 +159,8 @@ interface HistoryEntryRowProps {
 }
 
 function HistoryEntryRow({ annotation, onJump, onRemove }: HistoryEntryRowProps) {
-  const snippet = annotation.content.slice(0, 80).replace(/\n/g, ' ')
-  const isLong = annotation.content.length > 80
+  const snippet = annotation.content.slice(0, 200).replace(/\n/g, ' ')
+  const isLong = annotation.content.length > 200
   const detached = annotation.detached === true
 
   return (
@@ -200,71 +176,62 @@ function HistoryEntryRow({ annotation, onJump, onRemove }: HistoryEntryRowProps)
       }}
       title={detached ? 'This edit was later replaced — history record only' : 'Jump to in document'}
       className={cn(
-        'group px-3 py-2.5 hover:bg-muted/40 transition-colors focus:outline-none focus:bg-muted/40',
+        'group px-4 py-3 hover:bg-muted/40 transition-colors focus:outline-none focus:bg-muted/40',
         detached ? 'opacity-60 cursor-default' : 'cursor-pointer'
       )}
     >
-      <div className="flex items-start justify-between gap-2">
-        {/* Left: type badge + snippet */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 mb-1">
-            <TypeBadge type={annotation.type} />
-            {detached && (
-              <span
-                data-testid="annotation-detached-badge"
-                className="inline-flex items-center rounded px-1 py-0.5 text-[9px] font-medium uppercase tracking-wider bg-muted text-muted-foreground"
-              >
-                superseded
-              </span>
-            )}
-            <span className="text-[10px] text-muted-foreground/70 shrink-0">
-              {formatModelName(annotation.provenance.model)}
-            </span>
-            <span className="text-[10px] text-muted-foreground/50 shrink-0 ml-auto">
-              {formatAge(annotation.createdAt)}
-            </span>
-          </div>
-
-          {/* Content snippet */}
-          <p className="text-xs text-foreground/80 leading-snug break-words line-clamp-2 font-mono">
-            {snippet}
-            {isLong && <span className="text-muted-foreground/50">…</span>}
-          </p>
-
-          {/* Explanation */}
-          {annotation.explanation && (
-            <p className="mt-0.5 text-[10px] text-muted-foreground leading-snug line-clamp-2 italic">
-              {annotation.explanation}
-            </p>
-          )}
-        </div>
-
-        {/* Right: jump affordance (hidden for detached) + remove (on hover) */}
-        <div className="flex items-center gap-1 shrink-0">
-          {!detached && (
-            <LocateFixed
-              aria-hidden="true"
-              className="h-3.5 w-3.5 text-muted-foreground/50 group-hover:text-foreground transition-colors"
-            />
-          )}
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onRemove(annotation.id)
-                }}
-                className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-muted text-muted-foreground hover:text-destructive transition-all"
-                aria-label="Remove AI marking"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="left">Remove AI marking (keeps the text)</TooltipContent>
-          </Tooltip>
-        </div>
+      {/* Meta row: type badge · model · age · jump/remove */}
+      <div className="flex items-center gap-2 mb-2">
+        <TypeBadge type={annotation.type} />
+        {detached && (
+          <span
+            data-testid="annotation-detached-badge"
+            className="inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider bg-muted text-muted-foreground"
+          >
+            superseded
+          </span>
+        )}
+        <span className="min-w-0 truncate text-xs text-muted-foreground">
+          {formatModelName(annotation.provenance.model)}
+        </span>
+        <span className="ml-auto shrink-0 text-xs text-muted-foreground/60">
+          {formatAge(annotation.createdAt)}
+        </span>
+        {!detached && (
+          <Crosshair
+            aria-hidden="true"
+            className="h-4 w-4 shrink-0 text-primary/60 group-hover:text-primary transition-colors"
+          />
+        )}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onRemove(annotation.id)
+              }}
+              className="shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-muted text-muted-foreground hover:text-destructive transition-all"
+              aria-label="Remove AI marking"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="left">Remove AI marking (keeps the text)</TooltipContent>
+        </Tooltip>
       </div>
+
+      {/* Title: the edited content */}
+      <p className="text-[15px] leading-snug text-foreground break-words line-clamp-2">
+        {snippet}
+        {isLong && <span className="text-muted-foreground/50">…</span>}
+      </p>
+
+      {/* Explanation */}
+      {annotation.explanation && (
+        <p className="mt-1.5 text-xs italic text-muted-foreground leading-snug line-clamp-2">
+          {annotation.explanation}
+        </p>
+      )}
     </div>
   )
 }
@@ -272,15 +239,15 @@ function HistoryEntryRow({ annotation, onJump, onRemove }: HistoryEntryRowProps)
 function TypeBadge({ type }: { type: AnnotationType }) {
   const palette =
     type === 'insertion'
-      ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
       : type === 'deletion'
-        ? 'bg-rose-500/10 text-rose-700 dark:text-rose-400'
-        : 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
+        ? 'border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400'
+        : 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400'
   const symbol = type === 'insertion' ? '+' : type === 'deletion' ? '−' : '~'
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-medium uppercase tracking-wider',
+        'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider',
         palette
       )}
     >

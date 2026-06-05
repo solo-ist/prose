@@ -11,7 +11,7 @@
  */
 import { test, expect, _electron as electron } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -37,6 +37,7 @@ let app: ElectronApplication
 let page: Page
 let docsDir: string
 let essays: string
+let profile: string
 
 function uuid(n: number): string {
   return `0000000${n}-0000-4000-8000-00000000000${n}`.slice(0, 36)
@@ -149,7 +150,7 @@ async function seedCopyedits(): Promise<string[]> {
 test.beforeAll(async () => {
   test.setTimeout(120_000)
   mkdirSync(SHOTS, { recursive: true })
-  const profile = mkdtempSync(join(tmpdir(), 'prose-shots-profile-'))
+  profile = mkdtempSync(join(tmpdir(), 'prose-shots-profile-'))
   docsDir = mkdtempSync(join(tmpdir(), 'prose-shots-docs-'))
 
   essays = join(docsDir, 'Essays')
@@ -208,6 +209,8 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await app?.close()
+  rmSync(docsDir, { recursive: true, force: true })
+  rmSync(profile, { recursive: true, force: true })
 })
 
 test('01 hero — editor (light)', async () => {

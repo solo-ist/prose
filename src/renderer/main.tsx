@@ -10,6 +10,7 @@ import { executeTool } from './lib/tools'
 import { useAnnotationStore } from './extensions/ai-annotations'
 import { useTabStore } from './stores/tabStore'
 import { useChatStore } from './stores/chatStore'
+import type { ChatMessage } from './types'
 import { getApi } from './lib/browserApi'
 import './lib/remarkableBridge'
 import './index.css'
@@ -52,8 +53,7 @@ import './index.css'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ;(window as any).__prose_chat = {
   addConversation: (d: string) => useChatStore.getState().addConversation(d),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  addMessage: (m: any) => useChatStore.getState().addMessage(m),
+  addMessage: (m: ChatMessage) => useChatStore.getState().addMessage(m),
 }
 
 function SentryFallback() {

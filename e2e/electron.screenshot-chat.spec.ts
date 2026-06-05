@@ -10,7 +10,7 @@
  */
 import { test, expect, _electron as electron } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -96,4 +96,6 @@ test('02 ai alongside you — mode-switch (dark)', async () => {
   await page.waitForTimeout(800)
   await page.screenshot({ path: join(SHOTS, '02-ai-chat.png') })
   await app.close()
+  rmSync(profile, { recursive: true, force: true })
+  rmSync(docs, { recursive: true, force: true })
 })

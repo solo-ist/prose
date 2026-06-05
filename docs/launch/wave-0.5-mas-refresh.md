@@ -14,7 +14,7 @@ with the rebrand, drop-to-free pricing, and MAS hardening so the App Store build
 
 - **Never submit for App Store review.** Upload to **App Store Connect / TestFlight** is the
   automation edge; clicking "Submit for Review" is always a human decision and action.
-- **`buildVersion` is global-monotonic.** Currently `"28"` in `electron-builder.yml`.
+- **`buildVersion` is global-monotonic.** Currently `"29"` in `electron-builder.yml`.
   Every upload to App Store Connect must use a strictly higher integer than any prior upload —
   **never reset it** when bumping the marketing version (`package.json` `version`, currently `1.6.2`).
 - **Never change sandbox flags** (`contextIsolation: true`, `nodeIntegration: false`) or the MAS

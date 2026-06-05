@@ -11,8 +11,8 @@
  * toggle in the ChatPanel header.
  */
 
-import { useCallback, useMemo } from 'react'
-import { Wand2, LocateFixed, X, Eye, EyeOff } from 'lucide-react'
+import { useCallback, useMemo, useState } from 'react'
+import { Wand2, LocateFixed, X, Eye, EyeOff, ListFilter } from 'lucide-react'
 import { useAnnotationStore } from '../../extensions/ai-annotations/store'
 import { useEditorStore } from '../../stores/editorStore'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
@@ -26,10 +26,23 @@ export function AIEditsHistoryPanel() {
   const removeAnnotation = useAnnotationStore((s) => s.removeAnnotation)
   const editor = useEditorInstanceStore((s) => s.editor)
 
+  // Filter out superseded (detached) entries — those whose annotated text was
+  // replaced by a later edit (#674). Local UI state; resets when the panel
+  // unmounts. The toggle only surfaces when there's something to filter.
+  const [hideSuperseded, setHideSuperseded] = useState(false)
+  const supersededCount = useMemo(
+    () => annotations.reduce((n, a) => (a.detached ? n + 1 : n), 0),
+    [annotations]
+  )
+  const visibleAnnotations = useMemo(
+    () => (hideSuperseded ? annotations.filter((a) => !a.detached) : annotations),
+    [annotations, hideSuperseded]
+  )
+
   // Newest first, grouped by calendar day.
   const groups = useMemo(
-    () => groupAnnotationsByDate([...annotations].sort((a, b) => b.createdAt - a.createdAt)),
-    [annotations]
+    () => groupAnnotationsByDate([...visibleAnnotations].sort((a, b) => b.createdAt - a.createdAt)),
+    [visibleAnnotations]
   )
 
   const handleJump = useCallback(
@@ -52,10 +65,38 @@ export function AIEditsHistoryPanel() {
 
   return (
     <div className="flex flex-col h-full">
+      {/* Header: filter superseded toggle — only when there's something to filter */}
+      {supersededCount > 0 && (
+        <div className="flex items-center justify-end border-b border-border/40 px-3 py-1.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setHideSuperseded((v) => !v)}
+                aria-pressed={hideSuperseded}
+                aria-label={hideSuperseded ? 'Show superseded edits' : 'Hide superseded edits'}
+                className={cn(
+                  'flex items-center justify-center h-6 w-6 rounded transition-colors',
+                  hideSuperseded
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-muted-foreground hover:bg-muted'
+                )}
+              >
+                <ListFilter className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="left">
+              {hideSuperseded ? 'Show superseded' : 'Hide superseded'}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      )}
+
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {annotations.length === 0 ? (
           <EmptyState />
+        ) : visibleAnnotations.length === 0 ? (
+          <FilteredEmptyState onShowAll={() => setHideSuperseded(false)} />
         ) : (
           <div className="py-1">
             {groups.map((group) => (
@@ -88,6 +129,22 @@ function EmptyState() {
         AI-applied edits to this document will appear here. Remove one to clear its
         AI-authored marking — the text stays.
       </p>
+    </div>
+  )
+}
+
+/** Shown when the superseded filter is on and every remaining entry is superseded. */
+function FilteredEmptyState({ onShowAll }: { onShowAll: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-full p-6 text-center gap-2">
+      <ListFilter className="h-8 w-8 text-muted-foreground/30" />
+      <p className="text-xs text-muted-foreground">All edits are superseded</p>
+      <button
+        onClick={onShowAll}
+        className="text-[10px] text-muted-foreground/80 underline-offset-2 hover:underline"
+      >
+        Show all
+      </button>
     </div>
   )
 }

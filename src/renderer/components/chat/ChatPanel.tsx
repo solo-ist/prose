@@ -149,10 +149,14 @@ export function ChatPanel() {
   }, [messages, sendMessage])
 
   const handleNewChat = () => {
+    // Land in the chat view so the new conversation is visible, even if the
+    // action was invoked from the Activity tab.
+    setSidebarMode('chat')
     addConversation(documentId)
   }
 
   const handleSelectConversation = (conversationId: string) => {
+    setSidebarMode('chat')
     selectConversation(conversationId)
   }
 
@@ -237,16 +241,25 @@ export function ChatPanel() {
           )}
         </div>
 
-        {/* Chat-mode actions */}
-        {sidebarMode === 'chat' && (
-          <div className="flex items-center gap-0.5">
+        {/* Chat actions — always visible (independent of the active tab).
+            Actions whose effect lives in the chat view switch back to it. */}
+        <div className="flex items-center gap-0.5">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className={cn("h-7 w-7", infoOpen && "bg-accent text-accent-foreground")}
-                  onClick={() => setInfoOpen(!infoOpen)}
+                  className={cn("h-7 w-7", sidebarMode === 'chat' && infoOpen && "bg-accent text-accent-foreground")}
+                  onClick={() => {
+                    // The info/summary panel only renders in the chat view —
+                    // switch to it (opening info) when invoked from Activity.
+                    if (sidebarMode !== 'chat') {
+                      setSidebarMode('chat')
+                      setInfoOpen(true)
+                    } else {
+                      setInfoOpen(!infoOpen)
+                    }
+                  }}
                   aria-label="Document info"
                 >
                   <Info className="h-3.5 w-3.5" />
@@ -331,7 +344,10 @@ export function ChatPanel() {
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7"
-                    onClick={clearMessages}
+                    onClick={() => {
+                      setSidebarMode('chat')
+                      clearMessages()
+                    }}
                     aria-label="Clear chat"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -340,8 +356,7 @@ export function ChatPanel() {
                 <TooltipContent>Clear messages</TooltipContent>
               </Tooltip>
             )}
-          </div>
-        )}
+        </div>
       </div>
 
       {sidebarMode === 'activity' ? (

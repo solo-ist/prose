@@ -130,4 +130,15 @@ test.describe('Electron — Activity panel', () => {
     await expect(badge).toHaveText('2')
     await expect(page.getByTestId('annotation-detached-badge')).toBeVisible()
   })
+
+  test('chat actions stay visible on the Activity tab (#688)', async () => {
+    // On the Activity tab, the chat action cluster must NOT disappear.
+    await page.getByRole('button', { name: /Activity/ }).click()
+    await expect(page.getByRole('button', { name: 'Document info' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'New chat' })).toBeVisible()
+
+    // Invoking New chat from Activity switches to the chat view (input appears).
+    await page.getByRole('button', { name: 'New chat' }).click()
+    await expect(page.locator('textarea').first()).toBeVisible({ timeout: 5_000 })
+  })
 })

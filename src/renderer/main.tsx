@@ -9,6 +9,7 @@ import { dumpPipelineLog, clearPipelineLog } from './lib/aiPipelineLog'
 import { executeTool } from './lib/tools'
 import { useAnnotationStore } from './extensions/ai-annotations'
 import { useTabStore } from './stores/tabStore'
+import { useChatStore } from './stores/chatStore'
 import { getApi } from './lib/browserApi'
 import './lib/remarkableBridge'
 import './index.css'
@@ -38,6 +39,18 @@ import './index.css'
   isAnnotationMappingPaused: () => useAnnotationStore.getState().isLoadingDocument,
   getActiveTabId: () => useTabStore.getState().activeTabId,
   loadAnnotationsFromDB,
+}
+// Test seam (same always-on tier as __prose_tools/__prose_debug): lets
+// Playwright drive the chat surface with zero LLM — seed a conversation and
+// inject messages (e.g. an assistant turn carrying a request_mode_switch
+// tool-result tag) to render deterministic chat states. Used by the marketing
+// screenshot generator (e2e/electron.screenshot-chat.spec.ts).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+;(window as any).__prose_chat = {
+  addConversation: (d: string) => useChatStore.getState().addConversation(d),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  addMessage: (m: any) => useChatStore.getState().addMessage(m),
+  setToolMode: (m: 'chat' | 'editor' | 'create') => useChatStore.getState().setToolMode(m),
 }
 
 function SentryFallback() {

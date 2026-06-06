@@ -14,13 +14,20 @@ with the rebrand, drop-to-free pricing, and MAS hardening so the App Store build
 
 - **Never submit for App Store review.** Upload to **App Store Connect / TestFlight** is the
   automation edge; clicking "Submit for Review" is always a human decision and action.
-- **`buildVersion` is global-monotonic.** Currently `"30"` in `electron-builder.yml`.
+- **`buildVersion` is global-monotonic.** Currently `"31"` in `electron-builder.yml`.
   Every upload to App Store Connect must use a strictly higher integer than any prior upload —
   **never reset it** when bumping the marketing version (`package.json` `version`, currently `1.6.3`).
 - **An approved version closes its train.** Once a marketing version is approved on the App Store
   (e.g. 1.6.2), App Store Connect rejects further builds for it (`Invalid Pre-Release Train` /
   `CFBundleShortVersionString must contain a higher version`). Fast-follow builds must bump
   `package.json` `version` first — learned on the build-30 upload (2026-06-06).
+- **A failed upload can burn its build number.** A validation-rejected upload can leave a stuck
+  delivery reservation on ASC pinned to that `buildVersion` with the rejected metadata — symptoms:
+  `CFBundleShortVersionString … does not match the value … specified in the request`, the same
+  delivery UUID across retries, nothing visible in the `/v1/builds` API, and clearing the local
+  `~/Library/Caches/com.apple.amp.itmstransporter` cache doesn't help. Don't fight it — bump
+  `buildVersion` and re-upload. Build 30 was burned this way (2026-06-06: the 1.6.2-train rejection
+  pinned 1.6.2 metadata to build 30; the 1.6.3 re-upload of build 30 then mismatched).
 - **Never change sandbox flags** (`contextIsolation: true`, `nodeIntegration: false`) or the MAS
   entitlements without re-validating against the provisioning profile.
 - The `mas` target force-disables reMarkable (credentials/OCR not App-Store-ready) and blocks

@@ -18,6 +18,7 @@ import { subscribeWithSelector } from 'zustand/middleware'
 import type { Favorite, Project } from '../types'
 import { getApi } from '../lib/browserApi'
 import { useSettingsStore } from './settingsStore'
+import { useNotificationStore } from './notificationStore'
 
 // Stable empty-array references for the selector hooks below. Returning a fresh
 // `[]` from a Zustand selector on every call makes useSyncExternalStore treat the
@@ -137,12 +138,13 @@ export const useProjectsStore = create<ProjectsState>()(
           // back into the project, trapping navigation inside it (TestFlight
           // v1.6.1 report). Projects are additive pointers over the base root,
           // same contract as switchToProject below.
-          // Persist bookmark in the legacy single-bookmark slot too so the
-          // existing settings:load bookmark restoration still works.
+          // Register the project's bookmark claim under its own id (#654). The
+          // legacy masDirectoryBookmark slot belongs exclusively to the base
+          // root — syncing project bookmarks into it destroyed the base root's
+          // only bookmark on disk. Next-launch activation is owned by the
+          // settings:load projects[] restore loop.
           if (project.bookmark) {
-            useSettingsStore.setState((state) => ({
-              settings: { ...state.settings, masDirectoryBookmark: project.bookmark }
-            }))
+            void api.activateBookmark?.('project', project.id, project.bookmark)
           }
           useSettingsStore.getState().saveSettings()
         }
@@ -180,6 +182,12 @@ export const useProjectsStore = create<ProjectsState>()(
         }
 
         useSettingsStore.getState().addFavorite(favorite)
+        // Register the claim under the favorite's id so the settings:save
+        // reconciliation owns its lifecycle (#654). Next launch is covered by
+        // the settings:load favorites[] restore loop.
+        if (favorite.bookmark) {
+          void api.activateBookmark?.('favorite', favorite.id, favorite.bookmark)
+        }
         set({ isAddingFavorite: false })
         return favorite
       } catch (err) {
@@ -200,12 +208,28 @@ export const useProjectsStore = create<ProjectsState>()(
       // changed here — it stays stable as the base the Back button returns to.
       // Projects are additive pointers layered over the selected root.
 
-      // Sync the legacy single-bookmark slot so the existing startAccessingSecurityScopedResource
-      // call in settings:load still works on the next launch.
+      // Activate this project's bookmark claim in-session (#654). Startup
+      // claims come from the settings:load projects[] restore loop; this
+      // covers bookmarks added since launch. The legacy masDirectoryBookmark
+      // slot is deliberately NOT written — it belongs exclusively to the base
+      // root, and syncing the project bookmark into it destroyed the base
+      // root's only bookmark on disk.
+      const api = getApi()
       if (project.bookmark) {
-        useSettingsStore.setState((state) => ({
-          settings: { ...state.settings, masDirectoryBookmark: project.bookmark }
-        }))
+        const activated = await api.activateBookmark?.('project', project.id, project.bookmark)
+        if (activated === false) {
+          useNotificationStore.getState().notify({
+            id: 'mas-project-access',
+            message: `Prose couldn't restore permission for "${project.name}". If its files fail to load, remove and re-add the project to grant access again.`
+          })
+        }
+      } else if (api.isMasBuild) {
+        // MAS with no stored bookmark (e.g. cleared as stale at startup): file
+        // ops would fail silently — surface the re-grant path instead (#654).
+        useNotificationStore.getState().notify({
+          id: 'mas-project-access',
+          message: `Prose doesn't have saved permission for "${project.name}". Remove and re-add the project to grant access.`
+        })
       }
       useSettingsStore.getState().saveSettings()
 

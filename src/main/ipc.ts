@@ -76,6 +76,13 @@ let stopAccessingBookmark: (() => void) | null = null
 const projectBookmarkStopFns = new Map<string, () => void>()
 const favoriteBookmarkStopFns = new Map<string, () => void>()
 
+// In-session claims from folder picks (file:selectFolder), held for the life
+// of the process. Deliberately never tied to `stopAccessingBookmark` —
+// replacing the single base-root claim on every pick revoked base-root access
+// whenever a project/favorite folder was chosen (#654). Bounded by picks per
+// session; macOS releases all claims at process exit.
+const pickerBookmarkStopFns: Array<() => void> = []
+
 /**
  * Activate a security-scoped bookmark (MAS only) and return the stop function.
  * Returns null if not a MAS build or bookmark is missing.
@@ -85,7 +92,7 @@ function activateBookmark(bookmark: string | undefined, label: string): (() => v
   try {
     return app.startAccessingSecurityScopedResource(bookmark) as () => void
   } catch (err) {
-    console.warn(`[settings:load] Security-scoped bookmark invalid (${label}):`, err)
+    console.warn(`[bookmarks] Security-scoped bookmark invalid (${label}):`, err)
     return null
   }
 }
@@ -278,13 +285,13 @@ export function setupIpcHandlers(): void {
     const path = result.filePaths[0]
     const bookmark = IS_MAS_BUILD ? (result.bookmarks?.[0] ?? null) : null
 
-    // Activate bookmark access immediately for this session
+    // Activate bookmark access immediately for this session. Deliberately does
+    // NOT touch stopAccessingBookmark — that claim belongs to the base root
+    // (masDirectoryBookmark, activated in settings:load). Stopping it here
+    // revoked base-root access whenever a project/favorite folder was picked (#654).
     if (IS_MAS_BUILD && bookmark) {
-      if (stopAccessingBookmark) {
-        stopAccessingBookmark()
-      }
       try {
-        stopAccessingBookmark = app.startAccessingSecurityScopedResource(bookmark)
+        pickerBookmarkStopFns.push(app.startAccessingSecurityScopedResource(bookmark))
       } catch (err) {
         console.warn('[file:selectFolder] Could not activate bookmark:', err)
       }
@@ -292,6 +299,37 @@ export function setupIpcHandlers(): void {
 
     return { path, bookmark }
   })
+
+  // File: Activate a security-scoped bookmark in-session (MAS only) — #654.
+  // Lets the renderer activate a project/favorite bookmark the moment it's
+  // added or switched to, instead of waiting for the next settings:load. The
+  // claim registers under the entry's id so the settings:save reconciliation
+  // releases it promptly if the entry is removed. Non-MAS builds report
+  // success so call sites stay unconditional.
+  ipcMain.handle(
+    'file:activateBookmark',
+    async (_event, kind: 'project' | 'favorite', id: string, bookmark: string) => {
+      if (!IS_MAS_BUILD) return true
+      if (
+        (kind !== 'project' && kind !== 'favorite') ||
+        typeof id !== 'string' || !id || id.length > 128 ||
+        typeof bookmark !== 'string' || !bookmark || bookmark.length > 65536
+      ) {
+        return false
+      }
+      const stopFns = kind === 'project' ? projectBookmarkStopFns : favoriteBookmarkStopFns
+      // Release any prior claim for this id before re-activating
+      const prior = stopFns.get(id)
+      if (prior) {
+        try { prior() } catch { /* best effort */ }
+        stopFns.delete(id)
+      }
+      const stop = activateBookmark(bookmark, `${kind}:${id}`)
+      if (!stop) return false
+      stopFns.set(id, stop)
+      return true
+    }
+  )
 
   // File: Save to folder with filename
   ipcMain.handle(

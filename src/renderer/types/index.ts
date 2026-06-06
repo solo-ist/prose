@@ -477,6 +477,9 @@ export interface ElectronAPI {
   onLLMStreamError: (callback: (error: LLMStreamError) => void) => () => void
   // Folder operations for quick save
   selectFolder: (defaultPath?: string, message?: string) => Promise<{ path: string; bookmark: string | null } | null>
+  /** Activate a MAS security-scoped bookmark in-session (#654). Optional: older
+   *  preloads lack it — call sites use `?.` and treat undefined as inert. */
+  activateBookmark?: (kind: 'project' | 'favorite', id: string, bookmark: string) => Promise<boolean>
   saveToFolder: (folder: string, filename: string, content: string) => Promise<string>
   getDocumentsPath: () => Promise<string>
   saveImage: (documentDir: string, base64Data: string, mimeType: string, originalName?: string) => Promise<{ relativePath: string; localFileUrl: string }>

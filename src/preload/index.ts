@@ -203,6 +203,7 @@ export interface ElectronAPI {
   onLLMStreamError: (callback: (error: LLMStreamError) => void) => () => void
   // Folder operations for quick save
   selectFolder: (defaultPath?: string, message?: string) => Promise<{ path: string; bookmark: string | null } | null>
+  activateBookmark: (kind: 'project' | 'favorite', id: string, bookmark: string) => Promise<boolean>
   saveToFolder: (folder: string, filename: string, content: string) => Promise<string>
   getDocumentsPath: () => Promise<string>
   fileExists: (path: string) => Promise<boolean>
@@ -384,6 +385,8 @@ const api: ElectronAPI = {
   llmAbortStream: (streamId: string) => ipcRenderer.invoke('llm:stream:abort', streamId),
   // Folder operations for quick save
   selectFolder: (defaultPath?: string, message?: string) => ipcRenderer.invoke('file:selectFolder', defaultPath, message),
+  activateBookmark: (kind: 'project' | 'favorite', id: string, bookmark: string) =>
+    ipcRenderer.invoke('file:activateBookmark', kind, id, bookmark),
   saveToFolder: (folder: string, filename: string, content: string) =>
     ipcRenderer.invoke('file:saveToFolder', folder, filename, content),
   getDocumentsPath: () => ipcRenderer.invoke('file:documentsPath'),

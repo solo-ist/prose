@@ -159,7 +159,23 @@ function migrateOnDiskSettings(raw: SettingsOnDisk): Settings {
     defaultSaveDirectory = undefined
   }
 
-  return { ...rest, defaultSaveDirectory, appearance: resolved }
+  // Heal a base-root bookmark clobbered by addProjectFromPicker/switchToProject
+  // in v1.6.0–v1.6.2 (#654), which synced the active project's bookmark into
+  // the legacy masDirectoryBookmark slot — destroying the base root's only
+  // bookmark. If the slot holds a project/favorite bookmark it is the clobber
+  // artifact, not the base root's: clear it and the now-inaccessible base-root
+  // path so the Files panel falls back to the folder picker; the next explicit
+  // pick re-establishes both.
+  let masDirectoryBookmark = rest.masDirectoryBookmark
+  if (
+    masDirectoryBookmark &&
+    [...(rest.projects ?? []), ...(rest.favorites ?? [])].some((e) => e.bookmark === masDirectoryBookmark)
+  ) {
+    masDirectoryBookmark = undefined
+    defaultSaveDirectory = undefined
+  }
+
+  return { ...rest, defaultSaveDirectory, masDirectoryBookmark, appearance: resolved }
 }
 
 // Single tracked cleanup for the prefers-color-scheme listener. Stored at
@@ -248,9 +264,14 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
       window.api.setAppIcon?.(migrated.appearance.icon)
 
       // If we migrated a legacy theme field or healed a project-clobbered
-      // base root, persist the cleaned shape so the next launch reads the
-      // new values and the migration code path becomes a no-op for this user.
-      if (raw.theme || raw.defaultSaveDirectory !== migrated.defaultSaveDirectory) {
+      // base root / bookmark slot, persist the cleaned shape so the next
+      // launch reads the new values and the migration code path becomes a
+      // no-op for this user.
+      if (
+        raw.theme ||
+        raw.defaultSaveDirectory !== migrated.defaultSaveDirectory ||
+        raw.masDirectoryBookmark !== migrated.masDirectoryBookmark
+      ) {
         get().saveSettings().catch((err) => {
           console.warn('[settings] failed to persist migrated appearance:', err)
         })

@@ -308,6 +308,11 @@ export const browserApi: ElectronAPI = {
     return null
   },
 
+  activateBookmark: async (_kind: 'project' | 'favorite', _id: string, _bookmark: string): Promise<boolean> => {
+    // No sandbox in browser mode — nothing to activate
+    return true
+  },
+
   saveToFolder: async (_folder: string, filename: string, content: string): Promise<string> => {
     // Fall back to download
     await browserApi.saveFile(filename, content)

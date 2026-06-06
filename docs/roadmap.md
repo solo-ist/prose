@@ -63,6 +63,7 @@ The phases run roughly in order: **Wave 0 → Wave 0.5 → (Spikes) → Wave 1 �
 | [#602](https://github.com/solo-ist/prose/issues/602) | Pick the **billing + metering** stack and decide the **pricing shape** (co-op/usage/flat/hybrid). Gates Track C with #601. |
 | [#603](https://github.com/solo-ist/prose/issues/603) | Light confirmation that generative/terminal gates cleanly out of MAS. Expect "yes." |
 | [#616](https://github.com/solo-ist/prose/issues/616) | Research the official reMarkable app + competitive landscape to validate Track B's parity scope before building it. **Closeout recommendation posted (2026-05-27)** — anchor on #403 → #610 → #611 → AI-summary-on-import; pending ratification, so the issue stays open as the decision record. |
+| [#710](https://github.com/solo-ist/prose/issues/710) | **Boox + Supernote** e-ink landscape beyond reMarkable — viable sync paths per device, OCR-pipeline reuse, provider-abstraction decision (with #638), and whether multi-device widens or dilutes Track B's wedge. #616's method; informs Track B scope, doesn't gate it. |
 
 ### Wave 0 — QoL & Bug Fixes · *done — shipped v1.5.0 + v1.6.0 + v1.6.1*
 Shipped as sequenced cloud-agent batches + local QA. The P1–P5 bug/QoL batch landed in v1.5.0; the three features (#385/#386/#380) in v1.6.0; a follow-up batch (#645/#646/#648/#652/#667) in v1.6.1. Stragglers still open: #384 (Homebrew) and #536 (Sentry→GitHub hybrid); #380 held for follow-up #654.

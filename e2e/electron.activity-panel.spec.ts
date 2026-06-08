@@ -106,7 +106,7 @@ test.describe('Electron — Activity panel', () => {
   test('Activity tab + badge + superseded filter', async () => {
     // Open the chat sidebar and switch to the Activity tab.
     await page.keyboard.press('ControlOrMeta+Shift+L')
-    const activityTab = page.getByRole('button', { name: /Activity/ })
+    const activityTab = page.getByRole('tab', { name: /Activity/ })
     await activityTab.waitFor({ state: 'visible', timeout: 5_000 })
     await activityTab.click()
 
@@ -133,7 +133,7 @@ test.describe('Electron — Activity panel', () => {
 
   test('chat actions stay visible on the Activity tab (#688)', async () => {
     // On the Activity tab, the chat action cluster must NOT disappear.
-    await page.getByRole('button', { name: /Activity/ }).click()
+    await page.getByRole('tab', { name: /Activity/ }).click()
     await expect(page.getByRole('button', { name: 'Document info' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'New chat' })).toBeVisible()
 

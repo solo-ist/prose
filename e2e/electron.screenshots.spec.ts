@@ -252,7 +252,7 @@ test('04 edits history — activity (dark)', async () => {
   // Open chat, switch to the Activity tab.
   const showChat = page.locator('[aria-label="Show chat"]')
   if (await showChat.isVisible({ timeout: 1_000 }).catch(() => false)) await showChat.click()
-  await page.getByRole('button', { name: /Activity/ }).click()
+  await page.getByRole('tab', { name: /Activity/ }).click()
   await page.waitForTimeout(700)
   await page.screenshot({ path: join(SHOTS, '04-edits-history.png') })
 })

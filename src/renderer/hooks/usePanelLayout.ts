@@ -23,8 +23,7 @@ const CHAT_MAX_PX = 610
 const EDITOR_MIN_PX = 360
 const BOTH_PANELS_MIN_WIDTH = 1000
 const FILE_LIST_DEFAULT_PCT = 20
-export const CHAT_DEFAULT_PCT = 50
-export const QUICK_REVIEW_DEFAULT_PX = 330
+export const QUICK_REVIEW_DEFAULT_PX = 370
 
 // --- Types ---
 
@@ -69,6 +68,14 @@ function calcPanelSizes(windowWidth: number): PanelSizes {
     chatMin: (CHAT_MIN_PX / windowWidth) * 100,
     chatMax: (CHAT_MAX_PX / windowWidth) * 100
   }
+}
+
+// Default chat width on open: split the space left after the file explorer evenly
+// with the editor (so the editor isn't squeezed when the explorer is also open),
+// clamped to the chat panel's min/max. With the explorer closed this returns 50.
+export function chatOpenDefaultPct(opts: { fileListPct: number; chatMin: number; chatMax: number }): number {
+  const pct = (100 - opts.fileListPct) / 2
+  return Math.min(Math.max(pct, opts.chatMin), opts.chatMax)
 }
 
 // --- Hook ---
@@ -130,7 +137,10 @@ export function usePanelLayout({ fileListPanelRef, chatPanelRef }: UsePanelLayou
   useLayoutEffect(() => {
     if (isChatOpen !== prevChatOpen.current) {
       if (isChatOpen) {
-        chatPanelRef.current?.resize(CHAT_DEFAULT_PCT)
+        const fileListPct = isFileListOpen ? (fileListPanelRef.current?.getSize() ?? 0) : 0
+        chatPanelRef.current?.resize(
+          chatOpenDefaultPct({ fileListPct, chatMin: panelSizes.chatMin, chatMax: panelSizes.chatMax })
+        )
       } else {
         chatPanelRef.current?.resize(0)
       }
@@ -146,7 +156,7 @@ export function usePanelLayout({ fileListPanelRef, chatPanelRef }: UsePanelLayou
 
     prevChatOpen.current = isChatOpen
     prevFileListOpen.current = isFileListOpen
-  }, [isChatOpen, isFileListOpen, chatPanelRef, fileListPanelRef])
+  }, [isChatOpen, isFileListOpen, chatPanelRef, fileListPanelRef, panelSizes])
 
   // --- Mount: force panels to match store state ---
   // react-resizable-panels restores persisted sizes from localStorage

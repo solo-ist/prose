@@ -115,10 +115,10 @@ export function SideBySideDiffPanel() {
           <h2 className="text-sm font-medium shrink-0">Side-by-Side Diff</h2>
           <button
             onClick={() => setReviewMode('quick')}
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors truncate"
           >
             <ArrowLeftRight className="h-3 w-3 shrink-0" />
-            <span>Quick review</span>
+            <span className="truncate">Quick review</span>
           </button>
         </div>
 

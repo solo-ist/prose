@@ -181,38 +181,46 @@ export function ChatPanel() {
       {/* Tab header (Chat | Activity) with the Activity count badge + filter */}
       <div className="flex items-center justify-between border-b border-border px-3 py-1">
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => setSidebarMode('chat')}
-            aria-pressed={sidebarMode === 'chat'}
-            className={cn(
-              'text-sm border-b-2 pb-1 -mb-px transition-colors',
-              sidebarMode === 'chat'
-                ? 'text-foreground border-primary font-medium'
-                : 'text-muted-foreground border-transparent hover:text-foreground'
-            )}
-          >
-            Chat
-          </button>
-          <button
-            onClick={() => setSidebarMode('activity')}
-            aria-pressed={sidebarMode === 'activity'}
-            className={cn(
-              'flex items-center gap-1.5 text-sm border-b-2 pb-1 -mb-px transition-colors',
-              sidebarMode === 'activity'
-                ? 'text-foreground border-primary font-medium'
-                : 'text-muted-foreground border-transparent hover:text-foreground'
-            )}
-          >
-            Activity
-            {activityCount > 0 && (
-              <span
-                data-testid="activity-count-badge"
-                className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/15 px-1 text-[10px] font-semibold text-primary leading-none"
-              >
-                {activityCount > 99 ? '99+' : activityCount}
-              </span>
-            )}
-          </button>
+          <div role="tablist" aria-label="Chat panel views" className="flex items-center gap-3">
+            <button
+              role="tab"
+              aria-selected={sidebarMode === 'chat'}
+              aria-controls="chat-tabpanel"
+              id="chat-tab-chat"
+              onClick={() => setSidebarMode('chat')}
+              className={cn(
+                'text-sm border-b-2 pb-1 -mb-px transition-colors',
+                sidebarMode === 'chat'
+                  ? 'text-foreground border-primary font-medium'
+                  : 'text-muted-foreground border-transparent hover:text-foreground'
+              )}
+            >
+              Chat
+            </button>
+            <button
+              role="tab"
+              aria-selected={sidebarMode === 'activity'}
+              aria-controls="chat-tabpanel"
+              id="chat-tab-activity"
+              onClick={() => setSidebarMode('activity')}
+              className={cn(
+                'flex items-center gap-1.5 text-sm border-b-2 pb-1 -mb-px transition-colors',
+                sidebarMode === 'activity'
+                  ? 'text-foreground border-primary font-medium'
+                  : 'text-muted-foreground border-transparent hover:text-foreground'
+              )}
+            >
+              Activity
+              {activityCount > 0 && (
+                <span
+                  data-testid="activity-count-badge"
+                  className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/15 px-1 text-[10px] font-semibold text-primary leading-none"
+                >
+                  {activityCount > 99 ? '99+' : activityCount}
+                </span>
+              )}
+            </button>
+          </div>
 
           {/* Filter: hide/show superseded — only when there's something to filter */}
           {sidebarMode === 'activity' && supersededCount > 0 && (
@@ -359,109 +367,116 @@ export function ChatPanel() {
         </div>
       </div>
 
-      {sidebarMode === 'activity' ? (
-        <AIEditsHistoryPanel
-          hideSuperseded={hideSuperseded}
-          onShowAll={() => setHideSuperseded(false)}
-        />
-      ) : (
-        <>
-          {/* Collapsible summary panel */}
-          <div className={cn(
-            "overflow-hidden transition-all duration-200 ease-in-out",
-            infoOpen ? "max-h-60 border-b border-border" : "max-h-0"
-          )}>
-            <div className="mx-2 my-2 rounded-md bg-muted/50 border border-border/60 px-3 py-2">
-              <div className="flex items-center justify-between mb-1.5">
-                <h3 className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Summary</h3>
-                <span className="text-[10px] text-muted-foreground/70">~{readingTime} min read</span>
-              </div>
-              {isGenerating ? (
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  <span>Generating...</span>
+      <div
+        role="tabpanel"
+        id="chat-tabpanel"
+        aria-labelledby={sidebarMode === 'activity' ? 'chat-tab-activity' : 'chat-tab-chat'}
+        className="flex-1 min-h-0 flex flex-col"
+      >
+        {sidebarMode === 'activity' ? (
+          <AIEditsHistoryPanel
+            hideSuperseded={hideSuperseded}
+            onShowAll={() => setHideSuperseded(false)}
+          />
+        ) : (
+          <>
+            {/* Collapsible summary panel */}
+            <div className={cn(
+              "overflow-hidden transition-all duration-200 ease-in-out",
+              infoOpen ? "max-h-60 border-b border-border" : "max-h-0"
+            )}>
+              <div className="mx-2 my-2 rounded-md bg-muted/50 border border-border/60 px-3 py-2">
+                <div className="flex items-center justify-between mb-1.5">
+                  <h3 className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Summary</h3>
+                  <span className="text-[10px] text-muted-foreground/70">~{readingTime} min read</span>
                 </div>
-              ) : error ? (
-                <p className="text-xs text-destructive">{error}</p>
-              ) : summary ? (
-                <p className="text-xs leading-relaxed">{summary}</p>
-              ) : (
-                <p className="text-xs text-muted-foreground">No summary yet</p>
-              )}
-            </div>
-          </div>
-
-          {/* Messages */}
-          <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
-            {visibleMessages.length === 0 ? (
-              <div className="flex items-center justify-center p-8 py-16">
-                <div className="text-center">
-                  <MessageSquare className="mx-auto h-12 w-12 text-muted-foreground/30" />
-                  <p className="mt-4 text-sm text-muted-foreground">
-                    No messages yet
-                  </p>
-                  <p className="mt-2 text-xs text-muted-foreground/60">
-                    Select text and press{' '}
-                    <kbd className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium">
-                      ⌘⇧K
-                    </kbd>{' '}
-                    to add context
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="divide-y divide-border/50">
-                {visibleMessages.map((message, index) => (
-                  <ChatMessage
-                    key={message.id}
-                    message={message}
-                    isStreaming={
-                      isStreaming &&
-                      index === visibleMessages.length - 1 &&
-                      message.role === 'assistant'
-                    }
-                    onRetry={message.isError ? () => handleRetry(message.id) : undefined}
-                  />
-                ))}
-                {/* Show "Thinking..." only when loading but not yet streaming */}
-                {isLoading && !isStreaming && (
-                  <div className="flex gap-3 p-4 bg-muted/30">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/20">
-                      <div className="h-4 w-4 animate-pulse rounded-full bg-primary/50" />
-                    </div>
-                    <div className="flex items-center">
-                      <span className="text-sm text-muted-foreground">
-                        Thinking...
-                      </span>
-                    </div>
+                {isGenerating ? (
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    <span>Generating...</span>
                   </div>
+                ) : error ? (
+                  <p className="text-xs text-destructive">{error}</p>
+                ) : summary ? (
+                  <p className="text-xs leading-relaxed">{summary}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No summary yet</p>
                 )}
               </div>
-            )}
-          </div>
-
-          {/* Suggestion review chip */}
-          {suggestionCount > 0 && (
-            <div className="px-4 py-3">
-              <button
-                onClick={() => useReviewStore.getState().setReviewMode('quick')}
-                className="w-full flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/30 text-violet-600 dark:text-violet-400 transition-colors"
-              >
-                <Sparkles className="h-3 w-3" />
-                Review {suggestionCount} suggestion{suggestionCount !== 1 ? 's' : ''}
-              </button>
             </div>
-          )}
 
-          {/* Input */}
-          <ChatInput
-            onSend={sendMessage}
-            isLoading={isLoading}
-            isStreaming={isStreaming}
-            onStop={stopGeneration}
-          />
-        </>
-      )}
+            {/* Messages */}
+            <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
+              {visibleMessages.length === 0 ? (
+                <div className="flex items-center justify-center p-8 py-16">
+                  <div className="text-center">
+                    <MessageSquare className="mx-auto h-12 w-12 text-muted-foreground/30" />
+                    <p className="mt-4 text-sm text-muted-foreground">
+                      No messages yet
+                    </p>
+                    <p className="mt-2 text-xs text-muted-foreground/60">
+                      Select text and press{' '}
+                      <kbd className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium">
+                        ⌘⇧K
+                      </kbd>{' '}
+                      to add context
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="divide-y divide-border/50">
+                  {visibleMessages.map((message, index) => (
+                    <ChatMessage
+                      key={message.id}
+                      message={message}
+                      isStreaming={
+                        isStreaming &&
+                        index === visibleMessages.length - 1 &&
+                        message.role === 'assistant'
+                      }
+                      onRetry={message.isError ? () => handleRetry(message.id) : undefined}
+                    />
+                  ))}
+                  {/* Show "Thinking..." only when loading but not yet streaming */}
+                  {isLoading && !isStreaming && (
+                    <div className="flex gap-3 p-4 bg-muted/30">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/20">
+                        <div className="h-4 w-4 animate-pulse rounded-full bg-primary/50" />
+                      </div>
+                      <div className="flex items-center">
+                        <span className="text-sm text-muted-foreground">
+                          Thinking...
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Suggestion review chip */}
+            {suggestionCount > 0 && (
+              <div className="px-4 py-3">
+                <button
+                  onClick={() => useReviewStore.getState().setReviewMode('quick')}
+                  className="w-full flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/30 text-violet-600 dark:text-violet-400 transition-colors"
+                >
+                  <Sparkles className="h-3 w-3" />
+                  Review {suggestionCount} suggestion{suggestionCount !== 1 ? 's' : ''}
+                </button>
+              </div>
+            )}
+
+            {/* Input */}
+            <ChatInput
+              onSend={sendMessage}
+              isLoading={isLoading}
+              isStreaming={isStreaming}
+              onStop={stopGeneration}
+            />
+          </>
+        )}
+      </div>
     </div>
   )
 }

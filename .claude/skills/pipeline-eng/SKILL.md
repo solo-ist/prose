@@ -26,7 +26,7 @@ The full workflow chain, trigger to output:
 |----------|---------|---------------|-----------------|---------------|
 | `e2e.yml` | `pull_request`, `/test` comment | — | — (artifact: `e2e-results`) | — |
 | `web-e2e.yml` | `pull_request` (with `accelerated` label), `/test` comment | — | — | — |
-| `ci-gate.yml` | `workflow_run` on "E2E Tests" | `<!-- e2e-fix-attempt:`, `<!-- agent-fix-attempt:`, `<!-- ci-gate-sha:` | Posts `/review <!-- ci-gate-sha: ... -->` comment; `<!-- e2e-fix-escalation -->` | `claude.yml` (via `/review` comment) |
+| `ci-gate.yml` | `workflow_run` on "E2E Tests" | `<!-- e2e-fix-attempt:`, `<!-- agent-fix-attempt:`, `<!-- ci-gate-sha:` | Posts `/review <!-- ci-gate-sha: ... -->` comment; `<!-- e2e-fix-escalation -->` | `claude.yml` (via `/review` comment) — **only when the PR author is OWNER/MEMBER/COLLABORATOR** (see Author Trust Gating) |
 | `claude.yml` (auto-review) | `/review` comment on PR | — | `<!-- review-verdict: clean -->` or `<!-- review-verdict: issues-found -->` | — |
 | `review-feedback.yml` (clean-gate) | `issue_comment` with `<!-- review-verdict: clean -->` | `<!-- review-verdict: clean -->`, absence of `<!-- review-feedback-analysis -->` | `<!-- review-feedback-analysis -->` | — |
 | `review-feedback.yml` (analyze) | `issue_comment` with `## Code Review` (no verdict trailer) | absence of `<!-- review-feedback-analysis -->`, `<!-- review-verdict: clean -->`, `<!-- review-verdict: issues-found -->` | `<!-- review-feedback-analysis -->`, `<!-- pipeline-bypass-warning -->` | — |
@@ -131,6 +131,36 @@ if: >-
 ### `contains()` through backticks
 
 In GitHub Actions `if:` expressions, sentinel strings inside `contains()` must be wrapped in single quotes. If the sentinel itself contains single quotes, you'll need to use a different guard strategy (e.g., shell step with `grep`).
+
+---
+
+## Author Trust Gating
+
+To stop untrusted/fork PRs and stranger comments from running up Anthropic spend (#726), the pipeline gates its expensive entry points on GitHub's `author_association`. Trusted = `OWNER`, `MEMBER`, `COLLABORATOR`. Everything else (`CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`, `FIRST_TIMER`, `MANNEQUIN`, `NONE`) is untrusted.
+
+**Layered model:**
+- **Layer 1 (repo setting):** the native fork-PR approval policy is `all_external_contributors` — a maintainer must click "Approve and run" before *any* workflow runs for an external-contributor PR. Since the whole spend chain is rooted in E2E running, this is the primary cut-off. (View/set: `gh api .../actions/permissions/fork-pr-contributor-approval`.)
+- **Layer 2a — `ci-gate.yml` (load-bearing):** `trigger-review` calls `pulls.get` for the PR and gates the "Trigger auto-review" step on `steps.trust.outputs.trusted == 'true'`. **This is the gate that actually stops fork-PR auto-review** — the `/review` comment is posted as the `PROJECT_TOKEN` owner (always trusted), so gating the *comment* author can't help; the **PR author** must be checked. Works for same-repo and SHA-fallback (fork) PR numbers.
+- **Layer 2b — job-level pre-filters:** `claude.yml` (`auto-review` + `claude`), `dispatch.yml`, and the `/test` branch of `e2e.yml`/`web-e2e.yml` add `contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), <association>)` so untrusted callers don't even allocate a runner. The runtime `getCollaboratorPermissionLevel` steps are kept as a precise secondary gate.
+- **`pipeline-fix.yml` fork guard:** auto-fix checks out the PR branch by name and runs an agent with `ANTHROPIC_API_KEY`; a `pulls.get` fork check skips forks deterministically (`is_fork`).
+
+**`author_association` field path by event type:**
+
+| Event | Field path |
+|-------|------------|
+| `issue_comment` | `github.event.comment.author_association` |
+| `pull_request_review_comment` | `github.event.comment.author_association` |
+| `pull_request_review` | `github.event.review.author_association` |
+| `issues` | `github.event.issue.author_association` |
+| (ci-gate / pipeline-fix runtime) | `pr.author_association` from `pulls.get` |
+
+Use the `contains(fromJSON('[...]'), x)` idiom (already used in `notify.yml`) in `if:` expressions and `['OWNER','MEMBER','COLLABORATOR'].includes(x)` in `github-script` JS.
+
+**Critical — ci-gate's post is `MEMBER`:** the "Trigger auto-review" step posts `/review` via `secrets.PROJECT_TOKEN`, so the comment author is `mrangelmarino` (User type, `author_association: MEMBER`). The `claude.yml` `auto-review` gate **must** include `MEMBER` or the auto-review chain silently stops. The `["OWNER","MEMBER","COLLABORATOR"]` list satisfies this.
+
+**Sync hazard:** the trusted-association list is duplicated across `claude.yml`, `dispatch.yml`, `e2e.yml`, `web-e2e.yml` (`if:` expressions) and `ci-gate.yml` / `pipeline-fix.yml` (JS `.includes`). Keep them identical. `validate-pipeline.sh` invariants **#21** (claude.yml has the list), **#22** (ci-gate has `steps.trust.outputs.trusted` + `author_association`), and **#23** (pipeline-fix has the `is_fork` guard) enforce presence.
+
+**Not addressed by trust gating:** a maintainer (OWNER/MEMBER) opening an issue whose body literally contains `@claude` will still fire the `claude` job — that's intended. Avoid the accidental self-trigger by not writing a bare `@claude` in issue prose.
 
 ---
 

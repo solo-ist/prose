@@ -62,8 +62,31 @@ jobs:
             exit 0
           fi
 
-      - name: Resolve PR branch
+      - name: Check if fork PR
         if: steps.guard.outputs.attempts == '0'
+        id: fork
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        with:
+          script: |
+            // auto-fix checks out the PR branch by name (no `repository:`) and runs an
+            // agent with ANTHROPIC_API_KEY. A fork PR would misfire (the branch name
+            // resolves against the base repo). Skip forks deterministically rather than
+            // relying on a checkout failure. See pipeline-eng SKILL.md "Author Trust Gating".
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: Number(process.env.PR_NUMBER),
+            });
+            const isFork = pr.head.repo.full_name !== pr.base.repo.full_name;
+            core.setOutput('is_fork', String(isFork));
+            if (isFork) {
+              core.notice(`PR #${process.env.PR_NUMBER} is from a fork — skipping auto-fix`);
+            }
+
+      - name: Resolve PR branch
+        if: steps.guard.outputs.attempts == '0' && steps.fork.outputs.is_fork != 'true'
         id: resolve
         env:
           GH_TOKEN: ${{ github.token }}
@@ -74,14 +97,14 @@ jobs:
           echo "branch=$PR_BRANCH" >> "$GITHUB_OUTPUT"
 
       - name: Checkout PR branch
-        if: steps.guard.outputs.attempts == '0'
+        if: steps.guard.outputs.attempts == '0' && steps.fork.outputs.is_fork != 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.resolve.outputs.branch }}
           fetch-depth: 0
 
       - name: Gather context for fix
-        if: steps.guard.outputs.attempts == '0'
+        if: steps.guard.outputs.attempts == '0' && steps.fork.outputs.is_fork != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
@@ -96,7 +119,7 @@ jobs:
             ) | .body' > /tmp/pipeline-context.txt
 
       - name: Load pipeline context into env
-        if: steps.guard.outputs.attempts == '0'
+        if: steps.guard.outputs.attempts == '0' && steps.fork.outputs.is_fork != 'true'
         run: |
           {
             echo "PIPELINE_CONTEXT<<PIPELINE_EOF"
@@ -105,7 +128,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Run Claude Code Fix
-        if: steps.guard.outputs.attempts == '0'
+        if: steps.guard.outputs.attempts == '0' && steps.fork.outputs.is_fork != 'true'
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -140,7 +163,7 @@ jobs:
             Then summarize what you fixed in a brief list.
 
       - name: Request human verification
-        if: steps.guard.outputs.attempts == '0'
+        if: steps.guard.outputs.attempts == '0' && steps.fork.outputs.is_fork != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}

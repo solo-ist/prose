@@ -76,8 +76,34 @@ jobs:
 
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
-      - name: Trigger auto-review
+      - name: Check PR author trust
+        id: trust
         if: steps.pr.outputs.number && steps.dedup.outputs.skip != 'true'
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        with:
+          script: |
+            // Only trusted PR authors (OWNER/MEMBER/COLLABORATOR) trigger the
+            // Anthropic-spending auto-review. A fork PR from an untrusted author is
+            // skipped here even though E2E ran — the /review below is posted as the
+            // PROJECT_TOKEN owner (always trusted), so the PR *author* must be checked.
+            // See pipeline-eng SKILL.md "Author Trust Gating".
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: Number(process.env.PR_NUMBER),
+            });
+            const assoc = pr.author_association;
+            const trusted = ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(assoc);
+            core.setOutput('trusted', String(trusted));
+            core.setOutput('association', assoc);
+            if (!trusted) {
+              core.notice(`PR #${process.env.PR_NUMBER} author_association='${assoc}' — skipping auto-review (untrusted author)`);
+            }
+
+      - name: Trigger auto-review
+        if: steps.pr.outputs.number && steps.dedup.outputs.skip != 'true' && steps.trust.outputs.trusted == 'true'
         env:
           # PROJECT_TOKEN required: github.token events don't trigger downstream
           # issue_comment workflows. claude.yml checks body content, not author.
@@ -90,6 +116,11 @@ jobs:
             --body "/review <!-- ci-gate-sha: $HEAD_SHA -->
 
           *Auto-triggered after E2E tests passed.*"
+
+      - name: Notice — auto-review skipped (untrusted author)
+        if: steps.pr.outputs.number && steps.dedup.outputs.skip != 'true' && steps.trust.outputs.trusted != 'true'
+        run: |
+          echo "::notice::Auto-review skipped for PR #${{ steps.pr.outputs.number }}: author_association=${{ steps.trust.outputs.association }} (not OWNER/MEMBER/COLLABORATOR)"
 
   e2e-auto-fix:
     # E2E failed on a PR → post @claude fix request

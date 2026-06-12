@@ -269,6 +269,47 @@ else
 fi
 echo ""
 
+# 21. Author-trust gate present in claude.yml (#726)
+# auto-review and @claude jobs must gate on the trusted author_association list
+echo "--- Check: claude.yml author-trust gate ---"
+if grep -q 'OWNER","MEMBER","COLLABORATOR' .github/workflows/claude.yml; then
+  echo "PASS"
+else
+  echo "FAIL: claude.yml missing author_association trust gate (fromJSON OWNER/MEMBER/COLLABORATOR)"
+  ERRORS=$((ERRORS + 1))
+fi
+echo ""
+
+# 22. ci-gate PR-author trust gate before posting /review (#726)
+# trigger-review must check the PR author's association before the Anthropic-spending review
+echo "--- Check: ci-gate PR-author trust gate ---"
+CI_GATE_TRUST_OK=true
+if ! grep -q "steps.trust.outputs.trusted" .github/workflows/ci-gate.yml; then
+  echo "FAIL: ci-gate.yml missing steps.trust.outputs.trusted gate on Trigger auto-review"
+  CI_GATE_TRUST_OK=false
+  ERRORS=$((ERRORS + 1))
+fi
+if ! grep -q "author_association" .github/workflows/ci-gate.yml; then
+  echo "FAIL: ci-gate.yml missing author_association trust check"
+  CI_GATE_TRUST_OK=false
+  ERRORS=$((ERRORS + 1))
+fi
+if $CI_GATE_TRUST_OK; then
+  echo "PASS"
+fi
+echo ""
+
+# 23. pipeline-fix fork guard (#726)
+# auto-fix checks out the PR branch and runs an agent with the API key — must skip forks
+echo "--- Check: pipeline-fix fork guard ---"
+if grep -q "is_fork" .github/workflows/pipeline-fix.yml; then
+  echo "PASS"
+else
+  echo "FAIL: pipeline-fix.yml missing fork guard (is_fork)"
+  ERRORS=$((ERRORS + 1))
+fi
+echo ""
+
 # Summary
 echo "==========================="
 if [ "$ERRORS" -eq 0 ]; then

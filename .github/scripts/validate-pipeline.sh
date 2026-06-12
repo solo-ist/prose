@@ -269,19 +269,21 @@ else
 fi
 echo ""
 
-# 21. Author-trust gate present in claude.yml (#726)
-# auto-review and @claude jobs must gate on the trusted author_association list
-echo "--- Check: claude.yml author-trust gate ---"
-if grep -q 'OWNER","MEMBER","COLLABORATOR' .github/workflows/claude.yml; then
+# 21. claude.yml retains the runtime permission gate (#726)
+# author_association is unreliable (GITHUB_TOKEN can't see private org membership),
+# so trust is enforced by the runtime getCollaboratorPermissionLevel step, not an if:.
+echo "--- Check: claude.yml runtime permission gate ---"
+if grep -q "getCollaboratorPermissionLevel" .github/workflows/claude.yml; then
   echo "PASS"
 else
-  echo "FAIL: claude.yml missing author_association trust gate (fromJSON OWNER/MEMBER/COLLABORATOR)"
+  echo "FAIL: claude.yml missing runtime getCollaboratorPermissionLevel trust gate"
   ERRORS=$((ERRORS + 1))
 fi
 echo ""
 
 # 22. ci-gate PR-author trust gate before posting /review (#726)
-# trigger-review must check the PR author's association before the Anthropic-spending review
+# trigger-review must check the PR author's effective permission (NOT author_association)
+# before the Anthropic-spending review.
 echo "--- Check: ci-gate PR-author trust gate ---"
 CI_GATE_TRUST_OK=true
 if ! grep -q "steps.trust.outputs.trusted" .github/workflows/ci-gate.yml; then
@@ -289,8 +291,8 @@ if ! grep -q "steps.trust.outputs.trusted" .github/workflows/ci-gate.yml; then
   CI_GATE_TRUST_OK=false
   ERRORS=$((ERRORS + 1))
 fi
-if ! grep -q "author_association" .github/workflows/ci-gate.yml; then
-  echo "FAIL: ci-gate.yml missing author_association trust check"
+if ! grep -q "getCollaboratorPermissionLevel" .github/workflows/ci-gate.yml; then
+  echo "FAIL: ci-gate.yml trust step must use getCollaboratorPermissionLevel (not author_association)"
   CI_GATE_TRUST_OK=false
   ERRORS=$((ERRORS + 1))
 fi

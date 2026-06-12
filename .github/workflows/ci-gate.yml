@@ -84,22 +84,36 @@ jobs:
           PR_NUMBER: ${{ steps.pr.outputs.number }}
         with:
           script: |
-            // Only trusted PR authors (OWNER/MEMBER/COLLABORATOR) trigger the
-            // Anthropic-spending auto-review. A fork PR from an untrusted author is
-            // skipped here even though E2E ran — the /review below is posted as the
-            // PROJECT_TOKEN owner (always trusted), so the PR *author* must be checked.
-            // See pipeline-eng SKILL.md "Author Trust Gating".
+            // Only trusted PR authors (repo write/admin) trigger the Anthropic-spending
+            // auto-review. A fork PR from an untrusted author is skipped here even though
+            // E2E ran — the /review below is posted as the PROJECT_TOKEN owner (always
+            // trusted), so the PR *author* must be checked.
+            // Do NOT use pr.author_association: GITHUB_TOKEN cannot see *private* org
+            // membership, so it reports an org MEMBER as 'CONTRIBUTOR' and the legit chain
+            // silently breaks. getCollaboratorPermissionLevel reflects effective repo
+            // permission (incl. org/team grants) reliably. See SKILL.md "Author Trust Gating".
             const { data: pr } = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
               pull_number: Number(process.env.PR_NUMBER),
             });
-            const assoc = pr.author_association;
-            const trusted = ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(assoc);
+            const author = pr.user.login;
+            let permission = 'none';
+            try {
+              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: author,
+              });
+              permission = data.permission;
+            } catch (err) {
+              if (err.status !== 404) throw err;  // 404 = not a collaborator → untrusted
+            }
+            const trusted = ['admin', 'write'].includes(permission);
             core.setOutput('trusted', String(trusted));
-            core.setOutput('association', assoc);
+            core.setOutput('permission', permission);
             if (!trusted) {
-              core.notice(`PR #${process.env.PR_NUMBER} author_association='${assoc}' — skipping auto-review (untrusted author)`);
+              core.notice(`PR #${process.env.PR_NUMBER} author '${author}' permission='${permission}' — skipping auto-review (untrusted)`);
             }
 
       - name: Trigger auto-review
@@ -120,7 +134,7 @@ jobs:
       - name: Notice — auto-review skipped (untrusted author)
         if: steps.pr.outputs.number && steps.dedup.outputs.skip != 'true' && steps.trust.outputs.trusted != 'true'
         run: |
-          echo "::notice::Auto-review skipped for PR #${{ steps.pr.outputs.number }}: author_association=${{ steps.trust.outputs.association }} (not OWNER/MEMBER/COLLABORATOR)"
+          echo "::notice::Auto-review skipped for PR #${{ steps.pr.outputs.number }}: author permission=${{ steps.trust.outputs.permission }} (need write/admin)"
 
   e2e-auto-fix:
     # E2E failed on a PR → post @claude fix request

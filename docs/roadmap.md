@@ -1,6 +1,6 @@
 # Prose Roadmap
 
-**Status:** Active · **Updated:** 2026-06-08 · **Live priority:** [Project board #5](https://github.com/orgs/solo-ist/projects/5/views/1)
+**Status:** Active · **Updated:** 2026-06-12 · **Live priority:** [Project board #5](https://github.com/orgs/solo-ist/projects/5/views/1)
 
 > **Reading this cold?** Top-to-bottom this tells you the strategy, the phase we're in, what to pick up next, and how work flows — enough to resume mid-stream. This doc is the narrative + operating model; the **project board is the live queue** and the **milestones mirror the waves**. For dev/security/build conventions, see [`../CLAUDE.md`](../CLAUDE.md).
 
@@ -29,6 +29,7 @@
   | **Later** | Wave 1 + its spikes + Project Mode (#697) + design/UX backlog (#698/#701/#702) + parked-but-tracked (Annotations) |
   | **On Hold** | deferred: Wave 2, the #599-gated cluster (#706/#707/#708), #409, vision/research, launch gates |
 - **Cadence:** each wave is sequenced cloud-agent work → local HITL QA. One issue per PR, reference the issue, and **wait for green CI + the `claude[bot]` review before merging** (no skipping the wait).
+- **Pipeline trust gate** (shipped 2026-06-12, [#726](https://github.com/solo-ist/prose/issues/726)): the self-enhancing AI-review pipeline is now gated on maintainer trust so fork/spam PRs can't run up the Anthropic bill. **Layer 1** is the native `all_external_contributors` fork-PR approval policy (external PRs need "Approve and run" before *any* workflow runs — the root cut-off); **Layer 2** is a `ci-gate` PR-author check via `getCollaboratorPermissionLevel` (repo write/admin), backed by the pre-existing runtime collaborator checks on `/review`/`@claude`/`/test`/`/triage`. Shipped via #730 + a #732 follow-up (a regression the post-merge verification caught). **Lesson codified in the `pipeline-eng` skill:** gate trust on `getCollaboratorPermissionLevel`, **never `author_association`** — a workflow `GITHUB_TOKEN` can't see *private* org membership and silently downgrades a maintainer to `CONTRIBUTOR`.
 - **Wave 1 merge ladder (load-bearing):** Tracks A, B, C run concurrently but merge **A → B → C** — each lands as the stable base the next rebases onto. There's a HITL QA gate at every boundary; at each gate, decide **cut a release tag** vs. **roll forward**. Versions are assigned at the moment of cut (the roadmap is release-agnostic — waves are the unit). Run a **file-overlap pre-check** before any parallel dispatch (A = agent surface/panels/settings; B = `src/main/remarkable/`; C = account/gateway plumbing).
 - **Spikes gate Track C:** [#601](https://github.com/solo-ist/prose/issues/601) + [#602](https://github.com/solo-ist/prose/issues/602) must conclude before the Paid Platform build starts; [#603](https://github.com/solo-ist/prose/issues/603) is a light confirmation; [#616](https://github.com/solo-ist/prose/issues/616) validates Track B's scope before building it.
 - **Board hygiene (hard rules):**

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, type MouseEvent, type KeyboardEvent } from 'react'
 import { Reorder } from 'framer-motion'
-import { X, FileText, Eye, Plus } from 'lucide-react'
+import { X, FileText, Eye, Plus, Star, ExternalLink } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useTabStore, type Tab } from '../../stores/tabStore'
 import { useEditorStore } from '../../stores/editorStore'
@@ -23,6 +23,7 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { useTabEmoji } from '../../hooks/useTabEmoji'
 import { regenerateEmoji } from '../../lib/emojiService'
 import { useSettings } from '../../hooks/useSettings'
+import { isMacOS } from '../../lib/browserApi'
 
 interface TabBarProps {
   onTabClick: (tabId: string) => void
@@ -278,6 +279,23 @@ function TabItem({
     regenerateEmoji(tab)
   }, [tab])
 
+  // Add the tab's file to global Favorites. Untitled (unsaved) tabs have no
+  // path to point at, so the menu item is disabled for them. Dedup by path
+  // like the file-tree version (FileListPanel.addPathAsFavorite).
+  const handleAddFavorite = useCallback(() => {
+    if (!tab.path) return
+    const existing = useSettingsStore.getState().settings.favorites ?? []
+    if (existing.some((f) => f.path === tab.path)) return
+    const name = tab.path.split('/').pop() || tab.path
+    useSettingsStore.getState().addFavorite({
+      id: self.crypto.randomUUID(),
+      name,
+      path: tab.path,
+      isDirectory: false,
+      addedAt: new Date().toISOString(),
+    })
+  }, [tab.path])
+
   // Shorten path: replace /Users/<username> with ~
   const displayPath = tab.path?.replace(/^\/Users\/[^/]+/, '~') ?? null
 
@@ -416,25 +434,33 @@ function TabItem({
         </ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuItem onClick={onClose}>
-            Close
+            Close Tab
           </ContextMenuItem>
           <ContextMenuItem
             onClick={onCloseOthers}
             disabled={tabs.length <= 1}
           >
-            Close Others
+            Close All Other Tabs
           </ContextMenuItem>
-          <ContextMenuSeparator />
+          <ContextMenuItem onClick={onCloseAll}>
+            Close All Tabs
+          </ContextMenuItem>
           {showEmoji && (
             <>
+              <ContextMenuSeparator />
               <ContextMenuItem onClick={handleRegenEmoji}>
                 Regenerate Emoji
               </ContextMenuItem>
-              <ContextMenuSeparator />
             </>
           )}
-          <ContextMenuItem onClick={onCloseAll}>
-            Close All
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={handleAddFavorite} disabled={!tab.path}>
+            <Star className="h-4 w-4 mr-2" />
+            Add to Favorites
+          </ContextMenuItem>
+          <ContextMenuItem onClick={onShowInFolder} disabled={!tab.path}>
+            <ExternalLink className="h-4 w-4 mr-2" />
+            {isMacOS() ? 'Show in Finder' : 'Open in File Explorer'}
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>

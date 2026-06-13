@@ -15,6 +15,13 @@ import { executeTool, getAvailableTools, isToolAvailableInMode } from '../../lib
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { cn } from '../../lib/utils'
 import { useReviewStore } from '../../stores/reviewStore'
+import { getApi } from '../../lib/browserApi'
+import { requestBugReport } from '../EnableLoggingDialog'
+
+// GitHub feedback template URLs (mirror the Toolbar "More" menu / Help menu)
+const BUG_REPORT_URL = 'https://github.com/solo-ist/prose/issues/new?template=bug-report.yml'
+const FEATURE_REQUEST_URL = 'https://github.com/solo-ist/prose/issues/new?template=feature-request.yml'
+const MAS_SUPPORT_URL = 'https://solo.ist/prose/support'
 
 // Tool descriptions for autocomplete
 const toolDescriptions: Record<string, string> = {
@@ -43,7 +50,9 @@ const toolDescriptions: Record<string, string> = {
   clear: 'Start a new chat',
   new: 'New blank tab',
   'quick-review': 'Review suggestions one at a time',
-  'review-diff': 'Side-by-side diff of all suggestions'
+  'review-diff': 'Side-by-side diff of all suggestions',
+  'report-bug': 'Report a bug on GitHub',
+  'request-feature': 'Request a feature on GitHub'
 }
 
 // Commands that require arguments (no-arg will show echo)
@@ -78,7 +87,9 @@ const directExecCommands = [
   'list_files',
   'new_file',
   'quick-review',
-  'review-diff'
+  'review-diff',
+  'report-bug',
+  'request-feature'
 ]
 
 // Auto-execute commands: commands that execute with a default prompt when selected from dropdown
@@ -187,7 +198,7 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
       .map(t => t === 'get_outline' ? 'outline' : t)
     const showReviewShortcuts = toolMode !== 'chat' && suggestionCount > 0
     const reviewShortcuts = showReviewShortcuts ? ['quick-review', 'review-diff'] : []
-    return [...tools, 'help', 'clear', 'new', ...reviewShortcuts]
+    return [...tools, 'help', 'clear', 'new', ...reviewShortcuts, 'report-bug', 'request-feature']
   }, [toolMode, suggestionCount])
 
   // Parse the current command from input (e.g., "/list_files " -> "list_files")
@@ -262,6 +273,26 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
       return
     }
 
+    // Handle /report-bug - chat-layer shortcut to the GitHub bug template.
+    // Routes through requestBugReport() to preserve the Sentry opt-in prompt.
+    // MAS builds substitute the Request Support link, matching the toolbar
+    // and Help menu build-conditional behavior. No LLM involvement.
+    if (command.toolName === 'report-bug') {
+      if (getApi().isMasBuild) {
+        getApi().openExternal?.(MAS_SUPPORT_URL)
+      } else {
+        requestBugReport(BUG_REPORT_URL)
+      }
+      return
+    }
+
+    // Handle /request-feature - chat-layer shortcut to the GitHub feature
+    // request template. No LLM involvement.
+    if (command.toolName === 'request-feature') {
+      getApi().openExternal?.(FEATURE_REQUEST_URL)
+      return
+    }
+
     // Handle /help specially
     if (command.toolName === 'help') {
       const { addMessage } = useChatStore.getState()
@@ -292,6 +323,8 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
 • **/open_file** — Open a file
 • **/save_file** — Save to file
 • **/read_file** — Read file contents
+• **/report-bug** — Report a bug on GitHub
+• **/request-feature** — Request a feature on GitHub
 
 *Tip: Select a command from the dropdown to execute it immediately, or type arguments after the command.*`,
         timestamp: new Date()
@@ -553,6 +586,16 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
 
       // Handle /clear and /new (both are direct-exec)
       if (command.toolName === 'clear' || command.toolName === 'new') {
+        setMessage('')
+        setTimeout(() => textareaRef.current?.focus(), 0)
+        await handleDirectExec(command)
+        return
+      }
+
+      // Handle /report-bug and /request-feature — chat-layer feedback
+      // shortcuts. They aren't AI tools, so route them to direct-exec here
+      // before the tool-registry validation below. No LLM involvement.
+      if (command.toolName === 'report-bug' || command.toolName === 'request-feature') {
         setMessage('')
         setTimeout(() => textareaRef.current?.focus(), 0)
         await handleDirectExec(command)

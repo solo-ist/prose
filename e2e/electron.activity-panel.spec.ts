@@ -131,6 +131,39 @@ test.describe('Electron — Activity panel', () => {
     await expect(page.getByTestId('annotation-detached-badge')).toBeVisible()
   })
 
+  test('arrow keys move focus + selection across the tablist (#719)', async () => {
+    // Land on the Chat tab; roving tabindex puts focus on the active tab.
+    const chatTab = page.getByRole('tab', { name: 'Chat' })
+    const activityTab = page.getByRole('tab', { name: /Activity/ })
+    await chatTab.click()
+    await chatTab.focus()
+    await expect(chatTab).toHaveJSProperty('tabIndex', 0)
+    await expect(activityTab).toHaveJSProperty('tabIndex', -1)
+
+    // ArrowRight → focus + select Activity.
+    await page.keyboard.press('ArrowRight')
+    await expect(activityTab).toBeFocused()
+    await expect(activityTab).toHaveAttribute('aria-selected', 'true')
+    await expect(activityTab).toHaveJSProperty('tabIndex', 0)
+    await expect(chatTab).toHaveJSProperty('tabIndex', -1)
+
+    // ArrowRight wraps back to Chat.
+    await page.keyboard.press('ArrowRight')
+    await expect(chatTab).toBeFocused()
+    await expect(chatTab).toHaveAttribute('aria-selected', 'true')
+
+    // ArrowLeft wraps to the last tab (Activity); End stays on it; Home returns.
+    await page.keyboard.press('ArrowLeft')
+    await expect(activityTab).toBeFocused()
+    await expect(activityTab).toHaveAttribute('aria-selected', 'true')
+    await page.keyboard.press('Home')
+    await expect(chatTab).toBeFocused()
+    await expect(chatTab).toHaveAttribute('aria-selected', 'true')
+    await page.keyboard.press('End')
+    await expect(activityTab).toBeFocused()
+    await expect(activityTab).toHaveAttribute('aria-selected', 'true')
+  })
+
   test('chat actions stay visible on the Activity tab (#688)', async () => {
     // On the Activity tab, the chat action cluster must NOT disappear.
     await page.getByRole('tab', { name: /Activity/ }).click()

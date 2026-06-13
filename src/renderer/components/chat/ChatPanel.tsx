@@ -28,6 +28,8 @@ import { cn } from '../../lib/utils'
 export function ChatPanel() {
   const { messages, isLoading, isStreaming, sendMessage, stopGeneration, clearMessages } = useChat()
   const scrollRef = useRef<HTMLDivElement>(null)
+  const chatTabRef = useRef<HTMLButtonElement>(null)
+  const activityTabRef = useRef<HTMLButtonElement>(null)
   const reviewMode = useReviewMode()
   const [infoOpen, setInfoOpen] = useState(false)
   const [sidebarMode, setSidebarMode] = useState<'chat' | 'activity'>('chat')
@@ -148,6 +150,40 @@ export function ChatPanel() {
     sendMessage(userContent)
   }, [messages, sendMessage])
 
+  // Roving-tabindex arrow-key navigation for the Chat/Activity tablist
+  // (WAI-ARIA tabs pattern). Left/Right move focus between tabs and wrap at
+  // the ends; Home/End jump to the first/last. Activation follows focus.
+  const handleTabKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLButtonElement>) => {
+      const tabs = [
+        { mode: 'chat' as const, ref: chatTabRef },
+        { mode: 'activity' as const, ref: activityTabRef },
+      ]
+      const current = tabs.findIndex((t) => t.mode === sidebarMode)
+      let next = current
+      switch (e.key) {
+        case 'ArrowRight':
+          next = (current + 1) % tabs.length
+          break
+        case 'ArrowLeft':
+          next = (current - 1 + tabs.length) % tabs.length
+          break
+        case 'Home':
+          next = 0
+          break
+        case 'End':
+          next = tabs.length - 1
+          break
+        default:
+          return
+      }
+      e.preventDefault()
+      setSidebarMode(tabs[next].mode)
+      tabs[next].ref.current?.focus()
+    },
+    [sidebarMode]
+  )
+
   const handleNewChat = () => {
     // Land in the chat view so the new conversation is visible, even if the
     // action was invoked from the Activity tab.
@@ -183,11 +219,14 @@ export function ChatPanel() {
         <div className="flex items-center gap-3">
           <div role="tablist" aria-label="Chat panel views" className="flex items-center gap-3">
             <button
+              ref={chatTabRef}
               role="tab"
               aria-selected={sidebarMode === 'chat'}
               aria-controls="chat-tabpanel"
               id="chat-tab-chat"
+              tabIndex={sidebarMode === 'chat' ? 0 : -1}
               onClick={() => setSidebarMode('chat')}
+              onKeyDown={handleTabKeyDown}
               className={cn(
                 'text-sm border-b-2 pb-1 -mb-px transition-colors',
                 sidebarMode === 'chat'
@@ -198,11 +237,14 @@ export function ChatPanel() {
               Chat
             </button>
             <button
+              ref={activityTabRef}
               role="tab"
               aria-selected={sidebarMode === 'activity'}
               aria-controls="chat-tabpanel"
               id="chat-tab-activity"
+              tabIndex={sidebarMode === 'activity' ? 0 : -1}
               onClick={() => setSidebarMode('activity')}
+              onKeyDown={handleTabKeyDown}
               className={cn(
                 'flex items-center gap-1.5 text-sm border-b-2 pb-1 -mb-px transition-colors',
                 sidebarMode === 'activity'

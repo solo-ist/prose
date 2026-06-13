@@ -30,11 +30,13 @@ Scores each dimension 1-5, then computes a composite score (average x 2, range 1
 
 | Score | Route | What it means downstream |
 |-------|-------|------------------------|
-| 1-3 | `auto-fix` | Issues are trivial — `pipeline-fix.yml` pushes a fix commit |
+| 1-3 | `auto-fix` | Issues are trivial — orchestrator dispatches `pipeline-fix.yml` **only if** there's a functional finding to act on (see carve-out) |
 | 4-6 | `review` | Needs human verification — may become `auto-fix-verify` or `hitl-full` depending on PE risk |
 | 7-10 | `complex` | Full human review required — always routes `hitl-full` |
 
 Note: the scorer's threshold label is an input to the orchestrator, which applies its own routing matrix combining it with the PE risk level. The scorer does not directly dispatch anything.
+
+**Nitpick/docs carve-out (#735):** a `1-3` threshold does **not** guarantee `auto-fix`. The orchestrator downgrades nitpick-only (`severity_mix == 1`) or docs/copy/config (`change_type == 1`) findings to `hitl-light` instead — an auto-fix agent has nothing substantive to change there, so it would churn the branch and drive a review → fix → review loop. The `dimensions` you emit are what the orchestrator reads to make this call, so score them honestly. See `pipeline-orchestrate`.
 
 ## Calibration Examples
 

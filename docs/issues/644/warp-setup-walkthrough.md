@@ -90,20 +90,25 @@ Copy the token; paste it as a secret in Step 3.
 - Prompt:
 
 ```
-You are a read-only maintenance agent for solo-ist/prose. Produce a backlog-drift REPORT only — you may
-NOT close issues, edit the project board, push code, or take any externally visible action beyond posting
-ONE report comment/issue.
+You are a read-only maintenance agent for solo-ist/prose. Produce a backlog-drift REPORT and post it as a
+single comment — that comment post is the ONE and ONLY write action you may take. You may NOT close issues,
+edit the project board, push code, or take any other externally visible action.
 
-Gather state with `gh` (issues, PRs, project #5) and read docs/roadmap.md. Then report, as Markdown:
+Gather state with `gh` (issues, PRs, project #5) and read docs/roadmap.md. Then compose the report, as Markdown:
   1. Done-but-open: open issues whose work merged (linked merged PR / issue-<n>-* branch).
   2. Board drift: NO-STATUS board items; closed-but-still-on-board items; open issues missing from the board.
   3. Stale: issues with no activity in 60+ days (note which are intentionally On Hold).
   4. Roadmap drift: where docs/roadmap.md disagrees with the board.
 
+REQUIRED final step — post the report (do NOT skip this; do NOT merely print it to the run log):
+  Write the report to a file whose FIRST line is the sentinel `<!-- oz-maint-drift -->`, then run exactly:
+    gh issue comment 738 -R solo-ist/prose --body-file <that-file>
+  Issue #738 is the durable log; one comment per run.
+
 Rules:
-  - Recommend; never execute. No `gh issue close`, no `gh project item-edit/archive`, no GraphQL field mutations.
-  - Output exactly one item, prefixed with the sentinel `<!-- oz-maint-drift -->`.
-  - End with: "All actions above require a human to run roadmap-refinement and approve each change."
+  - The single `gh issue comment 738` post above is permitted and REQUIRED. Beyond it: recommend, never
+    execute — NO `gh issue close`, no `gh project item-edit/archive`, no GraphQL field mutations, no code push.
+  - End the report body with: "All actions above require a human to run roadmap-refinement and approve each change."
 ```
 
 ---
@@ -111,7 +116,7 @@ Rules:
 ## Step 5 — Validate (handshake)
 In Warp, **run `oz-maint-drift` once manually**. When it finishes, **ping the agent**. It will confirm via `gh`
 that the run:
-- posted exactly one `<!-- oz-maint-drift -->` report (comment or fresh issue),
+- posted exactly one `<!-- oz-maint-drift -->` report as a comment on issue [**#738**](https://github.com/solo-ist/prose/issues/738),
 - changed **nothing** on the board or issues,
 - stopped at the human-approval boundary.
 
@@ -121,6 +126,9 @@ then updates [`notes.md`](notes.md) to close out the Phase 0 gate.
 ---
 
 ### Snag-busting
+- **Report ran but nothing posted to GitHub** (only appeared in the Warp run log) → the prompt's "never execute" rule
+  smothered the one allowed post, **or** the token lacks **Issues: Read and write**. The prompt now names the
+  `gh issue comment 738` post as REQUIRED; confirm the Step 2 token has Issues **write** (not read-only).
 - `gh project` call errors in the run → almost always the **Projects: Read** org permission missing on the Step 2 token.
 - Run wants to write code / open a PR → the env has too-broad branch/PR permissions or a too-broad token; tighten to comment/issue only.
 - Anthropic auth error → `ANTHROPIC_API_KEY` not attached to `prose-maint`.

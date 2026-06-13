@@ -4,6 +4,17 @@ Shared instructions for OpenAI Codex and other non-Claude agents working in this
 
 Claude-specific automation, slash commands, and skills live in `CLAUDE.md` and `.claude/`. When those files contain project architecture or workflow details that are not repeated here, treat them as additional repository guidance unless they conflict with higher-priority instructions from the user, system, or developer.
 
+## Agent Profile
+
+Use the **Trusted Coding** profile (`hz8WBqkgRrbiraXS9b32Sx`) when working in this repo.
+Use the **Review / Untrusted** profile (`2GV3WctmZUInztOStkCUMe`) for read-only review passes.
+
+CLI shortcuts (defined in `~/.zshrc`):
+```sh
+oz-trusted --prompt "..."
+oz-review  --prompt "..."
+```
+
 ## Instruction Precedence
 
 1. Follow system, developer, and direct user instructions first.

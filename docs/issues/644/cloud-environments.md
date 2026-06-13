@@ -23,7 +23,7 @@ to summarize, and posts a **single report** (comment or issue) behind a human-ap
 | Setup commands | `npm ci` *(only if a build/lint step is needed; pure `gh`-query workflows can skip install)* |
 | Secrets | `ANTHROPIC_API_KEY` (summarization). GitHub token scoped to **`issues:write` + `contents:read` only** — no `contents:write`, no `workflows`, no admin. |
 | Branch/PR perms | none — this env cannot create branches or PRs. Comment/issue only. |
-| Output artifact | one Markdown report comment (or a single triage issue), with a `<!-- oz-maint -->` sentinel for dedup |
+| Output artifact | one Markdown report comment on the durable log issue **#738**, prefixed with the `<!-- oz-maint-drift -->` sentinel for dedup |
 
 ## Environment B — `prose-build` (write-capable) · **later, only if needed**
 For background work that changes code (e.g. parallel repo-wide checks, an Oz-side PR-QA pass). **Before standing

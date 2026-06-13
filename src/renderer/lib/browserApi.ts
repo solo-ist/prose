@@ -485,6 +485,9 @@ export const browserApi: ElectronAPI = {
   refreshRecentMenu: async (): Promise<void> => {},
   clearRecentFiles: async (): Promise<void> => {},
 
+  // Native menu state - no-op in browser (no native menu)
+  setReopenClosedTabEnabled: async (): Promise<void> => {},
+
   // Clipboard - use browser API in web mode
   copyToClipboard: async (text: string): Promise<void> => { await navigator.clipboard.writeText(text) },
 

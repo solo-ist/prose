@@ -7,6 +7,12 @@ import { IS_MAS_BUILD } from './env'
 // Store mainWindow reference so we can rebuild the menu after adding recent files
 let _menuWindow: BrowserWindow | null = null
 
+// Tracks whether the renderer's session-only closed-tab stack has entries, so
+// the "Reopen Closed Tab" item can be grayed out when there's nothing to
+// reopen. Renderer-driven via the menu:setReopenClosedTabEnabled IPC handler
+// (see ipc.ts). Defaults to false because the stack is always empty at launch.
+let _reopenClosedTabEnabled = false
+
 // Helper to open an external URL without leaking an unhandled promise
 // rejection if the OS can't open the URL (e.g., no default browser).
 function openExternalUrl(url: string): void {
@@ -144,6 +150,7 @@ export function createMenu(mainWindow: BrowserWindow): void {
         {
           label: 'Reopen Closed Tab',
           accelerator: 'CmdOrCtrl+Shift+T',
+          enabled: _reopenClosedTabEnabled,
           click: (): void => {
             sendMenuAction('reopenClosedTab')
           }
@@ -412,4 +419,15 @@ export function refreshMenu(): void {
   if (_menuWindow && !_menuWindow.isDestroyed()) {
     createMenu(_menuWindow)
   }
+}
+
+/**
+ * Enable or disable the "Reopen Closed Tab" menu item based on whether the
+ * renderer's closed-tab stack has entries. Rebuilds the menu only when the
+ * state actually changes, avoiding needless menu churn on every tab event.
+ */
+export function setReopenClosedTabEnabled(enabled: boolean): void {
+  if (_reopenClosedTabEnabled === enabled) return
+  _reopenClosedTabEnabled = enabled
+  refreshMenu()
 }

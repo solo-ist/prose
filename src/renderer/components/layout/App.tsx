@@ -861,6 +861,20 @@ export function App() {
     return unsubscribe
   }, [openFileInTab, saveFile, saveFileAs, createNewTab, setDialogOpen, toggleChat, toggleFileList, isFileListOpen, setShortcutsDialogOpen, setAboutDialogOpen, editor, handleGoogleSync, handleGoogleImport, reopenLastClosedTab])
 
+  // Keep the native "Reopen Closed Tab" menu item enabled only while the
+  // session-only closed-tab stack has entries. Push the current emptiness to
+  // the main process on mount and whenever it flips (no-op in web mode).
+  useEffect(() => {
+    const api = getApi()
+    api.setReopenClosedTabEnabled(useTabStore.getState().closedTabs.length > 0)
+    return useTabStore.subscribe(
+      (state) => state.closedTabs.length > 0,
+      (hasClosedTabs) => {
+        api.setReopenClosedTabEnabled(hasClosedTabs)
+      }
+    )
+  }, [])
+
   // Handle menu:new custom event (dispatched by Editor keyboard handler for Cmd+N in web mode)
   useEffect(() => {
     const handleMenuNew = () => createNewTab()

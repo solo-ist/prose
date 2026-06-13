@@ -9,7 +9,7 @@ import { withRetry, getNetworkErrorMessage } from '../shared/utils/retry'
 import { getDefaultModel, getDefaultHaikuModel } from '../shared/llm/models'
 import { getSettingsDir, LEGACY_SETTINGS_DIR } from './paths'
 import { clearRecentFiles } from './recentFiles'
-import { refreshMenu } from './menu'
+import { refreshMenu, setReopenClosedTabEnabled } from './menu'
 import { credentialStore } from './credentialStore'
 
 // Credential store keys
@@ -1462,6 +1462,12 @@ export function setupIpcHandlers(): void {
     clearRecentFiles()
     refreshMenu()
     app.clearRecentDocuments()
+  })
+
+  // Menu: Toggle the "Reopen Closed Tab" item based on the renderer's
+  // closed-tab stack (enabled when non-empty). Rebuilds the menu only on change.
+  ipcMain.handle('menu:setReopenClosedTabEnabled', async (_event, enabled: boolean) => {
+    setReopenClosedTabEnabled(!!enabled)
   })
 
   // Shell: Open external URL (for CMD+Click on links)

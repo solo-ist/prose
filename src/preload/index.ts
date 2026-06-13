@@ -277,6 +277,8 @@ export interface ElectronAPI {
   // Recent files
   refreshRecentMenu: () => Promise<void>
   clearRecentFiles: () => Promise<void>
+  // Native menu: enable/disable "Reopen Closed Tab" based on closed-tab stack
+  setReopenClosedTabEnabled: (enabled: boolean) => Promise<void>
   // Clipboard
   copyToClipboard: (text: string) => Promise<void>
   // Sentry error tracking
@@ -545,6 +547,8 @@ const api: ElectronAPI = {
   // Recent files
   refreshRecentMenu: () => ipcRenderer.invoke('recentFiles:refreshMenu'),
   clearRecentFiles: () => ipcRenderer.invoke('recentFiles:clear'),
+  // Native menu: enable/disable "Reopen Closed Tab" based on closed-tab stack
+  setReopenClosedTabEnabled: (enabled: boolean) => ipcRenderer.invoke('menu:setReopenClosedTabEnabled', enabled),
   // Clipboard (routes through main process, bypasses web Permissions Policy)
   copyToClipboard: (text: string) => ipcRenderer.invoke('clipboard:writeText', text),
   // Sentry error tracking

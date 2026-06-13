@@ -47,13 +47,26 @@ else
 fi
 echo ""
 
-# 5. auto-fix-verify verdict exists in orchestrator
-echo "--- Check: auto-fix-verify verdict ---"
-if grep -q "auto-fix-verify" .github/scripts/run-orchestrator.mjs; then
-  echo "PASS"
-else
-  echo "FAIL: auto-fix-verify not found in orchestrator"
+# 5. auto-fix retired: orchestrator must NOT contain auto-fix and MUST contain hitl-light + hitl-full
+echo "--- Check: auto-fix retired in orchestrator (#737) ---"
+AUTOFIX_OK=true
+if grep -q "auto-fix" .github/scripts/run-orchestrator.mjs; then
+  echo "FAIL: run-orchestrator.mjs still contains 'auto-fix' (should be retired per #737)"
+  AUTOFIX_OK=false
   ERRORS=$((ERRORS + 1))
+fi
+if ! grep -q "hitl-light" .github/scripts/run-orchestrator.mjs; then
+  echo "FAIL: run-orchestrator.mjs missing 'hitl-light' verdict"
+  AUTOFIX_OK=false
+  ERRORS=$((ERRORS + 1))
+fi
+if ! grep -q "hitl-full" .github/scripts/run-orchestrator.mjs; then
+  echo "FAIL: run-orchestrator.mjs missing 'hitl-full' verdict"
+  AUTOFIX_OK=false
+  ERRORS=$((ERRORS + 1))
+fi
+if $AUTOFIX_OK; then
+  echo "PASS"
 fi
 echo ""
 
@@ -67,13 +80,13 @@ else
 fi
 echo ""
 
-# 7. PIPELINE_CONTEXT env var in pipeline-fix.yml
-echo "--- Check: PIPELINE_CONTEXT env injection ---"
-if grep -q "PIPELINE_CONTEXT" .github/workflows/pipeline-fix.yml; then
-  echo "PASS"
-else
-  echo "FAIL: PIPELINE_CONTEXT not found in pipeline-fix.yml"
+# 7. pipeline-fix.yml must NOT exist (retired per #737)
+echo "--- Check: pipeline-fix.yml does not exist (#737) ---"
+if [ -f ".github/workflows/pipeline-fix.yml" ]; then
+  echo "FAIL: .github/workflows/pipeline-fix.yml still exists (retired per #737)"
   ERRORS=$((ERRORS + 1))
+else
+  echo "PASS"
 fi
 echo ""
 
@@ -146,13 +159,13 @@ fi
 echo ""
 
 # 13. No id-token: write in workflows that don't need it
-# claude.yml and pipeline-fix.yml legitimately need id-token: write for
-# claude-code-action's OIDC token exchange — skip them.
+# claude.yml legitimately needs id-token: write for
+# claude-code-action's OIDC token exchange — skip it.
 echo "--- Check: No unnecessary id-token: write ---"
 IDTOKEN_OK=true
 for f in .github/workflows/*.yml; do
   case "$(basename "$f")" in
-    claude.yml|pipeline-fix.yml) continue ;;
+    claude.yml) continue ;;
   esac
   if grep -q "id-token: write" "$f"; then
     echo "FAIL: $f has unnecessary id-token: write permission"
@@ -175,13 +188,13 @@ else
 fi
 echo ""
 
-# 15. Direct dispatch step in orchestrate job
-echo "--- Check: Direct dispatch in orchestrate ---"
+# 15. pipeline-triage.yml must NOT dispatch pipeline-fix.yml (retired per #737)
+echo "--- Check: No pipeline-fix dispatch in pipeline-triage (#737) ---"
 if grep -q "gh workflow run pipeline-fix.yml" .github/workflows/pipeline-triage.yml; then
-  echo "PASS"
-else
-  echo "FAIL: orchestrate job missing direct dispatch step"
+  echo "FAIL: pipeline-triage.yml still dispatches pipeline-fix.yml (retired per #737)"
   ERRORS=$((ERRORS + 1))
+else
+  echo "PASS"
 fi
 echo ""
 
@@ -215,23 +228,12 @@ if $YAML_OK; then
 fi
 echo ""
 
-# 18. Unified fix-attempt circuit breaker (383-6)
-# Both ci-gate.yml and pipeline-fix.yml must count BOTH sentinel types
-echo "--- Check: Unified fix-attempt sentinels ---"
-SENTINEL_OK=true
-for f in .github/workflows/ci-gate.yml .github/workflows/pipeline-fix.yml; do
-  if ! grep -q "e2e-fix-attempt:" "$f"; then
-    echo "FAIL: $f missing e2e-fix-attempt sentinel in guard"
-    SENTINEL_OK=false
-    ERRORS=$((ERRORS + 1))
-  fi
-  if ! grep -q "agent-fix-attempt:" "$f"; then
-    echo "FAIL: $f missing agent-fix-attempt sentinel in guard"
-    SENTINEL_OK=false
-    ERRORS=$((ERRORS + 1))
-  fi
-done
-if $SENTINEL_OK; then
+# 18. ci-gate.yml must NOT contain @claude (e2e path must not request an automated fix)
+echo "--- Check: ci-gate.yml has no @claude mention (#737) ---"
+if grep -q "@claude" .github/workflows/ci-gate.yml; then
+  echo "FAIL: ci-gate.yml contains '@claude' — e2e failure path must not request automated fix"
+  ERRORS=$((ERRORS + 1))
+else
   echo "PASS"
 fi
 echo ""
@@ -301,14 +303,13 @@ if $CI_GATE_TRUST_OK; then
 fi
 echo ""
 
-# 23. pipeline-fix fork guard (#726)
-# auto-fix checks out the PR branch and runs an agent with the API key — must skip forks
-echo "--- Check: pipeline-fix fork guard ---"
-if grep -q "is_fork" .github/workflows/pipeline-fix.yml; then
-  echo "PASS"
-else
-  echo "FAIL: pipeline-fix.yml missing fork guard (is_fork)"
+# 23. dispatch.yml must NOT reference pipeline-fix.yml (retired per #737)
+echo "--- Check: dispatch.yml has no pipeline-fix.yml reference (#737) ---"
+if grep -q "pipeline-fix.yml" .github/workflows/dispatch.yml; then
+  echo "FAIL: dispatch.yml still references pipeline-fix.yml (retired per #737)"
   ERRORS=$((ERRORS + 1))
+else
+  echo "PASS"
 fi
 echo ""
 

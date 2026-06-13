@@ -32,9 +32,8 @@ The full workflow chain, trigger to output:
 | `review-feedback.yml` (analyze) | `issue_comment` with `## Code Review` (no verdict trailer) | absence of `<!-- review-feedback-analysis -->`, `<!-- review-verdict: clean -->`, `<!-- review-verdict: issues-found -->` | `<!-- review-feedback-analysis -->`, `<!-- pipeline-bypass-warning -->` | — |
 | `pipeline-triage.yml` (security-gate) | `issue_comment` with `<!-- review-verdict: issues-found -->` | `<!-- security-gate: true -->` in review body | `<!-- orchestrator-verdict: hitl-full -->` (short-circuit) | — |
 | `pipeline-triage.yml` (scorer + PE) | `issue_comment` with `<!-- review-verdict: issues-found -->` (security gate NOT detected) | `<!-- review-verdict: issues-found -->`, absence of `<!-- scorer-output:` / `<!-- pe-output:` | `<!-- scorer-output: {...} -->`, `<!-- pe-output: {...} -->` | — |
-| `pipeline-triage.yml` (orchestrate) | `needs: [run-scorer, run-pe-analysis]` | `<!-- scorer-output: {...} -->`, `<!-- pe-output: {...} -->` | `<!-- orchestrator-verdict: auto-fix\|auto-fix-verify\|hitl-light\|hitl-full -->` | — |
-| `pipeline-fix.yml` | `issue_comment` with `<!-- orchestrator-verdict: auto-fix -->` or `auto-fix-verify` | `<!-- orchestrator-verdict: ... -->`, absence of `<!-- agent-fix-attempt:` AND `<!-- e2e-fix-attempt:` | `<!-- agent-fix-attempt: 1 -->`, `<!-- agent-fix-escalation -->` | — |
-| `dispatch.yml` | `/triage`, `/fix`, `/pipeline` comment | — | — | `pipeline-triage.yml`, `pipeline-fix.yml`, or posts `/review` |
+| `pipeline-triage.yml` (orchestrate) | `needs: [run-scorer, run-pe-analysis]` | `<!-- scorer-output: {...} -->`, `<!-- pe-output: {...} -->` | `<!-- orchestrator-verdict: hitl-light\|hitl-full -->` | — |
+| `dispatch.yml` | `/triage`, `/pipeline` comment | — | — | `pipeline-triage.yml` or posts `/review` |
 | `notify.yml` | PR labeled `needs-review` or `complex` | — | — | Slack webhook |
 
 **Sync hazard:** `run-pe-analysis.mjs` and `claude.yml` auto-review both hardcode the same privilege-boundary path list (`src/main/**`, `src/preload/**`, `electron-builder.*`, `electron.vite.config.*`). If you update one, update the other. `validate-pipeline.sh` invariant #20 enforces this.
@@ -43,7 +42,7 @@ The full workflow chain, trigger to output:
 
 **Dual `/test` trigger:** Posting `/test` on a PR fires BOTH `e2e.yml` (Electron Playwright) and `web-e2e.yml` (browser Playwright) in parallel. This is intentional — it runs the full test matrix. For `pull_request` events, only `e2e.yml` runs automatically; `web-e2e.yml` only runs on `accelerated`-labeled PRs.
 
-**Unified circuit breaker:** Both `ci-gate.yml` and `pipeline-fix.yml` count both `<!-- e2e-fix-attempt:` and `<!-- agent-fix-attempt:` sentinels in their fix-attempt guards. `validate-pipeline.sh` invariant #18 enforces this.
+**Auto-fix retired (#737):** `pipeline-fix.yml` has been removed. `ci-gate.yml` no longer posts `@claude` on E2E failure — it posts a human-readable escalation notice instead. Code mutation goes through a human or an Oz agent as a normal PR. `validate-pipeline.sh` invariant #18 enforces the absence of `@claude` in `ci-gate.yml`.
 
 ---
 
@@ -67,7 +66,7 @@ Before modifying **any** workflow file or dispatch script:
 |-------|----------------------|------------------------------|----------|
 | `github.token` | `github-actions[bot]` | Yes for `issue_comment` triggers | Default for most in-workflow API calls |
 | `secrets.PROJECT_TOKEN` | The PAT owner (human) | Yes | Cross-workflow dispatch, label ops in `orchestrate`, `ci-gate` `/review` posting |
-| `secrets.ANTHROPIC_API_KEY` | N/A (API auth) | N/A | Claude API calls in scorer, PE, auto-fix, auto-review |
+| `secrets.ANTHROPIC_API_KEY` | N/A (API auth) | N/A | Claude API calls in scorer, PE analysis, auto-review |
 
 **Rules:**
 - `github.token` cannot trigger `workflow_dispatch` in another workflow — use `secrets.PROJECT_TOKEN` or `gh workflow run` with a PAT
@@ -144,9 +143,7 @@ To stop untrusted/fork PRs and stranger comments from running up Anthropic spend
 - **Layer 1 (repo setting):** the native fork-PR approval policy is `all_external_contributors` — a maintainer must click "Approve and run" before *any* workflow runs for an external-contributor PR. Since the whole spend chain is rooted in E2E running, this is the primary cut-off. (View/set: `gh api .../actions/permissions/fork-pr-contributor-approval`.)
 - **Layer 2 — `ci-gate.yml` (load-bearing):** `trigger-review`'s "Check PR author trust" step fetches the PR author (`pulls.get` → `pr.user.login`), calls `getCollaboratorPermissionLevel(author)`, and gates "Trigger auto-review" on `steps.trust.outputs.trusted == 'true'` (`write`/`admin`). **This is the gate that actually stops fork-PR auto-review** — the `/review` comment is posted as the `PROJECT_TOKEN` owner (always trusted), so gating the *comment* author can't help; the **PR author** must be checked. This gate has no runtime backstop after it, so it must be reliable — hence permission, not association. Works for same-repo and SHA-fallback (fork) PR numbers.
 - **Runtime permission steps (the gate for direct comments):** `claude.yml` (`auto-review` + `claude`), `dispatch.yml`, and the `/test` branch of `e2e.yml`/`web-e2e.yml` each have a `getCollaboratorPermissionLevel` step that `core.setFailed`s for non-`write`/`admin` callers, blocking spend before the Anthropic call. (We deliberately do **not** add an `author_association` `if:` pre-filter to save a runner — it's unreliable per the warning above and would false-block a private-member maintainer. The runner cost for a blocked stranger is just minutes, no spend.)
-- **`pipeline-fix.yml` fork guard:** auto-fix checks out the PR branch by name and runs an agent with `ANTHROPIC_API_KEY`; a `pulls.get` fork check (`pr.head.repo.full_name !== pr.base.repo.full_name` — repo-name comparison, not membership, so it's reliable) skips forks deterministically (`is_fork`).
-
-**Invariants:** `validate-pipeline.sh` **#21** (claude.yml keeps a runtime `getCollaboratorPermissionLevel` gate), **#22** (ci-gate trust step uses `steps.trust.outputs.trusted` + `getCollaboratorPermissionLevel`), **#23** (pipeline-fix has the `is_fork` guard).
+**Invariants:** `validate-pipeline.sh` **#21** (claude.yml keeps a runtime `getCollaboratorPermissionLevel` gate), **#22** (ci-gate trust step uses `steps.trust.outputs.trusted` + `getCollaboratorPermissionLevel`), **#23** (dispatch.yml has no `pipeline-fix.yml` reference — retired per #737).
 
 **Not addressed by trust gating:** a maintainer opening an issue whose body literally contains `@claude` will still fire the `claude` job — that's intended. Avoid the accidental self-trigger by not writing a bare `@claude` in issue prose.
 
@@ -170,7 +167,7 @@ When Anthropic releases new model versions, update all three files. Consider usi
 
 The `validate-pipeline.sh` script checks for stale model IDs — update its patterns when adding new models.
 
-**`claude-code-action@v1` model pinning.** The action does not expose a `model:` input — it delegates to the bundled Claude Code CLI, which the action rolls forward on every release. CLI defaults can change silently (the May 8–9 default shift to Opus 4.7 sent daily CI spend from ~$2 to $36 on identical workload). Always pass `--model <id>` via `claude_args` on every `claude-code-action@v1` invocation. Current pin: `claude-sonnet-4-6` in `claude.yml` (auto-review + `@claude` handler) and `pipeline-fix.yml`.
+**`claude-code-action@v1` model pinning.** The action does not expose a `model:` input — it delegates to the bundled Claude Code CLI, which the action rolls forward on every release. CLI defaults can change silently (the May 8–9 default shift to Opus 4.7 sent daily CI spend from ~$2 to $36 on identical workload). Always pass `--model <id>` via `claude_args` on every `claude-code-action@v1` invocation. Current pin: `claude-sonnet-4-6` in `claude.yml` (auto-review + `@claude` handler).
 
 ---
 
@@ -182,7 +179,7 @@ When dispatching cloud agents (via `/accelerate` or manual `gh workflow run`):
 Before dispatching multiple agents in parallel, check for file overlap. Two agents editing the same file will create merge conflicts. Use integration branches or sequential dispatch for overlapping scopes.
 
 ### The "implementer never merges" rule
-The agent session that implements changes should NOT merge the PR. A separate review step (human or automated) must validate before merge. This is enforced by the pipeline structure: auto-fix agents push commits, then the pipeline re-runs review.
+The agent session that implements changes should NOT merge the PR. A separate review step (human or automated) must validate before merge.
 
 ### Pre-flight for dispatch
 1. Confirm the target workflow accepts `workflow_dispatch` with the expected inputs

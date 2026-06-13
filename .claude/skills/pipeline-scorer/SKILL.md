@@ -30,8 +30,8 @@ Scores each dimension 1-5, then computes a composite score (average x 2, range 1
 
 | Score | Route | What it means downstream |
 |-------|-------|------------------------|
-| 1-3 | `auto-fix` | Issues are trivial — `pipeline-fix.yml` pushes a fix commit |
-| 4-6 | `review` | Needs human verification — may become `auto-fix-verify` or `hitl-full` depending on PE risk |
+| 1-3 | `hitl-light` | Issues are low complexity — human or Oz agent reviews and decides on a fix |
+| 4-6 | `review` | Needs human verification — routes `hitl-light` or `hitl-full` depending on PE risk |
 | 7-10 | `complex` | Full human review required — always routes `hitl-full` |
 
 Note: the scorer's threshold label is an input to the orchestrator, which applies its own routing matrix combining it with the PE risk level. The scorer does not directly dispatch anything.

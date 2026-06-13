@@ -291,7 +291,6 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
-      actions: write          # needed for gh workflow run (direct dispatch)
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -336,40 +335,11 @@ jobs:
           gh pr comment "${{ steps.pr.outputs.number }}" \
             --body-file /tmp/orchestrator-output.md
 
-      - name: Dispatch auto-fix if routed
-        env:
-          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
-          PR_NUMBER: ${{ steps.pr.outputs.number }}
-          REPO: ${{ github.repository }}
-        run: |
-          VERDICT=$(cat /tmp/orchestrator-verdict.txt)
-          if [ "$VERDICT" = "auto-fix" ] || [ "$VERDICT" = "auto-fix-verify" ]; then
-            # Circuit breaker: only dispatch once per PR
-            LABELS=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '.labels[].name')
-            if echo "$LABELS" | grep -q "auto-fix-dispatched"; then
-              echo "::warning::Auto-fix already dispatched for this PR. Skipping to prevent loop."
-              gh pr comment "$PR_NUMBER" --repo "$REPO" \
-                --body "<!-- auto-fix-circuit-breaker -->
-          > **Auto-fix cycle exhausted.** A fix was already attempted for this PR. Escalating to human review."
-              gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "needs-review"
-            else
-              echo "Dispatching pipeline-fix.yml for PR #$PR_NUMBER (verdict: $VERDICT)"
-              gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "auto-fix-dispatched"
-              gh workflow run pipeline-fix.yml \
-                --repo "$REPO" \
-                -f pr_number="$PR_NUMBER"
-            fi
-          else
-            echo "Verdict '$VERDICT' does not require auto-fix dispatch."
-          fi
-
       - name: Ensure pipeline labels exist
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
-          gh label create "auto-fix-queued" --repo "$REPO" --color "0E8A16" --description "Queued for automated fix" --force || true
-          gh label create "auto-fix-dispatched" --repo "$REPO" --color "1D76DB" --description "Auto-fix workflow dispatched" --force || true
           gh label create "complex" --repo "$REPO" --color "D93F0B" --description "Complex changes requiring full review" --force || true
           gh label create "needs-review" --repo "$REPO" --color "FBCA04" --description "Awaiting human review" --force || true
 
@@ -381,12 +351,6 @@ jobs:
         run: |
           VERDICT=$(cat /tmp/orchestrator-verdict.txt)
           case "$VERDICT" in
-            auto-fix)
-              gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "auto-fix-queued"
-              ;;
-            auto-fix-verify)
-              gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "auto-fix-queued,needs-review"
-              ;;
             hitl-light)
               gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "needs-review"
               ;;

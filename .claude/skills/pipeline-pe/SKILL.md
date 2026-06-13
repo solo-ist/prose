@@ -39,7 +39,7 @@ The PE agent evaluates changes across five dimensions:
 
 | Level | Meaning | Routing Impact | Example |
 |-------|---------|---------------|---------|
-| LOW | Standard changes, well-contained | `auto-fix` eligible (if score ≤ 3) | Fixing a typo in a UI string |
+| LOW | Standard changes, well-contained | `hitl-light` (human or Oz agent reviews) | Fixing a typo in a UI string |
 | MEDIUM | Some architectural concern | `hitl-full` (if score ≥ 4) or `hitl-light` (if score ≤ 3) | Adding a new Zustand store with cross-store subscription |
 | HIGH | Significant risk, multiple concerns | `hitl-full` | Changing the IPC channel protocol |
 | CRITICAL | Security, data loss, or systemic risk | `hitl-full` (always) | Weakening CSP, disabling contextIsolation |
@@ -52,7 +52,7 @@ PRs touching these paths are auto-flagged as `privileged: true`:
 - `electron-builder.*` — build/packaging config (signing, fuses, entitlements)
 - `electron.vite.config.*` — build config (define blocks, entry points)
 
-**`privileged: true` is a routing directive, not a bug.** It forces `hitl-full` regardless of score. This is correct — changes to the trust boundary between renderer and main process should always have human review. Don't lower this flag to get auto-fix routing.
+**`privileged: true` is a routing directive, not a bug.** It forces `hitl-full` regardless of score. This is correct — changes to the trust boundary between renderer and main process should always have human review.
 
 ## LOW vs MEDIUM Decision Guide
 

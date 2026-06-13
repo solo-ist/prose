@@ -4,7 +4,10 @@
  * Reads all PR comments from /tmp/all-comments.txt, extracts the scorer
  * and PE sentinel JSON, applies the routing matrix, and writes:
  *   - /tmp/orchestrator-output.md  (comment to post)
- *   - /tmp/orchestrator-verdict.txt (single word: auto-fix|hitl-light|hitl-full)
+ *   - /tmp/orchestrator-verdict.txt (single word: hitl-light|hitl-full)
+ *
+ * Auto-fix was retired in #737. The pipeline is review + triage only.
+ * Code mutation goes through a human or an Oz agent as a normal PR.
  *
  * Environment variables:
  *   PR_NUMBER - Pull request number
@@ -51,6 +54,9 @@ console.log(`PE: risk=${pe.risk}, privileged=${pe.privileged}, concerns=${pe.con
 
 // ---------------------------------------------------------------------------
 // Routing matrix
+// Auto-fix retired per #737 — pipeline is review+triage only.
+// All verdicts are either hitl-light or hitl-full; code mutation
+// goes through a human or an Oz agent as a normal PR.
 // ---------------------------------------------------------------------------
 
 function route(score, risk, privileged) {
@@ -66,11 +72,11 @@ function route(score, risk, privileged) {
 
   // Medium score range
   if (score >= 4) {
-    return risk === 'LOW' ? 'auto-fix-verify' : 'hitl-full'
+    return risk === 'LOW' ? 'hitl-light' : 'hitl-full'
   }
 
-  // Low score range (1-3)
-  return risk === 'LOW' ? 'auto-fix' : 'hitl-light'
+  // Low score range (1-3) — always human-routed
+  return 'hitl-light'
 }
 
 const verdict = route(scorer.score, pe.risk, pe.privileged)
@@ -82,8 +88,6 @@ console.log(`Verdict: ${verdict}`)
 // ---------------------------------------------------------------------------
 
 const labelMap = {
-  'auto-fix': 'auto-fix-queued',
-  'auto-fix-verify': 'auto-fix-queued,needs-review',
   'hitl-light': 'needs-review',
   'hitl-full': 'complex,needs-review',
 }
@@ -95,8 +99,6 @@ const labels = labelMap[verdict] || 'needs-review'
 // ---------------------------------------------------------------------------
 
 const routeDescriptions = {
-  'auto-fix': 'Automated fix — Claude Code will attempt to push a fix commit.',
-  'auto-fix-verify': 'Automated fix with verification — Claude Code will push a fix, then human reviews.',
   'hitl-light': 'Light human review — analyses posted, awaiting human verification.',
   'hitl-full': 'Full human review — complex or high-risk changes require human attention.',
 }
@@ -129,7 +131,7 @@ ${securityNote}${criticalNote}
 ${pe.privileged ? '- **Security gate triggered** — privilege-boundary files detected\n' : ''}- Applied labels: \`${labels}\`
 
 ---
-*Pipeline triage complete. ${verdict === 'auto-fix' || verdict === 'auto-fix-verify' ? 'Auto-fix workflow will be triggered.' : 'Awaiting human action.'}*
+*Pipeline triage complete. Awaiting human action.*
 `
 
 writeFileSync('/tmp/orchestrator-output.md', output, 'utf-8')

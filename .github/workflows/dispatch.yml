@@ -18,7 +18,6 @@ jobs:
       !contains(github.event.comment.body, '<!-- dispatch-generated -->') &&
       (
         contains(github.event.comment.body, '/triage') ||
-        contains(github.event.comment.body, '/fix') ||
         contains(github.event.comment.body, '/pipeline')
       )
     runs-on: ubuntu-latest
@@ -67,8 +66,6 @@ jobs:
             echo "command=pipeline" >> "$GITHUB_OUTPUT"
           elif echo "$COMMENT_BODY" | grep -q '/triage'; then
             echo "command=triage" >> "$GITHUB_OUTPUT"
-          elif echo "$COMMENT_BODY" | grep -q '/fix'; then
-            echo "command=fix" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Dispatch /triage
@@ -78,16 +75,6 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           gh workflow run pipeline-triage.yml \
-            --repo "$REPO" \
-            -f pr_number=${{ steps.pr.outputs.number }}
-
-      - name: Dispatch /fix
-        if: steps.cmd.outputs.command == 'fix'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-        run: |
-          gh workflow run pipeline-fix.yml \
             --repo "$REPO" \
             -f pr_number=${{ steps.pr.outputs.number }}
 
@@ -102,7 +89,7 @@ jobs:
           # Step 1: Trigger a review (same as /review, handled by claude.yml)
           # The review comment will contain a verdict sentinel that auto-triggers
           # pipeline-triage.yml, which runs scorer + PE + orchestrator.
-          # The orchestrator verdict then auto-triggers pipeline-fix.yml if routed.
+          # The orchestrator verdict routes to hitl-light or hitl-full for human action.
           #
           # We just need to acknowledge — claude.yml picks up the /pipeline comment
           # because it also contains the word "pipeline" but its if: checks for /review.
@@ -110,6 +97,6 @@ jobs:
           gh pr comment "$PR_NUMBER" --repo "$REPO" \
             --body "/review
 
-          *Full pipeline triggered. Sequence: review → triage → route → auto-fix (if applicable)*
+          *Full pipeline triggered. Sequence: review → triage → route (human verdict)*
 
           <!-- dispatch-generated -->"

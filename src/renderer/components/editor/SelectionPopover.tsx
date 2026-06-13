@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Editor } from '@tiptap/react'
 import { NodeSelection } from '@tiptap/pm/state'
-import { MessageSquarePlus, Bot, Bold, Italic, Link, Code } from 'lucide-react'
+import { MessageSquarePlus, Bot, Bold, Italic, Link, Code, Superscript, Subscript } from 'lucide-react'
 import { Button } from '../ui/button'
 import { useAnnotationStore } from '../../extensions/ai-annotations'
 import { useEditorStore } from '../../stores/editorStore'
@@ -198,6 +198,32 @@ export function SelectionPopover({ editor, onAddComment, onToggleLink }: Selecti
           >
             <Italic className="h-4 w-4" />
           </Button>
+          <Button
+            size="sm"
+            variant={editor?.isActive('superscript') ? 'default' : 'secondary'}
+            className="h-8 px-2 shadow-md border"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              editor?.chain().focus().unsetSubscript().toggleSuperscript().run()
+            }}
+            title="Superscript (Cmd+Shift+.)"
+          >
+            <Superscript className="h-4 w-4" />
+          </Button>
+          <Button
+            size="sm"
+            variant={editor?.isActive('subscript') ? 'default' : 'secondary'}
+            className="h-8 px-2 shadow-md border"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              editor?.chain().focus().unsetSuperscript().toggleSubscript().run()
+            }}
+            title="Subscript (Cmd+Shift+,)"
+          >
+            <Subscript className="h-4 w-4" />
+          </Button>
         </>
       )}
       <Button
@@ -227,6 +253,19 @@ export function SelectionPopover({ editor, onAddComment, onToggleLink }: Selecti
             title="Code"
           >
             <Code className="h-4 w-4" />
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-8 px-2 shadow-md border"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              editor?.chain().focus().addFootnote().run()
+            }}
+            title="Insert footnote (Cmd+Shift+F)"
+          >
+            <span className="text-xs font-semibold">Fn</span>
           </Button>
           <div className="w-px h-5 bg-border mx-0.5" />
           <Button

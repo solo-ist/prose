@@ -1853,3 +1853,27 @@
   overflow-x: auto;
   margin: 1em 0;
 }
+
+/* Footnotes */
+.prose-editor sup a.footnote-ref {
+  text-decoration: none;
+  font-size: 0.75em;
+}
+
+.prose-editor sup a.footnote-ref:hover {
+  text-decoration: underline;
+}
+
+.prose-editor ol.footnotes {
+  margin-top: 1.5em;
+  padding-top: 1em;
+  border-top: 1px solid hsl(var(--border));
+}
+
+.prose-editor ol.footnotes li {
+  margin: 0.5em 0;
+}
+
+.prose-editor ol.footnotes li p {
+  margin: 0;
+}

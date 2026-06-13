@@ -1,0 +1,121 @@
+import Document from '@tiptap/extension-document'
+import markdownItFootnote from 'markdown-it-footnote'
+import { Footnote as BaseFootnote, FootnoteReference as BaseFootnoteReference, Footnotes as BaseFootnotes } from 'tiptap-footnotes'
+
+const FOOTNOTE_ID_PREFIX = 'footnote-'
+
+function parseFootnoteNumber(raw: string | null | undefined, fallback: number): string {
+  const match = raw?.match(/(\d+)/)
+  return match ? match[1] : String(fallback)
+}
+
+function normalizeMarkdownFootnotesDom(element: HTMLElement): void {
+  const section = element.querySelector('section.footnotes')
+  const markdownList = section?.querySelector('ol.footnotes-list, ol')
+  if (markdownList) {
+    markdownList.classList.remove('footnotes-list')
+    markdownList.classList.add('footnotes')
+    section?.replaceWith(markdownList)
+  }
+
+  element.querySelectorAll('hr.footnotes-sep').forEach((separator) => separator.remove())
+
+  element.querySelectorAll<HTMLAnchorElement>('sup a.footnote-ref').forEach((anchor, index) => {
+    const number = parseFootnoteNumber(anchor.getAttribute('href') ?? anchor.textContent, index + 1)
+    anchor.textContent = number
+    anchor.setAttribute('data-reference-number', number)
+    anchor.setAttribute('data-id', `${FOOTNOTE_ID_PREFIX}${number}`)
+    anchor.setAttribute('href', `#fn:${number}`)
+
+    const sup = anchor.closest('sup')
+    if (sup) {
+      sup.setAttribute('id', `fnref:${number}`)
+    }
+  })
+
+  element.querySelectorAll<HTMLLIElement>('ol.footnotes > li, ol.footnotes-list > li').forEach((item, index) => {
+    const number = parseFootnoteNumber(item.getAttribute('id'), index + 1)
+    item.setAttribute('id', `fn:${number}`)
+    item.setAttribute('data-id', `${FOOTNOTE_ID_PREFIX}${number}`)
+    item.querySelectorAll('a.footnote-backref').forEach((backref) => backref.remove())
+  })
+}
+
+export const DocumentWithFootnotes = Document.extend({
+  content: 'block+ footnotes?'
+})
+
+export const FootnoteReference = BaseFootnoteReference.extend({
+  addStorage() {
+    const parentStorage = this.parent?.() ?? {}
+
+    return {
+      ...parentStorage,
+      markdown: {
+        serialize(state, node) {
+          const number = parseFootnoteNumber(String(node.attrs.referenceNumber ?? ''), 1)
+          state.write(`[^${number}]`)
+        },
+        parse: {
+          setup(markdownit: {
+            renderer: { rules: Record<string, unknown> }
+            use: (plugin: unknown) => void
+          }) {
+            if (!markdownit.renderer.rules.footnote_ref) {
+              markdownit.use(markdownItFootnote)
+            }
+          },
+          updateDOM(element: HTMLElement) {
+            normalizeMarkdownFootnotesDom(element)
+          }
+        }
+      }
+    }
+  }
+})
+
+export const Footnotes = BaseFootnotes.extend({
+  parseHTML() {
+    return [
+      {
+        tag: 'ol.footnotes',
+        priority: 1000
+      },
+      {
+        tag: 'ol.footnotes-list',
+        priority: 1000
+      }
+    ]
+  },
+  addStorage() {
+    const parentStorage = this.parent?.() ?? {}
+
+    return {
+      ...parentStorage,
+      markdown: {
+        serialize(state, node) {
+          if (node.childCount === 0) return
+
+          state.ensureNewLine()
+          state.write('\n')
+
+          node.forEach((footnote, _offset, index) => {
+            const number = index + 1
+            const value = footnote.textContent.trim()
+            state.write(`[^${number}]: ${state.esc(value)}`)
+            state.write('\n')
+          })
+
+          state.closeBlock(node)
+        },
+        parse: {
+          updateDOM(element: HTMLElement) {
+            normalizeMarkdownFootnotesDom(element)
+          }
+        }
+      }
+    }
+  }
+})
+
+export const Footnote = BaseFootnote

@@ -19,6 +19,8 @@ import yaml from 'highlight.js/lib/languages/yaml'
 import Placeholder from '@tiptap/extension-placeholder'
 import Link from '@tiptap/extension-link'
 import Underline from '@tiptap/extension-underline'
+import Superscript from '@tiptap/extension-superscript'
+import Subscript from '@tiptap/extension-subscript'
 import Table from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
 import TableCell from '@tiptap/extension-table-cell'
@@ -37,6 +39,7 @@ import { SearchHighlight } from '../../extensions/search-highlight'
 import { LinkHover } from '../../extensions/link-hover'
 import { PlainTextMode } from '../../extensions/plain-text-mode'
 import { ImageWithUpload } from '../../extensions/image'
+import { DocumentWithFootnotes, Footnote, FootnoteReference, Footnotes } from '../../extensions/footnotes'
 import { PersistentSelection } from '../../extensions/persistent-selection'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
@@ -176,8 +179,10 @@ export function Editor() {
         heading: {
           levels: [1, 2, 3, 4, 5, 6]
         },
+        document: false,
         codeBlock: false
       }),
+      DocumentWithFootnotes,
       CodeBlockLowlight.configure({
         lowlight,
       }),
@@ -194,6 +199,8 @@ export function Editor() {
         }
       }),
       Underline,
+      Superscript,
+      Subscript,
       Table.configure({
         resizable: false,
         HTMLAttributes: {
@@ -207,6 +214,9 @@ export function Editor() {
       TaskItem.configure({
         nested: true
       }),
+      Footnotes,
+      Footnote,
+      FootnoteReference,
       Markdown.configure({
         html: true,
         tightLists: true,
@@ -742,11 +752,29 @@ export function Editor() {
       if (editor) {
         editor.chain().focus().toggleUnderline().run()
       }
+    } else if (isMod && e.shiftKey && e.code === 'Period') {
+      // Cmd+Shift+.: Superscript
+      e.preventDefault()
+      if (editor) {
+        editor.chain().focus().unsetSubscript().toggleSuperscript().run()
+      }
+    } else if (isMod && e.shiftKey && e.code === 'Comma') {
+      // Cmd+Shift+,: Subscript
+      e.preventDefault()
+      if (editor) {
+        editor.chain().focus().unsetSuperscript().toggleSubscript().run()
+      }
     } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'x') {
       // Cmd+Shift+X: Strikethrough
       e.preventDefault()
       if (editor) {
         editor.chain().focus().toggleStrike().run()
+      }
+    } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'f') {
+      // Cmd+Shift+F: Insert footnote citation
+      e.preventDefault()
+      if (editor) {
+        editor.chain().focus().addFootnote().run()
       }
     } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'e') {
       // Cmd+Shift+E: Toggle source view (disabled in read-only mode)

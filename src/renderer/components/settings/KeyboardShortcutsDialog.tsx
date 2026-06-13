@@ -56,7 +56,10 @@ const shortcutSections: ShortcutSection[] = [
       { keys: [modKey, 'B'], description: 'Bold' },
       { keys: [modKey, 'I'], description: 'Italic' },
       { keys: [modKey, 'U'], description: 'Underline' },
+      { keys: [modKey, '⇧', '.'], description: 'Superscript' },
+      { keys: [modKey, '⇧', ','], description: 'Subscript' },
       { keys: [modKey, '⇧', 'X'], description: 'Strikethrough' },
+      { keys: [modKey, '⇧', 'F'], description: 'Insert footnote citation' },
       { keys: [modKey, 'K'], description: 'Insert link' },
       { keys: [modKey, altKey, '1-6'], description: 'Heading level' },
     ]

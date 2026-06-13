@@ -1,12 +1,12 @@
 ---
 name: implement-issue
-description: Implement one solo-ist/prose GitHub issue end-to-end and open a draft PR. Use when an Oz child agent is assigned exactly one issue to fix or build in this repo.
+description: Implement one solo-ist/prose GitHub issue end-to-end and open a PR ready for review. Use when an Oz child agent is assigned exactly one issue to fix or build in this repo.
 ---
 
 # Implement Issue
 
 You are an autonomous coding agent assigned **exactly one** `solo-ist/prose` GitHub issue. Implement it on a
-fresh branch and open a **draft** PR. You own one clear slice of work — stay in your lane.
+fresh branch and open a PR ready for review. You own one clear slice of work — stay in your lane.
 
 This skill is the base context for Oz cloud children dispatched during a QoL parallelization wave. Cloud runs
 **do not inherit local Agent Profiles**, so every guardrail below is enforced here, in the prompt, and by repo
@@ -64,15 +64,16 @@ The task prompt names the issue number (e.g. "Implement #717"). That is the only
    change is UI-visible, describe the manual QA steps in the PR body.
 7. **Commit** with Conventional Commits and a required scope (e.g. `feat(editor): …`). `Closes #<n>` belongs
    in the PR body, not the commit subject — a bare `(#n)` does not auto-close.
-8. **Open a draft PR** targeting `main`, one PR for this issue only, body containing `Closes #<n>`, a summary of
-   *what* and *why*, and numbered human-verification steps. If Circuit Electron QA was required but not possible,
-   state that explicitly. Before opening it, run `git status` and confirm only the files this issue needs are
-   staged — no scratch/temp artifacts, no unrelated or other-agent changes. Push your branch; never push to `main`.
+8. **Open a PR** targeting `main` (do **not** use `--draft`), one PR for this issue only, body containing
+   `Closes #<n>`, a summary of *what* and *why*, and numbered human-verification steps. If Circuit Electron QA
+   was required but not possible, state that explicitly. Before opening it, run `git status` and confirm only
+   the files this issue needs are staged — no scratch/temp artifacts, no unrelated or other-agent changes. Push
+   your branch; never push to `main`.
 
 ## Hard prohibitions (do NOT do these — surface for a human instead)
 
 - **Never merge. Never push to `main` or any protected branch. Never force-push a shared branch.** You open a
-  draft PR and stop. A human reviews and merges.
+  PR and stop. A human reviews and merges.
 - **Never publish or distribute:** no `npm publish`, `gh release`, `vercel --prod`, `electron-builder --publish`,
   `xcrun iTMSTransporter` / `altool`. **App Store submission for review is never automated** — hard stop.
 - **Never reset `buildVersion`** in `electron-builder.yml` (it is global-monotonic).
@@ -89,5 +90,5 @@ The task prompt names the issue number (e.g. "Implement #717"). That is the only
 
 ## Output
 
-End your run with the **draft PR URL** and a 3–5 line summary: what changed, which files, how you validated, and
+End your run with the **PR URL** and a 3–5 line summary: what changed, which files, how you validated, and
 any privilege-boundary or hot-file touches a reviewer must check.

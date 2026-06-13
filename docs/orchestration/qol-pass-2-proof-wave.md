@@ -17,15 +17,19 @@ CI review/triage → human QA → serial merge.
 > 2. After Batch 1 is reviewed, QA'd, and **merged**, run `/plan` again for **Batch 2** (so its children branch
 >    off the updated `main` and don't collide with Batch-1 changes).
 >
-> The `implement-issue` skill is on `main` (PR #734 merged), so `solo-ist/prose:implement-issue` resolves for
-> cloud children. The bare name `implement-issue` only resolves for *local* runs.
+> The `implement-issue` skill must live in **`.agents/skills/`** on `main` — that's the directory Oz's cloud
+> resolver indexes (a copy in `.claude/skills/` alone does NOT resolve for cloud). With it there,
+> `solo-ist/prose:implement-issue` resolves for cloud children. The bare name `implement-issue` only resolves
+> for *local* runs.
 
 ## The per-child contract
 
 - **One child = one issue.** Each child loads the **`implement-issue`** skill
-  (`.claude/skills/implement-issue/`), referenced **fully-qualified for cloud** as
-  `solo-ist/prose:implement-issue` (resolved from `main`); the prompt names the single issue number.
-- **Environment:** `prose` (`erUdWNSiECqkTQ7BXj6J4Y`) — write-capable, `npm ci --include=dev`.
+  (`.agents/skills/implement-issue/`, mirrored from `.claude/skills/`), referenced **fully-qualified for cloud**
+  as `solo-ist/prose:implement-issue` (resolved from `main`); the prompt names the single issue number.
+- **Environment:** `prose-build` (`erUdWNSiECqkTQ7BXj6J4Y`) — write-capable. Setup is `npm ci` only; GitHub auth
+  comes from the Oz-injected `GH_TOKEN` at **runtime** (do NOT `gh auth login` in setup — secrets aren't
+  injected during the setup phase).
 - **Output:** a **draft PR** with `Closes #<n>`, one PR per issue. The child **never merges, never pushes to
   `main`, never publishes**. A human reviews and merges.
 - **Stay in lane:** change only the files that issue needs; avoid the shared hot files

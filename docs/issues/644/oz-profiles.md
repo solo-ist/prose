@@ -49,6 +49,71 @@ Encodes the security rules and operational footguns from `CLAUDE.md` and `.claud
 | **MAS versioning** | edits that reset `buildVersion` (it is global-monotonic — never reset on a marketing bump) |
 | **Board field defs** | any GraphQL `updateProjectV2Field` mutation (silently wipes board status) — board ops are limited to `gh project item-{edit,add,archive}` |
 
+### Denylist — paste-ready command patterns
+Drop these into Warp's "always ask" command list (wildcards shown as `*`; adjust to Warp's matcher if it uses
+prefix-match rather than globs):
+
+```text
+# Secrets (reading) — prefer the Read-files axis deny for full coverage
+cat .env
+cat .env.*
+cat .mcp.json
+cat build/*.provisionprofile
+cat *.p8
+
+# Destructive filesystem / git
+rm -rf *
+rm -fr *
+git reset --hard*
+git push --force*
+git push -f*
+git push * main*
+git clean -fd*
+git branch -D *
+
+# Process-kill footguns
+pkill -f node*
+pkill node
+killall node
+killall Electron
+pkill -f Electron*
+kill -9 *
+
+# Publishing / distribution
+npm publish*
+gh release*
+vercel --prod*
+vercel deploy --prod*
+electron-builder*--publish*
+xcrun iTMSTransporter*
+xcrun altool*
+
+# Network mutation
+curl *-X POST*
+curl *-X PUT*
+curl *-X DELETE*
+curl *-X PATCH*
+curl *--request*
+wget *--post*
+gh api graphql*
+gh api *-X POST*
+gh api *-X PUT*
+gh api *-X DELETE*
+gh api *-X PATCH*
+```
+
+**Notes:**
+- **Precedence** — ensure the denylist is evaluated *before* the `gh api *` / `npm run *` allows (more-specific
+  match wins). If Warp doesn't do that, narrow those allows (e.g. drop `gh api *`, keep read-only
+  `gh issue/pr/project/run` allows) — the gated `gh api graphql*` / `gh api *-X POST*` entries are the risky ones.
+- **Two rules aren't shell commands:** reading secrets is cleanest via the **Read-files axis** deny
+  (`.env*`, `.mcp.json`, `build/*.provisionprofile`, `*.p8`) since the `cat` entries only catch one reader;
+  and a **`buildVersion` reset** is an *edit* to `electron-builder.yml`, enforced by diff review + the house rule,
+  not the command denylist.
+- **App Store submission for review = hard no** (human only) — no single CLI exists; gating the `xcrun altool` /
+  `iTMSTransporter` uploads covers the automatable surface. Building (`npm run build:mas`) stays allowed; only
+  upload/publish is gated.
+
 ### House-rule reminders baked into the profile prompt
 - Never chain bash with `&&`, `;`, or `|` — one command per invocation (matches the user's auto-approve patterns).
 - Worktree git: `git -C <path> <subcmd>`, never `cd <path> && git …`.

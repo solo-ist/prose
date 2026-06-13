@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { FileTree } from '../../files/FileTree'
 import { useTabs } from '../../../hooks/useTabs'
 import { useFileListStore } from '../../../stores/fileListStore'
+import { useSettingsStore } from '../../../stores/settingsStore'
+import { useFavorites } from '../../../stores/projectsStore'
 import type { FileItem } from '../../../types'
 
 interface ListFilesResultProps {
@@ -54,6 +56,27 @@ export function ListFilesResult({ content }: ListFilesResultProps) {
   )
   const { openFileInPreviewTab } = useTabs()
 
+  // Subscribe to favorites once and pass a path Set down the tree (parity with
+  // FileListPanel), so favorited files show the star and the tree avoids a
+  // per-item settingsStore subscription.
+  const favorites = useFavorites()
+  const favoritePaths = useMemo(() => new Set(favorites.map((f) => f.path)), [favorites])
+
+  // Add a path to the persisted favorites list. Idempotent: dedup by path so
+  // re-adding is a no-op. Mirrors FileListPanel.addPathAsFavorite.
+  const addPathAsFavorite = useCallback((path: string, isDirectory: boolean) => {
+    const existing = useSettingsStore.getState().settings.favorites ?? []
+    if (existing.some((f) => f.path === path)) return
+    const name = path.split('/').pop() || path
+    useSettingsStore.getState().addFavorite({
+      id: self.crypto.randomUUID(),
+      name,
+      path,
+      isDirectory,
+      addedAt: new Date().toISOString(),
+    })
+  }, [])
+
   let parsed: ListFilesEnvelope | null = null
   try {
     const cleaned = content.replace(/```json\n?|\n?```/g, '').trim()
@@ -93,10 +116,12 @@ export function ListFilesResult({ content }: ListFilesResultProps) {
     <div className="text-xs">
       <FileTree
         items={files}
+        favoritePaths={favoritePaths}
         expandedFolders={expandedFolders}
         selectedPath={null}
         onFileClick={handleFileClick}
         onFolderToggle={handleFolderToggle}
+        onAddFavorite={addPathAsFavorite}
       />
       {payload.truncated && payload.totalFound !== undefined && (
         <div className="mt-2 text-[11px] text-muted-foreground">

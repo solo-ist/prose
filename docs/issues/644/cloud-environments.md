@@ -12,32 +12,35 @@ run physically cannot push code.
 
 ---
 
-## Environment A — `prose-maint` (read + comment) · **day-one**
+## Environment A — `prose-maint` · `sJWY3YRhhmWx4CnNEr4ZUA` (read + comment)
 For the recurring maintenance workflows (board/roadmap drift, stale triage). Reads the repo + board, uses Claude
 to summarize, and posts a **single report** (comment or issue) behind a human-approval boundary.
 
 | Aspect | Value |
 |---|---|
-| Repo checkout | `solo-ist/prose`, default branch, shallow is fine (read-only) |
-| Runtime image | Node **20** (matches CI — `node-version: 20` in `.github/workflows/e2e.yml`/`web-e2e.yml`) |
-| Setup commands | `npm ci` *(only if a build/lint step is needed; pure `gh`-query workflows can skip install)* |
-| Secrets | `ANTHROPIC_API_KEY` (summarization). GitHub token scoped to **`issues:write` + `contents:read` only** — no `contents:write`, no `workflows`, no admin. |
-| Branch/PR perms | none — this env cannot create branches or PRs. Comment/issue only. |
+| Repo checkout | `solo-ist/prose`, default branch |
+| Runtime image | `warpdotdev/dev-base:latest-agents` (bundles `gh` + agent CLIs) |
+| Setup commands | `cd prose && npm ci --legacy-peer-deps` · `apt-get install -y zip 2>/dev/null \|\| true` · `git config --global user.email '442369+mrangelmarino@users.noreply.github.com'` · `git config --global user.name 'Angel Marino'` |
+| GitHub auth | Runtime `GH_TOKEN` from the Oz App — **do not** `gh auth login` in setup (secrets not injected at setup time) |
+| Secrets | `ANTHROPIC_API_KEY` |
+| Branch/PR perms | none — comment/issue only |
 | Output artifact | one Markdown report comment on the durable log issue **#738**, prefixed with the `<!-- oz-maint-drift -->` sentinel for dedup |
 
-## Environment B — `prose-build` (write-capable) · **later, only if needed**
-For background work that changes code (e.g. parallel repo-wide checks, an Oz-side PR-QA pass). **Before standing
-this up, confirm it isn't just duplicating the existing GitHub Actions pipeline** (`claude.yml` already does
-PR-QA/review with `claude-code-action`). The scheduled maintenance runs are the clear day-one win; this is opt-in.
+## Environment B — `prose-build` · `erUdWNSiECqkTQ7BXj6J4Y` (write-capable)
+For implementation children (one per issue). Creates branches + draft PRs; never merges, never pushes `main`.
 
 | Aspect | Value |
 |---|---|
-| Repo checkout | `solo-ist/prose`, full history (`fetch-depth: 0`) for rebase/branch work |
-| Runtime image | Node **20** + Playwright deps if it runs e2e (`npx playwright install --with-deps`) |
-| Setup commands | `npm ci` |
-| Secrets | `ANTHROPIC_API_KEY` + `PROJECT_TOKEN` (or a PAT with `repo` scope) for branch/PR creation |
-| Branch/PR perms | create branches + **draft** PRs only; **never** merge, never push to `main`/protected branches |
-| Output artifact | a draft PR or a branch + summary comment, always behind human review before merge |
+| Repo checkout | `solo-ist/prose`, full history |
+| Runtime image | `warpdotdev/dev-base:latest-agents` |
+| Setup commands | `cd prose && npm ci --include=dev --no-audit --no-fund` · `apt-get install -y zip 2>/dev/null \|\| true` · `git config --global user.email '442369+mrangelmarino@users.noreply.github.com'` · `git config --global user.name 'Angel Marino'` |
+| GitHub auth | Runtime `GH_TOKEN` from the Oz App — already authenticated for clone/branch/PR. No setup-phase token needed |
+| Secrets | `ANTHROPIC_API_KEY` |
+| Branch/PR perms | create branches + **draft** PRs only; branch protection (`enforce_admins`) blocks merge / push-to-main |
+
+> **Setup command rationale:** `zip` is needed for `npm run build`'s `build:skill` step (absent from the base
+> image by default). The git noreply email pre-empts the GH007 push rejection every agent otherwise hits.
+> Both were discovered during the Wave-1 friction audit (June 2026) and patched into the live envs.
 
 ---
 
@@ -62,12 +65,34 @@ PR-QA/review with `claude-code-action`). The scheduled maintenance runs are the 
 
 ---
 
-## Recreate steps (Warp UI)
-1. Cloud Agents → Environments → **New environment** → name `prose-maint`; set repo `solo-ist/prose`, Node 20.
-2. Setup command: `npm ci` (or leave empty for query-only runs).
-3. Attach secrets: `ANTHROPIC_API_KEY`; create/attach a GitHub token scoped to `issues:write` + `contents:read`.
-4. Set branch/PR permissions to **none** (comment/issue only).
-5. Validate with one manual run of the workflow in [`recurring-workflows.md`](recurring-workflows.md); confirm it
-   posts the report and stops at the approval gate.
-6. *(Deferred)* repeat for `prose-build` with full checkout, `PROJECT_TOKEN`, and draft-PR-only permissions — only
-   after confirming it doesn't duplicate the GitHub Actions pipeline.
+## Recreate steps (CLI)
+
+```bash
+# prose-maint (read + comment)
+oz environment create \
+  --name prose-maint \
+  --docker-image warpdotdev/dev-base:latest-agents \
+  --repo solo-ist/prose \
+  --setup-command "cd prose && npm ci --legacy-peer-deps" \
+  --setup-command "apt-get install -y zip 2>/dev/null || true" \
+  --setup-command "git config --global user.email '442369+mrangelmarino@users.noreply.github.com'" \
+  --setup-command "git config --global user.name 'Angel Marino'"
+# Attach ANTHROPIC_API_KEY secret; set branch/PR perms = none
+
+# prose-build (write-capable)
+oz environment create \
+  --name prose-build \
+  --docker-image warpdotdev/dev-base:latest-agents \
+  --repo solo-ist/prose \
+  --setup-command "cd prose && npm ci --include=dev --no-audit --no-fund" \
+  --setup-command "apt-get install -y zip 2>/dev/null || true" \
+  --setup-command "git config --global user.email '442369+mrangelmarino@users.noreply.github.com'" \
+  --setup-command "git config --global user.name 'Angel Marino'"
+# Attach ANTHROPIC_API_KEY secret; set branch/PR perms = branches + draft PRs only
+```
+
+Validate `prose-build` with a single smoke-test run before fanning out:
+```bash
+oz agent run-cloud -e <ENV_ID> -n smoke \
+  -p "Run: gh issue view 1 -R solo-ist/prose --json number,title && echo OK"
+```

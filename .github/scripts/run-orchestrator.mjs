@@ -53,7 +53,7 @@ console.log(`PE: risk=${pe.risk}, privileged=${pe.privileged}, concerns=${pe.con
 // Routing matrix
 // ---------------------------------------------------------------------------
 
-function route(score, risk, privileged) {
+function route(score, risk, privileged, severityMix, changeType) {
   // Security hard gate: CRITICAL risk or privileged paths always escalate
   if (risk === 'CRITICAL' || privileged) {
     return 'hitl-full'
@@ -69,11 +69,23 @@ function route(score, risk, privileged) {
     return risk === 'LOW' ? 'auto-fix-verify' : 'hitl-full'
   }
 
+  // Low score range (1-3) + LOW risk normally auto-fixes. But nitpick-only
+  // findings (severity_mix === 1 = style/nitpicks) or docs/copy/config changes
+  // (change_type === 1) give an auto-fix agent nothing substantive to change —
+  // it makes cosmetic edits the next review re-flags as fresh nits, driving the
+  // review → fix → review loop. Route those to light human review instead (merge
+  // as-is or apply nits by hand). auto-fix stays for low-score PRs that have at
+  // least one functional finding to act on. See #735.
+  if (risk === 'LOW' && (severityMix === 1 || changeType === 1)) {
+    return 'hitl-light'
+  }
+
   // Low score range (1-3)
   return risk === 'LOW' ? 'auto-fix' : 'hitl-light'
 }
 
-const verdict = route(scorer.score, pe.risk, pe.privileged)
+const dims = scorer.dimensions || {}
+const verdict = route(scorer.score, pe.risk, pe.privileged, dims.severity_mix, dims.change_type)
 
 console.log(`Verdict: ${verdict}`)
 
@@ -109,6 +121,18 @@ const criticalNote = pe.risk === 'CRITICAL'
   ? '\n> **[CRITICAL RISK]** PE analysis flagged critical architectural risk.\n'
   : ''
 
+// The scorer maps any score <= 3 to its own `auto-fix` threshold, but the router
+// downgrades nitpick-only / docs-only findings to hitl-light (see route()). Surface
+// that so the verdict doesn't look inconsistent with the scorer threshold.
+const nitpickDowngrade =
+  verdict === 'hitl-light' && pe.risk === 'LOW' && scorer.score < 4 &&
+  (dims.severity_mix === 1 || dims.change_type === 1)
+const nitpickNote = nitpickDowngrade
+  ? `- Downgraded from \`auto-fix\` → \`hitl-light\`: ${
+      dims.severity_mix === 1 ? 'findings are nitpick-only' : 'docs/copy/config change'
+    } — nothing substantive to auto-fix without churning the branch (#735)\n`
+  : ''
+
 const output = `<!-- orchestrator-verdict: ${verdict} -->
 ## Pipeline Verdict: PR #${PR_NUMBER}
 
@@ -126,7 +150,7 @@ ${securityNote}${criticalNote}
 
 - Scorer threshold: \`${scorer.threshold}\` (score ${scorer.score}/10)
 - PE risk level: \`${pe.risk}\` with ${pe.concerns} concern(s)
-${pe.privileged ? '- **Security gate triggered** — privilege-boundary files detected\n' : ''}- Applied labels: \`${labels}\`
+${nitpickNote}${pe.privileged ? '- **Security gate triggered** — privilege-boundary files detected\n' : ''}- Applied labels: \`${labels}\`
 
 ---
 *Pipeline triage complete. ${verdict === 'auto-fix' || verdict === 'auto-fix-verify' ? 'Auto-fix workflow will be triggered.' : 'Awaiting human action.'}*

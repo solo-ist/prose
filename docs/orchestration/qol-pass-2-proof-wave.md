@@ -35,6 +35,22 @@ chunky Do-First tracks. Per decision, the chunky QoL items stay out of this wave
   (`src/main/ipc.ts`, `src/preload/index.ts`, `settingsStore.ts`, `ChatPanel.tsx`, `Editor.tsx`) unless the
   issue is about them, and call it out in the PR if so.
 
+## Conductor responsibilities (alignment with the existing SDLC)
+
+The `/accelerate` skill is the repo's established issue→agent playbook; this brief is the **Oz** dispatch path,
+not a replacement. To stay consistent with it:
+
+- **Routing source of truth = `/accelerate`'s matrix.** Cloud-dispatch only issues that are isolated, bounded
+  (≤5 files), clear AC, no core-abstraction/Circuit-QA needs; everything else routes **local**. The proof-wave
+  table already honors this.
+- **`accelerated` label lifecycle** (per `/accelerate`): the **conductor** (not the child — the child's skill
+  forbids board/label mutation) adds `accelerated` to each issue on dispatch, updates to `accelerated:pr-open`
+  when the child's PR opens, and removes it on merge. *Decision:* the `accelerated` label also triggers
+  `web-e2e.yml`; keep it for tracking parity (recommended), or skip the label if browser-e2e on these renderer
+  Quick Wins is unwanted noise.
+- **Links + one-at-a-time merge** (CLAUDE.md): surface every child run/PR URL; merge serially after green CI +
+  `claude[bot]` review + local QA.
+
 ## Proof wave (this run)
 
 Clean, isolated, renderer-only — the recommended first launch:
@@ -71,8 +87,11 @@ Optional 5th renderer item if you want a wider first batch:
 
 ## Merge strategy (fan-in)
 
-1. Each draft PR triggers the existing CI: E2E, then `claude[bot]` review + `pipeline-triage` (now **triage-only**
-   per #737 — no autonomous auto-fix). Security-gate routes privilege-boundary PRs to `hitl-full`.
+1. Each draft PR triggers the existing CI: E2E, then `claude[bot]` review + `pipeline-triage`. **Caveat (not yet
+   true):** the "triage-only" decision (#737) and its loop-fix (#735, PR #736) are **open/unmerged** — the
+   auto-fix paths are still live (`ci-gate.yml` `e2e-auto-fix` on E2E failure; `pipeline-triage → pipeline-fix`
+   on low-scored reviews). A child's PR could be auto-fixed (the #735 hazard). See the pre-launch gate.
+   Security-gate routes privilege-boundary PRs to `hitl-full`.
 2. Human (Angel) + local Claude QA each PR via HMR / Circuit Electron before merge.
 3. Mark ready, merge **one at a time**; re-run validation on `main` after each. No batch auto-merge.
 
@@ -99,6 +118,10 @@ Cloud children do **not** inherit the `Trusted Coding` / `Review` profiles. Guar
 - [ ] Confirm children authenticate via the **Oz by Warp GitHub App** (team key), not a personal admin PAT —
       Warp → Settings → Admin Panel → Platform → Enabled GitHub Orgs → `solo-ist`.
 - [ ] `ANTHROPIC_API_KEY` (and any model access) available to the `prose` env.
+- [ ] **Auto-fix pipeline** — merge the loop-fix (PR #736, closes #735) and land the triage-only decision
+      (#737), **or** confirm the maintainer-trust gate skips the Oz App's PRs entirely, before relying on
+      "triage-only." Until one of those holds, a child PR can be auto-fixed (`pipeline-fix.yml`) — the #735
+      review→fix loop hazard.
 
 ## Operational notes (from the Oz multi-agent-runs docs)
 

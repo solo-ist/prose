@@ -28,7 +28,12 @@ The task prompt names the issue number (e.g. "Implement #717"). That is the only
 ## Workflow
 
 1. **Read the conventions.** `CLAUDE.md` and `AGENTS.md` at the repo root — commit format (Conventional
-   Commits), branch naming, PR format, security rules, UI conventions. Follow them exactly.
+   Commits), branch naming, PR format, security rules, UI conventions, and AGENTS.md's **Coding Conventions**
+   (`getApi()` over `window.api`; `validatePath()` on filesystem IPC; existing settings paths/types — no new
+   `homedir()+.prose`; gate unfinished features with `featureFlags.ts`; bump `DB_VERSION` for IndexedDB store
+   changes). Follow them exactly. **Instruction precedence** (AGENTS.md): system/user > AGENTS.md > CLAUDE.md
+   > area docs — if the issue conflicts with these, follow the higher-priority source and note the conflict in
+   the PR. For a **complex/multi-file** issue, create `docs/issues/<n>/plan.md` first.
 2. **Fetch the issue.** `gh issue view <n>` (and its comments) to extract the problem and acceptance criteria.
 3. **Inspect before editing.** Locate the relevant files and read the surrounding code. Match its style, naming,
    and comment density. Do not introduce new UI libraries (shadcn/ui only) or new dependencies unless the issue
@@ -37,11 +42,16 @@ The task prompt names the issue number (e.g. "Implement #717"). That is the only
    `git checkout -b issue-<n>-<short-description>`. Confirm you are not on `main`.
 5. **Implement the minimal change** that satisfies the acceptance criteria. Smallest correct diff. No drive-by
    refactors, no unrelated reformatting, no unused imports.
-6. **Validate.** `npm run build` must succeed (there is no unit suite — a clean build/typecheck is the bar).
-   If the change is UI-visible, describe the manual QA steps in the PR body.
-7. **Commit** with Conventional Commits, referencing the issue (`Closes #<n>` belongs in the PR body).
+6. **Validate — smallest sufficient check** (per AGENTS.md): `npm run build` for renderer/main/preload/shared
+   TypeScript; `npm run build:web` for web-specific changes; `npm run test:e2e` for Electron user flows when
+   practical, otherwise build and document manual verification. There is no unit suite — a clean build is the
+   floor. If the change is UI-visible, describe the manual QA steps in the PR body.
+7. **Commit** with Conventional Commits, referencing the issue (`Closes #<n>` belongs in the PR body, not the
+   subject — a bare `(#n)` does not auto-close).
 8. **Open a draft PR** targeting `main`, one PR for this issue only, body containing `Closes #<n>`, a summary of
-   *what* and *why*, and numbered human-verification steps. Push your branch; never push to `main`.
+   *what* and *why*, and numbered human-verification steps. Before opening it, run `git status` and confirm only
+   the files this issue needs are staged — no scratch/temp artifacts, no unrelated or other-agent changes. Push
+   your branch; never push to `main`.
 
 ## Hard prohibitions (do NOT do these — surface for a human instead)
 

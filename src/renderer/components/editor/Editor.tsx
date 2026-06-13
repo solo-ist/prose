@@ -532,8 +532,13 @@ export function Editor() {
   useEffect(() => {
     // Only focus once per document load
     if (hasFocusedRef.current) return
-    // Don't steal focus during preview tab navigation
-    if (useEditorStore.getState().isPreviewTab) return
+    // Don't steal focus during preview tab navigation. Mark focus as handled so a
+    // later promotion to a permanent tab (e.g. the user clicks mid-document) doesn't
+    // re-run this effect and yank the caret/scroll back to the top (#729).
+    if (useEditorStore.getState().isPreviewTab) {
+      hasFocusedRef.current = true
+      return
+    }
 
     const shouldShowEmptyState = !isEditing && !document.path && !document.content && !document.isDirty
     if (editor && !shouldShowEmptyState) {

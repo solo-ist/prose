@@ -87,10 +87,10 @@ Optional 5th renderer item if you want a wider first batch:
 
 ## Merge strategy (fan-in)
 
-1. Each draft PR triggers the existing CI: E2E, then `claude[bot]` review + `pipeline-triage`. **Caveat (not yet
-   true):** the "triage-only" decision (#737) and its loop-fix (#735, PR #736) are **open/unmerged** — the
-   auto-fix paths are still live (`ci-gate.yml` `e2e-auto-fix` on E2E failure; `pipeline-triage → pipeline-fix`
-   on low-scored reviews). A child's PR could be auto-fixed (the #735 hazard). See the pre-launch gate.
+1. Each draft PR triggers the existing CI: E2E, then `claude[bot]` review + `pipeline-triage` — **review +
+   triage only once PR #739 merges** (retires autonomous auto-fix: `pipeline-fix.yml` deleted, orchestrator
+   routes only `hitl-light`/`hitl-full`, E2E failures escalate rather than auto-fix). Until #739 lands the
+   auto-fix paths still exist on `main` (though dispatch is currently broken), so don't launch before it merges.
    Security-gate routes privilege-boundary PRs to `hitl-full`.
 2. Human (Angel) + local Claude QA each PR via HMR / Circuit Electron before merge.
 3. Mark ready, merge **one at a time**; re-run validation on `main` after each. No batch auto-merge.
@@ -118,10 +118,10 @@ Cloud children do **not** inherit the `Trusted Coding` / `Review` profiles. Guar
 - [ ] Confirm children authenticate via the **Oz by Warp GitHub App** (team key), not a personal admin PAT —
       Warp → Settings → Admin Panel → Platform → Enabled GitHub Orgs → `solo-ist`.
 - [ ] `ANTHROPIC_API_KEY` (and any model access) available to the `prose` env.
-- [ ] **Auto-fix pipeline** — merge the loop-fix (PR #736, closes #735) and land the triage-only decision
-      (#737), **or** confirm the maintainer-trust gate skips the Oz App's PRs entirely, before relying on
-      "triage-only." Until one of those holds, a child PR can be auto-fixed (`pipeline-fix.yml`) — the #735
-      review→fix loop hazard.
+- [ ] **Merge PR #739 — retire autonomous auto-fix** (resolves #737/#735, supersedes #736). Removes the
+      mutation engine entirely (`pipeline-fix.yml` deleted; orchestrator routes only `hitl-light`/`hitl-full`;
+      E2E failures escalate, not auto-fix), so a child PR structurally cannot trip a review→fix loop. The
+      pipeline still reviews + triages every child PR.
 
 ## Operational notes (from the Oz multi-agent-runs docs)
 

@@ -25,33 +25,49 @@ The task prompt names the issue number (e.g. "Implement #717"). That is the only
 - **Never read or print secrets:** `.env*`, `.mcp.json`, `build/*.provisionprofile`, any `*.p8`, or
   `~/Library/Application Support/Prose/settings.json`.
 
+## Cloud sandbox rules (enforced here — no local profiles in cloud runs)
+
+- **One command per invocation — never chain with `&&`, `;`, or `|`.** Run each shell command as a separate
+  call. Chaining bypasses the auto-approve allowlist and causes permission failures.
+- **Commit scope is required:** `feat(<scope>):` not bare `feat:`. Match the scope to the subsystem you
+  touched (e.g. `feat(editor):`, `fix(chat):`, `fix(main):`).
+- **Build validation in this sandbox:** `npm run build` may succeed fully now that `zip` is pre-installed.
+  If it still fails at `build:skill`, fall back to `npx electron-vite build` for TypeScript validation — that
+  covers renderer/main/preload. Do **not** use `npx tsc -p tsconfig.json --noEmit`; it produces spurious
+  project-reference errors that are not real type errors.
+- **Circuit Electron / live-app verification is not available in the cloud sandbox.** If the issue's acceptance
+  criteria require it, add an explicit note in the PR body: "Circuit Electron QA could not be performed in
+  the cloud sandbox — manual verification required before merge."
+
 ## Workflow
 
-1. **Read the conventions.** `CLAUDE.md` and `AGENTS.md` at the repo root — commit format (Conventional
-   Commits), branch naming, PR format, security rules, UI conventions, and AGENTS.md's **Coding Conventions**
-   (`getApi()` over `window.api`; `validatePath()` on filesystem IPC; existing settings paths/types — no new
-   `homedir()+.prose`; gate unfinished features with `featureFlags.ts`; bump `DB_VERSION` for IndexedDB store
-   changes). Follow them exactly. **Instruction precedence** (AGENTS.md): system/user > AGENTS.md > CLAUDE.md
-   > area docs — if the issue conflicts with these, follow the higher-priority source and note the conflict in
+1. **Read the conventions first — do not skip this step.** Read `CLAUDE.md` and `AGENTS.md` at the repo root
+   before touching any code. Key rules: Conventional Commits with required scope, branch naming
+   `issue-<n>-<short-description>`, PR body must contain `Closes #<n>`, security rules, UI conventions, and
+   AGENTS.md's **Coding Conventions** (`getApi()` over `window.api`; `validatePath()` on filesystem IPC;
+   existing settings paths/types; gate unfinished features with `featureFlags.ts`; bump `DB_VERSION` for
+   IndexedDB store changes). **Instruction precedence** (AGENTS.md): system/user > AGENTS.md > CLAUDE.md >
+   area docs — if the issue conflicts with these, follow the higher-priority source and note the conflict in
    the PR. For a **complex/multi-file** issue, create `docs/issues/<n>/plan.md` first.
-2. **Fetch the issue.** `gh issue view <n>` (and its comments) to extract the problem and acceptance criteria.
+2. **Fetch the issue.** `gh issue view <n> -R solo-ist/prose` (and its comments) to extract the problem and
+   acceptance criteria. Note any file paths in the issue body exactly as written — do not reconstruct them.
 3. **Inspect before editing.** Locate the relevant files and read the surrounding code. Match its style, naming,
    and comment density. Do not introduce new UI libraries (shadcn/ui only) or new dependencies unless the issue
    requires it.
-4. **Branch.** `git fetch origin`, then branch off fresh `origin/main`:
-   `git checkout -b issue-<n>-<short-description>`. Confirm you are not on `main`.
+4. **Branch.** Run `git fetch origin` as a separate command. Then run `git checkout -b issue-<n>-<short-description>`
+   as a separate command. Confirm you are not on `main`. (Never chain these with `&&`.)
 5. **Implement the minimal change** that satisfies the acceptance criteria. Smallest correct diff. No drive-by
    refactors, no unrelated reformatting, no unused imports.
 6. **Validate — smallest sufficient check** (per AGENTS.md): `npm run build` for renderer/main/preload/shared
-   TypeScript; `npm run build:web` for web-specific changes; `npm run test:e2e` for Electron user flows when
-   practical, otherwise build and document manual verification. There is no unit suite — a clean build is the
-   floor. If the change is UI-visible, describe the manual QA steps in the PR body.
-7. **Commit** with Conventional Commits, referencing the issue (`Closes #<n>` belongs in the PR body, not the
-   subject — a bare `(#n)` does not auto-close).
+   TypeScript (falls back to `npx electron-vite build` if `build:skill` fails — see sandbox rules above).
+   `npm run build:web` for web-specific changes. There is no unit suite — a clean build is the floor. If the
+   change is UI-visible, describe the manual QA steps in the PR body.
+7. **Commit** with Conventional Commits and a required scope (e.g. `feat(editor): …`). `Closes #<n>` belongs
+   in the PR body, not the commit subject — a bare `(#n)` does not auto-close.
 8. **Open a draft PR** targeting `main`, one PR for this issue only, body containing `Closes #<n>`, a summary of
-   *what* and *why*, and numbered human-verification steps. Before opening it, run `git status` and confirm only
-   the files this issue needs are staged — no scratch/temp artifacts, no unrelated or other-agent changes. Push
-   your branch; never push to `main`.
+   *what* and *why*, and numbered human-verification steps. If Circuit Electron QA was required but not possible,
+   state that explicitly. Before opening it, run `git status` and confirm only the files this issue needs are
+   staged — no scratch/temp artifacts, no unrelated or other-agent changes. Push your branch; never push to `main`.
 
 ## Hard prohibitions (do NOT do these — surface for a human instead)
 

@@ -43,7 +43,7 @@ Key areas:
 
 - `src/main/` - Electron main process, IPC, settings, integrations, updater, Sentry, MCP bridge.
 - `src/preload/` - Context bridge for renderer-safe APIs.
-- `src/renderer/` - React app, TipTap editor, Zustand stores, UI components.
+- `src/renderer/` - React app, TipTap editor, Zustand stores, UI components. Chat tool-result renderers live in `src/renderer/components/chat/toolResultRenderers/` (e.g. `ListFilesResult.tsx`).
 - `src/shared/` - Shared schemas, tools, LLM utilities, and cross-process types.
 - `src/mcp-stdio/` - Stdio MCP server used by Claude Desktop.
 - `docs/` - Architecture notes, patterns, issue plans, troubleshooting, release docs, and `docs/roadmap.md` (the canonical roadmap + operating model).
@@ -73,6 +73,11 @@ There is no unit test suite. Choose the smallest verification that covers the ch
 - Web-specific changes: run `npm run build:web` or `npm run test:web` when behavior changed.
 - Electron user flows: run `npm run test:e2e` when practical, otherwise build and document manual verification.
 - E2E test changes: run `npm run typecheck:e2e` and the relevant Playwright command.
+
+**Cloud sandbox note:** If `npm run build` fails at the `build:skill` step (requires `zip`), fall back to
+`npx electron-vite build` — it validates renderer/main/preload TypeScript. Do **not** use
+`npx tsc -p tsconfig.json --noEmit`; it produces spurious project-reference errors (`TS6305`/`TS6306`) that
+are not real type errors in this multi-tsconfig project.
 
 ## Dev Server Safety
 

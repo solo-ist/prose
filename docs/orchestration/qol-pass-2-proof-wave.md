@@ -7,9 +7,14 @@ any child launches.
 
 > **How to run (in Warp, prose repo, env `prose`):**
 > `/plan` → *"Read docs/orchestration/qol-pass-2-proof-wave.md and orchestrate the proof wave: one cloud child
-> per issue in the Proof wave table, each using the `implement-issue` skill."*
+> per issue in the Proof wave table, each using the `solo-ist/prose:implement-issue` skill."*
 > Review the proposed child ownership + merge strategy, then approve to launch. Monitor with `oz run list` /
 > the Oz web app.
+>
+> **The skill must be on the cloned branch.** Cloud children resolve `--skill` against the env's configured
+> repo at its **default branch (`main`)**, so reference it fully-qualified as `solo-ist/prose:implement-issue`
+> and **merge the skill to `main` first** (PR #734). The bare name `implement-issue` only resolves for *local*
+> runs.
 
 ## Why a proof wave first
 
@@ -20,8 +25,9 @@ chunky Do-First tracks. Per decision, the chunky QoL items stay out of this wave
 
 ## The per-child contract
 
-- **One child = one issue.** Each child loads the **`implement-issue`** skill (`.claude/skills/implement-issue/`)
-  as its base context; the prompt names the single issue number.
+- **One child = one issue.** Each child loads the **`implement-issue`** skill
+  (`.claude/skills/implement-issue/`), referenced **fully-qualified for cloud** as
+  `solo-ist/prose:implement-issue` (resolved from `main`); the prompt names the single issue number.
 - **Environment:** `prose` (`erUdWNSiECqkTQ7BXj6J4Y`) — write-capable, `npm ci --include=dev`.
 - **Output:** a **draft PR** with `Closes #<n>`, one PR per issue. The child **never merges, never pushes to
   `main`, never publishes**. A human reviews and merges.
@@ -85,9 +91,22 @@ Cloud children do **not** inherit the `Trusted Coding` / `Review` profiles. Guar
 
 ## Pre-launch gate (must clear before `/orchestrate`)
 
-- [ ] **Enable branch protection on `main`** (currently *unprotected*): require a PR to merge, block direct
-      pushes. Recommended: require the E2E status check; 0 required approvals so Angel can still self-merge.
-      (Decide `enforce_admins` — see hand-off.)
-- [ ] Confirm children authenticate via the **Oz GitHub App** (not a personal admin PAT).
-- [ ] `implement-issue` skill committed and discoverable (`oz agent skills` / present in `.claude/skills/`).
+- [x] **Branch protection on `main`** — applied: PR required, `e2e` must pass, 0 approvals, `enforce_admins`
+      ON (admins included — no direct-to-main, even for Angel), force-push/deletion blocked, conversation
+      resolution required.
+- [ ] **Merge PR #734 to `main`** so the `implement-issue` skill + this brief are on the default branch the
+      cloud env clones. *Without this, `solo-ist/prose:implement-issue` will not resolve for cloud children.*
+- [ ] Confirm children authenticate via the **Oz by Warp GitHub App** (team key), not a personal admin PAT —
+      Warp → Settings → Admin Panel → Platform → Enabled GitHub Orgs → `solo-ist`.
 - [ ] `ANTHROPIC_API_KEY` (and any model access) available to the `prose` env.
+
+## Operational notes (from the Oz multi-agent-runs docs)
+
+- **Parent cancel ≠ child cancel.** Cancelling the `/plan` parent does **not** auto-stop running children — they
+  keep executing (and billing). Stop children explicitly if you abort. List descendants via the run API
+  (`ancestor_run_id`) or `oz run list`.
+- **Children inherit the parent's auth/billing** in agent-driven `/orchestrate`. Run from a context whose GitHub
+  identity you intend (ideally the Oz App). Even if a child ends up acting as an admin, `enforce_admins` on `main`
+  still blocks any merge/direct-push — children can only open PRs.
+- **Concurrency:** Build plan = 20 concurrent agents; the proof wave (≤7) is well within budget. Cloud runs
+  consume Warp credits.

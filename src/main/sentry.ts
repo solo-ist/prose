@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/electron/main'
+import { IPCMode } from '@sentry/electron/main'
 import { app } from 'electron'
 import { is } from '@electron-toolkit/utils'
 
@@ -40,12 +41,24 @@ function beforeSend(event: Sentry.ErrorEvent): Sentry.ErrorEvent | null {
 export function initSentry(enabled: boolean): void {
   if (!enabled || initialized) return
 
+  // The default IPC mode (Protocol + Classic) registers a privileged `sentry-ipc:`
+  // scheme, which @sentry/electron requires to happen BEFORE the app 'ready' event
+  // and otherwise throws "Sentry SDK should be initialized before the Electron app
+  // 'ready' event is fired". The launch-time path (src/main/index.ts) inits before
+  // whenReady so the default is fine there, but the runtime opt-in path (Settings
+  // toggle → sentry:setEnabled) runs after 'ready'. In that case fall back to Classic
+  // IPC, which needs no pre-ready scheme registration. Renderer→main envelope
+  // forwarding is unaffected: the renderer prefers the preload-injected Classic IPC
+  // (window.__SENTRY_IPC__) and only uses the sentry-ipc: protocol as a fallback.
+  const ipcMode = app.isReady() ? IPCMode.Classic : IPCMode.Both
+
   Sentry.init({
     dsn: SENTRY_DSN,
     environment: is.dev ? 'development' : 'production',
     release: app.getVersion(),
     sampleRate: 0.5,
     maxBreadcrumbs: 30,
+    ipcMode,
     beforeSend
   })
   initialized = true

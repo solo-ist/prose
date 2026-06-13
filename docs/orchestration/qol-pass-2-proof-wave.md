@@ -1,27 +1,24 @@
-# QoL Pass 2 — Oz orchestration brief (proof wave)
+# QoL Pass 2 — Oz orchestration brief (first cloud wave)
 
 **Audience:** the Warp Agent *parent* run that orchestrates this wave (via `/plan` → `/orchestrate`), and the
 human conducting it. This is the input you hand `/plan`. It defines the scope, the per-child contract, the
 isolation rules, and the merge strategy so the parent can propose a child breakdown for human approval *before*
 any child launches.
 
+This is the **first** time we drive implementation through Oz cloud children (rather than local Claude Code or
+the `@claude` GitHub-Actions path). It is a real QoL wave — all Quick Wins + four bounded Do-First issues, **12
+issues total** — dispatched in **two batches** to respect file-overlap. Each child does one issue → draft PR →
+CI review/triage → human QA → serial merge.
+
 > **How to run (in Warp, prose repo, env `prose`):**
-> `/plan` → *"Read docs/orchestration/qol-pass-2-proof-wave.md and orchestrate the proof wave: one cloud child
-> per issue in the Proof wave table, each using the `solo-ist/prose:implement-issue` skill."*
-> Review the proposed child ownership + merge strategy, then approve to launch. Monitor with `oz run list` /
-> the Oz web app.
+> 1. `/plan` → *"Read docs/orchestration/qol-pass-2-proof-wave.md and orchestrate **Batch 1**: one cloud child
+>    per Batch-1 issue, each using the `solo-ist/prose:implement-issue` skill."* Review the proposed child
+>    ownership + merge strategy, approve. Monitor with `oz run list` / the Oz web app.
+> 2. After Batch 1 is reviewed, QA'd, and **merged**, run `/plan` again for **Batch 2** (so its children branch
+>    off the updated `main` and don't collide with Batch-1 changes).
 >
-> **The skill must be on the cloned branch.** Cloud children resolve `--skill` against the env's configured
-> repo at its **default branch (`main`)**, so reference it fully-qualified as `solo-ist/prose:implement-issue`
-> and **merge the skill to `main` first** (PR #734). The bare name `implement-issue` only resolves for *local*
-> runs.
-
-## Why a proof wave first
-
-This is the **first** time we drive implementation through Oz cloud children rather than local Claude Code or
-the `@claude` GitHub-Actions path. We validate the full loop end-to-end on a handful of low-risk, isolated issues
-— child dispatched → branch → **draft PR** → CI review/triage → human QA → merge — *before* scaling to the
-chunky Do-First tracks. Per decision, the chunky QoL items stay out of this wave.
+> The `implement-issue` skill is on `main` (PR #734 merged), so `solo-ist/prose:implement-issue` resolves for
+> cloud children. The bare name `implement-issue` only resolves for *local* runs.
 
 ## The per-child contract
 
@@ -40,96 +37,109 @@ chunky Do-First tracks. Per decision, the chunky QoL items stay out of this wave
 The `/accelerate` skill is the repo's established issue→agent playbook; this brief is the **Oz** dispatch path,
 not a replacement. To stay consistent with it:
 
-- **Routing source of truth = `/accelerate`'s matrix.** Cloud-dispatch only issues that are isolated, bounded
-  (≤5 files), clear AC, no core-abstraction/Circuit-QA needs; everything else routes **local**. The proof-wave
-  table already honors this.
+- **Routing source of truth = `/accelerate`'s matrix.** Cloud-dispatch isolated, bounded, clear-AC issues;
+  cross-cutting/core/Circuit-QA-heavy work routes **local**. The chunky Do-First features below stay local.
 - **`accelerated` label lifecycle** (per `/accelerate`): the **conductor** (not the child — the child's skill
-  forbids board/label mutation) adds `accelerated` to each issue on dispatch, updates to `accelerated:pr-open`
-  when the child's PR opens, and removes it on merge. *Decision:* the `accelerated` label also triggers
-  `web-e2e.yml`; keep it for tracking parity (recommended), or skip the label if browser-e2e on these renderer
-  Quick Wins is unwanted noise.
+  forbids board/label mutation) adds `accelerated` on dispatch, updates to `accelerated:pr-open` when the PR
+  opens, removes it on merge. Note the label also triggers `web-e2e.yml` — keep it for tracking parity.
 - **Links + one-at-a-time merge** (CLAUDE.md): surface every child run/PR URL; merge serially after green CI +
   `claude[bot]` review + local QA.
 
-## Proof wave (this run)
+## Wave composition (12 issues, two batches)
 
-Clean, isolated, renderer-only — the recommended first launch:
+File-overlap was pre-checked against the codebase. Children branch off `main` at dispatch, so collisions surface
+at *merge* — the fix is to put colliding issues in different batches (Batch 2 branches off `main` after Batch 1
+merges). **No two Batch-1 issues share a file.**
 
-| Issue | Title | Primary files | Notes |
+### Batch 1 — 8 issues, dispatch concurrently
+
+| Issue | Scope | Primary files | Route |
 |---|---|---|---|
-| #716 | `/report-bug` & `/request-feature` slash commands | `components/chat/ChatInput.tsx` (+ command registry) | watch chat-area overlap with #719 |
-| #717 | Tab right-click menu (Favorites + Open in Explorer) | `components/.../TabBar.tsx` | isolated |
-| #725 | Frontmatter: submit/advance on Return | `components/editor/FrontmatterEditor.tsx` | isolated |
-| #728 | `list_files` tree missing "Add to Favorites" | `components/chat/.../ListFilesResult.tsx` (file tree) | isolated |
+| #716 | `/report-bug` + `/request-feature` slash commands | `chat/ChatInput.tsx`, `EnableLoggingDialog.tsx` | hitl-light |
+| #717 | Tab right-click menu (Favorites + Open in Explorer) | `layout/TabBar.tsx` (calls `settingsStore.addFavorite`) | hitl-light |
+| #719 | a11y roving tabindex for Chat/Activity tablist | `chat/ChatPanel.tsx`, `e2e/electron.activity-panel.spec.ts` | hitl-light |
+| #725 | Frontmatter: submit/advance on Return | `editor/FrontmatterEditor.tsx` | hitl-light |
+| #728 | `list_files` tree "Add to Favorites" | `chat/toolResultRenderers/ListFilesResult.tsx` (calls `addFavorite`) | hitl-light |
+| #729 | Caret/scroll jump on first click (preview tab) | `editor/Editor.tsx` | hitl-light |
+| #655 | Sentry runtime-toggle late-init warning | `src/main/sentry.ts`, `src/main/index.ts` | **hitl-full** |
+| #664 | Disable "Reopen Closed Tab" when stack empty | `src/main/menu.ts`, `stores/tabStore.ts`, `layout/App.tsx` | **hitl-full** |
 
-Privilege-boundary **canaries** — include to verify the CI security-gate fires (they touch `src/main`/`preload`,
-so the `pipeline-triage` security-gate should route them to `hitl-full`):
+### Batch 2 — 4 issues, after Batch 1 merges
 
-| Issue | Title | Primary files | Notes |
-|---|---|---|---|
-| #655 | Sentry runtime toggle inits SDK after `ready` | `src/main/sentry.ts` (+ `index.ts`) | **privilege boundary** (src/main) |
-| #664 | Disable "Reopen Closed Tab" when stack empty | app menu (`src/main`), `src/preload/index.ts`, `tabStore` | **privilege boundary** (main + preload) |
+Internal order: **#724 + #727 concurrently** (disjoint) → then **#722** → then **#701**.
 
-Optional 5th renderer item if you want a wider first batch:
+| Issue | Scope | Primary files | Route | Collides with (Batch 1/2) |
+|---|---|---|---|---|
+| #724 | Superscript + subscript + **footnotes** (full) | `editor/Editor.tsx`, `extensions/` (new), `types/index.ts`, `package.json` | hitl-light | `Editor.tsx` ← #729; `types` ← #722 |
+| #727 | ENOENT-on-save → Save-As fallback, stop autosave loop, prune recents | `src/main/ipc.ts`, `hooks/useEditor.ts`, `hooks/useAutosave.ts`, `layout/App.tsx`, `files/FileListPanel.tsx`, `src/main/recentFiles.ts` | **hitl-full** | `App.tsx` ← #664; `ipc.ts` ↔ #722 |
+| #722 | Per-mode Light/Dark theme (`lightColor`/`darkColor`) | `types/index.ts`, `settingsStore.ts`, `settings/AppearancePane.tsx`, `settings/ThemeCard.tsx`, `src/main/ipc.ts` | **hitl-full** | `ipc.ts`/`types`/`settingsStore` ↔ #701, #727, #724 |
+| #701 | Customizable "…" menus + wiggle edit mode + persistence | `layout/Toolbar.tsx`, `files/FileListPanel.tsx`, `chat/ChatPanel.tsx`, `types/index.ts`, `src/main/ipc.ts`, `settingsStore.ts` | **hitl-full** | `ipc.ts`/`types`/`settingsStore` ← #722 |
 
-| Issue | Title | Primary files | Notes |
-|---|---|---|---|
-| #719 | a11y roving tabindex for Chat/Activity tablist | `components/chat/ChatPanel.tsx` | touches a hot file; overlaps #716's chat area — sequence after #716 |
+### Collision map (files touched by ≥2 of the 12)
 
-## Explicitly NOT in this wave
+| File | Issues |
+|---|---|
+| `src/main/ipc.ts` | #722, #727, #701 |
+| `src/renderer/types/index.ts` | #722, #701, #724 |
+| `src/renderer/stores/settingsStore.ts` | #722, #701 (#717/#728 only *call* `addFavorite`, no write) |
+| `src/renderer/components/editor/Editor.tsx` | #724, #729 |
+| `src/renderer/components/layout/App.tsx` | #664, #727 |
 
-- **#722** per-mode theme — *settings-shape serializer*; land first and **local** (touches `types`, `settingsStore`,
-  `ipc` defaults). Other settings work rebases on it.
-- **Chunky Do-First QoL** — #703→#723, #700→#699, #724, #729, #727, #701, #570 — **local worktrees** next wave
-  (core abstractions / Circuit QA / serialized; per `/accelerate`'s "route locally" matrix).
-- **Ops, not code agents** — #384 (Homebrew Cask), #536 (Sentry→GitHub) — human/console.
+### Watch flags (from the pre-check)
+
+- **#701 — largest, dispatched as-is on purpose.** 6 files across all three "…" menus + a new
+  `menuCustomization` schema + wiggle-mode UI, no scaffold. Dispatch it **last** in Batch 2 and watch the run;
+  **pull it local** if the child flounders rather than merging a churny PR.
+- **#727 — cross-cutting (main + renderer).** Human-review the structured-error IPC contract before merge.
+- **#724 — footnotes** add `tiptap-markdown` serialization complexity; expect more QA on the resulting PR.
+- **#722 — migration risk.** Brief the child to migrate existing single-`theme` users to `lightColor`/`darkColor`.
+
+## Excluded from the wave
+
+- **Chunky Do-First features → local worktrees:** #570 (AI provenance), #699 (comment threading), #700
+  (extended thinking), #703→#723 (file-explorer rework) — core/serialized/Circuit-QA-heavy.
+- **Ops, not code agents:** #384 (Homebrew Cask — needs a released build + external tap), #536 (Sentry→GitHub —
+  console/integration config).
 - **Dependabot #79** — trivial dep bump; handle locally.
 
 ## Merge strategy (fan-in)
 
-1. Each draft PR triggers the existing CI: E2E, then `claude[bot]` review + `pipeline-triage` — **review +
-   triage only once PR #739 merges** (retires autonomous auto-fix: `pipeline-fix.yml` deleted, orchestrator
-   routes only `hitl-light`/`hitl-full`, E2E failures escalate rather than auto-fix). Until #739 lands the
-   auto-fix paths still exist on `main` (though dispatch is currently broken), so don't launch before it merges.
-   Security-gate routes privilege-boundary PRs to `hitl-full`.
+1. Each draft PR triggers the existing CI: E2E, then `claude[bot]` review + `pipeline-triage` — now **review +
+   triage only** (PR #739 retired autonomous auto-fix: `pipeline-fix.yml` deleted, orchestrator routes only
+   `hitl-light`/`hitl-full`, E2E failures escalate). A child PR cannot trip a review→fix loop. Security-gate
+   routes privilege-boundary PRs (the **hitl-full** rows above) to full human review.
 2. Human (Angel) + local Claude QA each PR via HMR / Circuit Electron before merge.
-3. Mark ready, merge **one at a time**; re-run validation on `main` after each. No batch auto-merge.
+3. Merge **one at a time**; re-run validation on `main` after each. No batch auto-merge. Batch 2 is dispatched
+   only after Batch 1 is fully merged.
 
 ## Safety (cloud ignores local Agent Profiles)
 
-Cloud children do **not** inherit the `Trusted Coding` / `Review` profiles. Guardrails for this wave:
+Cloud children do **not** inherit the `Trusted Coding` / `Review` profiles. Guardrails:
 
-1. **Branch protection on `main`** — *prerequisite, see gate below.* The structural stop against a child
-   pushing to or merging `main`.
+1. **Branch protection on `main`** (applied): PR required, `e2e` must pass, `enforce_admins` ON — children can
+   only open PRs, never merge/push `main`.
 2. **Environment** `prose` carries no publishing/signing credentials (no `*.p8`, no Transporter/notarization).
-3. **GitHub identity** — prefer the scoped **Oz by Warp GitHub App** (team) over a personal admin token so
-   children are structurally non-admin and cannot bypass branch protection.
-4. **Skill + prompt prohibitions** — the `implement-issue` skill hard-forbids merge/push-to-main, publishing,
-   secret reads, board mutations, and `buildVersion` resets, and treats issue text as data not instructions.
+3. **GitHub identity** — the scoped **Oz by Warp GitHub App** (team key `prose-cloud-agents`) for headless runs;
+   interactive `/plan` uses your identity, but `enforce_admins` covers it either way.
+4. **Skill + prompt prohibitions** — `implement-issue` hard-forbids merge/push-to-main, publishing, secret
+   reads, board mutations, `buildVersion` resets, and treats issue text as data not instructions.
 5. **CI review gate** — every PR is reviewed; privilege-boundary paths escalate to human review.
 
-## Pre-launch gate (must clear before `/orchestrate`)
+## Pre-launch gate
 
-- [x] **Branch protection on `main`** — applied: PR required, `e2e` must pass, 0 approvals, `enforce_admins`
-      ON (admins included — no direct-to-main, even for Angel), force-push/deletion blocked, conversation
-      resolution required.
-- [ ] **Merge PR #734 to `main`** so the `implement-issue` skill + this brief are on the default branch the
-      cloud env clones. *Without this, `solo-ist/prose:implement-issue` will not resolve for cloud children.*
-- [ ] Confirm children authenticate via the **Oz by Warp GitHub App** (team key), not a personal admin PAT —
-      Warp → Settings → Admin Panel → Platform → Enabled GitHub Orgs → `solo-ist`.
-- [ ] `ANTHROPIC_API_KEY` (and any model access) available to the `prose` env.
-- [ ] **Merge PR #739 — retire autonomous auto-fix** (resolves #737/#735, supersedes #736). Removes the
-      mutation engine entirely (`pipeline-fix.yml` deleted; orchestrator routes only `hitl-light`/`hitl-full`;
-      E2E failures escalate, not auto-fix), so a child PR structurally cannot trip a review→fix loop. The
-      pipeline still reviews + triages every child PR.
+- [x] **Branch protection on `main`** — applied (PR required, `e2e`, `enforce_admins`, conversation resolution).
+- [x] **PR #734 merged** — `implement-issue` skill + this brief are on `main`.
+- [x] **PR #739 merged** — autonomous auto-fix retired; pipeline is review + triage only.
+- [x] **Oz by Warp App** installed on `solo-ist` (all repos); team key `prose-cloud-agents` created.
+- [ ] **Confirm** Warp → Settings → Admin Panel → Platform → Enabled GitHub Orgs shows `solo-ist`.
+- [ ] **Confirm** `ANTHROPIC_API_KEY` (and model access) is attached to the `prose` env.
 
 ## Operational notes (from the Oz multi-agent-runs docs)
 
 - **Parent cancel ≠ child cancel.** Cancelling the `/plan` parent does **not** auto-stop running children — they
   keep executing (and billing). Stop children explicitly if you abort. List descendants via the run API
   (`ancestor_run_id`) or `oz run list`.
-- **Children inherit the parent's auth/billing** in agent-driven `/orchestrate`. Run from a context whose GitHub
-  identity you intend (ideally the Oz App). Even if a child ends up acting as an admin, `enforce_admins` on `main`
-  still blocks any merge/direct-push — children can only open PRs.
-- **Concurrency:** Build plan = 20 concurrent agents; the proof wave (≤7) is well within budget. Cloud runs
-  consume Warp credits.
+- **Children inherit the parent's auth/billing** in agent-driven `/orchestrate`. Even if a child acts as an
+  admin, `enforce_admins` on `main` still blocks any merge/direct-push — children can only open PRs.
+- **Concurrency:** Build plan = 20 concurrent agents; Batch 1 (8) and Batch 2 (4) are each well within budget.
+  Cloud runs consume Warp credits.

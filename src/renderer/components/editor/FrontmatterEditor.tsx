@@ -55,6 +55,12 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
   // so we don't clobber an in-progress local edit when the store echoes back.
   const skipNextPropSyncRef = useRef(false)
 
+  // Per-row input refs so Enter can advance focus through key/value fields.
+  const keyRefs = useRef<(HTMLInputElement | null)[]>([])
+  const valueRefs = useRef<(HTMLInputElement | null)[]>([])
+  // When Enter appends a new row, remember where to move focus once it renders.
+  const pendingFocusRef = useRef<{ index: number; field: 'key' | 'value' } | null>(null)
+
   // Sync local fields when the frontmatter prop changes from outside this
   // component (e.g., AI-applied frontmatter via MCP suggest_edit). User-initiated
   // edits set the skip flag so we don't re-init on the round-trip.
@@ -87,6 +93,47 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
   const handleAdd = useCallback(() => {
     setFields(prev => [...prev, { key: '', value: '', readonly: false, originalValue: '' }])
   }, [])
+
+  // Move focus to a freshly-appended row once React has rendered it.
+  useEffect(() => {
+    const pending = pendingFocusRef.current
+    if (!pending) return
+    pendingFocusRef.current = null
+    const target = pending.field === 'key' ? keyRefs.current[pending.index] : valueRefs.current[pending.index]
+    target?.focus()
+  }, [fields])
+
+  // Enter commits the current field and advances focus; Escape collapses the editor.
+  // Persistence is unchanged — saves still happen per keystroke via handleFieldChange.
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>, index: number, which: 'key' | 'value') => {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      setIsExpanded(false)
+      return
+    }
+    if (e.key !== 'Enter') return
+    e.preventDefault()
+    if (which === 'key') {
+      // Return in a key field focuses that row's value field.
+      valueRefs.current[index]?.focus()
+      return
+    }
+    // Return in a value field.
+    if (index < fields.length - 1) {
+      // Advance to the next row's key input.
+      keyRefs.current[index + 1]?.focus()
+      return
+    }
+    const row = fields[index]
+    if (!row.key.trim() && !row.value.trim()) {
+      // Return on an empty trailing field collapses the editor.
+      setIsExpanded(false)
+      return
+    }
+    // Append a new blank row and focus its key input once it renders.
+    pendingFocusRef.current = { index: fields.length, field: 'key' }
+    handleAdd()
+  }, [fields, handleAdd])
 
   // Accept handler: write the accepted frontmatter directly to the store FIRST
   // as a durable fallback, then call onSave to reserialize body content (which
@@ -239,16 +286,20 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
           return (
             <div key={index} className="flex items-center gap-1.5">
               <Input
+                ref={el => { keyRefs.current[index] = el }}
                 value={field.key}
                 onChange={e => handleFieldChange(index, { key: e.target.value })}
+                onKeyDown={e => handleKeyDown(e, index, 'key')}
                 placeholder="key"
                 disabled={isDisabled}
                 className="h-6 px-2 py-0 text-xs font-mono w-32 shrink-0 bg-background/50 border-border/50 disabled:opacity-60 disabled:cursor-default"
               />
               <span className="text-muted-foreground/40 shrink-0">:</span>
               <Input
+                ref={el => { valueRefs.current[index] = el }}
                 value={field.value}
                 onChange={e => handleFieldChange(index, { value: e.target.value })}
+                onKeyDown={e => handleKeyDown(e, index, 'value')}
                 placeholder="value"
                 disabled={isDisabled}
                 className="h-6 px-2 py-0 text-xs font-mono flex-1 bg-background/50 border-border/50 disabled:opacity-60 disabled:cursor-default"

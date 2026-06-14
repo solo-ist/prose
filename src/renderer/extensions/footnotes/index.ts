@@ -97,13 +97,16 @@ export const Footnotes = BaseFootnotes.extend({
           if (node.childCount === 0) return
 
           state.ensureNewLine()
-          state.write('\n')
 
+          // Render each footnote body through the markdown serializer (not
+          // `textContent`, which silently strips bold/italic/links/code on every
+          // round-trip). `wrapBlock` mirrors prosemirror-markdown's list-item
+          // serialization: `[^N]: ` prefixes the first line, a 4-space indent
+          // continues wrapped/multi-paragraph bodies, and `renderContent`
+          // dispatches to the registered inline + mark serializers.
           node.forEach((footnote, _offset, index) => {
             const number = index + 1
-            const value = footnote.textContent.trim()
-            state.write(`[^${number}]: ${state.esc(value)}`)
-            state.write('\n')
+            state.wrapBlock('    ', `[^${number}]: `, footnote, () => state.renderContent(footnote))
           })
 
           state.closeBlock(node)

@@ -114,6 +114,7 @@ function stripSecretsForDisk(settings: Settings): Settings {
 function getSettingsPath(): string { return join(getSettingsDir(), 'settings.json') }
 const ANTHROPIC_KEY_PATH = join(LEGACY_SETTINGS_DIR, '.remarkable-anthropic-key') // Legacy path for migration
 const REMARKABLE_CREDENTIAL_KEY = 'remarkable-anthropic-key'
+const GITHUB_PAT_KEY = 'github-pat'
 
 /**
  * Expand ~ to home directory
@@ -1796,6 +1797,161 @@ export function setupIpcHandlers(): void {
       return
     }
     app.dock.setIcon(img)
+  })
+
+  // GitHub PAT — store, check, test, create issue, clear
+  // The token lives ONLY in the main process (credentialStore). The renderer
+  // never receives it — all GitHub API calls happen here.
+
+  ipcMain.handle('github:storeToken', async (_event, token: string): Promise<{ success: boolean; error?: string }> => {
+    if (IS_MAS_BUILD) {
+      return { success: false, error: 'GitHub integration is not available in the Mac App Store version.' }
+    }
+    if (!credentialStore.isAvailable()) {
+      return { success: false, error: 'Secure storage is not available on this system.' }
+    }
+    if (!token || typeof token !== 'string') {
+      return { success: false, error: 'Invalid token.' }
+    }
+    await credentialStore.set(GITHUB_PAT_KEY, token)
+    return { success: true }
+  })
+
+  ipcMain.handle('github:hasToken', async (): Promise<boolean> => {
+    if (IS_MAS_BUILD || !credentialStore.isAvailable()) return false
+    const token = await credentialStore.get(GITHUB_PAT_KEY)
+    return !!token
+  })
+
+  ipcMain.handle('github:testToken', async (): Promise<{ success: boolean; login?: string; error?: string }> => {
+    if (IS_MAS_BUILD) {
+      return { success: false, error: 'GitHub integration is not available in the Mac App Store version.' }
+    }
+    if (!credentialStore.isAvailable()) {
+      return { success: false, error: 'Secure storage is not available.' }
+    }
+    const token = await credentialStore.get(GITHUB_PAT_KEY)
+    if (!token) {
+      return { success: false, error: 'No GitHub token configured.' }
+    }
+    try {
+      const https = await import('https')
+      const result = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const options = {
+          hostname: 'api.github.com',
+          path: '/user',
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.github+json',
+            'User-Agent': `prose/${app.getVersion()}`,
+            'X-GitHub-Api-Version': '2022-11-28'
+          }
+        }
+        const req = https.request(options, (res) => {
+          let body = ''
+          res.on('data', (chunk) => { body += chunk })
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, body }))
+        })
+        req.on('error', reject)
+        req.end()
+      })
+
+      if (result.status === 200) {
+        const data = JSON.parse(result.body) as { login?: string }
+        return { success: true, login: data.login }
+      } else if (result.status === 401) {
+        return { success: false, error: 'Invalid token — authentication failed.' }
+      } else {
+        return { success: false, error: `GitHub API returned ${result.status}.` }
+      }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Network error.' }
+    }
+  })
+
+  ipcMain.handle('github:createIssue', async (
+    _event,
+    request: { owner: string; repo: string; title: string; body: string; labels?: string[] }
+  ): Promise<{ success: boolean; url?: string; number?: number; error?: string }> => {
+    if (IS_MAS_BUILD) {
+      return { success: false, error: 'GitHub integration is not available in the Mac App Store version.' }
+    }
+    if (!credentialStore.isAvailable()) {
+      return { success: false, error: 'Secure storage is not available.' }
+    }
+    const token = await credentialStore.get(GITHUB_PAT_KEY)
+    if (!token) {
+      return { success: false, error: 'No GitHub token configured.' }
+    }
+
+    // Basic input validation
+    if (!request.owner || !request.repo || !request.title || !request.body) {
+      return { success: false, error: 'Missing required fields.' }
+    }
+    // Guard against injection via owner/repo (alphanumeric, dash, underscore, dot only)
+    if (!/^[a-zA-Z0-9._-]+$/.test(request.owner) || !/^[a-zA-Z0-9._-]+$/.test(request.repo)) {
+      return { success: false, error: 'Invalid repository owner or name.' }
+    }
+
+    try {
+      const https = await import('https')
+      const payload = JSON.stringify({
+        title: request.title,
+        body: request.body,
+        labels: request.labels ?? []
+      })
+
+      const result = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const options = {
+          hostname: 'api.github.com',
+          path: `/repos/${request.owner}/${request.repo}/issues`,
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/vnd.github+json',
+            'User-Agent': `prose/${app.getVersion()}`,
+            'X-GitHub-Api-Version': '2022-11-28',
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(payload)
+          }
+        }
+        const req = https.request(options, (res) => {
+          let body = ''
+          res.on('data', (chunk) => { body += chunk })
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, body }))
+        })
+        req.on('error', reject)
+        req.write(payload)
+        req.end()
+      })
+
+      if (result.status === 201) {
+        const data = JSON.parse(result.body) as { html_url?: string; number?: number }
+        return { success: true, url: data.html_url, number: data.number }
+      } else if (result.status === 401) {
+        return { success: false, error: 'GitHub token is invalid or expired.' }
+      } else if (result.status === 403) {
+        return { success: false, error: 'GitHub token lacks the required permissions (needs issues:write scope).' }
+      } else if (result.status === 404) {
+        return { success: false, error: 'Repository not found or not accessible with this token.' }
+      } else if (result.status === 410) {
+        return { success: false, error: 'Issues are disabled for this repository.' }
+      } else {
+        let errorMsg = `GitHub API returned ${result.status}.`
+        try {
+          const errData = JSON.parse(result.body) as { message?: string }
+          if (errData.message) errorMsg = errData.message
+        } catch { /* ignore JSON parse errors */ }
+        return { success: false, error: errorMsg }
+      }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Network error.' }
+    }
+  })
+
+  ipcMain.handle('github:clearToken', async (): Promise<void> => {
+    await credentialStore.delete(GITHUB_PAT_KEY)
   })
 
   ipcMain.handle('skill:download', async (): Promise<{ success: boolean; error?: string }> => {

@@ -158,6 +158,27 @@ export interface GoogleSyncMetadata {
   documents: Record<string, GoogleDocEntry>
 }
 
+export interface GitHubTestTokenResult {
+  success: boolean
+  login?: string
+  error?: string
+}
+
+export interface GitHubCreateIssueRequest {
+  owner: string
+  repo: string
+  title: string
+  body: string
+  labels?: string[]
+}
+
+export interface GitHubCreateIssueResult {
+  success: boolean
+  url?: string
+  number?: number
+  error?: string
+}
+
 export interface McpServerStatus {
   installed: boolean
   version: string | null
@@ -266,6 +287,12 @@ export interface ElectronAPI {
   googleGetSyncMetadata: () => Promise<GoogleSyncMetadata | null>
   googleUpdateSyncMetadataEntry: (entry: GoogleDocEntry) => Promise<void>
   googleRemoveSyncMetadataEntry: (googleDocId: string) => Promise<void>
+  // GitHub integration (PAT-based issue creation; desktop-only, not MAS)
+  githubStoreToken: (token: string) => Promise<{ success: boolean; error?: string }>
+  githubHasToken: () => Promise<boolean>
+  githubTestToken: () => Promise<GitHubTestTokenResult>
+  githubCreateIssue: (request: GitHubCreateIssueRequest) => Promise<GitHubCreateIssueResult>
+  githubClearToken: () => Promise<void>
   // MCP Server integration
   mcpGetStatus: () => Promise<McpServerStatus>
   mcpInstall: () => Promise<McpInstallResult>
@@ -538,6 +565,12 @@ const api: ElectronAPI = {
   googleGetSyncMetadata: () => ipcRenderer.invoke('google:getSyncMetadata'),
   googleUpdateSyncMetadataEntry: (entry: GoogleDocEntry) => ipcRenderer.invoke('google:updateSyncMetadataEntry', entry),
   googleRemoveSyncMetadataEntry: (googleDocId: string) => ipcRenderer.invoke('google:removeSyncMetadataEntry', googleDocId),
+  // GitHub integration
+  githubStoreToken: (token: string) => ipcRenderer.invoke('github:storeToken', token),
+  githubHasToken: () => ipcRenderer.invoke('github:hasToken'),
+  githubTestToken: () => ipcRenderer.invoke('github:testToken'),
+  githubCreateIssue: (request: GitHubCreateIssueRequest) => ipcRenderer.invoke('github:createIssue', request),
+  githubClearToken: () => ipcRenderer.invoke('github:clearToken'),
   // MCP Server integration
   mcpGetStatus: () => ipcRenderer.invoke('mcp:getStatus'),
   mcpInstall: () => ipcRenderer.invoke('mcp:install'),

@@ -534,6 +534,18 @@ export interface ElectronAPI {
   // File association (default markdown editor)
   // Returns: true (is default), false (not default), null (can't detect)
   fileAssociationIsDefault: () => Promise<boolean | null>
+  // GitHub integration (PAT-based issue creation; desktop-only, not MAS)
+  githubStoreToken?: (token: string) => Promise<{ success: boolean; error?: string }>
+  githubHasToken?: () => Promise<boolean>
+  githubTestToken?: () => Promise<{ success: boolean; login?: string; error?: string }>
+  githubCreateIssue?: (request: {
+    owner: string
+    repo: string
+    title: string
+    body: string
+    labels?: string[]
+  }) => Promise<{ success: boolean; url?: string; number?: number; error?: string }>
+  githubClearToken?: () => Promise<void>
   // Google Docs integration
   googleIsConfigured: () => Promise<boolean>
   googleStartAuth: () => Promise<GoogleAuthResult>

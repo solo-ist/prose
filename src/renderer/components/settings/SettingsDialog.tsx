@@ -26,6 +26,7 @@ import { RemarkableIntegration } from './RemarkableIntegration'
 import { GoogleDocsIntegration } from './GoogleDocsIntegration'
 import { McpIntegration } from './McpIntegration'
 import { ProseSkillIntegration } from './ProseSkillIntegration'
+import { GitHubIntegration } from './GitHubIntegration'
 import { isWebMode } from '../../lib/browserApi'
 import type { Settings } from '../../types'
 import { Eye, EyeOff, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
@@ -699,7 +700,11 @@ export function SettingsDialog() {
                 setRemarkableConfig={setRemarkableConfig}
               />
             )}
-            {/* All three integrations (Mcp, ProseSkill, Remarkable) are gated
+            {!isWebMode() && !window.api?.isMasBuild && <Separator />}
+            {/* GitHub PAT integration — desktop-only, not MAS. MAS keeps the
+                support-URL fallback in the chat commands. */}
+            {!isWebMode() && !window.api?.isMasBuild && <GitHubIntegration />}
+            {/* All integrations (Mcp, ProseSkill, Remarkable, GitHub) are gated
                 to desktop, non-MAS builds — without this fallback, web and MAS
                 users land on a completely empty Integrations tab with no
                 explanation when they click into it. */}

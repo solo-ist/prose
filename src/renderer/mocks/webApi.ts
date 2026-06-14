@@ -482,6 +482,33 @@ export function createMockApi(): ElectronAPI {
 
     onRemarkableSyncProgress: () => () => {},
 
+    // ---- GitHub integration (stubs) ---------------------------------------
+
+    githubStoreToken: async (_token: string): Promise<{ success: boolean; error?: string }> => ({
+      success: false,
+      error: 'GitHub integration is not available in web mode',
+    }),
+
+    githubHasToken: async (): Promise<boolean> => false,
+
+    githubTestToken: async (): Promise<{ success: boolean; login?: string; error?: string }> => ({
+      success: false,
+      error: 'GitHub integration is not available in web mode',
+    }),
+
+    githubCreateIssue: async (_request: {
+      owner: string
+      repo: string
+      title: string
+      body: string
+      labels?: string[]
+    }): Promise<{ success: boolean; url?: string; number?: number; error?: string }> => ({
+      success: false,
+      error: 'GitHub integration is not available in web mode',
+    }),
+
+    githubClearToken: async (): Promise<void> => {},
+
     // ---- Google Docs (stubs) ----------------------------------------------
 
     googleIsConfigured: async (): Promise<boolean> => false,

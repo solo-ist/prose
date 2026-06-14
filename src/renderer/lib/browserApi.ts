@@ -438,6 +438,13 @@ export const browserApi: ElectronAPI = {
     return () => {}
   },
 
+  // GitHub integration - not available in browser mode (requires main-process IPC)
+  githubStoreToken: async () => ({ success: false, error: 'Not available in browser mode' }),
+  githubHasToken: async () => false,
+  githubTestToken: async () => ({ success: false, error: 'Not available in browser mode' }),
+  githubCreateIssue: async () => ({ success: false, error: 'Not available in browser mode' }),
+  githubClearToken: async () => {},
+
   // Google Docs integration - not available in browser mode
   googleIsConfigured: async () => false,
   googleStartAuth: async () => ({

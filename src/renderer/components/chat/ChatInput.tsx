@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 import { Button } from '../ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
-import { Square, MessageSquare, ChevronRight, X, Sparkles } from 'lucide-react'
+import { Textarea } from '../ui/textarea'
+import { Square, MessageSquare, ChevronRight, X, Sparkles, Loader2, Github } from 'lucide-react'
 import { useChat } from '../../hooks/useChat'
 import { useAIConfigured } from '../../hooks/useAIConfigured'
-import { aiUnavailableMessage } from '../../lib/llm'
+import { aiUnavailableMessage, isAIConfigured } from '../../lib/llm'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useEditorStore } from '../../stores/editorStore'
@@ -17,11 +18,28 @@ import { cn } from '../../lib/utils'
 import { useReviewStore } from '../../stores/reviewStore'
 import { getApi } from '../../lib/browserApi'
 import { requestBugReport } from '../EnableLoggingDialog'
+import { APP_VERSION } from '../../buildInfo.generated'
 
 // GitHub feedback template URLs (mirror the Toolbar "More" menu / Help menu)
 const BUG_REPORT_URL = 'https://github.com/solo-ist/prose/issues/new?template=bug-report.yml'
 const FEATURE_REQUEST_URL = 'https://github.com/solo-ist/prose/issues/new?template=feature-request.yml'
 const MAS_SUPPORT_URL = 'https://solo.ist/prose/support'
+
+// GitHub repo coordinates for the API path
+const GITHUB_OWNER = 'solo-ist'
+const GITHUB_REPO = 'prose'
+
+/** State for the GitHub issue confirm panel shown after LLM drafting */
+interface GitHubDraftState {
+  /** 'bug' or 'feature' — determines default labels */
+  kind: 'bug' | 'feature'
+  title: string
+  body: string
+  /** ID of the assistant chat message showing the "Drafting…" placeholder */
+  assistantMsgId: string
+  /** Whether the final API call is in flight */
+  isFiling: boolean
+}
 
 // Tool descriptions for autocomplete
 const toolDescriptions: Record<string, string> = {
@@ -164,6 +182,7 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
   const [commentCount, setCommentCount] = useState(0)
   const [suggestionFeedbackCount, setSuggestionFeedbackCount] = useState(0)
   const [selectedIndex, setSelectedIndex] = useState(0)
+  const [githubDraft, setGitHubDraft] = useState<GitHubDraftState | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const itemRefs = useRef<Map<number, HTMLDivElement>>(new Map())
   const { context, setContext, toolMode, processComments, getCommentCount, processSuggestionReplies, getSuggestionFeedbackCount, isInitializing } = useChat()
@@ -273,23 +292,141 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
       return
     }
 
-    // Handle /report-bug - chat-layer shortcut to the GitHub bug template.
-    // Routes through requestBugReport() to preserve the Sentry opt-in prompt.
-    // MAS builds substitute the Request Support link, matching the toolbar
-    // and Help menu build-conditional behavior. No LLM involvement.
-    if (command.toolName === 'report-bug') {
-      if (getApi().isMasBuild) {
-        getApi().openExternal?.(MAS_SUPPORT_URL)
-      } else {
-        requestBugReport(BUG_REPORT_URL)
-      }
-      return
-    }
+    // Handle /report-bug and /request-feature
+    // Enhanced path (when GitHub PAT + AI are both configured):
+    //   1. Use the user's natural-language text (rawArg) as context.
+    //   2. Call LLM to format a structured issue draft.
+    //   3. Show a confirm panel so the user can edit before filing.
+    //   4. On confirm, call github:createIssue (main process; token never
+    //      leaves the main process) and return the URL in chat.
+    // Fallback (no token, MAS, or AI not configured):
+    //   /report-bug  → requestBugReport() [preserves Sentry opt-in prompt]
+    //   /request-feature → prefilled GitHub template URL
+    if (command.toolName === 'report-bug' || command.toolName === 'request-feature') {
+      const isBug = command.toolName === 'report-bug'
+      const api = getApi()
 
-    // Handle /request-feature - chat-layer shortcut to the GitHub feature
-    // request template. No LLM involvement.
-    if (command.toolName === 'request-feature') {
-      getApi().openExternal?.(FEATURE_REQUEST_URL)
+      // MAS builds and web mode always use the URL fallback
+      if (api.isMasBuild) {
+        api.openExternal?.(MAS_SUPPORT_URL)
+        return
+      }
+
+      const { settings } = useSettingsStore.getState()
+      const hasToken = await api.githubHasToken?.()
+      const aiConfigured = isAIConfigured(settings)
+
+      // Both token AND AI must be available for the enhanced path
+      if (hasToken && aiConfigured && !api.isMasBuild) {
+        const { addMessage } = useChatStore.getState()
+        const rawDescription = command.rawArg?.trim() || ''
+
+        // Show user's command in chat
+        const userMsgId = createMessageId()
+        addMessage({
+          id: userMsgId,
+          role: 'user',
+          content: `/${command.toolName}${rawDescription ? ' ' + rawDescription : ''}`,
+          timestamp: new Date()
+        })
+
+        const assistantMsgId = createMessageId()
+        addMessage({
+          id: assistantMsgId,
+          role: 'assistant',
+          content: `<tool-executing name="${command.toolName}">Drafting issue…</tool-executing>`,
+          timestamp: new Date()
+        })
+
+        try {
+          // Build system + user prompt for the LLM
+          const appVersion = APP_VERSION ?? 'unknown'
+          const platform = api.platform ?? 'unknown'
+
+          const systemPrompt = isBug
+            ? `You are a precise technical writer formatting a GitHub bug report for the Prose markdown editor.
+Output ONLY valid JSON with exactly these fields:
+{
+  "title": "<concise bug title, under 72 chars, plain text>",
+  "body": "<markdown body with sections: ## Bug Description, ## Steps to Reproduce, ## Expected Behavior, ## Actual Behavior, ## Environment>",
+  "labels": ["bug"]
+}
+In the body's Environment section always include:
+- App version: ${appVersion || 'unknown'}
+- Platform: ${platform}
+Fill in what you know from context; use "…" for anything unknown.
+No explanations outside the JSON.`
+            : `You are a precise technical writer formatting a GitHub feature request for the Prose markdown editor.
+Output ONLY valid JSON with exactly these fields:
+{
+  "title": "<concise feature title, under 72 chars, plain text>",
+  "body": "<markdown body with sections: ## Problem / Motivation, ## Proposed Solution, ## Alternatives Considered>",
+  "labels": ["enhancement"]
+}
+No explanations outside the JSON.`
+
+          const userPrompt = rawDescription
+            ? `Format the following as a GitHub issue:\n\n${rawDescription}`
+            : `The user ran /${command.toolName} with no description. Create a helpful placeholder issue that can be edited before filing.`
+
+          const response = await api.llmChat({
+            provider: settings.llm.provider,
+            model: settings.llm.model,
+            apiKey: settings.llm.apiKey,
+            baseUrl: settings.llm.baseUrl,
+            messages: [{ role: 'user', content: userPrompt }],
+            system: systemPrompt
+          })
+
+          // Parse the LLM response — it should be JSON
+          let title = ''
+          let body = ''
+          try {
+            // Strip markdown code fences if present
+            const jsonStr = response.content
+              .replace(/^```(?:json)?\n?/, '')
+              .replace(/\n?```$/, '')
+              .trim()
+            const parsed = JSON.parse(jsonStr) as { title?: string; body?: string }
+            title = parsed.title?.trim() ?? ''
+            body = parsed.body?.trim() ?? ''
+          } catch {
+            // If JSON parse fails, use raw content as body with a generic title
+            title = isBug ? 'Bug report' : 'Feature request'
+            body = response.content
+          }
+
+          if (!title) title = isBug ? 'Bug report' : 'Feature request'
+          if (!body) body = rawDescription || '(No description provided)'
+
+          // Update the assistant message to show it's pending user review
+          useChatStore.getState().updateMessage(assistantMsgId, {
+            content: `<tool-executing name="${command.toolName}">Review the draft below before filing…</tool-executing>`
+          })
+
+          // Show the confirm panel
+          setGitHubDraft({
+            kind: isBug ? 'bug' : 'feature',
+            title,
+            body,
+            assistantMsgId,
+            isFiling: false
+          })
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : 'Unknown error'
+          useChatStore.getState().updateMessage(assistantMsgId, {
+            content: `<tool-result name="${command.toolName}" success="false">Failed to draft issue: ${errMsg}</tool-result>`
+          })
+        }
+        return
+      }
+
+      // Fallback: no token or AI not configured → URL behavior
+      if (isBug) {
+        requestBugReport(BUG_REPORT_URL)
+      } else {
+        api.openExternal?.(FEATURE_REQUEST_URL)
+      }
       return
     }
 
@@ -773,8 +910,106 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
     wasStreaming.current = isStreaming ?? false
   }, [isStreaming])
 
+  // File the GitHub issue draft after the user reviews and confirms
+  const handleGitHubFile = async () => {
+    if (!githubDraft) return
+    const draft = githubDraft
+    setGitHubDraft({ ...draft, isFiling: true })
+
+    const labels = draft.kind === 'bug' ? ['bug'] : ['enhancement']
+    const result = await getApi().githubCreateIssue?.({
+      owner: GITHUB_OWNER,
+      repo: GITHUB_REPO,
+      title: draft.title,
+      body: draft.body,
+      labels
+    })
+
+    if (result?.success && result.url) {
+      useChatStore.getState().updateMessage(draft.assistantMsgId, {
+        content: `<tool-result name="${draft.kind === 'bug' ? 'report-bug' : 'request-feature'}" success="true">Issue filed: [#${result.number}](${result.url})</tool-result>`
+      })
+    } else {
+      useChatStore.getState().updateMessage(draft.assistantMsgId, {
+        content: `<tool-result name="${draft.kind === 'bug' ? 'report-bug' : 'request-feature'}" success="false">Failed to file issue: ${result?.error ?? 'Unknown error'}</tool-result>`
+      })
+    }
+    setGitHubDraft(null)
+    setTimeout(() => textareaRef.current?.focus(), 0)
+  }
+
+  const handleGitHubCancel = () => {
+    if (!githubDraft) return
+    useChatStore.getState().updateMessage(githubDraft.assistantMsgId, {
+      content: `<tool-result name="${githubDraft.kind === 'bug' ? 'report-bug' : 'request-feature'}" success="false">Cancelled.</tool-result>`
+    })
+    setGitHubDraft(null)
+    setTimeout(() => textareaRef.current?.focus(), 0)
+  }
+
   return (
     <div className="border-t border-border p-4">
+      {/* GitHub issue confirm panel — shown after the LLM drafts an issue
+          and before the user files it. Renders above the context block. */}
+      {githubDraft && (
+        <div className="mb-3 rounded-md border border-border bg-muted/30 p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <Github className="h-3.5 w-3.5" />
+              Review &amp; file {githubDraft.kind === 'bug' ? 'bug report' : 'feature request'}
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5 shrink-0"
+              onClick={handleGitHubCancel}
+              disabled={githubDraft.isFiling}
+              aria-label="Cancel"
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+          <input
+            type="text"
+            value={githubDraft.title}
+            onChange={(e) => setGitHubDraft({ ...githubDraft, title: e.target.value })}
+            placeholder="Issue title"
+            className="w-full rounded border border-border bg-background px-2 py-1 text-sm font-medium placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+            disabled={githubDraft.isFiling}
+          />
+          <Textarea
+            value={githubDraft.body}
+            onChange={(e) => setGitHubDraft({ ...githubDraft, body: e.target.value })}
+            placeholder="Issue body (Markdown)"
+            className="min-h-[120px] text-xs font-mono resize-y"
+            disabled={githubDraft.isFiling}
+          />
+          <div className="flex gap-2 pt-1">
+            <Button
+              size="sm"
+              onClick={handleGitHubFile}
+              disabled={githubDraft.isFiling || !githubDraft.title.trim() || !githubDraft.body.trim()}
+              className="gap-1.5"
+            >
+              {githubDraft.isFiling ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Github className="h-3.5 w-3.5" />
+              )}
+              File issue
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleGitHubCancel}
+              disabled={githubDraft.isFiling}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Context block */}
       {context && (
         <div className="mb-3 rounded-md bg-muted/50 p-3">

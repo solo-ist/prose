@@ -1872,6 +1872,10 @@
 
 .prose-editor ol.footnotes li {
   margin: 0.5em 0;
+  /* Keep a freshly-inserted, still-empty footnote body visible (otherwise the
+     section is just a 1px rule and the inserted footnote looks like nothing
+     happened). */
+  min-height: 1.5em;
 }
 
 .prose-editor ol.footnotes li p {

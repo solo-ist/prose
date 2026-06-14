@@ -100,3 +100,59 @@ test.describe('Electron — Footnote markdown round-trip', () => {
     expect(md).toContain('`inline code`')
   })
 })
+
+test.describe('Electron — Footnote interactive insertion', () => {
+  // Guards the #750 HITL regression: tiptap-footnotes' addFootnote inserts the
+  // reference at the selection anchor WITHOUT clearing the selection. With text
+  // selected, the marker landed inside a live range and the next Enter
+  // (splitBlock) deleted the selected text — "nothing happens, then the line
+  // disappears". The fix collapses the selection to its end before inserting.
+  test('Cmd+Shift+F inserts a footnote and never destroys the selected text', async () => {
+    const result = await executeProseTool(page, 'create_and_open_file', {
+      filename: 'footnote-interactive.md',
+      content: 'The quick brown fox.',
+    })
+    expect(result.success).toBe(true)
+    await waitForEditor(page)
+
+    // Select the word "fox", then trigger the REAL Cmd+Shift+F handler. The
+    // handler is a window keydown listener (Editor.tsx), so we dispatch a
+    // synthetic keydown to window — reliable, and it exercises the actual
+    // call-site chain (real Cmd-key presses are intercepted by macOS in e2e).
+    await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const editor = (window as any).__prose_editor
+      const idx = editor.state.doc.textContent.indexOf('fox')
+      const from = idx + 1
+      editor.chain().focus().setTextSelection({ from, to: from + 3 }).run()
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'f',
+          metaKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      )
+    })
+    await page.waitForTimeout(80)
+
+    // The footnote reference and the footnotes section render in the live DOM.
+    await expect(page.locator('.prose-editor sup a.footnote-ref')).toBeVisible()
+    await expect(page.locator('.prose-editor ol.footnotes > li')).toBeVisible()
+
+    // Insertion must not have deleted the selected word.
+    const md = await getEditorMarkdown(page)
+    expect(md).toContain('The quick brown fox')
+    expect(md).toContain('[^1]')
+
+    // Regression guard for the fix: the selection must be COLLAPSED after
+    // insertion. The old bug left a live range spanning the inserted marker, so
+    // the next Enter (splitBlock) deleted the selected text.
+    const selectionEmpty = await page.evaluate(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      () => (window as any).__prose_editor.state.selection.empty,
+    )
+    expect(selectionEmpty).toBe(true)
+  })
+})

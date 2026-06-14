@@ -46,6 +46,17 @@ export const DocumentWithFootnotes = Document.extend({
 })
 
 export const FootnoteReference = BaseFootnoteReference.extend({
+  // tiptap-footnotes@2.x's FootnoteReference defines no addOptions, yet its
+  // renderHTML reads `this.options.HTMLAttributes` — so rendering an inserted
+  // reference throws "Cannot read properties of undefined (reading
+  // 'HTMLAttributes')" and the footnote never appears. Provide the options the
+  // node's renderHTML expects.
+  addOptions() {
+    return {
+      ...this.parent?.(),
+      HTMLAttributes: {},
+    }
+  },
   addStorage() {
     const parentStorage = this.parent?.() ?? {}
 

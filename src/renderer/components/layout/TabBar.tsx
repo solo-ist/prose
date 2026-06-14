@@ -319,9 +319,9 @@ function TabItem({
       whileDrag={{ scale: 1.02, opacity: 0.8 }}
     >
       <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <Tooltip>
-            <TooltipTrigger asChild>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <ContextMenuTrigger asChild>
               <button
                 onClick={onClick}
                 onMouseDown={onMiddleClick}
@@ -424,14 +424,14 @@ function TabItem({
                   </div>
                 )}
               </button>
-            </TooltipTrigger>
-            {tooltipContent && (
-              <TooltipContent side="bottom" className="max-w-md">
-                {tooltipContent}
-              </TooltipContent>
-            )}
-          </Tooltip>
-        </ContextMenuTrigger>
+            </ContextMenuTrigger>
+          </TooltipTrigger>
+          {tooltipContent && (
+            <TooltipContent side="bottom" className="max-w-md">
+              {tooltipContent}
+            </TooltipContent>
+          )}
+        </Tooltip>
         <ContextMenuContent>
           <ContextMenuItem onClick={onClose}>
             Close Tab

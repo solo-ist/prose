@@ -771,10 +771,14 @@ export function Editor() {
         editor.chain().focus().toggleStrike().run()
       }
     } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'f') {
-      // Cmd+Shift+F: Insert footnote citation
+      // Cmd+Shift+F: Insert footnote citation. Collapse any active selection to
+      // its end first — addFootnote inserts at the selection anchor without
+      // clearing it, so otherwise a subsequent Enter deletes the selected text.
+      // Collapsing (vs deleting) keeps the text and drops the marker after it.
       e.preventDefault()
       if (editor) {
-        editor.chain().focus().addFootnote().run()
+        const { to } = editor.state.selection
+        editor.chain().focus().setTextSelection(to).addFootnote().run()
       }
     } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'e') {
       // Cmd+Shift+E: Toggle source view (disabled in read-only mode)

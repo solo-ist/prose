@@ -261,7 +261,17 @@ export function SelectionPopover({ editor, onAddComment, onToggleLink }: Selecti
             onMouseDown={(e) => {
               e.preventDefault()
               e.stopPropagation()
-              editor?.chain().focus().addFootnote().run()
+              // Collapse any active selection to its end before inserting.
+              // tiptap-footnotes' addFootnote inserts the reference at the
+              // selection anchor WITHOUT clearing the selection, so otherwise
+              // the marker lands inside a still-live range and the next Enter
+              // (splitBlock) deletes the selected text along with it. Collapsing
+              // (vs deleting) keeps the user's selected text and drops the
+              // marker right after it.
+              if (editor) {
+                const { to } = editor.state.selection
+                editor.chain().focus().setTextSelection(to).addFootnote().run()
+              }
             }}
             title="Insert footnote (Cmd+Shift+F)"
           >

@@ -27,7 +27,11 @@ export function useTabEmoji(tab: Tab): string {
     })
 
     return () => { cancelled = true }
-  }, [tab.path, tab.title])
+    // Keyed on tab.id (not just path/title): a new/Untitled tab can share a
+    // path (null) with a previous one, so without tab.id the effect wouldn't
+    // re-run and an earlier tab's in-flight emoji could resolve onto this tab
+    // (e.g. a "…Robots" emoji leaking onto the next Untitled tab).
+  }, [tab.id, tab.path, tab.title])
 
   return emoji
 }

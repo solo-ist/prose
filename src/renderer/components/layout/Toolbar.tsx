@@ -162,6 +162,12 @@ export function Toolbar() {
     ? useTabStore.getState().getTabById(pendingCloseTabId)
     : null
 
+  // Bulk-close (Close Other / Close All Tabs) confirmation when one or more of
+  // the tabs being closed have unsaved changes.
+  const [pendingBulkClose, setPendingBulkClose] = useState<
+    { kind: 'others' | 'all'; keepTabId?: string; dirtyCount: number } | null
+  >(null)
+
   // Conditional 3-state cycle that always starts with a *visible* flip:
   // from System, jump to the opposite of what the OS is currently showing;
   // then to the OS-matching value; then back to System.
@@ -228,23 +234,32 @@ export function Toolbar() {
   }
 
   const handleCloseOthers = async (tabId: string) => {
-    // Check for dirty tabs
+    // Confirm before discarding any unsaved tabs (the bulk close force-closes).
     const dirtyTabs = tabs.filter(t => t.id !== tabId && t.isDirty)
     if (dirtyTabs.length > 0) {
-      // For now, just close non-dirty tabs
-      // TODO: Could show a multi-save dialog
+      setPendingBulkClose({ kind: 'others', keepTabId: tabId, dirtyCount: dirtyTabs.length })
+      return
     }
     await closeOtherTabs(tabId)
   }
 
   const handleCloseAll = async () => {
-    // Check for dirty tabs
     const dirtyTabs = tabs.filter(t => t.isDirty)
     if (dirtyTabs.length > 0) {
-      // For now, just close non-dirty tabs
-      // TODO: Could show a multi-save dialog
+      setPendingBulkClose({ kind: 'all', dirtyCount: dirtyTabs.length })
+      return
     }
     await closeAllTabs()
+  }
+
+  const handleConfirmBulkClose = async () => {
+    if (!pendingBulkClose) return
+    if (pendingBulkClose.kind === 'others' && pendingBulkClose.keepTabId) {
+      await closeOtherTabs(pendingBulkClose.keepTabId)
+    } else {
+      await closeAllTabs()
+    }
+    setPendingBulkClose(null)
   }
 
   const handleClose = useCallback(async () => {
@@ -635,6 +650,30 @@ export function Toolbar() {
             </AlertDialogAction>
             <AlertDialogAction onClick={handleSaveAndClose}>
               Save
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk-close confirmation: Close Other / Close All Tabs with unsaved work */}
+      <AlertDialog open={pendingBulkClose !== null} onOpenChange={(open) => !open && setPendingBulkClose(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingBulkClose?.dirtyCount === 1
+                ? 'Close an unsaved document?'
+                : `Close ${pendingBulkClose?.dirtyCount} unsaved documents?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingBulkClose?.dirtyCount === 1
+                ? 'One of the tabs being closed has unsaved changes that will be lost.'
+                : `${pendingBulkClose?.dirtyCount} of the tabs being closed have unsaved changes that will be lost.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingBulkClose(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={handleConfirmBulkClose}>
+              Close Without Saving
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

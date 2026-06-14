@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import type { FileItem } from '../../types'
 import { ChevronRight, ChevronDown, FileText, FileType, Folder, FolderOpen, Loader2, Trash2, Edit3, ExternalLink, Copy, Scissors, ClipboardPaste, FilePlus, Boxes, Star } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { useSettingsStore } from '../../stores/settingsStore'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -183,9 +184,21 @@ function FileTreeItem({
   // Denote favorite files in the tree (folders keep their folder icon).
   // favoritePaths is subscribed once at the root and threaded down (no per-item subscription).
   const isFavorite = !item.isDirectory && favoritePaths.has(item.path)
-  // Whether this item (file or folder) is in the favorites list — used for
-  // the trailing star button affordance that applies to both types.
-  const isItemFavorited = favoritePaths.has(item.path)
+
+  // Toggle this file's favorite state from the leading icon affordance. Add
+  // goes through the threaded onAddFavorite (so the call site's dedupe/persist
+  // logic runs); remove looks up the favorite by path and drops it.
+  const handleToggleFavorite = useCallback(() => {
+    if (item.isDirectory) return
+    if (isFavorite) {
+      const fav = (useSettingsStore.getState().settings.favorites ?? []).find(
+        (f) => f.path === item.path
+      )
+      if (fav) useSettingsStore.getState().removeFavorite(fav.id)
+    } else {
+      onAddFavorite?.(item.path, item.isDirectory)
+    }
+  }, [isFavorite, item.path, item.isDirectory, onAddFavorite])
 
   // Inline rename state
   const [renameValue, setRenameValue] = useState('')
@@ -331,7 +344,7 @@ function FileTreeItem({
 
   const buttonElement = (
     <div
-      className={cn("group flex items-center", ((!item.isDirectory && onFileLinkClick) || onAddFavorite) && "relative")}
+      className={cn("group flex items-center", !item.isDirectory && onFileLinkClick && "relative")}
     >
       <button
         ref={buttonRef}
@@ -372,7 +385,35 @@ function FileTreeItem({
         ) : (
           <>
             <span className="w-3.5" />
-            {isFavorite ? (
+            {onAddFavorite && !isRenaming ? (
+              // Quick-favorite affordance in the file-icon slot: filled star when
+              // favorited; otherwise the file icon, swapped to an empty star on
+              // row hover. Clicking toggles favorite (stopPropagation so it does
+              // not also open the file).
+              <span
+                role="button"
+                tabIndex={-1}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleToggleFavorite()
+                }}
+                title={isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}
+                className="shrink-0 inline-flex h-4 w-4 items-center justify-center"
+              >
+                {isFavorite ? (
+                  <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+                ) : (
+                  <>
+                    {item.name.endsWith('.txt') ? (
+                      <FileType className="h-4 w-4 text-muted-foreground group-hover:hidden" />
+                    ) : (
+                      <FileText className="h-4 w-4 text-muted-foreground group-hover:hidden" />
+                    )}
+                    <Star className="hidden h-4 w-4 text-muted-foreground group-hover:block hover:text-amber-400" />
+                  </>
+                )}
+              </span>
+            ) : isFavorite ? (
               <Star className="h-4 w-4 shrink-0 fill-amber-400 text-amber-400" />
             ) : item.name.endsWith('.txt') ? (
               <FileType className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -405,26 +446,6 @@ function FileTreeItem({
           title="Open in Google Docs"
         >
           <ExternalLink className="h-3 w-3 text-muted-foreground" />
-        </button>
-      )}
-      {onAddFavorite && !isRenaming && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            onAddFavorite(item.path, item.isDirectory)
-          }}
-          className={cn(
-            'absolute right-1 p-1 rounded hover:bg-accent transition-opacity',
-            isItemFavorited ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-          )}
-          title={isItemFavorited ? 'Favorited' : 'Add to Favorites'}
-        >
-          <Star
-            className={cn(
-              'h-3 w-3',
-              isItemFavorited ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground'
-            )}
-          />
         </button>
       )}
     </div>

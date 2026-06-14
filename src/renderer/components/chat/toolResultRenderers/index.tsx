@@ -48,7 +48,7 @@ export interface ToolResultContext {
 type ToolResultRenderer = (content: string, ctx: ToolResultContext) => ToolResultSlots
 
 const toolResultRenderers: Record<string, ToolResultRenderer> = {
-  list_files: (content) => ({ body: <ListFilesResult content={content} /> }),
+  list_files: (content) => ({ body: <ListFilesResult content={content} />, defaultExpanded: true }),
   request_mode_switch: (content, ctx) => ({
     body: <RequestModeSwitchBody content={content} />,
     actions: <RequestModeSwitchActions content={content} messageId={ctx.messageId} toolPartIdx={ctx.toolPartIdx} />,

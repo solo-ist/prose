@@ -183,6 +183,9 @@ function FileTreeItem({
   // Denote favorite files in the tree (folders keep their folder icon).
   // favoritePaths is subscribed once at the root and threaded down (no per-item subscription).
   const isFavorite = !item.isDirectory && favoritePaths.has(item.path)
+  // Whether this item (file or folder) is in the favorites list — used for
+  // the trailing star button affordance that applies to both types.
+  const isItemFavorited = favoritePaths.has(item.path)
 
   // Inline rename state
   const [renameValue, setRenameValue] = useState('')
@@ -328,7 +331,7 @@ function FileTreeItem({
 
   const buttonElement = (
     <div
-      className={cn("group flex items-center", !item.isDirectory && onFileLinkClick && "relative")}
+      className={cn("group flex items-center", ((!item.isDirectory && onFileLinkClick) || onAddFavorite) && "relative")}
     >
       <button
         ref={buttonRef}
@@ -402,6 +405,26 @@ function FileTreeItem({
           title="Open in Google Docs"
         >
           <ExternalLink className="h-3 w-3 text-muted-foreground" />
+        </button>
+      )}
+      {onAddFavorite && !isRenaming && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onAddFavorite(item.path, item.isDirectory)
+          }}
+          className={cn(
+            'absolute right-1 p-1 rounded hover:bg-accent transition-opacity',
+            isItemFavorited ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          )}
+          title={isItemFavorited ? 'Favorited' : 'Add to Favorites'}
+        >
+          <Star
+            className={cn(
+              'h-3 w-3',
+              isItemFavorited ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground'
+            )}
+          />
         </button>
       )}
     </div>

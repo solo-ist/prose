@@ -27,7 +27,8 @@ to summarize, and posts a **single report** (comment or issue) behind a human-ap
 | Output artifact | one Markdown report comment on the durable log issue **#738**, prefixed with the `<!-- oz-maint-drift -->` sentinel for dedup |
 
 ## Environment B — `prose-build` · `erUdWNSiECqkTQ7BXj6J4Y` (write-capable)
-For implementation children (one per issue). Creates branches + draft PRs; never merges, never pushes `main`.
+For implementation children (one per issue). Creates branches + PRs (ready for review by default, per the
+`implement-issue` skill); never merges, never pushes `main`.
 
 | Aspect | Value |
 |---|---|
@@ -36,7 +37,7 @@ For implementation children (one per issue). Creates branches + draft PRs; never
 | Setup commands | `cd prose && npm ci --include=dev --no-audit --no-fund` · `apt-get install -y zip 2>/dev/null \|\| true` · `git config --global user.email '442369+mrangelmarino@users.noreply.github.com'` · `git config --global user.name 'Angel Marino'` |
 | GitHub auth | Runtime `GH_TOKEN` from the Oz App — already authenticated for clone/branch/PR. No setup-phase token needed |
 | Secrets | `ANTHROPIC_API_KEY` |
-| Branch/PR perms | create branches + **draft** PRs only; branch protection (`enforce_admins`) blocks merge / push-to-main |
+| Branch/PR perms | create branches + PRs (draft **or** ready-for-review); branch protection (`enforce_admins`) blocks merge / push-to-main |
 
 > **Setup command rationale:** `zip` is needed for `npm run build`'s `build:skill` step (absent from the base
 > image by default). The git noreply email pre-empts the GH007 push rejection every agent otherwise hits.
@@ -88,7 +89,7 @@ oz environment create \
   --setup-command "apt-get install -y zip 2>/dev/null || true" \
   --setup-command "git config --global user.email '442369+mrangelmarino@users.noreply.github.com'" \
   --setup-command "git config --global user.name 'Angel Marino'"
-# Attach ANTHROPIC_API_KEY secret; set branch/PR perms = branches + draft PRs only
+# Attach ANTHROPIC_API_KEY secret; set branch/PR perms = branches + PRs (draft or ready-for-review)
 ```
 
 Validate `prose-build` with a single smoke-test run before fanning out:

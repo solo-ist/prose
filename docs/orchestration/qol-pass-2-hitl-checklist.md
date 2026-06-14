@@ -7,6 +7,11 @@ Run this pass against a fresh `npm run dev` before cutting the point release.
 
 **State at merge:** `main` @ `72605bb`. Branch protection requires `e2e` only;
 every PR below merged green on `e2e` + a clean `claude[bot]` review.
+**Scope vs. brief:** the brief scoped 12 issues; this wave merged 9 of them (all
+8 of Batch 1, plus #724 from Batch 2) as 9 feature PRs + the #751 skills chore =
+10 PRs. **Deferred (not dispatched/opened this wave):** #722 (per-mode light/dark
+theme), #727 (ENOENT-on-save → Save-As fallback), #701 (customizable kebab menus)
+— all Batch-2, hitl-full, carried to a later wave.
 **Dependabot:** the only new advisory (transitive `uuid` via `tiptap-footnotes`)
 was resolved in #750 by upgrading to `tiptap-footnotes@2.0.4` (`uuid@11.1.1`);
 `npm audit --omit=dev` is **0 vulnerabilities**.

@@ -64,10 +64,11 @@ export const FootnoteReference = BaseFootnoteReference.extend({
             if (!markdownit.renderer.rules.footnote_ref) {
               markdownit.use(markdownItFootnote)
             }
-          },
-          updateDOM(element: HTMLElement) {
-            normalizeMarkdownFootnotesDom(element)
           }
+          // No `updateDOM` here: normalizeMarkdownFootnotesDom is structural
+          // (it rewrites the whole footnotes section/list) and runs once from
+          // Footnotes.updateDOM on the full document. Registering it here too
+          // just ran the same idempotent pass a second time.
         }
       }
     }

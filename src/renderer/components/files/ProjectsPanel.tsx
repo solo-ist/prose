@@ -87,7 +87,7 @@ function ProjectItem({ id, name, path, isActive, onSwitch, onRename, onRemove }:
           onClick={() => onRemove(id)}
         >
           <Trash2 className="h-4 w-4 mr-2" />
-          Remove
+          Remove from Projects
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
@@ -132,7 +132,7 @@ function FavoriteItem({ id, name, path, onNavigate, onRename, onRemove }: Favori
           onClick={() => onRemove(id)}
         >
           <Trash2 className="h-4 w-4 mr-2" />
-          Remove
+          Remove from Favorites
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>

@@ -1,13 +1,24 @@
-import { useState, useEffect } from 'react'
-import { generateEmoji, getEmojiSync, FALLBACK_EMOJI } from '../lib/emojiService'
+import { useState, useEffect, useCallback } from 'react'
+import { generateEmoji, regenerateEmoji, getEmojiSync, FALLBACK_EMOJI } from '../lib/emojiService'
 import type { Tab } from '../stores/tabStore'
 
+export interface TabEmoji {
+  /** The emoji to display for this tab. */
+  emoji: string
+  /**
+   * Clear this tab's cached emoji and generate a fresh one, updating the
+   * displayed value when it resolves. Optionally pass live content (e.g. the
+   * active tab's in-editor text) since `tab.content` can lag behind the editor.
+   */
+  regenerate: (contentOverride?: string) => Promise<void>
+}
+
 /**
- * Returns an emoji for a tab. Always generates eagerly so the emoji is
- * ready when the tab bar needs to display it. Starts with cached emoji
- * or fallback, updates async when generation completes.
+ * Returns an emoji for a tab plus a regenerate function. Always generates
+ * eagerly so the emoji is ready when the tab bar needs to display it. Starts
+ * with cached emoji or fallback, updates async when generation completes.
  */
-export function useTabEmoji(tab: Tab): string {
+export function useTabEmoji(tab: Tab): TabEmoji {
   const [emoji, setEmoji] = useState<string>(() => {
     return getEmojiSync(tab) ?? FALLBACK_EMOJI
   })
@@ -33,5 +44,16 @@ export function useTabEmoji(tab: Tab): string {
     // (e.g. a "…Robots" emoji leaking onto the next Untitled tab).
   }, [tab.id, tab.path, tab.title])
 
-  return emoji
+  // Regenerate is a user action (the tab's "Regenerate Emoji" menu item). The
+  // service clears its cache and re-generates; we must push the result into
+  // local state ourselves — the effect above won't re-run (its deps are
+  // unchanged), so without this the visible emoji would never update.
+  const regenerate = useCallback(async (contentOverride?: string) => {
+    const result = await regenerateEmoji(
+      contentOverride !== undefined ? { ...tab, content: contentOverride } : tab
+    )
+    setEmoji(result)
+  }, [tab])
+
+  return { emoji, regenerate }
 }

@@ -94,6 +94,7 @@ export function FileListPanel() {
   // Subscribe to favorites once here and pass a path Set down the tree, so each
   // FileTreeItem doesn't hold its own settingsStore subscription (O(1), not O(nodes)).
   const favoritePaths = useMemo(() => new Set(favorites.map((f) => f.path)), [favorites])
+  const projectPaths = useMemo(() => new Set(projects.map((p) => p.path)), [projects])
   const { exitToRoot } = useProjectsStore()
   const defaultSaveDirectory = useSettingsStore((s) => s.settings.defaultSaveDirectory)
   // The project whose folder contains the current view root (handles drill-down
@@ -354,6 +355,19 @@ export function FileListPanel() {
       isDirectory,
       addedAt: new Date().toISOString(),
     })
+  }, [])
+
+  // Inverse of the add helpers: look the pointer up by path and drop it. Go
+  // through useProjectsStore.removeProject (not the bare settings mutator) so an
+  // active project removal also reconciles the explorer view back to base root.
+  const removePathAsFavorite = useCallback((path: string) => {
+    const fav = (useSettingsStore.getState().settings.favorites ?? []).find((f) => f.path === path)
+    if (fav) useProjectsStore.getState().removeFavorite(fav.id)
+  }, [])
+
+  const removePathAsProject = useCallback((path: string) => {
+    const proj = (useSettingsStore.getState().settings.projects ?? []).find((p) => p.path === path)
+    if (proj) useProjectsStore.getState().removeProject(proj.id)
   }, [])
 
   const handleCreateNewFile = async () => {
@@ -1436,6 +1450,7 @@ export function FileListPanel() {
                     <FileTree
                       items={files}
                       favoritePaths={favoritePaths}
+                      projectPaths={projectPaths}
                       expandedFolders={expandedFolders}
                       selectedPath={selectedPath}
                       loadingFolders={loadingFolders}
@@ -1459,6 +1474,8 @@ export function FileListPanel() {
                       onNewFile={handleNewFileInDir}
                       onAddProject={addPathAsProject}
                       onAddFavorite={addPathAsFavorite}
+                      onRemoveProject={removePathAsProject}
+                      onRemoveFavorite={removePathAsFavorite}
                       onFileDrop={handleFileDrop}
                     />
                   )}

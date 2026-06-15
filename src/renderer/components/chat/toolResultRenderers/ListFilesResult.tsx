@@ -3,7 +3,7 @@ import { FileTree } from '../../files/FileTree'
 import { useTabs } from '../../../hooks/useTabs'
 import { useFileListStore } from '../../../stores/fileListStore'
 import { useSettingsStore } from '../../../stores/settingsStore'
-import { useFavorites } from '../../../stores/projectsStore'
+import { useFavorites, useProjects } from '../../../stores/projectsStore'
 import type { FileItem } from '../../../types'
 
 interface ListFilesResultProps {
@@ -61,6 +61,10 @@ export function ListFilesResult({ content }: ListFilesResultProps) {
   // per-item settingsStore subscription.
   const favorites = useFavorites()
   const favoritePaths = useMemo(() => new Set(favorites.map((f) => f.path)), [favorites])
+  // Same for projects, so a project folder in a result shows the project icon
+  // (parity with the file-explorer panel).
+  const projects = useProjects()
+  const projectPaths = useMemo(() => new Set(projects.map((p) => p.path)), [projects])
 
   // Add a path to the persisted favorites list. Idempotent: dedup by path so
   // re-adding is a no-op. Mirrors FileListPanel.addPathAsFavorite.
@@ -75,6 +79,13 @@ export function ListFilesResult({ content }: ListFilesResultProps) {
       isDirectory,
       addedAt: new Date().toISOString(),
     })
+  }, [])
+
+  // Inverse of addPathAsFavorite, so the tree's right-click menu can toggle
+  // (Add ↔ Remove) here too, matching the file-explorer panel.
+  const removePathAsFavorite = useCallback((path: string) => {
+    const fav = (useSettingsStore.getState().settings.favorites ?? []).find((f) => f.path === path)
+    if (fav) useSettingsStore.getState().removeFavorite(fav.id)
   }, [])
 
   let parsed: ListFilesEnvelope | null = null
@@ -117,11 +128,13 @@ export function ListFilesResult({ content }: ListFilesResultProps) {
       <FileTree
         items={files}
         favoritePaths={favoritePaths}
+        projectPaths={projectPaths}
         expandedFolders={expandedFolders}
         selectedPath={null}
         onFileClick={handleFileClick}
         onFolderToggle={handleFolderToggle}
         onAddFavorite={addPathAsFavorite}
+        onRemoveFavorite={removePathAsFavorite}
       />
       {payload.truncated && payload.totalFound !== undefined && (
         <div className="mt-2 text-[11px] text-muted-foreground">

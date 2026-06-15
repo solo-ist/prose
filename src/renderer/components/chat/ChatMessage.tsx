@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { cn } from '../../lib/utils'
 import type { ChatMessage as ChatMessageType } from '../../types'
 import { User, AlertCircle, Sparkles, CheckCircle2, XCircle, RotateCcw, ChevronDown } from 'lucide-react'
@@ -19,6 +19,19 @@ type ToolCallStatus = 'drafting' | 'executing' | 'success' | 'error'
 // Tool call indicator component with AI sparkle styling
 function ToolCallIndicator({ name, status, onClick, children, actions, defaultExpanded = false }: { name: string; status: ToolCallStatus; onClick?: () => void; children?: React.ReactNode; actions?: React.ReactNode; defaultExpanded?: boolean }) {
   const [expanded, setExpanded] = useState(defaultExpanded)
+  // A live tool call mounts during `executing`, when `defaultExpanded` is still
+  // false (the custom renderer that sets it only runs once the result arrives).
+  // Since useState's initializer is captured once, the later flip to true would
+  // be ignored and the block would stay collapsed. Apply it exactly once on the
+  // false→true transition, so a freshly-finished list_files auto-expands while
+  // still respecting a manual collapse afterward.
+  const appliedDefaultExpand = useRef(defaultExpanded)
+  useEffect(() => {
+    if (defaultExpanded && !appliedDefaultExpand.current) {
+      appliedDefaultExpand.current = true
+      setExpanded(true)
+    }
+  }, [defaultExpanded])
   // Drafting and executing are mid-flight states: no body to expand yet.
   const hasBody = children != null && status !== 'executing' && status !== 'drafting'
   const hasActions = actions != null

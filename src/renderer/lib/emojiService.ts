@@ -19,8 +19,14 @@ const queue: Array<() => void> = []
 
 export const FALLBACK_EMOJI = '\u{1F4C4}' // 📄
 
-function getCacheKey(tab: { path: string | null; title: string }): string {
-  return tab.path ? `path:${tab.path}` : `title:${tab.title}`
+function getCacheKey(tab: { id: string; path: string | null; title: string }): string {
+  // Saved files key on path (so multiple tabs of the same file share an emoji
+  // and it persists across sessions). Untitled tabs have no path AND share the
+  // title "Untitled", so a title key collides across every Untitled tab — an
+  // emoji generated for one (e.g. a robot from a "…Robots" draft) would leak
+  // onto the next. Key those on the stable per-tab id instead (tab ids survive
+  // restart via session persistence, so a restored draft keeps its emoji).
+  return tab.path ? `path:${tab.path}` : `id:${tab.id}`
 }
 
 function getPromptTitle(tab: { path: string | null; title: string }): string {
@@ -62,7 +68,7 @@ function releaseConcurrencySlot(): void {
  * otherwise triggers async generation and returns fallback.
  * Only caches real emoji results — fallbacks are NOT cached, allowing retries.
  */
-export async function generateEmoji(tab: { path: string | null; title: string; content?: string }): Promise<string> {
+export async function generateEmoji(tab: { id: string; path: string | null; title: string; content?: string }): Promise<string> {
   const key = getCacheKey(tab)
 
   // 1. Check memory cache (only contains real emojis, never fallback)
@@ -126,14 +132,14 @@ export async function generateEmoji(tab: { path: string | null; title: string; c
 /**
  * Get emoji synchronously from memory cache. Returns undefined if not cached.
  */
-export function getEmojiSync(tab: { path: string | null; title: string }): string | undefined {
+export function getEmojiSync(tab: { id: string; path: string | null; title: string }): string | undefined {
   return memoryCache.get(getCacheKey(tab))
 }
 
 /**
  * Regenerate emoji for a tab (clears cache and generates fresh).
  */
-export async function regenerateEmoji(tab: { path: string | null; title: string; content?: string }): Promise<string> {
+export async function regenerateEmoji(tab: { id: string; path: string | null; title: string; content?: string }): Promise<string> {
   const key = getCacheKey(tab)
   memoryCache.delete(key)
   await deleteEmojiCache(key).catch(() => {})

@@ -21,7 +21,6 @@ import {
 import type { TabTier } from '../../hooks/useTabTier'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useTabEmoji } from '../../hooks/useTabEmoji'
-import { regenerateEmoji } from '../../lib/emojiService'
 import { useSettings } from '../../hooks/useSettings'
 import { isMacOS } from '../../lib/browserApi'
 import { isAIConfigured } from '../../lib/llm'
@@ -262,7 +261,7 @@ function TabItem({
 
   // Emoji: always generate eagerly, display based on tab width or setting
   const { settings } = useSettings()
-  const emoji = useTabEmoji(tab)
+  const { emoji, regenerate } = useTabEmoji(tab)
   const showEmoji = settings.llm.emojiIcons || (tabWidth !== undefined && tabWidth <= 140)
 
   // Focus input when editing starts
@@ -288,8 +287,14 @@ function TabItem({
       })
       return
     }
-    regenerateEmoji(tab)
-  }, [tab, settings])
+    // For the active tab the freshest content lives in the editor, not
+    // tab.content (which can lag) — pass it so regeneration reflects what the
+    // user actually wrote (mirrors the H1-suggestion logic in handleDoubleClick).
+    const liveContent = isActive
+      ? useEditorStore.getState().document.content
+      : tab.content
+    regenerate(liveContent)
+  }, [tab, isActive, settings, regenerate])
 
   // Whether this tab's file is currently a favorite. Subscribed (not a
   // getState snapshot) so the menu item's label/icon stay in sync after a
@@ -477,7 +482,7 @@ function TabItem({
           )}
           <ContextMenuSeparator />
           <ContextMenuItem onClick={handleToggleFavorite} disabled={!tab.path}>
-            <Star className={cn('h-4 w-4 mr-2', isFavorited && 'fill-amber-400 text-amber-400')} />
+            <Star className={cn('h-4 w-4 mr-2', isFavorited && 'fill-current')} />
             {isFavorited ? 'Remove from Favorites' : 'Add to Favorites'}
           </ContextMenuItem>
           <ContextMenuItem onClick={onShowInFolder} disabled={!tab.path}>

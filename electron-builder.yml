@@ -86,7 +86,7 @@ mas:
     - "!node_modules/builder-util-runtime/**"
 
 masDev:
-  identity: Apple Development
+  identity: 5106DA8B43E1AF25E3B553CABD91400445A9E68A
   provisioningProfile: build/Prose_Development.provisionprofile
 
 win:

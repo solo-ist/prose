@@ -109,6 +109,9 @@ git branch -r | grep -E "origin/(feat|fix|refactor|spike|chore)/${issue}-" | hea
 # Kill stale processes first
 pkill -f "Electron.app" 2>/dev/null || true
 pkill -f "electron-vite" 2>/dev/null || true
+# Reap leaked Circuit servers (safe: dead-client orphans only). Runs each issue,
+# so a long batch can't accumulate them. See CLAUDE.md › Orphaned Circuit Server Cleanup.
+node scripts/reap-circuit.mjs 2>/dev/null || true
 
 # Fetch and checkout
 git fetch origin

@@ -104,6 +104,8 @@ pkill -f "electron-vite.*prose"
 
 # NEVER: pkill -f node      # This kills Circuit Electron MCP!
 # NEVER: pkill -f Electron  # This kills ALL Electron apps!
+# To clear LEAKED Circuit servers safely, use the reaper (orphans only) — see below:
+#   node scripts/reap-circuit.mjs
 ```
 
 If the PID file is missing but Electron processes exist, they're likely stale from a crashed session. Kill them before starting fresh.
@@ -117,6 +119,19 @@ Multiple Claude Code agents may run simultaneously on this machine, potentially 
 - **Session conflicts**: Circuit Electron sessions may collide
 
 **Always prefer the PID file method** for cleanup. When encountering "address already in use" errors, check if another agent is active before assuming a bug. Vite automatically finds alternative ports, but DevTools debugging port (9222) conflicts will cause launch failures.
+
+### Orphaned Circuit Server Cleanup
+
+Circuit Electron (`@snowfort/circuit-electron`, a `0.0.x` alpha) does **not** exit when its Claude client disconnects. Orphaned servers reparent to `launchd` and many spin into ~100% CPU busy-loops; left alone they pile up (one sweep found 74 of them eating ~10 cores). The dev-server PID protocol above does **not** cover this — it kills the app, not the MCP server.
+
+Reap them safely with:
+
+```bash
+node scripts/reap-circuit.mjs            # kill orphaned servers
+node scripts/reap-circuit.mjs --dry-run  # report only, kill nothing
+```
+
+This is the safe inverse of "NEVER pkill -f node": it kills a Circuit process **only** if its parent chain reaches `init` (pid 1) through Circuit processes alone. Any server still attached to a live client — this session's, a concurrent agent's, even a terminal you launched it from — is spared, so it's multi-agent safe by construction. The QA skills (`qa-pr`, `qa-accelerated`, `qa-hitl`) invoke it automatically; run it by hand any time CPU spikes from stray `node` processes.
 
 ### Built App Location
 

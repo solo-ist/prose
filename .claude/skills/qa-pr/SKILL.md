@@ -49,6 +49,10 @@ The branch name is in the PR details under `head.ref`.
 ```bash
 pkill -f "electron" 2>/dev/null
 pkill -f "vite" 2>/dev/null
+
+# Reap Circuit Electron MCP servers leaked by exited sessions (safe: kills only
+# dead-client orphans, never a live server). See CLAUDE.md › Orphaned Circuit Server Cleanup.
+node scripts/reap-circuit.mjs 2>/dev/null || true
 ```
 
 This is especially important when:

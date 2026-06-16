@@ -97,6 +97,7 @@ Order stages so cheap, no-LLM checks fail fast before expensive ones. Adapt the 
 - **Go/no-go**: 100% pass + fix-PRs merged into the integration branch + deferred items triaged → GO. List deferred bugs and decide ship-anyway vs hold.
 - **Run log**: append a final pass/fail table to the reference doc so the next session has a durable record of verified-vs-deferred.
 - **Release**: on GO, the integration branch merges to `main` (use closing keywords for the umbrella + feature issues in the PR body). Cut the release separately (see the `release` skill).
+- **Reap Circuit servers**: run `node scripts/reap-circuit.mjs` to clear any Circuit Electron servers orphaned during the run. Unlike broad `pkill`, it only touches dead-client orphans — never this session's server or a concurrent agent's — so it respects the multi-agent rule above. See CLAUDE.md › Orphaned Circuit Server Cleanup.
 
 ## Parameterize per run
 

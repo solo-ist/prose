@@ -174,10 +174,15 @@ test.describe('Electron — Editor', () => {
   })
 
   test('settings dialog opens via more options menu', async () => {
-    // Ensure any previous menu/dialog is dismissed
+    // Ensure any previous menu/dialog is dismissed.
     await page.keyboard.press('Escape')
-    // Debounce guard: no observable DOM signal after Escape dismissal
-    await page.waitForTimeout(100)
+    // Wait for the menu/dialog to be fully gone before proceeding rather than
+    // using a fixed timeout, which is unreliable under headless CI load.
+    await expect(page.getByRole('menuitem', { name: 'Settings' })).not.toBeVisible({
+      timeout: 3_000,
+    }).catch(() => {
+      // Menuitem may already be gone — that's fine, proceed.
+    })
 
     await page.click(selectors.moreOptions)
     const settingsItem = page.getByRole('menuitem', { name: 'Settings' })

@@ -273,8 +273,9 @@ class Reader {
     if (!header.startsWith(HEADER_PREFIX)) {
       throw new Error('Not a reMarkable .lines file')
     }
-    const versionChar = header.charAt(HEADER_PREFIX.length)
-    const version = parseInt(versionChar, 10)
+    // Parse the full version token (handles multi-digit versions like v10+, not
+    // just a single digit); the trailing header padding is trimmed off.
+    const version = parseInt(header.slice(HEADER_PREFIX.length).trim(), 10)
     return Number.isNaN(version) ? 0 : version
   }
 

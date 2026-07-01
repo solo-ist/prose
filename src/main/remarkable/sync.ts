@@ -298,7 +298,9 @@ type ContentResult =
   // markdown === null: no content was produced. `isFailure` distinguishes a
   // genuine OCR failure (→ stamp the retry sentinel) from a graceful skip such
   // as a pure-handwriting notebook while OCR is unconfigured (→ no sentinel).
-  | { markdown: null; isFailure: boolean }
+  // `extraction` is carried even on a skip so the caller can persist the
+  // classification and avoid re-parsing an unchanged notebook every sync.
+  | { markdown: null; isFailure: boolean; extraction?: 'typed-text' | 'ocr' | 'mixed' }
 
 /**
  * Derive markdown for a notebook directory.
@@ -489,11 +491,20 @@ export async function processNotebookContent(
       }
     }
 
+    // Classify how content was derived. Computed BEFORE the no-content check so a
+    // graceful skip persists it too — otherwise an unchanged handwriting notebook
+    // (OCR unconfigured) would be re-read and re-parsed on every sync, since its
+    // metadata would never record an extraction outcome.
+    const extraction: 'typed-text' | 'ocr' | 'mixed' =
+      typedCount > 0 && strokePageCount > 0 ? 'mixed'
+        : typedCount > 0 ? 'typed-text'
+          : 'ocr'
+
     // No content at all (no typed text and no OCR output) — graceful skip, not a
     // failure. e.g. a handwriting notebook synced while OCR is unconfigured.
     const anyContent = allPageIds.some(id => (pageMarkdown[id] ?? '').trim() !== '')
     if (!anyContent) {
-      return { markdown: null, isFailure: false }
+      return { markdown: null, isFailure: false, extraction }
     }
 
     // Assemble all pages in order.
@@ -505,11 +516,6 @@ export async function processNotebookContent(
       return pageHeader + body
     })
     const combinedMarkdown = markdownParts.join('\n\n---\n\n')
-
-    const extraction: 'typed-text' | 'ocr' | 'mixed' =
-      typedCount > 0 && strokePageCount > 0 ? 'mixed'
-        : typedCount > 0 ? 'typed-text'
-          : 'ocr'
 
     // Add metadata header. Notebook names come from the reMarkable cloud and
     // can contain colons, newlines, or quotes — values that would malform an
@@ -677,13 +683,21 @@ export async function syncAll(
       const failedAtMs = failedAt ? Date.parse(failedAt) : 0
       const failureIsFresh = failedAtMs > 0 && (Date.now() - failedAtMs) < FAIL_RETRY_AFTER_MS
       const ocrPreviouslyFailed = existingEntry?.ocrAttempt?.hash === doc.hash && failureIsFresh
-      // A notebook needs content extraction when it has never produced content
-      // (no ocrPath) OR when it predates typed-text support (extraction field
-      // absent) — the latter re-processes once so already-synced typed docs with
-      // empty bodies heal. Unlike OCR, typed-text extraction needs no OCR
-      // service, so this deliberately does NOT gate on isOCRConfigured().
-      const needsExtraction = doc.fileType === 'notebook' && !ocrPreviouslyFailed &&
-        (!existingEntry?.ocrPath || existingEntry?.extraction === undefined)
+      // A notebook needs content extraction when it has no recorded extraction
+      // outcome yet — it's new, or predates typed-text support (a one-time heal so
+      // already-synced typed docs with empty bodies fill in). Typed-text extraction
+      // needs no OCR service, so this does NOT gate on isOCRConfigured().
+      //
+      // The second clause re-triggers a handwriting notebook that was gracefully
+      // skipped while OCR was unconfigured (extraction:'ocr' recorded, but no
+      // ocrPath) once OCR later becomes available — otherwise it would never get
+      // transcribed. A content change re-triggers everything anyway via needsDownload.
+      // Recording the outcome (even on a skip) is what stops an unchanged handwriting
+      // notebook from being re-parsed on every sync.
+      const needsExtraction = doc.fileType === 'notebook' && !ocrPreviouslyFailed && (
+        existingEntry?.extraction === undefined ||
+        (!existingEntry?.ocrPath && existingEntry?.extraction === 'ocr' && isOCRConfigured())
+      )
       console.log(`[reMarkable] ${doc.name}: needsDownload=${needsDownload}, needsExtraction=${needsExtraction}, localFilesExist=${localFilesExist}, zipExists=${zipExists}`)
 
       if (!needsDownload && !needsExtraction) {
@@ -718,10 +732,12 @@ export async function syncAll(
       }> {
         let ocrPath: string | undefined
         let pageOCRCache: Record<string, PageOCRCacheEntry> | undefined
-        let extraction: 'typed-text' | 'ocr' | 'mixed' | undefined
         let freshSucceeded = false
         console.log(`[reMarkable] Extracting content for ${doc.name} from ${sourceDir}`)
         const result = await processNotebookContent(sourceDir, doc.name, anthropicApiKey, existingEntry?.pageOCRCache, onProgress, signal)
+        // Capture the classification even when no fresh file was written (a graceful
+        // skip) so the caller persists it and the notebook isn't re-parsed next sync.
+        let extraction: 'typed-text' | 'ocr' | 'mixed' | undefined = result.extraction
         if (result.markdown !== null) {
           const ocrFileName = `${sanitizeName(doc.name)}.md`
           const ocrDir = join(hiddenDir, doc.id)
@@ -730,7 +746,6 @@ export async function syncAll(
           await writeFile(ocrFullPath, result.markdown, 'utf-8')
           ocrPath = join(doc.id, ocrFileName)
           pageOCRCache = result.pageOCRCache
-          extraction = result.extraction
           freshSucceeded = true
           onProgress?.({ message: `Saved: ${ocrPath}`, notebookName: doc.name, phase: 'notebook-done' })
         }
@@ -745,7 +760,7 @@ export async function syncAll(
             await access(existingOcrFile)
             ocrPath = join(doc.id, ocrFileName)
             pageOCRCache = existingEntry?.pageOCRCache
-            extraction = existingEntry?.extraction
+            extraction = existingEntry?.extraction ?? result.extraction
             console.log(`[reMarkable] Reusing existing content file: ${ocrPath}`)
           } catch {
             // No existing file on disk either

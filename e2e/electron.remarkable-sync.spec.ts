@@ -65,10 +65,15 @@ test('classifies a pure typed notebook as typed-text (no OCR needed)', async () 
   expect(r.markdown).not.toContain('<!-- Page 1 -->')
 })
 
-test('pure handwriting with OCR unavailable is a graceful skip, not a failure', async () => {
+test('pure handwriting with OCR unavailable is a graceful skip that records its outcome', async () => {
   const dir = makeNotebook([{ id: 'h', fixture: 'Lines_v2.rm' }])
   const r = await processNotebookContent(dir, 'Handwriting Only', null)
   // No content, but NOT a failure — so no retry sentinel / red triangle.
   expect(r.markdown).toBeNull()
-  if (r.markdown === null) expect(r.isFailure).toBe(false)
+  if (r.markdown === null) {
+    expect(r.isFailure).toBe(false)
+    // The classification is carried even on a skip so the caller can persist it
+    // and avoid re-parsing this notebook on every sync (the re-processing-loop fix).
+    expect(r.extraction).toBe('ocr')
+  }
 })

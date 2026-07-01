@@ -5,6 +5,8 @@
 import { z } from 'zod'
 
 const EnvSchema = z.object({
+  // Render (and most PaaS) inject PORT; prefer it, else GATEWAY_PORT, else 4000.
+  PORT: z.coerce.number().optional(),
   GATEWAY_PORT: z.coerce.number().default(4000),
   NODE_ENV: z.string().default('development'),
 
@@ -46,6 +48,9 @@ function loadConfig(): Env {
 }
 
 export const config = loadConfig()
+
+/** Port to bind. Render injects PORT; fall back to GATEWAY_PORT (default 4000). */
+export const port = config.PORT ?? config.GATEWAY_PORT
 
 /** Allowlisted CORS origins, trimmed. */
 export const corsOrigins = config.CORS_ORIGINS.split(',')

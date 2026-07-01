@@ -5,12 +5,12 @@
  */
 import 'dotenv/config'
 import { serve } from '@hono/node-server'
-import { config } from './config.js'
+import { config, port } from './config.js'
 import { createApp } from './app.js'
 
 const app = createApp()
 
-const server = serve({ fetch: app.fetch, port: config.GATEWAY_PORT }, (info) => {
+const server = serve({ fetch: app.fetch, port }, (info) => {
   console.log(`[gateway] listening on http://localhost:${info.port} (env=${config.NODE_ENV})`)
 })
 

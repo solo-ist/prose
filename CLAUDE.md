@@ -315,14 +315,17 @@ Managed by `reviewStore` and components in `src/renderer/components/review/`.
 
 ### reMarkable Integration
 
-Syncs handwritten notebooks from reMarkable tablets. Located in `src/main/remarkable/`:
+Syncs handwritten notebooks **and typed-text documents** (Type Folio keyboard input) from reMarkable tablets. Located in `src/main/remarkable/`:
 - `client.ts` - reMarkable cloud API client (uses `rmapi-js`)
-- `sync.ts` - Notebook sync logic with parallel downloads (3 concurrent), incremental metadata saves, and structured `SyncProgressUpdate` progress events
+- `sync.ts` - Notebook sync logic with parallel downloads (3 concurrent), incremental metadata saves, and structured `SyncProgressUpdate` progress events. `processNotebookContent` derives markdown per page: **typed text** locally, **handwriting** via OCR
 - `ocr.ts` - Handwriting recognition via external OCR service (batch size 5, retry with exponential backoff)
+- `rm-scene-parser.ts` - Zero-dependency parser for reMarkable's v6 `.rm` binary format; extracts typed text (`RootTextBlock`) and detects strokes. Ported from the MIT-licensed [`rmscene`](https://github.com/ricklupton/rmscene). Never throws — parse failures fall back to the OCR path
+
+**Typed text vs. handwriting:** Typed docs are stored as `fileType === 'notebook'` (there is no separate "text" fileType) with digital text in the v6 `.rm` scene, so OCR renders them blank. `processNotebookContent` parses each page for typed text (no OCR/API key needed) and OCRs only stroke pages; typed text wins per page for mixed notebooks. The `extraction` metadata field (`typed-text` | `ocr` | `mixed`) records the source, and re-processing a legacy entry (no `extraction` field) once heals already-synced typed docs that had empty bodies.
 
 **Sync progress push:** The `remarkable:sync` IPC handler pushes `SyncProgressUpdate` events via `event.sender.send('remarkable:sync:progress', ...)`. The preload exposes `onRemarkableSyncProgress(callback)` for the renderer to subscribe.
 
-**OCR service:** Requires environment variables `REMARKABLE_OCR_URL` and `REMARKABLE_OCR_API_KEY` pointing to the Lambda endpoint. When absent, OCR silently skips — sync still works but notebooks have no markdown text. Also requires an Anthropic API key (reused from LLM provider settings, or configured separately in Settings → Integrations).
+**OCR service:** Requires environment variables `REMARKABLE_OCR_URL` and `REMARKABLE_OCR_API_KEY` pointing to the Lambda endpoint. When absent, OCR silently skips — handwriting notebooks have no markdown text, but typed-text docs still sync (typed extraction is local and needs no OCR). Also requires an Anthropic API key (reused from LLM provider settings, or configured separately in Settings → Integrations).
 
 ### Google Docs Integration
 

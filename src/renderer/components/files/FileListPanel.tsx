@@ -1044,17 +1044,15 @@ export function FileListPanel() {
   const handleNotebookClick = async (notebook: RemarkableNotebookMetadata, notebookId: string) => {
     if (!syncDirectory || !window.api) return
 
-    // ALWAYS open OCR in read-only mode from Notebooks panel
-    // Even if editable version exists, show the cloud state here
-    // The File Explorer is where users edit their files
+    // Open the reMarkable OCR/typed-text output in its OWN tab, read-only. Routing
+    // through the tab system (not openFileFromPath) gives each notebook a distinct
+    // tab so several can be open at once, and read-only state is derived from the
+    // hidden `.remarkable/` path — so it survives tab switches and the hidden source
+    // file can never be opened as editable (a sync would overwrite edits anyway).
     if (notebook.ocrPath) {
       const ocrFullPath = await window.api.remarkableGetOCRPath(notebookId, syncDirectory)
       if (ocrFullPath) {
-        selectFile(ocrFullPath)
-        // Set read-only mode with notebook ID for later transform
-        useEditorStore.getState().setRemarkableReadOnly(true, notebookId)
-        // Pass true for isRemarkableOCR so openFileFromPath doesn't clear read-only state
-        const shouldDescribe = await openFileFromPath(ocrFullPath, true)
+        const shouldDescribe = await openFileInTab(ocrFullPath)
         if (shouldDescribe) {
           const { document } = useEditorStore.getState()
           useSummaryStore.getState().generateSummary(document.documentId, document.content)

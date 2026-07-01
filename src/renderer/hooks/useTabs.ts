@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from 'react'
 import { useTabStore, createTab, generateUntitledTitle, type Tab, type ClosedTabSnapshot } from '../stores/tabStore'
 import { useEditorStore } from '../stores/editorStore'
+import { isRemarkableOcrPath, remarkableNotebookIdFromPath } from '../lib/remarkablePath'
 import { useEditorInstanceStore } from '../stores/editorInstanceStore'
 import { useChatStore, setCurrentDocumentId } from '../stores/chatStore'
 import { useAnnotationStore } from '../extensions/ai-annotations'
@@ -37,6 +38,18 @@ import type { DraftState } from '../lib/persistence'
 
 // Track chat panel state before preview mode so we can restore on promote
 let chatPanelStateBeforePreview: boolean | null = null
+
+// Set reMarkable read-only state derived from the destination file's path. Called
+// wherever a tab becomes active (switch/open/reopen) so read-only follows the path
+// rather than being a floating flag: a hidden `.remarkable/…` OCR path is read-only,
+// everything else is editable. This survives tab switches and prevents the hidden
+// OCR source file from ever opening as editable.
+function applyRemarkableReadOnlyForPath(path: string | null | undefined): void {
+  useEditorStore.getState().setRemarkableReadOnly(
+    isRemarkableOcrPath(path),
+    remarkableNotebookIdFromPath(path)
+  )
+}
 
 function restoreAfterPreviewBrowsing(): void {
   useEditorStore.getState().setPreviewTab(false)
@@ -215,8 +228,9 @@ export function useTabs() {
     await useCommentStore.getState().loadComments(newDocumentId)
     console.log(`[useTabs:${SESSION_ID}] comments loaded:`, useCommentStore.getState().pendingComments.length)
 
-    // Clear reMarkable read-only state
-    useEditorStore.getState().setRemarkableReadOnly(false, null)
+    // Read-only state follows the destination tab's path: switching to a
+    // reMarkable OCR tab stays read-only; switching to any editable file clears it.
+    applyRemarkableReadOnlyForPath(targetTab.path)
 
     // Sync the global preview-read-only flag to the tab we're switching to.
     // Without this, isPreviewTab stays stuck on the previously-active tab's
@@ -467,8 +481,8 @@ export function useTabs() {
     // Load comment marks for the document
     await useCommentStore.getState().loadComments(newDocumentId)
 
-    // Clear reMarkable read-only state
-    useEditorStore.getState().setRemarkableReadOnly(false, null)
+    // Read-only follows the opened path (a reMarkable OCR path opens read-only).
+    applyRemarkableReadOnlyForPath(filePath)
 
     // Mark as editing
     setEditing(true)
@@ -592,7 +606,7 @@ export function useTabs() {
       await useAnnotationStore.getState().loadAnnotations(newDocumentId)
       await useSuggestionStore.getState().loadSuggestions(newDocumentId)
       await useCommentStore.getState().loadComments(newDocumentId)
-      useEditorStore.getState().setRemarkableReadOnly(false, null)
+      applyRemarkableReadOnlyForPath(filePath)
       setEditing(true)
 
       useSettingsStore.getState().addRecentFile(filePath)
@@ -659,7 +673,7 @@ export function useTabs() {
     await useAnnotationStore.getState().loadAnnotations(newDocumentId)
     await useSuggestionStore.getState().loadSuggestions(newDocumentId)
     await useCommentStore.getState().loadComments(newDocumentId)
-    useEditorStore.getState().setRemarkableReadOnly(false, null)
+    applyRemarkableReadOnlyForPath(filePath)
     setEditing(true)
 
     useSettingsStore.getState().addRecentFile(filePath)
@@ -1076,7 +1090,7 @@ export function useTabs() {
     await useSuggestionStore.getState().loadSuggestions(documentId)
     await useCommentStore.getState().loadComments(documentId)
 
-    useEditorStore.getState().setRemarkableReadOnly(false, null)
+    applyRemarkableReadOnlyForPath(snapshot.path)
     setEditing(true)
 
     if (snapshot.path) {

@@ -264,6 +264,12 @@ export interface RemarkableNotebookMetadata {
    * so users know the row isn't simply "still processing".
    */
   ocrAttempt?: { hash: string; failedAt: string }
+  /**
+   * How this notebook's content was derived: `typed-text` (digital text from the
+   * v6 .rm scene, no OCR), `ocr` (handwriting transcribed), or `mixed` (both).
+   * Absent for entries synced before typed-text support existed.
+   */
+  extraction?: 'typed-text' | 'ocr' | 'mixed'
 }
 
 export interface RemarkableSyncMetadata {
@@ -289,6 +295,7 @@ export type RemarkableSyncPhase =
   | 'listing'
   | 'downloading'
   | 'ocr'
+  | 'extracting'
   | 'notebook-done'
   | 'skipped'
   | 'complete'

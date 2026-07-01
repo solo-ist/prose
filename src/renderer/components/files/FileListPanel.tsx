@@ -1118,6 +1118,9 @@ export function FileListPanel() {
         const localMeta = notebookMetadata?.notebooks?.[notebookId] ?? null
         const hasOCR = !!localMeta?.ocrPath
         const hasEditable = !!localMeta?.markdownPath
+        // How the read-only content was derived, so the tooltip can say "typed
+        // text" rather than "OCR" for keyboard (Type Folio) documents.
+        const extraction = localMeta?.extraction
         // OCR failed AND the failed-against hash matches the current hash —
         // i.e. the sentinel still applies. If the user edits the page on the
         // tablet, hash changes and the sentinel no longer matches, so retry
@@ -1155,8 +1158,12 @@ export function FileListPanel() {
                         : hasEditable
                           ? `${item.name} (editable)`
                           : hasOCR
-                            ? `${item.name} (read-only OCR - click to view)`
-                            : `${item.name} (synced, processing OCR...)`
+                            ? extraction === 'typed-text'
+                              ? `${item.name} (typed text - read-only)`
+                              : extraction === 'mixed'
+                                ? `${item.name} (typed text + OCR - read-only)`
+                                : `${item.name} (read-only OCR - click to view)`
+                            : `${item.name} (synced, processing...)`
                   }
                   disabled={!isSynced || !isClickable}
                 >

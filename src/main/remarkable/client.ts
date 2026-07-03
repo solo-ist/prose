@@ -122,8 +122,16 @@ export function disconnect(): void {
 function createClient(api: RemarkableApi): RemarkableClient {
   return {
     async listNotebooks(): Promise<RemarkableNotebook[]> {
-      // v10: listItems() uses the low-level API (no rm-filename header issues)
-      const items = await api.listItems()
+      // Pass refresh=true so rmapi-js re-fetches the CURRENT root hash before
+      // listing, rather than reusing the root cached when this client instance
+      // was created. `connect()` caches the RemarkableApi for the whole app
+      // session, so without this a tablet edit that reached the cloud AFTER
+      // Prose launched wouldn't be seen until the app restarts (the sync would
+      // keep comparing against a stale listing and skip everything). The content
+      // cache (documents keyed by content hash) is preserved, so this costs only
+      // one lightweight root-hash fetch — unchanged docs still hit the cache and
+      // don't re-download.
+      const items = await api.listItems(true)
 
       return items
         .filter((item: Entry): item is DocumentType | CollectionEntry => {

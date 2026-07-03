@@ -2,12 +2,12 @@
  * Helpers for reasoning about reMarkable sync paths.
  *
  * reMarkable sync writes its read-only OCR / typed-text markdown under the hidden
- * `<syncDir>/.remarkable/<notebookId>/<name>.md` path. The editor derives its
- * read-only state from this path (see `applyRemarkableReadOnlyForPath` in
- * useTabs) rather than tracking a free-floating flag — so read-only follows the
- * document across tab switches, and the hidden source file can never be opened as
- * editable (a stray Cmd+S there would clobber the sync-managed output, which the
- * next sync would overwrite anyway).
+ * `<syncDir>/.remarkable/<notebookId>/<name>.md` path. The editor store derives its
+ * read-only state from this path (see `remarkableStateForPath` in editorStore,
+ * applied wherever the document is set) rather than tracking a free-floating flag —
+ * so read-only follows the document across tab switches AND session restore, and
+ * the hidden source file can never be opened as editable (a stray Cmd+S there would
+ * clobber the sync-managed output, which the next sync would overwrite anyway).
  */
 
 const REMARKABLE_HIDDEN_SEGMENT = '/.remarkable/'

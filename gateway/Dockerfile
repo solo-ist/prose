@@ -8,8 +8,11 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
 
-# Generate the Prisma 7 client (WASM query compiler — no Rust engine)
+# Generate the Prisma 7 client (WASM query compiler — no Rust engine).
+# prisma.config.ts (gateway root) holds the datasource URL + migrations path —
+# it MUST be in the image or `prisma migrate deploy` has no datasource.url.
 COPY prisma ./prisma
+COPY prisma.config.ts ./
 RUN npx prisma generate
 
 # Build TypeScript

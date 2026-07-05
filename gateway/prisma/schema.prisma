@@ -4,8 +4,12 @@
 // `ai_proxy` gate. Prisma 7 `prisma-client` generator (WASM query compiler).
 
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  // Force .js import extensions so the compiled `dist` (node) resolves them —
+  // the default varies with the build environment (tsconfig presence).
+  importFileExtension = "js"
+  moduleFormat        = "esm"
 }
 
 datasource db {

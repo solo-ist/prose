@@ -13,10 +13,10 @@ RUN npm ci
 # it MUST be in the image or `prisma migrate deploy` has no datasource.url.
 COPY prisma ./prisma
 COPY prisma.config.ts ./
+COPY tsconfig.json ./
 RUN npx prisma generate
 
 # Build TypeScript
-COPY tsconfig.json ./
 COPY src ./src
 RUN npx tsc
 

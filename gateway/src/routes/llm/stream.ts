@@ -26,6 +26,24 @@ interface StreamRequestBody {
 const ALLOWED_MODELS = new Set(['claude-sonnet-4-5', 'claude-haiku-4-5-20251001'])
 const DEFAULT_MODEL = 'claude-sonnet-4-5'
 const MAX_TOKENS_CAP = 4096
+// Input-side ceilings — output caps alone don't bound spend; input tokens bill too.
+const MAX_SYSTEM_CHARS = 8_000
+const MAX_MESSAGES = 40
+const MAX_TOTAL_CONTENT_CHARS = 200_000
+
+/** Total characters across a message's content (string or text blocks). */
+function contentLength(content: unknown): number {
+  if (typeof content === 'string') return content.length
+  if (Array.isArray(content)) {
+    return content.reduce(
+      (n, block) => n + (typeof (block as { text?: unknown }).text === 'string'
+        ? (block as { text: string }).text.length
+        : 0),
+      0
+    )
+  }
+  return 0
+}
 
 /** Message content must be a string or Anthropic-style text blocks. */
 function isValidContent(content: unknown): boolean {
@@ -62,6 +80,16 @@ llmRoutes.post('/stream', async (c) => {
     : [{ role: 'user', content: 'Say hello in one sentence.' }]
   if (!messages.every((m) => typeof m?.role === 'string' && isValidContent(m.content))) {
     return c.json({ error: 'invalid_messages' }, 400)
+  }
+  if ((body.system?.length ?? 0) > MAX_SYSTEM_CHARS) {
+    return c.json({ error: 'system_too_long', max: MAX_SYSTEM_CHARS }, 400)
+  }
+  if (messages.length > MAX_MESSAGES) {
+    return c.json({ error: 'too_many_messages', max: MAX_MESSAGES }, 400)
+  }
+  const totalChars = messages.reduce((n, m) => n + contentLength(m.content), 0)
+  if (totalChars > MAX_TOTAL_CONTENT_CHARS) {
+    return c.json({ error: 'messages_too_long', max: MAX_TOTAL_CONTENT_CHARS }, 400)
   }
 
   // Defeat proxy buffering (Render) and flush headers immediately.
@@ -107,12 +135,14 @@ llmRoutes.post('/stream', async (c) => {
     }
 
     if (!upstreamRes.ok || !upstreamRes.body) {
+      // Upstream error bodies can leak provider internals — log full, send generic.
       const errText = await upstreamRes.text().catch(() => '')
+      console.error(`[llm] upstream ${upstreamRes.status}: ${errText}`)
       await stream.writeSSE({
         event: 'error',
         data: JSON.stringify({
           type: 'error',
-          error: { message: `Upstream ${upstreamRes.status}: ${errText}` },
+          error: { message: 'upstream_error', status: upstreamRes.status },
         }),
       })
       return

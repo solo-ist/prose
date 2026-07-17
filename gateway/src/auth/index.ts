@@ -19,6 +19,10 @@ export const auth = betterAuth({
     magicLink({
       sendMagicLink: async ({ email, url }) => {
         // Phase 0: no email provider yet — the operator reads the link from logs.
+        // TODO(#813): a magic link in stdout IS the credential — anyone with
+        // service-log access can take over the account. Acceptable ONLY while
+        // the operator's validation user is the sole account. Real email
+        // delivery MUST land before signups open (with or before Phase 1 #766).
         console.log(`\n[auth] Magic link for ${email}:\n  ${url}\n`)
       },
     }),

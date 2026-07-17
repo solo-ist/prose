@@ -5,7 +5,11 @@
  */
 import { prisma } from '../db/index.js'
 
-/** True iff `userId` holds a non-expired grant for `feature`. Never throws upward. */
+/**
+ * True iff `userId` holds a non-expired grant for `feature`. DB errors
+ * propagate — callers (requireEntitlement) translate them to 503, so an
+ * outage never reads as a denial.
+ */
 export async function hasEntitlement(userId: string, feature: string): Promise<boolean> {
   const row = await prisma.entitlement.findUnique({
     where: { userId_feature: { userId, feature } },

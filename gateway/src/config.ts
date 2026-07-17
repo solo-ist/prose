@@ -26,11 +26,33 @@ const EnvSchema = z.object({
     .string()
     .default('http://localhost:5173,http://localhost:5174,https://prose.solo.ist'),
 
+  // LLM proxy rate limit: max requests per user per sliding window.
+  RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
+  RATE_LIMIT_WINDOW_S: z.coerce.number().int().positive().default(60),
+
   // Cloudflare R2 (blobs only; stub in Phase 0).
   R2_ACCOUNT_ID: z.string().optional(),
   R2_ACCESS_KEY_ID: z.string().optional(),
   R2_SECRET_ACCESS_KEY: z.string().optional(),
   R2_BUCKET: z.string().optional(),
+}).superRefine((env, ctx) => {
+  // The .optional() markers above keep the dev bootstrap loose (mock upstream,
+  // no DB). Production gets no such slack: fail the boot loudly rather than
+  // crash at first use (Prisma with no URL) or run auth on a weak default.
+  if (env.NODE_ENV !== 'production') return
+  const required = ['DATABASE_URL', 'BETTER_AUTH_SECRET'] as const
+  for (const key of required) {
+    if (!env[key]) {
+      ctx.addIssue({ code: 'custom', path: [key], message: 'required in production' })
+    }
+  }
+  if (!env.ANTHROPIC_API_KEY && !env.UPSTREAM_URL) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['ANTHROPIC_API_KEY'],
+      message: 'required in production (unless UPSTREAM_URL overrides the upstream)',
+    })
+  }
 })
 
 export type Env = z.infer<typeof EnvSchema>

@@ -21,6 +21,27 @@ interface StreamRequestBody {
   maxTokens?: number
 }
 
+// Cost ceilings: the proxy spends the OPERATOR's key, so callers pick only
+// from this menu. Widening it is a deliberate config change, not a client one.
+const ALLOWED_MODELS = new Set(['claude-sonnet-4-5', 'claude-haiku-4-5-20251001'])
+const DEFAULT_MODEL = 'claude-sonnet-4-5'
+const MAX_TOKENS_CAP = 4096
+
+/** Message content must be a string or Anthropic-style text blocks. */
+function isValidContent(content: unknown): boolean {
+  if (typeof content === 'string') return true
+  return (
+    Array.isArray(content) &&
+    content.every(
+      (block) =>
+        typeof block === 'object' &&
+        block !== null &&
+        typeof (block as { type?: unknown }).type === 'string' &&
+        typeof (block as { text?: unknown }).text === 'string'
+    )
+  )
+}
+
 export const llmRoutes = new Hono<AppEnv>()
 
 llmRoutes.post('/stream', async (c) => {
@@ -31,11 +52,17 @@ llmRoutes.post('/stream', async (c) => {
     return c.json({ error: 'Invalid JSON body' }, 400)
   }
 
-  const model = body.model ?? 'claude-sonnet-4-5'
-  const maxTokens = body.maxTokens ?? 1024
+  const model = body.model ?? DEFAULT_MODEL
+  if (!ALLOWED_MODELS.has(model)) {
+    return c.json({ error: 'model_not_allowed', allowed: [...ALLOWED_MODELS] }, 400)
+  }
+  const maxTokens = Math.min(body.maxTokens ?? 1024, MAX_TOKENS_CAP)
   const messages = body.messages?.length
     ? body.messages
     : [{ role: 'user', content: 'Say hello in one sentence.' }]
+  if (!messages.every((m) => typeof m?.role === 'string' && isValidContent(m.content))) {
+    return c.json({ error: 'invalid_messages' }, 400)
+  }
 
   // Defeat proxy buffering (Render) and flush headers immediately.
   c.header('X-Accel-Buffering', 'no')
@@ -98,7 +125,10 @@ llmRoutes.post('/stream', async (c) => {
     try {
       while (true) {
         const { done, value } = await reader.read()
-        if (done) break
+        if (done) {
+          decoder.decode() // flush; a trailing partial block is never a complete SSE event
+          break
+        }
         const text = leftover + decoder.decode(value, { stream: true })
         const parts = text.split('\n\n')
         leftover = parts.pop() ?? ''

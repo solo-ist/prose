@@ -6,6 +6,7 @@ import { Hono } from 'hono'
 import { corsMiddleware } from './middleware/cors.js'
 import { requireSession, type AppEnv } from './middleware/session.js'
 import { requireEntitlement } from './middleware/entitlement.js'
+import { rateLimit } from './middleware/rateLimit.js'
 import { auth } from './auth/index.js'
 import health from './routes/health.js'
 import { llmRoutes } from './routes/llm/stream.js'
@@ -21,8 +22,9 @@ export function createApp() {
   // Public liveness/DB probe.
   app.route('/', health)
 
-  // Gated LLM proxy: session + ai_proxy entitlement enforced before the handler.
-  app.use('/api/llm/*', requireSession, requireEntitlement('ai_proxy'))
+  // Gated LLM proxy: session + ai_proxy entitlement + per-user rate limit,
+  // all enforced before the handler opens an upstream connection.
+  app.use('/api/llm/*', requireSession, requireEntitlement('ai_proxy'), rateLimit)
   app.route('/api/llm', llmRoutes)
 
   return app

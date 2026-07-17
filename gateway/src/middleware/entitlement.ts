@@ -11,7 +11,15 @@ export function requireEntitlement(feature: string): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const user = c.get('user')
     if (!user) return c.json({ error: 'Unauthorized' }, 401)
-    if (!(await hasEntitlement(user.id, feature))) {
+    let entitled: boolean
+    try {
+      entitled = await hasEntitlement(user.id, feature)
+    } catch (err) {
+      // A DB error must read as an outage (503), not as a denial (403).
+      console.error('[entitlement] lookup failed:', err)
+      return c.json({ error: 'service_unavailable' }, 503)
+    }
+    if (!entitled) {
       return c.json({ error: 'forbidden', feature }, 403)
     }
     await next()

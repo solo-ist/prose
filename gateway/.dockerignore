@@ -1,0 +1,7 @@
+# Keep secrets and local state out of image layers — a future `COPY . .`
+# must never bake a .env into the image.
+.env
+.env.*
+node_modules/
+dist/
+.git/

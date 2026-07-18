@@ -4,19 +4,15 @@
  * it reports "unconfigured".
  */
 import { Hono } from 'hono'
-import { config } from '../config.js'
 import { pingDb } from '../db/index.js'
 
 const health = new Hono()
 
 health.get('/health', async (c) => {
+  // Unauthenticated: expose liveness only. env/dbStatus details stay in logs.
   const dbStatus = await pingDb()
-  return c.json({
-    ok: dbStatus !== 'error',
-    service: 'prose-gateway',
-    env: config.NODE_ENV,
-    dbStatus,
-  })
+  if (dbStatus === 'error') console.error('[health] db ping failed')
+  return c.json({ ok: dbStatus !== 'error', service: 'prose-gateway' })
 })
 
 export default health

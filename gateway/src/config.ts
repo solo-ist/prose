@@ -37,14 +37,24 @@ const EnvSchema = z.object({
   R2_BUCKET: z.string().optional(),
 }).superRefine((env, ctx) => {
   // The .optional() markers above keep the dev bootstrap loose (mock upstream,
-  // no DB). Production gets no such slack: fail the boot loudly rather than
-  // crash at first use (Prisma with no URL) or run auth on a weak default.
-  if (env.NODE_ENV !== 'production') return
+  // no DB). Everything else (production, staging, previews) gets no such
+  // slack: fail the boot loudly rather than crash at first use (Prisma with
+  // no URL) or run auth on a weak default.
+  if (env.NODE_ENV === 'development') return
   const required = ['DATABASE_URL', 'BETTER_AUTH_SECRET'] as const
   for (const key of required) {
     if (!env[key]) {
       ctx.addIssue({ code: 'custom', path: [key], message: 'required in production' })
     }
+  }
+  // Better Auth derives the cookie Secure flag from baseURL's scheme — the
+  // localhost default would silently ship insecure cookies to a deploy.
+  if (!env.BETTER_AUTH_URL.startsWith('https://')) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['BETTER_AUTH_URL'],
+      message: 'must be an explicit https:// URL outside development',
+    })
   }
   if (!env.ANTHROPIC_API_KEY && !env.UPSTREAM_URL) {
     ctx.addIssue({

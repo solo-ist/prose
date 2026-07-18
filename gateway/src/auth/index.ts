@@ -17,13 +17,17 @@ export const auth = betterAuth({
   trustedOrigins: corsOrigins,
   plugins: [
     magicLink({
+      // Store only a hash of the token — a DB read must not yield a usable link.
+      storeToken: 'hashed',
       sendMagicLink: async ({ email, url }) => {
         // Phase 0: no email provider yet — the operator reads the link from logs.
         // TODO(#813): a magic link in stdout IS the credential — anyone with
-        // service-log access can take over the account. Acceptable ONLY while
-        // the operator's validation user is the sole account. Real email
-        // delivery MUST land before signups open (with or before Phase 1 #766).
-        console.log(`\n[auth] Magic link for ${email}:\n  ${url}\n`)
+        // service-log access can take over the account. Dev-only: in production
+        // the link goes nowhere until real email delivery lands, which MUST
+        // happen before signups open (with or before Phase 1 #766).
+        if (config.NODE_ENV !== 'production') {
+          console.log(`\n[auth] Magic link for ${email}:\n  ${url}\n`)
+        }
       },
     }),
   ],

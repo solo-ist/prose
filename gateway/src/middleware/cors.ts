@@ -20,6 +20,7 @@ export const corsMiddleware = cors({
     return null // reject unknown origins
   },
   allowMethods: ['GET', 'POST', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'x-stream-id'],
+  // Auth is cookie-only; advertise nothing beyond what handlers actually read.
+  allowHeaders: ['Content-Type'],
   credentials: true,
 })

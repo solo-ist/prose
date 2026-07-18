@@ -26,6 +26,7 @@ interface StreamRequestBody {
 const ALLOWED_MODELS = new Set(['claude-sonnet-4-5', 'claude-haiku-4-5-20251001'])
 const DEFAULT_MODEL = 'claude-sonnet-4-5'
 const MAX_TOKENS_CAP = 4096
+const VALID_ROLES = new Set(['user', 'assistant'])
 // Input-side ceilings — output caps alone don't bound spend; input tokens bill too.
 const MAX_SYSTEM_CHARS = 8_000
 const MAX_MESSAGES = 40
@@ -74,11 +75,14 @@ llmRoutes.post('/stream', async (c) => {
   if (!ALLOWED_MODELS.has(model)) {
     return c.json({ error: 'model_not_allowed', allowed: [...ALLOWED_MODELS] }, 400)
   }
-  const maxTokens = Math.min(body.maxTokens ?? 1024, MAX_TOKENS_CAP)
+  if (body.maxTokens !== undefined && !Number.isFinite(body.maxTokens)) {
+    return c.json({ error: 'invalid_max_tokens' }, 400)
+  }
+  const maxTokens = Math.max(1, Math.min(Math.trunc(body.maxTokens ?? 1024), MAX_TOKENS_CAP))
   const messages = body.messages?.length
     ? body.messages
     : [{ role: 'user', content: 'Say hello in one sentence.' }]
-  if (!messages.every((m) => typeof m?.role === 'string' && isValidContent(m.content))) {
+  if (!messages.every((m) => VALID_ROLES.has(m?.role as string) && isValidContent(m.content))) {
     return c.json({ error: 'invalid_messages' }, 400)
   }
   if ((body.system?.length ?? 0) > MAX_SYSTEM_CHARS) {

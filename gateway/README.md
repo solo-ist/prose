@@ -54,12 +54,12 @@ npm run seed:ai-proxy -- --email you@example.com
 ## Verification (no UI)
 
 ```bash
-curl :4000/health                                   # {"ok":true,"dbStatus":"connected"}
+curl :4000/health                                   # {"ok":true,"service":"prose-gateway"}
 curl -X POST :4000/api/llm/stream -d '{}'           # 401 (unauthenticated)
 # request a magic link, then complete it to get a session cookie:
 curl -X POST :4000/api/auth/sign-in/magic-link -H 'Content-Type: application/json' \
   -H 'Origin: http://localhost:4000' -d '{"email":"you@example.com","callbackURL":"/health"}'
-#   → the link is printed to the gateway log (Phase 0 has no email provider)
+#   → the link is printed to the gateway log (dev only; Phase 0 has no email provider)
 curl -b cookies.txt -X POST :4000/api/llm/stream -d '{}' # 403 forbidden/ai_proxy until seeded
 # seed → then the same request streams SSE (message_start → deltas → message_stop),
 # with `x-accel-buffering: no` on the response.

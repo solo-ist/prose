@@ -83,7 +83,7 @@
     "framer-motion": "^12.25.0",
     "googleapis": "^171.4.0",
     "gray-matter": "^4.0.3",
-    "js-yaml": "^4.2.0",
+    "js-yaml": "^5.2.1",
     "lowlight": "^3.3.0",
     "lucide-react": "^0.468.0",
     "markdown-it-footnote": "^3.0.3",

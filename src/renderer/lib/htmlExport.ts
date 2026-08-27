@@ -331,6 +331,9 @@ export function extractCommentsFromHtml(html: string): EmbeddedCommentsBlock | n
  * Returns null for local exports (no share block) or malformed blocks.
  */
 export function extractShareConfigFromHtml(html: string): ShareConfig | null {
+  // The [^<]+ capture is coupled to the write path: buildArtifactHtml MUST
+  // serialize this block with jsonForInlineScript (which escapes `<` to
+  // \u003c) or extraction silently fails. Keep the two in step.
   const regex = new RegExp(
     `<script\\s+type="${PROSE_SHARE_MARKER}"\\s+data-version="1"\\s*>([^<]+)</script>`
   )

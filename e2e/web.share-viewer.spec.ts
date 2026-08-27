@@ -11,7 +11,7 @@
  */
 
 import { test, expect } from '@playwright/test'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -146,6 +146,50 @@ test.describe('artifact format', () => {
     expect(extractMarkdownFromHtml(plain)).toContain('quick brown fox')
     expect(plain).not.toContain('application/x-prose-comments')
     expect(plain).not.toContain('prose-comment-rail')
+  })
+
+  test('sanitizer strips C0/C1 control chars, preserves ordinary text and \\t \\n \\u00a0', async () => {
+    // PE review of PR #852 asked for proof the CONTROL_CHARS regex matches
+    // real control codes, not literal ^-notation characters.
+    const hostile = 'abcde ^ @ A H tab\there nb sp\nnext'
+    const withCtl: CommentData[] = [
+      {
+        id: 'x1',
+        markedText: 'quick brown fox',
+        comment: hostile,
+        createdAt: 1,
+        from: 0,
+        to: 0,
+        replies: [{ id: 'xr1', author: 'user', text: hostile, createdAt: 2, authorName: 'Name' }],
+      },
+    ]
+    const html = await buildProseHtml(EDITOR_HTML, MARKDOWN, {}, 'Share Test', null, withCtl)
+    const block = extractCommentsFromHtml(html)
+    expect(block).not.toBeNull()
+    const expected = 'abcde ^ @ A H tab\there nb sp\nnext'
+    expect(block!.comments[0].comment).toBe(expected)
+    expect(block!.comments[0].replies?.[0]?.text).toBe(expected)
+    expect(block!.comments[0].replies?.[0]?.authorName).toBe('Name')
+  })
+
+  test('anchor-normalization parity tripwire: viewer norm matches restoreComments', () => {
+    // The viewer computes anchors with the SAME normalization as the editor's
+    // restoreComments — ASCII space (U+0020) strip only. If either side
+    // changes, occurrence indexes desync and reviewer comments anchor to the
+    // wrong text. This tripwire fails if either site's normalization drifts;
+    // change both together.
+    const viewerSrc = readFileSync(
+      join(process.cwd(), 'src/renderer/lib/viewerScript.ts'),
+      'utf-8'
+    )
+    const editorSrc = readFileSync(
+      join(process.cwd(), 'src/renderer/extensions/comments/extension.ts'),
+      'utf-8'
+    )
+    expect(viewerSrc).toContain("function norm(s) { return s.replace(/ /g, '') }")
+    // restoreComments normalizes both the stored markedText and docText the
+    // same way; both call sites must be present.
+    expect((editorSrc.match(/\.replace\(\/ \/g, ''\)/g) ?? []).length).toBeGreaterThanOrEqual(2)
   })
 })
 

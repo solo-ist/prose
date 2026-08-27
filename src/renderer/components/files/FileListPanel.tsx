@@ -849,6 +849,15 @@ export function FileListPanel() {
     }
   }
 
+  // Duplicate a single file — conflict-safe naming is handled by the IPC handler.
+  const handleFileDuplicate = useCallback(async (path: string) => {
+    try {
+      await api.duplicateFile(path)
+    } catch (err) {
+      console.error('[FileListPanel] Duplicate failed:', err)
+    }
+  }, [api])
+
   // Google Docs: open file in tab (avoids rootPath race condition)
   const handleGoogleDocClick = useCallback(async (path: string) => {
     selectFile(path)
@@ -1671,6 +1680,7 @@ export function FileListPanel() {
                       onFileCopy={(path: string) => useFileListStore.getState().setClipboardPath(path, 'copy')}
                       onFileCut={(path: string) => useFileListStore.getState().setClipboardPath(path, 'cut')}
                       onFilePaste={pasteFile}
+                      onFileDuplicate={handleFileDuplicate}
                       onRenameComplete={handleRenameComplete}
                       onRenameCancel={handleRenameCancel}
                       onNewFile={handleNewFileInDir}

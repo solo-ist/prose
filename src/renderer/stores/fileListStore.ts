@@ -237,6 +237,9 @@ interface FileListState {
   rangeSelectTo: (path: string, visiblePaths: string[]) => void
   selectAll: (paths: string[]) => void
   clearMultiSelect: () => void
+  /** Fully clear the multi-selection, including the anchor and selectedPath.
+   * Used on explorer root switch, where no residual anchor should carry over. */
+  clearSelectionFully: () => void
   // Dotfile toggle
   toggleShowDotfiles: () => void
 }
@@ -300,7 +303,9 @@ export const useFileListStore = create<FileListState>()(
     setViewMode: (mode) => set({ viewMode: mode }),
 
     setRootPath: (path) => {
-      set({ rootPath: path, files: [], expandedFolders: new Set() })
+      // Fully clear selection on root switch — no residual anchor from the
+      // previous root should carry over (#797).
+      set({ rootPath: path, files: [], expandedFolders: new Set(), selectedPaths: new Set(), selectedPath: null, anchorPath: null })
       if (path) {
         get().loadFiles()
         // Notify the main process to start watching this directory.
@@ -653,6 +658,12 @@ export const useFileListStore = create<FileListState>()(
       selectedPaths: state.selectedPath ? new Set([state.selectedPath]) : new Set(),
       anchorPath: state.selectedPath,
     })),
+
+    clearSelectionFully: () => set({
+      selectedPaths: new Set(),
+      selectedPath: null,
+      anchorPath: null,
+    }),
 
     toggleShowDotfiles: () => {
       set((state) => ({ showDotfiles: !state.showDotfiles }))

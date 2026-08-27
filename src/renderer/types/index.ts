@@ -83,6 +83,12 @@ interface SettingsBase {
      * Falls back to instant apply when the user prefers reduced motion.
      */
     streamingEdits?: boolean
+    /**
+     * Character used to prefix unordered list items when serializing to Markdown.
+     * Defaults to '-' (dash) to preserve existing behavior for users upgrading.
+     * Set to '*' (asterisk) for GitHub-style bullets.
+     */
+    bulletListMarker?: '-' | '*'
   }
   recovery?: {
     mode: 'silent' | 'prompt'

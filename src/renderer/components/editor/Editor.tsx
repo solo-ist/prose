@@ -250,7 +250,7 @@ export function Editor() {
       Markdown.configure({
         html: true,
         tightLists: true,
-        bulletListMarker: '-',
+        bulletListMarker: settings.editor.bulletListMarker ?? '-',
         transformPastedText: true,
         transformCopiedText: true
       }),
@@ -534,6 +534,16 @@ export function Editor() {
     if (!editor) return
     editor.setEditable(!isRemarkableReadOnly && !isPreviewTab)
   }, [editor, isRemarkableReadOnly, isPreviewTab])
+
+  // Sync bulletListMarker setting to the tiptap-markdown extension without
+  // requiring an editor remount — the serializer reads options at call time.
+  useEffect(() => {
+    if (!editor) return
+    const markdownExt = editor.extensionManager.extensions.find((e) => e.name === 'markdown')
+    if (markdownExt) {
+      markdownExt.options.bulletListMarker = settings.editor.bulletListMarker ?? '-'
+    }
+  }, [editor, settings.editor.bulletListMarker])
 
   // Check if current file is linked to a reMarkable notebook
   useEffect(() => {

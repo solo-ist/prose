@@ -481,6 +481,22 @@ export function SettingsDialog() {
               </Select>
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="bulletListMarker">Bullet List Marker</Label>
+              <Select
+                value={settings.editor.bulletListMarker ?? '-'}
+                onValueChange={(value) => setEditorConfig({ bulletListMarker: value as '-' | '*' })}
+              >
+                <SelectTrigger id="bulletListMarker">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="-">Dash ( - )</SelectItem>
+                  <SelectItem value="*">Asterisk ( * )</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
             <Separator />
 
             <div className="flex items-start justify-between gap-4">

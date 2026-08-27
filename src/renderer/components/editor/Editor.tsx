@@ -92,6 +92,11 @@ function shouldPromptForAIPaste(text: string): boolean {
   return trimmed.length >= AI_PASTE_PROMPT_MIN_CHARS || trimmed.includes('\n')
 }
 
+// Session-scoped flag that suppresses the AI-paste prompt for the remainder of the
+// app session when the user clicks "Dismiss this Session". Not persisted — follows
+// the same in-memory, session-lifetime idiom as useAnnotationStore's createdThisSession set.
+let pasteAnnotationDismissedThisSession = false
+
 // Lowlight instance with a curated set of common languages.
 // Using individual imports (not the full `common` preset) keeps the bundle
 // smaller: ~12 grammars vs the 37-language common set.
@@ -327,7 +332,7 @@ export function Editor() {
             Math.max(selectionEnd, fallbackTo)
           )
 
-          if (annotationTo > selectionFrom) {
+          if (annotationTo > selectionFrom && !pasteAnnotationDismissedThisSession) {
             setPendingPasteAnnotation({
               documentId,
               from: selectionFrom,
@@ -1156,6 +1161,20 @@ export function Editor() {
     }
 
     setPendingPasteAnnotation(null)
+    // Restore cursor to the end of the pasted range so the user can keep typing.
+    activeEditor.chain().focus().setTextSelection(annotationTo).run()
+  }, [pendingPasteAnnotation])
+
+  // Sets the session-level suppression flag and closes the dialog, so the AI-paste
+  // prompt will not appear again until the app/window is restarted.
+  const handleDismissThisSession = useCallback(() => {
+    const toPos = pendingPasteAnnotation?.to ?? null
+    pasteAnnotationDismissedThisSession = true
+    setPendingPasteAnnotation(null)
+    if (toPos !== null) {
+      const activeEditor = useEditorInstanceStore.getState().editor
+      activeEditor?.chain().focus().setTextSelection(toPos).run()
+    }
   }, [pendingPasteAnnotation])
 
   return (
@@ -1337,7 +1356,16 @@ export function Editor() {
       <Dialog
         open={pendingPasteAnnotation !== null}
         onOpenChange={(open) => {
-          if (!open) setPendingPasteAnnotation(null)
+          if (!open) {
+            // Handles Escape key and clicking the overlay — button-click paths
+            // call setPendingPasteAnnotation(null) themselves and restore focus there.
+            const toPos = pendingPasteAnnotation?.to ?? null
+            setPendingPasteAnnotation(null)
+            if (toPos !== null) {
+              const activeEditor = useEditorInstanceStore.getState().editor
+              activeEditor?.chain().focus().setTextSelection(toPos).run()
+            }
+          }
         }}
       >
         <DialogContent className="sm:max-w-md">
@@ -1348,7 +1376,24 @@ export function Editor() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPendingPasteAnnotation(null)}>
+            <Button
+              variant="ghost"
+              onClick={handleDismissThisSession}
+              className="sm:mr-auto"
+            >
+              Dismiss this Session
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                const toPos = pendingPasteAnnotation?.to ?? null
+                setPendingPasteAnnotation(null)
+                if (toPos !== null) {
+                  const activeEditor = useEditorInstanceStore.getState().editor
+                  activeEditor?.chain().focus().setTextSelection(toPos).run()
+                }
+              }}
+            >
               Not now
             </Button>
             <Button onClick={handleConfirmPasteAI}>

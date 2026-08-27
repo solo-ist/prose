@@ -18,8 +18,8 @@
  * - The viewer never evals or injects markup from the embedded JSON.
  *
  * Anchor algorithm: new comments computed here MUST mirror the editor's
- * `restoreComments` normalization (strip ALL spaces, count non-overlapping
- * occurrences) — see extensions/comments/extension.ts. The artifact's
+ * `restoreComments` normalization (strip ASCII spaces only, count
+ * non-overlapping occurrences) — see extensions/comments/extension.ts. The artifact's
  * `<article>` wraps exactly `editor.getHTML()`, so `article.textContent`
  * matches the editor doc's `textContent` modulo block-separator spaces, which
  * the normalization removes.
@@ -203,6 +203,12 @@ export const VIEWER_SCRIPT = `(function () {
   if (comments.length === 0 && !online) return
 
   // --- Anchor computation (mirrors restoreComments' normalization) ---------
+  // ASCII space (U+0020) ONLY — verified against restoreComments in
+  // extensions/comments/extension.ts, which normalizes with replace(/ /g, '')
+  // on both the stored markedText and doc.textContent. Do NOT "fix" this to
+  // \s+ or add tabs/NBSP: any divergence from the editor's normalization
+  // shifts occurrence indexes and desyncs anchors. If the editor's
+  // normalization ever changes, change BOTH sites together.
   function norm(s) { return s.replace(/ /g, '') }
 
   function computeAnchor(selection) {
@@ -266,7 +272,10 @@ export const VIEWER_SCRIPT = `(function () {
       if (isMatch) threads[j].scrollIntoView({ block: 'nearest' })
     }
     if (scrollArticle) {
-      var span = article.querySelector('span[data-comment-id="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]')
+      // CSS.escape unconditionally: the viewer already requires other modern
+      // APIs, and an unescaped fallback would let a hostile id break the
+      // selector.
+      var span = article.querySelector('span[data-comment-id="' + CSS.escape(id) + '"]')
       if (span) span.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
   }

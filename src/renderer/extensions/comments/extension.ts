@@ -191,6 +191,7 @@ export const Comment = Mark.create<CommentOptions>({
 
           const { doc } = state
           let removed = false
+          const removedIds = new Set<string>()
 
           doc.descendants((node, pos) => {
             node.marks.forEach((mark) => {
@@ -200,9 +201,7 @@ export const Comment = Mark.create<CommentOptions>({
                   tr.removeMark(pos, pos + node.nodeSize, mark.type)
                   removed = true
 
-                  if (this.options.onCommentRemoved && mark.attrs.id) {
-                    this.options.onCommentRemoved(mark.attrs.id)
-                  }
+                  if (mark.attrs.id) removedIds.add(mark.attrs.id)
                 }
               }
             })
@@ -210,6 +209,12 @@ export const Comment = Mark.create<CommentOptions>({
 
           if (removed) {
             dispatch(tr)
+            // A single comment can span several text nodes (for example when
+            // formatting splits the mark). Emit one lifecycle callback per
+            // thread, after the transaction has been applied.
+            if (this.options.onCommentRemoved) {
+              removedIds.forEach((commentId) => this.options.onCommentRemoved?.(commentId))
+            }
             return true
           }
 

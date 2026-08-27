@@ -32,6 +32,7 @@ import { FocusMode } from '../../lib/focusMode'
 import { Comment } from '../../extensions/comments'
 import { AISuggestion } from '../../extensions/ai-suggestions'
 import { useSuggestionStore } from '../../extensions/ai-suggestions/store'
+import { useReviewEventStore, createReviewEvent, type ReviewActor } from '../../extensions/review-events'
 import { SESSION_ID } from '../../lib/persistence'
 import { AIAnnotations, useAnnotationStore } from '../../extensions/ai-annotations'
 import { NodeIds } from '../../extensions/node-ids'
@@ -71,11 +72,12 @@ import { TransformAnimation, useTransformAnimation } from './TransformAnimation'
 import { AISuggestionPopover } from '../AISuggestionPopover'
 import { CommentPopover } from '../CommentPopover'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
-import type { AISuggestionData } from '../../extensions/ai-suggestions/types'
+import type { AISuggestionData, SuggestionFeedback } from '../../extensions/ai-suggestions/types'
 import { useCommentStore } from '../../extensions/comments/store'
 import { LinkPopover } from './LinkPopover'
 import { SourceEditor, SourceEditorHandle } from './SourceEditor'
 import { getApi } from '../../lib/browserApi'
+import { isMcpAttributionLabel } from '../../../shared/tools/mcpClientIdentity'
 
 const AI_PASTE_PROMPT_MIN_CHARS = 200
 
@@ -90,6 +92,21 @@ function shouldPromptForAIPaste(text: string): boolean {
   const trimmed = text.trim()
   if (!trimmed) return false
   return trimmed.length >= AI_PASTE_PROMPT_MIN_CHARS || trimmed.includes('\n')
+}
+
+function actorForSuggestion(suggestion: AISuggestionData): ReviewActor {
+  const source = suggestion.provenanceSource ?? (
+    isMcpAttributionLabel(suggestion.provenanceModel) ? 'mcp' :
+      suggestion.provenanceModel ? 'chat' : 'system'
+  )
+  return {
+    kind: 'agent',
+    source,
+    model: suggestion.provenanceModel || undefined,
+    conversationId: suggestion.provenanceConversationId || undefined,
+    messageId: suggestion.provenanceMessageId || undefined,
+    invocationId: suggestion.provenanceInvocationId || undefined,
+  }
 }
 
 // Lowlight instance with a curated set of common languages.
@@ -124,6 +141,7 @@ export function Editor() {
   const isPreviewTab = useEditorStore((state) => state.isPreviewTab)
   const annotationsVisible = useEditorStore((state) => state.annotationsVisible)
   const toggleAnnotationsVisible = useEditorStore((state) => state.toggleAnnotationsVisible)
+  const reviewDisplayMode = useEditorStore((state) => state.reviewDisplayMode)
   const sourceMode = useEditorStore((state) => state.sourceMode)
   const setSourceMode = useEditorStore((state) => state.setSourceMode)
   const { settings, effectiveTheme, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen } = useSettings()
@@ -270,9 +288,62 @@ export function Editor() {
           ]
           useCommentStore.setState({ pendingComments: updated })
           if (store.documentId) store.saveComments(store.documentId, updated)
+          if (store.documentId) {
+            useReviewEventStore.getState().appendEvent(createReviewEvent({
+              documentId: store.documentId,
+              target: 'comment',
+              targetId: commentData.id,
+              kind: 'created',
+              actor: {
+                kind: commentData.author === 'ai' ? 'agent' : 'user',
+                source: commentData.author === 'ai' ? 'chat' : 'ui',
+              },
+              payload: {
+                comment: commentData.comment,
+                markedText: commentData.markedText,
+              },
+            }))
+          }
+        },
+        onCommentRemoved: (id) => {
+          const documentId = useCommentStore.getState().documentId
+          if (!documentId) return
+          useReviewEventStore.getState().appendEvent(createReviewEvent({
+            documentId,
+            target: 'comment',
+            targetId: id,
+            kind: 'resolved',
+            actor: { kind: 'user', source: 'ui' },
+          }))
         },
       }),
-      AISuggestion,
+      AISuggestion.configure({
+        onSuggestionAdded: (suggestion) => {
+          useSuggestionStore.getState().recordSuggestionAdded(
+            suggestion,
+            actorForSuggestion(suggestion),
+          )
+        },
+        onSuggestionFeedback: (suggestion, feedback: SuggestionFeedback) => {
+          const store = useSuggestionStore.getState()
+          store.recordSuggestionFeedback(suggestion, feedback)
+          // Keep the active mark's userReply in sync with history for UI
+          // feedback too. This is intentionally fire-and-forget: the store's
+          // persistence layer reports failures and the editor interaction
+          // should remain responsive.
+          const activeEditor = useEditorInstanceStore.getState().editor
+          const activeDocumentId = useEditorStore.getState().document.documentId
+          if (activeEditor && activeDocumentId) {
+            void store.saveSuggestions(activeDocumentId, getAISuggestions(activeEditor))
+          }
+        },
+        onSuggestionAccepted: (suggestion, actor) => {
+          useSuggestionStore.getState().recordSuggestionDecision(suggestion, 'accepted', actor)
+        },
+        onSuggestionRejected: (suggestion, actor) => {
+          useSuggestionStore.getState().recordSuggestionDecision(suggestion, 'rejected', actor)
+        },
+      }),
       AIAnnotations.configure({
         showTooltip: true,
       }),
@@ -607,9 +678,11 @@ export function Editor() {
 
       // Small delay to ensure editor content is fully loaded
       const timer = setTimeout(() => {
-        editor.commands.restoreAISuggestions(pendingSuggestions)
-        // Clear pending suggestions after restoring
-        useSuggestionStore.getState().clearSuggestions()
+        const restored = editor.commands.restoreAISuggestions(pendingSuggestions)
+        // Keep unresolved records available for a later content/anchor
+        // update. Clearing them after a failed replay made the durable store
+        // say "pending" while the editor had no reviewable mark.
+        if (restored) useSuggestionStore.getState().clearSuggestions()
       }, 100)
 
       return () => clearTimeout(timer)
@@ -665,7 +738,9 @@ export function Editor() {
   useEffect(() => {
     if (!editor || !document.documentId) return
     if (commentStoreDocumentId !== document.documentId) {
-      useCommentStore.getState().loadComments(document.documentId)
+      const commentStore = useCommentStore.getState()
+      commentStore.setDocumentId(document.documentId)
+      commentStore.loadComments(document.documentId)
     }
   }, [editor, document.documentId, commentStoreDocumentId])
 
@@ -1304,7 +1379,10 @@ export function Editor() {
             </div>
           )}
           <TransformAnimation isTransforming={isTransforming} onComplete={completeTransform}>
-            <div className={`max-w-3xl mx-auto prose-editor ${isRemarkableReadOnly && !isTransforming ? 'opacity-80 select-none' : ''} ${!annotationsVisible ? 'hide-annotations' : ''}`}>
+            <div
+              className={`max-w-3xl mx-auto prose-editor review-display-${reviewDisplayMode} ${isRemarkableReadOnly && !isTransforming ? 'opacity-80 select-none' : ''} ${!annotationsVisible ? 'hide-annotations' : ''}`}
+              data-review-display-mode={reviewDisplayMode}
+            >
               {showFrontmatter && (
                 isRemarkableReadOnly || isPreviewTab
                   ? <FrontmatterDisplay content={document.content} frontmatter={document.frontmatter} />

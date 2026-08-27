@@ -84,6 +84,74 @@ export const insertConfig: ToolConfig<typeof insertSchema> = {
 }
 
 // ============================================================================
+// insert_after
+// ============================================================================
+
+export const insertAfterSchema = z.object({
+  nodeId: z
+    .string()
+    .describe(
+      'The ID of the node after which to propose the insertion. Get node IDs from read_document.'
+    ),
+  content: z
+    .string()
+    .min(1)
+    .describe('Markdown content to propose as one or more new paragraphs after the anchor node'),
+  comment: z
+    .string()
+    .optional()
+    .describe('Brief rationale for the insertion, shown in Quick Review. Keep under 20 words.'),
+  search: z
+    .string()
+    .optional()
+    .describe(
+      'Original text content of the anchor node (from read_document). Used as fallback if nodeId is stale.'
+    ),
+})
+
+export const insertAfterConfig: ToolConfig<typeof insertAfterSchema> = {
+  name: 'insert_after',
+  description:
+    'Create a pending insertion suggestion immediately after a node. The anchor remains unchanged and the new markdown blocks appear in Quick Review for the user to accept or reject. Use read_document first to get the anchor nodeId; separate paragraphs with a blank line. Include search for reliability when the node ID may be stale.',
+  schema: insertAfterSchema,
+  category: 'editor',
+  requiresMode: 'editor',
+  dangerous: false,
+}
+
+// ============================================================================
+// suggest_delete
+// ============================================================================
+
+export const suggestDeleteSchema = z.object({
+  nodeId: z
+    .string()
+    .describe(
+      'The ID of the node to propose for deletion. Get node IDs from read_document.'
+    ),
+  comment: z
+    .string()
+    .optional()
+    .describe('Brief rationale for the deletion, shown in Quick Review. Keep under 20 words.'),
+  search: z
+    .string()
+    .optional()
+    .describe(
+      'Original text content of the node (from read_document). Used as fallback if nodeId is stale.'
+    ),
+})
+
+export const suggestDeleteConfig: ToolConfig<typeof suggestDeleteSchema> = {
+  name: 'suggest_delete',
+  description:
+    'Create a pending deletion suggestion on a node. The original wording remains visible with deletion markup until the user accepts or rejects it. Use read_document first to get the nodeId, and include search for reliability when the node ID may be stale.',
+  schema: suggestDeleteSchema,
+  category: 'editor',
+  requiresMode: 'editor',
+  dangerous: false,
+}
+
+// ============================================================================
 // suggest_edit
 // ============================================================================
 
@@ -230,6 +298,8 @@ export const moveCursorConfig: ToolConfig<typeof moveCursorSchema> = {
 export const editorTools = [
   editConfig,
   insertConfig,
+  insertAfterConfig,
+  suggestDeleteConfig,
   suggestEditConfig,
   acceptDiffConfig,
   rejectDiffConfig,

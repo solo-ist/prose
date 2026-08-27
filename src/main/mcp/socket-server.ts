@@ -13,12 +13,20 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as crypto from 'crypto'
 import { app } from 'electron'
-import { getToolsForMCP } from '../../shared/tools/registry'
+import { getToolsForMCP, isToolExposedViaMCP } from '../../shared/tools/registry'
+import {
+  normalizeMcpClientIdentity,
+  type McpClientIdentity,
+} from '../../shared/tools/mcpClientIdentity'
 import type { ToolResult } from '../../shared/tools/types'
 
-// Socket location in app support directory
-const SOCKET_DIR = path.join(app.getPath('userData'), '')
-const SOCKET_PATH = path.join(SOCKET_DIR, 'prose.sock')
+// Resolve the socket location lazily. The app redirects userData for isolated
+// QA profiles before this module's server is started; resolving it at module
+// load would point tests at the user's normal socket.
+function getSocketLocation(): { directory: string; path: string } {
+  const directory = path.join(app.getPath('userData'), '')
+  return { directory, path: path.join(directory, 'prose.sock') }
+}
 
 // Maximum buffer size (1MB) to prevent memory exhaustion from malformed input
 const MAX_BUFFER_SIZE = 1024 * 1024
@@ -28,7 +36,8 @@ const MAX_BUFFER_SIZE = 1024 * 1024
  */
 export class McpSocketServer {
   private server: net.Server | null = null
-  private onToolInvoke: ((name: string, args: unknown) => Promise<ToolResult>) | null = null
+  private socketPath: string | null = null
+  private onToolInvoke: ((name: string, args: unknown, clientIdentity?: McpClientIdentity) => Promise<ToolResult>) | null = null
   private authToken: string | null = null
   private authenticatedSockets = new WeakSet<net.Socket>()
 
@@ -45,13 +54,13 @@ export class McpSocketServer {
    * Get the socket path.
    */
   getSocketPath(): string {
-    return SOCKET_PATH
+    return this.socketPath ?? getSocketLocation().path
   }
 
   /**
    * Set the tool invocation handler.
    */
-  setToolInvokeHandler(handler: (name: string, args: unknown) => Promise<ToolResult>): void {
+  setToolInvokeHandler(handler: (name: string, args: unknown, clientIdentity?: McpClientIdentity) => Promise<ToolResult>): void {
     this.onToolInvoke = handler
   }
 
@@ -64,19 +73,22 @@ export class McpSocketServer {
       throw new Error('Auth token must be set before starting socket server')
     }
 
+    const socketLocation = getSocketLocation()
+    this.socketPath = socketLocation.path
+
     // Ensure socket directory exists
-    if (!fs.existsSync(SOCKET_DIR)) {
-      fs.mkdirSync(SOCKET_DIR, { recursive: true })
+    if (!fs.existsSync(socketLocation.directory)) {
+      fs.mkdirSync(socketLocation.directory, { recursive: true })
     }
 
     // Clean up stale socket file from previous crashes
-    if (fs.existsSync(SOCKET_PATH)) {
+    if (fs.existsSync(socketLocation.path)) {
       try {
-        fs.unlinkSync(SOCKET_PATH)
+        fs.unlinkSync(socketLocation.path)
         console.log('[MCP Socket] Removed stale socket file')
       } catch (err) {
         console.error('[MCP Socket] Failed to remove stale socket:', err)
-        throw new Error(`Cannot remove stale socket at ${SOCKET_PATH}`)
+        throw new Error(`Cannot remove stale socket at ${socketLocation.path}`)
       }
     }
 
@@ -92,14 +104,14 @@ export class McpSocketServer {
         reject(err)
       })
 
-      this.server!.listen(SOCKET_PATH, () => {
+      this.server!.listen(socketLocation.path, () => {
         // Restrict socket permissions to owner only
         try {
-          fs.chmodSync(SOCKET_PATH, 0o600)
+          fs.chmodSync(socketLocation.path, 0o600)
         } catch (err) {
           console.warn('[MCP Socket] Failed to set socket permissions:', err)
         }
-        console.log(`[MCP Socket] Server listening on ${SOCKET_PATH}`)
+        console.log(`[MCP Socket] Server listening on ${socketLocation.path}`)
         resolve()
       })
     })
@@ -117,14 +129,16 @@ export class McpSocketServer {
     }
 
     // Clean up socket file
-    if (fs.existsSync(SOCKET_PATH)) {
+    const socketPath = this.socketPath
+    if (socketPath && fs.existsSync(socketPath)) {
       try {
-        fs.unlinkSync(SOCKET_PATH)
+        fs.unlinkSync(socketPath)
         console.log('[MCP Socket] Socket file removed')
       } catch (err) {
         console.error('[MCP Socket] Failed to remove socket file:', err)
       }
     }
+    this.socketPath = null
 
     console.log('[MCP Socket] Server stopped')
   }
@@ -221,14 +235,36 @@ export class McpSocketServer {
         })
       } else if (method === 'tools/call') {
         // Execute tool
-        const { name, arguments: args } = params as { name: string; arguments?: unknown }
+        const { name, arguments: args, clientIdentity } = params as {
+          name: string
+          arguments?: unknown
+          clientIdentity?: unknown
+        }
+
+        // Keep the call surface identical to tools/list. A client can send a
+        // direct tools/call without first listing tools, so the allowlist must
+        // be enforced at the execution boundary as well.
+        if (!isToolExposedViaMCP(name)) {
+          this.sendResult(socket, id, {
+            content: [{
+              type: 'text',
+              text: `Error: Tool "${name}" is not exposed through MCP (MCP_TOOL_NOT_EXPOSED)`
+            }],
+            isError: true
+          })
+          return
+        }
 
         if (!this.onToolInvoke) {
           this.sendError(socket, id, -32000, 'No tool handler registered')
           return
         }
 
-        const result = await this.onToolInvoke(name, args ?? {})
+        const result = await this.onToolInvoke(
+          name,
+          args ?? {},
+          normalizeMcpClientIdentity(clientIdentity),
+        )
 
         if (result.success) {
           this.sendResult(socket, id, {

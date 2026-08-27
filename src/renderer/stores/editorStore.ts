@@ -33,6 +33,8 @@ interface SelectionCache {
   to: number
 }
 
+export type ReviewDisplayMode = 'all' | 'insertions' | 'simple' | 'original' | 'final'
+
 interface EditorState {
   document: Document
   cursorPosition: { line: number; column: number }
@@ -51,6 +53,8 @@ interface EditorState {
   isPreviewTab: boolean
   // AI annotation visibility toggle
   annotationsVisible: boolean
+  // Display-only tracked-change view; suggestion state remains untouched.
+  reviewDisplayMode: ReviewDisplayMode
   // Source view mode (CodeMirror raw markdown vs TipTap WYSIWYG)
   sourceMode: boolean
   // Pending frontmatter suggestion from AI — shown as an overlay in FrontmatterEditor.
@@ -77,6 +81,7 @@ interface EditorState {
   setAutosaving: (isAutosaving: boolean) => void
   setPreviewTab: (val: boolean) => void
   toggleAnnotationsVisible: () => void
+  setReviewDisplayMode: (mode: ReviewDisplayMode) => void
   setSourceMode: (val: boolean) => void
   toggleSourceMode: () => void
   // Pending frontmatter suggestion methods
@@ -107,6 +112,7 @@ export const useEditorStore = create<EditorState>()(
     isAutosaving: false,
     isPreviewTab: false,
     annotationsVisible: true,
+    reviewDisplayMode: 'all',
     sourceMode: false,
     pendingFrontmatter: null,
 
@@ -239,6 +245,8 @@ export const useEditorStore = create<EditorState>()(
 
     toggleAnnotationsVisible: () =>
       set((state) => ({ annotationsVisible: !state.annotationsVisible })),
+
+    setReviewDisplayMode: (mode) => set({ reviewDisplayMode: mode }),
 
     setSourceMode: (val) => set({ sourceMode: val }),
     toggleSourceMode: () => set((state) => ({ sourceMode: !state.sourceMode })),

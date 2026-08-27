@@ -27,10 +27,20 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import { spawn } from 'child_process'
-import { getToolsForMCP } from '../shared/tools/registry'
+import { getToolsForMCP, isToolExposedViaMCP } from '../shared/tools/registry'
+import {
+  normalizeMcpClientIdentity,
+  type McpClientIdentity,
+} from '../shared/tools/mcpClientIdentity'
 
 // Platform-aware userData path (must match Electron's app.getPath('userData'))
 function getUserDataPath(): string {
+  // Keep the bridge on the same isolated profile as the Electron process when
+  // a QA/live-test harness supplies an explicit user-data directory.
+  if (process.env.PROSE_USER_DATA_DIR) {
+    return process.env.PROSE_USER_DATA_DIR
+  }
+
   switch (process.platform) {
     case 'darwin':
       return path.join(os.homedir(), 'Library', 'Application Support', 'Prose')
@@ -69,6 +79,7 @@ let pendingRequests: Map<number | string, {
   timeout: NodeJS.Timeout
 }> = new Map()
 let requestIdCounter = 0
+let mcpClientIdentity: McpClientIdentity = normalizeMcpClientIdentity(undefined)
 
 /**
  * Check if Prose socket is available.
@@ -337,12 +348,30 @@ async function sendRequest(
  */
 async function executeTool(
   name: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  clientIdentity: McpClientIdentity = mcpClientIdentity,
 ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  // A client can call a tool directly without first requesting tools/list.
+  // Reject hidden names before opening or using the app socket.
+  if (!isToolExposedViaMCP(name)) {
+    return {
+      content: [{
+        type: 'text',
+        text: `Error: Tool "${name}" is not exposed through MCP (MCP_TOOL_NOT_EXPOSED)`
+      }],
+      isError: true
+    }
+  }
+
   const timeout = TOOL_TIMEOUTS[name] || DEFAULT_TIMEOUT
 
   try {
-    const result = await sendRequest('tools/call', { name, arguments: args }, timeout)
+    // Keep the trusted client identity outside the user-controlled arguments.
+    const result = await sendRequest('tools/call', {
+      name,
+      arguments: args,
+      clientIdentity,
+    }, timeout)
     return result as { content: Array<{ type: string; text: string }>; isError?: boolean }
   } catch (err) {
     return {
@@ -375,6 +404,13 @@ async function main(): Promise<void> {
       }
     }
   )
+
+  // The SDK records clientInfo from the MCP initialize request before this
+  // callback runs. Capture only the name and normalize it before it crosses
+  // the Unix-socket boundary.
+  server.oninitialized = () => {
+    mcpClientIdentity = normalizeMcpClientIdentity(server.getClientVersion()?.name)
+  }
 
   // Register tools/list handler (works without Prose running)
   server.setRequestHandler(ListToolsRequestSchema, async () => {

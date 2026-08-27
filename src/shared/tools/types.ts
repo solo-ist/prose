@@ -47,6 +47,47 @@ export interface ToolError {
 export type ToolResult<T = unknown> = ToolSuccess<T> | ToolError
 
 /**
+ * The surface that initiated a tool call.  This is deliberately separate from
+ * ToolMode: an MCP call currently runs through the renderer in Create mode, but
+ * still needs an origin so review mutations can attribute the actor from the
+ * trusted bridge rather than from user-supplied arguments.
+ */
+export type ToolOrigin = 'ui' | 'chat' | 'mcp'
+
+/** Stable actor class used by review comments, suggestions, and events. */
+export type ReviewActor = 'human' | 'assistant' | 'system'
+
+/**
+ * Provenance attached to review state.  The legacy `author: 'user' | 'ai'`
+ * fields remain in comment/suggestion records for compatibility; this richer
+ * shape is additive and is populated by the execution context.
+ */
+export interface ReviewAttribution {
+  actor: ReviewActor
+  origin: ToolOrigin
+  actorId?: string
+  label?: string
+  provider?: string
+  model?: string
+  conversationId?: string
+  messageId?: string
+  requestId?: string
+}
+
+/** Trusted context supplied by the host of a tool call. */
+export interface ToolExecutionContext {
+  origin: ToolOrigin
+  attribution: ReviewAttribution
+  requestId?: string
+  /**
+   * Document identity captured by the trusted host before dispatch. MCP
+   * mutations use this to reject a call if the active tab changes while the
+   * renderer is awaiting persistence.
+   */
+  expectedDocumentId?: string
+}
+
+/**
  * Helper to create a success result.
  */
 export function toolSuccess<T>(data: T): ToolSuccess<T> {

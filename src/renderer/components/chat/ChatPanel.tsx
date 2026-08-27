@@ -25,6 +25,7 @@ import { ReviewContainer } from '../review/ReviewContainer'
 import { AIEditsHistoryPanel, activityItemVisible, DEFAULT_ACTIVITY_FILTER, requestCommentReview, type ActivityFilter } from '../editor/AIEditsHistoryPanel'
 import { useAnnotationStore } from '../../extensions/ai-annotations/store'
 import { useCommentStore } from '../../extensions/comments/store'
+import { useSuggestionStore } from '../../extensions/ai-suggestions/store'
 import { MODE_SWITCH_RUN_EVENT } from './toolResultRenderers/RequestModeSwitchResult'
 import { cn } from '../../lib/utils'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -104,21 +105,38 @@ export function ChatPanel() {
 
   // Activity feed sources for the tab badge + filter affordance.
   const annotations = useAnnotationStore((s) => s.annotations)
+  const annotationDocumentId = useAnnotationStore((s) => s.documentId)
   const pendingComments = useCommentStore((s) => s.pendingComments)
+  const commentDocumentId = useCommentStore((s) => s.documentId)
+  const suggestionHistory = useSuggestionStore((s) => s.history)
+  const suggestionDocumentId = useSuggestionStore((s) => s.documentId)
 
-  // There's something to filter whenever any annotation or comment exists.
-  const hasActivity = annotations.length > 0 || pendingComments.length > 0
+  // The review stores hydrate asynchronously. Keep their records scoped to
+  // the editor document so Activity and its badge cannot show a prior tab's
+  // threads during a document handoff.
+  const currentAnnotations = annotationDocumentId === documentId
+    ? annotations.filter((annotation) => annotation.documentId === documentId)
+    : []
+  const currentComments = commentDocumentId === documentId ? pendingComments : []
+  const currentSuggestions = suggestionDocumentId === documentId ? suggestionHistory : []
+
+  // There's something to filter whenever any annotation, comment, or durable
+  // suggestion record exists. Suggestion history is the source used by MCP and
+  // survives accept/reject, so it must keep the Activity tab available even
+  // after the live editor mark has been removed.
+  const hasActivity = currentAnnotations.length > 0 || currentComments.length > 0 || currentSuggestions.length > 0
   // Open (unresolved) threads are the Review set.
-  const openThreadCount = useMemo(() => pendingComments.filter((c) => !c.resolved).length, [pendingComments])
+  const openThreadCount = useMemo(() => currentComments.filter((c) => !c.resolved).length, [currentComments])
   // Any category turned off means the filter is engaged (tints the funnel).
   const isFiltering = Object.values(activityFilter).some((v) => !v)
 
   // Badge reflects what's currently shown under the active filter.
   const activityCount = useMemo(() => {
-    const a = annotations.filter((an) => activityItemVisible({ kind: 'annotation', annotation: an }, activityFilter)).length
-    const c = pendingComments.filter((cm) => activityItemVisible({ kind: 'comment', comment: cm }, activityFilter)).length
-    return a + c
-  }, [annotations, pendingComments, activityFilter])
+    const a = currentAnnotations.filter((an) => activityItemVisible({ kind: 'annotation', annotation: an }, activityFilter)).length
+    const c = currentComments.filter((cm) => activityItemVisible({ kind: 'comment', comment: cm }, activityFilter)).length
+    const s = currentSuggestions.filter((suggestion) => activityItemVisible({ kind: 'suggestion', suggestion }, activityFilter)).length
+    return a + c + s
+  }, [currentAnnotations, currentComments, currentSuggestions, activityFilter])
 
   // Track pending suggestion count
   const suggestionCount = useMemo(() => {

@@ -5,6 +5,10 @@ import { useReviewStore } from '../../stores/reviewStore'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { computeWordDiff, scrollSelectionIntoCenter, type DiffSegment } from '../../lib/diffUtils'
 import type { AISuggestionData } from '../../extensions/ai-suggestions/types'
+import {
+  suggestionAuthorLabel,
+  suggestionExplanation,
+} from '../../extensions/ai-suggestions/presentation'
 import { cn } from '../../lib/utils'
 
 /**
@@ -189,6 +193,7 @@ function DiffHunk({
     () => computeWordDiff(suggestion.originalText, suggestion.suggestedText),
     [suggestion.originalText, suggestion.suggestedText]
   )
+  const explanation = suggestionExplanation(suggestion)
 
   const [feedbackInput, setFeedbackInput] = useState(suggestion.userReply ?? '')
   const [showFeedbackForm, setShowFeedbackForm] = useState(false)
@@ -218,10 +223,14 @@ function DiffHunk({
       className="border-b border-border hover:bg-muted/20 transition-colors cursor-pointer"
       onClick={onScrollTo}
     >
+      <div className="mx-4 flex items-center pt-3 text-xs text-muted-foreground">
+        <span data-testid="suggestion-attribution">{suggestionAuthorLabel(suggestion)}</span>
+      </div>
+
       {/* Explanation header */}
-      {suggestion.explanation && (
+      {explanation && (
         <div className="mx-4 mt-3 text-xs text-muted-foreground bg-muted/40 rounded-md px-3 py-2 leading-relaxed">
-          {suggestion.explanation}
+          {explanation}
         </div>
       )}
 

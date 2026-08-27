@@ -1,4 +1,5 @@
 import type { ToolResult } from '../../shared/tools/types'
+import type { McpClientIdentity } from '../../shared/tools/mcpClientIdentity'
 
 /**
  * A named project — a root-folder workspace. Think Obsidian vaults or
@@ -597,7 +598,12 @@ export interface ElectronAPI {
   ) => () => void
   // MCP tool execution (only used in MCP server mode)
   onMcpToolInvoke: (
-    callback: (requestId: string, toolName: string, args: unknown) => void
+    callback: (
+      requestId: string,
+      toolName: string,
+      args: unknown,
+      clientIdentity?: McpClientIdentity,
+    ) => void
   ) => () => void
   sendMcpToolResult: (requestId: string, result: ToolResult) => void
   // MCP server status

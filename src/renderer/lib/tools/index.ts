@@ -3,9 +3,9 @@
  * Routes tool calls to the appropriate executor based on tool name.
  */
 
-import type { ToolResult, ToolMode } from '../../../shared/tools/types'
+import type { ToolResult, ToolMode, ToolExecutionContext } from '../../../shared/tools/types'
 import { toolError } from '../../../shared/tools/types'
-import { getTool, allTools } from '../../../shared/tools/registry'
+import { getTool, allTools, isToolExposedViaMCP } from '../../../shared/tools/registry'
 import { checkToolAccess } from './modes'
 
 // Document executors
@@ -18,13 +18,16 @@ import {
   executeListComments,
   executeAddComment,
   executeResolveComment,
-  executeReplyToComment
+  executeReplyToComment,
+  executeReopenComment
 } from './executors/document'
 
 // Editor executors
 import {
   executeEdit,
   executeInsert,
+  executeInsertAfter,
+  executeSuggestDelete,
   executeSuggestEdit,
   executeAcceptDiff,
   executeRejectDiff,
@@ -33,6 +36,14 @@ import {
   executeMoveCursor,
   resolveToolPosition
 } from './executors/editor'
+import {
+  executeListSuggestions,
+  executeAddSuggestionFeedback,
+  executeReviseSuggestion,
+  executeDecideSuggestion,
+  executeListReviewEvents,
+  executeGetReviewStatus,
+} from './executors/review'
 
 // File executors
 import {
@@ -69,8 +80,13 @@ export async function executeTool(
   toolName: string,
   args: unknown,
   mode: ToolMode = 'create',
-  provenance?: ToolProvenance
+  provenance?: ToolProvenance,
+  executionContext?: ToolExecutionContext
 ): Promise<ToolResult> {
+  if (executionContext?.origin === 'mcp' && !isToolExposedViaMCP(toolName)) {
+    return toolError(`Tool "${toolName}" is not exposed through MCP`, 'MCP_TOOL_NOT_EXPOSED')
+  }
+
   // Check if tool exists
   const tool = getTool(toolName)
   if (!tool) {
@@ -110,21 +126,41 @@ export async function executeTool(
       case 'outline':
         return executeGetOutline()
       case 'list_comments':
-        return executeListComments()
+        return executeListComments(executionContext)
       case 'add_comment':
-        return executeAddComment(validatedArgs)
+        return await executeAddComment(validatedArgs, executionContext)
       case 'resolve_comment':
-        return executeResolveComment(validatedArgs)
+        return await executeResolveComment(validatedArgs, executionContext)
+      case 'reopen_comment':
+        return await executeReopenComment(validatedArgs, executionContext)
       case 'reply_to_comment':
-        return executeReplyToComment(validatedArgs)
+        return await executeReplyToComment(validatedArgs, executionContext)
+
+      // Review-collaboration tools
+      case 'list_suggestions':
+        return executeListSuggestions(validatedArgs, executionContext)
+      case 'add_suggestion_feedback':
+        return await executeAddSuggestionFeedback(validatedArgs, executionContext)
+      case 'revise_suggestion':
+        return await executeReviseSuggestion(validatedArgs, executionContext)
+      case 'decide_suggestion':
+        return await executeDecideSuggestion(validatedArgs, executionContext)
+      case 'list_review_events':
+        return executeListReviewEvents(validatedArgs, executionContext)
+      case 'get_review_status':
+        return executeGetReviewStatus(executionContext)
 
       // Editor tools
       case 'edit':
         return executeEdit(validatedArgs, provenance)
       case 'insert':
         return executeInsert(validatedArgs, provenance)
+      case 'insert_after':
+        return await executeInsertAfter(validatedArgs, provenance, executionContext)
+      case 'suggest_delete':
+        return await executeSuggestDelete(validatedArgs, provenance, executionContext)
       case 'suggest_edit':
-        return executeSuggestEdit(validatedArgs, provenance)
+        return await executeSuggestEdit(validatedArgs, provenance, executionContext)
       case 'accept_diff':
         return executeAcceptDiff(validatedArgs)
       case 'reject_diff':

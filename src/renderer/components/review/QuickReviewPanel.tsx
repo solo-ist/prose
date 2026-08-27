@@ -6,7 +6,17 @@ import { useReviewStore, useCurrentSuggestionIndex } from '../../stores/reviewSt
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { computeWordDiff, scrollSelectionIntoCenter, type DiffSegment } from '../../lib/diffUtils'
 import type { AISuggestionData } from '../../extensions/ai-suggestions/types'
+import {
+  suggestionAuthorLabel,
+  suggestionExplanation,
+} from '../../extensions/ai-suggestions/presentation'
 import { cn } from '../../lib/utils'
+
+/** Keyboard review shortcuts only apply when focus is outside an editor field. */
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  return target.isContentEditable || Boolean(target.closest('input, textarea, [contenteditable="true"], [role="textbox"]'))
+}
 
 /**
  * Card-based quick review component — redesigned (#385).
@@ -139,7 +149,12 @@ export function QuickReviewPanel() {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      // Comment/reply/feedback fields live in portals or alongside the editor
+      // while Quick Review remains mounted. Their Enter keys belong to the
+      // field, never to the review action. Check defaultPrevented as well so a
+      // field handler that submits or inserts a newline wins even if its target
+      // is wrapped by a textbox component.
+      if (e.defaultPrevented || e.isComposing || isEditableTarget(e.target)) return
       switch (e.key) {
         case 'ArrowRight':
           e.preventDefault()
@@ -216,6 +231,7 @@ export function QuickReviewPanel() {
   }
 
   const diff = computeWordDiff(current.originalText, current.suggestedText)
+  const explanation = suggestionExplanation(current)
 
   return (
     <div className="flex flex-col h-full">
@@ -229,6 +245,25 @@ export function QuickReviewPanel() {
         {/* Title + mode cross-link */}
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <h2 className="text-sm font-medium shrink-0">Quick Review</h2>
+          {(current.type === 'insertion' || current.type === 'deletion') && (
+            <span
+              data-testid={`suggestion-type-${current.type}`}
+              className={cn(
+                'rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider',
+                current.type === 'insertion'
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                  : 'border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400',
+              )}
+            >
+              {current.type.toUpperCase()}
+            </span>
+          )}
+          <span
+            data-testid="suggestion-attribution"
+            className="min-w-0 truncate text-xs text-muted-foreground"
+          >
+            {suggestionAuthorLabel(current)}
+          </span>
           <button
             onClick={() => setReviewMode('side-by-side')}
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors truncate"
@@ -359,9 +394,9 @@ export function QuickReviewPanel() {
           </div>
 
           {/* Explanation */}
-          {current.explanation && (
+          {explanation && (
             <div className="text-xs text-muted-foreground bg-muted/40 rounded-md px-3 py-2 leading-relaxed mb-3">
-              {current.explanation}
+              {explanation}
             </div>
           )}
 

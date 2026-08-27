@@ -1115,6 +1115,88 @@
   background: hsl(var(--ai-suggest-mark-bg) / 0.5);
 }
 
+/* Tracked-change presentation. Pending review marks stay in the document so
+ * the review controls can accept/reject them; these rules only change what is
+ * visible in each display mode. */
+.prose-editor .ai-suggestion-mark[data-ai-suggestion-type="insertion"] {
+  background: hsl(142 70% 45% / 0.16);
+  border-bottom-color: hsl(142 65% 36% / 0.8);
+}
+
+.dark .prose-editor .ai-suggestion-mark[data-ai-suggestion-type="insertion"] {
+  background: hsl(142 60% 42% / 0.22);
+  border-bottom-color: hsl(142 65% 58% / 0.85);
+}
+
+.prose-editor .ai-suggestion-mark[data-ai-suggestion-type="deletion"] {
+  background: hsl(0 72% 52% / 0.14);
+  border-bottom: 2px solid hsl(0 66% 48% / 0.75);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+  text-decoration-color: hsl(0 66% 42% / 0.9);
+}
+
+.dark .prose-editor .ai-suggestion-mark[data-ai-suggestion-type="deletion"] {
+  background: hsl(0 66% 50% / 0.2);
+  border-bottom-color: hsl(0 72% 64% / 0.85);
+  text-decoration-color: hsl(0 72% 72% / 0.95);
+}
+
+/* A replacement's proposed wording is a widget at the original text's
+ * endpoint. It uses the same green insertion language and remains clickable,
+ * so the Quick Review popover is available at the actual document location. */
+.prose-editor .ai-suggestion-proposal {
+  display: inline;
+  margin-left: 0.3em;
+  padding: 0 0.2em;
+  border-radius: 0.125em;
+  background: hsl(142 70% 45% / 0.2);
+  border-bottom: 2px solid hsl(142 65% 36% / 0.8);
+  white-space: pre-wrap;
+  color: inherit;
+}
+
+.dark .prose-editor .ai-suggestion-proposal {
+  background: hsl(142 60% 42% / 0.26);
+  border-bottom-color: hsl(142 65% 58% / 0.85);
+}
+
+/* Display modes are presentation-only. The mark attributes remain intact, so
+ * switching modes never changes the pending-review collection or its history. */
+.review-display-insertions .ai-suggestion-mark[data-ai-suggestion-type="deletion"] {
+  display: none;
+}
+
+.review-display-original .ai-suggestion-mark[data-ai-suggestion-type="insertion"],
+.review-display-original .ai-suggestion-proposal {
+  display: none;
+}
+
+.review-display-final .ai-suggestion-mark[data-ai-suggestion-type="deletion"],
+.review-display-final .ai-suggestion-mark:not(.ai-suggestion-proposal)[data-ai-suggestion-type="edit"] {
+  display: none;
+}
+
+.review-display-final .ai-suggestion-mark[data-ai-suggestion-type="insertion"] {
+  padding: 0;
+  border-bottom: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.review-display-simple .ai-suggestion-mark[data-ai-suggestion-type="deletion"],
+.review-display-simple .ai-suggestion-mark:not(.ai-suggestion-proposal)[data-ai-suggestion-type="edit"] {
+  display: none;
+}
+
+.review-display-simple .ai-suggestion-mark[data-ai-suggestion-type="insertion"],
+.review-display-simple .ai-suggestion-proposal {
+  background: transparent;
+  border-bottom: 1px dotted hsl(142 55% 42% / 0.75);
+  padding: 0;
+  margin-left: 0.2em;
+}
+
 /* Hide AI annotations when toggled off */
 .hide-annotations .ai-annotation {
   --annotation-opacity: 0 !important;
@@ -1154,6 +1236,13 @@
   padding: 1rem;
   max-width: 400px;
   z-index: 100;
+}
+
+.ai-suggestion-popover .suggestion-attribution {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  margin-bottom: 0.35rem;
 }
 
 .ai-suggestion-popover .suggested-label {

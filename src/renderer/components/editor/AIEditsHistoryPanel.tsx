@@ -19,14 +19,21 @@ import { useCallback, useMemo, useState } from 'react'
 import { Wand2, Crosshair, X, MessageSquare, CheckCheck, Clock, ArrowUpRight, User, Eye, EyeOff, Maximize2 } from 'lucide-react'
 import { useAnnotationStore } from '../../extensions/ai-annotations/store'
 import { useCommentStore } from '../../extensions/comments/store'
+import { useSuggestionStore } from '../../extensions/ai-suggestions/store'
 import { OPEN_COMMENT_EVENT } from '../../extensions/comments'
 import { useReviewStore } from '../../stores/reviewStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
+import {
+  suggestionAuthorLabel,
+  suggestionExplanation,
+} from '../../extensions/ai-suggestions/presentation'
 import { formatAge } from '../../types/annotations'
 import type { AIAnnotation, AnnotationType } from '../../types/annotations'
 import type { CommentData, CommentReply } from '../../extensions/comments/types'
+import type { SuggestionFeedback, SuggestionRecord } from '../../extensions/ai-suggestions/types'
 import { PROSE_ICONS, IconThumb } from '../../lib/prose-icons'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { renderMarkdown } from '../chat/ChatMessage'
@@ -69,6 +76,7 @@ export function requestCommentReview(id?: string): void {
 type ActivityItem =
   | { kind: 'annotation'; annotation: AIAnnotation; createdAt: number }
   | { kind: 'comment'; comment: CommentData; createdAt: number }
+  | { kind: 'suggestion'; suggestion: SuggestionRecord; createdAt: number }
 
 interface ActivityDateGroup {
   label: string
@@ -84,11 +92,17 @@ function commentCategory(c: CommentData): 'open' | 'pending' | 'resolved' {
 /** Whether an item passes the active filter. Exported so the tab badge count
  *  in ChatPanel can use the same predicate. */
 export function activityItemVisible(
-  item: { kind: 'annotation'; annotation: AIAnnotation } | { kind: 'comment'; comment: CommentData },
+  item:
+    | { kind: 'annotation'; annotation: AIAnnotation }
+    | { kind: 'comment'; comment: CommentData }
+    | { kind: 'suggestion'; suggestion: SuggestionRecord },
   f: ActivityFilter
 ): boolean {
   if (item.kind === 'annotation') {
     return item.annotation.detached ? f.superseded : f.edits
+  }
+  if (item.kind === 'suggestion') {
+    return item.suggestion.status === 'superseded' ? f.superseded : f.edits
   }
   const cat = commentCategory(item.comment)
   return cat === 'open' ? f.openThreads : cat === 'pending' ? f.pendingThreads : f.resolvedThreads
@@ -105,18 +119,31 @@ interface AIEditsHistoryPanelProps {
 
 export function AIEditsHistoryPanel({ filter, onShowAll, onReviewThread }: AIEditsHistoryPanelProps) {
   const annotations = useAnnotationStore((s) => s.annotations)
+  const annotationDocumentId = useAnnotationStore((s) => s.documentId)
   const removeAnnotation = useAnnotationStore((s) => s.removeAnnotation)
   const pendingComments = useCommentStore((s) => s.pendingComments)
-  const documentId = useCommentStore((s) => s.documentId)
+  const commentDocumentId = useCommentStore((s) => s.documentId)
+  const suggestionHistory = useSuggestionStore((s) => s.history)
+  const suggestionDocumentId = useSuggestionStore((s) => s.documentId)
   const saveComments = useCommentStore((s) => s.saveComments)
+  const documentId = useEditorStore((s) => s.document.documentId)
   const editor = useEditorInstanceStore((s) => s.editor)
+
+  // Store loads are asynchronous, while the editor's document identity changes
+  // synchronously. Render only records owned by that identity so a previous
+  // tab cannot remain visible during a handoff or late IndexedDB response.
+  const currentAnnotations = annotationDocumentId === documentId
+    ? annotations.filter((annotation) => annotation.documentId === documentId)
+    : []
+  const currentComments = commentDocumentId === documentId ? pendingComments : []
+  const currentSuggestions = suggestionDocumentId === documentId ? suggestionHistory : []
 
   // Build the unified, filtered feed (newest-first).
   const items: ActivityItem[] = useMemo(() => {
-    const annotationItems: ActivityItem[] = annotations
+    const annotationItems: ActivityItem[] = currentAnnotations
       .filter((a) => activityItemVisible({ kind: 'annotation', annotation: a }, filter))
       .map((a) => ({ kind: 'annotation', annotation: a, createdAt: a.createdAt }))
-    const commentItems: ActivityItem[] = pendingComments
+    const commentItems: ActivityItem[] = currentComments
       .filter((c) => activityItemVisible({ kind: 'comment', comment: c }, filter))
       .map((c) => ({
         kind: 'comment',
@@ -126,10 +153,13 @@ export function AIEditsHistoryPanel({ filter, onShowAll, onReviewThread }: AIEdi
             ? c.replies[c.replies.length - 1].createdAt
             : c.createdAt,
       }))
-    return [...annotationItems, ...commentItems].sort((a, b) => b.createdAt - a.createdAt)
-  }, [annotations, pendingComments, filter])
+    const suggestionItems: ActivityItem[] = currentSuggestions
+      .filter((s) => activityItemVisible({ kind: 'suggestion', suggestion: s }, filter))
+      .map((suggestion) => ({ kind: 'suggestion', suggestion, createdAt: suggestion.createdAt }))
+    return [...annotationItems, ...commentItems, ...suggestionItems].sort((a, b) => b.createdAt - a.createdAt)
+  }, [currentAnnotations, currentComments, currentSuggestions, filter])
 
-  const hasAnyActivity = annotations.length > 0 || pendingComments.length > 0
+  const hasAnyActivity = currentAnnotations.length > 0 || currentComments.length > 0 || currentSuggestions.length > 0
   const nothingVisible = items.length === 0
   const groups = useMemo(() => groupActivityByDate(items), [items])
 
@@ -160,6 +190,18 @@ export function AIEditsHistoryPanel({ filter, onShowAll, onReviewThread }: AIEdi
     [editor, documentId, saveComments]
   )
 
+  const handleReviewSuggestion = useCallback(
+    (id: string) => {
+      if (!editor) return
+      const index = getAISuggestions(editor).findIndex((suggestion) => suggestion.id === id)
+      if (index < 0) return
+      // Pass the index with the mode change. setReviewMode resets the review
+      // cursor, so setting it beforehand would be overwritten at this point.
+      useReviewStore.getState().setReviewMode('quick', index)
+    },
+    [editor]
+  )
+
   return (
     <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -178,6 +220,7 @@ export function AIEditsHistoryPanel({ filter, onShowAll, onReviewThread }: AIEdi
                 onRemoveAnnotation={handleRemoveAnnotation}
                 onRemoveComment={handleRemoveComment}
                 onReviewThread={onReviewThread}
+                onReviewSuggestion={handleReviewSuggestion}
               />
             ))}
           </div>
@@ -226,6 +269,7 @@ interface ActivityDateGroupProps {
   onRemoveAnnotation: (id: string) => void
   onRemoveComment: (id: string) => void
   onReviewThread: (id: string) => void
+  onReviewSuggestion: (id: string) => void
 }
 
 function ActivityDateGroupView({
@@ -235,6 +279,7 @@ function ActivityDateGroupView({
   onRemoveAnnotation,
   onRemoveComment,
   onReviewThread,
+  onReviewSuggestion,
 }: ActivityDateGroupProps) {
   return (
     <div>
@@ -244,23 +289,35 @@ function ActivityDateGroupView({
       {/* Contained cards with inter-card gaps (the panel bg shows through) —
           hairline separators disappeared on the dark surface. 12px side gutter. */}
       <div className="flex flex-col gap-[9px] px-3 pb-2 pt-1.5">
-        {items.map((item) =>
-          item.kind === 'annotation' ? (
-            <HistoryEntryRow
-              key={item.annotation.id}
-              annotation={item.annotation}
-              onJump={onJumpAnnotation}
-              onRemove={onRemoveAnnotation}
-            />
-          ) : (
-            <CommentActivityRow
-              key={item.comment.id}
-              comment={item.comment}
-              onRemove={onRemoveComment}
-              onReview={onReviewThread}
+        {items.map((item) => {
+          if (item.kind === 'annotation') {
+            return (
+              <HistoryEntryRow
+                key={item.annotation.id}
+                annotation={item.annotation}
+                onJump={onJumpAnnotation}
+                onRemove={onRemoveAnnotation}
+              />
+            )
+          }
+          if (item.kind === 'comment') {
+            return (
+              <CommentActivityRow
+                key={item.comment.id}
+                comment={item.comment}
+                onRemove={onRemoveComment}
+                onReview={onReviewThread}
+              />
+            )
+          }
+          return (
+            <SuggestionActivityRow
+              key={item.suggestion.id}
+              suggestion={item.suggestion}
+              onReview={onReviewSuggestion}
             />
           )
-        )}
+        })}
       </div>
     </div>
   )
@@ -337,6 +394,122 @@ function HistoryEntryRow({ annotation, onJump, onRemove }: HistoryEntryRowProps)
         <p className="mt-1.5 line-clamp-2 text-xs italic leading-snug text-muted-foreground">{annotation.explanation}</p>
       )}
     </div>
+  )
+}
+
+interface SuggestionActivityRowProps {
+  suggestion: SuggestionRecord
+  onReview: (id: string) => void
+}
+
+/** A durable suggestion-history card. Pending cards open the live Quick Review
+ * item; terminal cards remain visible as an audit trail. */
+function SuggestionActivityRow({ suggestion, onReview }: SuggestionActivityRowProps) {
+  const isPending = suggestion.status === 'pending'
+  const preview = (suggestion.type === 'deletion' ? suggestion.originalText : suggestion.suggestedText)
+    .trim()
+    .replace(/\n/g, ' ')
+  const explanation = suggestionExplanation(suggestion)
+  // Lifecycle records carry the complete feedback thread. Keep the legacy
+  // userReply field as a display fallback for records written before feedback
+  // was promoted to its own durable collection.
+  const feedback = suggestion.feedback.length > 0
+    ? suggestion.feedback
+    : suggestion.userReply?.trim()
+      ? [{
+          text: suggestion.userReply,
+          createdAt: suggestion.createdAt,
+          actor: { kind: 'user' as const, source: 'ui' as const },
+        }]
+      : []
+  const statusLabel = suggestion.status === 'superseded' ? 'superseded' : suggestion.status
+
+  const activate = () => {
+    if (isPending) onReview(suggestion.id)
+  }
+
+  return (
+    <div
+      role={isPending ? 'button' : undefined}
+      tabIndex={isPending ? 0 : undefined}
+      onClick={activate}
+      onKeyDown={(event) => {
+        if (isPending && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault()
+          activate()
+        }
+      }}
+      data-testid={`suggestion-activity-${suggestion.id}`}
+      title={isPending ? 'Open in Quick Review' : `Suggestion ${statusLabel}`}
+      className={cn(
+        'group rounded-[10px] border border-border bg-muted/50 px-3 py-3 transition-colors',
+        isPending && 'cursor-pointer hover:border-muted-foreground/30 hover:bg-muted/[0.85] focus:border-muted-foreground/40 focus:outline-none',
+        !isPending && 'opacity-70',
+      )}
+    >
+      <div className="mb-2 flex items-center gap-2">
+        <SuggestionTypeBadge type={suggestion.type} />
+        <span className="rounded px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider bg-muted text-muted-foreground">
+          {statusLabel}
+        </span>
+        <span className="min-w-0 truncate text-xs text-muted-foreground">{suggestionAuthorLabel(suggestion)}</span>
+        <span className="ml-auto shrink-0 text-xs text-muted-foreground/60">{formatAge(suggestion.createdAt)}</span>
+      </div>
+      <p className="line-clamp-2 break-words text-[15px] leading-snug text-foreground">
+        {preview || (suggestion.type === 'deletion' ? 'Deleted block' : 'Suggested block')}
+      </p>
+      {explanation && (
+        <p className="mt-1.5 line-clamp-2 text-xs italic leading-snug text-muted-foreground">{explanation}</p>
+      )}
+      {feedback.length > 0 && (
+        <div
+          data-testid={`suggestion-feedback-${suggestion.id}`}
+          className="mt-2 flex flex-col gap-2 border-t border-border/60 pt-2"
+        >
+          {feedback.map((entry, index) => (
+            <SuggestionFeedbackRow key={`${entry.createdAt}-${index}`} feedback={entry} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SuggestionFeedbackRow({ feedback }: { feedback: SuggestionFeedback }) {
+  const isUser = feedback.actor.kind === 'user'
+  const author = isUser ? 'Your feedback' : feedback.actor.model?.trim() || 'Prose'
+
+  return (
+    <div className="flex items-start gap-2">
+      <MiniAvatar kind={isUser ? 'user' : 'ai'} />
+      <div className="min-w-0 flex-1">
+        <div className="mb-0.5 text-[11px] text-muted-foreground">
+          {author} · {formatAge(feedback.createdAt)}
+        </div>
+        <div className="whitespace-pre-wrap break-words text-[12.5px] leading-relaxed text-foreground/85">
+          {feedback.text}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SuggestionTypeBadge({ type }: { type: SuggestionRecord['type'] }) {
+  const palette =
+    type === 'insertion'
+      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+      : type === 'deletion'
+        ? 'border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400'
+        : 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400'
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider',
+        palette,
+      )}
+    >
+      {type === 'edit' ? 'replacement' : type}
+    </span>
   )
 }
 

@@ -2,6 +2,10 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { Settings, RemarkableSyncPhase, IconId } from '../renderer/types'
 import type { ToolResult } from '../shared/tools/types'
 import {
+  normalizeMcpClientIdentity,
+  type McpClientIdentity,
+} from '../shared/tools/mcpClientIdentity'
+import {
   unwrapReadFileResult,
   unwrapSaveFileResult,
   type ReadFileResult,
@@ -274,7 +278,12 @@ export interface ElectronAPI {
   ) => () => void
   // MCP tool execution (only used in MCP server mode)
   onMcpToolInvoke: (
-    callback: (requestId: string, toolName: string, args: unknown) => void
+    callback: (
+      requestId: string,
+      toolName: string,
+      args: unknown,
+      clientIdentity?: McpClientIdentity,
+    ) => void
   ) => () => void
   sendMcpToolResult: (requestId: string, result: ToolResult) => void
   // MCP server status
@@ -492,9 +501,10 @@ const api: ElectronAPI = {
       _event: Electron.IpcRendererEvent,
       requestId: string,
       toolName: string,
-      args: unknown
+      args: unknown,
+      clientIdentity: unknown,
     ): void => {
-      callback(requestId, toolName, args)
+      callback(requestId, toolName, args, normalizeMcpClientIdentity(clientIdentity))
     }
     ipcRenderer.on('mcp:tool:invoke', handler)
     return () => {

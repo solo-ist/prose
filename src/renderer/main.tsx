@@ -44,6 +44,9 @@ import './index.css'
   // Comment store access for e2e verification of threading (#699).
   getCommentStore: () => useCommentStore.getState().pendingComments,
   getCommentDocId: () => useCommentStore.getState().documentId,
+  // Exercise the inactive-load race without reaching into the module graph.
+  // The store rejects requests whose identity is no longer active.
+  loadCommentsForTesting: (documentId: string) => useCommentStore.getState().loadComments(documentId),
 }
 // Test seam — INTENTIONALLY always-on, same tier as __prose_tools/__prose_debug.
 // Lets Playwright drive the chat surface with zero LLM: seed a conversation and

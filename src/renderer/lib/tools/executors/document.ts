@@ -3,7 +3,7 @@
  */
 
 import type { Editor } from '@tiptap/core'
-import type { ToolResult, DocumentMetadata, TextMatch, OutlineEntry } from '../../../../shared/tools/types'
+import type { ToolResult, DocumentMetadata, TextMatch, OutlineEntry, ToolExecutionContext } from '../../../../shared/tools/types'
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useEditorStore } from '../../../stores/editorStore'
 import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
@@ -16,7 +16,20 @@ import { getAISuggestions } from '../../../extensions/ai-suggestions'
 import { isEditorReadOnly } from './editor'
 import { getApi } from '../../browserApi'
 import { generateId } from '../../persistence'
+import { serializeMarkdown } from '../../markdown'
 import { dump as dumpYaml } from 'js-yaml'
+import {
+  appendReviewEvent,
+  awaitReviewDurability,
+  attributionForTool,
+  getCommentAttribution,
+  getReplyAttribution,
+  latestReviewEvent,
+  rememberCommentAttribution,
+  rememberCommentReplyAttribution,
+  rememberReviewEventAttribution,
+  verifyExpectedDocumentId,
+} from '../reviewLifecycle'
 
 /**
  * Get the TipTap editor instance.
@@ -80,9 +93,22 @@ export function executeReadDocument(): ToolResult<{
   // Map to DocumentNode tree
   const nodes: DocumentNode[] = nodesWithIds.map(toDocumentNode)
 
+  // The editor store deliberately debounces content updates so normal typing
+  // does not write on every transaction. Review decisions, however, dispatch
+  // synchronously and can be followed immediately by an MCP read. Read the
+  // live editor body here so `markdown` cannot lag behind the nodes above.
+  // Source mode owns its raw content separately, so the store remains the
+  // authoritative value while that editor is active.
+  const liveBody = !store.sourceMode
+    ? editor.storage.markdown?.getMarkdown?.()
+    : undefined
+  const markdown = typeof liveBody === 'string'
+    ? serializeMarkdown(liveBody, store.pendingFrontmatter ?? store.document.frontmatter)
+    : store.document.content
+
   return toolSuccess({
     nodes: prependFrontmatterNode(nodes, store.document.frontmatter, store.pendingFrontmatter),
-    markdown: store.document.content
+    markdown
   })
 }
 
@@ -370,6 +396,7 @@ export function executeGetOutline(): ToolResult<{ outline: OutlineEntry[]; summa
 
 /** Comment shape returned by list_comments (includes thread data). */
 interface CommentEntry {
+  documentId: string
   id: string
   markedText: string
   comment: string
@@ -378,6 +405,9 @@ interface CommentEntry {
   to: number
   replies: CommentReply[]
   resolved: boolean
+  status: 'open' | 'resolved'
+  author?: 'user' | 'ai'
+  attribution: ReturnType<typeof attributionForTool>
 }
 
 /**
@@ -387,12 +417,18 @@ interface CommentEntry {
  * (replies, resolved state) from the comment store so the AI gets the
  * full thread context.
  */
-export function executeListComments(): ToolResult<{ comments: CommentEntry[] }> {
+export function executeListComments(
+  context?: ToolExecutionContext,
+): ToolResult<{ documentId: string; comments: CommentEntry[] }> {
   const editor = getEditor()
 
   if (!editor) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
+
+  const documentId = useEditorStore.getState().document.documentId
+  const identityError = verifyExpectedDocumentId(context, documentId)
+  if (identityError) return identityError
 
   // Live marks give us current positions.
   const liveMarks = getComments(editor)
@@ -402,15 +438,24 @@ export function executeListComments(): ToolResult<{ comments: CommentEntry[] }> 
 
   const comments: CommentEntry[] = liveMarks.map((c) => {
     const persisted = persistedComments.find((p) => p.id === c.id)
+    const thread = persisted ?? c
+    const replies = (persisted?.replies ?? []).map((reply) => ({
+      ...reply,
+      attribution: getReplyAttribution(documentId, c.id, reply),
+    }))
     return {
+      documentId,
       id: c.id,
       markedText: c.markedText,
       comment: c.comment,
       createdAt: c.createdAt,
       from: c.from,
       to: c.to,
-      replies: persisted?.replies ?? [],
+      replies,
       resolved: persisted?.resolved ?? false,
+      status: persisted?.resolved ? 'resolved' : 'open',
+      author: persisted?.author,
+      attribution: getCommentAttribution(documentId, thread),
     }
   })
 
@@ -419,31 +464,38 @@ export function executeListComments(): ToolResult<{ comments: CommentEntry[] }> 
   for (const p of persistedComments) {
     if (!resolvedIds.has(p.id) && p.resolved) {
       comments.push({
+        documentId,
         id: p.id,
         markedText: p.markedText,
         comment: p.comment,
         createdAt: p.createdAt,
         from: p.from,
         to: p.to,
-        replies: p.replies ?? [],
+        replies: (p.replies ?? []).map((reply) => ({
+          ...reply,
+          attribution: getReplyAttribution(documentId, p.id, reply),
+        })),
         resolved: true,
+        status: 'resolved',
+        author: p.author,
+        attribution: getCommentAttribution(documentId, p),
       })
     }
   }
 
-  return toolSuccess({ comments })
+  return toolSuccess({ documentId, comments })
 }
 
 /**
  * add_comment - Add a comment mark to a node or explicit range.
  * The comment is tagged with author 'claude'.
  */
-export function executeAddComment(args: {
+export async function executeAddComment(args: {
   nodeId?: string
   from?: number
   to?: number
   comment: string
-}): ToolResult<{ id: string }> {
+}, context?: ToolExecutionContext): Promise<ToolResult<{ id: string; documentId: string; eventId: string }>> {
   const editor = getEditor()
 
   if (!editor) {
@@ -453,6 +505,10 @@ export function executeAddComment(args: {
   if (isEditorReadOnly()) {
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
+
+  const documentId = useEditorStore.getState().document.documentId
+  const identityError = verifyExpectedDocumentId(context, documentId)
+  if (identityError) return identityError
 
   const { nodeId, comment } = args
   let from = args.from
@@ -490,6 +546,8 @@ export function executeAddComment(args: {
   }
 
   const id = generateId()
+  const attribution = attributionForTool(context)
+  rememberCommentAttribution(documentId, id, attribution)
 
   const success = editor
     .chain()
@@ -502,11 +560,32 @@ export function executeAddComment(args: {
     return toolError('Failed to apply comment mark — the range may not contain markable content', 'COMMENT_FAILED')
   }
 
+  // setComment invokes the editor callback, which is the sole writer for the
+  // created record/event. Do not append a second event in the executor.
+  const event = latestReviewEvent(documentId, 'comment', id, 'comment_created')
+  if (!event) {
+    return toolError('Comment was applied but its lifecycle event was not recorded', 'LIFECYCLE_EVENT_MISSING')
+  }
+  rememberReviewEventAttribution(event.id, attribution)
+  const beforeSaveError = verifyExpectedDocumentId(context, documentId)
+  if (beforeSaveError) return beforeSaveError
+  if (documentId) {
+    await useCommentStore.getState().saveComments(
+      documentId,
+      useCommentStore.getState().pendingComments,
+    )
+  }
+  const afterCommentSaveError = verifyExpectedDocumentId(context, documentId)
+  if (afterCommentSaveError) return afterCommentSaveError
+  await awaitReviewDurability()
+  const afterDurabilityError = verifyExpectedDocumentId(context, documentId)
+  if (afterDurabilityError) return afterDurabilityError
+
   // The Comment extension's onCommentAdded hook mirrors the new comment into the
   // store (with correct occurrenceIndex) and persists it, so reply_to_comment /
   // resolve_comment can find it by ID in the same session. No manual mirror here.
 
-  return toolSuccess({ id })
+  return toolSuccess({ id, documentId, eventId: event.id })
 }
 
 /**
@@ -556,9 +635,9 @@ function ensureInStore(
  * Sets resolved:true on the persisted CommentData and removes the editor mark.
  * The thread remains in the store as collapsed history — it is not deleted.
  */
-export function executeResolveComment(args: {
+export async function executeResolveComment(args: {
   id: string
-}): ToolResult<{ resolved: boolean }> {
+}, context?: ToolExecutionContext): Promise<ToolResult<{ id: string; documentId: string; resolved: boolean; eventId: string }>> {
   const editor = getEditor()
 
   if (!editor) {
@@ -570,6 +649,11 @@ export function executeResolveComment(args: {
   }
 
   const { id } = args
+  const documentId = useEditorStore.getState().document.documentId
+  const identityError = verifyExpectedDocumentId(context, documentId)
+  if (identityError) return identityError
+  const attribution = attributionForTool(context)
+  rememberCommentAttribution(documentId, id, attribution)
 
   if (!id) {
     return toolError('Comment ID is required', 'INVALID_INPUT')
@@ -589,24 +673,111 @@ export function executeResolveComment(args: {
   )
   useCommentStore.setState({ pendingComments: updated })
 
-  const documentId = useCommentStore.getState().documentId
   if (documentId) {
-    useCommentStore.getState().saveComments(documentId, updated)
+    await useCommentStore.getState().saveComments(documentId, updated)
   }
+  const afterCommentSaveError = verifyExpectedDocumentId(context, documentId)
+  if (afterCommentSaveError) return afterCommentSaveError
 
   // Remove the editor mark so the highlight disappears.
-  editor.commands.unsetComment(id)
+  const removed = editor.commands.unsetComment(id)
+  if (!removed) {
+    return toolError('Comment could not be resolved because its editor mark is no longer active', 'COMMENT_NOT_ACTIVE')
+  }
 
-  return toolSuccess({ resolved: true })
+  // unsetComment invokes the editor callback, which is the sole writer for
+  // the resolved event. Do not append a second event in the executor.
+  const event = latestReviewEvent(documentId, 'comment', id, 'comment_resolved')
+  if (!event) {
+    return toolError('Comment was resolved but its lifecycle event was not recorded', 'LIFECYCLE_EVENT_MISSING')
+  }
+  rememberReviewEventAttribution(event.id, attribution)
+  const beforeDurabilityError = verifyExpectedDocumentId(context, documentId)
+  if (beforeDurabilityError) return beforeDurabilityError
+  await awaitReviewDurability()
+  const afterDurabilityError = verifyExpectedDocumentId(context, documentId)
+  if (afterDurabilityError) return afterDurabilityError
+
+  return toolSuccess({ id, documentId, resolved: true, eventId: event.id })
+}
+
+/**
+ * reopen_comment - Reopen a resolved thread and restore its anchor mark.
+ */
+export async function executeReopenComment(
+  args: { id: string },
+  context?: ToolExecutionContext
+): Promise<ToolResult<{ id: string; documentId: string; reopened: boolean; eventId: string }>> {
+  const editor = getEditor()
+
+  if (!editor) {
+    return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
+  }
+
+  if (isEditorReadOnly()) {
+    return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
+  }
+
+  const { id } = args
+  const documentId = useEditorStore.getState().document.documentId
+  const identityError = verifyExpectedDocumentId(context, documentId)
+  if (identityError) return identityError
+  if (!id) {
+    return toolError('Comment ID is required', 'INVALID_INPUT')
+  }
+
+  const store = useCommentStore.getState()
+  const found = ensureInStore(id, store, editor)
+  if (!found) {
+    return toolError(`Comment with ID "${id}" not found`, 'COMMENT_NOT_FOUND')
+  }
+
+  const currentComments = useCommentStore.getState().pendingComments
+  const current = currentComments.find((comment) => comment.id === id)
+  if (!current) {
+    return toolError(`Comment with ID "${id}" not found`, 'COMMENT_NOT_FOUND')
+  }
+
+  const updated = currentComments.map((comment) =>
+    comment.id === id ? { ...comment, resolved: false } : comment
+  )
+  useCommentStore.setState({ pendingComments: updated })
+
+  if (documentId) {
+    await useCommentStore.getState().saveComments(documentId, updated)
+  }
+  const afterCommentSaveError = verifyExpectedDocumentId(context, documentId)
+  if (afterCommentSaveError) return afterCommentSaveError
+
+  const reopened = { ...current, resolved: false }
+  editor.commands.restoreComments([reopened])
+
+  const attribution = attributionForTool(context)
+  rememberCommentAttribution(documentId, id, attribution)
+  const event = appendReviewEvent({
+    documentId,
+    targetType: 'comment',
+    targetId: id,
+    eventType: 'comment_reopened',
+    attribution,
+    metadata: { reopened: true },
+  })
+  const beforeDurabilityError = verifyExpectedDocumentId(context, documentId)
+  if (beforeDurabilityError) return beforeDurabilityError
+  await awaitReviewDurability()
+  const afterDurabilityError = verifyExpectedDocumentId(context, documentId)
+  if (afterDurabilityError) return afterDurabilityError
+
+  return toolSuccess({ id, documentId, reopened: true, eventId: event.id })
 }
 
 /**
  * reply_to_comment - Append an AI reply to a comment thread.
  */
-export function executeReplyToComment(args: {
+export async function executeReplyToComment(args: {
   id: string
   text: string
-}): ToolResult<{ replyId: string }> {
+}, context?: ToolExecutionContext): Promise<ToolResult<{ replyId: string; commentId: string; documentId: string; eventId: string }>> {
   if (isEditorReadOnly()) {
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
@@ -622,6 +793,10 @@ export function executeReplyToComment(args: {
 
   const editor = getEditor()
 
+  const documentId = useEditorStore.getState().document.documentId
+  const identityError = verifyExpectedDocumentId(context, documentId)
+  if (identityError) return identityError
+
   // Ensure the comment is in the store (synthesizes from live mark if needed).
   const store = useCommentStore.getState()
   const found = ensureInStore(id, store, editor)
@@ -636,6 +811,8 @@ export function executeReplyToComment(args: {
     createdAt: Date.now(),
   }
 
+  const attribution = attributionForTool(context)
+
   // Re-read after possible synthesis
   const currentComments = useCommentStore.getState().pendingComments
   const updated = currentComments.map((c) =>
@@ -644,10 +821,26 @@ export function executeReplyToComment(args: {
 
   useCommentStore.setState({ pendingComments: updated })
 
-  const documentId = useCommentStore.getState().documentId
   if (documentId) {
-    useCommentStore.getState().saveComments(documentId, updated)
+    await useCommentStore.getState().saveComments(documentId, updated)
   }
+  const afterCommentSaveError = verifyExpectedDocumentId(context, documentId)
+  if (afterCommentSaveError) return afterCommentSaveError
 
-  return toolSuccess({ replyId: reply.id })
+  rememberCommentReplyAttribution(documentId, id, reply.id, attribution)
+  const event = appendReviewEvent({
+    documentId,
+    targetType: 'comment',
+    targetId: id,
+    eventType: 'comment_replied',
+    attribution,
+    metadata: { replyId: reply.id },
+  })
+  const beforeDurabilityError = verifyExpectedDocumentId(context, documentId)
+  if (beforeDurabilityError) return beforeDurabilityError
+  await awaitReviewDurability()
+  const afterDurabilityError = verifyExpectedDocumentId(context, documentId)
+  if (afterDurabilityError) return afterDurabilityError
+
+  return toolSuccess({ replyId: reply.id, commentId: id, documentId, eventId: event.id })
 }

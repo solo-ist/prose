@@ -6,6 +6,10 @@ import { useEffect, useRef, useState, useCallback, useLayoutEffect } from 'react
 import { createPortal } from 'react-dom'
 import type { Editor } from '@tiptap/core'
 import { Check, X, MessageSquare } from 'lucide-react'
+import {
+  suggestionAuthorLabel,
+  suggestionExplanation,
+} from '../extensions/ai-suggestions/presentation'
 
 interface AISuggestionPopoverProps {
   editor: Editor
@@ -16,6 +20,9 @@ interface PopoverState {
   suggestionId: string | null
   suggestedText: string
   explanation: string
+  humanInline: boolean
+  provenanceSource?: 'ui' | 'chat' | 'mcp' | 'system' | 'unknown'
+  provenanceModel?: string
   userReply: string
   position: { x: number; y: number }
 }
@@ -26,6 +33,7 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
     suggestionId: null,
     suggestedText: '',
     explanation: '',
+    humanInline: false,
     userReply: '',
     position: { x: 0, y: 0 },
   })
@@ -49,6 +57,9 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
         const id = suggestionMark.getAttribute('data-ai-suggestion-id')
         const suggestedText = suggestionMark.getAttribute('data-ai-suggested') || ''
         const explanation = suggestionMark.getAttribute('data-ai-explanation') || ''
+        const humanInline = suggestionMark.getAttribute('data-human-inline') === 'true'
+        const provenanceSource = suggestionMark.getAttribute('data-provenance-source') as PopoverState['provenanceSource']
+        const provenanceModel = suggestionMark.getAttribute('data-provenance-model') || undefined
         const userReply = suggestionMark.getAttribute('data-ai-user-reply') || ''
 
         if (id) {
@@ -60,6 +71,9 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
             suggestionId: id,
             suggestedText,
             explanation,
+            humanInline,
+            provenanceSource: provenanceSource || undefined,
+            provenanceModel,
             userReply,
             position: {
               x: rect.left + rect.width / 2,
@@ -180,6 +194,7 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
 
   // Use adjusted position if available, otherwise use initial position (will be adjusted after first render)
   const displayPosition = adjustedPosition || popover.position
+  const explanation = suggestionExplanation(popover)
 
   return createPortal(
     <div
@@ -194,13 +209,14 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
         visibility: adjustedPosition ? 'visible' : 'hidden',
       }}
     >
+      <div className="suggestion-attribution">{suggestionAuthorLabel(popover)}</div>
       <div className="suggested-label">Suggested:</div>
       <div className="suggested-text">{popover.suggestedText}</div>
 
-      {popover.explanation && (
+      {explanation && (
         <>
           <div className="explanation-label">Explanation:</div>
-          <div className="explanation-text">{popover.explanation}</div>
+          <div className="explanation-text">{explanation}</div>
         </>
       )}
 

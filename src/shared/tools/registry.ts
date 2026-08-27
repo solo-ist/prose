@@ -8,12 +8,13 @@ import { editorTools } from './schemas/editor'
 import { fileTools } from './schemas/file'
 import { uiTools } from './schemas/ui'
 import { tabTools } from './schemas/tabs'
+import { reviewTools } from './schemas/review'
 import { zodToJsonSchema } from './utils'
 
 /**
  * All registered tools.
  */
-export const allTools = [...documentTools, ...editorTools, ...fileTools, ...tabTools, ...uiTools] as const
+export const allTools = [...documentTools, ...editorTools, ...fileTools, ...tabTools, ...uiTools, ...reviewTools] as const
 
 /**
  * Tool name type (union of all tool names).
@@ -100,18 +101,33 @@ export function getToolsForClaudeAPI(mode: ToolMode = 'create'): Array<{
  * Tools exposed via MCP server.
  * Focused subset for Claude Desktop integration.
  */
-const mcpToolNames = [
+export const mcpToolNames = [
   'read_document',
   'get_outline',
   'open_file',
   'suggest_edit',
+  'insert_after',
+  'suggest_delete',
   'create_and_open_file',
   'list_comments',
   'add_comment',
+  'reply_to_comment',
   'resolve_comment',
+  'reopen_comment',
+  'list_suggestions',
+  'add_suggestion_feedback',
+  'revise_suggestion',
+  'decide_suggestion',
+  'list_review_events',
+  'get_review_status',
   'list_tabs',
   'select_tab'
 ] as const
+
+/** True when a registered tool is part of the externally callable MCP surface. */
+export function isToolExposedViaMCP(name: string): boolean {
+  return (mcpToolNames as readonly string[]).includes(name)
+}
 
 /**
  * Get tools formatted for MCP server.
@@ -123,7 +139,7 @@ export function getToolsForMCP(): Array<{
   inputSchema: Record<string, unknown>
 }> {
   return allTools
-    .filter((tool) => (mcpToolNames as readonly string[]).includes(tool.name))
+    .filter((tool) => isToolExposedViaMCP(tool.name))
     .map((tool) => ({
       name: tool.name,
       description: tool.description,

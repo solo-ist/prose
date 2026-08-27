@@ -32,6 +32,7 @@ import {
   AlertDialogTitle
 } from '../ui/alert-dialog'
 import { TabBar } from './TabBar'
+import { ReviewDisplayControl, reviewDisplayModeLabel } from '../editor/ReviewDisplayControl'
 import { CustomizableToolbar } from '../ui/CustomizableToolbar'
 import type { ToolbarAction } from '../ui/CustomizableToolbar'
 import type { CustomizableMenuItem } from '../ui/CustomizableMenu'
@@ -59,7 +60,6 @@ import {
   FileCode,
   X,
   Eye,
-  EyeOff,
   Code,
   FileText,
   Sparkles
@@ -91,8 +91,7 @@ export function Toolbar() {
   const { settings, isLoaded, effectiveTheme, autosaveActive, setAppearance, setDialogOpen, toggleAutosaveActive } = useSettings()
   const { isChatOpen, isFileListOpen, toggleChat, toggleFileList } = usePanelLayoutContext()
   const isEditing = useEditorStore((state) => state.isEditing)
-  const annotationsVisible = useEditorStore((state) => state.annotationsVisible)
-  const toggleAnnotationsVisible = useEditorStore((state) => state.toggleAnnotationsVisible)
+  const reviewDisplayMode = useEditorStore((state) => state.reviewDisplayMode)
   const sourceMode = useEditorStore((state) => state.sourceMode)
   const toggleSourceMode = useEditorStore((state) => state.toggleSourceMode)
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
@@ -411,30 +410,12 @@ export function Toolbar() {
     },
     {
       id: 'annotations',
-      label: annotationsVisible ? 'Hide AI annotations' : 'Show AI annotations',
+      label: `Review display: ${reviewDisplayModeLabel(reviewDisplayMode)}`,
       icon: <Eye />,
-      onSelect: toggleAnnotationsVisible,
-      active: annotationsVisible,
+      onSelect: () => {},
+      active: true,
       renderBar: (key) => (
-        <Tooltip key={key}>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggleAnnotationsVisible}
-              aria-label={annotationsVisible ? 'Hide AI annotations' : 'Show AI annotations'}
-              aria-pressed={annotationsVisible}
-              className={annotationsVisible ? 'bg-accent text-accent-foreground' : 'text-muted-foreground'}
-            >
-              {annotationsVisible ? (
-                <Eye className="h-4 w-4" />
-              ) : (
-                <EyeOff className="h-4 w-4" />
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{annotationsVisible ? 'Hide' : 'Show'} AI annotations</TooltipContent>
-        </Tooltip>
+        <ReviewDisplayControl key={key} />
       ),
     },
     {

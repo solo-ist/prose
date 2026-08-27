@@ -18,7 +18,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema
 } from '@modelcontextprotocol/sdk/types.js'
-import { getToolsForMCP } from '../../shared/tools/registry'
+import { getToolsForMCP, isToolExposedViaMCP } from '../../shared/tools/registry'
 import type { ToolResult } from '../../shared/tools/types'
 
 const HTTP_PORT = 9877
@@ -84,6 +84,18 @@ export class McpHttpServer {
     // Register tool call handler
     this.mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params
+
+      // tools/call can be issued without a preceding tools/list request. Keep
+      // hidden/internal tools outside the externally callable MCP surface.
+      if (!isToolExposedViaMCP(name)) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Error: Tool "${name}" is not exposed through MCP (MCP_TOOL_NOT_EXPOSED)`
+          }],
+          isError: true
+        }
+      }
 
       if (!this.onToolInvoke) {
         return {

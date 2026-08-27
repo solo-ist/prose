@@ -5,6 +5,7 @@ import { useEditorInstanceStore } from '../stores/editorInstanceStore'
 import { useChatStore, setCurrentDocumentId } from '../stores/chatStore'
 import { useAnnotationStore } from '../extensions/ai-annotations'
 import { useSuggestionStore } from '../extensions/ai-suggestions/store'
+import { useReviewEventStore } from '../extensions/review-events'
 import { getAISuggestions } from '../extensions/ai-suggestions'
 import { useCommentStore } from '../extensions/comments/store'
 import { mergeCommentsForPersistence } from '../extensions/comments'
@@ -25,12 +26,11 @@ import {
   saveAnnotations,
   loadAnnotations,
   deleteAnnotations,
-  saveSuggestions,
-  loadSuggestions,
   deleteSuggestions,
-  saveComments,
-  loadComments,
+  deleteSuggestionHistory,
+  deleteReviewEvents,
   deleteComments,
+  migrateReviewState,
   SESSION_ID
 } from '../lib/persistence'
 import type { DraftState } from '../lib/persistence'
@@ -127,6 +127,18 @@ export function useTabs() {
         await useSuggestionStore.getState().saveSuggestions(docId, suggestions)
       }
 
+      // Lifecycle records and review events survive mark removal. Await any
+      // callback-triggered writes before switching documents, then write the
+      // current snapshots explicitly as a final tab-switch checkpoint.
+      const pendingSuggestionHistory = useSuggestionStore.getState().pendingSave
+      if (pendingSuggestionHistory) await pendingSuggestionHistory
+      const pendingReviewEvents = useReviewEventStore.getState().pendingSave
+      if (pendingReviewEvents) await pendingReviewEvents
+      if (docId) {
+        await useSuggestionStore.getState().saveHistory(docId)
+        await useReviewEventStore.getState().saveEvents(docId)
+      }
+
       // Merge live mark positions with the store's rich data (replies + resolved)
       // so a tab-switch save doesn't clobber threads with marks-only data (#699).
       const comments = mergeCommentsForPersistence(editor, useCommentStore.getState().pendingComments)
@@ -173,18 +185,19 @@ export function useTabs() {
     // This prevents the plugin from deleting annotations when doc content changes
     useAnnotationStore.getState().setLoadingDocument(true)
 
-    // Pre-set the annotation store's documentId BEFORE setDocument (#674):
-    // Editor.tsx's recovery effect fires its own (unguarded) loadAnnotations
-    // whenever annotationStoreDocumentId !== document.documentId — pre-
-    // setting makes the effect see a match immediately, killing the
-    // double-load race with the awaited loadAnnotations below.
-    useAnnotationStore.getState().setDocumentId(targetTab.documentId)
+    // Pre-set the review stores' document IDs BEFORE setDocument. Activity
+    // renders from these stores, so clearing the previous document here keeps
+    // its feed aligned during the asynchronous loads below. This also stops
+    // Editor.tsx recovery effects from starting competing loads.
+    const newDocumentId = targetTab.documentId
+    useAnnotationStore.getState().setDocumentId(newDocumentId)
+    useSuggestionStore.getState().setDocumentId(newDocumentId)
+    useCommentStore.getState().setDocumentId(newDocumentId)
 
     // Activate the new tab
     setActiveTab(tabId)
 
     // Load target tab's document into editorStore
-    const newDocumentId = targetTab.documentId
     setDocument({
       documentId: newDocumentId,
       path: targetTab.path,
@@ -278,9 +291,11 @@ export function useTabs() {
       cursorPosition: { line: 1, column: 1 }
     })
 
-    // Pre-set the annotation store's documentId before setDocument so the
-    // Editor.tsx recovery effect doesn't fire a competing load (#674).
+    // Pre-set the review stores' document IDs before setDocument so Activity
+    // cannot briefly display the previous document while these loads run.
     useAnnotationStore.getState().setDocumentId(newDocumentId)
+    useSuggestionStore.getState().setDocumentId(newDocumentId)
+    useCommentStore.getState().setDocumentId(newDocumentId)
 
     // Set up new document in editorStore
     setDocument({
@@ -304,12 +319,6 @@ export function useTabs() {
 
     // Clear annotations
     useAnnotationStore.getState().clearAnnotations()
-
-    // Clear suggestions
-    useSuggestionStore.getState().setDocumentId(newDocumentId)
-
-    // Clear comment marks
-    useCommentStore.getState().setDocumentId(newDocumentId)
 
     // Clear reMarkable read-only state
     useEditorStore.getState().setRemarkableReadOnly(false, null)
@@ -437,9 +446,11 @@ export function useTabs() {
       })
     }
 
-    // Pre-set the annotation store's documentId before setDocument so the
-    // Editor.tsx recovery effect doesn't fire a competing load (#674).
+    // Pre-set the review stores' document IDs before setDocument so Activity
+    // cannot briefly display the previous document while these loads run.
     useAnnotationStore.getState().setDocumentId(newDocumentId)
+    useSuggestionStore.getState().setDocumentId(newDocumentId)
+    useCommentStore.getState().setDocumentId(newDocumentId)
 
     // Set up document in editorStore
     setDocument({
@@ -567,9 +578,11 @@ export function useTabs() {
 
       setActiveTab(previewTab.id)
 
-      // Pre-set the annotation store's documentId before setDocument so the
-      // Editor.tsx recovery effect doesn't fire a competing load (#674).
+      // Pre-set the review stores' document IDs before setDocument so Activity
+      // cannot briefly display the previous document while these loads run.
       useAnnotationStore.getState().setDocumentId(newDocumentId)
+      useSuggestionStore.getState().setDocumentId(newDocumentId)
+      useCommentStore.getState().setDocumentId(newDocumentId)
 
       // Load document into editor
       setDocument({
@@ -634,9 +647,11 @@ export function useTabs() {
       })
     }
 
-    // Pre-set the annotation store's documentId before setDocument so the
-    // Editor.tsx recovery effect doesn't fire a competing load (#674).
+    // Pre-set the review stores' document IDs before setDocument so Activity
+    // cannot briefly display the previous document while these loads run.
     useAnnotationStore.getState().setDocumentId(newDocumentId)
+    useSuggestionStore.getState().setDocumentId(newDocumentId)
+    useCommentStore.getState().setDocumentId(newDocumentId)
 
     setDocument({
       documentId: newDocumentId,
@@ -704,6 +719,8 @@ export function useTabs() {
       await deleteConversations(tab.documentId)
       await deleteAnnotations(tab.documentId)
       await deleteSuggestions(tab.documentId)
+      await deleteSuggestionHistory(tab.documentId)
+      await deleteReviewEvents(tab.documentId)
       await deleteComments(tab.documentId)
     }
 
@@ -753,6 +770,8 @@ export function useTabs() {
       await deleteConversations(tab.documentId)
       await deleteAnnotations(tab.documentId)
       await deleteSuggestions(tab.documentId)
+      await deleteSuggestionHistory(tab.documentId)
+      await deleteReviewEvents(tab.documentId)
       await deleteComments(tab.documentId)
     }
 
@@ -800,6 +819,8 @@ export function useTabs() {
         await deleteConversations(tab.documentId)
         await deleteAnnotations(tab.documentId)
         await deleteSuggestions(tab.documentId)
+        await deleteSuggestionHistory(tab.documentId)
+        await deleteReviewEvents(tab.documentId)
         await deleteComments(tab.documentId)
       }
     }
@@ -840,6 +861,8 @@ export function useTabs() {
         await deleteConversations(tab.documentId)
         await deleteAnnotations(tab.documentId)
         await deleteSuggestions(tab.documentId)
+        await deleteSuggestionHistory(tab.documentId)
+        await deleteReviewEvents(tab.documentId)
         await deleteComments(tab.documentId)
       }
     }
@@ -933,7 +956,7 @@ export function useTabs() {
       // Migrate path-derived persistence (#674): documentId is
       // SHA-256(path) for saved files, so a rename changes the identity the
       // NEXT fresh open computes. Copy annotations/conversations/suggestions/
-      // comments to the new key so they don't orphan. The old keys are left
+      // suggestion history/review events/comments to the new key so they don't orphan. The old keys are left
       // in place (harmless; a future cleanup sweep can collect them).
       const oldDocumentId = await generateIdFromPath(tab.path)
       const newDocumentId = await generateIdFromPath(newPath)
@@ -944,27 +967,68 @@ export function useTabs() {
         newDocId: newDocumentId,
       })
       if (oldDocumentId !== newDocumentId) {
-        const [annotations, conversations, suggestions, comments] = await Promise.all([
+        const [annotations, conversations] = await Promise.all([
           loadAnnotations(oldDocumentId),
           loadConversations(oldDocumentId),
-          loadSuggestions(oldDocumentId),
-          loadComments(oldDocumentId),
         ])
+
+        // Review callbacks may still have a debounced write in flight. Await
+        // those writes, then merge the live stores with IndexedDB so rename
+        // cannot orphan a just-created mark, thread, or event.
+        const suggestionStore = useSuggestionStore.getState()
+        if (suggestionStore.pendingSave) await suggestionStore.pendingSave
+        const reviewEventStore = useReviewEventStore.getState()
+        if (reviewEventStore.pendingSave) await reviewEventStore.pendingSave
+        const activeEditor = document.path === tab.path
+          ? useEditorInstanceStore.getState().editor
+          : null
+        const migratedReviewState = await migrateReviewState(oldDocumentId, newDocumentId, {
+          liveSuggestions: activeEditor
+            ? getAISuggestions(activeEditor as unknown as Parameters<typeof getAISuggestions>[0])
+            : [],
+          history: suggestionStore.history,
+          events: reviewEventStore.events,
+          comments: document.path === tab.path
+            ? useCommentStore.getState().pendingComments
+            : [],
+        })
         await Promise.all([
           annotations.length > 0
             ? saveAnnotations(newDocumentId, annotations.map((a) => ({ ...a, documentId: newDocumentId })))
             : Promise.resolve(),
           conversations.length > 0 ? saveConversations(newDocumentId, conversations) : Promise.resolve(),
-          suggestions.length > 0 ? saveSuggestions(newDocumentId, suggestions) : Promise.resolve(),
-          comments.length > 0 ? saveComments(newDocumentId, comments) : Promise.resolve(),
         ])
+        // migrateReviewState has already durably copied review state. Keep the
+        // counts in the rename trace without re-reading or writing the old key.
         pipelineLog('tab:rename:migrated', {
           newDocId: newDocumentId,
           annotations: annotations.length,
           conversations: conversations.length,
-          suggestions: suggestions.length,
-          comments: comments.length,
+          suggestions: migratedReviewState.suggestions.length,
+          suggestionHistory: migratedReviewState.history.length,
+          reviewEvents: migratedReviewState.events.length,
+          comments: migratedReviewState.comments.length,
         })
+
+        if (document.path === tab.path) {
+          // The editor keeps its live TipTap marks; a subsequent load must not
+          // restore a duplicate copy from the new document key.
+          useSuggestionStore.setState({
+            documentId: newDocumentId,
+            pendingSuggestions: activeEditor ? [] : migratedReviewState.suggestions,
+            history: migratedReviewState.history,
+          })
+          useReviewEventStore.setState({
+            documentId: newDocumentId,
+            events: migratedReviewState.events,
+            pendingSave: null,
+          })
+          useCommentStore.setState({
+            documentId: newDocumentId,
+            pendingComments: migratedReviewState.comments,
+            needsRestore: false,
+          })
+        }
       }
 
       // Update tab (including its documentId — the old path-derived id no
@@ -1044,9 +1108,11 @@ export function useTabs() {
     // Create the new tab in the store (store sets activeTabId internally)
     reopenLastClosedTabStore(snapshot, documentId)
 
-    // Pre-set the annotation store's documentId before setDocument so the
-    // Editor.tsx recovery effect doesn't fire a competing load (#674).
+    // Pre-set the review stores' document IDs before setDocument so Activity
+    // cannot briefly display the previous document while these loads run.
     useAnnotationStore.getState().setDocumentId(documentId)
+    useSuggestionStore.getState().setDocumentId(documentId)
+    useCommentStore.getState().setDocumentId(documentId)
 
     // Load the restored content into editorStore
     setDocument({

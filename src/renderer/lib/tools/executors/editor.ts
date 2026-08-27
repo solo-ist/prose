@@ -3,8 +3,10 @@
  */
 
 import type { Editor } from '@tiptap/core'
-import type { ToolResult } from '../../../../shared/tools/types'
+import { Fragment, Slice } from '@tiptap/pm/model'
+import type { ToolResult, ToolExecutionContext } from '../../../../shared/tools/types'
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
+import { isMcpAttributionLabel } from '../../../../shared/tools/mcpClientIdentity'
 import { useEditorStore } from '../../../stores/editorStore'
 import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
 import { useSettingsStore } from '../../../stores/settingsStore'
@@ -12,10 +14,20 @@ import { useAnnotationStore } from '../../../extensions/ai-annotations'
 import { createWordDiffAnnotations } from '../../diffUtils'
 import { findNodeById, findNodeByContent, getNodesWithIds, flattenNodes } from '../../../extensions/node-ids'
 import { generateId } from '../../persistence'
-import { getAISuggestions, parseMarkdownToSlice, sliceVisibleText } from '../../../extensions/ai-suggestions'
+import {
+  getAISuggestions,
+  parseMarkdownToSlice,
+  sliceVisibleText,
+  useSuggestionStore,
+} from '../../../extensions/ai-suggestions'
 import { parseMarkdown, FRONTMATTER_REGEX } from '../../markdown'
 import { pipelineLog } from '../../aiPipelineLog'
 import { load as parseYaml } from 'js-yaml'
+import {
+  awaitReviewDurability,
+  latestReviewEvent,
+  verifyExpectedDocumentId,
+} from '../reviewLifecycle'
 
 /**
  * Target visible duration for a chunked streaming insertion. The number of
@@ -151,6 +163,20 @@ function getEditor(): Editor | null {
 }
 
 /**
+ * Persist the active suggestion marks before an MCP mutation reports success.
+ *
+ * The editor content and the lifecycle history have separate persistence
+ * paths. The normal editor transaction effect eventually writes active marks,
+ * but a tool call can be followed by a reload before that debounce fires.
+ * Saving the live snapshot at the tool boundary keeps restoration, Quick
+ * Review, and subsequent MCP calls in agreement with the document.
+ */
+export async function persistActiveSuggestions(editor: Editor, documentId: string): Promise<void> {
+  if (!documentId) return
+  await useSuggestionStore.getState().saveSuggestions(documentId, getAISuggestions(editor))
+}
+
+/**
  * Check if the editor is in a read-only mode (reMarkable OCR or preview tab).
  * AI tools should not mutate the document in these modes. Exported so that
  * document-tool executors (add_comment, resolve_comment) can apply the same gate.
@@ -269,7 +295,16 @@ export function resolveToolPosition(toolName: string, args: Record<string, unkno
     return found ? found.pos : Infinity
   }
 
-  if (toolName === 'insert') {
+  if (toolName === 'insert' || toolName === 'insert_after') {
+    if (toolName === 'insert_after') {
+      const nodeId = args.nodeId as string | undefined
+      const search = args.search as string | undefined
+      if (!nodeId) return Infinity
+      let found = findNodeById(editor.state.doc, nodeId)
+      if (!found && search) found = findNodeByContent(editor.state.doc, search)
+      return found ? found.pos + found.node.nodeSize : Infinity
+    }
+
     const position = (args.position as string) || 'cursor'
     switch (position) {
       case 'start': return 0
@@ -654,6 +689,282 @@ export async function executeInsert(
   }
 }
 
+/**
+ * insert_after - Create a pending insertion suggestion after a node.
+ *
+ * The candidate blocks are inserted immediately so the user can see their
+ * location, then every text node in that inserted span receives one insertion
+ * mark. Accepting the suggestion keeps the blocks and removes the mark;
+ * rejecting it removes the complete inserted block range.
+ */
+export async function executeInsertAfter(
+  args: {
+    nodeId: string
+    content: string
+    comment?: string
+    search?: string
+  },
+  provenance?: ToolProvenance,
+  context?: ToolExecutionContext,
+): Promise<ToolResult<{ suggested: true; suggestionId: string; nodeId: string }>> {
+  const editor = getEditor()
+
+  if (!editor) return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
+  if (isEditorReadOnly()) return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
+  if (isPlainTextDocument(editor)) {
+    return toolError(
+      'This document is a plain-text (.txt) file — insertion suggestions require a markdown document. ' +
+        'Create a markdown copy with create_and_open_file instead.',
+      'PLAIN_TEXT_DOCUMENT',
+    )
+  }
+
+  const { nodeId, content, comment, search } = args
+  if (!nodeId) return toolError('Node ID is required', 'INVALID_INPUT')
+  if (!content || !content.trim()) return toolError('Insertion content is required', 'INVALID_INPUT')
+
+  const documentId = useEditorStore.getState().document.documentId
+  const identityError = verifyExpectedDocumentId(context, documentId)
+  if (identityError) return identityError
+
+  let found = findNodeById(editor.state.doc, nodeId)
+  if (!found && search) found = findNodeByContent(editor.state.doc, search)
+  if (!found) {
+    const available = flattenNodes(getNodesWithIds(editor.state.doc))
+    const nodeList = available
+      .map((n) => `${n.nodeId} (${n.type}: "${n.textContent.substring(0, 40)}")`)
+      .join(', ')
+    return toolError(
+      `Anchor node "${nodeId}" not found. Available nodes: [${nodeList}]`,
+      'NODE_NOT_FOUND',
+    )
+  }
+
+  // The configured markdown parser preserves headings, lists, marks, and
+  // paragraph boundaries. A plain-paragraph fallback keeps focused tests and
+  // unusual parser-unavailable environments useful without flattening the
+  // common renderer path.
+  const parsed = parseMarkdownToSlice(editor, editor.state.schema, content)
+  const slice = parsed ?? new Slice(
+    Fragment.fromArray(
+      content
+        .split(/\r?\n(?:[ \t]*\r?\n)+/)
+        .map((paragraph) => paragraph.replace(/\r?\n/g, ' ').trim())
+        .filter(Boolean)
+        .map((paragraph) => editor.state.schema.nodes.paragraph.create(null, editor.state.schema.text(paragraph))),
+    ),
+    0,
+    0,
+  )
+  if (slice.content.childCount === 0 || slice.content.size === 0) {
+    return toolError('Insertion content did not produce any paragraph blocks', 'INVALID_INPUT')
+  }
+
+  const insertFrom = found.pos + found.node.nodeSize
+  const insertedSize = slice.content.size
+  const actualAnchorNodeId = typeof found.node.attrs.nodeId === 'string' && found.node.attrs.nodeId
+    ? found.node.attrs.nodeId
+    : nodeId
+  const contextAttribution = context?.attribution
+  const isMcpProvenance = context?.origin === 'mcp' || isMcpAttributionLabel(provenance?.model)
+  const provenanceSource: 'chat' | 'mcp' | 'unknown' | undefined = isMcpProvenance
+    ? 'mcp'
+    : provenance
+      ? 'chat'
+      : undefined
+  const suggestionId = generateId()
+  let inserted = false
+
+  try {
+    // Insert the complete blocks at the exact sibling boundary. This leaves
+    // the anchor itself untouched, including when it is a heading.
+    editor.view.dispatch(editor.state.tr.insert(insertFrom, slice.content))
+    inserted = true
+
+    let contentFrom: number | null = null
+    let contentTo: number | null = null
+    const insertedTo = insertFrom + insertedSize
+    editor.state.doc.nodesBetween(insertFrom, insertedTo, (node, pos) => {
+      if (!node.isText || !node.text) return
+      if (contentFrom === null) contentFrom = pos
+      contentTo = pos + node.nodeSize
+    })
+
+    if (contentFrom === null || contentTo === null || contentFrom >= contentTo) {
+      editor.view.dispatch(editor.state.tr.delete(insertFrom, insertedTo))
+      return toolError('Insertion content has no reviewable text', 'INSERTION_FAILED')
+    }
+
+    const success = editor
+      .chain()
+      .focus()
+      .setTextSelection({ from: contentFrom, to: contentTo })
+      .setAISuggestion({
+        id: suggestionId,
+        type: 'insertion',
+        originalText: '',
+        suggestedText: content,
+        explanation: comment || '',
+        provenanceModel: contextAttribution?.model || provenance?.model || '',
+        provenanceConversationId: contextAttribution?.conversationId || provenance?.conversationId || '',
+        provenanceMessageId: contextAttribution?.messageId || provenance?.messageId || '',
+        provenanceSource,
+        provenanceInvocationId: context?.requestId ?? contextAttribution?.requestId ?? provenance?.messageId,
+        documentId: (context?.expectedDocumentId ?? provenance?.documentId ?? documentId) || '',
+        insertionAnchorNodeId: actualAnchorNodeId,
+        insertionAnchorText: found.node.textContent,
+      })
+      .run()
+
+    if (!success) {
+      editor.view.dispatch(editor.state.tr.delete(insertFrom, insertedTo))
+      return toolError('Failed to mark insertion suggestion', 'INSERTION_FAILED')
+    }
+
+    await persistActiveSuggestions(editor, documentId)
+  } catch (error) {
+    // Roll back the candidate if the sibling boundary or mark command rejects
+    // the parsed structure, keeping a failed call from changing the document.
+    if (inserted) {
+      try {
+        editor.view.dispatch(editor.state.tr.delete(insertFrom, insertFrom + insertedSize))
+      } catch {
+        // Preserve the original, actionable insertion error.
+      }
+    }
+    return toolError(`Failed to create insertion suggestion: ${error}`, 'INSERTION_FAILED')
+  }
+
+  const event = latestReviewEvent(documentId, 'suggestion', suggestionId, 'suggestion_created')
+  if (!event) {
+    return toolError('Insertion suggestion was applied but its lifecycle event was not recorded', 'LIFECYCLE_EVENT_MISSING')
+  }
+  await awaitReviewDurability()
+  const afterDurabilityError = verifyExpectedDocumentId(context, documentId)
+  if (afterDurabilityError) return afterDurabilityError
+
+  pipelineLog('insert_after:result', {
+    suggestionId,
+    nodeId: actualAnchorNodeId,
+    contentLength: content.length,
+    paragraphCount: slice.content.childCount,
+  })
+
+  return toolSuccess({ suggested: true, suggestionId, nodeId: actualAnchorNodeId })
+}
+
+/**
+ * suggest_delete - Create a pending deletion suggestion on a complete node.
+ * The node remains in the document, marked in place, until the reviewer
+ * accepts or rejects the suggestion.
+ */
+export async function executeSuggestDelete(
+  args: {
+    nodeId: string
+    comment?: string
+    search?: string
+  },
+  provenance?: ToolProvenance,
+  context?: ToolExecutionContext,
+): Promise<ToolResult<{ suggested: true; suggestionId: string; nodeId: string }>> {
+  const editor = getEditor()
+
+  if (!editor) return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
+  if (isEditorReadOnly()) return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
+  if (isPlainTextDocument(editor)) {
+    return toolError(
+      'This document is a plain-text (.txt) file — deletion suggestions require a markdown document. ' +
+        'Create a markdown copy with create_and_open_file instead.',
+      'PLAIN_TEXT_DOCUMENT',
+    )
+  }
+
+  const { nodeId, comment, search } = args
+  if (!nodeId) return toolError('Node ID is required', 'INVALID_INPUT')
+
+  const documentId = useEditorStore.getState().document.documentId
+  const identityError = verifyExpectedDocumentId(context, documentId)
+  if (identityError) return identityError
+
+  let found = findNodeById(editor.state.doc, nodeId)
+  if (!found && search) found = findNodeByContent(editor.state.doc, search)
+  if (!found) {
+    const available = flattenNodes(getNodesWithIds(editor.state.doc))
+    const nodeList = available
+      .map((n) => `${n.nodeId} (${n.type}: "${n.textContent.substring(0, 40)}")`)
+      .join(', ')
+    return toolError(
+      `Node "${nodeId}" not found. Available nodes: [${nodeList}]`,
+      'NODE_NOT_FOUND',
+    )
+  }
+
+  if (!found.node.textContent.trim()) {
+    return toolError('The target node has no text to mark for deletion', 'INVALID_INPUT')
+  }
+
+  const contentFrom = found.pos + 1
+  const contentTo = found.pos + found.node.nodeSize - 1
+  if (contentFrom >= contentTo) {
+    return toolError('The target node has no reviewable content', 'INVALID_INPUT')
+  }
+
+  const contextAttribution = context?.attribution
+  const isMcpProvenance =
+    context?.origin === 'mcp' ||
+    contextAttribution?.origin === 'mcp' ||
+    isMcpAttributionLabel(provenance?.model)
+  const provenanceSource: 'chat' | 'mcp' | 'unknown' | undefined = isMcpProvenance
+    ? 'mcp'
+    : provenance
+      ? 'chat'
+      : undefined
+  const suggestionId = generateId()
+  const actualNodeId = typeof found.node.attrs.nodeId === 'string' && found.node.attrs.nodeId
+    ? found.node.attrs.nodeId
+    : nodeId
+
+  const success = editor
+    .chain()
+    .focus()
+    .setTextSelection({ from: contentFrom, to: contentTo })
+    .setAISuggestion({
+      id: suggestionId,
+      type: 'deletion',
+      originalText: found.node.textContent,
+      suggestedText: '',
+      explanation: comment || '',
+      provenanceModel: contextAttribution?.model || provenance?.model || '',
+      provenanceConversationId: contextAttribution?.conversationId || provenance?.conversationId || '',
+      provenanceMessageId: contextAttribution?.messageId || provenance?.messageId || '',
+      provenanceSource,
+      provenanceInvocationId: context?.requestId ?? contextAttribution?.requestId ?? provenance?.messageId,
+      documentId: (context?.expectedDocumentId ?? provenance?.documentId ?? documentId) || '',
+      deletionNodeId: actualNodeId,
+    })
+    .run()
+
+  if (!success) return toolError('Failed to apply deletion suggestion mark', 'SUGGESTION_FAILED')
+
+  await persistActiveSuggestions(editor, documentId)
+
+  const event = latestReviewEvent(documentId, 'suggestion', suggestionId, 'suggestion_created')
+  if (!event) {
+    return toolError('Deletion suggestion was applied but its lifecycle event was not recorded', 'LIFECYCLE_EVENT_MISSING')
+  }
+  await awaitReviewDurability()
+  const afterDurabilityError = verifyExpectedDocumentId(context, documentId)
+  if (afterDurabilityError) return afterDurabilityError
+
+  pipelineLog('suggest_delete:result', {
+    suggestionId,
+    nodeId: actualNodeId,
+    originalTextLength: found.node.textContent.length,
+  })
+
+  return toolSuccess({ suggested: true, suggestionId, nodeId: actualNodeId })
+}
+
 /** Provenance context for AI-generated content tracking */
 interface ToolProvenance {
   model: string
@@ -667,15 +978,16 @@ interface ToolProvenance {
  * The user can click the highlighted text to see the suggestion and accept/reject it.
  * Falls back to content matching if the nodeId is stale.
  */
-export function executeSuggestEdit(
+export async function executeSuggestEdit(
   args: {
     nodeId: string
     content: string
     comment?: string
     search?: string
   },
-  provenance?: ToolProvenance
-): ToolResult<{ suggested: boolean; suggestionId: string }> {
+  provenance?: ToolProvenance,
+  context?: ToolExecutionContext,
+): Promise<ToolResult<{ suggested: boolean; suggestionId: string }>> {
   const editor = getEditor()
 
   if (!editor) {
@@ -685,6 +997,10 @@ export function executeSuggestEdit(
   if (isEditorReadOnly()) {
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
+
+  const documentId = useEditorStore.getState().document.documentId
+  const identityError = verifyExpectedDocumentId(context, documentId)
+  if (identityError) return identityError
 
   const { nodeId, comment, search } = args
   let { content } = args
@@ -924,8 +1240,18 @@ export function executeSuggestEdit(
   // Select the text content of the node and apply the AI suggestion mark
   const contentStart = pos + 1
   const contentEnd = pos + node.nodeSize - 1
+  const contextAttribution = context?.attribution
+  const isMcpProvenance =
+    context?.origin === 'mcp' ||
+    contextAttribution?.origin === 'mcp' ||
+    isMcpAttributionLabel(provenance?.model)
+  const provenanceSource: 'chat' | 'mcp' | 'unknown' | undefined = isMcpProvenance
+    ? 'mcp'
+    : provenance
+      ? 'chat'
+      : undefined
 
-  editor
+  const success = editor
     .chain()
     .focus()
     .setTextSelection({ from: contentStart, to: contentEnd })
@@ -935,13 +1261,33 @@ export function executeSuggestEdit(
       originalText,
       suggestedText,
       explanation: comment || '',
-      provenanceModel: provenance?.model || '',
-      provenanceConversationId: provenance?.conversationId || '',
-      provenanceMessageId: provenance?.messageId || '',
-      documentId: provenance?.documentId || '',
+      provenanceModel: contextAttribution?.model || provenance?.model || '',
+      provenanceConversationId: contextAttribution?.conversationId || provenance?.conversationId || '',
+      provenanceMessageId: contextAttribution?.messageId || provenance?.messageId || '',
+      provenanceSource,
+      provenanceInvocationId: context?.requestId ?? contextAttribution?.requestId,
+      documentId: (context?.expectedDocumentId ?? provenance?.documentId) || '',
       blockConversionIntent,
     })
     .run()
+
+  if (!success) {
+    return toolError('Failed to apply suggestion mark', 'SUGGESTION_FAILED')
+  }
+
+  await persistActiveSuggestions(editor, documentId)
+
+  const event = latestReviewEvent(documentId, 'suggestion', suggestionId, 'suggestion_created')
+  if (!event) {
+    return toolError('Suggestion was applied but its lifecycle event was not recorded', 'LIFECYCLE_EVENT_MISSING')
+  }
+
+  // The callback is the sole lifecycle writer. Wait for its history/event
+  // queues before reporting success, then reject a tab switch that raced the
+  // persistence boundary for an MCP call.
+  await awaitReviewDurability()
+  const afterDurabilityError = verifyExpectedDocumentId(context, documentId)
+  if (afterDurabilityError) return afterDurabilityError
 
   pipelineLog('suggest_edit:result', {
     suggestionId,

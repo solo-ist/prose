@@ -6,6 +6,10 @@
 import type { BrowserWindow } from 'electron'
 import { ipcMain } from 'electron'
 import type { ToolResult } from '../../shared/tools/types'
+import {
+  normalizeMcpClientIdentity,
+  type McpClientIdentity,
+} from '../../shared/tools/mcpClientIdentity'
 
 interface PendingRequest {
   resolve: (result: ToolResult) => void
@@ -41,7 +45,7 @@ export class McpBridge {
    * Execute a tool by sending it to the renderer.
    * Returns a promise that resolves with the tool result.
    */
-  executeTool(name: string, args: unknown): Promise<ToolResult> {
+  executeTool(name: string, args: unknown, clientIdentity?: McpClientIdentity): Promise<ToolResult> {
     return new Promise((resolve, reject) => {
       if (!this.window) {
         reject(new Error('No renderer window available'))
@@ -63,7 +67,13 @@ export class McpBridge {
       this.pendingRequests.set(requestId, { resolve, reject, timeout })
 
       // Send to renderer
-      this.window.webContents.send('mcp:tool:invoke', requestId, name, args)
+      this.window.webContents.send(
+        'mcp:tool:invoke',
+        requestId,
+        name,
+        args,
+        normalizeMcpClientIdentity(clientIdentity),
+      )
     })
   }
 

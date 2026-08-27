@@ -18,7 +18,8 @@ interface ReviewStoreState {
   previousChatWidth: Record<string, number>
   /** Thread to open Comment Review focused on (from a card/popover expand icon); null = start at 0. Transient, global. */
   commentReviewTargetId: string | null
-  setReviewMode: (mode: ReviewMode | null) => void
+  /** Enter a review mode, optionally selecting its initial suggestion index. */
+  setReviewMode: (mode: ReviewMode | null, initialSuggestionIndex?: number) => void
   setCurrentSuggestionIndex: (index: number) => void
   setPreviousChatWidth: (width: number) => void
   /** Enter Comment Review (optionally focused on a thread). The single entry point. */
@@ -37,7 +38,7 @@ export const useReviewStore = create<ReviewStoreState>((set, get) => ({
   previousChatWidth: {},
   commentReviewTargetId: null,
 
-  setReviewMode: (mode) => {
+  setReviewMode: (mode, initialSuggestionIndex) => {
     const tabId = getActiveTabId()
     if (!tabId) return
     set((state) => {
@@ -48,7 +49,7 @@ export const useReviewStore = create<ReviewStoreState>((set, get) => ({
           [tabId]: {
             ...(state.tabStates[tabId] ?? defaultTabState),
             reviewMode: mode,
-            currentSuggestionIndex: 0,
+            currentSuggestionIndex: initialSuggestionIndex ?? 0,
           },
         },
       }

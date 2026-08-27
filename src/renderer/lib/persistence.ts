@@ -1,6 +1,11 @@
 import type { Document, ChatMessage } from '../types'
 import type { AIAnnotation } from '../types/annotations'
-import type { AISuggestionData } from '../extensions/ai-suggestions/types'
+import type {
+  AISuggestionData,
+  SuggestionRecord,
+} from '../extensions/ai-suggestions/types'
+import type { CommentData } from '../extensions/comments/types'
+import type { ReviewEvent } from '../extensions/review-events'
 
 // Session ID for debugging multi-process scenarios
 // Using last 4 chars of a unique ID + timestamp for readability
@@ -63,13 +68,15 @@ export interface EmojiCacheEntry {
 
 // Database constants
 const DB_NAME = 'prose-db'
-const DB_VERSION = 9
+const DB_VERSION = 10
 const STORES = {
   DRAFTS: 'drafts',
   CONVERSATIONS: 'conversations',
   ANNOTATIONS: 'annotations',
   COMMAND_HISTORY: 'command_history',
   SUGGESTIONS: 'suggestions',
+  SUGGESTION_HISTORY: 'suggestion_history',
+  REVIEW_EVENTS: 'review_events',
   EMOJI_CACHE: 'emoji_cache',
   SUMMARIES: 'summaries',
   COMMENTS: 'comments'
@@ -107,6 +114,7 @@ export interface DatabaseBackup {
  * v9: (reserved) edit_history store was added then removed during development —
  *     the AI edit history now derives from the annotations store, so no separate
  *     store is created. Existing dev DBs may carry a harmless orphaned edit_history.
+ * v10: Added suggestion_history and review_events stores for durable review state.
  *
  * When bumping version:
  * 1. Update DB_VERSION above
@@ -127,13 +135,18 @@ let lastRecoveryResult: RecoveryResult | null = null
  * change fires in another tab. If the connection closes between getDB() resolving
  * and db.transaction() being called, the browser throws InvalidStateError. This
  * helper catches that specific error, discards the stale handle, reopens the DB,
- * and retries once. If the retry also fails (e.g., the app is truly shutting
- * down) it logs a warning and returns undefined — never throws, so callers that
- * don't need the return value get silent recovery.
+ * and retries once. Existing callers retain the historical best-effort
+ * behaviour when the retry also fails; strict review persistence operations
+ * opt into rethrowing so their callers can report the failure.
  */
+interface WithDbOptions {
+  rethrowRetryFailure?: boolean
+}
+
 async function withDb<T>(
   fn: (db: IDBDatabase) => Promise<T>,
   getDb: () => Promise<IDBDatabase> = getDB,
+  options: WithDbOptions = {},
 ): Promise<T | undefined> {
   let db: IDBDatabase
   try {
@@ -148,6 +161,7 @@ async function withDb<T>(
         return await fn(db)
       } catch (retryError) {
         console.warn('[persistence] Retry after InvalidStateError also failed (app likely shutting down):', retryError)
+        if (options.rethrowRetryFailure) throw retryError
         return undefined
       }
     }
@@ -394,6 +408,12 @@ function getDB(): Promise<IDBDatabase> {
               if (!db.objectStoreNames.contains(STORES.SUGGESTIONS)) {
                 db.createObjectStore(STORES.SUGGESTIONS)
               }
+              if (!db.objectStoreNames.contains(STORES.SUGGESTION_HISTORY)) {
+                db.createObjectStore(STORES.SUGGESTION_HISTORY)
+              }
+              if (!db.objectStoreNames.contains(STORES.REVIEW_EVENTS)) {
+                db.createObjectStore(STORES.REVIEW_EVENTS)
+              }
               if (!db.objectStoreNames.contains(STORES.EMOJI_CACHE)) {
                 db.createObjectStore(STORES.EMOJI_CACHE)
               }
@@ -487,6 +507,12 @@ function getDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORES.SUGGESTIONS)) {
         db.createObjectStore(STORES.SUGGESTIONS)
+      }
+      if (!db.objectStoreNames.contains(STORES.SUGGESTION_HISTORY)) {
+        db.createObjectStore(STORES.SUGGESTION_HISTORY)
+      }
+      if (!db.objectStoreNames.contains(STORES.REVIEW_EVENTS)) {
+        db.createObjectStore(STORES.REVIEW_EVENTS)
       }
       if (!db.objectStoreNames.contains(STORES.EMOJI_CACHE)) {
         db.createObjectStore(STORES.EMOJI_CACHE)
@@ -920,6 +946,378 @@ export async function deleteSuggestions(documentId: string): Promise<void> {
   }, ensureSuggestionsStore).catch((error) => {
     console.error('Failed to delete suggestions:', error)
   })
+}
+
+// Serialise ID-level cleanup with itself so accept/reject-all cannot race and
+// reintroduce one of the IDs removed by a neighbouring cleanup transaction.
+let suggestionCleanupQueue: Promise<void> = Promise.resolve()
+
+/**
+ * Remove decided/superseded suggestions from the legacy active-mark store.
+ *
+ * Lifecycle records live in suggestion_history; this operation only removes
+ * the restoration anchors that must no longer be re-applied after a terminal
+ * decision. It is intentionally ID-based so it remains safe when the in-memory
+ * restore buffer has already been consumed.
+ */
+export function removeSuggestionsById(
+  documentId: string,
+  suggestionIds: readonly string[],
+): Promise<void> {
+  const ids = new Set(suggestionIds.filter(Boolean))
+  if (!documentId || ids.size === 0) return Promise.resolve()
+
+    suggestionCleanupQueue = suggestionCleanupQueue
+    .catch(() => undefined)
+    .then(() => withDb(async (db) => {
+      if (!db.objectStoreNames.contains(STORES.SUGGESTIONS)) {
+        throw new Error('Suggestions store is unavailable')
+      }
+
+      return new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction(STORES.SUGGESTIONS, 'readwrite')
+        const store = transaction.objectStore(STORES.SUGGESTIONS)
+        const request = store.get(documentId)
+        let settled = false
+        const fail = (error: Event | DOMException | null) => {
+          if (settled) return
+          settled = true
+          reject(error instanceof DOMException ? error : request.error ?? transaction.error ?? new Error('Suggestion cleanup transaction failed'))
+        }
+
+        request.onerror = () => fail(request.error)
+        request.onsuccess = () => {
+          const current = request.result
+          if (!Array.isArray(current)) {
+            return
+          }
+
+          const remaining = current.filter((suggestion: AISuggestionData) => !ids.has(suggestion.id))
+          if (remaining.length === current.length) {
+            return
+          }
+
+          const write = remaining.length > 0
+            ? store.put(remaining, documentId)
+            : store.delete(documentId)
+          write.onerror = () => fail(write.error)
+        }
+        transaction.onerror = () => fail(transaction.error)
+        transaction.onabort = () => fail(transaction.error)
+        transaction.oncomplete = () => {
+          if (!settled) {
+            settled = true
+            resolve()
+          }
+        }
+      })
+    }, ensureSuggestionsStore, { rethrowRetryFailure: true }))
+
+  return suggestionCleanupQueue
+}
+
+// ============ Suggestion History Operations ============
+
+async function ensureSuggestionHistoryStore(): Promise<IDBDatabase> {
+  let db = await getDB()
+
+  if (!db.objectStoreNames.contains(STORES.SUGGESTION_HISTORY)) {
+    console.warn('[persistence] suggestion history store missing, forcing re-initialization')
+    db.close()
+    dbPromise = null
+    db = await getDB()
+  }
+
+  return db
+}
+
+/** Save the canonical lifecycle records for a document. */
+export async function saveSuggestionHistory(
+  documentId: string,
+  records: SuggestionRecord[],
+): Promise<void> {
+  if (!documentId) return
+
+  await withDb(async (db) => {
+    if (!db.objectStoreNames.contains(STORES.SUGGESTION_HISTORY)) {
+      throw new Error('Suggestion history store is unavailable')
+    }
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(STORES.SUGGESTION_HISTORY, 'readwrite')
+      const store = transaction.objectStore(STORES.SUGGESTION_HISTORY)
+      const request = store.put(records, documentId)
+      let settled = false
+      const fail = (error: Event | DOMException | null) => {
+        if (settled) return
+        settled = true
+        reject(error instanceof DOMException ? error : request.error ?? transaction.error ?? new Error('Suggestion history transaction failed'))
+      }
+      request.onerror = () => fail(request.error)
+      transaction.onerror = () => fail(transaction.error)
+      transaction.onabort = () => fail(transaction.error)
+      transaction.oncomplete = () => {
+        if (!settled) {
+          settled = true
+          resolve()
+        }
+      }
+    })
+  }, ensureSuggestionHistoryStore, { rethrowRetryFailure: true })
+}
+
+/** Load canonical suggestion lifecycle records for a document. */
+export async function loadSuggestionHistory(
+  documentId: string,
+): Promise<SuggestionRecord[]> {
+  if (!documentId) return []
+
+  return withDb(async (db) => {
+    if (!db.objectStoreNames.contains(STORES.SUGGESTION_HISTORY)) {
+      throw new Error('Suggestion history store is unavailable')
+    }
+    return new Promise<SuggestionRecord[]>((resolve, reject) => {
+      const transaction = db.transaction(STORES.SUGGESTION_HISTORY, 'readonly')
+      const store = transaction.objectStore(STORES.SUGGESTION_HISTORY)
+      const request = store.get(documentId)
+      let result: SuggestionRecord[] = []
+      let settled = false
+      const fail = (error: Event | DOMException | null) => {
+        if (settled) return
+        settled = true
+        reject(error instanceof DOMException ? error : request.error ?? transaction.error ?? new Error('Suggestion history transaction failed'))
+      }
+      request.onerror = () => fail(request.error)
+      request.onsuccess = () => {
+        result = Array.isArray(request.result) ? request.result : []
+      }
+      transaction.onerror = () => fail(transaction.error)
+      transaction.onabort = () => fail(transaction.error)
+      transaction.oncomplete = () => {
+        if (!settled) {
+          settled = true
+          resolve(result)
+        }
+      }
+    })
+  }, ensureSuggestionHistoryStore, { rethrowRetryFailure: true }).then((result) => result ?? [])
+}
+
+/** Delete lifecycle records for a document (used when an untitled tab is discarded). */
+export async function deleteSuggestionHistory(documentId: string): Promise<void> {
+  if (!documentId) return
+
+  await withDb(async (db) => {
+    if (!db.objectStoreNames.contains(STORES.SUGGESTION_HISTORY)) {
+      throw new Error('Suggestion history store is unavailable')
+    }
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(STORES.SUGGESTION_HISTORY, 'readwrite')
+      const store = transaction.objectStore(STORES.SUGGESTION_HISTORY)
+      const request = store.delete(documentId)
+      let settled = false
+      const fail = (error: Event | DOMException | null) => {
+        if (settled) return
+        settled = true
+        reject(error instanceof DOMException ? error : request.error ?? transaction.error ?? new Error('Suggestion history transaction failed'))
+      }
+      request.onerror = () => fail(request.error)
+      transaction.onerror = () => fail(transaction.error)
+      transaction.onabort = () => fail(transaction.error)
+      transaction.oncomplete = () => {
+        if (!settled) {
+          settled = true
+          resolve()
+        }
+      }
+    })
+  }, ensureSuggestionHistoryStore, { rethrowRetryFailure: true })
+}
+
+// ============ Review Event Operations ============
+
+async function ensureReviewEventsStore(): Promise<IDBDatabase> {
+  let db = await getDB()
+
+  if (!db.objectStoreNames.contains(STORES.REVIEW_EVENTS)) {
+    console.warn('[persistence] review events store missing, forcing re-initialization')
+    db.close()
+    dbPromise = null
+    db = await getDB()
+  }
+
+  return db
+}
+
+/** Save the append-only review event list for a document. */
+export async function saveReviewEvents(
+  documentId: string,
+  events: ReviewEvent[],
+): Promise<void> {
+  if (!documentId) return
+
+  await withDb(async (db) => {
+    if (!db.objectStoreNames.contains(STORES.REVIEW_EVENTS)) {
+      throw new Error('Review events store is unavailable')
+    }
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(STORES.REVIEW_EVENTS, 'readwrite')
+      const store = transaction.objectStore(STORES.REVIEW_EVENTS)
+      const request = store.put(events, documentId)
+      let settled = false
+      const fail = (error: Event | DOMException | null) => {
+        if (settled) return
+        settled = true
+        reject(error instanceof DOMException ? error : request.error ?? transaction.error ?? new Error('Review event transaction failed'))
+      }
+      request.onerror = () => fail(request.error)
+      transaction.onerror = () => fail(transaction.error)
+      transaction.onabort = () => fail(transaction.error)
+      transaction.oncomplete = () => {
+        if (!settled) {
+          settled = true
+          resolve()
+        }
+      }
+    })
+  }, ensureReviewEventsStore, { rethrowRetryFailure: true })
+}
+
+/** Load append-only review events for a document. */
+export async function loadReviewEvents(documentId: string): Promise<ReviewEvent[]> {
+  if (!documentId) return []
+
+  return withDb(async (db) => {
+    if (!db.objectStoreNames.contains(STORES.REVIEW_EVENTS)) {
+      throw new Error('Review events store is unavailable')
+    }
+    return new Promise<ReviewEvent[]>((resolve, reject) => {
+      const transaction = db.transaction(STORES.REVIEW_EVENTS, 'readonly')
+      const store = transaction.objectStore(STORES.REVIEW_EVENTS)
+      const request = store.get(documentId)
+      let result: ReviewEvent[] = []
+      let settled = false
+      const fail = (error: Event | DOMException | null) => {
+        if (settled) return
+        settled = true
+        reject(error instanceof DOMException ? error : request.error ?? transaction.error ?? new Error('Review event transaction failed'))
+      }
+      request.onerror = () => fail(request.error)
+      request.onsuccess = () => {
+        result = Array.isArray(request.result) ? request.result : []
+      }
+      transaction.onerror = () => fail(transaction.error)
+      transaction.onabort = () => fail(transaction.error)
+      transaction.oncomplete = () => {
+        if (!settled) {
+          settled = true
+          resolve(result)
+        }
+      }
+    })
+  }, ensureReviewEventsStore, { rethrowRetryFailure: true }).then((result) => result ?? [])
+}
+
+/** Delete review events for a document. */
+export async function deleteReviewEvents(documentId: string): Promise<void> {
+  if (!documentId) return
+
+  await withDb(async (db) => {
+    if (!db.objectStoreNames.contains(STORES.REVIEW_EVENTS)) {
+      throw new Error('Review events store is unavailable')
+    }
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(STORES.REVIEW_EVENTS, 'readwrite')
+      const store = transaction.objectStore(STORES.REVIEW_EVENTS)
+      const request = store.delete(documentId)
+      let settled = false
+      const fail = (error: Event | DOMException | null) => {
+        if (settled) return
+        settled = true
+        reject(error instanceof DOMException ? error : request.error ?? transaction.error ?? new Error('Review event transaction failed'))
+      }
+      request.onerror = () => fail(request.error)
+      transaction.onerror = () => fail(transaction.error)
+      transaction.onabort = () => fail(transaction.error)
+      transaction.oncomplete = () => {
+        if (!settled) {
+          settled = true
+          resolve()
+        }
+      }
+    })
+  }, ensureReviewEventsStore, { rethrowRetryFailure: true })
+}
+
+export interface ReviewStateMigration {
+  suggestions: AISuggestionData[]
+  history: SuggestionRecord[]
+  events: ReviewEvent[]
+  comments: CommentData[]
+}
+
+/**
+ * Copy review state when a document changes identity (Save As or rename).
+ * Live renderer snapshots are merged over persisted values so a just-created
+ * mark/thread/event is retained even when its debounced write has not run.
+ */
+export async function migrateReviewState(
+  oldDocumentId: string,
+  newDocumentId: string,
+  current: {
+    liveSuggestions?: AISuggestionData[]
+    history?: SuggestionRecord[]
+    events?: ReviewEvent[]
+    comments?: CommentData[]
+  } = {},
+): Promise<ReviewStateMigration> {
+  const [persistedSuggestions, persistedHistory, persistedEvents, persistedComments] = await Promise.all([
+    loadSuggestions(oldDocumentId),
+    loadSuggestionHistory(oldDocumentId),
+    loadReviewEvents(oldDocumentId),
+    loadComments(oldDocumentId),
+  ])
+
+  const suggestionsById = new Map(persistedSuggestions.map((suggestion) => [suggestion.id, suggestion]))
+  current.liveSuggestions?.forEach((suggestion) => suggestionsById.set(suggestion.id, suggestion))
+
+  const historyById = new Map(persistedHistory.map((record) => [record.id, record]))
+  current.history
+    ?.filter((record) => record.documentId === oldDocumentId)
+    .forEach((record) => historyById.set(record.id, record))
+  const history = Array.from(historyById.values()).map((record) => ({
+    ...record,
+    documentId: newDocumentId,
+  }))
+  const terminalIds = new Set(
+    history
+      .filter((record) => record.status !== 'pending')
+      .map((record) => record.id),
+  )
+  const suggestions = Array.from(suggestionsById.values())
+    .filter((suggestion) => !terminalIds.has(suggestion.id))
+    .map((suggestion) => ({ ...suggestion, documentId: newDocumentId }))
+
+  const eventById = new Map(persistedEvents.map((event) => [event.id, event]))
+  current.events
+    ?.filter((event) => event.documentId === oldDocumentId)
+    .forEach((event) => eventById.set(event.id, event))
+  const events = Array.from(eventById.values()).map((event) => ({
+    ...event,
+    documentId: newDocumentId,
+  }))
+
+  const commentsById = new Map(persistedComments.map((comment) => [comment.id, comment]))
+  current.comments?.forEach((comment) => commentsById.set(comment.id, comment))
+  const comments = Array.from(commentsById.values())
+
+  await Promise.all([
+    suggestions.length > 0 ? saveSuggestions(newDocumentId, suggestions) : Promise.resolve(),
+    history.length > 0 ? saveSuggestionHistory(newDocumentId, history) : Promise.resolve(),
+    events.length > 0 ? saveReviewEvents(newDocumentId, events) : Promise.resolve(),
+    comments.length > 0 ? saveComments(newDocumentId, comments) : Promise.resolve(),
+  ])
+
+  return { suggestions, history, events, comments }
 }
 
 // ============ Comment Operations ============

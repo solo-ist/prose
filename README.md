@@ -129,7 +129,7 @@ Prose stores settings at `~/Library/Application Support/Prose/settings.json` on 
 
 **Your editor has an API now.**
 
-Prose ships an MCP server, so Claude Desktop can read and edit your active document directly — no copy-paste. Install it from **Settings → Integrations → Install MCP Server**: Prose copies the server, writes Claude Desktop's config for you, and prompts you to restart Claude Desktop. (OSS / direct builds only — the sandboxed App Store build can't install it.)
+Prose ships an MCP server, so compatible clients can review your active document directly — no copy-paste and no dependency on Prose's built-in model provider. Install it from **Settings → Integrations → Install MCP Server**: Prose copies the server, writes Claude Desktop's config for you, and prompts you to restart Claude Desktop. Other MCP clients can launch the same installed server. (OSS / direct builds only — the sandboxed App Store build can't install it.)
 
 Under the hood, that adds an entry like this to `claude_desktop_config.json` — you don't write it by hand:
 
@@ -153,13 +153,23 @@ Under the hood, that adds an entry like this to `claude_desktop_config.json` —
 | `open_file` | Opens a file by path, switching the active document |
 | `create_and_open_file` | Creates a new markdown file, saves it to disk, and opens it |
 | `suggest_edit` | Proposes an inline diff on a node — a tracked change to accept or reject (supports block-type conversion) |
+| `insert_after` | Proposes one or more new blocks after a node without replacing the anchor |
+| `suggest_delete` | Proposes deleting a complete node while preserving it for review |
+| `list_suggestions` | Lists pending and historical suggestions with feedback and attribution |
+| `add_suggestion_feedback` | Adds feedback to a pending suggestion |
+| `revise_suggestion` | Supersedes a suggestion with a revised pending version while preserving history |
+| `decide_suggestion` | Accepts or rejects one explicit pending suggestion |
 | `list_comments` | Lists every comment in the active document |
 | `add_comment` | Adds a comment to a node or range |
-| `resolve_comment` | Resolves (removes) a comment by ID |
+| `reply_to_comment` | Replies to an existing comment thread |
+| `resolve_comment` | Resolves a comment thread while retaining its history |
+| `reopen_comment` | Reopens a resolved comment thread |
+| `list_review_events` | Lists durable comment and suggestion lifecycle events |
+| `get_review_status` | Summarises comment and suggestion state separately |
 | `list_tabs` | Lists open tabs — title, path, active / dirty state |
 | `select_tab` | Switches the active tab by ID or name match |
 
-Edits from Claude Desktop land as suggestions, not silent writes — the same review flow as in-app AI.
+MCP edits land as attributed suggestions, not silent writes. Insertions, deletions, and replacements remain pending until the author accepts or rejects them; comments stay separate discussion threads. Prose preserves feedback, revisions, and review history across reloads.
 
 ---
 

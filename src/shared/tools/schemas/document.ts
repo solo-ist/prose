@@ -173,6 +173,24 @@ export const resolveCommentConfig: ToolConfig<typeof resolveCommentSchema> = {
 }
 
 // ============================================================================
+// reopen_comment
+// ============================================================================
+
+export const reopenCommentSchema = z.object({
+  id: z.string().min(1).describe('ID of the resolved comment thread to reopen. Get IDs from list_comments.')
+})
+
+export const reopenCommentConfig: ToolConfig<typeof reopenCommentSchema> = {
+  name: 'reopen_comment',
+  description:
+    'Reopen a resolved comment thread by its ID. The thread remains in history and its anchor is restored when possible.',
+  schema: reopenCommentSchema,
+  category: 'document',
+  requiresMode: 'editor',
+  dangerous: false
+}
+
+// ============================================================================
 // reply_to_comment
 // ============================================================================
 
@@ -205,5 +223,6 @@ export const documentTools = [
   listCommentsConfig,
   addCommentConfig,
   resolveCommentConfig,
+  reopenCommentConfig,
   replyToCommentConfig
 ] as const

@@ -280,9 +280,15 @@ export function createMenu(mainWindow: BrowserWindow): void {
           { role: 'toggleDevTools' as const },
           { type: 'separator' as const },
         ] : []),
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
+        { role: 'resetZoom' as const, accelerator: 'CmdOrCtrl+0' },
+        { role: 'zoomIn' as const, accelerator: 'CmdOrCtrl+=' },
+        // Hidden alias so Cmd++ (Cmd+Shift+=) also triggers zoom in on macOS.
+        // macOS normalises the ⌘+ press to ⌘= in most contexts, but not all
+        // keyboard layouts / Electron builds; the hidden duplicate covers both.
+        { role: 'zoomIn' as const, accelerator: 'CmdOrCtrl+Plus', visible: false },
+        { role: 'zoomOut' as const, accelerator: 'CmdOrCtrl+-' },
+        // Hidden alias for numeric-keypad minus, so numpad ⌘- also zooms out.
+        { role: 'zoomOut' as const, accelerator: 'CmdOrCtrl+numsub', visible: false },
         { type: 'separator' },
         { role: 'togglefullscreen' },
         { type: 'separator' },

@@ -7,7 +7,7 @@ import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useLinkHoverStore } from '../../stores/linkHoverStore'
 import { useReviewStore } from '../../stores/reviewStore'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
-import { getComments } from '../../extensions/comments/extension'
+import { useCommentStore, countOpenThreads } from '../../extensions/comments/store'
 import { requestCommentReview } from '../editor/AIEditsHistoryPanel'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import {
@@ -86,14 +86,11 @@ export function StatusBar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, editor?.state.doc])
 
-  // Open (unresolved) comment threads currently marked in the doc — resolved
-  // threads remove their mark, so live marks == open threads (parallels the
-  // suggestion count above).
-  const commentCount = useMemo(() => {
-    if (!editor) return 0
-    return getComments(editor).length
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editor, editor?.state.doc])
+  // Open (unresolved) comment threads, counted from the comment store — the
+  // same selector the chat chips and Comment Review derive from, so the
+  // surfaces can't render contradictory totals (#830). New marks mirror into
+  // the store on creation, so this stays live without a doc subscription.
+  const commentCount = useCommentStore((s) => countOpenThreads(s.pendingComments))
 
   // Clicking the count enters Comment Review (a top-level reviewMode takeover,
   // the peer of Quick Review). The App-level effect keyed on reviewMode opens

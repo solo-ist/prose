@@ -867,7 +867,12 @@ export function Editor() {
       // Cmd+F: Open find bar (skip in source mode — CodeMirror handles its own)
       if (useEditorStore.getState().sourceMode) return
       e.preventDefault()
-      setIsFindOpen(true)
+      if (isFindOpen) {
+        // Bar already open — refocus and select the input so the user can type a new term
+        window.dispatchEvent(new CustomEvent('find:focus'))
+      } else {
+        setIsFindOpen(true)
+      }
     } else if (isMod && e.key === 'l' && !e.shiftKey) {
       // Cmd+L: Select current line
       e.preventDefault()

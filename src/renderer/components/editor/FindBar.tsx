@@ -46,6 +46,19 @@ export function FindBar({ editor, isOpen, onClose }: FindBarProps) {
     return () => window.removeEventListener('search:show', handleSearchShow as EventListener)
   }, [])
 
+  // Refocus the input when Cmd+F is pressed while the bar is already open
+  useEffect(() => {
+    const handleFindFocus = () => {
+      if (inputRef.current) {
+        inputRef.current.focus()
+        inputRef.current.select()
+      }
+    }
+
+    window.addEventListener('find:focus', handleFindFocus)
+    return () => window.removeEventListener('find:focus', handleFindFocus)
+  }, [])
+
   // Search for matches in the document
   const search = useCallback(() => {
     if (!editor || !searchTerm.trim()) {

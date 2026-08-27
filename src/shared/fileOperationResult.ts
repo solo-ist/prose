@@ -82,10 +82,10 @@ export function isMissingPathFileError(error: unknown): boolean {
 }
 
 export function unwrapSaveFileResult(result: SaveFileResult): void {
-  if (!result.ok) throw Object.assign(new Error(result.message), result)
+  if (!result.ok) throw result
 }
 
 export function unwrapReadFileResult(result: ReadFileResult): string {
-  if (!result.ok) throw Object.assign(new Error(result.message), result)
+  if (!result.ok) throw result
   return result.content
 }

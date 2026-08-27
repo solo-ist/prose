@@ -28,6 +28,7 @@ import {
   waitForEditor,
   executeProseTool,
   getEditorMarkdown,
+  typeInEditor,
 } from './helpers'
 
 let app: ElectronApplication
@@ -154,5 +155,71 @@ test.describe('Electron — Footnote interactive insertion', () => {
       () => (window as any).__prose_editor.state.selection.empty,
     )
     expect(selectionEmpty).toBe(true)
+  })
+})
+
+test.describe('Electron — Footnote input rule abutting text (#798)', () => {
+  // Regression guard for the input rule mis-span bug: the base tiptap-footnotes
+  // package uses an unanchored /\[\^(.*?)\]/ regex whose range.from is off by one
+  // when '[' immediately follows a word character, so deleteRange left the leading
+  // '[' behind (e.g. typing "claim[^1]" rendered as "claim[¹" instead of "claim¹").
+  // The fix anchors the regex to $ and uses tr.replaceWith for an atomic replacement.
+
+  test('abutting: [^1] directly after word creates reference without stray [', async () => {
+    const result = await executeProseTool(page, 'create_and_open_file', {
+      filename: 'footnote-inputrule-abutting.md',
+      content: '',
+    })
+    expect(result.success).toBe(true)
+    await waitForEditor(page)
+
+    // Type the abutting pattern — '[' immediately follows the word 'claim'
+    await typeInEditor(page, 'claim[^1]')
+    await page.waitForTimeout(150)
+
+    // The footnote reference node must be present in the DOM
+    await expect(page.locator('.prose-editor sup a.footnote-ref')).toBeVisible()
+
+    // The markdown serialization must NOT contain a stray '[' before the reference.
+    // Correct: 'claim[^1]'. Buggy: 'claim[[^1]' (extra bracket).
+    const md = await getEditorMarkdown(page)
+    expect(md).toContain('claim[^1]')
+    expect(md).not.toContain('claim[[^1]')
+
+    // The paragraph text content must not include a literal '[' character —
+    // the entire [^1] trigger must have been consumed by the input rule.
+    const paragraphText = await page.evaluate(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      () => (window as any).__prose_editor.state.doc.firstChild?.textContent ?? '',
+    )
+    expect(paragraphText).not.toContain('[')
+  })
+
+  test('spaced: [^1] after a space also creates reference without stray [', async () => {
+    const result = await executeProseTool(page, 'create_and_open_file', {
+      filename: 'footnote-inputrule-spaced.md',
+      content: '',
+    })
+    expect(result.success).toBe(true)
+    await waitForEditor(page)
+
+    // Type the spaced pattern — '[' follows a space, not a word character
+    await typeInEditor(page, 'claim [^1]')
+    await page.waitForTimeout(150)
+
+    // The footnote reference node must be present in the DOM
+    await expect(page.locator('.prose-editor sup a.footnote-ref')).toBeVisible()
+
+    // Correct serialization: 'claim [^1]'. No stray '[' before the reference.
+    const md = await getEditorMarkdown(page)
+    expect(md).toContain('[^1]')
+    expect(md).not.toContain('[[^1]')
+
+    // The paragraph text must only contain 'claim ' — the [^1] trigger is fully consumed
+    const paragraphText = await page.evaluate(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      () => (window as any).__prose_editor.state.doc.firstChild?.textContent ?? '',
+    )
+    expect(paragraphText.trim()).toBe('claim')
   })
 })

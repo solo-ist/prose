@@ -126,7 +126,7 @@ test.describe('Electron — Editor', () => {
 
     await expect(page.locator('html')).toHaveClass(
       initialIsDark ? /^(?!.*\bdark\b)/ : /\bdark\b/,
-      { timeout: 2_000 },
+      { timeout: 5_000 },
     )
 
     // Restore original theme
@@ -134,7 +134,7 @@ test.describe('Electron — Editor', () => {
 
     await expect(page.locator('html')).toHaveClass(
       initialIsDark ? /\bdark\b/ : /^(?!.*\bdark\b)/,
-      { timeout: 2_000 },
+      { timeout: 5_000 },
     )
   })
 

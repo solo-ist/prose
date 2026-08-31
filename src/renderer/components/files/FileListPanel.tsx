@@ -11,6 +11,7 @@ import { useExplorerActions } from '../../hooks/useExplorerActions'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useFileListStore } from '../../stores/fileListStore'
+import { useNotificationStore } from '../../stores/notificationStore'
 import { useTabStore } from '../../stores/tabStore'
 import { FileTree } from './FileTree'
 import { ScrollArea } from '../ui/scroll-area'
@@ -855,6 +856,12 @@ export function FileListPanel() {
       await api.duplicateFile(path)
     } catch (err) {
       console.error('[FileListPanel] Duplicate failed:', err)
+      // File-operation failures cross the bridge as plain objects, not Errors.
+      const message =
+        typeof err === 'object' && err !== null && 'message' in err && typeof err.message === 'string'
+          ? err.message
+          : 'Could not duplicate the file.'
+      useNotificationStore.getState().notify({ id: 'file-duplicate-failed', message })
     }
   }, [api])
 

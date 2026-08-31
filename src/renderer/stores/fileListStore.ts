@@ -304,8 +304,10 @@ export const useFileListStore = create<FileListState>()(
 
     setRootPath: (path) => {
       // Fully clear selection on root switch — no residual anchor from the
-      // previous root should carry over (#797).
-      set({ rootPath: path, files: [], expandedFolders: new Set(), selectedPaths: new Set(), selectedPath: null, anchorPath: null })
+      // previous root should carry over (#797). Route through
+      // clearSelectionFully so the two paths can't drift apart.
+      get().clearSelectionFully()
+      set({ rootPath: path, files: [], expandedFolders: new Set() })
       if (path) {
         get().loadFiles()
         // Notify the main process to start watching this directory.

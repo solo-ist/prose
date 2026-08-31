@@ -58,12 +58,100 @@ import {
   loadConversations,
   deleteConversations
 } from '../../lib/persistence'
-import { extractFirstH1 } from '../../lib/markdown'
+import { extractFirstH1, parseMarkdown, prepareTextContent } from '../../lib/markdown'
+import { extractMarkdownFromHtml } from '../../lib/htmlExport'
 import { handleMissingPath } from '../../lib/stalePath'
+import { useNotificationStore } from '../../stores/notificationStore'
 import type { DraftState, SessionState } from '../../lib/persistence'
 import { executeTool } from '../../lib/tools'
 import { useReviewMode, useWasChatOpenBeforeReview, usePreviousChatWidth, useReviewStore, type ReviewMode } from '../../stores/reviewStore'
 import { chatOpenDefaultPct, reviewChatWidthPct } from '../../hooks/usePanelLayout'
+
+/**
+ * True when `path` was modified on disk after the session snapshot was taken
+ * (#829). Errors (no stat API, transient fs failure) read as "not stale" so
+ * restore falls back to the snapshot exactly as before.
+ */
+async function isSnapshotStale(path: string, savedAt: number): Promise<boolean> {
+  if (!window.api?.fileStat) return false
+  try {
+    const stat = await window.api.fileStat(path)
+    return new Date(stat.modifiedAt).getTime() > savedAt
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Read + parse a document from disk with the same handling as
+ * openFileFromPath (HTML extraction, .txt preparation). Returns null when the
+ * read/parse fails — callers fall back to the session snapshot.
+ */
+async function readDocumentFromDisk(
+  path: string
+): Promise<{ content: string; frontmatter: Record<string, unknown> } | null> {
+  if (!window.api) return null
+  try {
+    let raw = await window.api.readFile(path)
+    if (path.endsWith('.html') || path.endsWith('.htm')) {
+      const extracted = extractMarkdownFromHtml(raw)
+      if (!extracted) return null
+      raw = extracted
+    }
+    const parsed = parseMarkdown(path.endsWith('.txt') ? prepareTextContent(raw) : raw)
+    return { content: parsed.content, frontmatter: parsed.frontmatter }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Replace a restored tab's content with the disk version — the user chose
+ * "Load disk version" on a restore conflict (#829). Pushes into the live
+ * editor too when the tab is active.
+ */
+async function loadDiskVersionIntoTab(tabId: string, path: string) {
+  const disk = await readDocumentFromDisk(path)
+  if (!disk) {
+    useNotificationStore.getState().notify({
+      id: `restore-conflict-load-failed:${path}`,
+      message: 'Could not read the file from disk — the tab still holds your draft.',
+    })
+    return
+  }
+  const { tabs, activeTabId, updateTab } = useTabStore.getState()
+  const tab = tabs.find((t) => t.id === tabId)
+  if (!tab) return
+  updateTab(tabId, { content: disk.content, frontmatter: disk.frontmatter, isDirty: false })
+  if (activeTabId === tabId) {
+    useEditorStore.getState().setDocument({
+      documentId: tab.documentId,
+      path,
+      content: disk.content,
+      frontmatter: disk.frontmatter,
+      isDirty: false,
+    })
+  }
+}
+
+/**
+ * Surface a restore conflict (#829): the tab holds an unsaved draft AND the
+ * file changed on disk while Prose was closed. Nothing is lost yet — the
+ * draft stays in the tab; this persistent toast warns that saving overwrites
+ * the disk edits and offers loading the disk version instead.
+ */
+function notifyRestoreConflict(tabId: string, path: string) {
+  const fileName = path.split('/').pop() ?? path
+  useNotificationStore.getState().notify({
+    id: `restore-conflict:${path}`,
+    durationMs: 0,
+    message: `"${fileName}" changed on disk while Prose was closed, and this tab holds unsaved edits from before that change. Saving will overwrite the disk edits.`,
+    actionLabel: 'Load disk version',
+    onAction: () => {
+      void loadDiskVersionIntoTab(tabId, path)
+    },
+  })
+}
 
 export function App() {
   useChat() // Initialize stream listeners
@@ -249,6 +337,8 @@ export function App() {
         const isActiveTab = tabDraft.tabId === session.activeTabId
         let restoredPath = tabDraft.path
         let restoredIsDirty = tabDraft.isDirty
+        let restoredContent = tabDraft.content
+        let restoredFrontmatter = tabDraft.frontmatter
 
         if (tabDraft.path && window.api) {
           const exists = await window.api.fileExists(tabDraft.path).catch(() => false)
@@ -256,6 +346,26 @@ export function App() {
             handleMissingPath(tabDraft.path, 'restore')
             restoredPath = null
             restoredIsDirty = true
+          } else if (await isSnapshotStale(tabDraft.path, session.savedAt)) {
+            // The file changed on disk after this session was saved — e.g. an
+            // external editor, git, or an agent wrote it while Prose was
+            // closed. Hydrating the snapshot unconditionally would resurrect
+            // stale content, and a save from that tab would clobber the
+            // external edits (#829).
+            if (!tabDraft.isDirty) {
+              // Clean tab: the snapshot has nothing the disk doesn't — load
+              // the disk version. Falls back to the snapshot on read failure.
+              const disk = await readDocumentFromDisk(tabDraft.path)
+              if (disk) {
+                restoredContent = disk.content
+                restoredFrontmatter = disk.frontmatter
+              }
+            } else {
+              // Dirty tab: unsaved draft AND external disk edits — a genuine
+              // conflict. Keep the draft (nothing is lost yet) and let the
+              // user choose; silently picking either side guarantees loss.
+              notifyRestoreConflict(tabDraft.tabId, tabDraft.path)
+            }
           }
         }
 
@@ -266,14 +376,14 @@ export function App() {
           title: tabDraft.title,
           baseTitle: tabDraft.baseTitle,
           isDirty: restoredIsDirty,
-          content: tabDraft.content,
-          frontmatter: tabDraft.frontmatter,
+          content: restoredContent,
+          frontmatter: restoredFrontmatter,
           cursorPosition: tabDraft.cursorPosition
         })
 
         // If this is the active tab, hydrate the editor
         if (isActiveTab) {
-          const documentContent = tabDraft.content
+          const documentContent = restoredContent
           // Use setDocument (not a raw setState) so reMarkable read-only state is
           // derived from the restored path. A raw setState bypasses that derivation,
           // which left a restored OCR tab editable — a stray save there would clobber
@@ -282,7 +392,7 @@ export function App() {
             documentId: tabDraft.documentId,
             path: restoredPath,
             content: documentContent,
-            frontmatter: tabDraft.frontmatter ?? {},
+            frontmatter: restoredFrontmatter ?? {},
             isDirty: restoredIsDirty
           })
           setCurrentDocumentId(tabDraft.documentId)

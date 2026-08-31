@@ -11,6 +11,7 @@ import { useExplorerActions } from '../../hooks/useExplorerActions'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useFileListStore } from '../../stores/fileListStore'
+import { useNotificationStore } from '../../stores/notificationStore'
 import { useTabStore } from '../../stores/tabStore'
 import { FileTree } from './FileTree'
 import { ScrollArea } from '../ui/scroll-area'
@@ -849,6 +850,21 @@ export function FileListPanel() {
     }
   }
 
+  // Duplicate a single file — conflict-safe naming is handled by the IPC handler.
+  const handleFileDuplicate = useCallback(async (path: string) => {
+    try {
+      await api.duplicateFile(path)
+    } catch (err) {
+      console.error('[FileListPanel] Duplicate failed:', err)
+      // File-operation failures cross the bridge as plain objects, not Errors.
+      const message =
+        typeof err === 'object' && err !== null && 'message' in err && typeof err.message === 'string'
+          ? err.message
+          : 'Could not duplicate the file.'
+      useNotificationStore.getState().notify({ id: 'file-duplicate-failed', message })
+    }
+  }, [api])
+
   // Google Docs: open file in tab (avoids rootPath race condition)
   const handleGoogleDocClick = useCallback(async (path: string) => {
     selectFile(path)
@@ -1671,6 +1687,7 @@ export function FileListPanel() {
                       onFileCopy={(path: string) => useFileListStore.getState().setClipboardPath(path, 'copy')}
                       onFileCut={(path: string) => useFileListStore.getState().setClipboardPath(path, 'cut')}
                       onFilePaste={pasteFile}
+                      onFileDuplicate={handleFileDuplicate}
                       onRenameComplete={handleRenameComplete}
                       onRenameCancel={handleRenameCancel}
                       onNewFile={handleNewFileInDir}

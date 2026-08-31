@@ -10,7 +10,7 @@ import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
 import { useAnnotationStore } from '../../../extensions/ai-annotations'
 import { getNodesWithIds, findNodeById } from '../../../extensions/node-ids'
 import type { NodeWithId } from '../../../extensions/node-ids'
-import { getComments, useCommentStore } from '../../../extensions/comments'
+import { getComments, useCommentStore, findFullyCoveredCommentIds } from '../../../extensions/comments'
 import type { CommentReply } from '../../../extensions/comments/types'
 import { getAISuggestions } from '../../../extensions/ai-suggestions'
 import { isEditorReadOnly } from './editor'
@@ -487,6 +487,18 @@ export function executeAddComment(args: {
   const rangeText = editor.state.doc.textBetween(from, to, ' ')
   if (!rangeText.trim()) {
     return toolError('Cannot add a comment to an empty range — the targeted node has no text content', 'EMPTY_RANGE')
+  }
+
+  // nodeId targets resolve to the whole node, so repeat add_comment calls on
+  // the same node produce exactly-equal ranges — which would silently replace
+  // the existing thread's mark and orphan its store entry (#830). Surface the
+  // existing thread so the model replies or resolves instead of duplicating.
+  const covered = findFullyCoveredCommentIds(editor.state.doc, from, to)
+  if (covered.length > 0) {
+    return toolError(
+      `A comment thread already covers this text (id "${covered[0]}"). Use reply_to_comment to continue that discussion, or resolve_comment to close it before adding a new comment.`,
+      'COMMENT_EXISTS'
+    )
   }
 
   const id = generateId()

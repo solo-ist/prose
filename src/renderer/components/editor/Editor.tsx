@@ -30,6 +30,7 @@ import TaskItem from '@tiptap/extension-task-item'
 import { Markdown } from 'tiptap-markdown'
 import { FocusMode } from '../../lib/focusMode'
 import { Comment } from '../../extensions/comments'
+import { useNotificationStore } from '../../stores/notificationStore'
 import { AISuggestion } from '../../extensions/ai-suggestions'
 import { useSuggestionStore } from '../../extensions/ai-suggestions/store'
 import { SESSION_ID } from '../../lib/persistence'
@@ -275,6 +276,14 @@ export function Editor() {
           ]
           useCommentStore.setState({ pendingComments: updated })
           if (store.documentId) store.saveComments(store.documentId, updated)
+        },
+        // setComment refuses ranges that would swallow an existing thread's
+        // mark (#830) — tell the user to reply on that thread instead.
+        onCommentBlocked: () => {
+          useNotificationStore.getState().notify({
+            id: 'comment-overlap-blocked',
+            message: 'This text already has a comment — reply to the existing thread instead of adding a new one.',
+          })
         },
       }),
       AISuggestion,

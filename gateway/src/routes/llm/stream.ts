@@ -46,7 +46,9 @@ function contentLength(content: unknown): number {
   return 0
 }
 
-/** Message content must be a string or Anthropic-style text blocks. */
+/** Message content must be a string or Anthropic-style text blocks. The type
+ * is allowlisted to 'text' — tool_use/tool_result and future block types are
+ * rejected until the proxy explicitly supports them. */
 function isValidContent(content: unknown): boolean {
   if (typeof content === 'string') return true
   return (
@@ -55,7 +57,7 @@ function isValidContent(content: unknown): boolean {
       (block) =>
         typeof block === 'object' &&
         block !== null &&
-        typeof (block as { type?: unknown }).type === 'string' &&
+        (block as { type?: unknown }).type === 'text' &&
         typeof (block as { text?: unknown }).text === 'string'
     )
   )

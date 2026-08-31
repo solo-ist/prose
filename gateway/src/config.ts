@@ -56,11 +56,21 @@ const EnvSchema = z.object({
       message: 'must be an explicit https:// URL outside development',
     })
   }
-  if (!env.ANTHROPIC_API_KEY && !env.UPSTREAM_URL) {
+  // UPSTREAM_URL is a dev-only mock override. Outside development it must not
+  // exist at all: a misconfigured value would silently reroute every LLM call
+  // (with no API key attached) to an arbitrary endpoint.
+  if (env.UPSTREAM_URL) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['UPSTREAM_URL'],
+      message: 'dev-only mock override — unset it outside development',
+    })
+  }
+  if (!env.ANTHROPIC_API_KEY) {
     ctx.addIssue({
       code: 'custom',
       path: ['ANTHROPIC_API_KEY'],
-      message: 'required in production (unless UPSTREAM_URL overrides the upstream)',
+      message: 'required in production',
     })
   }
 })

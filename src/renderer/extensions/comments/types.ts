@@ -33,6 +33,12 @@ export interface CommentData {
    * older data → treated as 'user'.
    */
   author?: 'user' | 'ai'
+  /**
+   * Display name for threads that arrived from a share reviewer (#768/#769) —
+   * via the gateway or an annotated-artifact import. Missing → the thread was
+   * created on this desktop.
+   */
+  authorName?: string
   /** 0-based index of which occurrence of markedText this comment anchors to. Missing in older data → treated as 0. */
   occurrenceIndex?: number
   from: number

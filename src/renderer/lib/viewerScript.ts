@@ -12,6 +12,13 @@
  * - Comment anchors are the `span[data-comment-id].comment-mark` elements
  *   already present in the exported editor HTML.
  *
+ * Commenting works in BOTH modes (#768 tier 3):
+ * - Served from /s/<token> → new comments POST to the gateway.
+ * - Opened from file:// (or any non-share origin) → new comments are held in
+ *   the page and "Download annotated copy" serializes the ORIGINAL artifact +
+ *   additions into a new self-contained file. Prose re-imports that file's
+ *   comments as real threads (lib/artifactImport.ts) — the sneakernet loop.
+ *
  * Security invariants (do not regress):
  * - Comment/author content is rendered ONLY via `textContent` /
  *   `createTextNode` — never `innerHTML`.
@@ -111,6 +118,24 @@ export const VIEWER_STYLES = `
     font-size: 0.6875rem;
   }
   @media (prefers-color-scheme: dark) { .prose-rail-note { border-top-color: #333; } }
+  #prose-rail-download {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 0.75rem;
+    border: 1px solid #d0d0d0;
+    border-radius: 6px;
+    padding: 0.45rem 0.75rem;
+    font: 600 0.75rem -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #fff;
+    color: #1a1a1a;
+    cursor: pointer;
+  }
+  #prose-rail-download.prose-has-additions { background: #d97706; border-color: #d97706; color: #fff; }
+  @media (prefers-color-scheme: dark) {
+    #prose-rail-download { background: #2c2c2c; border-color: #444; color: #e0e0e0; }
+    #prose-rail-download.prose-has-additions { background: #d97706; border-color: #d97706; color: #fff; }
+  }
   #prose-rail-toggle {
     position: fixed;
     right: 1rem;
@@ -178,12 +203,17 @@ export const VIEWER_SCRIPT = `(function () {
   var article = document.querySelector('article')
   if (!article) return
 
+  var blockMeta = { version: 1, publishRev: '', publishedAt: '' }
   var comments = []
   try {
     if (commentsEl) {
       var decoded = decodeURIComponent(escape(atob(commentsEl.textContent.trim())))
       var block = JSON.parse(decoded)
-      if (block && Array.isArray(block.comments)) comments = block.comments
+      if (block && Array.isArray(block.comments)) {
+        comments = block.comments
+        blockMeta.publishRev = typeof block.publishRev === 'string' ? block.publishRev : ''
+        blockMeta.publishedAt = typeof block.publishedAt === 'string' ? block.publishedAt : ''
+      }
     }
   } catch (e) { /* malformed block: degrade to plain document */ }
 
@@ -200,13 +230,22 @@ export const VIEWER_SCRIPT = `(function () {
   }
   var online = !!(shareConfig && shareConfig.shareEndpoint && token && !isFile)
 
-  if (comments.length === 0 && !online) return
+  // Comments a reader added in THIS page (offline mode) but hasn't downloaded.
+  var localAdditions = 0
+  var unsavedAdditions = 0
+
+  function makeId() {
+    try {
+      if (window.crypto && window.crypto.randomUUID) return 'local-' + window.crypto.randomUUID()
+    } catch (e) { /* insecure context */ }
+    return 'local-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10)
+  }
 
   // --- Anchor computation (mirrors restoreComments' normalization) ---------
   // ASCII space (U+0020) ONLY — verified against restoreComments in
   // extensions/comments/extension.ts, which normalizes with replace(/ /g, '')
   // on both the stored markedText and doc.textContent. Do NOT "fix" this to
-  // \s+ or add tabs/NBSP: any divergence from the editor's normalization
+  // \\s+ or add tabs/NBSP: any divergence from the editor's normalization
   // shifts occurrence indexes and desyncs anchors. If the editor's
   // normalization ever changes, change BOTH sites together.
   function norm(s) { return s.replace(/ /g, '') }
@@ -235,7 +274,22 @@ export const VIEWER_SCRIPT = `(function () {
       occurrenceIndex++
       offset = idx + searchNorm.length
     }
-    return { markedText: markedText, occurrenceIndex: occurrenceIndex }
+    return { markedText: markedText, occurrenceIndex: occurrenceIndex, range: range }
+  }
+
+  // Best-effort inline highlight for a just-added comment. Works when the
+  // selection stays inside one text node; multi-node selections throw and the
+  // comment stays rail-only (Prose re-anchors from data on import anyway).
+  function tryHighlight(range, id) {
+    try {
+      var span = document.createElement('span')
+      span.setAttribute('data-comment-id', id)
+      span.className = 'comment-mark'
+      range.surroundContents(span)
+      return true
+    } catch (e) {
+      return false
+    }
   }
 
   // --- Rail construction (textContent only — never innerHTML) --------------
@@ -320,6 +374,10 @@ export const VIEWER_SCRIPT = `(function () {
       for (var j = 0; j < resolved.length; j++) resolvedSection.appendChild(renderThread(resolved[j]))
     }
     toggle.textContent = '💬 ' + open.length
+    downloadBtn.textContent = unsavedAdditions > 0
+      ? 'Download annotated copy (' + unsavedAdditions + ' new)'
+      : 'Download a copy'
+    downloadBtn.classList.toggle('prose-has-additions', unsavedAdditions > 0)
   }
 
   rail.appendChild(formSlot)
@@ -327,14 +385,75 @@ export const VIEWER_SCRIPT = `(function () {
   rail.appendChild(resolvedSection)
 
   var note = el('div', 'prose-rail-note')
-  if (online) {
-    note.textContent = 'Select text to leave a comment.'
-  } else {
-    note.textContent = isFile && shareConfig
-      ? "You're viewing a local copy. Open the shared link to add comments."
-      : 'Read-only copy — comments can\\u2019t be added here.'
-  }
+  note.textContent = online
+    ? 'Select text to leave a comment.'
+    : 'Select text to leave a comment. Comments live in this file — download the annotated copy to keep or return them.'
   rail.appendChild(note)
+
+  // --- Download a (possibly annotated) self-contained copy ------------------
+  var downloadBtn = el('button', null, 'Download a copy')
+  downloadBtn.id = 'prose-rail-download'
+  rail.appendChild(downloadBtn)
+
+  function encodeBase64Utf8(s) { return btoa(unescape(encodeURIComponent(s))) }
+
+  function suggestedFilename() {
+    if (isFile) {
+      try {
+        var base = decodeURIComponent(window.location.pathname.split('/').pop() || '')
+        if (base) return base.replace(/\\.html?$/i, '') + '-annotated.html'
+      } catch (e) { /* fall through */ }
+    }
+    var title = (document.title || 'document').replace(/[^a-z0-9 _-]/gi, '').trim() || 'document'
+    return title + (unsavedAdditions > 0 ? '-annotated' : '-copy') + '.html'
+  }
+
+  function buildAnnotatedCopy() {
+    var clone = document.documentElement.cloneNode(true)
+    // Strip the viewer's runtime DOM — the reopened copy rebuilds it fresh.
+    var strip = ['#prose-comment-rail', '#prose-rail-toggle', '#prose-add-comment-btn']
+    for (var i = 0; i < strip.length; i++) {
+      var node = clone.querySelector(strip[i])
+      if (node) node.remove()
+    }
+    var actives = clone.querySelectorAll('.prose-viewer-active')
+    for (var j = 0; j < actives.length; j++) actives[j].classList.remove('prose-viewer-active')
+    var body = clone.querySelector('body')
+    if (body) body.classList.remove('prose-rail-open')
+    // Re-embed the full comment set (original + local additions).
+    var script = clone.querySelector('script[type="application/x-prose-comments"]')
+    if (script) {
+      script.textContent = encodeBase64Utf8(JSON.stringify({
+        version: 1,
+        publishRev: blockMeta.publishRev,
+        publishedAt: blockMeta.publishedAt,
+        comments: comments
+      }))
+    }
+    return '<!DOCTYPE html>\\n' + clone.outerHTML
+  }
+
+  downloadBtn.addEventListener('click', function () {
+    var blob = new Blob([buildAnnotatedCopy()], { type: 'text/html' })
+    var url = URL.createObjectURL(blob)
+    var a = document.createElement('a')
+    a.href = url
+    a.download = suggestedFilename()
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.setTimeout(function () { URL.revokeObjectURL(url) }, 5000)
+    unsavedAdditions = 0
+    renderRail()
+  })
+
+  // Losing the tab loses un-downloaded offline comments — warn.
+  window.addEventListener('beforeunload', function (ev) {
+    if (unsavedAdditions > 0) {
+      ev.preventDefault()
+      ev.returnValue = ''
+    }
+  })
 
   var toggle = el('button', null)
   toggle.id = 'prose-rail-toggle'
@@ -370,9 +489,7 @@ export const VIEWER_SCRIPT = `(function () {
     }
   })
 
-  // --- Add-comment flow (online mode only) ---------------------------------
-  if (!online) return
-
+  // --- Add-comment flow (both modes) ---------------------------------------
   var addBtn = el('button', null, 'Add comment')
   addBtn.id = 'prose-add-comment-btn'
   var pendingAnchor = null
@@ -408,15 +525,18 @@ export const VIEWER_SCRIPT = `(function () {
     nameInput.placeholder = 'Your name'
     nameInput.maxLength = 100
     try { nameInput.value = window.localStorage.getItem('prose-commenter-name') || '' } catch (e) { /* blocked storage */ }
-    var emailInput = el('input', null)
-    emailInput.placeholder = 'Email (optional, for replies)'
-    emailInput.type = 'email'
-    emailInput.maxLength = 254
+    var emailInput = null
+    if (online) {
+      emailInput = el('input', null)
+      emailInput.placeholder = 'Email (optional, for replies)'
+      emailInput.type = 'email'
+      emailInput.maxLength = 254
+    }
     var textArea = el('textarea', null)
     textArea.placeholder = 'Your comment'
     textArea.rows = 4
     textArea.maxLength = 5000
-    var postBtn = el('button', null, 'Post')
+    var postBtn = el('button', null, online ? 'Post' : 'Add')
     var cancelBtn = el('button', 'prose-secondary', 'Cancel')
     cancelBtn.addEventListener('click', function () { formSlot.textContent = '' })
     postBtn.addEventListener('click', function () {
@@ -427,9 +547,28 @@ export const VIEWER_SCRIPT = `(function () {
         errorEl.style.display = 'block'
         return
       }
+      try { window.localStorage.setItem('prose-commenter-name', name) } catch (e) { /* blocked storage */ }
+      if (!online) {
+        var localComment = {
+          id: makeId(),
+          markedText: anchor.markedText,
+          occurrenceIndex: anchor.occurrenceIndex,
+          comment: text,
+          authorName: name,
+          createdAt: Date.now(),
+          replies: []
+        }
+        comments.push(localComment)
+        localAdditions++
+        unsavedAdditions++
+        if (anchor.range) tryHighlight(anchor.range, localComment.id)
+        formSlot.textContent = ''
+        renderRail()
+        setActive(localComment.id, false)
+        return
+      }
       postBtn.disabled = true
-      postComment(anchor, name, emailInput.value.trim(), text).then(function (created) {
-        try { window.localStorage.setItem('prose-commenter-name', name) } catch (e) { /* blocked storage */ }
+      postComment(anchor, name, emailInput ? emailInput.value.trim() : '', text).then(function (created) {
         comments.push({
           id: created.id,
           markedText: anchor.markedText,
@@ -439,6 +578,7 @@ export const VIEWER_SCRIPT = `(function () {
           createdAt: created.createdAt ? new Date(created.createdAt).getTime() : Date.now(),
           replies: []
         })
+        if (anchor.range) tryHighlight(anchor.range, created.id)
         formSlot.textContent = ''
         renderRail()
       }).catch(function (err) {
@@ -449,7 +589,7 @@ export const VIEWER_SCRIPT = `(function () {
     })
     form.appendChild(errorEl)
     form.appendChild(nameInput)
-    form.appendChild(emailInput)
+    if (emailInput) form.appendChild(emailInput)
     form.appendChild(textArea)
     form.appendChild(postBtn)
     form.appendChild(cancelBtn)

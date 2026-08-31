@@ -84,9 +84,11 @@ let artifactUrl: string
 let shareArtifactUrl: string
 let artifactHtml: string
 let shareArtifactHtml: string
+let tmpDir: string
 
 test.beforeAll(async () => {
   const dir = mkdtempSync(join(tmpdir(), 'prose-share-'))
+  tmpDir = dir
   artifactHtml = await buildProseHtml(EDITOR_HTML, MARKDOWN, {}, 'Share Test', null, COMMENTS)
   shareArtifactHtml = await buildShareHtml(
     EDITOR_HTML,
@@ -238,14 +240,78 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
     await expect(page.locator('.prose-thread[data-thread-id="c2"]')).toHaveClass(/prose-viewer-active/)
   })
 
-  test('offline mode: no add-comment affordance, read-only note shown', async ({ page }) => {
-    await expect(page.locator('#prose-comment-rail .prose-rail-note')).toContainText('Read-only copy')
+  test('offline mode: selecting text offers add-comment; form has no email field', async ({ page }) => {
+    await expect(page.locator('#prose-comment-rail .prose-rail-note')).toContainText('download the annotated copy')
 
-    // Select text in the article — no add-comment button may appear offline.
     const paragraph = page.locator('article p').first()
     await paragraph.click({ clickCount: 3 })
-    await page.waitForTimeout(100)
-    expect(await page.locator('#prose-add-comment-btn').count()).toBe(0)
+    await expect(page.locator('#prose-add-comment-btn')).toBeVisible()
+
+    await page.locator('#prose-add-comment-btn').click()
+    const form = page.locator('#prose-comment-form')
+    await expect(form).toBeVisible()
+    // Offline: name + comment only — the notification-email field is online-only.
+    expect(await form.locator('input').count()).toBe(1)
+  })
+
+  test('offline add-comment lands in the rail and arms the download button', async ({ page }) => {
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').fill('Offline Olive')
+    await page.locator('#prose-comment-form textarea').fill('Added without any server.')
+    await page.locator('#prose-comment-form button', { hasText: 'Add' }).first().click()
+
+    await expect(page.getByRole('heading', { name: 'Comments (3)' })).toBeVisible()
+    await expect(page.getByText('Added without any server.')).toBeVisible()
+    await expect(page.getByText('Offline Olive', { exact: false })).toBeVisible()
+    await expect(page.locator('#prose-rail-download')).toContainText('annotated copy (1 new)')
+  })
+
+  test('download annotated copy: valid artifact carrying the new comment, reopenable', async ({ page }) => {
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').fill('Offline Olive')
+    await page.locator('#prose-comment-form textarea').fill('Round-trip me.')
+    await page.locator('#prose-comment-form button', { hasText: 'Add' }).first().click()
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('#prose-rail-download').click(),
+    ])
+    expect(download.suggestedFilename()).toContain('-annotated')
+    const savedPath = join(tmpDir, 'annotated.html')
+    await download.saveAs(savedPath)
+    const annotatedHtml = readFileSync(savedPath, 'utf-8')
+
+    // Still a fully valid Prose artifact: markdown block intact, comments
+    // block now carries the original threads + the offline addition.
+    expect(isProseHtml(annotatedHtml)).toBe(true)
+    expect(extractMarkdownFromHtml(annotatedHtml)).toContain('quick brown fox')
+    const block = extractCommentsFromHtml(annotatedHtml)
+    expect(block).not.toBeNull()
+    expect(block!.comments).toHaveLength(4)
+    const added = block!.comments.find((c) => c.comment === 'Round-trip me.')
+    expect(added?.authorName).toBe('Offline Olive')
+    expect((added?.markedText ?? '').length).toBeGreaterThan(0)
+    // No viewer runtime DOM leaked into the copy.
+    expect(annotatedHtml).not.toContain('id="prose-comment-rail"')
+
+    // The annotated copy reopens as a working artifact with the new thread.
+    await page.goto(pathToFileURL(savedPath).href)
+    await expect(page.getByRole('heading', { name: 'Comments (3)' })).toBeVisible()
+    await expect(page.getByText('Round-trip me.')).toBeVisible()
+  })
+
+  test('download without additions produces a clean copy', async ({ page }) => {
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('#prose-rail-download').click(),
+    ])
+    const savedPath = join(tmpDir, 'clean-copy.html')
+    await download.saveAs(savedPath)
+    const copyHtml = readFileSync(savedPath, 'utf-8')
+    expect(extractCommentsFromHtml(copyHtml)!.comments).toHaveLength(3)
+    expect(copyHtml).not.toContain('id="prose-rail-toggle"')
   })
 
   test('rail toggle hides and shows the rail', async ({ page }) => {
@@ -258,14 +324,22 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
 })
 
 test.describe('share artifact opened locally', () => {
-  test('stays offline (file:// wins over share config) with the local-copy banner', async ({ page }) => {
+  test('file:// wins over share config: offline annotate mode, no network posts', async ({ page }) => {
+    const requests: string[] = []
+    page.on('request', (req) => {
+      if (req.url().includes('/comments')) requests.push(req.url())
+    })
     await page.goto(shareArtifactUrl)
     await expect(page.locator('#prose-comment-rail')).toBeVisible()
-    await expect(page.locator('#prose-comment-rail .prose-rail-note')).toContainText('local copy')
+    await expect(page.locator('#prose-comment-rail .prose-rail-note')).toContainText('download the annotated copy')
 
-    const paragraph = page.locator('article p').first()
-    await paragraph.click({ clickCount: 3 })
-    await page.waitForTimeout(100)
-    expect(await page.locator('#prose-add-comment-btn').count()).toBe(0)
+    // Adding a comment offline never POSTs to the embedded share endpoint.
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').fill('Local Lee')
+    await page.locator('#prose-comment-form textarea').fill('Stays in the file.')
+    await page.locator('#prose-comment-form button', { hasText: 'Add' }).first().click()
+    await expect(page.getByText('Stays in the file.')).toBeVisible()
+    expect(requests).toHaveLength(0)
   })
 })

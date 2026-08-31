@@ -184,8 +184,12 @@ async function buildArtifactHtml(
   )
   const encoded = encodeBase64Utf8(inlinedMarkdown)
 
-  const hasComments = !!comments && comments.length > 0
-  const withViewer = hasComments || shareEndpoint !== null
+  // Passing a comments array (even an empty one) marks the export as an
+  // annotatable artifact: the blocks + inline viewer are embedded so anyone
+  // can comment into the file offline and download an annotated copy (#768
+  // tier 3). Omitting the argument entirely produces the plain viewer-free
+  // export (no current caller does).
+  const withViewer = comments !== undefined || shareEndpoint !== null
   const publishedAt = new Date().toISOString()
   const publishRev = withViewer ? await computePublishRev(inlinedHtml, encoded) : null
 

@@ -44,10 +44,32 @@ export function useRemarkableEnabled(): boolean {
   })
 }
 
+/**
+ * Web platform (gateway accounts + share/publish surfaces, #768/#771) —
+ * opt-in via settings.featureFlags.webPlatform, force-off for MAS.
+ *
+ * Opt-in: only an explicit `true` enables it — the platform is pre-launch.
+ *
+ * MAS-off: the share/publish surfaces belong to the self-distributed / web
+ * account layer (reader-app pattern); MAS builds never see them regardless of
+ * settings.json.
+ */
+export function useWebPlatformEnabled(): boolean {
+  return useSettingsStore((s) => {
+    if (isMasBuild()) return false
+    return s.settings.featureFlags?.webPlatform === true
+  })
+}
+
 // --- Non-hook accessors (for use outside React components) ---
 
 export function isGoogleDocsEnabled(): boolean {
   return useSettingsStore.getState().settings.featureFlags?.googleDocs === true
+}
+
+export function isWebPlatformEnabled(): boolean {
+  if (isMasBuild()) return false
+  return useSettingsStore.getState().settings.featureFlags?.webPlatform === true
 }
 
 export function isRemarkableEnabled(): boolean {

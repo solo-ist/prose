@@ -274,14 +274,16 @@ export function App() {
         // If this is the active tab, hydrate the editor
         if (isActiveTab) {
           const documentContent = tabDraft.content
-          useEditorStore.setState({
-            document: {
-              documentId: tabDraft.documentId,
-              path: restoredPath,
-              content: documentContent,
-              frontmatter: tabDraft.frontmatter ?? {},
-              isDirty: restoredIsDirty
-            }
+          // Use setDocument (not a raw setState) so reMarkable read-only state is
+          // derived from the restored path. A raw setState bypasses that derivation,
+          // which left a restored OCR tab editable — a stray save there would clobber
+          // the hidden sync-managed file.
+          useEditorStore.getState().setDocument({
+            documentId: tabDraft.documentId,
+            path: restoredPath,
+            content: documentContent,
+            frontmatter: tabDraft.frontmatter ?? {},
+            isDirty: restoredIsDirty
           })
           setCurrentDocumentId(tabDraft.documentId)
 

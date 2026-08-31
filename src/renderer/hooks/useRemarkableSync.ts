@@ -144,7 +144,7 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
     return subscribeRemarkableProgress((update) => {
       setRemarkableSyncProgress(update)
       if (update.notebookId) {
-        if (update.phase === 'downloading' || update.phase === 'ocr') {
+        if (update.phase === 'downloading' || update.phase === 'ocr' || update.phase === 'extracting') {
           addSyncingNotebook(update.notebookId)
         } else if (update.phase === 'notebook-done') {
           removeSyncingNotebook(update.notebookId)

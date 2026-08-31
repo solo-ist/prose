@@ -119,6 +119,8 @@ interface SettingsBase {
     remarkable?: boolean
     /** AI edit pipeline debug logging (#672) — see lib/aiPipelineLog.ts. Default: off. */
     aiPipelineDebug?: boolean
+    /** Web platform (gateway accounts, share/publish surfaces) (#768/#771). Default: off; forced off on MAS. */
+    webPlatform?: boolean
   }
   /**
    * Persisted tool mode for the AI assistant (global, shared across all tabs/conversations).
@@ -264,6 +266,12 @@ export interface RemarkableNotebookMetadata {
    * so users know the row isn't simply "still processing".
    */
   ocrAttempt?: { hash: string; failedAt: string }
+  /**
+   * How this notebook's content was derived: `typed-text` (digital text from the
+   * v6 .rm scene, no OCR), `ocr` (handwriting transcribed), or `mixed` (both).
+   * Absent for entries synced before typed-text support existed.
+   */
+  extraction?: 'typed-text' | 'ocr' | 'mixed'
 }
 
 export interface RemarkableSyncMetadata {
@@ -289,6 +297,7 @@ export type RemarkableSyncPhase =
   | 'listing'
   | 'downloading'
   | 'ocr'
+  | 'extracting'
   | 'notebook-done'
   | 'skipped'
   | 'complete'

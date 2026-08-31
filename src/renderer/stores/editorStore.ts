@@ -4,6 +4,23 @@ import type { Document } from '../types'
 import { generateId, saveDraft, clearDraft } from '../lib/persistence'
 import type { DraftState, FileListState } from '../lib/persistence'
 import { useFileListStore } from './fileListStore'
+import { isRemarkableOcrPath, remarkableNotebookIdFromPath } from '../lib/remarkablePath'
+
+// reMarkable read-only state is DERIVED from the document path: a hidden
+// `.remarkable/<id>/<name>.md` OCR path is read-only, everything else editable.
+// Deriving it here — wherever the document is set — keeps it correct on every load
+// path (tab switch, file open, AND session restore on launch), and guarantees the
+// hidden OCR source file can never be opened as editable (a stray save there would
+// clobber sync-managed output).
+function remarkableStateForPath(path: string | null): {
+  isRemarkableReadOnly: boolean
+  remarkableNotebookId: string | null
+} {
+  return {
+    isRemarkableReadOnly: isRemarkableOcrPath(path),
+    remarkableNotebookId: remarkableNotebookIdFromPath(path)
+  }
+}
 
 interface ReadCache {
   content: string | null
@@ -97,13 +114,16 @@ export const useEditorStore = create<EditorState>()(
       set((state) => {
         const documentIdChanged =
           doc.documentId !== undefined && doc.documentId !== state.document.documentId
+        const newDocument = { ...state.document, ...doc }
         return {
-          document: { ...state.document, ...doc },
+          document: newDocument,
           // Invalidate cache when document changes
           readCache: { content: null, documentId: null },
           // Clear any pending frontmatter overlay when switching documents,
           // so a Tab A suggestion can't get accepted into Tab B.
-          ...(documentIdChanged ? { pendingFrontmatter: null } : {})
+          ...(documentIdChanged ? { pendingFrontmatter: null } : {}),
+          // Read-only follows the resulting path (see remarkableStateForPath).
+          ...remarkableStateForPath(newDocument.path)
         }
       }),
 
@@ -124,7 +144,8 @@ export const useEditorStore = create<EditorState>()(
 
     setPath: (path) =>
       set((state) => ({
-        document: { ...state.document, path }
+        document: { ...state.document, path },
+        ...remarkableStateForPath(path)
       })),
 
     setDirty: (isDirty) =>
@@ -172,7 +193,9 @@ export const useEditorStore = create<EditorState>()(
         activeChatId: draft.activeChatId,
         isEditing: true, // Recovered from draft means user was editing
         readCache: { content: null, documentId: null },
-        lastSelection: null
+        lastSelection: null,
+        // Restored drafts must honor read-only too (a restored OCR tab is read-only).
+        ...remarkableStateForPath(draft.document.path)
       }),
 
     // Read cache methods

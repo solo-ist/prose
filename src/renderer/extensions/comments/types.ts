@@ -15,6 +15,11 @@ export interface CommentReply {
   author: 'user' | 'ai'
   text: string
   createdAt: number
+  /**
+   * Display name for replies from share-link reviewers (#768/#769). Missing →
+   * the reply came from this desktop (the author) or the AI.
+   */
+  authorName?: string
 }
 
 export interface CommentData {
@@ -40,6 +45,22 @@ export interface CommentData {
    * as false (active thread).
    */
   resolved?: boolean
+  /**
+   * Publication this comment arrived from (#769 share sync). Missing → the
+   * comment was created locally on this desktop.
+   */
+  shareId?: string
+  /**
+   * True when restore could not find markedText in the document (the anchored
+   * text was edited away). The thread is kept and surfaced as "anchor lost"
+   * instead of being dropped (#769). Missing → anchored normally.
+   */
+  anchorLost?: boolean
+  /**
+   * Artifact revision (content hash) this comment was anchored against at
+   * publish time (#768). Missing → created locally, never published.
+   */
+  publishRev?: string
 }
 
 export interface CommentOptions {

@@ -38,6 +38,7 @@ import type { DraftState } from '../lib/persistence'
 // Track chat panel state before preview mode so we can restore on promote
 let chatPanelStateBeforePreview: boolean | null = null
 
+
 function restoreAfterPreviewBrowsing(): void {
   useEditorStore.getState().setPreviewTab(false)
   if (chatPanelStateBeforePreview !== null) {
@@ -214,9 +215,6 @@ export function useTabs() {
     console.log(`[useTabs:${SESSION_ID}] loading comments for:`, newDocumentId)
     await useCommentStore.getState().loadComments(newDocumentId)
     console.log(`[useTabs:${SESSION_ID}] comments loaded:`, useCommentStore.getState().pendingComments.length)
-
-    // Clear reMarkable read-only state
-    useEditorStore.getState().setRemarkableReadOnly(false, null)
 
     // Sync the global preview-read-only flag to the tab we're switching to.
     // Without this, isPreviewTab stays stuck on the previously-active tab's
@@ -467,9 +465,6 @@ export function useTabs() {
     // Load comment marks for the document
     await useCommentStore.getState().loadComments(newDocumentId)
 
-    // Clear reMarkable read-only state
-    useEditorStore.getState().setRemarkableReadOnly(false, null)
-
     // Mark as editing
     setEditing(true)
 
@@ -592,7 +587,6 @@ export function useTabs() {
       await useAnnotationStore.getState().loadAnnotations(newDocumentId)
       await useSuggestionStore.getState().loadSuggestions(newDocumentId)
       await useCommentStore.getState().loadComments(newDocumentId)
-      useEditorStore.getState().setRemarkableReadOnly(false, null)
       setEditing(true)
 
       useSettingsStore.getState().addRecentFile(filePath)
@@ -659,7 +653,6 @@ export function useTabs() {
     await useAnnotationStore.getState().loadAnnotations(newDocumentId)
     await useSuggestionStore.getState().loadSuggestions(newDocumentId)
     await useCommentStore.getState().loadComments(newDocumentId)
-    useEditorStore.getState().setRemarkableReadOnly(false, null)
     setEditing(true)
 
     useSettingsStore.getState().addRecentFile(filePath)
@@ -1076,7 +1069,6 @@ export function useTabs() {
     await useSuggestionStore.getState().loadSuggestions(documentId)
     await useCommentStore.getState().loadComments(documentId)
 
-    useEditorStore.getState().setRemarkableReadOnly(false, null)
     setEditing(true)
 
     if (snapshot.path) {

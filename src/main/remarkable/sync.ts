@@ -7,6 +7,7 @@ import { homedir } from 'os'
 import { createHash } from 'crypto'
 import { connect, disconnect, type RemarkableNotebook } from './client'
 import { isOCRConfigured, extractTextBatched } from './ocr'
+import { parseRmPageForText, paragraphsToMarkdown } from './rm-scene-parser'
 import JSZip from 'jszip'
 
 /**
@@ -84,6 +85,13 @@ export interface NotebookMetadata {
    * Cleared on successful OCR.
    */
   ocrAttempt?: { hash: string; failedAt: string }
+  /**
+   * How this notebook's content was derived. `typed-text` = digital text pulled
+   * from the v6 .rm scene (no OCR); `ocr` = handwriting transcribed by OCR;
+   * `mixed` = both. `undefined` marks entries synced before typed-text support
+   * existed, which triggers a one-time re-extraction (see needsExtraction).
+   */
+  extraction?: 'typed-text' | 'ocr' | 'mixed'
 }
 
 export interface SyncResult {
@@ -100,7 +108,7 @@ export interface SyncProgressUpdate {
   notebookName?: string
   current?: number
   total?: number
-  phase: 'connecting' | 'listing' | 'downloading' | 'ocr' | 'notebook-done' | 'skipped' | 'complete'
+  phase: 'connecting' | 'listing' | 'downloading' | 'ocr' | 'extracting' | 'notebook-done' | 'skipped' | 'complete'
 }
 
 const META_FILE = 'sync-metadata.json'
@@ -280,44 +288,56 @@ function buildPath(
   return join(buildPath(parent, notebooks, visited), safeName)
 }
 
+/** Outcome of deriving markdown content from a notebook directory. */
+type ContentResult =
+  | {
+      markdown: string
+      pageOCRCache: Record<string, PageOCRCacheEntry>
+      extraction: 'typed-text' | 'ocr' | 'mixed'
+    }
+  // markdown === null: no content was produced. `isFailure` distinguishes a
+  // genuine OCR failure (→ stamp the retry sentinel) from a graceful skip such
+  // as a pure-handwriting notebook while OCR is unconfigured (→ no sentinel).
+  // `extraction` is carried even on a skip so the caller can persist the
+  // classification and avoid re-parsing an unchanged notebook every sync.
+  | { markdown: null; isFailure: boolean; extraction?: 'typed-text' | 'ocr' | 'mixed' }
+
 /**
- * Process a notebook directory with OCR to extract markdown
+ * Derive markdown for a notebook directory.
+ *
+ * Two content sources are merged per page:
+ *  - **Typed text** ("Type Folio" keyboard input) is pulled locally from each
+ *    page's v6 `.rm` scene (RootTextBlock) — no OCR, no API key required. Typed
+ *    text wins for a page even if it also carries strokes.
+ *  - **Handwriting** strokes are transcribed by the OCR Lambda, with the
+ *    existing per-page cache to avoid repeat (expensive) API calls.
+ *
+ * Every page's bytes are read and parsed for typed text on each sync — this is
+ * cheap and, crucially, bypasses the OCR cache, which may hold stale blank
+ * results for typed pages synced before typed-text support existed.
  *
  * @param notebookDir - Path to extracted notebook directory (e.g., .remarkable/<hash>/)
  * @param notebookName - Display name for the notebook
- * @param anthropicApiKey - API key for the OCR service
+ * @param anthropicApiKey - API key for the OCR service (handwriting only)
  * @param existingCache - Per-page OCR cache from previous sync (enables incremental OCR)
  * @param onProgress - Progress callback
- * @returns Object with markdown content and updated page cache, or null if no .rm files found
  */
-async function processNotebookWithOCR(
+export async function processNotebookContent(
   notebookDir: string,
   notebookName: string,
   anthropicApiKey: string | null | undefined,
   existingCache?: Record<string, PageOCRCacheEntry>,
   onProgress?: (update: SyncProgressUpdate) => void,
   signal?: AbortSignal
-): Promise<{ markdown: string; pageOCRCache: Record<string, PageOCRCacheEntry> } | null> {
-  console.log(`[OCR] processNotebookWithOCR called for "${notebookName}" at ${notebookDir}`)
-
-  if (!isOCRConfigured()) {
-    console.log(`[OCR] Skipping - not configured`)
-    onProgress?.({ message: `Skipping OCR for "${notebookName}" - OCR service not configured`, notebookName, phase: 'ocr' })
-    return null
-  }
-
-  if (!anthropicApiKey) {
-    console.log(`[OCR] Skipping - no Anthropic API key`)
-    onProgress?.({ message: `Skipping OCR for "${notebookName}" - please add Anthropic API key in Settings`, notebookName, phase: 'ocr' })
-    return null
-  }
+): Promise<ContentResult> {
+  const ocrAvailable = isOCRConfigured() && !!anthropicApiKey
+  console.log(`[content] processNotebookContent for "${notebookName}" (ocrAvailable=${ocrAvailable})`)
 
   try {
     // Read page order and modification timestamps from .content file
     let pageOrder: string[] = []
     const pageTimestamps: Record<string, string> = {} // bare pageId → modifed timestamp
     const files = await readdir(notebookDir, { recursive: true })
-    console.log(`[OCR] Found ${files.length} files in directory:`, files.slice(0, 10))
 
     const contentFile = files.find(f => typeof f === 'string' && f.endsWith('.content'))
     if (contentFile) {
@@ -333,9 +353,8 @@ async function processNotebookWithOCR(
           // Legacy format: pages[] as string array of UUIDs (no timestamps)
           pageOrder = contentJson.pages
         }
-        console.log(`[OCR] Page order from .content: ${pageOrder.length} pages, ${Object.keys(pageTimestamps).length} with timestamps`)
       } catch {
-        console.warn(`[OCR] Failed to parse .content file, falling back to alphabetical`)
+        console.warn(`[content] Failed to parse .content file, falling back to alphabetical`)
       }
     }
     const hasTimestamps = Object.keys(pageTimestamps).length > 0
@@ -356,23 +375,20 @@ async function processNotebookWithOCR(
       rmFiles.sort()
     }
 
-    console.log(`[OCR] Found ${rmFiles.length} .rm files`)
-
     if (rmFiles.length === 0) {
-      console.log(`[OCR] No .rm files found`)
-      onProgress?.({ message: `No .rm files found in "${notebookName}"`, notebookName, phase: 'ocr' })
-      return null
+      console.log(`[content] No .rm files found in "${notebookName}"`)
+      // Nothing to transcribe — graceful skip, not a failure.
+      return { markdown: null, isFailure: false }
     }
 
-    // Determine which pages need OCR — use modifed timestamps if available, else hash .rm bytes
+    const pageMarkdown: Record<string, string> = {} // final markdown per pageId
+    const pageKind: Record<string, 'typed' | 'ocr' | 'empty'> = {}
     const pagesToOCR: Array<{ id: string; data: Buffer }> = []
-    const pageHashes: Record<string, string> = {} // pageId → rmHash (computed on demand)
-    const cachedPages: Record<string, PageOCRCacheEntry> = {}
+    const pageHashes: Record<string, string> = {} // pageId → rmHash
+    const newCache: Record<string, PageOCRCacheEntry> = {}
     const allPageIds: string[] = []
-    // pageId → bareId lookup so the cache-write loop below doesn't have to
-    // re-derive bareId from pageId via regex (the earlier `page.id.replace(/.*_/, '')`
-    // trick assumed bareId contains no underscores — true today for
-    // reMarkable UUIDs but fragile).
+    // pageId → bareId lookup (bareId = the page UUID without directory prefix),
+    // used to key the .content timestamp map for the OCR cache.
     const bareIdByPageId: Record<string, string> = {}
 
     for (const rmFile of rmFiles) {
@@ -381,76 +397,78 @@ async function processNotebookWithOCR(
       const bareId = rmFile.replace('.rm', '').replace(/.*\//, '')
       allPageIds.push(pageId)
       bareIdByPageId[pageId] = bareId
-      const cached = existingCache?.[pageId]
 
-      let hashCheckBuffer: Buffer | undefined
-      if (cached) {
-        // Try timestamp comparison first (fast, no file I/O)
-        const currentTimestamp = pageTimestamps[bareId]
-        if (hasTimestamps && cached.modified && currentTimestamp === cached.modified) {
-          cachedPages[pageId] = cached
-          console.log(`[OCR] Cache hit for page ${bareId.slice(0, 8)} (timestamp match)`)
-          continue
-        }
-        // Fallback: hash comparison (requires reading the file)
-        if (cached.rmHash) {
-          hashCheckBuffer = await readFile(filePath)
-          const rmHash = createHash('sha256').update(hashCheckBuffer).digest('hex')
-          pageHashes[pageId] = rmHash
-          if (rmHash === cached.rmHash) {
-            cachedPages[pageId] = cached
-            console.log(`[OCR] Cache hit for page ${bareId.slice(0, 8)} (hash match)`)
-            continue
-          }
-        }
+      // Always read + parse each page: typed-text extraction is local and cheap,
+      // and must run every sync (the OCR cache can hold stale blank results for
+      // typed pages synced before typed-text support existed). The OCR cache is
+      // still consulted below to avoid repeat OCR API calls for stroke pages.
+      const fileData = await readFile(filePath)
+      pageHashes[pageId] = createHash('sha256').update(fileData).digest('hex')
+      const parsed = parseRmPageForText(fileData)
+
+      if (parsed.hasTypedText) {
+        // Typed text wins for this page — no OCR, even if strokes are present.
+        pageKind[pageId] = 'typed'
+        pageMarkdown[pageId] = paragraphsToMarkdown(parsed.paragraphs)
+        continue
       }
 
-      // Page is new or changed — needs OCR. Reuse hashCheckBuffer if we already
-      // read the file for hash comparison; otherwise read it now.
-      const fileData = hashCheckBuffer ?? await readFile(filePath)
-      if (!pageHashes[pageId]) pageHashes[pageId] = createHash('sha256').update(fileData).digest('hex')
-      console.log(`[OCR] ${cached ? 'Changed' : 'New'} page ${bareId.slice(0, 8)}: ${fileData.length} bytes`)
-      pagesToOCR.push({ id: pageId, data: fileData })
+      if (!parsed.hasStrokes) {
+        // Empty page — neither typed text nor strokes.
+        pageKind[pageId] = 'empty'
+        pageMarkdown[pageId] = ''
+        continue
+      }
+
+      // Stroke page → OCR, reusing the per-page cache when the content is unchanged.
+      pageKind[pageId] = 'ocr'
+      const cached = existingCache?.[pageId]
+      if (cached) {
+        const currentTimestamp = pageTimestamps[bareId]
+        const timestampHit = !!(hasTimestamps && cached.modified && currentTimestamp === cached.modified)
+        const hashHit = !!(cached.rmHash && cached.rmHash === pageHashes[pageId])
+        if (timestampHit || hashHit) {
+          newCache[pageId] = cached
+          pageMarkdown[pageId] = cached.markdown
+          continue
+        }
+      }
+      // New/changed stroke page — OCR it if the service is available; otherwise
+      // leave it blank (graceful — the notebook still shows any typed content).
+      if (ocrAvailable) {
+        pagesToOCR.push({ id: pageId, data: fileData })
+      } else {
+        pageMarkdown[pageId] = ''
+      }
     }
 
-    const cachedCount = Object.keys(cachedPages).length
-    const totalPages = rmFiles.length
-    console.log(`[OCR] ${cachedCount} cached, ${pagesToOCR.length} need OCR out of ${totalPages} total`)
-
-    if (pagesToOCR.length === 0) {
-      onProgress?.({ message: `All ${totalPages} pages cached for "${notebookName}"`, notebookName, phase: 'ocr' })
-    } else if (cachedCount > 0) {
-      onProgress?.({ message: `OCR: ${pagesToOCR.length} changed, ${cachedCount} cached — "${notebookName}"`, notebookName, phase: 'ocr' })
-    } else {
-      onProgress?.({ message: `OCR: processing ${totalPages} pages — "${notebookName}"`, notebookName, phase: 'ocr' })
-    }
-
-    // OCR only the changed/new pages
-    const newCache: Record<string, PageOCRCacheEntry> = { ...cachedPages }
-    let ocrResults: Array<{ id: string; markdown: string; confidence: number }> = []
-    // Pages OCR couldn't transcribe this run. extractTextBatched now degrades
-    // gracefully (a failed batch retries page-by-page), so these are the pages
-    // that failed even in isolation — marked inline so the notebook documents
-    // its own gaps instead of silently dropping content.
-    const failedPageIds = new Set<string>()
+    const typedCount = allPageIds.filter(id => pageKind[id] === 'typed' && (pageMarkdown[id] ?? '').trim() !== '').length
+    const strokePageCount = allPageIds.filter(id => pageKind[id] === 'ocr').length
+    const cachedStrokeCount = strokePageCount - pagesToOCR.length
 
     if (pagesToOCR.length > 0) {
-      console.log(`[OCR] Calling extractTextBatched with ${pagesToOCR.length} pages`)
+      onProgress?.({ message: `OCR: ${pagesToOCR.length} handwritten page(s) — "${notebookName}"`, notebookName, phase: 'ocr' })
+    } else if (typedCount > 0) {
+      onProgress?.({ message: `Extracting text — "${notebookName}"`, notebookName, phase: 'extracting' })
+    }
+
+    // OCR the stroke pages that need it. extractTextBatched degrades gracefully
+    // (a failed batch retries page-by-page); failedPageIds are pages that failed
+    // even in isolation, marked inline so the gap is visible and recoverable.
+    let ocrResults: Array<{ id: string; markdown: string; confidence: number }> = []
+    const failedPageIds = new Set<string>()
+
+    if (pagesToOCR.length > 0 && anthropicApiKey) {
       const result = await extractTextBatched(pagesToOCR, anthropicApiKey, (processed, total) => {
-        console.log(`[OCR] Progress: ${processed}/${total}`)
         onProgress?.({ message: `OCR: page ${processed} of ${pagesToOCR.length} — "${notebookName}"`, notebookName, current: processed, total, phase: 'ocr' })
       }, signal)
-      console.log(`[OCR] extractTextBatched returned: pages=${result.pages.length}, failed=${result.failedPages.length}`)
 
       if (result.failedPages.length > 0) {
-        console.log(`[OCR] Failed pages:`, result.failedPages)
         for (const id of result.failedPages) failedPageIds.add(id)
         onProgress?.({ message: `Warning: ${result.failedPages.length} pages failed OCR`, notebookName, phase: 'ocr' })
       }
 
       ocrResults = result.pages
-
-      // Update cache with fresh OCR results
       for (const page of result.pages) {
         const bareId = bareIdByPageId[page.id]
         newCache[page.id] = {
@@ -459,44 +477,45 @@ async function processNotebookWithOCR(
           markdown: page.markdown,
           confidence: page.confidence
         }
+        pageMarkdown[page.id] = page.markdown
       }
 
-      // Total failure: we attempted pages this run, every one failed, and there
-      // is no cached content from a prior sync to fall back on. Return null so
-      // the caller stamps the OCR-failure sentinel (warning icon + Retry Sync).
-      // A PARTIAL failure (some pages succeeded) falls through and saves a
-      // usable notebook below — a notebook with one gap beats no notebook.
-      if (ocrResults.length === 0 && Object.keys(cachedPages).length === 0) {
-        console.warn(`[OCR] All ${pagesToOCR.length} pages failed for "${notebookName}" — treating as OCR failure`)
+      // Total OCR failure: we attempted OCR, every page failed, and there is no
+      // cached OCR content and no typed text to fall back on. Signal a failure
+      // so the caller stamps the retry sentinel. A partial failure falls through
+      // and saves a usable notebook (a gap beats no notebook).
+      if (ocrResults.length === 0 && cachedStrokeCount === 0 && typedCount === 0) {
+        console.warn(`[content] All ${pagesToOCR.length} OCR pages failed for "${notebookName}"`)
         onProgress?.({ message: `OCR failed for all pages of "${notebookName}"`, notebookName, phase: 'ocr' })
-        return null
+        return { markdown: null, isFailure: true }
       }
     }
 
-    // Assemble all pages in order — merge cached and fresh results
-    const orderedPages = allPageIds.map(pageId => {
-      const cached = newCache[pageId]
-      if (cached) return { id: pageId, markdown: cached.markdown, confidence: cached.confidence }
-      // Fallback: page was in OCR results (matched by id)
-      const fresh = ocrResults.find(r => r.id === pageId)
-      return fresh || { id: pageId, markdown: '', confidence: 0 }
-    })
+    // Classify how content was derived. Computed BEFORE the no-content check so a
+    // graceful skip persists it too — otherwise an unchanged handwriting notebook
+    // (OCR unconfigured) would be re-read and re-parsed on every sync, since its
+    // metadata would never record an extraction outcome.
+    const extraction: 'typed-text' | 'ocr' | 'mixed' =
+      typedCount > 0 && strokePageCount > 0 ? 'mixed'
+        : typedCount > 0 ? 'typed-text'
+          : 'ocr'
 
-    console.log(`[OCR] Ordered ${orderedPages.length} pages`)
+    // No content at all (no typed text and no OCR output) — graceful skip, not a
+    // failure. e.g. a handwriting notebook synced while OCR is unconfigured.
+    const anyContent = allPageIds.some(id => (pageMarkdown[id] ?? '').trim() !== '')
+    if (!anyContent) {
+      return { markdown: null, isFailure: false, extraction }
+    }
 
-    // Combine all markdown with page separators. Pages OCR couldn't transcribe
-    // get a visible placeholder so the gap is obvious and recoverable (Retry
-    // Sync re-attempts), rather than rendering as a silently blank page.
-    const markdownParts = orderedPages.map((page, index) => {
-      const pageHeader = orderedPages.length > 1 ? `<!-- Page ${index + 1} -->\n\n` : ''
-      const body = failedPageIds.has(page.id)
+    // Assemble all pages in order.
+    const markdownParts = allPageIds.map((pageId, index) => {
+      const pageHeader = allPageIds.length > 1 ? `<!-- Page ${index + 1} -->\n\n` : ''
+      const body = failedPageIds.has(pageId)
         ? '*[This page could not be transcribed. Use “Retry Sync” to try again.]*'
-        : page.markdown
+        : (pageMarkdown[pageId] ?? '')
       return pageHeader + body
     })
-
     const combinedMarkdown = markdownParts.join('\n\n---\n\n')
-    console.log(`[OCR] Combined markdown length: ${combinedMarkdown.length}`)
 
     // Add metadata header. Notebook names come from the reMarkable cloud and
     // can contain colons, newlines, or quotes — values that would malform an
@@ -506,18 +525,19 @@ async function processNotebookWithOCR(
     const header = `---
 title: ${yamlDoubleQuote(notebookName)}
 source: reMarkable
-pages: ${orderedPages.length}
+pages: ${allPageIds.length}
+extraction: ${extraction}
 extracted: ${new Date().toISOString()}
 ---
 
 `
 
-    return { markdown: header + combinedMarkdown, pageOCRCache: newCache }
+    return { markdown: header + combinedMarkdown, pageOCRCache: newCache, extraction }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
-    console.error(`[OCR] Error processing "${notebookName}":`, error)
-    onProgress?.({ message: `OCR failed for "${notebookName}": ${message}`, notebookName, phase: 'ocr' })
-    return null
+    console.error(`[content] Error processing "${notebookName}":`, error)
+    onProgress?.({ message: `Sync failed for "${notebookName}": ${message}`, notebookName, phase: 'ocr' })
+    return { markdown: null, isFailure: true }
   }
 }
 
@@ -663,10 +683,24 @@ export async function syncAll(
       const failedAtMs = failedAt ? Date.parse(failedAt) : 0
       const failureIsFresh = failedAtMs > 0 && (Date.now() - failedAtMs) < FAIL_RETRY_AFTER_MS
       const ocrPreviouslyFailed = existingEntry?.ocrAttempt?.hash === doc.hash && failureIsFresh
-      const needsOCR = doc.fileType === 'notebook' && isOCRConfigured() && !existingEntry?.ocrPath && !ocrPreviouslyFailed
-      console.log(`[reMarkable] ${doc.name}: needsDownload=${needsDownload}, needsOCR=${needsOCR}, localFilesExist=${localFilesExist}, zipExists=${zipExists}`)
+      // A notebook needs content extraction when it has no recorded extraction
+      // outcome yet — it's new, or predates typed-text support (a one-time heal so
+      // already-synced typed docs with empty bodies fill in). Typed-text extraction
+      // needs no OCR service, so this does NOT gate on isOCRConfigured().
+      //
+      // The second clause re-triggers a handwriting notebook that was gracefully
+      // skipped while OCR was unconfigured (extraction:'ocr' recorded, but no
+      // ocrPath) once OCR later becomes available — otherwise it would never get
+      // transcribed. A content change re-triggers everything anyway via needsDownload.
+      // Recording the outcome (even on a skip) is what stops an unchanged handwriting
+      // notebook from being re-parsed on every sync.
+      const needsExtraction = doc.fileType === 'notebook' && !ocrPreviouslyFailed && (
+        existingEntry?.extraction === undefined ||
+        (!existingEntry?.ocrPath && existingEntry?.extraction === 'ocr' && isOCRConfigured())
+      )
+      console.log(`[reMarkable] ${doc.name}: needsDownload=${needsDownload}, needsExtraction=${needsExtraction}, localFilesExist=${localFilesExist}, zipExists=${zipExists}`)
 
-      if (!needsDownload && !needsOCR) {
+      if (!needsDownload && !needsExtraction) {
         result.skipped++
         // Carry the existing entry into newMeta so it survives the final
         // sync-metadata.json write at the end of syncAll. No incremental
@@ -682,37 +716,43 @@ export async function syncAll(
       // Only show sync indicator for notebooks that actually need work
       onProgress?.({ message: `Syncing ${idx}/${totalToSync}: ${doc.name}`, notebookId: doc.id, notebookName: doc.name, current: idx, total: totalToSync, phase: 'downloading' })
 
-      // Helper: run OCR and return ocrPath + page cache + freshSucceeded.
+      // Helper: derive content (typed text and/or OCR) and return ocrPath +
+      // page cache + freshSucceeded + isFailure + extraction.
       //
-      // freshSucceeded specifically reports whether the THIS-sync OCR call
-      // produced a new markdown file. ocrPath, by contrast, may be populated
-      // by the stale-file fallback below — so callers must check
-      // freshSucceeded (not ocrPath) when deciding whether to set the
-      // ocrAttempt failure sentinel. Otherwise the fallback silently masks
-      // OCR failures: the UI keeps showing stale content as if everything is
-      // fine, and the user has no idea fresh OCR failed.
-      async function runOCR(sourceDir: string): Promise<{ ocrPath?: string; pageOCRCache?: Record<string, PageOCRCacheEntry>; freshSucceeded: boolean }> {
+      // freshSucceeded reports whether THIS sync produced a new markdown file.
+      // ocrPath may instead be populated by the stale-file fallback below, so
+      // callers key the retry sentinel off isFailure (a genuine OCR failure),
+      // not ocrPath — otherwise the fallback would silently mask failures.
+      async function runExtraction(sourceDir: string): Promise<{
+        ocrPath?: string
+        pageOCRCache?: Record<string, PageOCRCacheEntry>
+        freshSucceeded: boolean
+        isFailure: boolean
+        extraction?: 'typed-text' | 'ocr' | 'mixed'
+      }> {
         let ocrPath: string | undefined
         let pageOCRCache: Record<string, PageOCRCacheEntry> | undefined
         let freshSucceeded = false
-        console.log(`[reMarkable] Running OCR for ${doc.name} from ${sourceDir}`)
-        const ocrResult = await processNotebookWithOCR(sourceDir, doc.name, anthropicApiKey, existingEntry?.pageOCRCache, onProgress, signal)
-        console.log(`[reMarkable] OCR result for ${doc.name}: ${ocrResult ? 'got markdown' : 'null'}`)
-        if (ocrResult) {
+        console.log(`[reMarkable] Extracting content for ${doc.name} from ${sourceDir}`)
+        const result = await processNotebookContent(sourceDir, doc.name, anthropicApiKey, existingEntry?.pageOCRCache, onProgress, signal)
+        // Capture the classification even when no fresh file was written (a graceful
+        // skip) so the caller persists it and the notebook isn't re-parsed next sync.
+        let extraction: 'typed-text' | 'ocr' | 'mixed' | undefined = result.extraction
+        if (result.markdown !== null) {
           const ocrFileName = `${sanitizeName(doc.name)}.md`
           const ocrDir = join(hiddenDir, doc.id)
           const ocrFullPath = join(ocrDir, ocrFileName)
           await mkdir(ocrDir, { recursive: true })
-          await writeFile(ocrFullPath, ocrResult.markdown, 'utf-8')
+          await writeFile(ocrFullPath, result.markdown, 'utf-8')
           ocrPath = join(doc.id, ocrFileName)
-          pageOCRCache = ocrResult.pageOCRCache
+          pageOCRCache = result.pageOCRCache
           freshSucceeded = true
-          onProgress?.({ message: `Saved OCR: ${ocrPath}`, notebookName: doc.name, phase: 'ocr' })
+          onProgress?.({ message: `Saved: ${ocrPath}`, notebookName: doc.name, phase: 'notebook-done' })
         }
-        // Fallback: keep referencing the existing on-disk OCR file so the
-        // user can still read what was successfully transcribed previously.
-        // This intentionally does NOT flip freshSucceeded — the sentinel
-        // tracks the most recent fresh attempt, independent of stale content.
+        // Fallback: keep referencing the existing on-disk file so the user can
+        // still read what was extracted previously. Does NOT flip freshSucceeded
+        // — the sentinel tracks the most recent fresh attempt, independent of
+        // stale content.
         if (!ocrPath) {
           const ocrFileName = `${sanitizeName(doc.name)}.md`
           const existingOcrFile = join(hiddenDir, doc.id, ocrFileName)
@@ -720,27 +760,30 @@ export async function syncAll(
             await access(existingOcrFile)
             ocrPath = join(doc.id, ocrFileName)
             pageOCRCache = existingEntry?.pageOCRCache
-            console.log(`[reMarkable] Reusing existing OCR file: ${ocrPath}`)
+            extraction = existingEntry?.extraction ?? result.extraction
+            console.log(`[reMarkable] Reusing existing content file: ${ocrPath}`)
           } catch {
             // No existing file on disk either
           }
         }
-        return { ocrPath, pageOCRCache, freshSucceeded }
+        const isFailure = result.markdown === null ? result.isFailure : false
+        return { ocrPath, pageOCRCache, freshSucceeded, isFailure, extraction }
       }
 
-      // OCR-only path: hash matches, local files exist, just need OCR
-      if (!needsDownload && needsOCR) {
-        console.log(`[reMarkable] OCR-only path for ${doc.name}`)
-        onProgress?.({ message: `Processing OCR for existing notebook: ${doc.name}`, notebookName: doc.name, phase: 'ocr' })
-        const { ocrPath, pageOCRCache, freshSucceeded } = await runOCR(notebookDir)
+      // Extraction-only path: hash matches, local files exist, just (re)derive content
+      if (!needsDownload && needsExtraction) {
+        console.log(`[reMarkable] Extraction-only path for ${doc.name}`)
+        onProgress?.({ message: `Processing existing notebook: ${doc.name}`, notebookName: doc.name, phase: 'extracting' })
+        const { ocrPath, pageOCRCache, isFailure, extraction } = await runExtraction(notebookDir)
         newMeta.notebooks[doc.id] = {
           ...existingEntry!,
           ocrPath,
           pageOCRCache,
+          extraction: extraction ?? existingEntry?.extraction,
           markdownPath: existingEntry?.markdownPath,
-          // Sentinel keys off freshSucceeded, NOT ocrPath: ocrPath may be the
-          // stale-fallback path even when this sync's OCR call failed.
-          ocrAttempt: freshSucceeded ? undefined : { hash: doc.hash, failedAt: new Date().toISOString() }
+          // Sentinel fires only on a genuine OCR failure (isFailure), never on a
+          // graceful skip; a successful extraction clears any prior sentinel.
+          ocrAttempt: isFailure ? { hash: doc.hash, failedAt: new Date().toISOString() } : undefined
         }
         result.synced++
         const done = ++finished
@@ -785,15 +828,17 @@ export async function syncAll(
       // the extracted files are on disk, the zip is dead weight.
       await rm(zipPath, { force: true })
 
-      // OCR for handwritten notebooks
+      // Derive content (typed text and/or OCR) for notebooks.
       let ocrPath: string | undefined
       let pageOCRCache: Record<string, PageOCRCacheEntry> | undefined
-      let ocrFreshSucceeded = false
+      let extraction: 'typed-text' | 'ocr' | 'mixed' | undefined
+      let extractionFailed = false
       if (doc.fileType === 'notebook') {
-        const ocrResult = await runOCR(notebookDir)
-        ocrPath = ocrResult.ocrPath
-        pageOCRCache = ocrResult.pageOCRCache
-        ocrFreshSucceeded = ocrResult.freshSucceeded
+        const contentResult = await runExtraction(notebookDir)
+        ocrPath = contentResult.ocrPath
+        pageOCRCache = contentResult.pageOCRCache
+        extraction = contentResult.extraction
+        extractionFailed = contentResult.isFailure
       }
 
       newMeta.notebooks[doc.id] = {
@@ -807,18 +852,18 @@ export async function syncAll(
         localPath: join(HIDDEN_DIR, doc.hash),
         ocrPath,
         pageOCRCache,
+        extraction: extraction ?? existingEntry?.extraction,
         markdownPath: existingEntry?.markdownPath,
-        // Matches the OCR-only path above: on successful OCR (or when OCR
-        // isn't applicable to this file type) clear any prior sentinel; on
-        // OCR failure for a notebook, stamp a new sentinel with the current
-        // hash. Keys off ocrFreshSucceeded, NOT ocrPath — ocrPath can come
-        // from the stale-file fallback even when this sync's OCR failed.
+        // Sentinel fires only on a genuine OCR failure for a notebook; a
+        // graceful skip, a successful extraction, or a non-notebook file type
+        // all clear it. Keys off extractionFailed, NOT ocrPath — ocrPath can
+        // come from the stale-file fallback even when this sync's OCR failed.
         // The explicit `undefined` on success deliberately overrides any
         // ocrAttempt carried in by the existingEntry spread; JSON.stringify
         // then drops the key.
-        ocrAttempt: doc.fileType !== 'notebook' || ocrFreshSucceeded
-          ? undefined
-          : { hash: doc.hash, failedAt: new Date().toISOString() }
+        ocrAttempt: doc.fileType === 'notebook' && extractionFailed
+          ? { hash: doc.hash, failedAt: new Date().toISOString() }
+          : undefined
       }
 
       result.synced++
@@ -1176,12 +1221,12 @@ export async function clearNotebookMarkdownPath(
  *
  * Why both fields: syncOneNotebook short-circuits as "skipped" when the hash
  * matches AND `existingEntry.ocrPath` is populated. After a failed OCR the
- * stale-fallback in runOCR may have set ocrPath to point at a previously-
+ * stale-fallback in runExtraction may have set ocrPath to point at a previously-
  * transcribed file from an older hash, so leaving ocrPath alone would let
  * the retry skip without doing anything — flipping the UI from "failed" to
  * a fake "success" backed by stale text.
  *
- * Clearing ocrPath is safe: the on-disk file isn't deleted, and runOCR's
+ * Clearing ocrPath is safe: the on-disk file isn't deleted, and runExtraction's
  * stale-fallback re-discovers it via filesystem access if the retry also
  * fails. So the worst case (retry still broken) lands back at exactly the
  * same observable state as before retry.

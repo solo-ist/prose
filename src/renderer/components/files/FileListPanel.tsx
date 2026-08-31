@@ -1044,17 +1044,15 @@ export function FileListPanel() {
   const handleNotebookClick = async (notebook: RemarkableNotebookMetadata, notebookId: string) => {
     if (!syncDirectory || !window.api) return
 
-    // ALWAYS open OCR in read-only mode from Notebooks panel
-    // Even if editable version exists, show the cloud state here
-    // The File Explorer is where users edit their files
+    // Open the reMarkable OCR/typed-text output in its OWN tab, read-only. Routing
+    // through the tab system (not openFileFromPath) gives each notebook a distinct
+    // tab so several can be open at once, and read-only state is derived from the
+    // hidden `.remarkable/` path — so it survives tab switches and the hidden source
+    // file can never be opened as editable (a sync would overwrite edits anyway).
     if (notebook.ocrPath) {
       const ocrFullPath = await window.api.remarkableGetOCRPath(notebookId, syncDirectory)
       if (ocrFullPath) {
-        selectFile(ocrFullPath)
-        // Set read-only mode with notebook ID for later transform
-        useEditorStore.getState().setRemarkableReadOnly(true, notebookId)
-        // Pass true for isRemarkableOCR so openFileFromPath doesn't clear read-only state
-        const shouldDescribe = await openFileFromPath(ocrFullPath, true)
+        const shouldDescribe = await openFileInTab(ocrFullPath)
         if (shouldDescribe) {
           const { document } = useEditorStore.getState()
           useSummaryStore.getState().generateSummary(document.documentId, document.content)
@@ -1118,6 +1116,9 @@ export function FileListPanel() {
         const localMeta = notebookMetadata?.notebooks?.[notebookId] ?? null
         const hasOCR = !!localMeta?.ocrPath
         const hasEditable = !!localMeta?.markdownPath
+        // How the read-only content was derived, so the tooltip can say "typed
+        // text" rather than "OCR" for keyboard (Type Folio) documents.
+        const extraction = localMeta?.extraction
         // OCR failed AND the failed-against hash matches the current hash —
         // i.e. the sentinel still applies. If the user edits the page on the
         // tablet, hash changes and the sentinel no longer matches, so retry
@@ -1155,8 +1156,12 @@ export function FileListPanel() {
                         : hasEditable
                           ? `${item.name} (editable)`
                           : hasOCR
-                            ? `${item.name} (read-only OCR - click to view)`
-                            : `${item.name} (synced, processing OCR...)`
+                            ? extraction === 'typed-text'
+                              ? `${item.name} (typed text - read-only)`
+                              : extraction === 'mixed'
+                                ? `${item.name} (typed text + OCR - read-only)`
+                                : `${item.name} (read-only OCR - click to view)`
+                            : `${item.name} (synced, processing...)`
                   }
                   disabled={!isSynced || !isClickable}
                 >

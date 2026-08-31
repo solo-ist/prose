@@ -1,0 +1,16 @@
+{
+  "name": "prose-sse-proof-spike",
+  "version": "0.0.1",
+  "description": "Throwaway spike: prove Anthropic SSE streams through Hono streamSSE",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start:mock": "node mock-upstream.mjs",
+    "start:gateway": "node gateway.mjs",
+    "test": "node test-client.mjs"
+  },
+  "dependencies": {
+    "@hono/node-server": ">=1.19.13",
+    "hono": ">=4.12.23"
+  }
+}

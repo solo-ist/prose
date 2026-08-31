@@ -53,13 +53,8 @@ import {
 // UI-coordination executors
 import { executeRequestModeSwitch } from './executors/ui'
 
-/** Provenance context for AI-generated content tracking */
-export interface ToolProvenance {
-  model: string
-  conversationId: string
-  messageId: string
-  documentId: string
-}
+import type { ToolProvenance } from './provenanceTypes'
+export type { ToolProvenance } from './provenanceTypes'
 
 /**
  * Execute a tool by name with the given arguments.

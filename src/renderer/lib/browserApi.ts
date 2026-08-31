@@ -478,6 +478,20 @@ export const browserApi: ElectronAPI = {
   googleUpdateSyncMetadataEntry: async () => {},
   googleRemoveSyncMetadataEntry: async () => {},
 
+  // Share service (#768) - not available in browser mode until the web
+  // gateway client lands (#766); the desktop main process owns publish today.
+  shareAuthStatus: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  shareRequestSignIn: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  shareCompleteSignIn: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  shareSignOut: async () => ({ ok: true as const }),
+  sharePublish: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  shareRepublish: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  shareRevoke: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  shareList: async () => ({ ok: true as const, entries: [] }),
+  shareGetForPath: async () => ({ ok: true as const, entries: [] }),
+  shareComments: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  shareUpdateLocalPath: async () => ({ ok: true as const, touched: 0 }),
+
   // Emoji generation - not available in browser (CORS blocks Anthropic)
   emojiGenerate: async (_title: string, _contentPreview?: string) => ({ emoji: null, error: 'Not available in browser mode' }),
 

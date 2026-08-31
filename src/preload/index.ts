@@ -295,6 +295,18 @@ export interface ElectronAPI {
   googleGetSyncMetadata: () => Promise<GoogleSyncMetadata | null>
   googleUpdateSyncMetadataEntry: (entry: GoogleDocEntry) => Promise<void>
   googleRemoveSyncMetadataEntry: (googleDocId: string) => Promise<void>
+  // Share service (#768) — result shapes defined in renderer types (ShareOp/ShareEntry/SharePulledComment)
+  shareAuthStatus: () => Promise<unknown>
+  shareRequestSignIn: (email: string) => Promise<unknown>
+  shareCompleteSignIn: (magicUrl: string) => Promise<unknown>
+  shareSignOut: () => Promise<unknown>
+  sharePublish: (args: { title: string; html: string; localPath: string; documentId: string }) => Promise<unknown>
+  shareRepublish: (args: { publicationId: string; title: string; html: string }) => Promise<unknown>
+  shareRevoke: (publicationId: string) => Promise<unknown>
+  shareList: () => Promise<unknown>
+  shareGetForPath: (localPath: string) => Promise<unknown>
+  shareComments: (publicationId: string) => Promise<unknown>
+  shareUpdateLocalPath: (oldPath: string, newPath: string, newDocumentId: string) => Promise<unknown>
   // MCP Server integration
   mcpGetStatus: () => Promise<McpServerStatus>
   mcpInstall: () => Promise<McpInstallResult>
@@ -584,6 +596,21 @@ const api: ElectronAPI = {
   googleGetSyncMetadata: () => ipcRenderer.invoke('google:getSyncMetadata'),
   googleUpdateSyncMetadataEntry: (entry: GoogleDocEntry) => ipcRenderer.invoke('google:updateSyncMetadataEntry', entry),
   googleRemoveSyncMetadataEntry: (googleDocId: string) => ipcRenderer.invoke('google:removeSyncMetadataEntry', googleDocId),
+  // Share service (#768)
+  shareAuthStatus: () => ipcRenderer.invoke('share:authStatus'),
+  shareRequestSignIn: (email: string) => ipcRenderer.invoke('share:requestSignIn', email),
+  shareCompleteSignIn: (magicUrl: string) => ipcRenderer.invoke('share:completeSignIn', magicUrl),
+  shareSignOut: () => ipcRenderer.invoke('share:signOut'),
+  sharePublish: (args: { title: string; html: string; localPath: string; documentId: string }) =>
+    ipcRenderer.invoke('share:publish', args),
+  shareRepublish: (args: { publicationId: string; title: string; html: string }) =>
+    ipcRenderer.invoke('share:republish', args),
+  shareRevoke: (publicationId: string) => ipcRenderer.invoke('share:revoke', publicationId),
+  shareList: () => ipcRenderer.invoke('share:list'),
+  shareGetForPath: (localPath: string) => ipcRenderer.invoke('share:getForPath', localPath),
+  shareComments: (publicationId: string) => ipcRenderer.invoke('share:comments', publicationId),
+  shareUpdateLocalPath: (oldPath: string, newPath: string, newDocumentId: string) =>
+    ipcRenderer.invoke('share:updateLocalPath', oldPath, newPath, newDocumentId),
   // MCP Server integration
   mcpGetStatus: () => ipcRenderer.invoke('mcp:getStatus'),
   mcpInstall: () => ipcRenderer.invoke('mcp:install'),

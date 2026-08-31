@@ -1692,6 +1692,83 @@ export function setupIpcHandlers(): void {
     await removeGoogleSyncMetadataEntry(googleDocId)
   })
 
+  // --- Share (#768): publish/re-publish/revoke + interim gateway sign-in ---
+  // Gated in the renderer by the webPlatform flag (force-off on MAS); the
+  // MAS guard here is belt-and-braces, mirroring google:startAuth.
+
+  ipcMain.handle('share:authStatus', async () => {
+    const share = await import('./share/index')
+    return share.authStatus()
+  })
+
+  ipcMain.handle('share:requestSignIn', async (_event, email: string) => {
+    if (IS_MAS_BUILD) {
+      return { ok: false, error: 'Sharing is not available in the Mac App Store version.' }
+    }
+    const share = await import('./share/index')
+    return share.requestSignIn(String(email ?? ''))
+  })
+
+  ipcMain.handle('share:completeSignIn', async (_event, magicUrl: string) => {
+    if (IS_MAS_BUILD) {
+      return { ok: false, error: 'Sharing is not available in the Mac App Store version.' }
+    }
+    const share = await import('./share/index')
+    return share.completeSignIn(String(magicUrl ?? ''))
+  })
+
+  ipcMain.handle('share:signOut', async () => {
+    const share = await import('./share/index')
+    return share.signOut()
+  })
+
+  ipcMain.handle(
+    'share:publish',
+    async (_event, args: { title: string; html: string; localPath: string; documentId: string }) => {
+      if (IS_MAS_BUILD) {
+        return { ok: false, error: 'Sharing is not available in the Mac App Store version.' }
+      }
+      const share = await import('./share/index')
+      return share.publish(args)
+    }
+  )
+
+  ipcMain.handle(
+    'share:republish',
+    async (_event, args: { publicationId: string; title: string; html: string }) => {
+      const share = await import('./share/index')
+      return share.republish(args)
+    }
+  )
+
+  ipcMain.handle('share:revoke', async (_event, publicationId: string) => {
+    const share = await import('./share/index')
+    return share.revoke(String(publicationId ?? ''))
+  })
+
+  ipcMain.handle('share:list', async () => {
+    const share = await import('./share/index')
+    return share.list()
+  })
+
+  ipcMain.handle('share:getForPath', async (_event, localPath: string) => {
+    const share = await import('./share/index')
+    return share.getForPath(String(localPath ?? ''))
+  })
+
+  ipcMain.handle('share:comments', async (_event, publicationId: string) => {
+    const share = await import('./share/index')
+    return share.fetchAllComments(String(publicationId ?? ''))
+  })
+
+  ipcMain.handle(
+    'share:updateLocalPath',
+    async (_event, oldPath: string, newPath: string, newDocumentId: string) => {
+      const share = await import('./share/index')
+      return share.renamedLocalPath(String(oldPath ?? ''), String(newPath ?? ''), String(newDocumentId ?? ''))
+    }
+  )
+
   // MCP: Get installation status
   ipcMain.handle('mcp:getStatus', async (): Promise<{
     installed: boolean

@@ -148,6 +148,15 @@ interface SettingsBase {
    * Unknown/new item IDs append visible so upgrades never hide new menu items.
    */
   menuCustomization?: Record<string, { order: string[]; hidden: string[]; barCount?: number }>
+  /**
+   * Web platform (#768/#771): gateway connection settings. Only meaningful
+   * when featureFlags.webPlatform is on. The session credential lives in
+   * credentialStore, never here.
+   */
+  webPlatform?: {
+    /** Gateway origin; defaults to the hosted gateway when unset. */
+    gatewayUrl?: string
+  }
 }
 
 /**
@@ -513,6 +522,38 @@ export interface TestApiKeyResult {
   message: string
 }
 
+// --- Share service (#768) ---
+
+/** Uniform result envelope for share:* IPC — errors are strings, not throws. */
+export type ShareOp<T = object> = ({ ok: true } & T) | { ok: false; error: string; code?: string }
+
+/** A published share, as tracked in the local sync metadata. */
+export interface ShareEntry {
+  publicationId: string
+  shareUrl: string
+  localPath: string
+  documentId: string
+  title: string
+  publishRev: string
+  revCount: number
+  publishedAt: string
+  lastPulledAt: string | null
+  lastCommentCursor: string | null
+  revokedAt: string | null
+}
+
+/** A reviewer comment pulled from the gateway (authorEmail never included). */
+export interface SharePulledComment {
+  id: string
+  parentId: string | null
+  markedText: string
+  occurrenceIndex: number
+  commentText: string
+  authorName: string
+  publishRev: string
+  createdAt: string
+}
+
 export interface ElectronAPI {
   openFile: () => Promise<FileResult | null>
   saveFile: (path: string, content: string) => Promise<void>
@@ -621,6 +662,18 @@ export interface ElectronAPI {
   googleGetSyncMetadata: () => Promise<GoogleSyncMetadata | null>
   googleUpdateSyncMetadataEntry: (entry: GoogleDocEntry) => Promise<void>
   googleRemoveSyncMetadataEntry: (googleDocId: string) => Promise<void>
+  // Share service (#768) — publish/re-publish/revoke + interim gateway sign-in
+  shareAuthStatus: () => Promise<ShareOp<{ signedIn: boolean; email?: string; gatewayUrl: string }>>
+  shareRequestSignIn: (email: string) => Promise<ShareOp>
+  shareCompleteSignIn: (magicUrl: string) => Promise<ShareOp<{ email?: string }>>
+  shareSignOut: () => Promise<ShareOp>
+  sharePublish: (args: { title: string; html: string; localPath: string; documentId: string }) => Promise<ShareOp<{ entry: ShareEntry }>>
+  shareRepublish: (args: { publicationId: string; title: string; html: string }) => Promise<ShareOp<{ entry: ShareEntry }>>
+  shareRevoke: (publicationId: string) => Promise<ShareOp>
+  shareList: () => Promise<ShareOp<{ entries: ShareEntry[] }>>
+  shareGetForPath: (localPath: string) => Promise<ShareOp<{ entries: ShareEntry[] }>>
+  shareComments: (publicationId: string) => Promise<ShareOp<{ comments: SharePulledComment[] }>>
+  shareUpdateLocalPath: (oldPath: string, newPath: string, newDocumentId: string) => Promise<ShareOp<{ touched: number }>>
   // Emoji generation (runs in main process to avoid CORS)
   emojiGenerate: (title: string, contentPreview?: string) => Promise<{ emoji: string | null; error?: string }>
   // Window fullscreen state

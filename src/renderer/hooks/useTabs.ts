@@ -11,6 +11,7 @@ import { mergeCommentsForPersistence } from '../extensions/comments'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFileListStore } from '../stores/fileListStore'
 import { parseMarkdown, serializeMarkdown, prepareTextContent } from '../lib/markdown'
+import { getApi } from '../lib/browserApi'
 import { pipelineLog } from '../lib/aiPipelineLog'
 import { handleMissingPath, isMissingPathFileError } from '../lib/stalePath'
 import {
@@ -966,6 +967,11 @@ export function useTabs() {
           comments: comments.length,
         })
       }
+
+      // Keep share-sync metadata pointing at the renamed file (#768). Fire and
+      // forget — a miss only means the ShareDialog loses the association until
+      // the next publish.
+      void getApi().shareUpdateLocalPath(tab.path, newPath, newDocumentId).catch(() => {})
 
       // Update tab (including its documentId — the old path-derived id no
       // longer matches what a fresh open of newPath would compute)

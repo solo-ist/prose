@@ -76,7 +76,7 @@ Add these to the service, then **Save** (auto-redeploys):
 
 ### 4d. Validate (the A.5 go/no-go — no UI needed)
 Poll the deploy (`render deploys list srv-d92aeoojs32c738hi0e0 -o json` → status `live`), then against `https://prose-gateway.onrender.com`:
-1. `GET /health` → `{"ok":true,"dbStatus":"connected"}` — **this proves Prisma 7 migrate-deploy applied over Render Postgres** (the second make-or-break).
+1. `GET /health` → `{"ok":true,"service":"prose-gateway"}` — `ok:true` requires the DB ping to succeed (the #817 hardening removed `dbStatus`/`env` from the unauthenticated response; details go to logs), so **this proves Prisma 7 migrate-deploy applied over Render Postgres** (the second make-or-break).
 2. `POST /api/llm/stream` unauthenticated → **401**.
 3. `POST /api/auth/sign-in/magic-link` `{email, callbackURL:"/health"}` (header `Origin: https://prose-gateway.onrender.com`) → link printed to the service logs (`render logs -r srv-... `); complete it → session cookie.
 4. Authed but un-entitled `POST /api/llm/stream` → **403** `forbidden/ai_proxy`.

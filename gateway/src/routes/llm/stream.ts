@@ -53,6 +53,7 @@ function isValidContent(content: unknown): boolean {
   if (typeof content === 'string') return true
   return (
     Array.isArray(content) &&
+    content.length > 0 && // [] passes .every() vacuously but Anthropic rejects it
     content.every(
       (block) =>
         typeof block === 'object' &&
@@ -86,6 +87,11 @@ llmRoutes.post('/stream', async (c) => {
     : [{ role: 'user', content: 'Say hello in one sentence.' }]
   if (!messages.every((m) => VALID_ROLES.has(m?.role as string) && isValidContent(m.content))) {
     return c.json({ error: 'invalid_messages' }, 400)
+  }
+  // system must be a string — a non-string would dodge the length check
+  // (objects have no .length) and surface as an opaque upstream 400.
+  if (body.system !== undefined && typeof body.system !== 'string') {
+    return c.json({ error: 'invalid_system' }, 400)
   }
   if ((body.system?.length ?? 0) > MAX_SYSTEM_CHARS) {
     return c.json({ error: 'system_too_long', max: MAX_SYSTEM_CHARS }, 400)

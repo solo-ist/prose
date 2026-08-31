@@ -28,4 +28,4 @@ EXPOSE 4000
 
 # Migrate-on-boot: `migrate deploy` runs before serving; a failure short-circuits
 # the `&&` and the container exits non-zero (no partial-schema serving).
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
+CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && node dist/index.js"]

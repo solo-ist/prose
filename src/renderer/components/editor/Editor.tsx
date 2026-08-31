@@ -535,13 +535,16 @@ export function Editor() {
     editor.setEditable(!isRemarkableReadOnly && !isPreviewTab)
   }, [editor, isRemarkableReadOnly, isPreviewTab])
 
-  // Sync bulletListMarker setting to the tiptap-markdown extension without
-  // requiring an editor remount — the serializer reads options at call time.
+  // Sync bulletListMarker setting without requiring an editor remount.
+  // tiptap-markdown shallow-copies its options into editor.storage.markdown
+  // during onBeforeCreate, and the bullet-list serializer reads that copy at
+  // serialize time — mutating the extension's own options has no effect, so
+  // the storage copy is the object that must be updated.
   useEffect(() => {
     if (!editor) return
-    const markdownExt = editor.extensionManager.extensions.find((e) => e.name === 'markdown')
-    if (markdownExt) {
-      markdownExt.options.bulletListMarker = settings.editor.bulletListMarker ?? '-'
+    const markdownStorage = editor.storage.markdown as { options?: { bulletListMarker?: string } } | undefined
+    if (markdownStorage?.options) {
+      markdownStorage.options.bulletListMarker = settings.editor.bulletListMarker ?? '-'
     }
   }, [editor, settings.editor.bulletListMarker])
 

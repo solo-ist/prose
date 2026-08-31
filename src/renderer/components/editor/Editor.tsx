@@ -256,7 +256,7 @@ export function Editor() {
       Markdown.configure({
         html: true,
         tightLists: true,
-        bulletListMarker: '-',
+        bulletListMarker: settings.editor.bulletListMarker ?? '-',
         transformPastedText: true,
         transformCopiedText: true
       }),
@@ -548,6 +548,19 @@ export function Editor() {
     if (!editor) return
     editor.setEditable(!isRemarkableReadOnly && !isPreviewTab)
   }, [editor, isRemarkableReadOnly, isPreviewTab])
+
+  // Sync bulletListMarker setting without requiring an editor remount.
+  // tiptap-markdown shallow-copies its options into editor.storage.markdown
+  // during onBeforeCreate, and the bullet-list serializer reads that copy at
+  // serialize time — mutating the extension's own options has no effect, so
+  // the storage copy is the object that must be updated.
+  useEffect(() => {
+    if (!editor) return
+    const markdownStorage = editor.storage.markdown as { options?: { bulletListMarker?: string } } | undefined
+    if (markdownStorage?.options) {
+      markdownStorage.options.bulletListMarker = settings.editor.bulletListMarker ?? '-'
+    }
+  }, [editor, settings.editor.bulletListMarker])
 
   // Check if current file is linked to a reMarkable notebook
   useEffect(() => {

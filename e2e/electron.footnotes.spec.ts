@@ -1,15 +1,17 @@
 /**
- * Footnote round-trip fidelity (#724 / PR #750).
+ * Footnote round-trip fidelity (#724 / PR #750, #799).
  *
- * Regression guard for the silent data-loss bug where the Footnotes markdown
- * serializer used `footnote.textContent`, flattening every inline mark (bold,
- * italic, links, inline code) inside a footnote body on each save. The fix
- * renders footnote bodies through the markdown serializer (wrapBlock +
- * renderContent) so marks survive the round-trip.
+ * Regression guard for two footnote data-loss bugs:
  *
- * Negative control: revert the serializer to `footnote.textContent` and this
- * spec fails — getMarkdown() then emits the footnote body as plain text with
- * all `**`/`*`/`[...]()`/`` `...` `` markup stripped.
+ * 1. (#724 / PR #750) The Footnotes markdown serializer used `footnote.textContent`,
+ *    flattening every inline mark (bold, italic, links, inline code) inside a
+ *    footnote body on each save. Fixed by rendering through wrapBlock + renderContent.
+ *
+ * 2. (#799) Inline references (`[^1]`) were lost on markdown parse: they became
+ *    plain `link` + `superscript` marks instead of `footnoteReference` nodes.
+ *    Root cause: `normalizeMarkdownFootnotesDom` used selector `sup a.footnote-ref`
+ *    but markdown-it-footnote puts class `footnote-ref` on <sup>, not <a>. The fix
+ *    uses `sup.footnote-ref > a` and stamps `class="footnote-ref"` on the anchor.
  *
  * Isolated PROSE_USER_DATA_DIR profile so create_and_open_file writes to a temp
  * dir, never the developer's real ~/Documents.
@@ -98,6 +100,90 @@ test.describe('Electron — Footnote markdown round-trip', () => {
     expect(md).toMatch(/[*_]italic word[*_]/)
     expect(md).toContain('[hyperlink](https://example.com)')
     expect(md).toContain('`inline code`')
+  })
+})
+
+test.describe('Electron — Footnote inline reference round-trip (#799)', () => {
+  // Guards the #799 bug: the wrong CSS selector ('sup a.footnote-ref') never
+  // matched markdown-it-footnote's output, so references degraded to link+sup
+  // marks and serialized back as [<sup>\[1\]</sup>](#fn1) instead of [^1].
+
+  test('setContent with markdown produces footnoteReference node, not link+sup', async () => {
+    // Open a scratch file so the editor is active.
+    const result = await executeProseTool(page, 'create_and_open_file', {
+      filename: 'footnote-ref-probe.md',
+      content: 'placeholder',
+    })
+    expect(result.success).toBe(true)
+    await waitForEditor(page)
+
+    // Decisive isolation from the issue: call setContent with markdown directly,
+    // bypassing the source-mode toggle UI entirely.
+    const nodeTypes = await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const editor = (window as any).__prose_editor
+      editor.commands.setContent('probe[^1]\n\n[^1]: the source')
+
+      const types: Record<string, number> = {}
+      const marks: Record<string, number> = {}
+      editor.state.doc.descendants((node: { type: { name: string }; marks: { type: { name: string } }[] }) => {
+        types[node.type.name] = (types[node.type.name] ?? 0) + 1
+        node.marks.forEach((m) => {
+          marks[m.type.name] = (marks[m.type.name] ?? 0) + 1
+        })
+      })
+      return { nodeTypes: types, markTypes: marks }
+    })
+
+    // The reference must be a footnoteReference node, not a link+sup mark pair.
+    expect(nodeTypes.nodeTypes).toHaveProperty('footnoteReference')
+    expect(nodeTypes.markTypes).not.toHaveProperty('link')
+    expect(nodeTypes.markTypes).not.toHaveProperty('superscript')
+  })
+
+  test('inline reference serializes as [^1], not as HTML-link soup', async () => {
+    // Open a scratch file so the editor is active.
+    const result = await executeProseTool(page, 'create_and_open_file', {
+      filename: 'footnote-ref-serialize.md',
+      content: 'placeholder',
+    })
+    expect(result.success).toBe(true)
+    await waitForEditor(page)
+
+    await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const editor = (window as any).__prose_editor
+      editor.commands.setContent('claim[^1]\n\n[^1]: the footnote body')
+    })
+
+    const md = await getEditorMarkdown(page)
+
+    // Reference must round-trip as [^1], not as [<sup>…</sup>](#fn1) soup.
+    expect(md).toContain('[^1]')
+    expect(md).not.toContain('[<sup>')
+    expect(md).not.toContain('](#fn')
+    // Definition must also survive.
+    expect(md).toContain('[^1]:')
+  })
+
+  test('inline reference survives file load (save→reload path)', async () => {
+    // create_and_open_file writes the markdown to disk then opens it — this
+    // exercises the same parseMarkdown → setContent(markdown) path as a file
+    // reload after save, confirming the fix applies to that critical path too.
+    const result = await executeProseTool(page, 'create_and_open_file', {
+      filename: 'footnote-ref-reload.md',
+      content: 'A claim.[^1]\n\n[^1]: The supporting evidence.',
+    })
+    expect(result.success).toBe(true)
+    await waitForEditor(page)
+
+    const md = await getEditorMarkdown(page)
+
+    // Reference must survive the file-load parse as [^1], not degrade to HTML soup.
+    expect(md).toContain('[^1]')
+    expect(md).not.toContain('[<sup>')
+    expect(md).not.toContain('](#fn')
+    expect(md).toContain('[^1]:')
   })
 })
 

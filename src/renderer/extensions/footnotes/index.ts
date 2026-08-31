@@ -1,3 +1,4 @@
+import { InputRule } from '@tiptap/core'
 import Document from '@tiptap/extension-document'
 import markdownItFootnote from 'markdown-it-footnote'
 import { Footnote as BaseFootnote, FootnoteReference as BaseFootnoteReference, Footnotes as BaseFootnotes } from 'tiptap-footnotes'
@@ -61,6 +62,27 @@ export const FootnoteReference = BaseFootnoteReference.extend({
       ...this.parent?.(),
       HTMLAttributes: {},
     }
+  },
+  addInputRules() {
+    const type = this.type
+    return [
+      new InputRule({
+        // Anchor to end ($) so TipTap's range formula is always exact.
+        // The base-package rule uses unanchored /\[\^(.*?)\]/ whose
+        // range.from mis-spans by one when '[' immediately follows a word
+        // character, leaving a stray '[' in the text (#798).
+        find: /\[\^([^\]]+)\]$/,
+        handler({ state, range, match }) {
+          if (!match[1]) return null
+          const { tr } = state
+          // replaceWith atomically deletes the full [^N] text and inserts
+          // the reference node — avoiding the deleteRange + addFootnote
+          // chain that mis-placed the cursor in the abutting case.
+          tr.replaceWith(range.from, range.to, type.create({ 'data-id': crypto.randomUUID() }))
+          tr.scrollIntoView()
+        },
+      }),
+    ]
   },
   addStorage() {
     const parentStorage = this.parent?.() ?? {}

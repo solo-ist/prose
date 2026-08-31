@@ -19,7 +19,8 @@
     "dev:full": "docker compose up -d postgres && prisma migrate deploy && tsx watch src/index.ts",
     "seed:ai-proxy": "tsx scripts/seed-ai-proxy.ts",
     "mock": "node scripts/mock-upstream.mjs",
-    "test": "node scripts/test-gateway.mjs"
+    "test": "node scripts/test-gateway.mjs",
+    "test:share": "node scripts/test-share.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1077.0",

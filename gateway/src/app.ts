@@ -1,6 +1,8 @@
 /**
  * app.ts — the Hono application factory. Wiring order:
- *   secure headers → cors → Better Auth (/api/auth/*) → health → gated LLM proxy (/api/llm/*)
+ *   secure headers → cors → Better Auth (/api/auth/*) → health
+ *   → gated LLM proxy (/api/llm/*) → gated share management (/api/share/*)
+ *   → public share surface (/s/*)
  */
 import { Hono } from 'hono'
 import { secureHeaders } from 'hono/secure-headers'
@@ -9,18 +11,26 @@ import { corsMiddleware } from './middleware/cors.js'
 import { requireSession, type AppEnv } from './middleware/session.js'
 import { requireEntitlement } from './middleware/entitlement.js'
 import { rateLimit } from './middleware/rateLimit.js'
+import { ipRateLimit } from './middleware/ipRateLimit.js'
 import { auth } from './auth/index.js'
 import health from './routes/health.js'
 import { llmRoutes } from './routes/llm/stream.js'
+import { shareAuthorRoutes } from './routes/share/author.js'
+import { sharePublicRoutes } from './routes/share/public.js'
+import { MAX_ARTIFACT_BYTES } from './routes/share/common.js'
 
 export function createApp() {
   const app = new Hono<AppEnv>()
 
   // 2y HSTS (the gateway is TLS-only in every deployed environment).
+  // xFrameOptions DENY globally: API responses are never framed, and served
+  // share artifacts (#768) must not be — secureHeaders runs on unwind, so it
+  // would overwrite a weaker per-route value anyway.
   app.use(
     '*',
     secureHeaders({
       strictTransportSecurity: 'max-age=63072000; includeSubDomains',
+      xFrameOptions: 'DENY',
     })
   )
   app.use('/api/*', corsMiddleware)
@@ -47,6 +57,34 @@ export function createApp() {
     rateLimit
   )
   app.route('/api/llm', llmRoutes)
+
+  // Gated share management (#768): publish/re-publish/list/comments/revoke.
+  // The artifact ceiling covers image-fattened exports; the JSON envelope
+  // roughly doubles the raw HTML bytes.
+  app.use(
+    '/api/share/*',
+    bodyLimit({
+      maxSize: MAX_ARTIFACT_BYTES * 2,
+      onError: (c) => c.json({ error: 'body_too_large' }, 413),
+    }),
+    requireSession,
+    requireEntitlement('share_publish'),
+    rateLimit
+  )
+  app.route('/api/share', shareAuthorRoutes)
+
+  // Public share surface (#768): artifact serving + anonymous reviewer
+  // comments. No session — per-IP rate limit only (~10 comments/min).
+  // The GET is limited too (generously) to blunt token brute-forcing.
+  app.use(
+    '/s/*',
+    bodyLimit({
+      maxSize: 64 * 1024,
+      onError: (c) => c.json({ error: 'body_too_large' }, 413),
+    }),
+    ipRateLimit(60, 60)
+  )
+  app.route('/s', sharePublicRoutes)
 
   return app
 }

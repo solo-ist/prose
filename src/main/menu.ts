@@ -286,9 +286,18 @@ export function createMenu(mainWindow: BrowserWindow): void {
         // macOS normalises the ⌘+ press to ⌘= in most contexts, but not all
         // keyboard layouts / Electron builds; the hidden duplicate covers both.
         { role: 'zoomIn' as const, accelerator: 'CmdOrCtrl+Plus', visible: false },
-        { role: 'zoomOut' as const, accelerator: 'CmdOrCtrl+-' },
-        // Hidden alias for numeric-keypad minus, so numpad ⌘- also zooms out.
-        { role: 'zoomOut' as const, accelerator: 'CmdOrCtrl+numsub', visible: false },
+        // Custom item instead of the zoomOut role: on macOS the role's ⌘-
+        // key equivalent is consumed without dispatching (#806) — the click
+        // path works, the keyboard path silently eats the keystroke. An
+        // explicit handler decouples the accelerator from the role plumbing.
+        {
+          label: 'Zoom Out',
+          accelerator: 'CmdOrCtrl+-',
+          click: (): void => {
+            const wc = BrowserWindow.getFocusedWindow()?.webContents
+            if (wc) wc.setZoomLevel(wc.getZoomLevel() - 0.5)
+          }
+        },
         { type: 'separator' },
         { role: 'togglefullscreen' },
         { type: 'separator' },

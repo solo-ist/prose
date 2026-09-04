@@ -48,4 +48,11 @@ export interface CommentOptions {
   onCommentRemoved?: (id: string) => void
   onCommentResolved?: (id: string) => void
   onCommentReplied?: (id: string, reply: CommentReply) => void
+  /**
+   * Fired when setComment refuses to add a comment because the target range
+   * fully covers one or more existing comment marks (which setMark would
+   * silently replace, orphaning their threads — #830). Receives the ids of the
+   * threads that blocked the add.
+   */
+  onCommentBlocked?: (existingIds: string[]) => void
 }

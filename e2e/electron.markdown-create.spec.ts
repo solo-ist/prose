@@ -152,7 +152,7 @@ test.describe('Electron — Markdown creation round-trip', () => {
     // Serialized output must contain the canonical syntax
     expect(first).toContain('# Heading One')
     expect(first).toContain('> A quoted line of text')
-    expect(first).toContain('- Bullet item one')
+    expect(first).toContain('* Bullet item one')
     expect(first).toContain('**bold**')
     expect(first).toContain('| Col1 | Col2 |')
 

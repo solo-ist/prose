@@ -4,6 +4,8 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { useEditorInstanceStore } from '../stores/editorInstanceStore'
 import { serializeMarkdown } from '../lib/markdown'
 import { handleMissingPath, isMissingPathFileError } from '../lib/stalePath'
+import { isDiskNewerThanBaseline, notifyExternalEditConflict, recordDiskBaseline } from '../lib/diskSync'
+import { useTabStore } from '../stores/tabStore'
 
 /**
  * Hook that handles automatic saving of documents.
@@ -41,6 +43,17 @@ export function useAutosave() {
       return
     }
 
+    // External-edit guard (#843): never autosave over a file that changed on
+    // disk after our baseline — skip the write and surface the persistent
+    // conflict toast instead (a dialog from a background timer would be
+    // hostile). Re-checked on every attempt, so resolving the conflict
+    // ("Load disk version" or a manual overwrite) resumes autosave.
+    if (await isDiskNewerThanBaseline(document.path)) {
+      const tab = useTabStore.getState().tabs.find((t) => t.path === document.path)
+      if (tab) notifyExternalEditConflict(tab.id, document.path)
+      return
+    }
+
     isSavingRef.current = true
     setAutosaving(true)
 
@@ -53,6 +66,7 @@ export function useAutosave() {
       ])
       setDirty(false)
       blockedPathRef.current = null
+      void recordDiskBaseline(document.path)
     } catch (error) {
       if (isMissingPathFileError(error)) {
         blockedPathRef.current = document.path

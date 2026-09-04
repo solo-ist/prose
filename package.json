@@ -1,6 +1,6 @@
 {
   "name": "prose",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "A minimal markdown editor with AI chat",
   "license": "MIT",
   "type": "module",
@@ -82,7 +82,6 @@
     "electron-updater": "^6.7.3",
     "framer-motion": "^12.25.0",
     "googleapis": "^171.4.0",
-    "gray-matter": "^4.0.3",
     "js-yaml": "^4.2.0",
     "lowlight": "^3.3.0",
     "lucide-react": "^0.468.0",

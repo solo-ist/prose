@@ -8,6 +8,12 @@ import { parseMarkdown, serializeMarkdown, extractFirstH1, prepareTextContent } 
 import { extractMarkdownFromHtml } from '../lib/htmlExport'
 import { handleMissingPath, isMissingPathFileError } from '../lib/stalePath'
 import {
+  recordDiskBaseline,
+  clearDiskBaseline,
+  isDiskNewerThanBaseline,
+  useSaveConflictStore
+} from '../lib/diskSync'
+import {
   generateId,
   generateIdFromPath,
   clearDraft,
@@ -105,6 +111,9 @@ export function useEditor() {
         useEditorStore.getState().setRemarkableReadOnly(false, null)
       }
 
+      // In-memory content now agrees with disk (#843 external-edit tracking)
+      void recordDiskBaseline(filePath)
+
       // Load conversations for the document
       await loadForDocument(newDocumentId)
 
@@ -170,6 +179,9 @@ export function useEditor() {
       // Clear reMarkable read-only state when opening via file dialog
       useEditorStore.getState().setRemarkableReadOnly(false, null)
 
+      // In-memory content now agrees with disk (#843 external-edit tracking)
+      void recordDiskBaseline(result.path)
+
       // Load conversations for the document
       await loadForDocument(newDocumentId)
 
@@ -230,6 +242,7 @@ export function useEditor() {
         setDocument({ documentId: newDocumentId, path })
         setDirty(false)
         setCurrentDocumentId(newDocumentId)
+        void recordDiskBaseline(path)
       }
     } catch (error) {
       console.error('Failed to save file as:', error)
@@ -246,9 +259,17 @@ export function useEditor() {
     const content = buildSaveContent(document.content, document.frontmatter, document.path)
 
     if (document.path) {
+      // External-edit guard (#843): the file changed on disk after we loaded
+      // or last saved it — hold the save and let the user decide via the
+      // conflict dialog instead of silently overwriting the disk edits.
+      if (await isDiskNewerThanBaseline(document.path)) {
+        useSaveConflictStore.getState().setConflict({ path: document.path, content })
+        return
+      }
       try {
         await window.api.saveFile(document.path, content)
         setDirty(false)
+        void recordDiskBaseline(document.path)
       } catch (error) {
         if (isMissingPathFileError(error)) {
           handleMissingPath(document.path, 'save')
@@ -368,6 +389,10 @@ export function useEditor() {
         // New file or same name: just save
         await window.api.saveFile(finalPath, content)
       }
+
+      // Fresh write to finalPath — reset baselines (#843)
+      void recordDiskBaseline(finalPath)
+      if (isRename && oldPath && oldPath !== finalPath) clearDiskBaseline(oldPath)
 
       // Migrate chat history to path-based ID
       const newDocumentId = await generateIdFromPath(finalPath)

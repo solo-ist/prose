@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useCallback, useState, useMemo } from 'react'
 import { useEditor as useTipTapEditor, EditorContent } from '@tiptap/react'
-import { EditorState } from '@tiptap/pm/state'
+import { EditorState, TextSelection } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import { createLowlight } from 'lowlight'
@@ -91,6 +91,40 @@ function shouldPromptForAIPaste(text: string): boolean {
   const trimmed = text.trim()
   if (!trimmed) return false
   return trimmed.length >= AI_PASTE_PROMPT_MIN_CHARS || trimmed.includes('\n')
+}
+
+/**
+ * Task lists always serialize with a dash marker (`- [ ]`, the conventional
+ * GFM form) regardless of the bulletListMarker preference — an asterisk next
+ * to the checkbox brackets (`* [ ]`) reads as a doubled marker. Only
+ * `serialize` is overridden: tiptap-markdown's getMarkdownSpec spreads its
+ * default taskList spec under this one, so its markdown-it parse setup stays.
+ */
+const TaskListDashMarker = TaskList.extend({
+  addStorage() {
+    return {
+      markdown: {
+        serialize(state, node) {
+          state.renderList(node, '  ', () => '- ')
+        }
+      }
+    }
+  }
+})
+
+/**
+ * Return focus to the editor with the caret at the nearest valid text position
+ * at-or-before `pos`. A paste ending on a block boundary (multi-paragraph or
+ * list content) makes the raw range-end an invalid text position — a caret set
+ * there renders as a dead full-width gap that swallows typing, and Enter there
+ * crashes ProseMirror ("Cannot join taskList onto paragraph", Sentry PROSE-Q).
+ */
+function focusEditorAtPasteEnd(pos: number): void {
+  const activeEditor = useEditorInstanceStore.getState().editor
+  if (!activeEditor) return
+  const clamped = Math.max(0, Math.min(pos, activeEditor.state.doc.content.size))
+  const target = TextSelection.near(activeEditor.state.doc.resolve(clamped), -1).from
+  activeEditor.chain().focus().setTextSelection(target).run()
 }
 
 // Session-scoped flag that suppresses the AI-paste prompt for the remainder of the
@@ -246,7 +280,7 @@ export function Editor() {
       TableRow,
       TableHeader,
       TableCell,
-      TaskList,
+      TaskListDashMarker,
       TaskItem.configure({
         nested: true
       }),
@@ -256,7 +290,7 @@ export function Editor() {
       Markdown.configure({
         html: true,
         tightLists: true,
-        bulletListMarker: settings.editor.bulletListMarker ?? '-',
+        bulletListMarker: settings.editor.bulletListMarker ?? '*',
         transformPastedText: true,
         transformCopiedText: true
       }),
@@ -558,7 +592,7 @@ export function Editor() {
     if (!editor) return
     const markdownStorage = editor.storage.markdown as { options?: { bulletListMarker?: string } } | undefined
     if (markdownStorage?.options) {
-      markdownStorage.options.bulletListMarker = settings.editor.bulletListMarker ?? '-'
+      markdownStorage.options.bulletListMarker = settings.editor.bulletListMarker ?? '*'
     }
   }, [editor, settings.editor.bulletListMarker])
 
@@ -1189,7 +1223,7 @@ export function Editor() {
 
     setPendingPasteAnnotation(null)
     // Restore cursor to the end of the pasted range so the user can keep typing.
-    activeEditor.chain().focus().setTextSelection(annotationTo).run()
+    focusEditorAtPasteEnd(annotationTo)
   }, [pendingPasteAnnotation])
 
   // Sets the session-level suppression flag and closes the dialog, so the AI-paste
@@ -1199,8 +1233,7 @@ export function Editor() {
     pasteAnnotationDismissedThisSession = true
     setPendingPasteAnnotation(null)
     if (toPos !== null) {
-      const activeEditor = useEditorInstanceStore.getState().editor
-      activeEditor?.chain().focus().setTextSelection(toPos).run()
+      focusEditorAtPasteEnd(toPos)
     }
   }, [pendingPasteAnnotation])
 
@@ -1389,43 +1422,64 @@ export function Editor() {
             const toPos = pendingPasteAnnotation?.to ?? null
             setPendingPasteAnnotation(null)
             if (toPos !== null) {
-              const activeEditor = useEditorInstanceStore.getState().editor
-              activeEditor?.chain().focus().setTextSelection(toPos).run()
+              focusEditorAtPasteEnd(toPos)
             }
           }
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent
+          className="sm:max-w-xl"
+          onOpenAutoFocus={(e) => {
+            // Radix focuses the first button ("Dismiss this Session") on open,
+            // and after a keyboard paste that paints it with the focus-visible
+            // ring — the least important action reads as selected. Focus the
+            // dialog itself instead; Tab still reaches the buttons and Escape
+            // still closes.
+            e.preventDefault()
+            ;(e.target as HTMLElement | null)?.focus()
+          }}
+          onCloseAutoFocus={(e) => {
+            // Radix restores focus to the pre-open element AFTER close, which
+            // runs later than our handlers' editor.focus() calls and strands
+            // the caret outside the editor. Take over: the handlers have
+            // already placed the selection; just re-enter the editor here.
+            e.preventDefault()
+            useEditorInstanceStore.getState().editor?.commands.focus()
+          }}
+        >
           <DialogHeader>
             <DialogTitle>Mark pasted text as AI-authored?</DialogTitle>
             <DialogDescription>
               Save provenance for this pasted block in the document activity.
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter>
+          {/* Three buttons in a mono font outgrow the default footer row —
+              keep the dismiss action left, the decision pair right, and let
+              the pair wrap to its own right-aligned row when space is tight. */}
+          <DialogFooter className="sm:flex-wrap sm:gap-2 sm:space-x-0">
             <Button
               variant="ghost"
               onClick={handleDismissThisSession}
-              className="sm:mr-auto"
             >
               Dismiss this Session
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                const toPos = pendingPasteAnnotation?.to ?? null
-                setPendingPasteAnnotation(null)
-                if (toPos !== null) {
-                  const activeEditor = useEditorInstanceStore.getState().editor
-                  activeEditor?.chain().focus().setTextSelection(toPos).run()
-                }
-              }}
-            >
-              Not now
-            </Button>
-            <Button onClick={handleConfirmPasteAI}>
-              Mark as AI-authored
-            </Button>
+            <div className="flex flex-col-reverse sm:flex-row gap-2 sm:ml-auto">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const toPos = pendingPasteAnnotation?.to ?? null
+                  setPendingPasteAnnotation(null)
+                  if (toPos !== null) {
+                    focusEditorAtPasteEnd(toPos)
+                  }
+                }}
+              >
+                Not now
+              </Button>
+              <Button onClick={handleConfirmPasteAI}>
+                Mark as AI-authored
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

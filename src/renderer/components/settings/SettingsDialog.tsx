@@ -484,7 +484,7 @@ export function SettingsDialog() {
             <div className="space-y-2">
               <Label htmlFor="bulletListMarker">Bullet List Marker</Label>
               <Select
-                value={settings.editor.bulletListMarker ?? '-'}
+                value={settings.editor.bulletListMarker ?? '*'}
                 onValueChange={(value) => setEditorConfig({ bulletListMarker: value as '-' | '*' })}
               >
                 <SelectTrigger id="bulletListMarker">

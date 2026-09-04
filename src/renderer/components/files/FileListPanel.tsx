@@ -856,11 +856,23 @@ export function FileListPanel() {
       await api.duplicateFile(path)
     } catch (err) {
       console.error('[FileListPanel] Duplicate failed:', err)
-      // File-operation failures cross the bridge as plain objects, not Errors.
-      const message =
+      // The raw message arrives wrapped in Electron's IPC prefix around an fs
+      // error ("Error invoking remote method 'file:duplicate': Error: EACCES:
+      // permission denied, copyfile '…' -> '…'") — map the known causes to
+      // plain language instead of surfacing that.
+      const raw =
         typeof err === 'object' && err !== null && 'message' in err && typeof err.message === 'string'
           ? err.message
-          : 'Could not duplicate the file.'
+          : ''
+      const message = /EACCES|EPERM|EROFS/.test(raw)
+        ? "Couldn't duplicate — you don't have permission to add files to this folder."
+        : /ENOSPC/.test(raw)
+          ? "Couldn't duplicate — there isn't enough disk space."
+          : /ENOENT/.test(raw)
+            ? "Couldn't duplicate — the original file no longer exists."
+            : /100 copies/.test(raw)
+              ? "Couldn't duplicate — too many copies of this file already exist."
+              : "Couldn't duplicate the file."
       useNotificationStore.getState().notify({ id: 'file-duplicate-failed', message })
     }
   }, [api])

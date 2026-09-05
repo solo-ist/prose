@@ -29,12 +29,33 @@ function readErrorMessage(error: unknown): string {
     : 'File operation failed'
 }
 
+/** Human-readable, sanitized messages for known POSIX error codes. */
+const FILE_ERROR_MESSAGES: Record<string, string> = {
+  ENOENT: 'File or directory not found',
+  ENOTDIR: 'Path component is not a directory',
+  EACCES: 'Permission denied',
+  EPERM: 'Operation not permitted',
+  EISDIR: 'Expected a file but found a directory',
+  EEXIST: 'File already exists',
+  ENOTEMPTY: 'Directory is not empty',
+  ENOSPC: 'No space left on device',
+}
+
+/**
+ * Return a stable, sanitized message for a file-operation error.
+ * Avoids leaking raw OS error strings (which may embed extra filesystem metadata).
+ */
+function sanitizeFileErrorMessage(code: string): string {
+  return FILE_ERROR_MESSAGES[code] ?? 'File operation failed'
+}
+
 export function toFileOperationFailure(path: string, error: unknown): FileOperationFailure {
+  const code = readErrorCode(error)
   return {
     ok: false,
-    code: readErrorCode(error),
+    code,
     path,
-    message: readErrorMessage(error)
+    message: sanitizeFileErrorMessage(code),
   }
 }
 

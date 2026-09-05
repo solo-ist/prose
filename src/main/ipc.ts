@@ -161,7 +161,8 @@ const defaultSettings: Settings = {
     fontSize: 16,
     lineHeight: 1.6,
     fontFamily: "'IBM Plex Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
-    streamingEdits: true
+    streamingEdits: true,
+    bulletListMarker: '*' as const
   },
   recovery: {
     mode: 'silent'

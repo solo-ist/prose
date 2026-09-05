@@ -164,6 +164,11 @@ export function CommentReviewPanel({ onExit, initialThreadId }: CommentReviewPan
         }
         return
       }
+      // Typing in the document body (the TipTap contenteditable) must keep its
+      // native keys: arrows move the caret and Enter inserts a newline — they
+      // must not advance or resolve threads (#826). Thread shortcuts stay
+      // active only while focus is outside the editor (panel, buttons, etc.).
+      if (e.target instanceof HTMLElement && e.target.isContentEditable) return
       if (e.key === 'ArrowRight') {
         e.preventDefault()
         goNext()

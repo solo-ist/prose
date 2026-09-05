@@ -24,7 +24,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { ReviewContainer } from '../review/ReviewContainer'
 import { AIEditsHistoryPanel, activityItemVisible, DEFAULT_ACTIVITY_FILTER, requestCommentReview, type ActivityFilter } from '../editor/AIEditsHistoryPanel'
 import { useAnnotationStore } from '../../extensions/ai-annotations/store'
-import { useCommentStore } from '../../extensions/comments/store'
+import { useCommentStore, countOpenThreads } from '../../extensions/comments/store'
 import { MODE_SWITCH_RUN_EVENT } from './toolResultRenderers/RequestModeSwitchResult'
 import { cn } from '../../lib/utils'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -108,8 +108,9 @@ export function ChatPanel() {
 
   // There's something to filter whenever any annotation or comment exists.
   const hasActivity = annotations.length > 0 || pendingComments.length > 0
-  // Open (unresolved) threads are the Review set.
-  const openThreadCount = useMemo(() => pendingComments.filter((c) => !c.resolved).length, [pendingComments])
+  // Open (unresolved) threads are the Review set — same selector as the status
+  // bar and Comment Review, so the surfaces can't disagree (#830).
+  const openThreadCount = useMemo(() => countOpenThreads(pendingComments), [pendingComments])
   // Any category turned off means the filter is engaged (tints the funnel).
   const isFiltering = Object.values(activityFilter).some((v) => !v)
 

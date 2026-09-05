@@ -1,7 +1,42 @@
 import { app } from 'electron'
 import { mkdir, readFile, writeFile, access, readdir, stat } from 'fs/promises'
 import { join } from 'path'
+import { load as yamlLoad, dump as yamlDump } from 'js-yaml'
 import { createDoc, updateDoc, getDoc, getDocMetadata, docExists, extractDocId, listRecentDocs } from './client'
+
+// --- Frontmatter helpers (replaces gray-matter to avoid its js-yaml 3.x transitive dep) ---
+
+/** Matches a complete ---...--- frontmatter fence at the start of a string. */
+const FRONTMATTER_FENCE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/
+
+/**
+ * Parse frontmatter + body from a markdown string.
+ * Mirrors gray-matter's call contract: { data, content }.
+ * Returns empty data and the raw string when no frontmatter is present.
+ */
+function parseFrontmatter(raw: string): { data: Record<string, unknown>; content: string } {
+  const match = raw.match(FRONTMATTER_FENCE)
+  if (!match) return { data: {}, content: raw }
+  try {
+    const parsed = yamlLoad(match[1])
+    const data = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
+    const content = raw.slice(match[0].length)
+    return { data, content }
+  } catch {
+    return { data: {}, content: raw }
+  }
+}
+
+/**
+ * Serialize frontmatter + body to a markdown string.
+ * Mirrors gray-matter.stringify's contract: returns bare content when data is empty,
+ * otherwise prepends a YAML frontmatter block.
+ */
+function stringifyFrontmatter(content: string, data: Record<string, unknown>): string {
+  if (Object.keys(data).length === 0) return content
+  const yamlStr = yamlDump(data, { lineWidth: -1 }).trimEnd()
+  return `---\n${yamlStr}\n---\n${content}`
+}
 
 // --- Google Docs Sync Metadata ---
 
@@ -68,7 +103,6 @@ async function migrateFromFrontmatter(): Promise<GoogleSyncMetadata> {
 
   try {
     const entries = await readdir(googleDocsDir, { withFileTypes: true })
-    const matter = (await import('gray-matter')).default
 
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith('.md')) continue
@@ -76,7 +110,7 @@ async function migrateFromFrontmatter(): Promise<GoogleSyncMetadata> {
       const filePath = join(googleDocsDir, entry.name)
       try {
         const content = await readFile(filePath, 'utf-8')
-        const parsed = matter(content)
+        const parsed = parseFrontmatter(content)
         const docId = parsed.data.google_doc_id
         if (!docId) continue
 
@@ -497,8 +531,6 @@ export async function syncAllGoogleDocs(_syncDir: string): Promise<SyncAllResult
       return { synced: 0, skipped: 0, errors: [] }
     }
 
-    const matter = (await import('gray-matter')).default
-
     for (const entry of entries) {
       try {
         // Get remote metadata to check if doc has been modified
@@ -525,10 +557,10 @@ export async function syncAllGoogleDocs(_syncDir: string): Promise<SyncAllResult
         }
 
         if (localExists) {
-          const parsed = matter(localContent)
+          const parsed = parseFrontmatter(localContent)
           parsed.data.google_synced_at = remoteMeta.modifiedTime
           parsed.data.google_doc_id = entry.googleDocId
-          const serialized = matter.stringify(content, parsed.data)
+          const serialized = stringifyFrontmatter(content, parsed.data)
           await writeFile(entry.localPath, serialized, 'utf-8')
         } else {
           // Recreate missing file with frontmatter

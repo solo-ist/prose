@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useCallback, useState, useMemo } from 'react'
 import { useEditor as useTipTapEditor, EditorContent } from '@tiptap/react'
-import { EditorState } from '@tiptap/pm/state'
+import { EditorState, TextSelection } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import { createLowlight } from 'lowlight'
@@ -30,6 +30,7 @@ import TaskItem from '@tiptap/extension-task-item'
 import { Markdown } from 'tiptap-markdown'
 import { FocusMode } from '../../lib/focusMode'
 import { Comment } from '../../extensions/comments'
+import { useNotificationStore } from '../../stores/notificationStore'
 import { AISuggestion } from '../../extensions/ai-suggestions'
 import { useSuggestionStore } from '../../extensions/ai-suggestions/store'
 import { SESSION_ID } from '../../lib/persistence'
@@ -91,6 +92,45 @@ function shouldPromptForAIPaste(text: string): boolean {
   if (!trimmed) return false
   return trimmed.length >= AI_PASTE_PROMPT_MIN_CHARS || trimmed.includes('\n')
 }
+
+/**
+ * Task lists always serialize with a dash marker (`- [ ]`, the conventional
+ * GFM form) regardless of the bulletListMarker preference — an asterisk next
+ * to the checkbox brackets (`* [ ]`) reads as a doubled marker. Only
+ * `serialize` is overridden: tiptap-markdown's getMarkdownSpec spreads its
+ * default taskList spec under this one, so its markdown-it parse setup stays.
+ */
+const TaskListDashMarker = TaskList.extend({
+  addStorage() {
+    return {
+      markdown: {
+        serialize(state, node) {
+          state.renderList(node, '  ', () => '- ')
+        }
+      }
+    }
+  }
+})
+
+/**
+ * Return focus to the editor with the caret at the nearest valid text position
+ * at-or-before `pos`. A paste ending on a block boundary (multi-paragraph or
+ * list content) makes the raw range-end an invalid text position — a caret set
+ * there renders as a dead full-width gap that swallows typing, and Enter there
+ * crashes ProseMirror ("Cannot join taskList onto paragraph", Sentry PROSE-Q).
+ */
+function focusEditorAtPasteEnd(pos: number): void {
+  const activeEditor = useEditorInstanceStore.getState().editor
+  if (!activeEditor) return
+  const clamped = Math.max(0, Math.min(pos, activeEditor.state.doc.content.size))
+  const target = TextSelection.near(activeEditor.state.doc.resolve(clamped), -1).from
+  activeEditor.chain().focus().setTextSelection(target).run()
+}
+
+// Session-scoped flag that suppresses the AI-paste prompt for the remainder of the
+// app session when the user clicks "Dismiss this Session". Not persisted — follows
+// the same in-memory, session-lifetime idiom as useAnnotationStore's createdThisSession set.
+let pasteAnnotationDismissedThisSession = false
 
 // Lowlight instance with a curated set of common languages.
 // Using individual imports (not the full `common` preset) keeps the bundle
@@ -240,7 +280,7 @@ export function Editor() {
       TableRow,
       TableHeader,
       TableCell,
-      TaskList,
+      TaskListDashMarker,
       TaskItem.configure({
         nested: true
       }),
@@ -250,7 +290,7 @@ export function Editor() {
       Markdown.configure({
         html: true,
         tightLists: true,
-        bulletListMarker: '-',
+        bulletListMarker: settings.editor.bulletListMarker ?? '*',
         transformPastedText: true,
         transformCopiedText: true
       }),
@@ -270,6 +310,14 @@ export function Editor() {
           ]
           useCommentStore.setState({ pendingComments: updated })
           if (store.documentId) store.saveComments(store.documentId, updated)
+        },
+        // setComment refuses ranges that would swallow an existing thread's
+        // mark (#830) — tell the user to reply on that thread instead.
+        onCommentBlocked: () => {
+          useNotificationStore.getState().notify({
+            id: 'comment-overlap-blocked',
+            message: 'This text already has a comment — reply to the existing thread instead of adding a new one.',
+          })
         },
       }),
       AISuggestion,
@@ -327,7 +375,7 @@ export function Editor() {
             Math.max(selectionEnd, fallbackTo)
           )
 
-          if (annotationTo > selectionFrom) {
+          if (annotationTo > selectionFrom && !pasteAnnotationDismissedThisSession) {
             setPendingPasteAnnotation({
               documentId,
               from: selectionFrom,
@@ -534,6 +582,19 @@ export function Editor() {
     if (!editor) return
     editor.setEditable(!isRemarkableReadOnly && !isPreviewTab)
   }, [editor, isRemarkableReadOnly, isPreviewTab])
+
+  // Sync bulletListMarker setting without requiring an editor remount.
+  // tiptap-markdown shallow-copies its options into editor.storage.markdown
+  // during onBeforeCreate, and the bullet-list serializer reads that copy at
+  // serialize time — mutating the extension's own options has no effect, so
+  // the storage copy is the object that must be updated.
+  useEffect(() => {
+    if (!editor) return
+    const markdownStorage = editor.storage.markdown as { options?: { bulletListMarker?: string } } | undefined
+    if (markdownStorage?.options) {
+      markdownStorage.options.bulletListMarker = settings.editor.bulletListMarker ?? '*'
+    }
+  }, [editor, settings.editor.bulletListMarker])
 
   // Check if current file is linked to a reMarkable notebook
   useEffect(() => {
@@ -867,7 +928,12 @@ export function Editor() {
       // Cmd+F: Open find bar (skip in source mode — CodeMirror handles its own)
       if (useEditorStore.getState().sourceMode) return
       e.preventDefault()
-      setIsFindOpen(true)
+      if (isFindOpen) {
+        // Bar already open — refocus and select the input so the user can type a new term
+        window.dispatchEvent(new CustomEvent('find:focus'))
+      } else {
+        setIsFindOpen(true)
+      }
     } else if (isMod && e.key === 'l' && !e.shiftKey) {
       // Cmd+L: Select current line
       e.preventDefault()
@@ -1156,6 +1222,19 @@ export function Editor() {
     }
 
     setPendingPasteAnnotation(null)
+    // Restore cursor to the end of the pasted range so the user can keep typing.
+    focusEditorAtPasteEnd(annotationTo)
+  }, [pendingPasteAnnotation])
+
+  // Sets the session-level suppression flag and closes the dialog, so the AI-paste
+  // prompt will not appear again until the app/window is restarted.
+  const handleDismissThisSession = useCallback(() => {
+    const toPos = pendingPasteAnnotation?.to ?? null
+    pasteAnnotationDismissedThisSession = true
+    setPendingPasteAnnotation(null)
+    if (toPos !== null) {
+      focusEditorAtPasteEnd(toPos)
+    }
   }, [pendingPasteAnnotation])
 
   return (
@@ -1337,23 +1416,70 @@ export function Editor() {
       <Dialog
         open={pendingPasteAnnotation !== null}
         onOpenChange={(open) => {
-          if (!open) setPendingPasteAnnotation(null)
+          if (!open) {
+            // Handles Escape key and clicking the overlay — button-click paths
+            // call setPendingPasteAnnotation(null) themselves and restore focus there.
+            const toPos = pendingPasteAnnotation?.to ?? null
+            setPendingPasteAnnotation(null)
+            if (toPos !== null) {
+              focusEditorAtPasteEnd(toPos)
+            }
+          }
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent
+          className="sm:max-w-xl"
+          onOpenAutoFocus={(e) => {
+            // Radix focuses the first button ("Dismiss this Session") on open,
+            // and after a keyboard paste that paints it with the focus-visible
+            // ring — the least important action reads as selected. Focus the
+            // dialog itself instead; Tab still reaches the buttons and Escape
+            // still closes.
+            e.preventDefault()
+            ;(e.target as HTMLElement | null)?.focus()
+          }}
+          onCloseAutoFocus={(e) => {
+            // Radix restores focus to the pre-open element AFTER close, which
+            // runs later than our handlers' editor.focus() calls and strands
+            // the caret outside the editor. Take over: the handlers have
+            // already placed the selection; just re-enter the editor here.
+            e.preventDefault()
+            useEditorInstanceStore.getState().editor?.commands.focus()
+          }}
+        >
           <DialogHeader>
             <DialogTitle>Mark pasted text as AI-authored?</DialogTitle>
             <DialogDescription>
               Save provenance for this pasted block in the document activity.
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPendingPasteAnnotation(null)}>
-              Not now
+          {/* Three buttons in a mono font outgrow the default footer row —
+              keep the dismiss action left, the decision pair right, and let
+              the pair wrap to its own right-aligned row when space is tight. */}
+          <DialogFooter className="sm:flex-wrap sm:gap-2 sm:space-x-0">
+            <Button
+              variant="ghost"
+              onClick={handleDismissThisSession}
+            >
+              Dismiss this Session
             </Button>
-            <Button onClick={handleConfirmPasteAI}>
-              Mark as AI-authored
-            </Button>
+            <div className="flex flex-col-reverse sm:flex-row gap-2 sm:ml-auto">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const toPos = pendingPasteAnnotation?.to ?? null
+                  setPendingPasteAnnotation(null)
+                  if (toPos !== null) {
+                    focusEditorAtPasteEnd(toPos)
+                  }
+                }}
+              >
+                Not now
+              </Button>
+              <Button onClick={handleConfirmPasteAI}>
+                Mark as AI-authored
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

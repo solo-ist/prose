@@ -195,7 +195,7 @@ test.describe('Electron — Restructure flat document via suggestions', () => {
     expect(markdown).toContain('# Test Document')
     expect(markdown).toContain('## Section One')
     expect(markdown).toContain('> A wise quote belongs here.')
-    expect(markdown).toContain('- Item one of a list.')
+    expect(markdown).toContain('* Item one of a list.')
     expect(markdown).not.toContain('\\#')
     expect(markdown).not.toContain('\\>')
   })

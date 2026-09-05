@@ -1,3 +1,4 @@
+import { InputRule } from '@tiptap/core'
 import Document from '@tiptap/extension-document'
 import markdownItFootnote from 'markdown-it-footnote'
 import { Footnote as BaseFootnote, FootnoteReference as BaseFootnoteReference, Footnotes as BaseFootnotes } from 'tiptap-footnotes'
@@ -20,8 +21,13 @@ function normalizeMarkdownFootnotesDom(element: HTMLElement): void {
 
   element.querySelectorAll('hr.footnotes-sep').forEach((separator) => separator.remove())
 
-  element.querySelectorAll<HTMLAnchorElement>('sup a.footnote-ref').forEach((anchor, index) => {
+  // markdown-it-footnote renders: <sup class="footnote-ref"><a href="#fn1">…</a></sup>
+  // The class is on <sup>, not <a>. Selecting 'sup a.footnote-ref' never matches.
+  // Use 'sup.footnote-ref > a' and stamp the class + tiptap-footnotes attrs onto
+  // the anchor so FootnoteReference.parseHTML() can match 'a.footnote-ref:first-child'.
+  element.querySelectorAll<HTMLAnchorElement>('sup.footnote-ref > a').forEach((anchor, index) => {
     const number = parseFootnoteNumber(anchor.getAttribute('href') ?? anchor.textContent, index + 1)
+    anchor.classList.add('footnote-ref')
     anchor.textContent = number
     anchor.setAttribute('data-reference-number', number)
     anchor.setAttribute('data-id', `${FOOTNOTE_ID_PREFIX}${number}`)
@@ -57,6 +63,27 @@ export const FootnoteReference = BaseFootnoteReference.extend({
       HTMLAttributes: {},
     }
   },
+  addInputRules() {
+    const type = this.type
+    return [
+      new InputRule({
+        // Anchor to end ($) so TipTap's range formula is always exact.
+        // The base-package rule uses unanchored /\[\^(.*?)\]/ whose
+        // range.from mis-spans by one when '[' immediately follows a word
+        // character, leaving a stray '[' in the text (#798).
+        find: /\[\^([^\]]+)\]$/,
+        handler({ state, range, match }) {
+          if (!match[1]) return null
+          const { tr } = state
+          // replaceWith atomically deletes the full [^N] text and inserts
+          // the reference node — avoiding the deleteRange + addFootnote
+          // chain that mis-placed the cursor in the abutting case.
+          tr.replaceWith(range.from, range.to, type.create({ 'data-id': crypto.randomUUID() }))
+          tr.scrollIntoView()
+        },
+      }),
+    ]
+  },
   addStorage() {
     const parentStorage = this.parent?.() ?? {}
 
@@ -76,10 +103,11 @@ export const FootnoteReference = BaseFootnoteReference.extend({
               markdownit.use(markdownItFootnote)
             }
           }
-          // No `updateDOM` here: normalizeMarkdownFootnotesDom is structural
-          // (it rewrites the whole footnotes section/list) and runs once from
-          // Footnotes.updateDOM on the full document. Registering it here too
-          // just ran the same idempotent pass a second time.
+          // No `updateDOM` here: tiptap-markdown runs all extensions' updateDOM
+          // hooks on the full document before any parseHTML() rules fire, so the
+          // single registration on Footnotes.updateDOM is sufficient. The root
+          // bug was a wrong selector ('sup a.footnote-ref') that never matched
+          // markdown-it-footnote's output; fixed in normalizeMarkdownFootnotesDom.
         }
       }
     }

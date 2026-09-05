@@ -1,6 +1,6 @@
-export { Comment, getComments, mergeCommentsForPersistence, commentMarkdownSerializer } from './extension'
+export { Comment, getComments, mergeCommentsForPersistence, commentMarkdownSerializer, findFullyCoveredCommentIds } from './extension'
 export type { CommentMark, CommentData, CommentReply, CommentOptions } from './types'
-export { useCommentStore } from './store'
+export { useCommentStore, countOpenThreads } from './store'
 
 /**
  * Event fired to open a comment thread's popover on its marked text. Dispatched

@@ -140,6 +140,10 @@ export function QuickReviewPanel() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      // Typing in the document body (the TipTap contenteditable) must keep its
+      // native keys: arrows move the caret, Enter inserts a newline, Backspace
+      // deletes — they must not accept/reject/advance suggestions (#826).
+      if (e.target instanceof HTMLElement && e.target.isContentEditable) return
       switch (e.key) {
         case 'ArrowRight':
           e.preventDefault()

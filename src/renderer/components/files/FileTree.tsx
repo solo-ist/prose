@@ -42,6 +42,7 @@ interface FileTreeProps {
   onFileCopy?: (path: string) => void
   onFileCut?: (path: string) => void
   onFilePaste?: (targetDir?: string) => void
+  onFileDuplicate?: (path: string) => void
   onFileTrash?: (path: string) => void
   onFileOpen?: (path: string) => void
   onOpenExternally?: (path: string) => void
@@ -81,6 +82,7 @@ export function FileTree({
   onFileCopy,
   onFileCut,
   onFilePaste,
+  onFileDuplicate,
   onFileTrash,
   onFileOpen,
   onOpenExternally,
@@ -123,6 +125,7 @@ export function FileTree({
           onFileCopy={onFileCopy}
           onFileCut={onFileCut}
           onFilePaste={onFilePaste}
+          onFileDuplicate={onFileDuplicate}
           onFileTrash={onFileTrash}
           onFileOpen={onFileOpen}
           onOpenExternally={onOpenExternally}
@@ -166,6 +169,7 @@ interface FileTreeItemProps {
   onFileCopy?: (path: string) => void
   onFileCut?: (path: string) => void
   onFilePaste?: (targetDir?: string) => void
+  onFileDuplicate?: (path: string) => void
   onFileTrash?: (path: string) => void
   onFileOpen?: (path: string) => void
   onOpenExternally?: (path: string) => void
@@ -205,6 +209,7 @@ const FileTreeItem = memo(function FileTreeItem({
   onFileCopy,
   onFileCut,
   onFilePaste,
+  onFileDuplicate,
   onFileTrash,
   onFileOpen,
   onOpenExternally,
@@ -544,6 +549,12 @@ const FileTreeItem = memo(function FileTreeItem({
           <ContextMenuShortcut>⌘V</ContextMenuShortcut>
         </ContextMenuItem>
       )}
+      {!isMultiSelected && onFileDuplicate && (
+        <ContextMenuItem onClick={() => onFileDuplicate?.(item.path)}>
+          <Copy className="h-4 w-4 mr-2" />
+          Duplicate
+        </ContextMenuItem>
+      )}
       {!isMultiSelected && onFileShowInFolder && (
         <>
           <ContextMenuSeparator />
@@ -714,6 +725,7 @@ const FileTreeItem = memo(function FileTreeItem({
           onFileCopy={onFileCopy}
           onFileCut={onFileCut}
           onFilePaste={onFilePaste}
+          onFileDuplicate={onFileDuplicate}
           onFileTrash={onFileTrash}
           onFileOpen={onFileOpen}
           onOpenExternally={onOpenExternally}

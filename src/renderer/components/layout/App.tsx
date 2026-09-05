@@ -37,6 +37,8 @@ import {
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
 import { Checkbox } from '../ui/checkbox'
+import { buttonVariants } from '../ui/button'
+import { cn } from '../../lib/utils'
 import { useChat } from '../../hooks/useChat'
 import { useSummaryStore } from '../../stores/summaryStore'
 import { useEditor } from '../../hooks/useEditor'
@@ -59,11 +61,54 @@ import {
   deleteConversations
 } from '../../lib/persistence'
 import { extractFirstH1 } from '../../lib/markdown'
+import {
+  readDocumentFromDisk,
+  loadDiskVersionIntoTab,
+  notifyExternalEditConflict,
+  isDiskNewerThanBaseline,
+  recordDiskBaseline,
+  useSaveConflictStore
+} from '../../lib/diskSync'
 import { handleMissingPath } from '../../lib/stalePath'
+import { useNotificationStore } from '../../stores/notificationStore'
 import type { DraftState, SessionState } from '../../lib/persistence'
 import { executeTool } from '../../lib/tools'
 import { useReviewMode, useWasChatOpenBeforeReview, usePreviousChatWidth, useReviewStore, type ReviewMode } from '../../stores/reviewStore'
 import { chatOpenDefaultPct, reviewChatWidthPct } from '../../hooks/usePanelLayout'
+
+/**
+ * True when `path` was modified on disk after the session snapshot was taken
+ * (#829). Errors (no stat API, transient fs failure) read as "not stale" so
+ * restore falls back to the snapshot exactly as before.
+ */
+async function isSnapshotStale(path: string, savedAt: number): Promise<boolean> {
+  if (!window.api?.fileStat) return false
+  try {
+    const stat = await window.api.fileStat(path)
+    return new Date(stat.modifiedAt).getTime() > savedAt
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Surface a restore conflict (#829): the tab holds an unsaved draft AND the
+ * file changed on disk while Prose was closed. Nothing is lost yet — the
+ * draft stays in the tab; this persistent toast warns that saving overwrites
+ * the disk edits and offers loading the disk version instead.
+ */
+function notifyRestoreConflict(tabId: string, path: string) {
+  const fileName = path.split('/').pop() ?? path
+  useNotificationStore.getState().notify({
+    id: `restore-conflict:${path}`,
+    durationMs: 0,
+    message: `"${fileName}" changed on disk while Prose was closed, and this tab holds unsaved edits from before that change. Saving will overwrite the disk edits.`,
+    actionLabel: 'Load disk version',
+    onAction: () => {
+      void loadDiskVersionIntoTab(tabId, path)
+    },
+  })
+}
 
 export function App() {
   useChat() // Initialize stream listeners
@@ -103,6 +148,68 @@ export function App() {
     const unsubscribe = initFileWatcher()
     return unsubscribe
   }, [initFileWatcher])
+
+  // External-edit focus check (#843): when the window regains focus, compare
+  // each open tab's file against its disk baseline. Clean tabs whose file
+  // changed reload silently; dirty ones get the persistent conflict toast.
+  // Catches the common flow (edit in another app, come back to Prose) without
+  // per-file watchers — those remain #843's full scope.
+  useEffect(() => {
+    let running = false
+    const checkOpenTabs = async () => {
+      if (running) return
+      running = true
+      try {
+        const { tabs } = useTabStore.getState()
+        for (const tab of tabs) {
+          if (!tab.path) continue
+          if (!(await isDiskNewerThanBaseline(tab.path))) continue
+          if (tab.isDirty) {
+            notifyExternalEditConflict(tab.id, tab.path)
+          } else {
+            await loadDiskVersionIntoTab(tab.id, tab.path)
+          }
+        }
+      } finally {
+        running = false
+      }
+    }
+    window.addEventListener('focus', checkOpenTabs)
+    return () => window.removeEventListener('focus', checkOpenTabs)
+  }, [])
+
+  // Manual-save conflict dialog state (#843) — set by useEditor's save guard.
+  const saveConflict = useSaveConflictStore((s) => s.conflict)
+  const clearSaveConflict = useSaveConflictStore((s) => s.clearConflict)
+  const handleConflictOverwrite = useCallback(async () => {
+    const conflict = useSaveConflictStore.getState().conflict
+    clearSaveConflict()
+    if (!conflict || !window.api) return
+    try {
+      await window.api.saveFile(conflict.path, conflict.content)
+      void recordDiskBaseline(conflict.path)
+      const { tabs, updateTab } = useTabStore.getState()
+      const tab = tabs.find((t) => t.path === conflict.path)
+      if (tab) updateTab(tab.id, { isDirty: false })
+      if (useEditorStore.getState().document.path === conflict.path) {
+        useEditorStore.getState().setDirty(false)
+      }
+    } catch (error) {
+      console.error('[DiskSync] Overwrite save failed:', error)
+      useNotificationStore.getState().notify({
+        id: `save-failed:${conflict.path}`,
+        message: 'Could not save the file. Use Save As to keep your edits.',
+        durationMs: 0
+      })
+    }
+  }, [clearSaveConflict])
+  const handleConflictLoadDisk = useCallback(async () => {
+    const conflict = useSaveConflictStore.getState().conflict
+    clearSaveConflict()
+    if (!conflict) return
+    const tab = useTabStore.getState().tabs.find((t) => t.path === conflict.path)
+    if (tab) await loadDiskVersionIntoTab(tab.id, conflict.path)
+  }, [clearSaveConflict])
 
   // Review mode: auto-open sidebar, resize for mode, restore on exit
   const reviewMode = useReviewMode()
@@ -249,6 +356,8 @@ export function App() {
         const isActiveTab = tabDraft.tabId === session.activeTabId
         let restoredPath = tabDraft.path
         let restoredIsDirty = tabDraft.isDirty
+        let restoredContent = tabDraft.content
+        let restoredFrontmatter = tabDraft.frontmatter
 
         if (tabDraft.path && window.api) {
           const exists = await window.api.fileExists(tabDraft.path).catch(() => false)
@@ -256,6 +365,33 @@ export function App() {
             handleMissingPath(tabDraft.path, 'restore')
             restoredPath = null
             restoredIsDirty = true
+          } else if (await isSnapshotStale(tabDraft.path, session.savedAt)) {
+            // The file changed on disk after this session was saved — e.g. an
+            // external editor, git, or an agent wrote it while Prose was
+            // closed. Hydrating the snapshot unconditionally would resurrect
+            // stale content, and a save from that tab would clobber the
+            // external edits (#829).
+            if (!tabDraft.isDirty) {
+              // Clean tab: the snapshot has nothing the disk doesn't — load
+              // the disk version. Falls back to the snapshot on read failure.
+              const disk = await readDocumentFromDisk(tabDraft.path)
+              if (disk) {
+                restoredContent = disk.content
+                restoredFrontmatter = disk.frontmatter
+                void recordDiskBaseline(tabDraft.path)
+              }
+            } else {
+              // Dirty tab: unsaved draft AND external disk edits — a genuine
+              // conflict. Keep the draft (nothing is lost yet) and let the
+              // user choose; silently picking either side guarantees loss.
+              notifyRestoreConflict(tabDraft.tabId, tabDraft.path)
+              // Baseline = when this draft last agreed with disk, so the
+              // save guards keep protecting the disk edits (#843).
+              void recordDiskBaseline(tabDraft.path, session.savedAt)
+            }
+          } else {
+            // Disk unchanged since the snapshot — content agrees with disk.
+            void recordDiskBaseline(tabDraft.path)
           }
         }
 
@@ -266,14 +402,14 @@ export function App() {
           title: tabDraft.title,
           baseTitle: tabDraft.baseTitle,
           isDirty: restoredIsDirty,
-          content: tabDraft.content,
-          frontmatter: tabDraft.frontmatter,
+          content: restoredContent,
+          frontmatter: restoredFrontmatter,
           cursorPosition: tabDraft.cursorPosition
         })
 
         // If this is the active tab, hydrate the editor
         if (isActiveTab) {
-          const documentContent = tabDraft.content
+          const documentContent = restoredContent
           // Use setDocument (not a raw setState) so reMarkable read-only state is
           // derived from the restored path. A raw setState bypasses that derivation,
           // which left a restored OCR tab editable — a stray save there would clobber
@@ -282,7 +418,7 @@ export function App() {
             documentId: tabDraft.documentId,
             path: restoredPath,
             content: documentContent,
-            frontmatter: tabDraft.frontmatter ?? {},
+            frontmatter: restoredFrontmatter ?? {},
             isDirty: restoredIsDirty
           })
           setCurrentDocumentId(tabDraft.documentId)
@@ -1042,6 +1178,34 @@ export function App() {
         <EnableLoggingDialog />
         <MigrationToast />
         <Notifications />
+
+        {/* External-edit save conflict (#843): a manual save landed on a file
+            that changed on disk since it was loaded/last saved */}
+        <AlertDialog open={saveConflict !== null} onOpenChange={(open) => { if (!open) clearSaveConflict() }}>
+          <AlertDialogContent className="sm:max-w-lg">
+            <AlertDialogHeader>
+              <AlertDialogTitle>File changed on disk</AlertDialogTitle>
+              <AlertDialogDescription>
+                {`"${saveConflict?.path.split('/').pop() ?? ''}" was modified outside Prose after you opened it. Saving now will overwrite those changes.`}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            {/* Cancel left, the two real choices right; destructive styling on
+                the draft-discarding action so it can't be mistaken for Cancel.
+                Wrap-safe for narrow widths (same pattern as the paste dialog). */}
+            <AlertDialogFooter className="sm:flex-wrap sm:gap-2 sm:space-x-0">
+              <AlertDialogCancel className="sm:mr-auto">Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className={cn(buttonVariants({ variant: 'destructive' }))}
+                onClick={() => { void handleConflictLoadDisk() }}
+              >
+                Discard &amp; Load Disk
+              </AlertDialogAction>
+              <AlertDialogAction onClick={() => { void handleConflictOverwrite() }}>
+                Overwrite &amp; Save
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* Google Docs Import Dialog */}
         <AlertDialog open={googleDocsEnabled && importDialogOpen} onOpenChange={(open) => {

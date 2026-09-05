@@ -64,8 +64,15 @@ if (is.dev) {
 // This allows agents to kill only their own dev server instance
 const pidFile = join(process.cwd(), '.dev.pid')
 if (is.dev) {
-  writeFileSync(pidFile, String(process.pid))
-  console.log(`[Main] PID file written: ${pidFile} (${process.pid})`)
+  // is.dev covers ANY unpackaged launch, including QA harnesses that start
+  // out/main/index.js with an unwritable cwd (e.g. `/`) — the PID file is a
+  // convenience and must never be able to crash startup (Sentry PROSE-P).
+  try {
+    writeFileSync(pidFile, String(process.pid))
+    console.log(`[Main] PID file written: ${pidFile} (${process.pid})`)
+  } catch (e) {
+    console.warn(`[Main] Could not write PID file at ${pidFile}:`, e)
+  }
 
   // Clean up PID file on exit
   const cleanupPidFile = () => {

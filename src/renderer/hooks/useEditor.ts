@@ -4,9 +4,8 @@ import { useChatStore, setCurrentDocumentId } from '../stores/chatStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFileListStore } from '../stores/fileListStore'
 import { useNotificationStore } from '../stores/notificationStore'
-import { parseMarkdown, serializeMarkdown, extractFirstH1, prepareTextContent } from '../lib/markdown'
-import { extractMarkdownFromHtml } from '../lib/htmlExport'
-import { importArtifactComments } from '../lib/artifactImport'
+import { parseMarkdown, serializeMarkdown, extractFirstH1 } from '../lib/markdown'
+import { resolveOpenedFileContent } from '../lib/openDocument'
 import { handleMissingPath, isMissingPathFileError } from '../lib/stalePath'
 import {
   recordDiskBaseline,
@@ -83,30 +82,14 @@ export function useEditor() {
     await saveCurrentConversation(document.documentId)
 
     try {
-      let raw = await window.api.readFile(filePath)
-      const isHtml = filePath.endsWith('.html') || filePath.endsWith('.htm')
-      let artifactHtml: string | null = null
-      if (isHtml) {
-        const extracted = extractMarkdownFromHtml(raw)
-        if (extracted) {
-          artifactHtml = raw
-          raw = extracted
-        } else {
-          console.warn('[useEditor] HTML file has no embedded Prose markdown:', filePath)
-          return false
-        }
-      }
-      const isTxt = filePath.endsWith('.txt')
-      const parsed = parseMarkdown(isTxt ? prepareTextContent(raw) : raw)
+      const raw = await window.api.readFile(filePath)
       const newDocumentId = await generateIdFromPath(filePath)
-
-      // Artifact comments travel with the file (#768): merge them into the
-      // store BEFORE the document loads so the normal comment-load → restore
-      // path picks them up. Sneakernet loop: an annotated copy sent back by a
-      // reviewer lands its comments here as real threads.
-      if (artifactHtml) {
-        await importArtifactComments(artifactHtml, newDocumentId)
+      const resolved = await resolveOpenedFileContent(filePath, raw, newDocumentId)
+      if (resolved.content === null) {
+        console.warn('[useEditor] HTML file has no embedded Prose markdown:', filePath)
+        return false
       }
+      const parsed = parseMarkdown(resolved.content)
 
       setDocument({
         documentId: newDocumentId,
@@ -163,28 +146,14 @@ export function useEditor() {
 
     const result = await window.api.openFile()
     if (result) {
-      let content = result.content
-      const isHtml = result.path.endsWith('.html') || result.path.endsWith('.htm')
-      let artifactHtml: string | null = null
-      if (isHtml) {
-        const extracted = extractMarkdownFromHtml(content)
-        if (extracted) {
-          artifactHtml = content
-          content = extracted
-        } else {
-          console.warn('[useEditor] HTML file has no embedded Prose markdown:', result.path)
-          return false
-        }
-      }
-      const isTxt = result.path.endsWith('.txt')
-      const parsed = parseMarkdown(isTxt ? prepareTextContent(content) : content)
       // Use path-based ID for saved files so chat history persists
       const newDocumentId = await generateIdFromPath(result.path)
-
-      // Artifact comments travel with the file (#768) — see openFileFromPath.
-      if (artifactHtml) {
-        await importArtifactComments(artifactHtml, newDocumentId)
+      const resolved = await resolveOpenedFileContent(result.path, result.content, newDocumentId)
+      if (resolved.content === null) {
+        console.warn('[useEditor] HTML file has no embedded Prose markdown:', result.path)
+        return false
       }
+      const parsed = parseMarkdown(resolved.content)
 
       setDocument({
         documentId: newDocumentId,

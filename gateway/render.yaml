@@ -1,0 +1,38 @@
+# Render Blueprint for the Prose Gateway (Phase 0, #765).
+# NOTE: validated in Stage A.5 before lock-in. If Render is auto-detecting this
+# blueprint from the repo root, paths below are repo-root-relative.
+# DNS: api.prose.solo.ist is a Hover CNAME → this service's onrender.com target,
+# with Render-managed TLS (Let's Encrypt). No CDN/proxy in front.
+services:
+  - type: web
+    name: prose-gateway
+    runtime: docker
+    dockerfilePath: ./gateway/Dockerfile
+    dockerContext: ./gateway
+    region: virginia
+    plan: starter
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: GATEWAY_PORT
+        value: "4000"
+      - key: BETTER_AUTH_URL
+        value: https://api.prose.solo.ist
+      - key: CORS_ORIGINS
+        value: https://prose.solo.ist
+      - key: DATABASE_URL
+        fromDatabase:
+          name: prose-gateway-db
+          property: connectionString
+      - key: ANTHROPIC_API_KEY
+        sync: false # set via dashboard/secret; never in the repo
+      - key: BETTER_AUTH_SECRET
+        sync: false
+
+databases:
+  - name: prose-gateway-db
+    plan: basic-256mb # paid tier: backups + persistence (free PG expires in 30d)
+    region: virginia # MUST match the web service region
+    postgresMajorVersion: "16"

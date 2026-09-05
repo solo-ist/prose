@@ -21,13 +21,7 @@ import {
 } from '../../persistence'
 import { useTabStore, generateUntitledTitle } from '../../../stores/tabStore'
 import { useSuggestionStore } from '../../../extensions/ai-suggestions/store'
-
-interface ToolProvenance {
-  model: string
-  conversationId: string
-  messageId: string
-  documentId: string
-}
+import type { ToolProvenance } from '../provenanceTypes'
 
 /**
  * Get the Electron API.
@@ -498,19 +492,20 @@ export async function executeCreateAndOpenFile(args: {
     }
 
     if (provenance && content.trim().length > 0) {
-      const editorDocument = useEditorStore.getState().document
-      const annotationContent = editorDocument.content || content
-      const annotationTo = await waitForEditorDocumentContent(editorDocument.documentId, annotationContent)
+      // Compute the expected documentId from the path — same derivation as executeOpenFile —
+      // so we don't rely on reading editorStore before its async store update settles.
+      const newDocumentId = await generateIdFromPath(fullPath)
+      const annotationTo = await waitForEditorDocumentContent(newDocumentId, content)
 
       // Skip the annotation if the editor isn't ready yet — annotationTo must be a
       // ProseMirror position (doc.content.size), not a raw character count.
       if (annotationTo !== null) {
         useAnnotationStore.getState().addAnnotation({
-          documentId: editorDocument.documentId,
+          documentId: newDocumentId,
           type: 'insertion',
           from: 0,
           to: annotationTo,
-          content: annotationContent,
+          content,
           provenance: {
             model: provenance.model,
             conversationId: provenance.conversationId,

@@ -8,6 +8,7 @@
 import { Mark, mergeAttributes } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import type { MarkSerializerSpec } from 'prosemirror-markdown'
 import type { CommentOptions, CommentData } from './types'
 import { useCommentStore } from './store'
@@ -56,6 +57,7 @@ export const Comment = Mark.create<CommentOptions>({
       HTMLAttributes: {},
       onCommentAdded: undefined,
       onCommentRemoved: undefined,
+      onCommentBlocked: undefined,
     }
   },
 
@@ -132,6 +134,18 @@ export const Comment = Mark.create<CommentOptions>({
         (attrs) =>
         ({ commands, state }) => {
           const { from, to } = state.selection
+
+          // Same-type marks are exclusive in ProseMirror: setMark on a range
+          // that fully covers an existing comment mark silently REPLACES it,
+          // orphaning that thread's store entry (replies included) — the next
+          // persistence merge then deletes the thread outright (#830). Refuse
+          // the add and let the caller point at the existing thread instead.
+          // Partial overlaps are fine: the old mark survives as a split.
+          const covered = findFullyCoveredCommentIds(state.doc, from, to)
+          if (covered.length > 0) {
+            this.options.onCommentBlocked?.(covered)
+            return false
+          }
 
           // Get the selected text
           const markedText = state.doc.textBetween(from, to, ' ')
@@ -235,6 +249,12 @@ export const Comment = Mark.create<CommentOptions>({
           // cross-block comments match (#665 fix).
           const docText = doc.textContent
 
+          // Ranges already re-marked in this pass — a later addMark that fully
+          // covers an earlier one replaces it (same clobber semantics as
+          // setComment, #830). Creation is now guarded, but legacy data can
+          // still hold same-anchor threads; warn instead of losing one silently.
+          const restoredRanges: Array<{ id: string; from: number; to: number }> = []
+
           for (const comment of comments) {
             // Resolved threads are stored but must not be re-marked in the
             // editor — they're history only.
@@ -325,6 +345,17 @@ export const Comment = Mark.create<CommentOptions>({
               continue
             }
 
+            const clobbered = restoredRanges.filter(
+              (r) => r.from >= foundStart && r.to <= foundEnd
+            )
+            if (clobbered.length > 0) {
+              console.warn('[Comment] Restored mark fully covers earlier restored thread(s); their marks are replaced:', {
+                id: comment.id,
+                clobberedIds: clobbered.map((r) => r.id),
+              })
+            }
+            restoredRanges.push({ id: comment.id, from: foundStart, to: foundEnd })
+
             const mark = schema.marks.comment.create({
               id: comment.id,
               comment: comment.comment,
@@ -399,6 +430,39 @@ export const Comment = Mark.create<CommentOptions>({
     ]
   },
 })
+
+/**
+ * Ids of comment threads whose marks would be entirely consumed by applying a
+ * same-type mark across [from, to] (#830). A thread is only at risk when every
+ * text node carrying its mark lies fully inside the range — a node sticking
+ * out (or a second anchor elsewhere in the doc) survives setMark as a split.
+ */
+export function findFullyCoveredCommentIds(
+  doc: ProseMirrorNode,
+  from: number,
+  to: number
+): string[] {
+  const intersecting = new Set<string>()
+  const survives = new Set<string>()
+
+  doc.descendants((node, pos) => {
+    node.marks.forEach((mark) => {
+      if (mark.type.name !== 'comment' || !mark.attrs.id) return
+      const nodeFrom = pos
+      const nodeTo = pos + node.nodeSize
+      if (nodeFrom < to && nodeTo > from) {
+        intersecting.add(mark.attrs.id)
+        // Part of this node extends beyond the range — the split remains.
+        if (nodeFrom < from || nodeTo > to) survives.add(mark.attrs.id)
+      } else {
+        // Anchored (also) outside the range entirely — untouched by setMark.
+        survives.add(mark.attrs.id)
+      }
+    })
+  })
+
+  return [...intersecting].filter((id) => !survives.has(id))
+}
 
 /**
  * Extract all comments from the editor

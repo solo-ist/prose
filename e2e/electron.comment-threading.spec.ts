@@ -206,3 +206,38 @@ test('resolved threads do not get re-marked on restoreComments', async () => {
   const marksAfterReopen = await countCommentMarks(page)
   expect(marksAfterReopen).toBe(0)
 })
+
+test('add_comment on an already-commented node blocks instead of clobbering (#830)', async () => {
+  await openFreshFile(
+    page,
+    'clobber-test.md',
+    '# Clobber Test\n\nOverlapping comments on this paragraph must not destroy each other.\n'
+  )
+
+  const firstId = await addComment(page, 'first thread — must survive')
+
+  // Target the same node the helper picked: nodeId resolves to the whole node
+  // range, so this second add_comment is an exactly-equal range — the clobber
+  // case. It must be refused with COMMENT_EXISTS naming the existing thread.
+  const read = await executeProseTool(page, 'read_document', {})
+  interface DocNode { id: string; content?: string; children?: DocNode[] }
+  const flatten = (nodes: DocNode[]): DocNode[] =>
+    nodes.flatMap((n) => [n, ...(n.children ? flatten(n.children) : [])])
+  const node = flatten((read.data as { nodes: DocNode[] }).nodes).find(
+    (n) => n.content && n.content.trim().length > 5,
+  )
+  const second = await executeProseTool(page, 'add_comment', {
+    nodeId: node!.id,
+    comment: 'second thread — must be blocked',
+  }, 'editor')
+  expect(second.success, 'overlapping add_comment must be refused').toBe(false)
+  expect((second as { code?: string }).code).toBe('COMMENT_EXISTS')
+  expect((second as { error?: string }).error).toContain(firstId)
+
+  // The original thread is intact on both surfaces: exactly one store entry
+  // and its mark still lives in the doc (store and doc must not diverge).
+  const threads = (await getCommentStore(page)).filter((c) => !c.resolved)
+  expect(threads).toHaveLength(1)
+  expect(threads[0].id).toBe(firstId)
+  expect(await countCommentMarks(page)).toBeGreaterThan(0)
+})

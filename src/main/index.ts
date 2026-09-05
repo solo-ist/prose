@@ -30,7 +30,7 @@ try {
   // Settings don't exist yet or are invalid — skip Sentry
 }
 
-import { app, shell, BrowserWindow, session, protocol } from 'electron'
+import { app, shell, BrowserWindow, session, protocol, globalShortcut } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 
 // Test seam: redirect userData (settings, IndexedDB, caches) to an isolated
@@ -604,6 +604,35 @@ app.on('window-all-closed', () => {
     app.quit()
   }
 })
+
+// Zoom-out hotkey workaround (#806): on macOS 26 + Electron 40 the ⌘- menu
+// key equivalent is consumed by AppKit without dispatching — key-equivalent
+// validation aborts on system-injected menu items ("representedObject is not
+// a WeakPtrToElectronMenuModelAsNSObject" bursts on each press), so the event
+// never reaches the menu action, Chromium, or the renderer, though menu click
+// works and older-Electron apps on the same OS are fine. A globalShortcut
+// (Carbon RegisterEventHotKey) sits above the broken layer. It is scoped to
+// app focus (registered on window focus, dropped on blur) so it never
+// swallows ⌘- from other apps, and since it consumes the key before the menu
+// sees it, setups where the menu path works don't double-zoom.
+if (process.platform === 'darwin') {
+  const ZOOM_OUT_ACCELERATOR = 'CommandOrControl+-'
+  app.on('browser-window-focus', () => {
+    const ok = globalShortcut.register(ZOOM_OUT_ACCELERATOR, () => {
+      const wc = BrowserWindow.getFocusedWindow()?.webContents
+      if (wc) wc.setZoomLevel(wc.getZoomLevel() - 0.5)
+    })
+    if (!ok && !globalShortcut.isRegistered(ZOOM_OUT_ACCELERATOR)) {
+      console.warn('[Zoom] ⌘- hotkey registration failed — menu accelerator is the only zoom-out path')
+    }
+  })
+  app.on('browser-window-blur', () => {
+    globalShortcut.unregister(ZOOM_OUT_ACCELERATOR)
+  })
+  app.on('will-quit', () => {
+    globalShortcut.unregisterAll()
+  })
+}
 
 // Clean up socket server, file watcher, and auth token on quit
 app.on('will-quit', async () => {

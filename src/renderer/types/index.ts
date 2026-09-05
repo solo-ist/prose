@@ -83,6 +83,13 @@ interface SettingsBase {
      * Falls back to instant apply when the user prefers reduced motion.
      */
     streamingEdits?: boolean
+    /**
+     * Character used to prefix unordered list items when serializing to Markdown.
+     * Defaults to '*' (asterisk); set to '-' (dash) if preferred. The default
+     * applies to users who never chose — their bullets serialize as '*' from
+     * v1.7.1 on (deliberate: QA decision 2026-09-04).
+     */
+    bulletListMarker?: '-' | '*'
   }
   recovery?: {
     mode: 'silent' | 'prompt'

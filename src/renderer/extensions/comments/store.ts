@@ -52,6 +52,17 @@ interface CommentPersistenceState {
   deleteComments: (documentId: string) => Promise<void>
 }
 
+/**
+ * Open (unresolved) comment threads. The one predicate every counting surface
+ * (status bar, chat chips, Comment Review) derives from, so the UI can't render
+ * contradictory totals (#830). The store is the source of truth — new marks are
+ * mirrored in on creation (onCommentAdded) and it stays populated across
+ * restores — so counts must come from here, not from live editor marks.
+ */
+export function countOpenThreads(comments: CommentData[]): number {
+  return comments.filter((c) => !c.resolved).length
+}
+
 export const useCommentStore = create<CommentPersistenceState>((set, get) => ({
   documentId: null,
   pendingComments: [],

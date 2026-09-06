@@ -438,7 +438,11 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
             <Avatar kind={commentIsAI ? 'ai' : 'user'} />
             <div className="min-w-0 flex-1">
               <div className="mb-0.5 flex items-baseline gap-2">
-                <span className="text-xs font-semibold text-foreground">{commentIsAI ? 'Prose' : 'You'}</span>
+                <span className="text-xs font-semibold text-foreground">
+                  {commentIsAI
+                    ? 'Prose'
+                    : currentComment?.authorName || (currentComment?.shareId ? 'Reviewer' : 'You')}
+                </span>
                 {commentAge && <span className="text-[11px] text-muted-foreground">{commentAge}</span>}
               </div>
               {commentIsAI ? (
@@ -622,7 +626,7 @@ function ReplyRow({ reply, editor }: { reply: CommentReply; editor: Editor }) {
       <Avatar kind={isAI ? 'ai' : 'user'} />
       <div className="min-w-0 flex-1">
         <div className="mb-0.5 flex items-baseline gap-2">
-          <span className="text-xs font-semibold text-foreground">{isAI ? 'Prose' : 'You'}</span>
+          <span className="text-xs font-semibold text-foreground">{isAI ? 'Prose' : reply.authorName || 'You'}</span>
           <span className="text-[11px] text-muted-foreground">{formatAge(reply.createdAt)}</span>
         </div>
         {/* AI replies are markdown (rendered like chat); user replies stay literal. */}

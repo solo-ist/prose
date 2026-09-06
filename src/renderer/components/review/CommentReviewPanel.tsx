@@ -303,7 +303,9 @@ export function CommentReviewPanel({ onExit, initialThreadId }: CommentReviewPan
                 <div className="min-w-0 flex-1">
                   <div className="mb-0.5 flex items-baseline gap-2">
                     <span className="text-xs font-semibold text-foreground">
-                      {current.author === 'ai' ? 'Prose' : current.authorName || 'You'}
+                      {current.author === 'ai'
+                        ? 'Prose'
+                        : current.authorName || (current.shareId ? 'Reviewer' : 'You')}
                     </span>
                     <span className="text-[11px] text-muted-foreground">{formatAge(current.createdAt)}</span>
                   </div>

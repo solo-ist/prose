@@ -680,6 +680,8 @@ export interface ElectronAPI {
   shareList: () => Promise<ShareOp<{ entries: ShareEntry[] }>>
   shareGetForPath: (localPath: string) => Promise<ShareOp<{ entries: ShareEntry[] }>>
   shareComments: (publicationId: string) => Promise<ShareOp<{ comments: SharePulledComment[] }>>
+  sharePullComments: (publicationId: string) => Promise<ShareOp<{ comments: SharePulledComment[]; nextCursor: string | null }>>
+  shareAckCursor: (publicationId: string, cursor: string) => Promise<ShareOp<object>>
   shareUpdateLocalPath: (oldPath: string, newPath: string, newDocumentId: string) => Promise<ShareOp<{ touched: number }>>
   // Emoji generation (runs in main process to avoid CORS)
   emojiGenerate: (title: string, contentPreview?: string) => Promise<{ emoji: string | null; error?: string }>

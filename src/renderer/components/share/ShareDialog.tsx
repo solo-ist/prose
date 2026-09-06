@@ -6,8 +6,9 @@
  * Sign-in is the interim pre-#766 flow: request a magic link, paste it back
  * (the gateway logs it in dev; hosted delivery lands with #813/#766).
  *
- * Read-only comment view only — merging reviewer comments into the editor's
- * comment store (re-anchoring, anchorLost) is #769.
+ * Reviewer comments sync into the document's comment store on open and on
+ * demand (#769, lib/shareSync) — the list below the actions is a read-only
+ * overview of everything on the gateway.
  */
 import { useCallback, useEffect, useState } from 'react'
 import {
@@ -21,6 +22,7 @@ import { Input } from '../ui/input'
 import { Separator } from '../ui/separator'
 import { getApi } from '../../lib/browserApi'
 import { buildShareHtml } from '../../lib/htmlExport'
+import { syncShareComments } from '../../lib/shareSync'
 import { extractFirstH1 } from '../../lib/markdown'
 import { useEditor } from '../../hooks/useEditor'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
@@ -56,10 +58,24 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [comments, setComments] = useState<SharePulledComment[] | null>(null)
+  const [syncedCount, setSyncedCount] = useState<number | null>(null)
+
+  // Pull new reviewer comments into the document (#769), then load the full
+  // gateway list for the overview below the actions.
+  const syncAndLoad = useCallback(async (e: ShareEntry): Promise<string | null> => {
+    const sync = await syncShareComments(e, document.documentId)
+    if (sync.ok) setSyncedCount(sync.added)
+    const res = await getApi().shareComments(e.publicationId)
+    if (res.ok) setComments(res.comments)
+    if (!sync.ok) return sync.error
+    if (!res.ok) return res.error
+    return null
+  }, [document.documentId])
 
   const refresh = useCallback(async () => {
     setError(null)
     setComments(null)
+    setSyncedCount(null)
     const status = await getApi().shareAuthStatus()
     if (status.ok && status.signedIn) {
       setAuth({ phase: 'signed-in', email: status.email })
@@ -68,11 +84,17 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
     }
     if (document.path) {
       const existing = await getApi().shareGetForPath(document.path)
-      setEntry(existing.ok && existing.entries.length > 0 ? existing.entries[0] : null)
+      const found = existing.ok && existing.entries.length > 0 ? existing.entries[0] : null
+      setEntry(found)
+      // Opening the dialog on a published doc syncs automatically.
+      if (found && status.ok && status.signedIn) {
+        const err = await syncAndLoad(found)
+        if (err) setError(err)
+      }
     } else {
       setEntry(null)
     }
-  }, [document.path])
+  }, [document.path, syncAndLoad])
 
   useEffect(() => {
     if (open) void refresh()
@@ -168,13 +190,10 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const handleLoadComments = () =>
+  const handleSyncComments = () =>
     run('comments', async () => {
       if (!entry) return null
-      const res = await getApi().shareComments(entry.publicationId)
-      if (!res.ok) return res.error
-      setComments(res.comments)
-      return null
+      return syncAndLoad(entry)
     })
 
   const topLevel = (comments ?? []).filter((c) => !c.parentId)
@@ -259,8 +278,8 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
             {document.path && entry && (
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
-                  <Input readOnly value={entry.shareUrl} className="text-xs" />
-                  <Button variant="outline" size="icon" onClick={handleCopy} aria-label="Copy share link">
+                  <Input readOnly value={entry.shareUrl} className="min-w-0 flex-1 text-xs" />
+                  <Button variant="outline" size="icon" onClick={handleCopy} aria-label="Copy share link" className="shrink-0">
                     {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                   </Button>
                 </div>
@@ -271,25 +290,33 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
                   <Button onClick={handleRepublish} disabled={busy !== null} variant="outline" className="flex-1">
                     {busy === 'republish' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Re-publish'}
                   </Button>
-                  <Button onClick={handleLoadComments} disabled={busy !== null} variant="outline" className="flex-1">
-                    {busy === 'comments' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'View comments'}
+                  <Button onClick={handleSyncComments} disabled={busy !== null} variant="outline" className="flex-1">
+                    {busy === 'comments' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Sync comments'}
                   </Button>
-                  <Button onClick={handleRevoke} disabled={busy !== null} variant="destructive">
+                  <Button onClick={handleRevoke} disabled={busy !== null} variant="destructive" className="shrink-0">
                     {busy === 'revoke' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Revoke'}
                   </Button>
                 </div>
 
+                {syncedCount !== null && (
+                  <p className="text-xs text-muted-foreground">
+                    {syncedCount > 0
+                      ? `${syncedCount} new comment${syncedCount === 1 ? '' : 's'} synced into the document.`
+                      : 'Comments are up to date.'}
+                  </p>
+                )}
+
                 {comments !== null && (
                   <>
                     <Separator />
-                    <div className="max-h-56 space-y-2 overflow-y-auto">
+                    <div className="max-h-56 space-y-2 overflow-y-auto pr-2">
                       {topLevel.length === 0 && (
                         <p className="text-sm text-muted-foreground">No reviewer comments yet.</p>
                       )}
                       {topLevel.map((c) => (
                         <div key={c.id} className="rounded-md border p-2 text-sm">
                           {c.markedText && (
-                            <p className="mb-1 truncate border-l-2 pl-2 text-xs italic text-muted-foreground">
+                            <p className="mb-1 line-clamp-2 border-l-2 pl-2 text-xs italic text-muted-foreground">
                               {c.markedText}
                             </p>
                           )}
@@ -309,8 +336,8 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
                       ))}
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Re-publish to bake new comments into the shared page. Syncing them into the
-                      editor lands next (#769).
+                      Synced comments appear in the document as threads — reply or resolve them in
+                      Comment Review. Re-publish to bake the latest state into the shared page.
                     </p>
                   </>
                 )}

@@ -288,6 +288,11 @@ export function CommentReviewPanel({ onExit, initialThreadId }: CommentReviewPan
                 <div className="border-l-2 border-amber-500 pl-2.5 text-[12.5px] italic leading-relaxed text-foreground/70">
                   {quote}
                 </div>
+                {current.anchorLost && (
+                  <div className="mt-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                    The text this comment pointed at has changed — anchor lost, thread kept.
+                  </div>
+                )}
               </div>
             )}
 
@@ -297,7 +302,9 @@ export function CommentReviewPanel({ onExit, initialThreadId }: CommentReviewPan
                 <ReviewAvatar kind={current.author === 'ai' ? 'ai' : 'user'} />
                 <div className="min-w-0 flex-1">
                   <div className="mb-0.5 flex items-baseline gap-2">
-                    <span className="text-xs font-semibold text-foreground">{current.author === 'ai' ? 'Prose' : 'You'}</span>
+                    <span className="text-xs font-semibold text-foreground">
+                      {current.author === 'ai' ? 'Prose' : current.authorName || 'You'}
+                    </span>
                     <span className="text-[11px] text-muted-foreground">{formatAge(current.createdAt)}</span>
                   </div>
                   {current.author === 'ai' ? (
@@ -439,7 +446,7 @@ function ReviewReplyRow({ reply, editor }: { reply: CommentReply; editor: Return
       <ReviewAvatar kind={isAI ? 'ai' : 'user'} />
       <div className="min-w-0 flex-1">
         <div className="mb-0.5 flex items-baseline gap-2">
-          <span className="text-xs font-semibold text-foreground">{isAI ? 'Prose' : 'You'}</span>
+          <span className="text-xs font-semibold text-foreground">{isAI ? 'Prose' : reply.authorName || 'You'}</span>
           <span className="text-[11px] text-muted-foreground">{formatAge(reply.createdAt)}</span>
         </div>
         {isAI ? (

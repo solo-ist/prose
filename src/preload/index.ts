@@ -306,6 +306,8 @@ export interface ElectronAPI {
   shareList: () => Promise<unknown>
   shareGetForPath: (localPath: string) => Promise<unknown>
   shareComments: (publicationId: string) => Promise<unknown>
+  sharePullComments: (publicationId: string) => Promise<unknown>
+  shareAckCursor: (publicationId: string, cursor: string) => Promise<unknown>
   shareUpdateLocalPath: (oldPath: string, newPath: string, newDocumentId: string) => Promise<unknown>
   // MCP Server integration
   mcpGetStatus: () => Promise<McpServerStatus>
@@ -609,6 +611,9 @@ const api: ElectronAPI = {
   shareList: () => ipcRenderer.invoke('share:list'),
   shareGetForPath: (localPath: string) => ipcRenderer.invoke('share:getForPath', localPath),
   shareComments: (publicationId: string) => ipcRenderer.invoke('share:comments', publicationId),
+  sharePullComments: (publicationId: string) => ipcRenderer.invoke('share:pullComments', publicationId),
+  shareAckCursor: (publicationId: string, cursor: string) =>
+    ipcRenderer.invoke('share:ackCursor', publicationId, cursor),
   shareUpdateLocalPath: (oldPath: string, newPath: string, newDocumentId: string) =>
     ipcRenderer.invoke('share:updateLocalPath', oldPath, newPath, newDocumentId),
   // MCP Server integration

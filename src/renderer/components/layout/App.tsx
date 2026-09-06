@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useGoogleDocsEnabled, isGoogleDocsEnabled } from '../../lib/featureFlags'
+import { useShareFocusSync } from '../../lib/shareSync'
 import { downloadSkillWithAlert } from '../../lib/skillDownload'
 import { Toolbar } from './Toolbar'
 import { UpdateBanner } from './UpdateBanner'
@@ -121,6 +122,8 @@ export function App() {
   const { isChatOpen, isFileListOpen, toggleChat, toggleFileList, setChatOpen, panelSizes } = panelLayout
 
   const googleDocsEnabled = useGoogleDocsEnabled()
+  // Pull reviewer comments for published docs on window focus (#769)
+  useShareFocusSync()
   const { openFile, openFileFromPath, saveFile, saveFileAs, newFile } = useEditor()
   const { createNewTab, openFileInTab, reopenLastClosedTab } = useTabs()
   const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, isAboutDialogOpen, setAboutDialogOpen, isModelPickerOpen, setModelPickerOpen, settings, effectiveTheme, effectiveColor, autosaveActive, isLoaded: settingsLoaded } = useSettings()

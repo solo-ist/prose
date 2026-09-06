@@ -251,7 +251,12 @@ export const VIEWER_SCRIPT = `(function () {
   function norm(s) { return s.replace(/ /g, '') }
 
   function computeAnchor(selection) {
-    var markedText = selection.toString()
+    // Selection.toString() renders block boundaries as newlines, but the
+    // editor stores cross-block markedText with a single-space separator
+    // (textBetween(from, to, ' ')) and its textContent has no newlines at
+    // all. Map newline runs to one space at CAPTURE so cross-block anchors
+    // round-trip; norm() below still strips spaces only, unchanged.
+    var markedText = selection.toString().replace(/\\s*\\n\\s*/g, ' ')
     if (!markedText) return null
     var range = selection.getRangeAt(0)
     if (!article.contains(range.commonAncestorContainer)) return null

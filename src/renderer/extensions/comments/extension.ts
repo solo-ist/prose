@@ -255,6 +255,12 @@ export const Comment = Mark.create<CommentOptions>({
           // still hold same-anchor threads; warn instead of losing one silently.
           const restoredRanges: Array<{ id: string; from: number; to: number }> = []
 
+          // Anchor bookkeeping (#769): threads whose text can't be found are
+          // KEPT and flagged anchorLost in the store (persistence preserves
+          // flagged threads); a later successful anchor clears the flag.
+          const lostIds: string[] = []
+          const anchoredIds: string[] = []
+
           for (const comment of comments) {
             // Resolved threads are stored but must not be re-marked in the
             // editor — they're history only.
@@ -263,6 +269,7 @@ export const Comment = Mark.create<CommentOptions>({
             const rawSearchText = comment.markedText
             if (!rawSearchText) {
               console.warn('[Comment] Cannot restore comment without markedText:', comment.id)
+              lostIds.push(comment.id)
               continue
             }
 
@@ -296,6 +303,7 @@ export const Comment = Mark.create<CommentOptions>({
                 id: comment.id,
                 markedText: rawSearchText.substring(0, 50)
               })
+              lostIds.push(comment.id)
               continue
             }
             if (!foundTarget) {
@@ -342,6 +350,7 @@ export const Comment = Mark.create<CommentOptions>({
 
             if (foundStart === -1 || foundEnd === -1) {
               console.warn('[Comment] Could not map text position for comment:', comment.id)
+              lostIds.push(comment.id)
               continue
             }
 
@@ -353,6 +362,9 @@ export const Comment = Mark.create<CommentOptions>({
                 id: comment.id,
                 clobberedIds: clobbered.map((r) => r.id),
               })
+              // Their marks are gone — classify as anchor-lost so persistence
+              // keeps the threads (lost wins over anchored in reconciliation).
+              lostIds.push(...clobbered.map((r) => r.id))
             }
             restoredRanges.push({ id: comment.id, from: foundStart, to: foundEnd })
 
@@ -365,12 +377,35 @@ export const Comment = Mark.create<CommentOptions>({
 
             tr.addMark(foundStart, foundEnd, mark)
             restored++
+            anchoredIds.push(comment.id)
 
             console.log('[Comment] Restored comment mark:', {
               id: comment.id,
               from: foundStart,
               to: foundEnd
             })
+          }
+
+          // Reconcile anchorLost flags in the store (#769) — flag misses, and
+          // clear the flag on threads that anchored (e.g. synced threads land
+          // flagged until their first successful restore).
+          const lost = new Set(lostIds)
+          const anchored = new Set(anchoredIds)
+          const { pendingComments } = useCommentStore.getState()
+          let flagsChanged = false
+          const reconciled = pendingComments.map((c) => {
+            if (lost.has(c.id) && c.anchorLost !== true) {
+              flagsChanged = true
+              return { ...c, anchorLost: true }
+            }
+            if (anchored.has(c.id) && c.anchorLost) {
+              flagsChanged = true
+              return { ...c, anchorLost: false }
+            }
+            return c
+          })
+          if (flagsChanged) {
+            useCommentStore.setState({ pendingComments: reconciled })
           }
 
           if (restored > 0) {
@@ -576,13 +611,30 @@ export function mergeCommentsForPersistence(
 
   const merged = liveMarks.map((m) => {
     const s = storedById.get(m.id)
-    return s ? { ...m, replies: s.replies ?? [], resolved: s.resolved ?? false, author: s.author ?? 'user' } : m
+    // Spread the stored thread FIRST so store-only fields (authorName,
+    // publishRev, shareId, occurrenceIndex) survive; the live mark then
+    // overrides the anchor-derived fields (positions, markedText). A live
+    // mark means the anchor exists — clear any stale anchorLost flag.
+    return s
+      ? { ...s, ...m, replies: s.replies ?? [], resolved: s.resolved ?? false, author: s.author ?? 'user', anchorLost: false }
+      : m
   })
 
   // Resolved (markless) threads survive only in the store — keep them.
   const resolvedOnly = stored.filter((c) => c.resolved && !liveIds.has(c.id))
 
-  return [...merged, ...resolvedOnly]
+  // Anchor-lost threads (#769) are markless but must never be dropped: the
+  // reviewer's comment outlives the text it pointed at. restoreComments owns
+  // the flag; unresolved markless threads WITHOUT it keep today's semantics
+  // (a mark deleted with its text mid-session deletes the thread) — EXCEPT
+  // share-sourced threads (shareId), which always survive as anchor-lost:
+  // a reviewer's comment must never silently vanish because of local edits
+  // or an overlap anomaly (#857).
+  const lostOnly = stored
+    .filter((c) => !c.resolved && !liveIds.has(c.id) && (c.anchorLost === true || c.shareId))
+    .map((c) => (c.anchorLost === true ? c : { ...c, anchorLost: true }))
+
+  return [...merged, ...resolvedOnly, ...lostOnly]
 }
 
 /**

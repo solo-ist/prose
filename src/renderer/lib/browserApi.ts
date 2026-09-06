@@ -490,6 +490,8 @@ export const browserApi: ElectronAPI = {
   shareList: async () => ({ ok: true as const, entries: [] }),
   shareGetForPath: async () => ({ ok: true as const, entries: [] }),
   shareComments: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  sharePullComments: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  shareAckCursor: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
   shareUpdateLocalPath: async () => ({ ok: true as const, touched: 0 }),
 
   // Emoji generation - not available in browser (CORS blocks Anthropic)

@@ -1762,6 +1762,16 @@ export function setupIpcHandlers(): void {
     return share.fetchAllComments(String(publicationId ?? ''))
   })
 
+  ipcMain.handle('share:pullComments', async (_event, publicationId: string) => {
+    const share = await import('./share/index')
+    return share.pullComments(String(publicationId ?? ''))
+  })
+
+  ipcMain.handle('share:ackCursor', async (_event, publicationId: string, cursor: string) => {
+    const share = await import('./share/index')
+    return share.ackCommentCursor(String(publicationId ?? ''), String(cursor ?? ''))
+  })
+
   ipcMain.handle(
     'share:updateLocalPath',
     async (_event, oldPath: string, newPath: string, newDocumentId: string) => {

@@ -155,7 +155,7 @@ export async function getForPath(localPath: string): Promise<ShareResult<{ entri
   return { ok: true, entries: await getShareEntriesByPath(localPath) }
 }
 
-/** Read-only comment view for the ShareDialog. Does NOT advance the #769 cursor. */
+/** Read-only comment view for the ShareDialog list. Does NOT advance the sync cursor. */
 export async function fetchAllComments(
   publicationId: string
 ): Promise<ShareResult<{ comments: client.PulledShareComment[] }>> {
@@ -168,6 +168,38 @@ export async function fetchAllComments(
   } catch (err) {
     return asError(err)
   }
+}
+
+/**
+ * Sync pull (#769): comments since the stored cursor. Deliberately does NOT
+ * advance the cursor — the renderer merges + persists first, then acks via
+ * ackCommentCursor, so a failed merge can never lose comments.
+ */
+export async function pullComments(
+  publicationId: string
+): Promise<ShareResult<{ comments: client.PulledShareComment[]; nextCursor: string | null }>> {
+  const config = await getShareConfig()
+  const entry = await getShareEntry(publicationId)
+  if (!entry) return { ok: false, error: 'No local record of this share.' }
+  try {
+    const { comments, nextCursor } = await client.fetchComments(config, publicationId, entry.lastCommentCursor)
+    return { ok: true, comments, nextCursor }
+  } catch (err) {
+    return asError(err)
+  }
+}
+
+/** Second phase of the sync pull: the renderer persisted the merge — advance the cursor. */
+export async function ackCommentCursor(
+  publicationId: string,
+  cursor: string
+): Promise<ShareResult<object>> {
+  const entry = await patchShareEntry(publicationId, {
+    lastCommentCursor: cursor,
+    lastPulledAt: new Date().toISOString(),
+  })
+  if (!entry) return { ok: false, error: 'No local record of this share.' }
+  return { ok: true }
 }
 
 export async function renamedLocalPath(

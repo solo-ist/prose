@@ -400,6 +400,20 @@ export const VIEWER_STYLES = `
     color: hsl(var(--muted-foreground));
   }
   .prose-resolved-section .prose-thread-quote { text-decoration: line-through; text-decoration-color: hsl(var(--border)); }
+  .prose-lost-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    margin-bottom: 10px;
+    border-top: 1px solid hsl(var(--border));
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: hsl(var(--muted-foreground));
+  }
+  .prose-thread-lost { border-style: dashed; }
+  .prose-thread-lost .prose-thread-quote { margin-bottom: 4px; }
+  .prose-lost-note { font-size: 11px; color: hsl(var(--muted-foreground)); margin-bottom: 10px; }
   .prose-rail-note {
     position: absolute;
     width: 300px;
@@ -546,21 +560,106 @@ export const VIEWER_SCRIPT = `(function () {
       occurrenceIndex++
       offset = idx + searchNorm.length
     }
-    return { markedText: markedText, occurrenceIndex: occurrenceIndex, range: range }
+    // No live Range in the result: marks are applied data-driven via
+    // anchorThread, exactly as a reloading or live-merging viewer would.
+    return { markedText: markedText, occurrenceIndex: occurrenceIndex }
   }
 
-  // Best-effort inline highlight for a just-added comment. Works when the
-  // selection stays inside one text node; multi-node selections throw and the
-  // comment stays rail-only (Prose re-anchors from data on import anyway).
-  function tryHighlight(range, id) {
-    try {
+  // --- Mark anchoring (data-driven, mirrors computeAnchor's space) ---------
+  // Threads without a baked span (live-merged, or posted before a reload) are
+  // re-anchored from markedText + occurrenceIndex. The index is built by
+  // walking <article>'s text nodes and skipping ONLY U+0020 — so its text
+  // equals norm(article.textContent) by construction (structural parity with
+  // computeAnchor; norm() itself stays untouched). Threads that fail to match
+  // render in the "Lost their place" section (lostIds — never baked into the
+  // artifact data).
+  var lostIds = {}
+
+  function buildAnchorIndex() {
+    var walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT, null)
+    var chars = []
+    var nodes = []
+    var offs = []
+    var n
+    while ((n = walker.nextNode())) {
+      var s = n.nodeValue
+      for (var i = 0; i < s.length; i++) {
+        if (s.charAt(i) === ' ') continue
+        chars.push(s.charAt(i))
+        nodes.push(n)
+        offs.push(i)
+      }
+    }
+    return { text: chars.join(''), nodes: nodes, offs: offs }
+  }
+
+  function anchorThread(c) {
+    if (!c || !c.markedText) return false
+    var target = norm(String(c.markedText))
+    if (!target) return false
+    // Rebuilt per thread: wrapping splits text nodes, so a shared snapshot
+    // would go stale after the first successful anchor.
+    var idx = buildAnchorIndex()
+    // Non-overlapping occurrence walk — the same counting rule computeAnchor
+    // used when the anchor was created.
+    var want = c.occurrenceIndex > 0 ? Math.floor(c.occurrenceIndex) : 0
+    var at = -1
+    var from = 0
+    for (var k = 0; k <= want; k++) {
+      at = idx.text.indexOf(target, from)
+      if (at === -1) return false
+      from = at + target.length
+    }
+    // Group covered chars into per-text-node runs (interior spaces fall
+    // inside a run's offsets, so they get wrapped too), then wrap each run
+    // back-to-front — splitting a node's tail never moves earlier offsets.
+    var end = at + target.length
+    var segs = []
+    var p = at
+    while (p < end) {
+      var node = idx.nodes[p]
+      var q = p
+      while (q + 1 < end && idx.nodes[q + 1] === node) q++
+      segs.push({ node: node, start: idx.offs[p], end: idx.offs[q] + 1 })
+      p = q + 1
+    }
+    for (var si = segs.length - 1; si >= 0; si--) {
+      var range = document.createRange()
+      range.setStart(segs[si].node, segs[si].start)
+      range.setEnd(segs[si].node, segs[si].end)
       var span = document.createElement('span')
-      span.setAttribute('data-comment-id', id)
+      span.setAttribute('data-comment-id', c.id)
       span.className = 'comment-mark'
-      range.surroundContents(span)
-      return true
-    } catch (e) {
-      return false
+      try { range.surroundContents(span) } catch (e) { return false }
+    }
+    return true
+  }
+
+  // Unwrap a thread's highlight spans (resolved threads carry no highlight).
+  function removeMarks(id) {
+    var spans = article.querySelectorAll('span[data-comment-id="' + CSS.escape(id) + '"]')
+    for (var i = 0; i < spans.length; i++) {
+      var s = spans[i]
+      var parent = s.parentNode
+      while (s.firstChild) parent.insertBefore(s.firstChild, s)
+      parent.removeChild(s)
+      parent.normalize()
+    }
+  }
+
+  function anchorAllThreads() {
+    for (var i = 0; i < comments.length; i++) {
+      var c = comments[i]
+      if (c.resolved) {
+        removeMarks(c.id)
+        continue
+      }
+      // Desktop-flagged lost anchors stay lost; everything else re-anchors.
+      if (c.anchorLost === true) { lostIds[c.id] = true; continue }
+      var hasSpan = article.querySelector('span[data-comment-id="' + CSS.escape(c.id) + '"]')
+      if (hasSpan) { delete lostIds[c.id]; continue }
+      if (anchorThread(c)) delete lostIds[c.id]
+      else lostIds[c.id] = true
     }
   }
 
@@ -631,12 +730,13 @@ export const VIEWER_SCRIPT = `(function () {
     scheduleLayout()
   }
 
-  function renderThread(c) {
-    var card = el('div', 'prose-thread')
+  function renderThread(c, lost) {
+    var card = el('div', lost ? 'prose-thread prose-thread-lost' : 'prose-thread')
     card.setAttribute('data-thread-id', c.id)
-    // The serif quote shows on resolved (and later lost-anchor) cards; open
-    // cards point at their live highlight instead.
-    if (c.markedText && c.resolved) card.appendChild(el('span', 'prose-thread-quote', '"' + c.markedText + '"'))
+    // The serif quote shows on resolved and lost-anchor cards; open cards
+    // point at their live highlight instead.
+    if (c.markedText && (c.resolved || lost)) card.appendChild(el('span', 'prose-thread-quote', '"' + c.markedText + '"'))
+    if (lost) card.appendChild(el('div', 'prose-lost-note', 'This passage is no longer in the document.'))
     card.appendChild(headerRow(authorLabel(c), mineTag(c.id, c.authorName), c.createdAt))
     card.appendChild(el('div', 'prose-thread-body', c.comment))
     var replies = c.replies || []
@@ -672,12 +772,28 @@ export const VIEWER_SCRIPT = `(function () {
   function renderRail() {
     openList.textContent = ''
     resolvedSection.textContent = ''
-    var open = comments.filter(function (c) { return !c.resolved })
-    var resolved = comments.filter(function (c) { return c.resolved })
+    lostSection.textContent = ''
+    var open = []
+    var lost = []
+    var resolved = []
+    for (var ci = 0; ci < comments.length; ci++) {
+      var entry = comments[ci]
+      if (entry.resolved) resolved.push(entry)
+      else if (lostIds[entry.id]) lost.push(entry)
+      else open.push(entry)
+    }
     open.sort(function (a, b) { return (a.createdAt || 0) - (b.createdAt || 0) })
 
     railHeadCount.textContent = 'Comments · ' + open.length
     for (var i = 0; i < open.length; i++) openList.appendChild(renderThread(open[i]))
+
+    if (lost.length > 0) {
+      var lostHead = el('div', 'prose-lost-head')
+      lostHead.appendChild(el('span', null, 'Lost their place · ' + lost.length))
+      lostHead.appendChild(el('span', null, 'text changed since'))
+      lostSection.appendChild(lostHead)
+      for (var li = 0; li < lost.length; li++) lostSection.appendChild(renderThread(lost[li], true))
+    }
 
     if (resolved.length > 0) {
       var head = el('div', 'prose-resolved-head')
@@ -874,6 +990,7 @@ export const VIEWER_SCRIPT = `(function () {
     })
   }
 
+  anchorAllThreads()
   renderRail()
   if (window.innerWidth >= 1000) {
     document.body.appendChild(rail)
@@ -954,6 +1071,7 @@ export const VIEWER_SCRIPT = `(function () {
       }
     }
     if (changed) {
+      anchorAllThreads()
       renderRail()
       if (activeId) setActive(activeId, false)
     }
@@ -1077,7 +1195,7 @@ export const VIEWER_SCRIPT = `(function () {
         localAdditions++
         unsavedAdditions++
         mineIds[localComment.id] = true
-        if (anchor.range) tryHighlight(anchor.range, localComment.id)
+        if (!anchorThread(localComment)) lostIds[localComment.id] = true
         clearForm()
         renderRail()
         setActive(localComment.id, false)
@@ -1085,7 +1203,7 @@ export const VIEWER_SCRIPT = `(function () {
       }
       postBtn.disabled = true
       postComment(anchor, name, emailInput ? emailInput.value.trim() : '', text).then(function (created) {
-        comments.push({
+        var newThread = {
           id: created.id,
           markedText: anchor.markedText,
           occurrenceIndex: anchor.occurrenceIndex,
@@ -1093,9 +1211,10 @@ export const VIEWER_SCRIPT = `(function () {
           authorName: name,
           createdAt: created.createdAt ? new Date(created.createdAt).getTime() : Date.now(),
           replies: []
-        })
+        }
+        comments.push(newThread)
         mineIds[created.id] = true
-        if (anchor.range) tryHighlight(anchor.range, created.id)
+        if (!anchorThread(newThread)) lostIds[created.id] = true
         clearForm()
         renderRail()
         // Pick up anything else that landed while the form was open (the

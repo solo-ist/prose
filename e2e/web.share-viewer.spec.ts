@@ -439,6 +439,102 @@ test.describe('baked chrome', () => {
   })
 })
 
+test.describe('client-side anchoring', () => {
+  const anchorComment = (over: Partial<CommentData>): CommentData => ({
+    id: 'm1',
+    markedText: '',
+    comment: 'Anchor me.',
+    createdAt: 1756200000000,
+    author: 'user',
+    occurrenceIndex: 0,
+    from: 0,
+    to: 0,
+    replies: [],
+    ...over,
+  })
+
+  const openAnchorArtifact = async (
+    page: import('@playwright/test').Page,
+    editorHtml: string,
+    comment: CommentData,
+    name: string
+  ) => {
+    const html = await buildProseHtml(editorHtml, 'anchor fixture', {}, 'Anchor Test', null, [comment])
+    const file = join(tmpDir, name)
+    writeFileSync(file, html, 'utf-8')
+    await page.goto(pathToFileURL(file).href)
+  }
+
+  test('a thread with no baked span anchors to its text on load', async ({ page }) => {
+    await openAnchorArtifact(
+      page,
+      '<p>Alpha beta gamma delta.</p><p>Second alpha beta here.</p>',
+      anchorComment({ markedText: 'beta gamma' }),
+      'anchor-basic.html'
+    )
+    const span = page.locator('article span[data-comment-id="m1"]')
+    await expect(span).toHaveText('beta gamma')
+    await expect(page.locator('.prose-lost-section .prose-thread')).toHaveCount(0)
+  })
+
+  test('cross-element marks wrap every covered segment under one id', async ({ page }) => {
+    await openAnchorArtifact(
+      page,
+      '<p>one <em>two</em> three ends.</p>',
+      anchorComment({ markedText: 'one two three' }),
+      'anchor-cross.html'
+    )
+    const spans = page.locator('article span[data-comment-id="m1"]')
+    await expect(spans.first()).toBeVisible()
+    expect(await spans.count()).toBeGreaterThanOrEqual(2)
+    const joined = await page.evaluate(() => {
+      const parts = Array.from(document.querySelectorAll('article span[data-comment-id="m1"]'))
+      return parts.map((s) => s.textContent).join('')
+    })
+    expect(joined.replace(/ /g, '')).toBe('onetwothree')
+    // Clicking the thread activates every segment.
+    await page.locator('.prose-thread[data-thread-id="m1"]').click()
+    for (const span of await spans.all()) {
+      await expect(span).toHaveClass(/prose-viewer-active/)
+    }
+  })
+
+  test('occurrenceIndex picks the nth occurrence', async ({ page }) => {
+    await openAnchorArtifact(
+      page,
+      '<p>dup phrase here. dup phrase again.</p>',
+      anchorComment({ markedText: 'dup phrase', occurrenceIndex: 1 }),
+      'anchor-nth.html'
+    )
+    const span = page.locator('article span[data-comment-id="m1"]')
+    await expect(span).toHaveText('dup phrase')
+    const before = await page.evaluate(() => {
+      const mark = document.querySelector('article span[data-comment-id="m1"]')!
+      const range = document.createRange()
+      range.selectNodeContents(document.querySelector('article')!)
+      range.setEndBefore(mark)
+      return range.toString()
+    })
+    expect(before).toContain('dup phrase here')
+  })
+
+  test('unmatchable markedText lands in Lost their place', async ({ page }) => {
+    await openAnchorArtifact(
+      page,
+      '<p>Nothing matches in this document.</p>',
+      anchorComment({ markedText: 'vanished passage' }),
+      'anchor-lost.html'
+    )
+    await expect(page.locator('.prose-lost-head')).toContainText('Lost their place · 1')
+    const lostCard = page.locator('.prose-lost-section .prose-thread-lost')
+    await expect(lostCard.locator('.prose-thread-quote')).toHaveText('"vanished passage"')
+    await expect(lostCard.locator('.prose-lost-note')).toHaveText('This passage is no longer in the document.')
+    // Lost threads are excluded from the open conversation count.
+    await expect(page.locator('.prose-rail-head')).toContainText('Comments · 0')
+    expect(await page.locator('article span[data-comment-id="m1"]').count()).toBe(0)
+  })
+})
+
 test.describe('author reply styling (offline)', () => {
   test('baked author replies (no authorName) render with the author tag', async ({ page }) => {
     const withAuthorReply: CommentData[] = [
@@ -565,6 +661,8 @@ test.describe('live conversation loop (online viewer)', () => {
     // Baked + live-GET copies of srv-1 collapse into one reply.
     await expect(page.getByText('On it.')).toHaveCount(1)
     await expect(page.locator('.prose-thread-reply.prose-reply-author')).toHaveCount(1)
+    // The live-only thread anchors to its text — no baked span needed.
+    await expect(page.locator('article span[data-comment-id="srv-2"]')).toHaveText('lazy dog')
   })
 
   test('a resolve landing between polls moves the thread to Resolved on focus', async ({ page }) => {

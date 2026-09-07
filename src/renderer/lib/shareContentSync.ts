@@ -144,7 +144,7 @@ export function useShareContentSync(): void {
       () => {
         // Per-document view state: a pending push must not target the wrong doc.
         cancelScheduledPush()
-        useShareStore.setState({ shareDirty: false, lastError: null, lastErrorCode: null })
+        useShareStore.setState({ shareDirty: false, lastError: null, lastErrorCode: null, unseenComments: 0 })
         void useShareStore.getState().refreshForActiveDocument()
       }
     )

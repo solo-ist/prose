@@ -30,6 +30,11 @@ interface ShareState {
   lastErrorCode: string | null
   lastPushAt: number
   popoverOpen: boolean
+  /**
+   * Reviewer comments synced in since the user last looked (popover opened
+   * or Comment Review entered). Drives the breathing badge on the ◎ icon.
+   */
+  unseenComments: number
 
   refreshForActiveDocument: () => Promise<void>
   applyEntry: (entry: ShareEntry | null) => void
@@ -39,6 +44,8 @@ interface ShareState {
   setPushing: (pushing: boolean) => void
   setError: (message: string | null, code?: string | null) => void
   setPopoverOpen: (open: boolean) => void
+  addUnseenComments: (n: number) => void
+  clearUnseenComments: () => void
 }
 
 /** The single state → icon/status-line mapping. */
@@ -70,6 +77,7 @@ export const useShareStore = create<ShareState>()(
     lastErrorCode: null,
     lastPushAt: 0,
     popoverOpen: false,
+    unseenComments: 0,
 
     refreshForActiveDocument: async () => {
       if (!isWebPlatformEnabled()) {
@@ -108,5 +116,7 @@ export const useShareStore = create<ShareState>()(
     setPushing: (pushing) => set({ pushing }),
     setError: (message, code = null) => set({ lastError: message, lastErrorCode: code }),
     setPopoverOpen: (open) => set({ popoverOpen: open }),
+    addUnseenComments: (n) => set((s) => ({ unseenComments: s.unseenComments + n })),
+    clearUnseenComments: () => set({ unseenComments: 0 }),
   }))
 )

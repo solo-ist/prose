@@ -18,6 +18,7 @@ import { mergeCommentThreads, cleanString } from './commentMerge'
 import { useCommentStore } from '../extensions/comments/store'
 import { useEditorStore } from '../stores/editorStore'
 import { useNotificationStore } from '../stores/notificationStore'
+import { useShareStore } from '../stores/shareStore'
 import { isWebPlatformEnabled } from './featureFlags'
 import { flushPendingShareOps } from './sharePush'
 import type { CommentData, CommentReply } from '../extensions/comments/types'
@@ -119,6 +120,8 @@ export async function syncShareComments(entry: ShareEntry, documentId: string): 
       message: `Synced ${added} reviewer comment${added === 1 ? '' : 's'} into this document.`,
       durationMs: 5000,
     })
+    // Light up the ◎ badge until the user looks (popover or Comment Review).
+    useShareStore.getState().addUnseenComments(added)
   }
 
   if (res.nextCursor) {

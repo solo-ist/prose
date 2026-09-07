@@ -5,13 +5,16 @@
  * Conversation (open-thread count + revoke). Hand-rolled — no popover
  * primitive exists in this app and none is worth adding for one card.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getApi } from '../../lib/browserApi'
 import { pushShareContent } from '../../lib/shareContentSync'
 import { syncShareComments } from '../../lib/shareSync'
 import { useShareStore, deriveShareStatus } from '../../stores/shareStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useCommentStore, countOpenThreads } from '../../extensions/comments/store'
+import { OPEN_COMMENT_EVENT, requestCommentReview } from '../editor/AIEditsHistoryPanel'
+import { formatAge } from '../../types/annotations'
+import type { CommentData } from '../../extensions/comments/types'
 import { SHARE_GOLD } from './ShareStatusIcon'
 import { cn } from '../../lib/utils'
 
@@ -25,7 +28,19 @@ export function ShareStatusPopover() {
   const lastErrorCode = useShareStore((s) => s.lastErrorCode)
   const setPopoverOpen = useShareStore((s) => s.setPopoverOpen)
   const setSyncMode = useShareStore((s) => s.setSyncMode)
-  const openCount = useCommentStore((s) => countOpenThreads(s.pendingComments))
+  const unseen = useShareStore((s) => s.unseenComments)
+  const pendingComments = useCommentStore((s) => s.pendingComments)
+  const openCount = countOpenThreads(pendingComments)
+  // The most recent reviewer threads — the popover's jump list into the
+  // commenting layer. Share-sourced (shareId) and still open, newest first.
+  const recentReviewerThreads = useMemo(
+    () =>
+      pendingComments
+        .filter((c) => c.shareId && !c.resolved)
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+        .slice(0, 3),
+    [pendingComments]
+  )
 
   const [copied, setCopied] = useState(false)
   const [revokeArmed, setRevokeArmed] = useState(false)
@@ -35,11 +50,34 @@ export function ShareStatusPopover() {
 
   // Opening the popover pulls new reviewer comments right away (the dialog
   // used to do this) — synced threads land in the doc and the count updates.
+  // Once the pull settles, everything visible here counts as seen.
   useEffect(() => {
     const e = useShareStore.getState().entry
     const documentId = useEditorStore.getState().document.documentId
-    if (e && !e.revokedAt && documentId) void syncShareComments(e, documentId)
+    void (async () => {
+      if (e && !e.revokedAt && documentId) await syncShareComments(e, documentId)
+      useShareStore.getState().clearUnseenComments()
+    })()
   }, [])
+
+  // Jump from the popover into a thread: anchored threads open their inline
+  // bubble at the highlight; anchor-lost ones open focused in Comment Review.
+  const jumpToThread = useCallback(
+    (c: CommentData) => {
+      setPopoverOpen(false)
+      if (c.anchorLost) {
+        requestCommentReview(c.id)
+      } else {
+        window.dispatchEvent(new CustomEvent(OPEN_COMMENT_EVENT, { detail: { id: c.id } }))
+      }
+    },
+    [setPopoverOpen]
+  )
+
+  const openReview = useCallback(() => {
+    setPopoverOpen(false)
+    requestCommentReview()
+  }, [setPopoverOpen])
 
   // Outside mousedown + Escape close (FindBar pattern). Clicks on the icon
   // itself toggle via the button, so exclude it here.
@@ -177,12 +215,52 @@ export function ShareStatusPopover() {
 
       {/* Conversation + revoke */}
       <div className="flex flex-col gap-2 px-3.5 py-3">
-        <div className="flex items-center justify-between gap-2.5 text-[11px] text-muted-foreground">
-          <span>Conversation</span>
-          <span className="text-foreground">
+        <button
+          type="button"
+          onClick={openReview}
+          disabled={openCount === 0}
+          title={openCount > 0 ? 'Open Comment Review' : undefined}
+          className={cn(
+            'group flex items-center justify-between gap-2.5 text-left text-[11px] text-muted-foreground transition-colors',
+            openCount > 0 && 'hover:text-foreground'
+          )}
+        >
+          <span className="flex items-center gap-1.5">
+            Conversation
+            {unseen > 0 && (
+              <span
+                className="rounded-full px-1.5 text-[9px] font-semibold text-[#090909]"
+                style={{ background: SHARE_GOLD }}
+              >
+                {unseen} new
+              </span>
+            )}
+          </span>
+          <span className={cn('text-foreground', openCount > 0 && 'group-hover:underline')}>
             {openCount} open · live
           </span>
-        </div>
+        </button>
+
+        {recentReviewerThreads.length > 0 && (
+          <div className="flex flex-col gap-1">
+            {recentReviewerThreads.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => jumpToThread(c)}
+                title={c.anchorLost ? 'Anchor lost — opens in Comment Review' : 'Jump to the highlight'}
+                className="rounded-[5px] border border-transparent px-2 py-1.5 text-left transition-colors hover:border-border hover:bg-background"
+              >
+                <span className="flex items-baseline justify-between gap-2 text-[10px] text-muted-foreground">
+                  <span className="truncate font-semibold text-foreground/80">{c.authorName || 'Reviewer'}</span>
+                  <span className="shrink-0">{formatAge(c.createdAt)}</span>
+                </span>
+                <span className="line-clamp-2 text-[11px] leading-snug text-foreground/90">{c.comment}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
         <button
           type="button"
           onClick={() => void handleRevoke()}

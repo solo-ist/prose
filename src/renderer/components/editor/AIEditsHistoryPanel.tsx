@@ -21,6 +21,7 @@ import { useAnnotationStore } from '../../extensions/ai-annotations/store'
 import { useCommentStore } from '../../extensions/comments/store'
 import { OPEN_COMMENT_EVENT } from '../../extensions/comments'
 import { useReviewStore } from '../../stores/reviewStore'
+import { useShareStore } from '../../stores/shareStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -63,6 +64,8 @@ export { OPEN_COMMENT_EVENT }
  */
 export function requestCommentReview(id?: string): void {
   useReviewStore.getState().enterCommentReview(id)
+  // Entering Comment Review counts as "seen" for the ◎ share badge (#769).
+  useShareStore.getState().clearUnseenComments()
 }
 
 // Unified activity item for the mixed feed

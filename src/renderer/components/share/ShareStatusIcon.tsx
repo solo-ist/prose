@@ -22,7 +22,17 @@ const TOOLTIPS: Record<ShareStatus, string> = {
   offline: 'Offline — changes queued',
 }
 
-function StatusGlyph({ status }: { status: ShareStatus }) {
+/** The dirty/unseen badge dot, masked from the ring by a background disc. */
+function BadgeDot({ breathe }: { breathe?: boolean }) {
+  return (
+    <>
+      <circle cx="15.4" cy="2.6" r="3" fill="hsl(var(--background))" />
+      <circle className={breathe ? 'prose-share-breathe' : undefined} cx="15.4" cy="2.6" r="1.7" fill={SHARE_GOLD} />
+    </>
+  )
+}
+
+function StatusGlyph({ status, showBadge }: { status: ShareStatus; showBadge: boolean }) {
   if (status === 'syncing') {
     return (
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
@@ -55,9 +65,7 @@ function StatusGlyph({ status }: { status: ShareStatus }) {
           strokeDasharray="2.6 3.4"
         />
         <circle cx="9" cy="9" r="2.4" fill={SHARE_GOLD} />
-        {/* Badge dot, masked from the ring by a background-colored disc. */}
-        <circle cx="15.4" cy="2.6" r="3" fill="hsl(var(--background))" />
-        <circle cx="15.4" cy="2.6" r="1.7" fill={SHARE_GOLD} />
+        <BadgeDot breathe={showBadge} />
       </svg>
     )
   }
@@ -73,6 +81,8 @@ function StatusGlyph({ status }: { status: ShareStatus }) {
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
       <circle cx="9" cy="9" r="7" stroke="hsl(var(--muted-foreground))" strokeOpacity="0.6" strokeWidth="1.2" />
       <circle cx="9" cy="9" r="2.4" fill={SHARE_GOLD} />
+      {/* New reviewer comments landed — a breathing badge until seen. */}
+      {showBadge && <BadgeDot breathe />}
     </svg>
   )
 }
@@ -85,21 +95,26 @@ export function ShareStatusIcon() {
   const lastErrorCode = useShareStore((s) => s.lastErrorCode)
   const popoverOpen = useShareStore((s) => s.popoverOpen)
   const setPopoverOpen = useShareStore((s) => s.setPopoverOpen)
+  const unseen = useShareStore((s) => s.unseenComments)
 
   if (!entry) return null
   const status = deriveShareStatus({ pushing, shareDirty, lastError, lastErrorCode, entry })
+  const tooltip =
+    unseen > 0
+      ? `${TOOLTIPS[status]} · ${unseen} new comment${unseen === 1 ? '' : 's'}`
+      : TOOLTIPS[status]
 
   return (
     <button
       type="button"
       data-share-icon
       onClick={() => setPopoverOpen(!popoverOpen)}
-      title={TOOLTIPS[status]}
-      aria-label={`Share status: ${TOOLTIPS[status]}`}
+      title={tooltip}
+      aria-label={`Share status: ${tooltip}`}
       aria-expanded={popoverOpen}
       className="prose-share-icon grid h-[30px] w-[30px] place-items-center rounded-md transition-colors"
     >
-      <StatusGlyph status={status} />
+      <StatusGlyph status={status} showBadge={unseen > 0} />
     </button>
   )
 }

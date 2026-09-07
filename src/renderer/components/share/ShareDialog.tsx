@@ -25,6 +25,7 @@ import { syncShareComments } from '../../lib/shareSync'
 import { buildShareArtifact } from '../../lib/shareArtifact'
 import { useEditor } from '../../hooks/useEditor'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
+import { useShareStore } from '../../stores/shareStore'
 import type { ShareEntry, SharePulledComment } from '../../types'
 import { Copy, Check, Loader2 } from 'lucide-react'
 
@@ -138,6 +139,8 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
       })
       if (!res.ok) return res.error
       setEntry(res.entry)
+      // The pinned status icon appears as soon as the doc is published.
+      useShareStore.getState().applyEntry(res.entry)
       return null
     })
 
@@ -159,6 +162,7 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
       if (!res.ok) return res.error
       setEntry(null)
       setComments(null)
+      useShareStore.getState().applyEntry(null)
       return null
     })
 

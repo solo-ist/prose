@@ -547,6 +547,8 @@ export interface ShareEntry {
   lastPulledAt: string | null
   lastCommentCursor: string | null
   revokedAt: string | null
+  /** Content sync mode (#769): auto = background push on save; publish = explicit. */
+  syncMode: 'auto' | 'publish'
 }
 
 /** A reviewer comment pulled from the gateway (authorEmail never included). */
@@ -557,6 +559,10 @@ export interface SharePulledComment {
   occurrenceIndex: number
   commentText: string
   authorName: string
+  /** Row was pushed by the author from Prose (reply/live conversation). */
+  fromAuthor: boolean
+  /** Author-controlled resolution; the desktop pull ignores it (local wins). */
+  resolvedAt: string | null
   publishRev: string
   createdAt: string
 }
@@ -683,6 +689,9 @@ export interface ElectronAPI {
   sharePullComments: (publicationId: string) => Promise<ShareOp<{ comments: SharePulledComment[]; nextCursor: string | null }>>
   shareAckCursor: (publicationId: string, cursor: string) => Promise<ShareOp<object>>
   shareUpdateLocalPath: (oldPath: string, newPath: string, newDocumentId: string) => Promise<ShareOp<{ touched: number }>>
+  shareSetSyncMode: (publicationId: string, mode: 'auto' | 'publish') => Promise<ShareOp<{ entry: ShareEntry }>>
+  shareReplyToComment: (publicationId: string, commentId: string, text: string, authorName?: string) => Promise<ShareOp<{ id: string; createdAt: string }>>
+  shareResolveComment: (publicationId: string, commentId: string, resolved: boolean) => Promise<ShareOp>
   // Emoji generation (runs in main process to avoid CORS)
   emojiGenerate: (title: string, contentPreview?: string) => Promise<{ emoji: string | null; error?: string }>
   // Window fullscreen state

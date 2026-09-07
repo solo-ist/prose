@@ -24,6 +24,12 @@ export interface ShareSyncEntry {
   lastPulledAt: string | null
   lastCommentCursor: string | null
   revokedAt: string | null
+  /**
+   * Content sync mode (#769): 'auto' pushes the artifact in the background on
+   * save; 'publish' freezes content until an explicit "Share latest updates".
+   * The conversation (comments) is live in both modes.
+   */
+  syncMode: 'auto' | 'publish'
 }
 
 interface ShareSyncMetadata {
@@ -40,7 +46,14 @@ async function load(): Promise<ShareSyncMetadata> {
   try {
     const raw = await readFile(metadataPath(), 'utf-8')
     const parsed = JSON.parse(raw) as ShareSyncMetadata
-    if (parsed?.version === 1 && parsed.shares) return parsed
+    if (parsed?.version === 1 && parsed.shares) {
+      // Shape drift tolerance: entries written before syncMode existed
+      // default to 'auto' (the contract's default for new shares too).
+      for (const entry of Object.values(parsed.shares)) {
+        if (entry.syncMode !== 'auto' && entry.syncMode !== 'publish') entry.syncMode = 'auto'
+      }
+      return parsed
+    }
   } catch {
     // Missing or malformed → fresh store
   }

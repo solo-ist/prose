@@ -1780,6 +1780,32 @@ export function setupIpcHandlers(): void {
     }
   )
 
+  ipcMain.handle('share:setSyncMode', async (_event, publicationId: string, mode: string) => {
+    const share = await import('./share/index')
+    return share.setSyncMode(String(publicationId ?? ''), String(mode ?? ''))
+  })
+
+  ipcMain.handle(
+    'share:replyToComment',
+    async (_event, publicationId: string, commentId: string, text: string, authorName?: string) => {
+      const share = await import('./share/index')
+      return share.replyToComment(
+        String(publicationId ?? ''),
+        String(commentId ?? ''),
+        String(text ?? ''),
+        authorName === undefined ? undefined : String(authorName)
+      )
+    }
+  )
+
+  ipcMain.handle(
+    'share:resolveComment',
+    async (_event, publicationId: string, commentId: string, resolved: boolean) => {
+      const share = await import('./share/index')
+      return share.resolveComment(String(publicationId ?? ''), String(commentId ?? ''), Boolean(resolved))
+    }
+  )
+
   // MCP: Get installation status
   ipcMain.handle('mcp:getStatus', async (): Promise<{
     installed: boolean

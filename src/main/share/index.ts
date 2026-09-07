@@ -108,6 +108,7 @@ export async function publish(args: {
       lastPulledAt: null,
       lastCommentCursor: null,
       revokedAt: null,
+      syncMode: 'auto',
     }
     await upsertShareEntry(entry)
     return { ok: true, entry }
@@ -200,6 +201,54 @@ export async function ackCommentCursor(
   })
   if (!entry) return { ok: false, error: 'No local record of this share.' }
   return { ok: true }
+}
+
+/** Switch a publication's content sync mode (#769). */
+export async function setSyncMode(
+  publicationId: string,
+  mode: string
+): Promise<ShareResult<{ entry: ShareSyncEntry }>> {
+  if (mode !== 'auto' && mode !== 'publish') {
+    return { ok: false, error: 'Invalid sync mode.' }
+  }
+  const entry = await patchShareEntry(publicationId, { syncMode: mode })
+  if (!entry) return { ok: false, error: 'No local record of this share.' }
+  return { ok: true, entry }
+}
+
+/** Push an author reply into the live conversation (#769). */
+export async function replyToComment(
+  publicationId: string,
+  commentId: string,
+  text: string,
+  authorName?: string
+): Promise<ShareResult<{ id: string; createdAt: string }>> {
+  const config = await getShareConfig()
+  const entry = await getShareEntry(publicationId)
+  if (!entry) return { ok: false, error: 'No local record of this share.' }
+  try {
+    const result = await client.postAuthorReply(config, publicationId, commentId, text, authorName)
+    return { ok: true, ...result }
+  } catch (err) {
+    return asError(err)
+  }
+}
+
+/** Push author-controlled resolution state (#769). */
+export async function resolveComment(
+  publicationId: string,
+  commentId: string,
+  resolved: boolean
+): Promise<ShareResult<object>> {
+  const config = await getShareConfig()
+  const entry = await getShareEntry(publicationId)
+  if (!entry) return { ok: false, error: 'No local record of this share.' }
+  try {
+    await client.setCommentResolved(config, publicationId, commentId, resolved)
+    return { ok: true }
+  } catch (err) {
+    return asError(err)
+  }
 }
 
 export async function renamedLocalPath(

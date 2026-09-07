@@ -309,6 +309,9 @@ export interface ElectronAPI {
   sharePullComments: (publicationId: string) => Promise<unknown>
   shareAckCursor: (publicationId: string, cursor: string) => Promise<unknown>
   shareUpdateLocalPath: (oldPath: string, newPath: string, newDocumentId: string) => Promise<unknown>
+  shareSetSyncMode: (publicationId: string, mode: string) => Promise<unknown>
+  shareReplyToComment: (publicationId: string, commentId: string, text: string, authorName?: string) => Promise<unknown>
+  shareResolveComment: (publicationId: string, commentId: string, resolved: boolean) => Promise<unknown>
   // MCP Server integration
   mcpGetStatus: () => Promise<McpServerStatus>
   mcpInstall: () => Promise<McpInstallResult>
@@ -616,6 +619,12 @@ const api: ElectronAPI = {
     ipcRenderer.invoke('share:ackCursor', publicationId, cursor),
   shareUpdateLocalPath: (oldPath: string, newPath: string, newDocumentId: string) =>
     ipcRenderer.invoke('share:updateLocalPath', oldPath, newPath, newDocumentId),
+  shareSetSyncMode: (publicationId: string, mode: string) =>
+    ipcRenderer.invoke('share:setSyncMode', publicationId, mode),
+  shareReplyToComment: (publicationId: string, commentId: string, text: string, authorName?: string) =>
+    ipcRenderer.invoke('share:replyToComment', publicationId, commentId, text, authorName),
+  shareResolveComment: (publicationId: string, commentId: string, resolved: boolean) =>
+    ipcRenderer.invoke('share:resolveComment', publicationId, commentId, resolved),
   // MCP Server integration
   mcpGetStatus: () => ipcRenderer.invoke('mcp:getStatus'),
   mcpInstall: () => ipcRenderer.invoke('mcp:install'),

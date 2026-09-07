@@ -30,6 +30,10 @@ export interface PulledShareComment {
   occurrenceIndex: number
   commentText: string
   authorName: string
+  /** Row was pushed by the publication's author (reply/live conversation). */
+  fromAuthor: boolean
+  /** Author-controlled resolution; the desktop pull ignores it (local state wins). */
+  resolvedAt: string | null
   publishRev: string
   createdAt: string
 }
@@ -169,6 +173,38 @@ export async function revokePublication(
     headers: await authedHeaders(),
   })
   if (!res.ok && res.status !== 404) throw await toError(res)
+}
+
+/** Push an author reply into the live conversation (#769). */
+export async function postAuthorReply(
+  config: ShareClientConfig,
+  publicationId: string,
+  commentId: string,
+  text: string,
+  authorName?: string
+): Promise<{ id: string; createdAt: string }> {
+  const res = await fetch(`${base(config)}/api/share/${publicationId}/comments/${commentId}/replies`, {
+    method: 'POST',
+    headers: await authedHeaders(),
+    body: JSON.stringify(authorName ? { commentText: text, authorName } : { commentText: text }),
+  })
+  if (!res.ok) throw await toError(res)
+  return (await res.json()) as { id: string; createdAt: string }
+}
+
+/** Push author-controlled resolution state (#769). Idempotent PATCH. */
+export async function setCommentResolved(
+  config: ShareClientConfig,
+  publicationId: string,
+  commentId: string,
+  resolved: boolean
+): Promise<void> {
+  const res = await fetch(`${base(config)}/api/share/${publicationId}/comments/${commentId}`, {
+    method: 'PATCH',
+    headers: await authedHeaders(),
+    body: JSON.stringify({ resolved }),
+  })
+  if (!res.ok) throw await toError(res)
 }
 
 export async function fetchComments(

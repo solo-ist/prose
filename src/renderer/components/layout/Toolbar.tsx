@@ -17,6 +17,7 @@ import { extractFirstH1 } from '../../lib/markdown'
 import { useTabTier } from '../../hooks/useTabTier'
 import { useGoogleDocsEnabled, useWebPlatformEnabled } from '../../lib/featureFlags'
 import { ShareDialog } from '../share/ShareDialog'
+import { useShareStore } from '../../stores/shareStore'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import {
@@ -323,7 +324,21 @@ export function Toolbar() {
       { id: 'save-as', label: 'Save as...', icon: <FileDown />, onSelect: saveFileAs },
       { id: 'export-html', label: 'Export HTML...', icon: <FileCode />, disabled: !document.content, onSelect: handleExportHtml },
       ...(webPlatformEnabled
-        ? [{ id: 'share', label: 'Share...', icon: <Share2 />, disabled: !document.content, onSelect: () => setShareDialogOpen(true) }]
+        ? [{
+            id: 'share',
+            label: 'Share...',
+            icon: <Share2 />,
+            disabled: !document.content,
+            onSelect: () => {
+              // Already published → the pinned ◎ popover is the share surface;
+              // the dialog only handles sign-in + first publish (#769).
+              if (useShareStore.getState().entry) {
+                useShareStore.getState().setPopoverOpen(true)
+              } else {
+                setShareDialogOpen(true)
+              }
+            },
+          }]
         : []),
       { id: 'settings', label: 'Settings', icon: <Settings />, separatorBefore: true, onSelect: () => setDialogOpen(true) },
       ...(!isMas

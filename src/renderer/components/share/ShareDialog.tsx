@@ -1,14 +1,13 @@
 /**
- * ShareDialog (#768) — publish the current document as a self-contained
- * share artifact, manage the resulting link, and view reviewer comments.
+ * ShareDialog (#768/#769) — gateway sign-in + FIRST publish only. Once a
+ * document is published, the pinned ◎ status icon (ShareStatusIcon/
+ * ShareStatusPopover) is the share surface: link, sync mode, share-latest,
+ * conversation, revoke. The Toolbar routes "Share..." there when an entry
+ * exists, so this dialog normally only ever sees unshared documents.
  *
  * Gated by the webPlatform feature flag (Toolbar renders the entry point).
  * Sign-in is the interim pre-#766 flow: request a magic link, paste it back
  * (the gateway logs it in dev; hosted delivery lands with #813/#766).
- *
- * Reviewer comments sync into the document's comment store on open and on
- * demand (#769, lib/shareSync) — the list below the actions is a read-only
- * overview of everything on the gateway.
  */
 import { useCallback, useEffect, useState } from 'react'
 import {
@@ -19,15 +18,13 @@ import {
 } from '../ui/dialog'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
-import { Separator } from '../ui/separator'
 import { getApi } from '../../lib/browserApi'
-import { syncShareComments } from '../../lib/shareSync'
 import { buildShareArtifact } from '../../lib/shareArtifact'
 import { useEditor } from '../../hooks/useEditor'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useShareStore } from '../../stores/shareStore'
-import type { ShareEntry, SharePulledComment } from '../../types'
-import { Copy, Check, Loader2 } from 'lucide-react'
+import type { ShareEntry } from '../../types'
+import { Loader2 } from 'lucide-react'
 
 interface ShareDialogProps {
   open: boolean
@@ -47,26 +44,9 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
   const [entry, setEntry] = useState<ShareEntry | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
-  const [comments, setComments] = useState<SharePulledComment[] | null>(null)
-  const [syncedCount, setSyncedCount] = useState<number | null>(null)
-
-  // Pull new reviewer comments into the document (#769), then load the full
-  // gateway list for the overview below the actions.
-  const syncAndLoad = useCallback(async (e: ShareEntry): Promise<string | null> => {
-    const sync = await syncShareComments(e, document.documentId)
-    if (sync.ok) setSyncedCount(sync.added)
-    const res = await getApi().shareComments(e.publicationId)
-    if (res.ok) setComments(res.comments)
-    if (!sync.ok) return sync.error
-    if (!res.ok) return res.error
-    return null
-  }, [document.documentId])
 
   const refresh = useCallback(async () => {
     setError(null)
-    setComments(null)
-    setSyncedCount(null)
     const status = await getApi().shareAuthStatus()
     if (status.ok && status.signedIn) {
       setAuth({ phase: 'signed-in', email: status.email })
@@ -75,17 +55,11 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
     }
     if (document.path) {
       const existing = await getApi().shareGetForPath(document.path)
-      const found = existing.ok && existing.entries.length > 0 ? existing.entries[0] : null
-      setEntry(found)
-      // Opening the dialog on a published doc syncs automatically.
-      if (found && status.ok && status.signedIn) {
-        const err = await syncAndLoad(found)
-        if (err) setError(err)
-      }
+      setEntry(existing.ok && existing.entries.length > 0 ? existing.entries[0] : null)
     } else {
       setEntry(null)
     }
-  }, [document.path, syncAndLoad])
+  }, [document.path])
 
   useEffect(() => {
     if (open) void refresh()
@@ -119,18 +93,19 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
       return null
     })
 
-  const buildArtifact = useCallback(async (): Promise<{ title: string; html: string } | null> => {
-    return buildShareArtifact(useEditorInstanceStore.getState().editor, {
-      content: document.content,
-      path: document.path,
-      frontmatter: document.frontmatter,
-      documentId: document.documentId,
-    })
-  }, [document.content, document.frontmatter, document.path, document.documentId])
+  const openShareControls = useCallback(() => {
+    onOpenChange(false)
+    useShareStore.getState().setPopoverOpen(true)
+  }, [onOpenChange])
 
   const handlePublish = () =>
     run('publish', async () => {
-      const artifact = await buildArtifact()
+      const artifact = await buildShareArtifact(useEditorInstanceStore.getState().editor, {
+        content: document.content,
+        path: document.path,
+        frontmatter: document.frontmatter,
+        documentId: document.documentId,
+      })
       if (!artifact) return 'Save the document before sharing.'
       const res = await getApi().sharePublish({
         ...artifact,
@@ -138,49 +113,11 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
         documentId: document.documentId,
       })
       if (!res.ok) return res.error
-      setEntry(res.entry)
-      // The pinned status icon appears as soon as the doc is published.
+      // Hand off to the pinned ◎ — it appears immediately with the new entry.
       useShareStore.getState().applyEntry(res.entry)
+      openShareControls()
       return null
     })
-
-  const handleRepublish = () =>
-    run('republish', async () => {
-      if (!entry) return 'Nothing to re-publish.'
-      const artifact = await buildArtifact()
-      if (!artifact) return 'Save the document before sharing.'
-      const res = await getApi().shareRepublish({ publicationId: entry.publicationId, ...artifact })
-      if (!res.ok) return res.error
-      setEntry(res.entry)
-      return null
-    })
-
-  const handleRevoke = () =>
-    run('revoke', async () => {
-      if (!entry) return null
-      const res = await getApi().shareRevoke(entry.publicationId)
-      if (!res.ok) return res.error
-      setEntry(null)
-      setComments(null)
-      useShareStore.getState().applyEntry(null)
-      return null
-    })
-
-  const handleCopy = async () => {
-    if (!entry) return
-    await getApi().copyToClipboard(entry.shareUrl)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  const handleSyncComments = () =>
-    run('comments', async () => {
-      if (!entry) return null
-      return syncAndLoad(entry)
-    })
-
-  const topLevel = (comments ?? []).filter((c) => !c.parentId)
-  const repliesFor = (id: string) => (comments ?? []).filter((c) => c.parentId === id)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -246,84 +183,28 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
               </p>
             )}
 
-            {document.path && !entry && (
+            {document.path && entry && (
               <div className="space-y-2">
                 <p className="text-sm text-muted-foreground">
-                  Publish a snapshot of this document (comments included) to a private link.
-                  Anyone with the link can read and comment — no account needed.
+                  This document is already shared — the ◎ icon in the top-right corner of the
+                  document is its share surface.
                 </p>
-                <Button onClick={handlePublish} disabled={busy !== null} className="w-full">
-                  {busy === 'publish' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Publish share link'}
+                <Button onClick={openShareControls} variant="outline" className="w-full">
+                  Open share controls
                 </Button>
               </div>
             )}
 
-            {document.path && entry && (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <Input readOnly value={entry.shareUrl} className="min-w-0 flex-1 text-xs" />
-                  <Button variant="outline" size="icon" onClick={handleCopy} aria-label="Copy share link" className="shrink-0">
-                    {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Revision {entry.revCount} · published {new Date(entry.publishedAt).toLocaleDateString()}
+            {document.path && !entry && (
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  Publish this document (comments included) to a private link. Anyone with the
+                  link can read and comment — no account needed. New comments and your replies
+                  sync live; content updates follow the sync mode on the ◎ icon.
                 </p>
-                <div className="flex gap-2">
-                  <Button onClick={handleRepublish} disabled={busy !== null} variant="outline" className="flex-1">
-                    {busy === 'republish' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Re-publish'}
-                  </Button>
-                  <Button onClick={handleSyncComments} disabled={busy !== null} variant="outline" className="flex-1">
-                    {busy === 'comments' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Sync comments'}
-                  </Button>
-                  <Button onClick={handleRevoke} disabled={busy !== null} variant="destructive" className="shrink-0">
-                    {busy === 'revoke' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Revoke'}
-                  </Button>
-                </div>
-
-                {syncedCount !== null && (
-                  <p className="text-xs text-muted-foreground">
-                    {syncedCount > 0
-                      ? `${syncedCount} new comment${syncedCount === 1 ? '' : 's'} synced into the document.`
-                      : 'Comments are up to date.'}
-                  </p>
-                )}
-
-                {comments !== null && (
-                  <>
-                    <Separator />
-                    <div className="max-h-56 space-y-2 overflow-y-auto pr-2">
-                      {topLevel.length === 0 && (
-                        <p className="text-sm text-muted-foreground">No reviewer comments yet.</p>
-                      )}
-                      {topLevel.map((c) => (
-                        <div key={c.id} className="rounded-md border p-2 text-sm">
-                          {c.markedText && (
-                            <p className="mb-1 line-clamp-2 border-l-2 pl-2 text-xs italic text-muted-foreground">
-                              {c.markedText}
-                            </p>
-                          )}
-                          <p className="whitespace-pre-wrap break-words">{c.commentText}</p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {c.authorName} · {new Date(c.createdAt).toLocaleDateString()}
-                          </p>
-                          {repliesFor(c.id).map((r) => (
-                            <div key={r.id} className="mt-2 border-l-2 pl-2">
-                              <p className="whitespace-pre-wrap break-words text-sm">{r.commentText}</p>
-                              <p className="mt-0.5 text-xs text-muted-foreground">
-                                {r.authorName} · {new Date(r.createdAt).toLocaleDateString()}
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      ))}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Synced comments appear in the document as threads — reply or resolve them in
-                      Comment Review. Re-publish to bake the latest state into the shared page.
-                    </p>
-                  </>
-                )}
+                <Button onClick={handlePublish} disabled={busy !== null} className="w-full">
+                  {busy === 'publish' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Publish share link'}
+                </Button>
               </div>
             )}
           </div>

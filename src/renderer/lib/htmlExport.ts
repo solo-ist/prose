@@ -1,6 +1,6 @@
 import { serializeMarkdown } from './markdown'
 import type { CommentData } from '../extensions/comments/types'
-import { VIEWER_SCRIPT, VIEWER_STYLES } from './viewerScript'
+import { ARTIFACT_BASE_STYLES, THEME_INIT_SCRIPT, VIEWER_SCRIPT, VIEWER_STYLES } from './viewerScript'
 
 const PROSE_MARKER = 'application/x-prose-markdown'
 const PROSE_COMMENTS_MARKER = 'application/x-prose-comments'
@@ -26,6 +26,36 @@ export interface ShareConfig {
   publishRev: string
   publishedAt: string
 }
+
+/**
+ * Stylesheet for plain (viewer-free) exports — byte-identical to the pre-#769
+ * sheet. Viewer-carrying artifacts use ARTIFACT_BASE_STYLES + VIEWER_STYLES
+ * (the themed "two materials" design) instead.
+ */
+const PLAIN_EXPORT_STYLES = `
+    body {
+      max-width: 42rem;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.6;
+      color: #1a1a1a;
+    }
+    @media (prefers-color-scheme: dark) {
+      body { background: #1a1a1a; color: #e0e0e0; }
+      a { color: #6ea8fe; }
+    }
+    pre { background: #f5f5f5; padding: 1rem; border-radius: 4px; overflow-x: auto; }
+    @media (prefers-color-scheme: dark) { pre { background: #2a2a2a; } }
+    code { font-size: 0.9em; }
+    blockquote { border-left: 3px solid #ccc; margin-left: 0; padding-left: 1rem; color: #666; }
+    img { max-width: 100%; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: 0.5rem; text-align: left; }
+    ul[data-type="taskList"] { list-style: none; padding-left: 0; }
+    ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 0.5rem; }
+    ul[data-type="taskList"] li label { flex-shrink: 0; margin-top: 0.2rem; }
+    ul[data-type="taskList"] li div, ul[data-type="taskList"] li p { margin: 0; }`
 
 const MIME_TYPES: Record<string, string> = {
   png: 'image/png',
@@ -223,31 +253,8 @@ async function buildArtifactHtml(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="generator" content="Prose">${shareEndpoint !== null ? '\n  <meta name="referrer" content="no-referrer">' : ''}
-  <title>${escapeHtml(title)}</title>
-  <style>
-    body {
-      max-width: 42rem;
-      margin: 2rem auto;
-      padding: 0 1rem;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      line-height: 1.6;
-      color: #1a1a1a;
-    }
-    @media (prefers-color-scheme: dark) {
-      body { background: #1a1a1a; color: #e0e0e0; }
-      a { color: #6ea8fe; }
-    }
-    pre { background: #f5f5f5; padding: 1rem; border-radius: 4px; overflow-x: auto; }
-    @media (prefers-color-scheme: dark) { pre { background: #2a2a2a; } }
-    code { font-size: 0.9em; }
-    blockquote { border-left: 3px solid #ccc; margin-left: 0; padding-left: 1rem; color: #666; }
-    img { max-width: 100%; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #ddd; padding: 0.5rem; text-align: left; }
-    ul[data-type="taskList"] { list-style: none; padding-left: 0; }
-    ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 0.5rem; }
-    ul[data-type="taskList"] li label { flex-shrink: 0; margin-top: 0.2rem; }
-    ul[data-type="taskList"] li div, ul[data-type="taskList"] li p { margin: 0; }${withViewer ? VIEWER_STYLES : ''}
+  <title>${escapeHtml(title)}</title>${withViewer ? `\n  <script>/* prose-theme */\n${THEME_INIT_SCRIPT}</script>` : ''}
+  <style>${withViewer ? `${ARTIFACT_BASE_STYLES}${VIEWER_STYLES}` : PLAIN_EXPORT_STYLES}
   </style>
 </head>
 <body>

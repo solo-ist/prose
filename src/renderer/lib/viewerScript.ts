@@ -32,19 +32,153 @@
  * the normalization removes.
  */
 
+/**
+ * Base sheet for viewer-carrying artifacts — the "two materials" design:
+ * the article is a blog (serif, 660px column, ivory/ink inversion pair via
+ * the blog vars --bg/--fg/--article-muted/--rule), everything Prose adds is
+ * IBM Plex Mono on the app's shadcn token set (hsl(var(--…)) pairs, values
+ * mirroring src/renderer/index.css Mono light/dark — keep them in step).
+ * Theme = `.dark` on <html>, set by THEME_INIT_SCRIPT before first paint and
+ * toggled at runtime; there are deliberately NO prefers-color-scheme blocks.
+ */
+export const ARTIFACT_BASE_STYLES = `
+  :root {
+    --bg: #f2efe6;
+    --fg: #0a0a0a;
+    --article-muted: rgba(10, 10, 10, 0.55);
+    --rule: rgba(10, 10, 10, 0.14);
+    --wordmark: #0F0F0F;
+    --code-bg: rgba(10, 10, 10, 0.05);
+    --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;
+    --font-display: 'Fraunces', Georgia, serif;
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --popover: 0 0% 100%;
+    --primary: 240 5.9% 10%;
+    --primary-foreground: 0 0% 98%;
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --pending: 330 81% 60%;
+    --comment-mark-bg: 45 100% 70%;
+    --comment: 45 100% 50%;
+  }
+  html.dark {
+    --bg: #0a0a0a;
+    --fg: #f2efe6;
+    --article-muted: rgba(242, 239, 230, 0.5);
+    --rule: rgba(242, 239, 230, 0.14);
+    --wordmark: #E2D9CB;
+    --code-bg: rgba(242, 239, 230, 0.08);
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 3.9%;
+    --popover: 240 10% 3.9%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 5.9% 10%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --pending: 330 70% 55%;
+    --comment-mark-bg: 45 100% 40%;
+    --comment: 45 100% 60%;
+  }
+  html { background: var(--bg); }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-serif);
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+    transition: background 0.3s ease, color 0.3s ease;
+  }
+  ::selection { background: var(--fg); color: var(--bg); }
+  article {
+    max-width: 660px;
+    margin: 0 auto;
+    padding: 78px 24px 120px;
+    font-size: 19px;
+    line-height: 1.62;
+  }
+  article h1 {
+    font-size: clamp(40px, 5.4vw, 60px);
+    font-weight: 300;
+    line-height: 1.04;
+    letter-spacing: -0.022em;
+    margin: 1.4em 0 0.5em;
+  }
+  article > h1:first-child { margin-top: 0; margin-bottom: 18px; }
+  article h2 {
+    font-size: clamp(26px, 3vw, 32px);
+    font-weight: 300;
+    line-height: 1.15;
+    letter-spacing: -0.015em;
+    margin: 1.6em 0 0.8em;
+  }
+  article h3 { font-size: 23px; font-weight: 400; line-height: 1.3; margin: 1.6em 0 0.6em; }
+  article h4 { font-size: 19px; font-weight: 600; line-height: 1.4; margin: 1.6em 0 0.5em; }
+  article p { margin: 0 0 1.4em; }
+  article a { color: var(--fg); text-decoration: none; border-bottom: 1px solid var(--rule); padding-bottom: 1px; }
+  article ul, article ol { margin: 0 0 1.4em; padding-left: 1.4em; }
+  article li { margin: 0.25em 0; }
+  article li p { margin: 0; }
+  article hr { border: none; border-top: 1px solid var(--rule); margin: 2.5em 0; }
+  article blockquote { border-left: 2px solid var(--rule); margin: 0 0 1.4em; padding-left: 1.25rem; color: var(--article-muted); }
+  article pre {
+    background: var(--code-bg);
+    padding: 1rem;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    line-height: 1.55;
+    margin: 0 0 1.4em;
+  }
+  article code { font-family: var(--font-mono); font-size: 0.8em; background: var(--code-bg); padding: 0.15em 0.35em; border-radius: 4px; }
+  article pre code { background: transparent; padding: 0; font-size: inherit; }
+  article img { max-width: 100%; }
+  article table { border-collapse: collapse; width: 100%; font-size: 16px; margin: 0 0 1.4em; }
+  article th, article td { border: 1px solid var(--rule); padding: 0.5rem; text-align: left; }
+  article ul[data-type="taskList"] { list-style: none; padding-left: 0; }
+  article ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 0.5rem; }
+  article ul[data-type="taskList"] li label { flex-shrink: 0; margin-top: 0.2rem; }
+  article ul[data-type="taskList"] li div, article ul[data-type="taskList"] li p { margin: 0; }
+  @media (max-width: 640px) {
+    article { font-size: 17px; line-height: 1.6; padding: 56px 20px 96px; }
+  }
+`
+
+/**
+ * Emitted inline in <head> BEFORE the stylesheet so the theme class lands
+ * pre-paint (no flash). Stored preference wins; falls back to the OS scheme.
+ * Uses toggle() so a stray baked class can never lock a viewer into dark.
+ */
+export const THEME_INIT_SCRIPT = `(function () {
+  var dark = false
+  try {
+    var stored = window.localStorage.getItem('prose-viewer-theme')
+    dark = stored ? stored === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches
+  } catch (e) {
+    try { dark = window.matchMedia('(prefers-color-scheme: dark)').matches } catch (e2) { /* no matchMedia */ }
+  }
+  document.documentElement.classList.toggle('dark', dark)
+})()`
+
 export const VIEWER_STYLES = `
   .comment-mark {
-    background: rgba(251, 191, 36, 0.28);
-    border-bottom: 1.5px solid rgba(217, 119, 6, 0.65);
+    background: hsl(var(--comment-mark-bg) / 0.32);
+    border-bottom: 1.5px solid hsl(var(--comment) / 0.75);
     border-radius: 2px;
     cursor: pointer;
   }
   .comment-mark.prose-viewer-active {
-    background: rgba(251, 191, 36, 0.55);
-  }
-  @media (prefers-color-scheme: dark) {
-    .comment-mark { background: rgba(251, 191, 36, 0.18); border-bottom-color: rgba(251, 191, 36, 0.5); }
-    .comment-mark.prose-viewer-active { background: rgba(251, 191, 36, 0.38); }
+    background: hsl(var(--comment-mark-bg) / 0.55);
+    border-bottom-color: hsl(var(--comment));
   }
   #prose-comment-rail {
     position: fixed;
@@ -55,155 +189,142 @@ export const VIEWER_STYLES = `
     box-sizing: border-box;
     overflow-y: auto;
     padding: 1rem;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    font-size: 0.8125rem;
-    line-height: 1.45;
-    background: #fafafa;
-    border-left: 1px solid #e2e2e2;
-    color: #1a1a1a;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.5;
+    background: var(--bg);
+    border-left: 1px solid hsl(var(--border));
+    color: hsl(var(--foreground));
     z-index: 10;
-  }
-  @media (prefers-color-scheme: dark) {
-    #prose-comment-rail { background: #202020; border-left-color: #333; color: #e0e0e0; }
   }
   body.prose-rail-open { margin-right: 320px; }
   @media (max-width: 900px) {
     body.prose-rail-open { margin-right: auto; }
-    #prose-comment-rail { width: min(320px, 90vw); box-shadow: -4px 0 24px rgba(0,0,0,0.18); }
+    #prose-comment-rail { width: min(320px, 90vw); box-shadow: -4px 0 24px rgba(0, 0, 0, 0.18); }
   }
   #prose-comment-rail h2 {
-    font-size: 0.8125rem;
+    font-size: 11px;
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     margin: 0 0 0.75rem;
-    color: #666;
+    color: hsl(var(--muted-foreground));
   }
-  @media (prefers-color-scheme: dark) { #prose-comment-rail h2 { color: #999; } }
   .prose-thread {
-    border: 1px solid #e2e2e2;
-    border-radius: 6px;
-    padding: 0.625rem;
-    margin-bottom: 0.625rem;
-    background: #fff;
+    border: 1px solid hsl(var(--border));
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    background: hsl(var(--card));
     cursor: pointer;
   }
-  .prose-thread.prose-viewer-active { border-color: rgba(217, 119, 6, 0.8); }
-  @media (prefers-color-scheme: dark) {
-    .prose-thread { background: #262626; border-color: #383838; }
-    .prose-thread.prose-viewer-active { border-color: rgba(251, 191, 36, 0.6); }
-  }
+  .prose-thread.prose-viewer-active { border-color: hsl(var(--comment)); }
   .prose-thread-quote {
     display: block;
+    font-family: var(--font-serif);
     font-style: italic;
-    color: #92640c;
-    border-left: 2px solid rgba(217, 119, 6, 0.5);
+    color: hsl(var(--muted-foreground));
+    border-left: 2px solid hsl(var(--comment) / 0.5);
     padding-left: 0.5rem;
     margin-bottom: 0.375rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  @media (prefers-color-scheme: dark) { .prose-thread-quote { color: #d9a23f; } }
-  .prose-thread-meta { color: #888; font-size: 0.6875rem; margin-top: 0.25rem; }
-  .prose-thread-reply { margin-top: 0.5rem; padding-left: 0.625rem; border-left: 2px solid #e2e2e2; }
-  @media (prefers-color-scheme: dark) { .prose-thread-reply { border-left-color: #383838; } }
-  .prose-thread-reply.prose-reply-author { border-left-color: rgba(200, 164, 90, 0.8); }
+  .prose-thread-meta { color: hsl(var(--muted-foreground)); font-size: 11px; margin-top: 0.25rem; }
+  .prose-thread-reply { margin-top: 10px; padding-left: 10px; border-left: 1px solid hsl(var(--border)); }
+  .prose-thread-reply.prose-reply-author { border-left-color: hsl(var(--comment) / 0.7); }
   .prose-author-tag {
     display: inline-block;
     margin-right: 0.3rem;
     padding: 0 0.3rem;
     border-radius: 3px;
-    font-size: 0.625rem;
+    font-size: 10px;
     font-weight: 600;
-    background: rgba(200, 164, 90, 0.18);
-    color: #92640c;
+    background: hsl(var(--comment) / 0.18);
+    color: inherit;
   }
-  @media (prefers-color-scheme: dark) { .prose-author-tag { color: #d9a23f; } }
   .prose-thread-body { white-space: pre-wrap; word-break: break-word; }
   .prose-resolved-section { margin-top: 1.25rem; }
   .prose-resolved-section .prose-thread { opacity: 0.65; }
   .prose-rail-note {
     margin-top: 1rem;
     padding-top: 0.75rem;
-    border-top: 1px solid #e2e2e2;
-    color: #888;
-    font-size: 0.6875rem;
+    border-top: 1px solid hsl(var(--border));
+    color: hsl(var(--muted-foreground));
+    font-size: 11px;
   }
-  @media (prefers-color-scheme: dark) { .prose-rail-note { border-top-color: #333; } }
   #prose-rail-download {
     display: block;
     width: 100%;
     box-sizing: border-box;
     margin-top: 0.75rem;
-    border: 1px solid #d0d0d0;
+    border: 1px solid hsl(var(--input));
     border-radius: 6px;
     padding: 0.45rem 0.75rem;
-    font: 600 0.75rem -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: #fff;
-    color: #1a1a1a;
+    font: 600 12px var(--font-mono);
+    background: hsl(var(--card));
+    color: hsl(var(--foreground));
     cursor: pointer;
   }
-  #prose-rail-download.prose-has-additions { background: #d97706; border-color: #d97706; color: #fff; }
-  @media (prefers-color-scheme: dark) {
-    #prose-rail-download { background: #2c2c2c; border-color: #444; color: #e0e0e0; }
-    #prose-rail-download.prose-has-additions { background: #d97706; border-color: #d97706; color: #fff; }
-  }
+  #prose-rail-download.prose-has-additions { background: hsl(var(--comment)); border-color: hsl(var(--comment)); color: rgba(0, 0, 0, 0.85); }
   #prose-rail-toggle {
     position: fixed;
     right: 1rem;
     bottom: 1rem;
     z-index: 11;
-    border: 1px solid #d0d0d0;
+    border: 1px solid hsl(var(--input));
     border-radius: 999px;
     padding: 0.4rem 0.85rem;
-    font: 600 0.8125rem -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: #fff;
-    color: #1a1a1a;
+    font: 600 12.5px var(--font-mono);
+    background: hsl(var(--popover));
+    color: hsl(var(--foreground));
     cursor: pointer;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
   }
-  @media (prefers-color-scheme: dark) { #prose-rail-toggle { background: #2c2c2c; border-color: #444; color: #e0e0e0; } }
   #prose-add-comment-btn {
     position: absolute;
     z-index: 12;
-    border: 1px solid #d0d0d0;
+    border: 1px solid hsl(var(--border));
     border-radius: 6px;
     padding: 0.3rem 0.6rem;
-    font: 600 0.75rem -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: #fff;
-    color: #1a1a1a;
+    font: 12px var(--font-mono);
+    background: hsl(var(--popover));
+    color: hsl(var(--foreground));
     cursor: pointer;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+    box-shadow: 0 4px 12px hsl(var(--foreground) / 0.15);
   }
-  @media (prefers-color-scheme: dark) { #prose-add-comment-btn { background: #2c2c2c; border-color: #444; color: #e0e0e0; } }
-  #prose-comment-form { border: 1px solid rgba(217, 119, 6, 0.5); border-radius: 6px; padding: 0.625rem; margin-bottom: 0.75rem; background: #fff; }
-  @media (prefers-color-scheme: dark) { #prose-comment-form { background: #262626; } }
+  #prose-comment-form {
+    border: 1px solid hsl(var(--comment) / 0.5);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 0.75rem;
+    background: hsl(var(--card));
+  }
   #prose-comment-form input, #prose-comment-form textarea {
     display: block;
     width: 100%;
     box-sizing: border-box;
     margin-bottom: 0.5rem;
     padding: 0.375rem 0.5rem;
-    border: 1px solid #d0d0d0;
-    border-radius: 4px;
+    border: 1px solid hsl(var(--input));
+    border-radius: 6px;
     font: inherit;
-    background: inherit;
+    background: transparent;
     color: inherit;
   }
-  @media (prefers-color-scheme: dark) { #prose-comment-form input, #prose-comment-form textarea { border-color: #444; } }
   #prose-comment-form button {
     border: none;
-    border-radius: 4px;
+    border-radius: 6px;
     padding: 0.375rem 0.75rem;
-    font: 600 0.75rem -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: #d97706;
-    color: #fff;
+    font: 500 12px var(--font-mono);
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
     cursor: pointer;
     margin-right: 0.375rem;
   }
-  #prose-comment-form button.prose-secondary { background: transparent; color: inherit; border: 1px solid #d0d0d0; }
-  @media (prefers-color-scheme: dark) { #prose-comment-form button.prose-secondary { border-color: #444; } }
-  .prose-form-error { color: #dc2626; font-size: 0.6875rem; margin-bottom: 0.375rem; }
+  #prose-comment-form button.prose-secondary { background: transparent; color: hsl(var(--muted-foreground)); border: 1px solid hsl(var(--input)); }
+  .prose-form-error { color: hsl(0 72% 55%); font-size: 11px; margin-bottom: 0.375rem; }
 `
 
 export const VIEWER_SCRIPT = `(function () {
@@ -434,6 +555,9 @@ export const VIEWER_SCRIPT = `(function () {
 
   function buildAnnotatedCopy() {
     var clone = document.documentElement.cloneNode(true)
+    // The theme class is this viewer's preference, not the document's — the
+    // reopened copy re-derives it from its reader's storage/OS scheme.
+    clone.classList.remove('dark')
     // Strip the viewer's runtime DOM — the reopened copy rebuilds it fresh.
     var strip = ['#prose-comment-rail', '#prose-rail-toggle', '#prose-add-comment-btn']
     for (var i = 0; i < strip.length; i++) {

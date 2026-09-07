@@ -332,6 +332,9 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
     const copyHtml = readFileSync(savedPath, 'utf-8')
     expect(extractCommentsFromHtml(copyHtml)!.comments).toHaveLength(3)
     expect(copyHtml).not.toContain('id="prose-rail-toggle"')
+    // The downloading viewer's theme preference must not be baked into the
+    // copy — its next reader re-derives theme from their own storage/OS.
+    expect(copyHtml).not.toMatch(/<html[^>]*class="[^"]*dark/)
   })
 
   test('rail toggle hides and shows the rail', async ({ page }) => {
@@ -340,6 +343,30 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
     await expect(page.locator('#prose-comment-rail')).toHaveCount(0)
     await page.locator('#prose-rail-toggle').click()
     await expect(page.locator('#prose-comment-rail')).toBeVisible()
+  })
+})
+
+test.describe('theme', () => {
+  test('follows prefers-color-scheme by default, before first paint', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'dark' })
+    await page.goto(artifactUrl)
+    await expect(page.locator('html')).toHaveClass(/dark/)
+
+    await page.emulateMedia({ colorScheme: 'light' })
+    await page.reload()
+    await expect(page.locator('html')).not.toHaveClass(/dark/)
+  })
+
+  test('a stored preference wins over the media query', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'dark' })
+    await page.goto(artifactUrl)
+    await expect(page.locator('html')).toHaveClass(/dark/)
+
+    await page.evaluate(() => window.localStorage.setItem('prose-viewer-theme', 'light'))
+    await page.reload()
+    await expect(page.locator('html')).not.toHaveClass(/dark/)
+
+    await page.evaluate(() => window.localStorage.removeItem('prose-viewer-theme'))
   })
 })
 

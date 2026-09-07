@@ -21,13 +21,10 @@ import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Separator } from '../ui/separator'
 import { getApi } from '../../lib/browserApi'
-import { buildShareHtml } from '../../lib/htmlExport'
 import { syncShareComments } from '../../lib/shareSync'
-import { extractFirstH1 } from '../../lib/markdown'
+import { buildShareArtifact } from '../../lib/shareArtifact'
 import { useEditor } from '../../hooks/useEditor'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
-import { useCommentStore } from '../../extensions/comments/store'
-import { mergeCommentsForPersistence } from '../../extensions/comments/extension'
 import type { ShareEntry, SharePulledComment } from '../../types'
 import { Copy, Check, Loader2 } from 'lucide-react'
 
@@ -40,13 +37,6 @@ type AuthState =
   | { phase: 'loading' }
   | { phase: 'signed-out'; linkRequested: boolean }
   | { phase: 'signed-in'; email?: string }
-
-function documentTitle(content: string, path: string | null): string {
-  const h1 = extractFirstH1(content)
-  if (h1) return h1
-  if (path) return (path.split('/').pop() ?? 'Untitled').replace(/\.(md|markdown|txt)$/, '')
-  return 'Untitled'
-}
 
 export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
   const { document } = useEditor()
@@ -129,24 +119,13 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
     })
 
   const buildArtifact = useCallback(async (): Promise<{ title: string; html: string } | null> => {
-    const editor = useEditorInstanceStore.getState().editor
-    if (!editor || !document.content || !document.path) return null
-    const status = await getApi().shareAuthStatus()
-    const gatewayUrl = status.ok ? status.gatewayUrl : ''
-    const title = documentTitle(document.content, document.path)
-    const docDir = document.path.substring(0, document.path.lastIndexOf('/')) || null
-    const merged = mergeCommentsForPersistence(editor, useCommentStore.getState().pendingComments)
-    const html = await buildShareHtml(
-      editor.getHTML(),
-      document.content,
-      document.frontmatter,
-      title,
-      docDir,
-      merged,
-      gatewayUrl
-    )
-    return { title, html }
-  }, [document.content, document.frontmatter, document.path])
+    return buildShareArtifact(useEditorInstanceStore.getState().editor, {
+      content: document.content,
+      path: document.path,
+      frontmatter: document.frontmatter,
+      documentId: document.documentId,
+    })
+  }, [document.content, document.frontmatter, document.path, document.documentId])
 
   const handlePublish = () =>
     run('publish', async () => {

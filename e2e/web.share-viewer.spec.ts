@@ -168,6 +168,7 @@ test.describe('artifact format', () => {
     expect(extractMarkdownFromHtml(plain)).toContain('quick brown fox')
     expect(plain).not.toContain('application/x-prose-comments')
     expect(plain).not.toContain('prose-comment-rail')
+    expect(plain).not.toContain('prose-doc-header')
   })
 
   test('sanitizer strips C0/C1 control chars, preserves ordinary text and \\t \\n \\u00a0', async () => {
@@ -236,7 +237,7 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
     await expect(rail.locator('.prose-thread-quote').first()).toHaveText('quick brown fox')
     await expect(rail.getByText('Agreed — keep it.')).toBeVisible()
     await expect(rail.getByText('Reviewer Rae', { exact: false })).toBeVisible()
-    await expect(page.locator('#prose-rail-toggle')).toHaveText('💬 2')
+    await expect(page.locator('#prose-rail-toggle')).toHaveText('2 comments')
   })
 
   test('renders hostile comment content inert', async ({ page }) => {
@@ -284,7 +285,7 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
     await expect(page.getByRole('heading', { name: 'Comments (3)' })).toBeVisible()
     await expect(page.getByText('Added without any server.')).toBeVisible()
     await expect(page.getByText('Offline Olive', { exact: false })).toBeVisible()
-    await expect(page.locator('#prose-rail-download')).toContainText('annotated copy (1 new)')
+    await expect(page.locator('#prose-download-copy')).toContainText('annotated copy (1 new)')
   })
 
   test('download annotated copy: valid artifact carrying the new comment, reopenable', async ({ page }) => {
@@ -296,7 +297,7 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
 
     const [download] = await Promise.all([
       page.waitForEvent('download'),
-      page.locator('#prose-rail-download').click(),
+      page.locator('#prose-download-copy').click(),
     ])
     expect(download.suggestedFilename()).toContain('-annotated')
     const savedPath = join(tmpDir, 'annotated.html')
@@ -325,13 +326,16 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
   test('download without additions produces a clean copy', async ({ page }) => {
     const [download] = await Promise.all([
       page.waitForEvent('download'),
-      page.locator('#prose-rail-download').click(),
+      page.locator('#prose-download-copy').click(),
     ])
     const savedPath = join(tmpDir, 'clean-copy.html')
     await download.saveAs(savedPath)
     const copyHtml = readFileSync(savedPath, 'utf-8')
     expect(extractCommentsFromHtml(copyHtml)!.comments).toHaveLength(3)
-    expect(copyHtml).not.toContain('id="prose-rail-toggle"')
+    // Runtime viewer DOM is stripped; baked chrome (top bar, footer) stays.
+    expect(copyHtml).not.toContain('id="prose-comment-rail"')
+    expect(copyHtml).toContain('id="prose-rail-toggle"')
+    expect(copyHtml).toContain('id="prose-download-copy"')
     // The downloading viewer's theme preference must not be baked into the
     // copy — its next reader re-derives theme from their own storage/OS.
     expect(copyHtml).not.toMatch(/<html[^>]*class="[^"]*dark/)
@@ -367,6 +371,47 @@ test.describe('theme', () => {
     await expect(page.locator('html')).not.toHaveClass(/dark/)
 
     await page.evaluate(() => window.localStorage.removeItem('prose-viewer-theme'))
+  })
+})
+
+test.describe('baked chrome', () => {
+  test('top bar, eyebrow, end mark and footer render around the article', async ({ page }) => {
+    await page.goto(artifactUrl)
+    await expect(page.locator('.prose-wordmark')).toHaveText('¶Prose.')
+    await expect(page.locator('.prose-doc-eyebrow')).toHaveText(/^[A-Z][a-z]+ \d{4}$/)
+    await expect(page.locator('.prose-end-mark')).toHaveText('— End')
+    await expect(page.locator('.prose-artifact-footer')).toContainText('Shared with Prose')
+    await expect(page.locator('#prose-download-copy')).toHaveText('Download annotated copy')
+  })
+
+  test('chrome text stays outside <article> (anchor purity guard)', async ({ page }) => {
+    // computeAnchor (viewer) and restoreComments (desktop) both normalize
+    // article text — any chrome text inside <article> silently shifts every
+    // occurrence index. This pins the D1 shell invariant.
+    await page.goto(artifactUrl)
+    const articleText = await page.evaluate(() => document.querySelector('article')?.textContent ?? '')
+    expect(articleText).toContain('quick brown fox')
+    expect(articleText).not.toContain('— End')
+    expect(articleText).not.toContain('Shared with Prose')
+    expect(articleText).not.toMatch(/[A-Z][a-z]+ \d{4}/)
+  })
+
+  test('a doc without a leading H1 gets the derived title baked into the header', async ({ page }) => {
+    const noH1Html = [
+      '<p>The <span data-comment-id="c1" class="comment-mark">quick brown fox</span> jumps.</p>',
+    ].join('\n')
+    const html = await buildProseHtml(noH1Html, 'The quick brown fox jumps.', {}, 'Derived Title', null, [])
+    const file = join(tmpDir, 'no-h1.html')
+    writeFileSync(file, html, 'utf-8')
+    await page.goto(pathToFileURL(file).href)
+
+    await expect(page.locator('.prose-doc-title')).toHaveText('Derived Title')
+    // The injected title lives in the header, never inside the article.
+    const articleText = await page.evaluate(() => document.querySelector('article')?.textContent ?? '')
+    expect(articleText).not.toContain('Derived Title')
+    // The fixture doc DOES lead with an H1 — no title injection there.
+    await page.goto(artifactUrl)
+    await expect(page.locator('.prose-doc-title')).toHaveCount(0)
   })
 })
 

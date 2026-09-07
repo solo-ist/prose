@@ -189,6 +189,12 @@ function jsonForInlineScript(value: unknown): string {
   return JSON.stringify(value).replace(/</g, '\\u003c')
 }
 
+/** Theme-toggle glyphs (from the Share Viewer design): sun shows in dark, moon in light. */
+const SUN_SVG =
+  '<svg class="prose-icon-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><line x1="12" y1="2" x2="12" y2="4"></line><line x1="12" y1="20" x2="12" y2="22"></line><line x1="2" y1="12" x2="4" y2="12"></line><line x1="20" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="4.93" x2="6.34" y2="6.34"></line><line x1="17.66" y1="17.66" x2="19.07" y2="19.07"></line><line x1="4.93" y1="19.07" x2="6.34" y2="17.66"></line><line x1="17.66" y1="6.34" x2="19.07" y2="4.93"></line></svg>'
+const MOON_SVG =
+  '<svg class="prose-icon-moon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>'
+
 /**
  * Build a standalone HTML document from editor HTML + original markdown.
  * The markdown is base64-encoded in a <script> tag so Prose can recover it
@@ -231,6 +237,47 @@ async function buildArtifactHtml(
   const publishedAt = new Date().toISOString()
   const publishRev = withViewer ? await computePublishRev(inlinedHtml, encoded) : null
 
+  // Baked page shell (viewer artifacts only) — the "two materials" chrome.
+  // INVARIANT (anchor purity): every chrome text node lives OUTSIDE <article>.
+  // Both the viewer's computeAnchor and the desktop's restoreComments
+  // normalize article text; chrome inside <article> would silently shift
+  // every occurrence index. <article> wraps exactly the editor HTML.
+  let bodyContent: string
+  if (withViewer) {
+    const eyebrow = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(
+      new Date(publishedAt)
+    )
+    const openCount = (comments ?? []).filter((c) => !c.resolved).length
+    // Docs that open with their own H1 keep it as the display title inside
+    // <article>; otherwise the derived title is baked into the header.
+    const hasLeadingH1 = /^\s*<h1[\s>]/.test(inlinedHtml)
+    bodyContent = `  <div class="prose-page">
+    <div class="prose-topbar">
+      <span class="prose-wordmark"><span class="prose-pilcrow">¶</span><span>Prose.</span></span>
+      <div class="prose-topbar-tools">
+        <button id="prose-rail-toggle" type="button" aria-label="Toggle comments"><span class="prose-comment-dot"></span><span id="prose-rail-count">${openCount} comments</span></button>
+        <span class="prose-topbar-divider"></span>
+        <button id="prose-theme-toggle" type="button" aria-label="Toggle appearance">${SUN_SVG}${MOON_SVG}</button>
+      </div>
+    </div>
+    <header class="prose-doc-header">
+      <div class="prose-doc-eyebrow">${escapeHtml(eyebrow)}</div>${hasLeadingH1 ? '' : `\n      <h1 class="prose-doc-title">${escapeHtml(title)}</h1>`}
+    </header>
+    <article>
+${inlinedHtml}
+    </article>
+    <div class="prose-end-mark">— End</div>
+    <footer class="prose-artifact-footer">
+      <span>Shared with Prose. Comments travel inside this file.</span>
+      <a id="prose-download-copy" href="#">Download annotated copy</a>
+    </footer>
+  </div>`
+  } else {
+    bodyContent = `  <article>
+${inlinedHtml}
+  </article>`
+  }
+
   let embeddedBlocks = ''
   if (withViewer && publishRev) {
     const commentsBlock: EmbeddedCommentsBlock = {
@@ -258,9 +305,7 @@ async function buildArtifactHtml(
   </style>
 </head>
 <body>
-  <article>
-${inlinedHtml}
-  </article>
+${bodyContent}
   <script type="${PROSE_MARKER}" data-encoding="base64">${encoded}</script>${embeddedBlocks}
 </body>
 </html>`

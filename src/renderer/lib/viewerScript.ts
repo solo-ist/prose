@@ -101,7 +101,7 @@ export const ARTIFACT_BASE_STYLES = `
   article {
     max-width: 660px;
     margin: 0 auto;
-    padding: 78px 24px 120px;
+    padding: 0 24px;
     font-size: 19px;
     line-height: 1.62;
   }
@@ -148,8 +148,117 @@ export const ARTIFACT_BASE_STYLES = `
   article ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 0.5rem; }
   article ul[data-type="taskList"] li label { flex-shrink: 0; margin-top: 0.2rem; }
   article ul[data-type="taskList"] li div, article ul[data-type="taskList"] li p { margin: 0; }
+  .prose-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    background: var(--bg);
+    transition: background 0.3s ease;
+  }
+  .prose-wordmark {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.16em;
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 700;
+    font-size: 22px;
+    letter-spacing: -0.012em;
+    color: var(--wordmark);
+    line-height: 1;
+  }
+  .prose-wordmark .prose-pilcrow { font-size: 0.92em; }
+  .prose-topbar-tools {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: hsl(var(--muted-foreground));
+  }
+  #prose-rail-toggle, #prose-theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    background: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+    cursor: pointer;
+    min-height: 44px;
+  }
+  .prose-comment-dot { width: 6px; height: 6px; border-radius: 50%; background: hsl(var(--comment)); }
+  .prose-topbar-divider { width: 1px; height: 14px; background: hsl(var(--border)); }
+  #prose-theme-toggle svg { display: block; }
+  .prose-icon-sun { display: none; }
+  html.dark .prose-icon-sun { display: block; }
+  html.dark .prose-icon-moon { display: none; }
+  .prose-doc-header, .prose-end-mark, .prose-artifact-footer {
+    width: calc(100% - 48px);
+    max-width: 660px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .prose-doc-header { padding-top: 78px; }
+  .prose-doc-eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--article-muted);
+    margin-bottom: 28px;
+  }
+  .prose-doc-title {
+    font-size: clamp(40px, 5.4vw, 60px);
+    font-weight: 300;
+    line-height: 1.04;
+    letter-spacing: -0.022em;
+    margin: 0 0 18px;
+  }
+  .prose-end-mark {
+    margin-top: 80px;
+    padding-top: 32px;
+    border-top: 1px solid var(--rule);
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--article-muted);
+  }
+  .prose-artifact-footer {
+    margin-top: 72px;
+    padding-bottom: 64px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+    justify-content: space-between;
+    align-items: baseline;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    color: hsl(var(--muted-foreground));
+  }
+  #prose-download-copy {
+    color: hsl(var(--foreground));
+    text-decoration: none;
+    border-bottom: 1px solid hsl(var(--border));
+    cursor: pointer;
+  }
+  #prose-download-copy.prose-has-additions {
+    color: hsl(var(--comment));
+    border-bottom-color: hsl(var(--comment));
+  }
   @media (max-width: 640px) {
-    article { font-size: 17px; line-height: 1.6; padding: 56px 20px 96px; }
+    article { font-size: 17px; line-height: 1.6; }
+    .prose-doc-header { padding-top: 56px; }
+    .prose-artifact-footer { padding-bottom: 48px; }
   }
 `
 
@@ -254,34 +363,6 @@ export const VIEWER_STYLES = `
     color: hsl(var(--muted-foreground));
     font-size: 11px;
   }
-  #prose-rail-download {
-    display: block;
-    width: 100%;
-    box-sizing: border-box;
-    margin-top: 0.75rem;
-    border: 1px solid hsl(var(--input));
-    border-radius: 6px;
-    padding: 0.45rem 0.75rem;
-    font: 600 12px var(--font-mono);
-    background: hsl(var(--card));
-    color: hsl(var(--foreground));
-    cursor: pointer;
-  }
-  #prose-rail-download.prose-has-additions { background: hsl(var(--comment)); border-color: hsl(var(--comment)); color: rgba(0, 0, 0, 0.85); }
-  #prose-rail-toggle {
-    position: fixed;
-    right: 1rem;
-    bottom: 1rem;
-    z-index: 11;
-    border: 1px solid hsl(var(--input));
-    border-radius: 999px;
-    padding: 0.4rem 0.85rem;
-    font: 600 12.5px var(--font-mono);
-    background: hsl(var(--popover));
-    color: hsl(var(--foreground));
-    cursor: pointer;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
-  }
   #prose-add-comment-btn {
     position: absolute;
     z-index: 12;
@@ -334,7 +415,13 @@ export const VIEWER_SCRIPT = `(function () {
   var commentsEl = document.querySelector('script[type="application/x-prose-comments"]')
   var shareEl = document.querySelector('script[type="application/x-prose-share"]')
   var article = document.querySelector('article')
-  if (!article) return
+  // Baked chrome (top bar, footer) ships in the same artifact as this script;
+  // missing nodes mean a malformed artifact — stand down instead of crashing.
+  var toggle = document.getElementById('prose-rail-toggle')
+  var railCount = document.getElementById('prose-rail-count')
+  var downloadBtn = document.getElementById('prose-download-copy')
+  var themeToggle = document.getElementById('prose-theme-toggle')
+  if (!article || !toggle || !downloadBtn) return
 
   var blockMeta = { version: 1, publishRev: '', publishedAt: '' }
   var comments = []
@@ -518,10 +605,10 @@ export const VIEWER_SCRIPT = `(function () {
       resolvedSection.appendChild(el('h2', null, 'Resolved (' + resolved.length + ')'))
       for (var j = 0; j < resolved.length; j++) resolvedSection.appendChild(renderThread(resolved[j]))
     }
-    toggle.textContent = '💬 ' + open.length
+    if (railCount) railCount.textContent = open.length + ' comments'
     downloadBtn.textContent = unsavedAdditions > 0
       ? 'Download annotated copy (' + unsavedAdditions + ' new)'
-      : 'Download a copy'
+      : 'Download annotated copy'
     downloadBtn.classList.toggle('prose-has-additions', unsavedAdditions > 0)
   }
 
@@ -536,9 +623,7 @@ export const VIEWER_SCRIPT = `(function () {
   rail.appendChild(note)
 
   // --- Download a (possibly annotated) self-contained copy ------------------
-  var downloadBtn = el('button', null, 'Download a copy')
-  downloadBtn.id = 'prose-rail-download'
-  rail.appendChild(downloadBtn)
+  // The entry point is the baked footer link (#prose-download-copy).
 
   function encodeBase64Utf8(s) { return btoa(unescape(encodeURIComponent(s))) }
 
@@ -559,7 +644,8 @@ export const VIEWER_SCRIPT = `(function () {
     // reopened copy re-derives it from its reader's storage/OS scheme.
     clone.classList.remove('dark')
     // Strip the viewer's runtime DOM — the reopened copy rebuilds it fresh.
-    var strip = ['#prose-comment-rail', '#prose-rail-toggle', '#prose-add-comment-btn']
+    // Baked chrome (top bar, footer) intentionally survives the copy.
+    var strip = ['#prose-comment-rail', '#prose-add-comment-btn']
     for (var i = 0; i < strip.length; i++) {
       var node = clone.querySelector(strip[i])
       if (node) node.remove()
@@ -568,6 +654,12 @@ export const VIEWER_SCRIPT = `(function () {
     for (var j = 0; j < actives.length; j++) actives[j].classList.remove('prose-viewer-active')
     var body = clone.querySelector('body')
     if (body) body.classList.remove('prose-rail-open')
+    // Reset chrome state that belongs to THIS session, not the copy.
+    var dl = clone.querySelector('#prose-download-copy')
+    if (dl) {
+      dl.textContent = 'Download annotated copy'
+      dl.classList.remove('prose-has-additions')
+    }
     // Re-embed the full comment set (original + local additions).
     var script = clone.querySelector('script[type="application/x-prose-comments"]')
     if (script) {
@@ -581,7 +673,8 @@ export const VIEWER_SCRIPT = `(function () {
     return '<!DOCTYPE html>\\n' + clone.outerHTML
   }
 
-  downloadBtn.addEventListener('click', function () {
+  downloadBtn.addEventListener('click', function (ev) {
+    ev.preventDefault()
     var blob = new Blob([buildAnnotatedCopy()], { type: 'text/html' })
     var url = URL.createObjectURL(blob)
     var a = document.createElement('a')
@@ -603,9 +696,6 @@ export const VIEWER_SCRIPT = `(function () {
     }
   })
 
-  var toggle = el('button', null)
-  toggle.id = 'prose-rail-toggle'
-  toggle.setAttribute('aria-label', 'Toggle comments')
   toggle.addEventListener('click', function () {
     var isOpen = document.body.contains(rail)
     if (isOpen) {
@@ -617,7 +707,14 @@ export const VIEWER_SCRIPT = `(function () {
     }
   })
 
-  document.body.appendChild(toggle)
+  if (themeToggle) {
+    themeToggle.addEventListener('click', function () {
+      var dark = !document.documentElement.classList.contains('dark')
+      document.documentElement.classList.toggle('dark', dark)
+      try { window.localStorage.setItem('prose-viewer-theme', dark ? 'dark' : 'light') } catch (e) { /* blocked storage */ }
+    })
+  }
+
   renderRail()
   if (window.innerWidth >= 900) {
     document.body.appendChild(rail)

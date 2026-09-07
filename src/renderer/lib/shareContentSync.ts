@@ -20,6 +20,7 @@ import { buildShareArtifact } from './shareArtifact'
 import { flushPendingShareOps } from './sharePush'
 import { useEditorStore } from '../stores/editorStore'
 import { useEditorInstanceStore } from '../stores/editorInstanceStore'
+import { useSettingsStore } from '../stores/settingsStore'
 import { useShareStore } from '../stores/shareStore'
 
 const AUTO_PUSH_QUIET_MS = 4000
@@ -114,9 +115,18 @@ export async function pushShareContent(reason: 'auto' | 'manual'): Promise<boole
  */
 export function useShareContentSync(): void {
   useEffect(() => {
-    if (!isWebPlatformEnabled()) return
-
+    // Settings (and with them the webPlatform flag) load asynchronously —
+    // never gate the subscriptions on the flag at mount, or the engine
+    // permanently no-ops when it mounts first. Callbacks check at fire time;
+    // the flag flipping true re-runs the initial lookup.
     void useShareStore.getState().refreshForActiveDocument()
+
+    const unsubFlag = useSettingsStore.subscribe(
+      (s) => s.isLoaded && s.settings.featureFlags?.webPlatform === true,
+      (enabled) => {
+        if (enabled) void useShareStore.getState().refreshForActiveDocument()
+      }
+    )
 
     const unsubSave = useEditorStore.subscribe(
       (s) => s.document.isDirty,
@@ -139,9 +149,21 @@ export function useShareContentSync(): void {
       }
     )
 
+    // Recovery path: a failed auto push keeps shareDirty — regaining focus
+    // (e.g. after the gateway comes back) retries without waiting for the
+    // next save. The interval floor in pushShareContent still applies.
+    const onFocus = () => {
+      const share = useShareStore.getState()
+      if (!share.entry || share.entry.revokedAt) return
+      if (share.shareDirty && share.entry.syncMode === 'auto') scheduleAutoPush(1000)
+    }
+    window.addEventListener('focus', onFocus)
+
     return () => {
+      unsubFlag()
       unsubSave()
       unsubDoc()
+      window.removeEventListener('focus', onFocus)
       cancelScheduledPush()
     }
   }, [])

@@ -27,6 +27,7 @@ import { useCommentStore } from '../extensions/comments/store'
 import type { CommentData, CommentReply } from '../extensions/comments/types'
 import { formatAge } from '../types/annotations'
 import { generateId } from '../lib/persistence'
+import { pushReplyToShare, pushResolveToShare } from '../lib/sharePush'
 import { renderMarkdown } from './chat/ChatMessage'
 import { OPEN_COMMENT_EVENT, requestCommentReview } from './editor/AIEditsHistoryPanel'
 import { PROSE_ICONS, IconThumb } from '../lib/prose-icons'
@@ -246,6 +247,7 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
     if (documentId) saveComments(documentId, updated)
     editor.commands.unsetComment(id)
     setShowResolvedThread(false)
+    pushResolveToShare(id)
   }, [editor, popover.commentId, documentId, saveComments])
 
   const handleReopen = useCallback(() => {
@@ -258,6 +260,7 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
     // Re-anchor the editor mark that resolving removed, so the highlight returns.
     const thread = updated.find((c) => c.id === id)
     if (thread) editor.commands.restoreComments([thread])
+    pushResolveToShare(id)
   }, [editor, popover.commentId, documentId, saveComments])
 
   const handleProcess = useCallback(() => {
@@ -298,6 +301,7 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
     if (documentId) saveComments(documentId, updated)
     setReplyText('')
     replyInputRef.current?.focus()
+    pushReplyToShare(id, reply.id)
   }, [replyText, popover.commentId, documentId, saveComments])
 
   const handleReplyKeyDown = useCallback(

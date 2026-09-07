@@ -28,6 +28,7 @@ import { aiUnavailableMessage } from '../../lib/llm'
 import type { CommentReply } from '../../extensions/comments/types'
 import { formatAge } from '../../types/annotations'
 import { generateId } from '../../lib/persistence'
+import { pushReplyToShare, pushResolveToShare } from '../../lib/sharePush'
 import { renderMarkdown } from '../chat/ChatMessage'
 import { PROSE_ICONS, IconThumb } from '../../lib/prose-icons'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -119,6 +120,7 @@ export function CommentReviewPanel({ onExit, initialThreadId }: CommentReviewPan
     if (documentId) saveComments(documentId, updated)
     editor?.commands.unsetComment(id)
     setDraft('')
+    pushResolveToShare(id)
     // The set shrinks; the next open thread slides into this index (clamped).
   }, [current, documentId, saveComments, editor])
 
@@ -138,6 +140,7 @@ export function CommentReviewPanel({ onExit, initialThreadId }: CommentReviewPan
     if (documentId) saveComments(documentId, updated)
     setDraft('')
     composerRef.current?.focus()
+    pushReplyToShare(current.id, reply.id)
   }, [draft, current, documentId, saveComments])
 
   const onDragEnd = useCallback(

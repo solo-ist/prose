@@ -19,6 +19,7 @@ import { useCommentStore } from '../extensions/comments/store'
 import { useEditorStore } from '../stores/editorStore'
 import { useNotificationStore } from '../stores/notificationStore'
 import { isWebPlatformEnabled } from './featureFlags'
+import { flushPendingShareOps } from './sharePush'
 import type { CommentData, CommentReply } from '../extensions/comments/types'
 import type { ShareEntry, SharePulledComment } from '../types'
 
@@ -136,6 +137,8 @@ export function useShareFocusSync(): void {
     const onFocus = async (): Promise<void> => {
       try {
         if (!isWebPlatformEnabled()) return
+        // Retry any queued reply/resolve pushes regardless of the pull debounce.
+        flushPendingShareOps()
         const { document } = useEditorStore.getState()
         if (!document.path || !document.documentId) return
         const res = await getApi().shareGetForPath(document.path)

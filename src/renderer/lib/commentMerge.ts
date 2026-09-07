@@ -28,6 +28,7 @@ export function cleanReply(r: CommentReply): CommentReply {
     text: cleanString(r.text),
     createdAt: typeof r.createdAt === 'number' ? r.createdAt : Date.now(),
     ...(r.authorName ? { authorName: cleanString(r.authorName, 100) } : {}),
+    ...(r.shareId ? { shareId: cleanString(r.shareId, 128) } : {}),
   }
 }
 
@@ -50,8 +51,10 @@ export function mergeCommentThreads(
       added++
       continue
     }
-    // Known thread: local state wins, but graft unseen replies.
-    const seen = new Set((current.replies ?? []).map((r) => r.id))
+    // Known thread: local state wins, but graft unseen replies. A local reply
+    // that was pushed to the gateway comes back under its server row id — its
+    // shareId here — so both ids count as seen (#769 dedupe invariant).
+    const seen = new Set((current.replies ?? []).flatMap((r) => (r.shareId ? [r.id, r.shareId] : [r.id])))
     const fresh = (thread.replies ?? []).filter((r) => r && typeof r.id === 'string' && !seen.has(r.id))
     if (fresh.length > 0) {
       byId.set(thread.id, { ...current, replies: [...(current.replies ?? []), ...fresh] })

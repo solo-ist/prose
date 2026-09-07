@@ -122,11 +122,19 @@ function sanitizeComments(comments: CommentData[]): CommentData[] {
     ...c,
     markedText: sanitizeField(c.markedText, MAX_MARKED_TEXT_LENGTH),
     comment: sanitizeField(c.comment, MAX_COMMENT_LENGTH),
-    replies: (c.replies ?? []).map((r) => ({
-      ...r,
-      text: sanitizeField(r.text, MAX_COMMENT_LENGTH),
-      ...(r.authorName !== undefined ? { authorName: sanitizeField(r.authorName, MAX_NAME_LENGTH) } : {}),
-    })),
+    replies: (c.replies ?? []).map((r) => {
+      // Dedupe invariant (#769): a reply that was pushed to the gateway bakes
+      // under its server row id (shareId), so the baked copy and the live-poll
+      // row share one id and the viewer merge can't double it. shareId itself
+      // is local bookkeeping and never embedded.
+      const { shareId, ...rest } = r
+      return {
+        ...rest,
+        id: shareId ?? r.id,
+        text: sanitizeField(r.text, MAX_COMMENT_LENGTH),
+        ...(r.authorName !== undefined ? { authorName: sanitizeField(r.authorName, MAX_NAME_LENGTH) } : {}),
+      }
+    }),
   }))
 }
 

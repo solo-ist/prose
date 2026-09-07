@@ -20,6 +20,14 @@ export interface CommentReply {
    * the reply came from this desktop (the author) or the AI.
    */
   authorName?: string
+  /**
+   * Gateway row id after this reply was pushed to the live conversation
+   * (#769). Invariant: pull-merge dedupes incoming replies against both id
+   * AND shareId, and artifact bakes emit the reply under shareId when
+   * present — so a pushed reply is one row everywhere (desktop, baked page,
+   * live poll), never a duplicate. Missing → never pushed.
+   */
+  shareId?: string
 }
 
 export interface CommentData {

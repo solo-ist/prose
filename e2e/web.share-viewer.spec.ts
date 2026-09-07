@@ -142,6 +142,26 @@ test.describe('artifact format', () => {
     expect(extractCommentsFromHtml(changed)!.publishRev).not.toBe(extractCommentsFromHtml(artifactHtml)!.publishRev)
   })
 
+  test('pushed replies bake under their server id; shareId is never embedded', async () => {
+    // Dedupe invariant (#769): a reply with shareId (already pushed to the
+    // gateway) must appear in the artifact under the server row id, so the
+    // baked copy and the live-poll row are one id and the viewer can't show
+    // it twice. shareId itself is local bookkeeping and stays out of the file.
+    const withPushed: CommentData[] = [
+      {
+        ...COMMENTS[0],
+        replies: [
+          { id: 'local-1', author: 'user', text: 'On it.', createdAt: 1756200400000, shareId: 'srv-1' },
+          { id: 'local-2', author: 'user', text: 'Not pushed yet.', createdAt: 1756200500000 },
+        ],
+      },
+    ]
+    const baked = await buildProseHtml(EDITOR_HTML, MARKDOWN, {}, 'Share Test', null, withPushed)
+    const replies = extractCommentsFromHtml(baked)!.comments[0].replies!
+    expect(replies.map((r) => r.id)).toEqual(['srv-1', 'local-2'])
+    expect(replies.every((r) => !('shareId' in r))).toBe(true)
+  })
+
   test('export without comments is viewer-free and stays re-importable', async () => {
     const plain = await buildProseHtml(EDITOR_HTML, MARKDOWN, {}, 'Share Test', null)
     expect(isProseHtml(plain)).toBe(true)

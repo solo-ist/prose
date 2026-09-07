@@ -107,6 +107,18 @@ export const VIEWER_STYLES = `
   .prose-thread-meta { color: #888; font-size: 0.6875rem; margin-top: 0.25rem; }
   .prose-thread-reply { margin-top: 0.5rem; padding-left: 0.625rem; border-left: 2px solid #e2e2e2; }
   @media (prefers-color-scheme: dark) { .prose-thread-reply { border-left-color: #383838; } }
+  .prose-thread-reply.prose-reply-author { border-left-color: rgba(200, 164, 90, 0.8); }
+  .prose-author-tag {
+    display: inline-block;
+    margin-right: 0.3rem;
+    padding: 0 0.3rem;
+    border-radius: 3px;
+    font-size: 0.625rem;
+    font-weight: 600;
+    background: rgba(200, 164, 90, 0.18);
+    color: #92640c;
+  }
+  @media (prefers-color-scheme: dark) { .prose-author-tag { color: #d9a23f; } }
   .prose-thread-body { white-space: pre-wrap; word-break: break-word; }
   .prose-resolved-section { margin-top: 1.25rem; }
   .prose-resolved-section .prose-thread { opacity: 0.65; }
@@ -348,9 +360,16 @@ export const VIEWER_SCRIPT = `(function () {
     var replies = c.replies || []
     for (var i = 0; i < replies.length; i++) {
       var r = replies[i]
-      var replyEl = el('div', 'prose-thread-reply')
+      // Author replies (live-pushed rows carry fromAuthor; baked desktop
+      // replies have no authorName) get the gold border + tag.
+      var isAuthor = r.fromAuthor === true || (!r.authorName && r.author !== 'ai')
+      var replyEl = el('div', isAuthor ? 'prose-thread-reply prose-reply-author' : 'prose-thread-reply')
       replyEl.appendChild(el('div', 'prose-thread-body', r.text))
-      replyEl.appendChild(el('div', 'prose-thread-meta', authorLabel(r) + ' · ' + formatDate(r.createdAt)))
+      var meta = el('div', 'prose-thread-meta')
+      if (isAuthor) meta.appendChild(el('span', 'prose-author-tag', 'Author'))
+      var label = r.authorName || (r.author === 'ai' ? 'AI' : '')
+      meta.appendChild(document.createTextNode((label ? label + ' · ' : '') + formatDate(r.createdAt)))
+      replyEl.appendChild(meta)
       card.appendChild(replyEl)
     }
     card.addEventListener('click', function () { setActive(c.id, true) })
@@ -481,6 +500,99 @@ export const VIEWER_SCRIPT = `(function () {
     document.body.classList.add('prose-rail-open')
   }
 
+  // --- Live conversation loop (#769) ---------------------------------------
+  // The page polls the publication's comment list so the conversation is
+  // live in both sync modes: refresh-safe reviewer comments, author replies
+  // and resolves without a re-publish. Same-origin GET (CSP connect-src
+  // 'self'); merge is ADDITIVE — never deletes local entries, so offline and
+  // just-posted additions survive; the poll is authoritative only for the
+  // resolution state of rows it returns. Dedupe is by id: posted comments
+  // land with server ids, and baked author replies are embedded under their
+  // server row id at publish time.
+  var pollTimer = null
+  var pollStopped = false
+
+  function rowToReply(row) {
+    return {
+      id: row.id,
+      text: row.commentText,
+      authorName: row.authorName,
+      createdAt: Date.parse(row.createdAt) || Date.now(),
+      fromAuthor: row.fromAuthor === true
+    }
+  }
+
+  function mergeLive(rows) {
+    var changed = false
+    var byId = {}
+    for (var mi = 0; mi < comments.length; mi++) byId[comments[mi].id] = comments[mi]
+    for (var ti = 0; ti < rows.length; ti++) {
+      var row = rows[ti]
+      if (row.parentId) continue
+      var existing = byId[row.id]
+      var resolved = !!row.resolvedAt
+      if (!existing) {
+        var thread = {
+          id: row.id,
+          markedText: row.markedText,
+          occurrenceIndex: row.occurrenceIndex,
+          comment: row.commentText,
+          authorName: row.authorName,
+          createdAt: Date.parse(row.createdAt) || Date.now(),
+          resolved: resolved,
+          replies: []
+        }
+        comments.push(thread)
+        byId[row.id] = thread
+        changed = true
+      } else if (existing.resolved !== resolved) {
+        existing.resolved = resolved
+        changed = true
+      }
+    }
+    for (var ri = 0; ri < rows.length; ri++) {
+      var reply = rows[ri]
+      if (!reply.parentId) continue
+      var parent = byId[reply.parentId]
+      if (!parent) continue
+      parent.replies = parent.replies || []
+      var seen = false
+      for (var si = 0; si < parent.replies.length; si++) {
+        if (parent.replies[si].id === reply.id) { seen = true; break }
+      }
+      if (!seen) {
+        parent.replies.push(rowToReply(reply))
+        changed = true
+      }
+    }
+    if (changed) {
+      renderRail()
+      if (activeId) setActive(activeId, false)
+    }
+  }
+
+  function fetchLiveComments() {
+    if (!online || pollStopped) return
+    window.fetch(shareConfig.shareEndpoint.replace(/\\/$/, '') + '/s/' + token + '/comments').then(function (resp) {
+      if (resp.status === 410) {
+        pollStopped = true
+        if (pollTimer) window.clearInterval(pollTimer)
+        note.textContent = 'This share link has been revoked.'
+        return null
+      }
+      if (!resp.ok) return null
+      return resp.json()
+    }).then(function (body) {
+      if (body && body.comments) mergeLive(body.comments)
+    }).catch(function () { /* transient network failure — the next poll retries */ })
+  }
+
+  if (online) {
+    fetchLiveComments()
+    pollTimer = window.setInterval(fetchLiveComments, 45000)
+    window.addEventListener('focus', fetchLiveComments)
+  }
+
   // --- Highlight interactions ----------------------------------------------
   article.addEventListener('click', function (ev) {
     var target = ev.target
@@ -586,6 +698,9 @@ export const VIEWER_SCRIPT = `(function () {
         if (anchor.range) tryHighlight(anchor.range, created.id)
         formSlot.textContent = ''
         renderRail()
+        // Pick up anything else that landed while the form was open (the
+        // just-posted comment merges by its server id — no duplicate).
+        window.setTimeout(fetchLiveComments, 2000)
       }).catch(function (err) {
         postBtn.disabled = false
         errorEl.textContent = err && err.message ? err.message : 'Failed to post comment.'

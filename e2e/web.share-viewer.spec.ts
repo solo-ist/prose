@@ -343,6 +343,162 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
   })
 })
 
+test.describe('author reply styling (offline)', () => {
+  test('baked author replies (no authorName) render with the gold border + Author tag', async ({ page }) => {
+    const withAuthorReply: CommentData[] = [
+      {
+        ...COMMENTS[0],
+        replies: [
+          { id: 'r1', author: 'user', text: 'Agreed — keep it.', createdAt: 1756200100000, authorName: 'Reviewer Rae' },
+          { id: 'srv-9', author: 'user', text: 'Done in the next rev.', createdAt: 1756200200000 },
+        ],
+      },
+    ]
+    const html = await buildProseHtml(EDITOR_HTML, MARKDOWN, {}, 'Share Test', null, withAuthorReply)
+    const file = join(tmpDir, 'author-reply.html')
+    writeFileSync(file, html, 'utf-8')
+    await page.goto(pathToFileURL(file).href)
+
+    const authorReply = page.locator('.prose-thread-reply.prose-reply-author')
+    await expect(authorReply).toHaveCount(1)
+    await expect(authorReply).toContainText('Done in the next rev.')
+    await expect(authorReply.locator('.prose-author-tag')).toHaveText('Author')
+    // The reviewer reply stays unstyled.
+    const reviewerReply = page.locator('.prose-thread-reply', { hasText: 'Agreed — keep it.' })
+    await expect(reviewerReply).not.toHaveClass(/prose-reply-author/)
+  })
+})
+
+test.describe('live conversation loop (online viewer)', () => {
+  // A tiny http harness standing in for the gateway's /s/:token surface. It
+  // serves the REAL artifact with the REAL CSP (mirrors ARTIFACT_HEADERS in
+  // gateway/src/routes/share/public.ts — a same-origin regression here means
+  // the live poll is CSP-blocked in production too) and scripts the comment
+  // list across polls.
+  const CSP =
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'self'"
+
+  let server: import('node:http').Server
+  let origin: string
+  let commentRows: Array<Record<string, unknown>> = []
+  let postedRows: Array<Record<string, unknown>> = []
+
+  const row = (over: Record<string, unknown>): Record<string, unknown> => ({
+    parentId: null,
+    markedText: '',
+    occurrenceIndex: 0,
+    commentText: '',
+    authorName: 'Angel Web',
+    fromAuthor: false,
+    resolvedAt: null,
+    publishRev: 'rev',
+    createdAt: '2026-09-07T00:00:00.000Z',
+    ...over,
+  })
+
+  test.beforeAll(async () => {
+    const { createServer } = await import('node:http')
+    let artifactHtmlOnline = ''
+    server = createServer((req, res) => {
+      const url = req.url ?? ''
+      if (req.method === 'GET' && url === '/s/testtoken') {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': CSP })
+        res.end(artifactHtmlOnline)
+      } else if (req.method === 'GET' && url.startsWith('/s/testtoken/comments')) {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ comments: [...commentRows, ...postedRows], nextCursor: null }))
+      } else if (req.method === 'POST' && url === '/s/testtoken/comments') {
+        let body = ''
+        req.on('data', (c) => { body += c })
+        req.on('end', () => {
+          const parsed = JSON.parse(body) as { commentText: string; markedText: string; occurrenceIndex: number; authorName: string }
+          postedRows.push(row({
+            id: 'srv-posted-1',
+            markedText: parsed.markedText,
+            occurrenceIndex: parsed.occurrenceIndex,
+            commentText: parsed.commentText,
+            authorName: parsed.authorName,
+            createdAt: '2026-09-07T00:05:00.000Z',
+          }))
+          res.writeHead(201, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ id: 'srv-posted-1', createdAt: '2026-09-07T00:05:00.000Z' }))
+        })
+      } else {
+        res.writeHead(404)
+        res.end()
+      }
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const address = server.address()
+    if (address === null || typeof address === 'string') throw new Error('no server address')
+    origin = `http://127.0.0.1:${address.port}`
+
+    // c1 carries a pushed author reply (shareId srv-1) — baked under the
+    // server id, so the live GET returning the same row must not double it.
+    const online: CommentData[] = [
+      {
+        ...COMMENTS[0],
+        replies: [
+          { id: 'local-1', author: 'user', text: 'On it.', createdAt: 1756200100000, shareId: 'srv-1' },
+        ],
+      },
+    ]
+    artifactHtmlOnline = await buildShareHtml(EDITOR_HTML, MARKDOWN, {}, 'Share Test', null, online, origin)
+  })
+
+  test.afterAll(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  })
+
+  test.beforeEach(() => {
+    postedRows = []
+    commentRows = [
+      // The pushed author reply, now a gateway row.
+      row({ id: 'srv-1', parentId: 'c1', commentText: 'On it.', authorName: 'Angel', fromAuthor: true, createdAt: '2026-09-06T00:00:00.000Z' }),
+      // A reviewer thread that exists only on the gateway (posted after bake).
+      row({ id: 'srv-2', markedText: 'lazy dog', commentText: 'Live-only thread.', createdAt: '2026-09-06T01:00:00.000Z' }),
+      // A reviewer reply to it.
+      row({ id: 'srv-3', parentId: 'srv-2', commentText: 'Live reply.', authorName: 'Second Reviewer', createdAt: '2026-09-06T02:00:00.000Z' }),
+    ]
+  })
+
+  test('initial poll merges live-only threads and never duplicates the baked author reply', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
+    await expect(page.getByText('Live reply.')).toBeVisible()
+    // Baked + live-GET copies of srv-1 collapse into one reply.
+    await expect(page.getByText('On it.')).toHaveCount(1)
+    await expect(page.locator('.prose-thread-reply.prose-reply-author')).toHaveCount(1)
+  })
+
+  test('a resolve landing between polls moves the thread to Resolved on focus', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
+    await expect(page.locator('.prose-resolved-section .prose-thread')).toHaveCount(0)
+
+    commentRows = commentRows.map((r) => (r.id === 'srv-2' ? { ...r, resolvedAt: '2026-09-07T03:00:00.000Z' } : r))
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.locator('.prose-resolved-section .prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
+    await expect(page.locator('#prose-comment-rail h2').first()).toContainText('Comments (1)')
+  })
+
+  test('a posted comment is not duplicated by the follow-up poll', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').first().fill('Poster Pat')
+    await page.locator('#prose-comment-form textarea').fill('Posted live.')
+    await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
+    await expect(page.getByText('Posted live.')).toBeVisible()
+
+    // Force the next poll (instead of waiting out the 2s refetch) and give the
+    // merge a beat — the posted row comes back from the server by its id.
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await page.waitForTimeout(300)
+    await expect(page.getByText('Posted live.')).toHaveCount(1)
+  })
+})
+
 test.describe('share artifact opened locally', () => {
   test('file:// wins over share config: offline annotate mode, no network posts', async ({ page }) => {
     const requests: string[] = []

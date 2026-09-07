@@ -312,6 +312,17 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
     await expect(page.locator('#prose-download-copy')).toContainText('annotated copy (1 new)')
   })
 
+  test('⌘↵ / Ctrl+Enter submits the comment form', async ({ page }) => {
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').fill('Keyboard Kai')
+    const textarea = page.locator('#prose-comment-form textarea')
+    await textarea.fill('Submitted by keyboard.')
+    await textarea.press('Control+Enter')
+    await expect(page.locator('.prose-rail-head')).toContainText('Comments · 3')
+    await expect(page.getByText('Submitted by keyboard.')).toBeVisible()
+  })
+
   test('download annotated copy: valid artifact carrying the new comment, reopenable', async ({ page }) => {
     await page.locator('article p').first().click({ clickCount: 3 })
     await page.locator('#prose-add-comment-btn').click()
@@ -574,6 +585,7 @@ test.describe('live conversation loop (online viewer)', () => {
   let origin: string
   let commentRows: Array<Record<string, unknown>> = []
   let postedRows: Array<Record<string, unknown>> = []
+  let post429RetryAfter = 0
 
   const row = (over: Record<string, unknown>): Record<string, unknown> => ({
     parentId: null,
@@ -603,9 +615,17 @@ test.describe('live conversation loop (online viewer)', () => {
         let body = ''
         req.on('data', (c) => { body += c })
         req.on('end', () => {
+          if (post429RetryAfter > 0) {
+            const retryAfter = post429RetryAfter
+            post429RetryAfter = 0
+            res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': String(retryAfter) })
+            res.end(JSON.stringify({ error: 'rate_limited', retryAfter }))
+            return
+          }
           const parsed = JSON.parse(body) as { commentText: string; markedText: string; occurrenceIndex: number; authorName: string }
+          const id = `srv-posted-${postedRows.length + 1}`
           postedRows.push(row({
-            id: 'srv-posted-1',
+            id,
             markedText: parsed.markedText,
             occurrenceIndex: parsed.occurrenceIndex,
             commentText: parsed.commentText,
@@ -613,7 +633,7 @@ test.describe('live conversation loop (online viewer)', () => {
             createdAt: '2026-09-07T00:05:00.000Z',
           }))
           res.writeHead(201, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ id: 'srv-posted-1', createdAt: '2026-09-07T00:05:00.000Z' }))
+          res.end(JSON.stringify({ id, createdAt: '2026-09-07T00:05:00.000Z' }))
         })
       } else {
         res.writeHead(404)
@@ -644,6 +664,7 @@ test.describe('live conversation loop (online viewer)', () => {
 
   test.beforeEach(() => {
     postedRows = []
+    post429RetryAfter = 0
     commentRows = [
       // The pushed author reply, now a gateway row.
       row({ id: 'srv-1', parentId: 'c1', commentText: 'On it.', authorName: 'Angel', fromAuthor: true, createdAt: '2026-09-06T00:00:00.000Z' }),
@@ -692,6 +713,48 @@ test.describe('live conversation loop (online viewer)', () => {
     await page.evaluate(() => window.dispatchEvent(new Event('focus')))
     await page.waitForTimeout(300)
     await expect(page.getByText('Posted live.')).toHaveCount(1)
+  })
+
+  test('a 429 shows the honest retry time and keeps the draft', async ({ page }) => {
+    post429RetryAfter = 90
+    await page.goto(`${origin}/s/testtoken`)
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').first().fill('Limited Lee')
+    await page.locator('#prose-comment-form textarea').fill('Held back once.')
+    await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
+
+    const error = page.locator('.prose-form-error')
+    await expect(error).toContainText('Too many comments in a minute')
+    await expect(error).toContainText('Try again at')
+    // The draft is kept in place.
+    await expect(page.locator('#prose-comment-form textarea')).toHaveValue('Held back once.')
+
+    // The limiter window passes (the harness 429s only once) — retry lands.
+    await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
+    await expect(page.getByText('Held back once.')).toBeVisible()
+  })
+
+  test('first post shows the one-time nudge; dismissible; never repeats', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').first().fill('Nudge Nia')
+    await page.locator('#prose-comment-form textarea').fill('First post here.')
+    await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
+
+    const nudge = page.locator('.prose-nudge')
+    await expect(nudge).toContainText('Posted. Replies go to your email if you gave one.')
+    await nudge.locator('.prose-nudge-dismiss').click()
+    await expect(page.locator('.prose-nudge')).toHaveCount(0)
+
+    // A second post gets no nudge.
+    await page.locator('article p').nth(1).click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form textarea').fill('Second post.')
+    await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
+    await expect(page.getByText('Second post.')).toBeVisible()
+    await expect(page.locator('.prose-nudge')).toHaveCount(0)
   })
 })
 

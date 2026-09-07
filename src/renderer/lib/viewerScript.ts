@@ -426,9 +426,13 @@ export const VIEWER_STYLES = `
   #prose-add-comment-btn {
     position: absolute;
     z-index: 12;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 30px;
+    padding: 0 12px;
     border: 1px solid hsl(var(--border));
     border-radius: 6px;
-    padding: 0.3rem 0.6rem;
     font: 12px var(--font-mono);
     background: hsl(var(--popover));
     color: hsl(var(--foreground));
@@ -436,36 +440,85 @@ export const VIEWER_STYLES = `
     box-shadow: 0 4px 12px hsl(var(--foreground) / 0.15);
   }
   #prose-comment-form {
-    border: 1px solid hsl(var(--comment) / 0.5);
+    border: 1px solid hsl(var(--border));
+    border-left: 2px solid hsl(var(--comment));
     border-radius: 8px;
-    padding: 12px 14px;
-    margin-bottom: 0.75rem;
+    padding: 12px 14px 12px 13px;
     background: hsl(var(--card));
   }
-  #prose-comment-form input, #prose-comment-form textarea {
+  #prose-comment-form .prose-thread-quote { margin-bottom: 0; }
+  #prose-comment-form textarea {
     display: block;
     width: 100%;
     box-sizing: border-box;
-    margin-bottom: 0.5rem;
-    padding: 0.375rem 0.5rem;
+    margin-top: 10px;
+    min-height: 72px;
+    padding: 8px 10px;
     border: 1px solid hsl(var(--input));
     border-radius: 6px;
     font: inherit;
     background: transparent;
     color: inherit;
+    resize: none;
+    outline: none;
   }
+  .prose-form-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  .prose-form-fields > :only-child { grid-column: 1 / -1; }
+  #prose-comment-form input {
+    height: 32px;
+    box-sizing: border-box;
+    min-width: 0;
+    padding: 0 10px;
+    border: 1px solid hsl(var(--input));
+    border-radius: 6px;
+    font: inherit;
+    background: transparent;
+    color: inherit;
+    outline: none;
+  }
+  .prose-form-helper { margin-top: 6px; font-size: 11px; line-height: 1.5; color: hsl(var(--muted-foreground)); }
+  .prose-form-error {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: hsl(var(--muted) / 0.5);
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: hsl(var(--foreground));
+  }
+  .prose-form-actions { margin-top: 12px; display: flex; gap: 8px; align-items: center; }
   #prose-comment-form button {
     border: none;
+    height: 30px;
+    padding: 0 12px;
     border-radius: 6px;
-    padding: 0.375rem 0.75rem;
+    display: inline-flex;
+    align-items: center;
     font: 500 12px var(--font-mono);
     background: hsl(var(--primary));
     color: hsl(var(--primary-foreground));
     cursor: pointer;
-    margin-right: 0.375rem;
   }
-  #prose-comment-form button.prose-secondary { background: transparent; color: hsl(var(--muted-foreground)); border: 1px solid hsl(var(--input)); }
-  .prose-form-error { color: hsl(0 72% 55%); font-size: 11px; margin-bottom: 0.375rem; }
+  #prose-comment-form button.prose-secondary { background: transparent; color: hsl(var(--muted-foreground)); padding: 0 10px; }
+  .prose-form-kbd { margin-left: auto; font-size: 11px; color: hsl(var(--muted-foreground)); }
+  .prose-nudge {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid hsl(var(--border));
+    font-size: 11px;
+    line-height: 1.6;
+    color: hsl(var(--muted-foreground));
+  }
+  .prose-nudge-dismiss {
+    border: none;
+    background: none;
+    padding: 0;
+    margin-left: 6px;
+    font: inherit;
+    color: hsl(var(--muted-foreground));
+    text-decoration: underline;
+    cursor: pointer;
+  }
 `
 
 export const VIEWER_SCRIPT = `(function () {
@@ -537,10 +590,21 @@ export const VIEWER_SCRIPT = `(function () {
     // (textBetween(from, to, ' ')) and its textContent has no newlines at
     // all. Map newline runs to one space at CAPTURE so cross-block anchors
     // round-trip; norm() below still strips spaces only, unchanged.
-    var markedText = selection.toString().replace(/\\s*\\n\\s*/g, ' ')
+    var markedText = selection.toString().replace(/\\s*\\n\\s*/g, ' ').replace(/^ +| +$/g, '')
     if (!markedText) return null
     var range = selection.getRangeAt(0)
-    if (!article.contains(range.commonAncestorContainer)) return null
+    if (!article.contains(range.startContainer)) return null
+    if (!article.contains(range.commonAncestorContainer)) {
+      // A triple-click on the LAST block extends the selection past
+      // </article> into the baked chrome. When everything selected outside
+      // the article is whitespace, clamp to the article end instead of
+      // rejecting; real chrome text in the selection still rejects.
+      var overflow = range.cloneRange()
+      overflow.setStart(article, article.childNodes.length)
+      if (overflow.toString().replace(/\\s+/g, '') !== '') return null
+      range = range.cloneRange()
+      range.setEnd(article, article.childNodes.length)
+    }
 
     var preRange = document.createRange()
     preRange.selectNodeContents(article)
@@ -689,6 +753,13 @@ export const VIEWER_SCRIPT = `(function () {
 
   // Threads/replies this reader created in THIS page session — tagged " · you".
   var mineIds = {}
+
+  // One-time post confirmation, shown inside the newly created thread card.
+  // The empty link-slot span reserves room for the future account-layer
+  // sign-in link without DOM surgery.
+  var NUDGE_COPY = 'Posted. Replies go to your email if you gave one.'
+  var nudgeShown = false
+  var nudgeThreadId = null
   function mineTag(id, authorName) {
     if (mineIds[id]) return ' · you'
     var name = storedName()
@@ -751,6 +822,20 @@ export const VIEWER_SCRIPT = `(function () {
       replyEl.appendChild(headerRow(label, tag, r.createdAt))
       replyEl.appendChild(el('div', 'prose-thread-body', r.text))
       card.appendChild(replyEl)
+    }
+    if (c.id === nudgeThreadId) {
+      var nudge = el('div', 'prose-nudge')
+      nudge.appendChild(el('span', null, NUDGE_COPY))
+      nudge.appendChild(el('span', 'prose-nudge-link-slot'))
+      var dismiss = el('button', 'prose-nudge-dismiss', 'Dismiss')
+      dismiss.type = 'button'
+      dismiss.addEventListener('click', function (ev) {
+        ev.stopPropagation()
+        nudgeThreadId = null
+        renderRail()
+      })
+      nudge.appendChild(dismiss)
+      card.appendChild(nudge)
     }
     card.addEventListener('click', function () { setActive(c.id, true) })
     return card
@@ -1050,7 +1135,9 @@ export const VIEWER_SCRIPT = `(function () {
         comments.push(thread)
         byId[row.id] = thread
         changed = true
-      } else if (existing.resolved !== resolved) {
+      } else if (!!existing.resolved !== resolved) {
+        // Boolean-normalized: baked open threads omit the field, and
+        // undefined !== false must not count as a change every poll.
         existing.resolved = resolved
         changed = true
       }
@@ -1113,8 +1200,31 @@ export const VIEWER_SCRIPT = `(function () {
   })
 
   // --- Add-comment flow (both modes) ---------------------------------------
-  var addBtn = el('button', null, 'Add comment')
+  // Static UI glyph (not user content) — built via createElementNS, never
+  // innerHTML, keeping the textContent-only rendering rule intact.
+  function svgIcon(pathD) {
+    var NS = 'http://www.w3.org/2000/svg'
+    var svg = document.createElementNS(NS, 'svg')
+    svg.setAttribute('width', '13')
+    svg.setAttribute('height', '13')
+    svg.setAttribute('viewBox', '0 0 24 24')
+    svg.setAttribute('fill', 'none')
+    svg.setAttribute('stroke', 'currentColor')
+    svg.setAttribute('stroke-width', '1.75')
+    svg.setAttribute('stroke-linecap', 'round')
+    svg.setAttribute('stroke-linejoin', 'round')
+    svg.setAttribute('aria-hidden', 'true')
+    var path = document.createElementNS(NS, 'path')
+    path.setAttribute('d', pathD)
+    svg.appendChild(path)
+    return svg
+  }
+
+  var addBtn = el('button', null)
   addBtn.id = 'prose-add-comment-btn'
+  addBtn.type = 'button'
+  addBtn.appendChild(svgIcon('M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'))
+  addBtn.appendChild(document.createTextNode('Comment'))
   var pendingAnchor = null
   var pendingAnchorTop = 0
 
@@ -1151,33 +1261,39 @@ export const VIEWER_SCRIPT = `(function () {
     railHint.textContent = 'writing'
     var form = el('div', null)
     form.id = 'prose-comment-form'
-    form.appendChild(el('span', 'prose-thread-quote', anchor.markedText))
+    form.appendChild(el('span', 'prose-thread-quote', '"' + anchor.markedText + '"'))
     var errorEl = el('div', 'prose-form-error', '')
     errorEl.style.display = 'none'
+    var textArea = el('textarea', null)
+    textArea.placeholder = 'Your comment'
+    textArea.rows = 3
+    textArea.maxLength = 5000
+    var fields = el('div', 'prose-form-fields')
     var nameInput = el('input', null)
     nameInput.placeholder = 'Your name'
     nameInput.maxLength = 100
     nameInput.value = storedName()
+    fields.appendChild(nameInput)
     var emailInput = null
     if (online) {
       emailInput = el('input', null)
-      emailInput.placeholder = 'Email (optional, for replies)'
+      emailInput.placeholder = 'email, optional'
       emailInput.type = 'email'
       emailInput.maxLength = 254
+      fields.appendChild(emailInput)
     }
-    var textArea = el('textarea', null)
-    textArea.placeholder = 'Your comment'
-    textArea.rows = 4
-    textArea.maxLength = 5000
     var postBtn = el('button', null, online ? 'Post' : 'Add')
+    postBtn.type = 'button'
     var cancelBtn = el('button', 'prose-secondary', 'Cancel')
+    cancelBtn.type = 'button'
     cancelBtn.addEventListener('click', function () { clearForm() })
-    postBtn.addEventListener('click', function () {
+    var submit = function () {
       var name = nameInput.value.trim()
       var text = textArea.value.trim()
       if (!name || !text) {
         errorEl.textContent = 'Name and comment are required.'
         errorEl.style.display = 'block'
+        layoutRail()
         return
       }
       try { window.localStorage.setItem('prose-commenter-name', name) } catch (e) { /* blocked storage */ }
@@ -1189,6 +1305,7 @@ export const VIEWER_SCRIPT = `(function () {
           comment: text,
           authorName: name,
           createdAt: Date.now(),
+          resolved: false,
           replies: []
         }
         comments.push(localComment)
@@ -1210,11 +1327,16 @@ export const VIEWER_SCRIPT = `(function () {
           comment: text,
           authorName: name,
           createdAt: created.createdAt ? new Date(created.createdAt).getTime() : Date.now(),
+          resolved: false,
           replies: []
         }
         comments.push(newThread)
         mineIds[created.id] = true
         if (!anchorThread(newThread)) lostIds[created.id] = true
+        if (!nudgeShown) {
+          nudgeShown = true
+          nudgeThreadId = created.id
+        }
         clearForm()
         renderRail()
         // Pick up anything else that landed while the form was open (the
@@ -1224,14 +1346,25 @@ export const VIEWER_SCRIPT = `(function () {
         postBtn.disabled = false
         errorEl.textContent = err && err.message ? err.message : 'Failed to post comment.'
         errorEl.style.display = 'block'
+        layoutRail()
       })
+    }
+    postBtn.addEventListener('click', submit)
+    textArea.addEventListener('keydown', function (ev) {
+      if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') {
+        ev.preventDefault()
+        submit()
+      }
     })
-    form.appendChild(errorEl)
-    form.appendChild(nameInput)
-    if (emailInput) form.appendChild(emailInput)
     form.appendChild(textArea)
-    form.appendChild(postBtn)
-    form.appendChild(cancelBtn)
+    form.appendChild(fields)
+    if (online) form.appendChild(el('div', 'prose-form-helper', 'Email is only used to tell you about replies. It is never shown.'))
+    form.appendChild(errorEl)
+    var actions = el('div', 'prose-form-actions')
+    actions.appendChild(postBtn)
+    actions.appendChild(cancelBtn)
+    actions.appendChild(el('span', 'prose-form-kbd', '⌘↵'))
+    form.appendChild(actions)
     formSlot.appendChild(form)
     if (!document.body.contains(rail)) toggle.click()
     layoutRail()
@@ -1252,7 +1385,18 @@ export const VIEWER_SCRIPT = `(function () {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     }).then(function (resp) {
-      if (resp.status === 429) throw new Error('Slow down — too many comments. Try again in a minute.')
+      if (resp.status === 429) {
+        // The gateway sends the honest wait — render "try again at H:MM"
+        // instead of a vague minute.
+        return resp.json().catch(function () { return {} }).then(function (body) {
+          var secs = body && typeof body.retryAfter === 'number' && body.retryAfter > 0 ? body.retryAfter : 60
+          var when = ''
+          try {
+            when = new Date(Date.now() + secs * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+          } catch (e) { /* no locale time */ }
+          throw new Error('Too many comments in a minute. Your text is kept here. Try again' + (when ? ' at ' + when : ' shortly') + '.')
+        })
+      }
       if (resp.status === 410) throw new Error('This share link has been revoked.')
       if (!resp.ok) throw new Error('Failed to post comment (' + resp.status + ').')
       return resp.json()

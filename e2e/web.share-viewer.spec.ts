@@ -232,12 +232,36 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
   test('renders the comment rail with open and resolved threads', async ({ page }) => {
     const rail = page.locator('#prose-comment-rail')
     await expect(rail).toBeVisible()
-    await expect(rail.getByRole('heading', { name: 'Comments (2)' })).toBeVisible()
-    await expect(rail.getByRole('heading', { name: 'Resolved (1)' })).toBeVisible()
-    await expect(rail.locator('.prose-thread-quote').first()).toHaveText('quick brown fox')
+    await expect(rail.locator('.prose-rail-head')).toContainText('Comments · 2')
     await expect(rail.getByText('Agreed — keep it.')).toBeVisible()
     await expect(rail.getByText('Reviewer Rae', { exact: false })).toBeVisible()
     await expect(page.locator('#prose-rail-toggle')).toHaveText('2 comments')
+    // Resolved section: collapsed by default, expands to the struck quote.
+    await expect(rail.locator('.prose-resolved-head')).toContainText('Resolved · 1')
+    await expect(rail.locator('.prose-resolved-section .prose-thread')).toHaveCount(0)
+    await rail.locator('.prose-resolved-toggle').click()
+    await expect(rail.locator('.prose-resolved-section .prose-thread-quote')).toHaveText('"lazy dog"')
+    await expect(rail.getByText('This thread was resolved.')).toBeVisible()
+  })
+
+  test('rail cards stack aligned to their marks without overlap', async ({ page }) => {
+    const c1 = page.locator('.prose-thread[data-thread-id="c1"]')
+    const c2 = page.locator('.prose-thread[data-thread-id="c2"]')
+    await expect(c1).toBeVisible()
+    await expect(c2).toBeVisible()
+    const top1 = await c1.evaluate((node) => parseFloat((node as HTMLElement).style.top))
+    const top2 = await c2.evaluate((node) => parseFloat((node as HTMLElement).style.top))
+    const h1 = await c1.evaluate((node) => (node as HTMLElement).offsetHeight)
+    expect(top1).toBeGreaterThan(0)
+    // No overlap: the later card sits below the earlier one plus the gap.
+    expect(top2).toBeGreaterThanOrEqual(top1 + h1 + 10)
+    // The first card aligns to its highlight (markTop - 6) when unobstructed.
+    const markTop = await page.evaluate(() => {
+      const root = document.querySelector('.prose-page')!.getBoundingClientRect().top
+      const mark = document.querySelector('article span[data-comment-id="c1"]')!
+      return mark.getBoundingClientRect().top - root
+    })
+    expect(Math.abs(top1 - (markTop - 6))).toBeLessThan(1.5)
   })
 
   test('renders hostile comment content inert', async ({ page }) => {
@@ -282,7 +306,7 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
     await page.locator('#prose-comment-form textarea').fill('Added without any server.')
     await page.locator('#prose-comment-form button', { hasText: 'Add' }).first().click()
 
-    await expect(page.getByRole('heading', { name: 'Comments (3)' })).toBeVisible()
+    await expect(page.locator('.prose-rail-head')).toContainText('Comments · 3')
     await expect(page.getByText('Added without any server.')).toBeVisible()
     await expect(page.getByText('Offline Olive', { exact: false })).toBeVisible()
     await expect(page.locator('#prose-download-copy')).toContainText('annotated copy (1 new)')
@@ -319,7 +343,7 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
 
     // The annotated copy reopens as a working artifact with the new thread.
     await page.goto(pathToFileURL(savedPath).href)
-    await expect(page.getByRole('heading', { name: 'Comments (3)' })).toBeVisible()
+    await expect(page.locator('.prose-rail-head')).toContainText('Comments · 3')
     await expect(page.getByText('Round-trip me.')).toBeVisible()
   })
 
@@ -416,7 +440,7 @@ test.describe('baked chrome', () => {
 })
 
 test.describe('author reply styling (offline)', () => {
-  test('baked author replies (no authorName) render with the gold border + Author tag', async ({ page }) => {
+  test('baked author replies (no authorName) render with the author tag', async ({ page }) => {
     const withAuthorReply: CommentData[] = [
       {
         ...COMMENTS[0],
@@ -434,7 +458,7 @@ test.describe('author reply styling (offline)', () => {
     const authorReply = page.locator('.prose-thread-reply.prose-reply-author')
     await expect(authorReply).toHaveCount(1)
     await expect(authorReply).toContainText('Done in the next rev.')
-    await expect(authorReply.locator('.prose-author-tag')).toHaveText('Author')
+    await expect(authorReply.locator('.prose-author-tag')).toHaveText('· author')
     // The reviewer reply stays unstyled.
     const reviewerReply = page.locator('.prose-thread-reply', { hasText: 'Agreed — keep it.' })
     await expect(reviewerReply).not.toHaveClass(/prose-reply-author/)
@@ -550,8 +574,10 @@ test.describe('live conversation loop (online viewer)', () => {
 
     commentRows = commentRows.map((r) => (r.id === 'srv-2' ? { ...r, resolvedAt: '2026-09-07T03:00:00.000Z' } : r))
     await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.locator('.prose-resolved-head')).toContainText('Resolved · 1')
+    await page.locator('.prose-resolved-toggle').click()
     await expect(page.locator('.prose-resolved-section .prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
-    await expect(page.locator('#prose-comment-rail h2').first()).toContainText('Comments (1)')
+    await expect(page.locator('.prose-rail-head')).toContainText('Comments · 1')
   })
 
   test('a posted comment is not duplicated by the follow-up poll', async ({ page }) => {

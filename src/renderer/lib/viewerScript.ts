@@ -148,6 +148,7 @@ export const ARTIFACT_BASE_STYLES = `
   article ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 0.5rem; }
   article ul[data-type="taskList"] li label { flex-shrink: 0; margin-top: 0.2rem; }
   article ul[data-type="taskList"] li div, article ul[data-type="taskList"] li p { margin: 0; }
+  .prose-page { position: relative; }
   .prose-topbar {
     position: sticky;
     top: 0;
@@ -290,75 +291,120 @@ export const VIEWER_STYLES = `
     border-bottom-color: hsl(var(--comment));
   }
   #prose-comment-rail {
-    position: fixed;
+    position: absolute;
     top: 0;
-    right: 0;
-    bottom: 0;
+    left: calc(50% + 204px);
     width: 300px;
     box-sizing: border-box;
-    overflow-y: auto;
-    padding: 1rem;
     font-family: var(--font-mono);
     font-size: 12.5px;
     line-height: 1.5;
-    background: var(--bg);
-    border-left: 1px solid hsl(var(--border));
     color: hsl(var(--foreground));
-    z-index: 10;
+    z-index: 4;
   }
-  body.prose-rail-open { margin-right: 320px; }
-  @media (max-width: 900px) {
-    body.prose-rail-open { margin-right: auto; }
-    #prose-comment-rail { width: min(320px, 90vw); box-shadow: -4px 0 24px rgba(0, 0, 0, 0.18); }
+  body.prose-rail-open .prose-doc-header,
+  body.prose-rail-open article,
+  body.prose-rail-open .prose-end-mark,
+  body.prose-rail-open .prose-artifact-footer { position: relative; left: -174px; }
+  @media (max-width: 999px) {
+    #prose-comment-rail { display: none; }
+    body.prose-rail-open .prose-doc-header,
+    body.prose-rail-open article,
+    body.prose-rail-open .prose-end-mark,
+    body.prose-rail-open .prose-artifact-footer { left: 0; }
   }
-  #prose-comment-rail h2 {
+  .prose-rail-head {
+    position: absolute;
+    top: 78px;
+    width: 300px;
+    display: flex;
+    justify-content: space-between;
     font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
     letter-spacing: 0.04em;
-    margin: 0 0 0.75rem;
     color: hsl(var(--muted-foreground));
   }
+  .prose-form-slot { position: absolute; width: 300px; z-index: 1; }
   .prose-thread {
+    position: absolute;
+    width: 300px;
+    box-sizing: border-box;
     border: 1px solid hsl(var(--border));
     border-radius: 8px;
     padding: 12px 14px;
-    margin-bottom: 10px;
     background: hsl(var(--card));
     cursor: pointer;
+    transition: top 0.15s ease;
   }
-  .prose-thread.prose-viewer-active { border-color: hsl(var(--comment)); }
+  .prose-thread.prose-viewer-active { border-left: 2px solid hsl(var(--comment)); padding-left: 13px; }
+  .prose-card-head { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: hsl(var(--muted-foreground)); }
+  .prose-card-name {
+    color: hsl(var(--foreground));
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .prose-card-date { flex-shrink: 0; }
+  .prose-author-tag { font-weight: 400; color: hsl(var(--muted-foreground)); }
+  .prose-thread-body { white-space: pre-wrap; word-break: break-word; margin-top: 6px; }
   .prose-thread-quote {
     display: block;
     font-family: var(--font-serif);
-    font-style: italic;
+    font-size: 14px;
+    line-height: 1.45;
     color: hsl(var(--muted-foreground));
-    border-left: 2px solid hsl(var(--comment) / 0.5);
-    padding-left: 0.5rem;
-    margin-bottom: 0.375rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    margin-bottom: 8px;
   }
   .prose-thread-meta { color: hsl(var(--muted-foreground)); font-size: 11px; margin-top: 0.25rem; }
   .prose-thread-reply { margin-top: 10px; padding-left: 10px; border-left: 1px solid hsl(var(--border)); }
-  .prose-thread-reply.prose-reply-author { border-left-color: hsl(var(--comment) / 0.7); }
-  .prose-author-tag {
-    display: inline-block;
-    margin-right: 0.3rem;
-    padding: 0 0.3rem;
-    border-radius: 3px;
-    font-size: 10px;
-    font-weight: 600;
-    background: hsl(var(--comment) / 0.18);
-    color: inherit;
+  .prose-thread-reply .prose-thread-body { margin-top: 4px; }
+  .prose-resolved-section, .prose-lost-section { position: absolute; width: 300px; }
+  .prose-resolved-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    margin-bottom: 10px;
+    border-top: 1px solid hsl(var(--border));
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: hsl(var(--muted-foreground));
   }
-  .prose-thread-body { white-space: pre-wrap; word-break: break-word; }
-  .prose-resolved-section { margin-top: 1.25rem; }
-  .prose-resolved-section .prose-thread { opacity: 0.65; }
+  .prose-resolved-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    background: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+    cursor: pointer;
+  }
+  .prose-resolved-chev { display: inline-block; font-size: 13px; line-height: 1; transition: transform 0.15s ease; }
+  .prose-resolved-section.prose-open .prose-resolved-chev { transform: rotate(90deg); }
+  .prose-resolved-section .prose-thread,
+  .prose-lost-section .prose-thread {
+    position: static;
+    margin-bottom: 10px;
+    cursor: default;
+    transition: none;
+  }
+  .prose-resolved-section .prose-thread {
+    background: transparent;
+    color: hsl(var(--muted-foreground));
+  }
+  .prose-resolved-section .prose-thread-quote { text-decoration: line-through; text-decoration-color: hsl(var(--border)); }
   .prose-rail-note {
-    margin-top: 1rem;
-    padding-top: 0.75rem;
+    position: absolute;
+    width: 300px;
+    box-sizing: border-box;
+    padding-top: 10px;
     border-top: 1px solid hsl(var(--border));
     color: hsl(var(--muted-foreground));
     font-size: 11px;
@@ -422,6 +468,7 @@ export const VIEWER_SCRIPT = `(function () {
   var downloadBtn = document.getElementById('prose-download-copy')
   var themeToggle = document.getElementById('prose-theme-toggle')
   if (!article || !toggle || !downloadBtn) return
+  var pageRoot = document.querySelector('.prose-page') || document.body
 
   var blockMeta = { version: 1, publishRev: '', publishedAt: '' }
   var comments = []
@@ -527,13 +574,36 @@ export const VIEWER_SCRIPT = `(function () {
 
   function formatDate(ts) {
     try {
-      return new Date(ts).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+      if (ts && Date.now() - ts < 60000) return 'just now'
+      return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     } catch (e) { return '' }
   }
 
   function authorLabel(c) {
     if (c.authorName) return c.authorName
     return c.author === 'ai' ? 'AI' : 'Author'
+  }
+
+  function storedName() {
+    try { return window.localStorage.getItem('prose-commenter-name') || '' } catch (e) { return '' }
+  }
+
+  // Threads/replies this reader created in THIS page session — tagged " · you".
+  var mineIds = {}
+  function mineTag(id, authorName) {
+    if (mineIds[id]) return ' · you'
+    var name = storedName()
+    return name && authorName === name ? ' · you' : ''
+  }
+
+  // Card header row: name (+ muted tag) left, date right. textContent only.
+  function headerRow(name, tagText, ts) {
+    var row = el('div', 'prose-card-head')
+    var nameEl = el('span', 'prose-card-name', name)
+    if (tagText) nameEl.appendChild(el('span', 'prose-author-tag', tagText))
+    row.appendChild(nameEl)
+    row.appendChild(el('span', 'prose-card-date', formatDate(ts)))
+    return row
   }
 
   var activeId = null
@@ -557,27 +627,29 @@ export const VIEWER_SCRIPT = `(function () {
       var span = article.querySelector('span[data-comment-id="' + CSS.escape(id) + '"]')
       if (span) span.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
+    // The active card's accent border changes its height — restack.
+    scheduleLayout()
   }
 
   function renderThread(c) {
     var card = el('div', 'prose-thread')
     card.setAttribute('data-thread-id', c.id)
-    if (c.markedText) card.appendChild(el('span', 'prose-thread-quote', c.markedText))
+    // The serif quote shows on resolved (and later lost-anchor) cards; open
+    // cards point at their live highlight instead.
+    if (c.markedText && c.resolved) card.appendChild(el('span', 'prose-thread-quote', '"' + c.markedText + '"'))
+    card.appendChild(headerRow(authorLabel(c), mineTag(c.id, c.authorName), c.createdAt))
     card.appendChild(el('div', 'prose-thread-body', c.comment))
-    card.appendChild(el('div', 'prose-thread-meta', authorLabel(c) + ' · ' + formatDate(c.createdAt)))
     var replies = c.replies || []
     for (var i = 0; i < replies.length; i++) {
       var r = replies[i]
-      // Author replies (live-pushed rows carry fromAuthor; baked desktop
-      // replies have no authorName) get the gold border + tag.
+      // Author replies: live-pushed rows carry fromAuthor; baked desktop
+      // replies have no authorName. Tagged " · author" per the design.
       var isAuthor = r.fromAuthor === true || (!r.authorName && r.author !== 'ai')
       var replyEl = el('div', isAuthor ? 'prose-thread-reply prose-reply-author' : 'prose-thread-reply')
+      var label = r.authorName || (r.author === 'ai' ? 'AI' : 'Author')
+      var tag = isAuthor ? ' · author' : mineTag(r.id, r.authorName)
+      replyEl.appendChild(headerRow(label, tag, r.createdAt))
       replyEl.appendChild(el('div', 'prose-thread-body', r.text))
-      var meta = el('div', 'prose-thread-meta')
-      if (isAuthor) meta.appendChild(el('span', 'prose-author-tag', 'Author'))
-      var label = r.authorName || (r.author === 'ai' ? 'AI' : '')
-      meta.appendChild(document.createTextNode((label ? label + ' · ' : '') + formatDate(r.createdAt)))
-      replyEl.appendChild(meta)
       card.appendChild(replyEl)
     }
     card.addEventListener('click', function () { setActive(c.id, true) })
@@ -586,9 +658,16 @@ export const VIEWER_SCRIPT = `(function () {
 
   var rail = el('aside', null)
   rail.id = 'prose-comment-rail'
+  var railHead = el('div', 'prose-rail-head')
+  var railHeadCount = el('span', null, 'Comments · 0')
+  var railHint = el('span', null, 'Select text to comment')
+  railHead.appendChild(railHeadCount)
+  railHead.appendChild(railHint)
+  var formSlot = el('div', 'prose-form-slot')
   var openList = el('div', 'prose-open-section')
   var resolvedSection = el('div', 'prose-resolved-section')
-  var formSlot = el('div', null)
+  var lostSection = el('div', 'prose-lost-section')
+  var resolvedOpen = false
 
   function renderRail() {
     openList.textContent = ''
@@ -597,30 +676,107 @@ export const VIEWER_SCRIPT = `(function () {
     var resolved = comments.filter(function (c) { return c.resolved })
     open.sort(function (a, b) { return (a.createdAt || 0) - (b.createdAt || 0) })
 
-    openList.appendChild(el('h2', null, 'Comments (' + open.length + ')'))
-    if (open.length === 0) openList.appendChild(el('div', 'prose-thread-meta', 'No open comments.'))
+    railHeadCount.textContent = 'Comments · ' + open.length
     for (var i = 0; i < open.length; i++) openList.appendChild(renderThread(open[i]))
 
     if (resolved.length > 0) {
-      resolvedSection.appendChild(el('h2', null, 'Resolved (' + resolved.length + ')'))
-      for (var j = 0; j < resolved.length; j++) resolvedSection.appendChild(renderThread(resolved[j]))
+      var head = el('div', 'prose-resolved-head')
+      var resolvedToggle = el('button', 'prose-resolved-toggle')
+      resolvedToggle.type = 'button'
+      resolvedToggle.appendChild(el('span', 'prose-resolved-chev', '›'))
+      resolvedToggle.appendChild(document.createTextNode('Resolved · ' + resolved.length))
+      resolvedToggle.addEventListener('click', function () {
+        resolvedOpen = !resolvedOpen
+        renderRail()
+      })
+      head.appendChild(resolvedToggle)
+      head.appendChild(el('span', null, 'by the author'))
+      resolvedSection.appendChild(head)
+      resolvedSection.classList.toggle('prose-open', resolvedOpen)
+      if (resolvedOpen) {
+        for (var j = 0; j < resolved.length; j++) resolvedSection.appendChild(renderThread(resolved[j]))
+      }
     }
     if (railCount) railCount.textContent = open.length + ' comments'
     downloadBtn.textContent = unsavedAdditions > 0
       ? 'Download annotated copy (' + unsavedAdditions + ' new)'
       : 'Download annotated copy'
     downloadBtn.classList.toggle('prose-has-additions', unsavedAdditions > 0)
+    layoutRail()
+    scheduleLayout()
   }
 
+  rail.appendChild(railHead)
   rail.appendChild(formSlot)
   rail.appendChild(openList)
   rail.appendChild(resolvedSection)
+  rail.appendChild(lostSection)
 
   var note = el('div', 'prose-rail-note')
   note.textContent = online
     ? 'Select text to leave a comment.'
     : 'Select text to leave a comment. Comments live in this file — download the annotated copy to keep or return them.'
   rail.appendChild(note)
+
+  // --- Rail stacking engine -------------------------------------------------
+  // Open cards align to their highlight (top = markTop - 6), pushing down on
+  // collision; the compose form takes priority at the selection; resolved,
+  // lost and note sections flow below the last card. Coordinates are relative
+  // to .prose-page (the rail's offset parent sits at its top). Read pass then
+  // write pass — no interleaved thrash.
+  var LAYOUT_TOP = 120
+  var LAYOUT_GAP = 10
+  var LAYOUT_NUDGE = 6
+  var layoutTimer = null
+  var formAnchorTop = 0
+
+  function layoutRail() {
+    if (!document.body.contains(rail)) return
+    var rootTop = pageRoot.getBoundingClientRect().top
+    var entries = []
+    for (var i = 0; i < openList.children.length; i++) {
+      var card = openList.children[i]
+      var id = card.getAttribute('data-thread-id') || ''
+      var span = article.querySelector('span[data-comment-id="' + CSS.escape(id) + '"]')
+      entries.push({
+        el: card,
+        markTop: span ? span.getBoundingClientRect().top - rootTop : Infinity,
+        h: card.offsetHeight
+      })
+    }
+    entries.sort(function (a, b) { return a.markTop - b.markTop })
+
+    var cursor = LAYOUT_TOP
+    if (formSlot.firstChild) {
+      var formTop = Math.max(formAnchorTop - LAYOUT_NUDGE, cursor)
+      formSlot.style.top = formTop + 'px'
+      cursor = formTop + formSlot.offsetHeight + LAYOUT_GAP
+    }
+    for (var k = 0; k < entries.length; k++) {
+      var want = entries[k].markTop - LAYOUT_NUDGE
+      var top = isFinite(want) ? Math.max(want, cursor) : cursor
+      entries[k].el.style.top = top + 'px'
+      cursor = top + entries[k].h + LAYOUT_GAP
+    }
+    if (resolvedSection.firstChild) {
+      resolvedSection.style.top = (cursor + 16) + 'px'
+      cursor += 16 + resolvedSection.offsetHeight + LAYOUT_GAP
+    }
+    if (lostSection.firstChild) {
+      lostSection.style.top = cursor + 'px'
+      cursor += lostSection.offsetHeight + LAYOUT_GAP
+    }
+    note.style.top = (cursor + 8) + 'px'
+    cursor += 8 + note.offsetHeight
+    // The rail's own height extends the page's scrollable overflow so cards
+    // stacked past the article end stay reachable.
+    rail.style.height = (cursor + 40) + 'px'
+  }
+
+  function scheduleLayout() {
+    if (layoutTimer) window.clearTimeout(layoutTimer)
+    layoutTimer = window.setTimeout(layoutRail, 220)
+  }
 
   // --- Download a (possibly annotated) self-contained copy ------------------
   // The entry point is the baked footer link (#prose-download-copy).
@@ -704,6 +860,7 @@ export const VIEWER_SCRIPT = `(function () {
     } else {
       document.body.appendChild(rail)
       document.body.classList.add('prose-rail-open')
+      layoutRail()
     }
   })
 
@@ -712,13 +869,23 @@ export const VIEWER_SCRIPT = `(function () {
       var dark = !document.documentElement.classList.contains('dark')
       document.documentElement.classList.toggle('dark', dark)
       try { window.localStorage.setItem('prose-viewer-theme', dark ? 'dark' : 'light') } catch (e) { /* blocked storage */ }
+      // Restack after the 300ms surface transition settles.
+      window.setTimeout(scheduleLayout, 320)
     })
   }
 
   renderRail()
-  if (window.innerWidth >= 900) {
+  if (window.innerWidth >= 1000) {
     document.body.appendChild(rail)
     document.body.classList.add('prose-rail-open')
+    layoutRail()
+  }
+
+  // Late reflows (fonts, image decode, window resize) restack the rail.
+  window.addEventListener('resize', scheduleLayout)
+  if (window.ResizeObserver) new ResizeObserver(scheduleLayout).observe(pageRoot)
+  if (document.fonts && document.fonts.ready && document.fonts.ready.then) {
+    document.fonts.ready.then(function () { scheduleLayout() })
   }
 
   // --- Live conversation loop (#769) ---------------------------------------
@@ -831,6 +998,7 @@ export const VIEWER_SCRIPT = `(function () {
   var addBtn = el('button', null, 'Add comment')
   addBtn.id = 'prose-add-comment-btn'
   var pendingAnchor = null
+  var pendingAnchorTop = 0
 
   document.addEventListener('mouseup', function () {
     window.setTimeout(function () {
@@ -840,6 +1008,7 @@ export const VIEWER_SCRIPT = `(function () {
       if (!anchor) { addBtn.remove(); return }
       pendingAnchor = anchor
       var rect = sel.getRangeAt(0).getBoundingClientRect()
+      pendingAnchorTop = rect.top - pageRoot.getBoundingClientRect().top
       addBtn.style.top = (window.scrollY + rect.bottom + 6) + 'px'
       addBtn.style.left = (window.scrollX + Math.max(8, rect.left)) + 'px'
       document.body.appendChild(addBtn)
@@ -852,8 +1021,16 @@ export const VIEWER_SCRIPT = `(function () {
     if (pendingAnchor) showForm(pendingAnchor)
   })
 
+  function clearForm() {
+    formSlot.textContent = ''
+    railHint.textContent = 'Select text to comment'
+    layoutRail()
+  }
+
   function showForm(anchor) {
     formSlot.textContent = ''
+    formAnchorTop = pendingAnchorTop
+    railHint.textContent = 'writing'
     var form = el('div', null)
     form.id = 'prose-comment-form'
     form.appendChild(el('span', 'prose-thread-quote', anchor.markedText))
@@ -862,7 +1039,7 @@ export const VIEWER_SCRIPT = `(function () {
     var nameInput = el('input', null)
     nameInput.placeholder = 'Your name'
     nameInput.maxLength = 100
-    try { nameInput.value = window.localStorage.getItem('prose-commenter-name') || '' } catch (e) { /* blocked storage */ }
+    nameInput.value = storedName()
     var emailInput = null
     if (online) {
       emailInput = el('input', null)
@@ -876,7 +1053,7 @@ export const VIEWER_SCRIPT = `(function () {
     textArea.maxLength = 5000
     var postBtn = el('button', null, online ? 'Post' : 'Add')
     var cancelBtn = el('button', 'prose-secondary', 'Cancel')
-    cancelBtn.addEventListener('click', function () { formSlot.textContent = '' })
+    cancelBtn.addEventListener('click', function () { clearForm() })
     postBtn.addEventListener('click', function () {
       var name = nameInput.value.trim()
       var text = textArea.value.trim()
@@ -899,8 +1076,9 @@ export const VIEWER_SCRIPT = `(function () {
         comments.push(localComment)
         localAdditions++
         unsavedAdditions++
+        mineIds[localComment.id] = true
         if (anchor.range) tryHighlight(anchor.range, localComment.id)
-        formSlot.textContent = ''
+        clearForm()
         renderRail()
         setActive(localComment.id, false)
         return
@@ -916,8 +1094,9 @@ export const VIEWER_SCRIPT = `(function () {
           createdAt: created.createdAt ? new Date(created.createdAt).getTime() : Date.now(),
           replies: []
         })
+        mineIds[created.id] = true
         if (anchor.range) tryHighlight(anchor.range, created.id)
-        formSlot.textContent = ''
+        clearForm()
         renderRail()
         // Pick up anything else that landed while the form was open (the
         // just-posted comment merges by its server id — no duplicate).
@@ -936,6 +1115,7 @@ export const VIEWER_SCRIPT = `(function () {
     form.appendChild(cancelBtn)
     formSlot.appendChild(form)
     if (!document.body.contains(rail)) toggle.click()
+    layoutRail()
     textArea.focus()
   }
 

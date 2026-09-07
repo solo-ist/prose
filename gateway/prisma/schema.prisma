@@ -81,6 +81,9 @@ model Publication {
 /// `authorEmail` is notification-only and MUST NEVER be exposed through any
 /// read endpoint or embedded artifact. Replies self-join one level deep
 /// (parent must be top-level), matching the desktop CommentReply model.
+/// `fromAuthor` marks rows pushed by the publication's author from Prose
+/// (replies/live conversation, #769); `resolvedAt` is author-controlled
+/// resolution state, meaningful on top-level rows only.
 model ShareComment {
   id              String        @id @default(uuid())
   publicationId   String
@@ -90,6 +93,8 @@ model ShareComment {
   commentText     String
   authorName      String
   authorEmail     String?
+  fromAuthor      Boolean       @default(false)
+  resolvedAt      DateTime?
   parentId        String?
   parent          ShareComment?  @relation("thread", fields: [parentId], references: [id], onDelete: Cascade)
   replies         ShareComment[] @relation("thread")

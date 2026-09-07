@@ -50,6 +50,8 @@ export function publicComment(row: {
   occurrenceIndex: number
   commentText: string
   authorName: string
+  fromAuthor: boolean
+  resolvedAt: Date | null
   publishRev: string
   createdAt: Date
 }) {
@@ -60,6 +62,8 @@ export function publicComment(row: {
     occurrenceIndex: row.occurrenceIndex,
     commentText: row.commentText,
     authorName: row.authorName,
+    fromAuthor: row.fromAuthor === true,
+    resolvedAt: row.resolvedAt ? row.resolvedAt.toISOString() : null,
     publishRev: row.publishRev,
     createdAt: row.createdAt.toISOString(),
   }

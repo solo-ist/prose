@@ -13,6 +13,8 @@ import { putArtifact, deleteArtifact } from '../../artifacts/index.js'
 import type { AppEnv } from '../../middleware/session.js'
 import {
   MAX_ARTIFACT_BYTES,
+  MAX_COMMENT_CHARS,
+  MAX_NAME_CHARS,
   MAX_TITLE_CHARS,
   newShareToken,
   publicComment,
@@ -158,6 +160,79 @@ shareAuthorRoutes.get('/:pubId/comments', async (c) => {
     comments: rows.map(publicComment),
     nextCursor: rows.length > 0 ? rows[rows.length - 1].createdAt.toISOString() : null,
   })
+})
+
+// Author reply push (#769): a reply the author wrote in Prose lands in the
+// live conversation immediately instead of waiting for a re-publish. The row
+// carries fromAuthor so viewers can style it; authorName defaults to 'Author'
+// (the desktop sends 'Prose' for AI-authored replies).
+shareAuthorRoutes.post('/:pubId/comments/:commentId/replies', async (c) => {
+  const user = c.get('user')
+  const pub = await prisma.publication.findUnique({ where: { id: c.req.param('pubId') } })
+  if (!pub || pub.authorId !== user.id) return c.json({ error: 'not_found' }, 404)
+  if (pub.revokedAt) return c.json({ error: 'revoked' }, 409)
+
+  const parent = await prisma.shareComment.findUnique({
+    where: { id: c.req.param('commentId') },
+  })
+  if (!parent || parent.publicationId !== pub.id || parent.parentId) {
+    return c.json({ error: 'not_found' }, 404)
+  }
+
+  let body: { commentText?: unknown; authorName?: unknown }
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: 'invalid_json' }, 400)
+  }
+  const commentText = sanitizeField(body.commentText, MAX_COMMENT_CHARS)
+  if (!commentText) return c.json({ error: 'invalid_comment' }, 400)
+  const authorName = sanitizeField(body.authorName, MAX_NAME_CHARS) || 'Author'
+
+  const row = await prisma.shareComment.create({
+    data: {
+      publicationId: pub.id,
+      parentId: parent.id,
+      commentText,
+      authorName,
+      fromAuthor: true,
+      // A reply anchors through its parent.
+      markedText: '',
+      occurrenceIndex: 0,
+      publishRev: parent.publishRev,
+    },
+  })
+  return c.json({ id: row.id, createdAt: row.createdAt.toISOString() }, 201)
+})
+
+// Author resolve push (#769): resolution is author-controlled, one-way from
+// Prose. Meaningful on top-level rows only; the viewer poll treats it as
+// authoritative.
+shareAuthorRoutes.patch('/:pubId/comments/:commentId', async (c) => {
+  const user = c.get('user')
+  const pub = await prisma.publication.findUnique({ where: { id: c.req.param('pubId') } })
+  if (!pub || pub.authorId !== user.id) return c.json({ error: 'not_found' }, 404)
+
+  const target = await prisma.shareComment.findUnique({
+    where: { id: c.req.param('commentId') },
+  })
+  if (!target || target.publicationId !== pub.id || target.parentId) {
+    return c.json({ error: 'not_found' }, 404)
+  }
+
+  let body: { resolved?: unknown }
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: 'invalid_json' }, 400)
+  }
+  if (typeof body.resolved !== 'boolean') return c.json({ error: 'invalid_body' }, 400)
+
+  const row = await prisma.shareComment.update({
+    where: { id: target.id },
+    data: { resolvedAt: body.resolved ? new Date() : null },
+  })
+  return c.json({ id: row.id, resolvedAt: row.resolvedAt ? row.resolvedAt.toISOString() : null })
 })
 
 shareAuthorRoutes.delete('/:pubId', async (c) => {

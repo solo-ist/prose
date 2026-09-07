@@ -5,7 +5,7 @@
  * link prints to stdout where this script harvests it), signs in, seeds the
  * share_publish entitlement, then exercises the full share matrix:
  * publish → serve → comment/reply → author pull (email never exposed) →
- * re-publish → revoke → rate limit.
+ * author reply/resolve push → public live GET → re-publish → revoke → rate limit.
  *
  * Prereqs: `npm run dev:db` (Postgres on :5433) + migrations applied.
  * Usage:   npm run test:share
@@ -190,6 +190,56 @@ async function main() {
     'author list shows the publication with its comment count'
   )
 
+  // --- Author reply + resolve push (live conversation, #769) ----------------
+  const aReply = await fetch(`${BASE}/api/share/${pub.publicationId}/comments/${c1Body.id}/replies`, {
+    method: 'POST', headers: authed, body: JSON.stringify({ commentText: 'On it — fixed in the next rev.', authorName: 'Angel' }),
+  })
+  expect(aReply.status === 201, 'author reply accepted', `status ${aReply.status}`)
+  const aReplyBody = await aReply.json()
+
+  const aReplyAnon = await fetch(`${BASE}/api/share/${pub.publicationId}/comments/${c1Body.id}/replies`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ commentText: 'x' }),
+  })
+  expect(aReplyAnon.status === 401, 'author reply 401s unauthenticated', `status ${aReplyAnon.status}`)
+
+  const resolveRes = await fetch(`${BASE}/api/share/${pub.publicationId}/comments/${c1Body.id}`, {
+    method: 'PATCH', headers: authed, body: JSON.stringify({ resolved: true }),
+  })
+  expect(resolveRes.status === 200, 'resolve PATCH accepted', `status ${resolveRes.status}`)
+  expect(!!(await resolveRes.json()).resolvedAt, 'resolve sets resolvedAt')
+
+  const resolveReply = await fetch(`${BASE}/api/share/${pub.publicationId}/comments/${r1Body.id}`, {
+    method: 'PATCH', headers: authed, body: JSON.stringify({ resolved: true }),
+  })
+  expect(resolveReply.status === 404, 'resolve on a reply 404s', `status ${resolveReply.status}`)
+
+  const resolveBad = await fetch(`${BASE}/api/share/${pub.publicationId}/comments/${c1Body.id}`, {
+    method: 'PATCH', headers: authed, body: JSON.stringify({ resolved: 'yes' }),
+  })
+  expect(resolveBad.status === 400, 'non-boolean resolved rejected', `status ${resolveBad.status}`)
+
+  // --- Public live GET (viewer poll, #769) ----------------------------------
+  const liveRes = await fetch(commentUrl)
+  expect(liveRes.status === 200, 'public comment GET works', `status ${liveRes.status}`)
+  const live = await liveRes.json()
+  expect(live.comments.length === 3, 'live GET returns comment + both replies', `${live.comments.length}`)
+  expect(live.comments.every((cm) => !('authorEmail' in cm)), 'authorEmail NEVER exposed in the live GET')
+  const liveAuthorReply = live.comments.find((cm) => cm.id === aReplyBody.id)
+  expect(
+    !!liveAuthorReply && liveAuthorReply.fromAuthor === true && liveAuthorReply.authorName === 'Angel',
+    'author reply carries fromAuthor + name'
+  )
+  const liveTop = live.comments.find((cm) => cm.id === c1Body.id)
+  expect(!!liveTop && !!liveTop.resolvedAt && liveTop.fromAuthor === false, 'resolved state visible on the live GET')
+
+  const liveSince = await fetch(`${commentUrl}?since=${encodeURIComponent(live.nextCursor)}`)
+  expect((await liveSince.json()).comments.length === 0, 'live GET since-cursor filters')
+
+  const unresolve = await fetch(`${BASE}/api/share/${pub.publicationId}/comments/${c1Body.id}`, {
+    method: 'PATCH', headers: authed, body: JSON.stringify({ resolved: false }),
+  })
+  expect((await unresolve.json()).resolvedAt === null, 'unresolve clears resolvedAt')
+
   // --- Re-publish -----------------------------------------------------------
   const repub = await fetch(`${BASE}/api/share/${pub.publicationId}/publish`, {
     method: 'PUT', headers: authed, body: JSON.stringify({ title: 'Test Doc v2', html: artifact('v2') }),
@@ -209,6 +259,8 @@ async function main() {
     body: JSON.stringify({ markedText: 'v', commentText: 'late', authorName: 'L' }),
   })
   expect(commentGone.status === 410, 'comments on a revoked share 410', `status ${commentGone.status}`)
+  const liveGone = await fetch(commentUrl)
+  expect(liveGone.status === 410, 'live GET on a revoked share 410s', `status ${liveGone.status}`)
   const pullAfter = await fetch(`${BASE}/api/share/${pub.publicationId}/comments`, { headers: authed })
   expect((await pullAfter.json()).comments.length === 0, 'revoke deleted reviewer comments')
 

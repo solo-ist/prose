@@ -2,6 +2,7 @@
  * routes/share/public.ts — the PUBLIC share surface (#768). Mounted at /s.
  *
  * GET /s/:token                       → serve the artifact (410 revoked, 404 unknown)
+ * GET /s/:token/comments              → live comment list for the viewer poll (#769)
  * POST /s/:token/comments             → anonymous reviewer comment
  * POST /s/:token/comments/:id/replies → anonymous reviewer reply (one level)
  *
@@ -18,6 +19,7 @@ import {
   MAX_MARKED_TEXT_CHARS,
   MAX_NAME_CHARS,
   findPublicationByToken,
+  publicComment,
   sanitizeField,
 } from './common.js'
 
@@ -86,6 +88,38 @@ sharePublicRoutes.get('/:token', async (c) => {
   if (!html) return c.text('Not found', 404)
 
   return c.body(html, 200, ARTIFACT_HEADERS)
+})
+
+// The viewer's live poll (#769). Own budget so heavy polling can't starve the
+// write limiter; the app-level /s/* limit (60/min) still applies on top. The
+// link token already grants full document read, so a comment read on the same
+// token exposes nothing new — publicComment excludes authorEmail always.
+const commentReadLimit = ipRateLimit(30, 60)
+
+sharePublicRoutes.get('/:token/comments', commentReadLimit, async (c) => {
+  const pub = await findPublicationByToken(c.req.param('token'))
+  if (!pub) return c.json({ error: 'not_found' }, 404)
+  if (pub.revokedAt) return c.json({ error: 'revoked' }, 410)
+
+  const since = c.req.query('since')
+  const sinceDate = since ? new Date(since) : null
+  if (sinceDate && Number.isNaN(sinceDate.getTime())) {
+    return c.json({ error: 'invalid_since' }, 400)
+  }
+
+  const rows = await prisma.shareComment.findMany({
+    where: {
+      publicationId: pub.id,
+      ...(sinceDate ? { createdAt: { gt: sinceDate } } : {}),
+    },
+    orderBy: { createdAt: 'asc' },
+    take: 500,
+  })
+
+  return c.json({
+    comments: rows.map(publicComment),
+    nextCursor: rows.length > 0 ? rows[rows.length - 1].createdAt.toISOString() : null,
+  })
 })
 
 sharePublicRoutes.post('/:token/comments', commentWriteLimit, async (c) => {

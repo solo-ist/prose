@@ -6,6 +6,7 @@
  */
 import { Hono } from 'hono'
 import { secureHeaders } from 'hono/secure-headers'
+import { config } from './config.js'
 import { bodyLimit } from 'hono/body-limit'
 import { corsMiddleware } from './middleware/cors.js'
 import { requireSession, type AppEnv } from './middleware/session.js'
@@ -21,6 +22,18 @@ import { MAX_ARTIFACT_BYTES } from './routes/share/common.js'
 
 export function createApp() {
   const app = new Hono<AppEnv>()
+
+  // Dev-only request log. Share capability tokens are redacted from the path
+  // (the raw token must never be logged); production logging is the
+  // platform's concern.
+  if (config.NODE_ENV === 'development') {
+    app.use('*', async (c, next) => {
+      const started = Date.now()
+      await next()
+      const path = c.req.path.replace(/^\/s\/[^/]+/, '/s/<token>')
+      console.log(`[gateway] ${c.req.method} ${path} -> ${c.res.status} (${Date.now() - started}ms)`)
+    })
+  }
 
   // 2y HSTS (the gateway is TLS-only in every deployed environment).
   // xFrameOptions DENY globally: API responses are never framed, and served

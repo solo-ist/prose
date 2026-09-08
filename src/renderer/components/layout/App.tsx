@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useGoogleDocsEnabled, isGoogleDocsEnabled } from '../../lib/featureFlags'
-import { useShareFocusSync } from '../../lib/shareSync'
+import { useSharePullSync } from '../../lib/shareSync'
 import { useShareContentSync } from '../../lib/shareContentSync'
 import { downloadSkillWithAlert } from '../../lib/skillDownload'
 import { Toolbar } from './Toolbar'
@@ -123,8 +123,8 @@ export function App() {
   const { isChatOpen, isFileListOpen, toggleChat, toggleFileList, setChatOpen, panelSizes } = panelLayout
 
   const googleDocsEnabled = useGoogleDocsEnabled()
-  // Pull reviewer comments for published docs on window focus (#769)
-  useShareFocusSync()
+  // Pull reviewer comments for published docs — background poll + focus (#769)
+  useSharePullSync()
   // Content push engine: auto-mode background pushes + share-dirty tracking (#769)
   useShareContentSync()
   const { openFile, openFileFromPath, saveFile, saveFileAs, newFile } = useEditor()

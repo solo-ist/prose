@@ -24,8 +24,15 @@ import { flushPendingShareOps } from './sharePush'
 import type { CommentData, CommentReply } from '../extensions/comments/types'
 import type { ShareEntry, SharePulledComment } from '../types'
 
-/** Focus-poll debounce: don't re-pull a publication more often than this. */
-const FOCUS_SYNC_MIN_MS = 5 * 60 * 1000
+/**
+ * Pull cadence: "the conversation is always live" has to hold on the desktop
+ * too, not just the viewer (which polls its comment list continuously). A
+ * background interval pulls while a shared document is open and the window
+ * is visible; window focus pulls as well. Both share one per-publication
+ * debounce so overlapping triggers cost one GET, not several.
+ */
+const PULL_INTERVAL_MS = 60 * 1000
+const PULL_MIN_MS = 30 * 1000
 const lastSyncAt = new Map<string, number>()
 
 function toReply(r: SharePulledComment): CommentReply {
@@ -138,16 +145,19 @@ export async function syncShareComments(entry: ShareEntry, documentId: string): 
 }
 
 /**
- * Window-focus poll (#769): when the app regains focus and the open document
- * is published, quietly pull new comments (≥5-min debounce per publication).
+ * Desktop pull loop (#769): a background interval while the window is
+ * visible, plus a pull on window focus — so reviewer comments and replies
+ * land in Prose within ~a minute of appearing, matching the viewer's live
+ * poll instead of waiting for the next app switch.
  */
-export function useShareFocusSync(): void {
+export function useSharePullSync(): void {
   useEffect(() => {
-    const onFocus = async (): Promise<void> => {
+    const pullIfDue = async (flushPushes: boolean): Promise<void> => {
       try {
         if (!isWebPlatformEnabled()) return
-        // Retry any queued reply/resolve pushes regardless of the pull debounce.
-        flushPendingShareOps()
+        // Retry any queued thread/reply/resolve pushes regardless of the
+        // pull debounce (focus only — the interval isn't a retry loop).
+        if (flushPushes) flushPendingShareOps()
         const { document } = useEditorStore.getState()
         if (!document.path || !document.documentId) return
         const res = await getApi().shareGetForPath(document.path)
@@ -155,13 +165,22 @@ export function useShareFocusSync(): void {
         const entry = res.entries.find((e) => !e.revokedAt)
         if (!entry) return
         const last = lastSyncAt.get(entry.publicationId) ?? 0
-        if (Date.now() - last < FOCUS_SYNC_MIN_MS) return
+        if (Date.now() - last < PULL_MIN_MS) return
         await syncShareComments(entry, document.documentId)
       } catch {
         // Background poll — never surface errors.
       }
     }
+    const onFocus = (): void => void pullIfDue(true)
+    const timer = setInterval(() => {
+      // A blurred-but-visible window still polls (the user may be reading
+      // the doc beside a browser); a hidden one doesn't burn requests.
+      if (window.document.visibilityState === 'visible') void pullIfDue(false)
+    }, PULL_INTERVAL_MS)
     window.addEventListener('focus', onFocus)
-    return () => window.removeEventListener('focus', onFocus)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('focus', onFocus)
+    }
   }, [])
 }

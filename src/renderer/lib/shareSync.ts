@@ -109,7 +109,13 @@ export async function syncShareComments(entry: ShareEntry, documentId: string): 
   }
 
   const existing = store.pendingComments
-  const incoming = toThreads(res.comments, new Set(existing.map((c) => c.id)))
+  // Known ids include shareIds: a thread pushed live from this desktop is
+  // known under its server row id too, so replies to it that arrive after the
+  // cursor passed the thread row still get their graft shell.
+  const incoming = toThreads(
+    res.comments,
+    new Set(existing.flatMap((c) => (c.shareId ? [c.id, c.shareId] : [c.id])))
+  )
   const { merged, added } = mergeCommentThreads(existing, incoming)
 
   if (added > 0) {

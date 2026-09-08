@@ -1,21 +1,23 @@
 /**
- * sharePush.ts — fire-and-forget pushes of author replies and resolution
- * state into a publication's live conversation (#769).
+ * sharePush.ts — fire-and-forget pushes of author comment threads, replies,
+ * and resolution state into a publication's live conversation (#769).
  *
  * "Content follows the mode; the conversation is always live": these pushes
- * run in BOTH sync modes, so a reply or resolve made in Prose reaches the
- * shared page without a re-publish.
+ * run in BOTH sync modes, so a comment, reply, or resolve made in Prose
+ * reaches the shared page without a re-publish.
  *
  * Invariants:
- * - Called ONLY from user/AI action handlers (CommentPopover, Comment
- *   Review, AI tool executors) — never from useCommentStore.saveComments,
- *   which also fires on tab flushes and on the sync merge itself and would
- *   echo-loop.
+ * - Called ONLY from user/AI action handlers (the Comment extension's
+ *   onCommentAdded mirror for new threads, CommentPopover, Comment Review,
+ *   AI tool executors) — never from useCommentStore.saveComments, which also
+ *   fires on tab flushes and on the sync merge itself and would echo-loop.
  * - Local state is the source of truth. A failed push queues and retries on
  *   the next window focus or successful content push; errors surface only
  *   into shareStore (the status icon), never as dialogs.
- * - A successful reply push records the server row id as reply.shareId —
- *   the dedupe key for pull-merge and bake (see commentMerge/htmlExport).
+ * - A successful push records the server row id as shareId (on the thread or
+ *   reply) — the dedupe key for pull-merge and bake (see
+ *   commentMerge/htmlExport): the local row, the baked row, and the live-poll
+ *   row stay one identity.
  */
 import { getApi } from './browserApi'
 import { isWebPlatformEnabled } from './featureFlags'
@@ -25,8 +27,13 @@ import { useShareStore } from '../stores/shareStore'
 import type { ShareEntry } from '../types'
 
 type PendingOp =
+  | { kind: 'thread'; threadId: string }
   | { kind: 'reply'; threadId: string; replyId: string }
   | { kind: 'resolve'; threadId: string }
+
+function opKey(op: PendingOp): string {
+  return op.kind === 'reply' ? `reply:${op.threadId}:${op.replyId}` : `${op.kind}:${op.threadId}`
+}
 
 const inFlight = new Set<string>()
 let pendingOps: PendingOp[] = []
@@ -49,11 +56,65 @@ function clearPushError(): void {
 }
 
 function queueOnce(op: PendingOp): void {
-  const key = op.kind === 'reply' ? `reply:${op.threadId}:${op.replyId}` : `resolve:${op.threadId}`
-  const exists = pendingOps.some(
-    (p) => (p.kind === 'reply' ? `reply:${p.threadId}:${p.replyId}` : `resolve:${p.threadId}`) === key
-  )
-  if (!exists) pendingOps.push(op)
+  const key = opKey(op)
+  if (!pendingOps.some((p) => opKey(p) === key)) pendingOps.push(op)
+}
+
+/**
+ * Push a just-created comment thread to the publication as a live server row
+ * (fromAuthor). No-op for threads that are already server rows (a shareId
+ * means it was pulled, or already pushed) and for anchor-less threads. On
+ * success the returned row id becomes the thread's shareId, and anything
+ * written on the thread while the push was in flight (replies, a resolve)
+ * flows through the now-unblocked reply/resolve pushes.
+ */
+export function pushNewThreadToShare(threadId: string): void {
+  if (!isWebPlatformEnabled()) return
+  const thread = useCommentStore.getState().pendingComments.find((c) => c.id === threadId)
+  if (!thread || thread.shareId || !thread.markedText) return
+
+  const key = `thread:${threadId}`
+  if (inFlight.has(key)) return
+  inFlight.add(key)
+
+  void (async () => {
+    try {
+      const entry = await activeEntry()
+      if (!entry) return
+      // Re-read at send time — a queued retry pushes the current text, and a
+      // thread deleted/merged meanwhile must not post.
+      const current = useCommentStore.getState().pendingComments.find((c) => c.id === threadId)
+      if (!current || current.shareId || !current.markedText) return
+      const res = await getApi().shareCreateComment(entry.publicationId, {
+        markedText: current.markedText,
+        occurrenceIndex: current.occurrenceIndex ?? 0,
+        text: current.comment,
+        authorName: current.author === 'ai' ? 'Prose' : undefined
+      })
+      if (!res.ok) {
+        queueOnce({ kind: 'thread', threadId })
+        reportPushError(res.error, res.code)
+        return
+      }
+      clearPushError()
+      // Record the server row id on the local thread — the dedupe invariant.
+      const store = useCommentStore.getState()
+      const updated = store.pendingComments.map((c) => (c.id === threadId ? { ...c, shareId: res.id } : c))
+      useCommentStore.setState({ pendingComments: updated })
+      if (store.documentId) await store.saveComments(store.documentId, updated)
+      // Replies/resolves written before the server row existed were silent
+      // no-ops in their own pushes — release them now.
+      const settled = updated.find((c) => c.id === threadId)
+      for (const r of settled?.replies ?? []) {
+        if (!r.shareId) pushReplyToShare(threadId, r.id)
+      }
+      if (settled?.resolved === true) pushResolveToShare(threadId)
+    } catch {
+      queueOnce({ kind: 'thread', threadId })
+    } finally {
+      inFlight.delete(key)
+    }
+  })()
 }
 
 /**
@@ -154,7 +215,8 @@ export function flushPendingShareOps(): void {
   const ops = pendingOps
   pendingOps = []
   for (const op of ops) {
-    if (op.kind === 'reply') pushReplyToShare(op.threadId, op.replyId)
+    if (op.kind === 'thread') pushNewThreadToShare(op.threadId)
+    else if (op.kind === 'reply') pushReplyToShare(op.threadId, op.replyId)
     else pushResolveToShare(op.threadId)
   }
 }

@@ -175,6 +175,26 @@ export async function revokePublication(
   if (!res.ok && res.status !== 404) throw await toError(res)
 }
 
+/** Push a new author comment thread into the live conversation (#769). */
+export async function postAuthorComment(
+  config: ShareClientConfig,
+  publicationId: string,
+  args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string }
+): Promise<{ id: string; createdAt: string }> {
+  const res = await fetch(`${base(config)}/api/share/${publicationId}/comments`, {
+    method: 'POST',
+    headers: await authedHeaders(),
+    body: JSON.stringify({
+      commentText: args.text,
+      markedText: args.markedText,
+      occurrenceIndex: args.occurrenceIndex,
+      ...(args.authorName ? { authorName: args.authorName } : {}),
+    }),
+  })
+  if (!res.ok) throw await toError(res)
+  return (await res.json()) as { id: string; createdAt: string }
+}
+
 /** Push an author reply into the live conversation (#769). */
 export async function postAuthorReply(
   config: ShareClientConfig,

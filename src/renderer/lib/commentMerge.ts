@@ -42,10 +42,16 @@ export function mergeCommentThreads(
   incoming: CommentData[]
 ): { merged: CommentData[]; added: number } {
   const byId = new Map(existing.map((c) => [c.id, c]))
+  // A local thread that was pushed to the gateway comes back under its server
+  // row id — its shareId here — so both ids resolve to the one local thread
+  // (#769 dedupe invariant, thread level; mirrors the reply rule below).
+  const byShareId = new Map(
+    existing.filter((c) => c.shareId).map((c) => [c.shareId as string, c])
+  )
   let added = 0
 
   for (const thread of incoming) {
-    const current = byId.get(thread.id)
+    const current = byId.get(thread.id) ?? byShareId.get(thread.id)
     if (!current) {
       byId.set(thread.id, thread)
       added++
@@ -57,7 +63,9 @@ export function mergeCommentThreads(
     const seen = new Set((current.replies ?? []).flatMap((r) => (r.shareId ? [r.id, r.shareId] : [r.id])))
     const fresh = (thread.replies ?? []).filter((r) => r && typeof r.id === 'string' && !seen.has(r.id))
     if (fresh.length > 0) {
-      byId.set(thread.id, { ...current, replies: [...(current.replies ?? []), ...fresh] })
+      const grafted = { ...current, replies: [...(current.replies ?? []), ...fresh] }
+      byId.set(current.id, grafted)
+      if (current.shareId) byShareId.set(current.shareId, grafted)
       added += fresh.length
     }
   }

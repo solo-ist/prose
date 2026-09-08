@@ -1786,6 +1786,23 @@ export function setupIpcHandlers(): void {
   })
 
   ipcMain.handle(
+    'share:createComment',
+    async (
+      _event,
+      publicationId: string,
+      args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string }
+    ) => {
+      const share = await import('./share/index')
+      return share.createComment(String(publicationId ?? ''), {
+        markedText: String(args?.markedText ?? ''),
+        occurrenceIndex: Number.isInteger(args?.occurrenceIndex) ? args.occurrenceIndex : 0,
+        text: String(args?.text ?? ''),
+        authorName: args?.authorName === undefined ? undefined : String(args.authorName)
+      })
+    }
+  )
+
+  ipcMain.handle(
     'share:replyToComment',
     async (_event, publicationId: string, commentId: string, text: string, authorName?: string) => {
       const share = await import('./share/index')

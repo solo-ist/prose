@@ -154,8 +154,14 @@ function sanitizeField(value: unknown, maxLength: number): string {
 }
 
 function sanitizeComments(comments: CommentData[]): CommentData[] {
-  return comments.map((c) => ({
+  return comments.map(({ shareId, ...c }) => ({
     ...c,
+    // Dedupe invariant (#769), thread level: a thread that was pushed to the
+    // gateway bakes under its server row id (shareId), so the baked copy and
+    // the live-poll row share one id and the viewer merge can't double it.
+    // Like reply shareIds, the field itself is local bookkeeping — never
+    // embedded (pulled threads already have id === shareId, unchanged).
+    id: shareId ?? c.id,
     markedText: sanitizeField(c.markedText, MAX_MARKED_TEXT_LENGTH),
     comment: sanitizeField(c.comment, MAX_COMMENT_LENGTH),
     replies: (c.replies ?? []).map((r) => {

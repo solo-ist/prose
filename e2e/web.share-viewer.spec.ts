@@ -162,6 +162,17 @@ test.describe('artifact format', () => {
     expect(replies.every((r) => !('shareId' in r))).toBe(true)
   })
 
+  test('pushed threads bake under their server id; shareId is never embedded', async () => {
+    // The same invariant at thread level: an author comment pushed live from
+    // the desktop bakes under its gateway row id, so the baked row and the
+    // live-poll row are one identity in the viewer merge.
+    const withPushed: CommentData[] = [{ ...COMMENTS[0], shareId: 'srv-t1' }, COMMENTS[1]]
+    const baked = await buildProseHtml(EDITOR_HTML, MARKDOWN, {}, 'Share Test', null, withPushed)
+    const threads = extractCommentsFromHtml(baked)!.comments
+    expect(threads.map((t) => t.id)).toEqual(['srv-t1', 'c2'])
+    expect(threads.every((t) => !('shareId' in t))).toBe(true)
+  })
+
   test('export without comments is viewer-free and stays re-importable', async () => {
     const plain = await buildProseHtml(EDITOR_HTML, MARKDOWN, {}, 'Share Test', null)
     expect(isProseHtml(plain)).toBe(true)

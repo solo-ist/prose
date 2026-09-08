@@ -30,6 +30,7 @@ import TaskItem from '@tiptap/extension-task-item'
 import { Markdown } from 'tiptap-markdown'
 import { FocusMode } from '../../lib/focusMode'
 import { Comment } from '../../extensions/comments'
+import { pushNewThreadToShare } from '../../lib/sharePush'
 import { useNotificationStore } from '../../stores/notificationStore'
 import { AISuggestion } from '../../extensions/ai-suggestions'
 import { useSuggestionStore } from '../../extensions/ai-suggestions/store'
@@ -317,6 +318,10 @@ export function Editor() {
           ]
           useCommentStore.setState({ pendingComments: updated })
           if (store.documentId) store.saveComments(store.documentId, updated)
+          // Live new-thread push (#769): the conversation is always live — a
+          // comment created here becomes a server row on the publication
+          // immediately. No-op when the document isn't published.
+          pushNewThreadToShare(commentData.id)
         },
         // setComment refuses ranges that would swallow an existing thread's
         // mark (#830) — tell the user to reply on that thread instead.

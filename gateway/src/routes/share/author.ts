@@ -14,6 +14,7 @@ import type { AppEnv } from '../../middleware/session.js'
 import {
   MAX_ARTIFACT_BYTES,
   MAX_COMMENT_CHARS,
+  MAX_MARKED_TEXT_CHARS,
   MAX_NAME_CHARS,
   MAX_TITLE_CHARS,
   newShareToken,
@@ -160,6 +161,59 @@ shareAuthorRoutes.get('/:pubId/comments', async (c) => {
     comments: rows.map(publicComment),
     nextCursor: rows.length > 0 ? rows[rows.length - 1].createdAt.toISOString() : null,
   })
+})
+
+// Author thread push (#769): a comment the author creates in Prose becomes a
+// live server row immediately instead of waiting for the next content
+// re-publish ("the conversation is always live" — new threads are
+// conversation, not content). Anchored like a reviewer comment via
+// markedText + occurrenceIndex; publishRev is the currently-served rev, the
+// content the anchor will be resolved against by viewers. Dedupe follows the
+// reply invariant: the desktop records the returned id as the thread's
+// shareId, bakes emit the thread under it, and the pull-merge treats both
+// ids as one thread.
+shareAuthorRoutes.post('/:pubId/comments', async (c) => {
+  const user = c.get('user')
+  const pub = await prisma.publication.findUnique({ where: { id: c.req.param('pubId') } })
+  if (!pub || pub.authorId !== user.id) return c.json({ error: 'not_found' }, 404)
+  if (pub.revokedAt) return c.json({ error: 'revoked' }, 409)
+
+  let body: {
+    commentText?: unknown
+    authorName?: unknown
+    markedText?: unknown
+    occurrenceIndex?: unknown
+  }
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: 'invalid_json' }, 400)
+  }
+  const commentText = sanitizeField(body.commentText, MAX_COMMENT_CHARS)
+  if (!commentText) return c.json({ error: 'invalid_comment' }, 400)
+  const markedText = sanitizeField(body.markedText, MAX_MARKED_TEXT_CHARS)
+  if (!markedText) return c.json({ error: 'invalid_anchor' }, 400)
+  const occurrenceIndex =
+    typeof body.occurrenceIndex === 'number' &&
+    Number.isInteger(body.occurrenceIndex) &&
+    body.occurrenceIndex >= 0 &&
+    body.occurrenceIndex <= 100000
+      ? body.occurrenceIndex
+      : 0
+  const authorName = sanitizeField(body.authorName, MAX_NAME_CHARS) || 'Author'
+
+  const row = await prisma.shareComment.create({
+    data: {
+      publicationId: pub.id,
+      commentText,
+      authorName,
+      fromAuthor: true,
+      markedText,
+      occurrenceIndex,
+      publishRev: pub.publishRev,
+    },
+  })
+  return c.json({ id: row.id, createdAt: row.createdAt.toISOString() }, 201)
 })
 
 // Author reply push (#769): a reply the author wrote in Prose lands in the

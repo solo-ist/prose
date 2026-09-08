@@ -5,7 +5,8 @@
  * link prints to stdout where this script harvests it), signs in, seeds the
  * share_publish entitlement, then exercises the full share matrix:
  * publish → serve → comment/reply → author pull (email never exposed) →
- * author reply/resolve push → public live GET → re-publish → revoke → rate limit.
+ * author thread/reply/resolve push → public live GET → re-publish → revoke →
+ * rate limit.
  *
  * Prereqs: `npm run dev:db` (Postgres on :5433) + migrations applied.
  * Usage:   npm run test:share
@@ -255,6 +256,40 @@ async function main() {
   })
   expect((await unresolve.json()).resolvedAt === null, 'unresolve clears resolvedAt')
 
+  // --- Author thread push (live new-comment sync, #769) ---------------------
+  const aThread = await fetch(`${BASE}/api/share/${pub.publicationId}/comments`, {
+    method: 'POST', headers: authed,
+    body: JSON.stringify({ commentText: 'Reworking this paragraph.', markedText: 'markedtext', occurrenceIndex: 1, authorName: 'Angel' }),
+  })
+  expect(aThread.status === 201, 'author thread accepted', `status ${aThread.status}`)
+  const aThreadBody = await aThread.json()
+
+  const aThreadAnon = await fetch(`${BASE}/api/share/${pub.publicationId}/comments`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ commentText: 'x', markedText: 'y' }),
+  })
+  expect(aThreadAnon.status === 401, 'author thread 401s unauthenticated', `status ${aThreadAnon.status}`)
+
+  const aThreadNoAnchor = await fetch(`${BASE}/api/share/${pub.publicationId}/comments`, {
+    method: 'POST', headers: authed, body: JSON.stringify({ commentText: 'anchorless' }),
+  })
+  expect(aThreadNoAnchor.status === 400, 'author thread without markedText rejected', `status ${aThreadNoAnchor.status}`)
+
+  const liveWithThread = (await (await fetch(commentUrl)).json()).comments
+  const liveAuthorThread = liveWithThread.find((cm) => cm.id === aThreadBody.id)
+  expect(
+    !!liveAuthorThread && liveAuthorThread.fromAuthor === true && liveAuthorThread.parentId === null &&
+      liveAuthorThread.markedText === 'markedtext' && liveAuthorThread.occurrenceIndex === 1 &&
+      liveAuthorThread.authorName === 'Angel' && !('authorEmail' in liveAuthorThread),
+    'author thread live on the public GET with fromAuthor + anchor round-trip'
+  )
+
+  const vReplyToAuthorThread = await fetch(`${commentUrl}/${aThreadBody.id}/replies`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ commentText: 'Sounds good.', authorName: 'Sana' }),
+  })
+  expect(vReplyToAuthorThread.status === 201, 'viewer can reply to an author thread', `status ${vReplyToAuthorThread.status}`)
+
   // --- Re-publish -----------------------------------------------------------
   const repub = await fetch(`${BASE}/api/share/${pub.publicationId}/publish`, {
     method: 'PUT', headers: authed, body: JSON.stringify({ title: 'Test Doc v2', html: artifact('v2') }),
@@ -288,6 +323,11 @@ async function main() {
   expect((liveGone.headers.get('content-type') ?? '').includes('application/json'), 'live 410 stays JSON')
   const pullAfter = await fetch(`${BASE}/api/share/${pub.publicationId}/comments`, { headers: authed })
   expect((await pullAfter.json()).comments.length === 0, 'revoke deleted reviewer comments')
+  const aThreadGone = await fetch(`${BASE}/api/share/${pub.publicationId}/comments`, {
+    method: 'POST', headers: authed,
+    body: JSON.stringify({ commentText: 'late', markedText: 'v' }),
+  })
+  expect(aThreadGone.status === 409, 'author thread on a revoked share 409s', `status ${aThreadGone.status}`)
 
   // --- Rate limit (last: it poisons this IP's write budget) -----------------
   const pub2Res = await fetch(`${BASE}/api/share/publish`, {

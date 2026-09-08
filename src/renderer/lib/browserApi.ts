@@ -494,6 +494,7 @@ export const browserApi: ElectronAPI = {
   shareAckCursor: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
   shareUpdateLocalPath: async () => ({ ok: true as const, touched: 0 }),
   shareSetSyncMode: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  shareCreateComment: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
   shareReplyToComment: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
   shareResolveComment: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
 

@@ -890,6 +890,94 @@ test.describe('live conversation loop (online viewer)', () => {
   })
 })
 
+test.describe('narrow mode (< 1000px)', () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto(artifactUrl)
+  })
+
+  test('no rail; bottom bar and text-free sup indices render instead', async ({ page }) => {
+    await expect(page.locator('#prose-bottom-bar')).toBeVisible()
+    await expect(page.locator('#prose-bottom-bar button')).toHaveText('Comments 2')
+    expect(await page.locator('#prose-comment-rail').count()).toBe(0)
+    // The top-bar count drops the word on narrow.
+    await expect(page.locator('#prose-rail-toggle')).toHaveText('2')
+    // Sup indices number open threads in document order. They render via CSS
+    // attr(data-n) with NO text child, so article.textContent — the anchor
+    // input on both the viewer and desktop sides — is unchanged.
+    const sups = page.locator('article sup.prose-mark-index')
+    await expect(sups).toHaveCount(2)
+    await expect(sups.nth(0)).toHaveAttribute('data-n', '1')
+    await expect(sups.nth(1)).toHaveAttribute('data-n', '2')
+    expect(
+      await page.evaluate(() =>
+        Array.from(document.querySelectorAll('sup.prose-mark-index'))
+          .map((s) => s.textContent)
+          .join('')
+      )
+    ).toBe('')
+  })
+
+  test('tapping a mark opens the sheet; back returns to the text', async ({ page }) => {
+    await page.locator('article span[data-comment-id="c1"]').click()
+    const sheet = page.locator('#prose-sheet')
+    await expect(sheet).toBeVisible()
+    await expect(sheet.locator('.prose-sheet-count')).toHaveText('1 of 2')
+    await expect(sheet.locator('.prose-sheet-quote')).toHaveText('"quick brown fox"')
+    await expect(sheet.getByText('Nice phrase')).toBeVisible()
+    await expect(sheet.getByText('Agreed — keep it.')).toBeVisible()
+    await sheet.locator('.prose-sheet-back').click()
+    await expect(page.locator('#prose-sheet')).toHaveCount(0)
+  })
+
+  test('the bottom-bar button opens the first thread; a sheet reply lands and arms the download', async ({ page }) => {
+    await page.locator('#prose-bottom-bar button').click()
+    const sheet = page.locator('#prose-sheet')
+    await expect(sheet.locator('.prose-sheet-count')).toHaveText('1 of 2')
+    await sheet.locator('.prose-sheet-composer textarea').fill('From the sheet.')
+    await sheet.locator('.prose-sheet-composer input').fill('Sheet Sana')
+    await sheet.locator('.prose-sheet-send').click()
+    await expect(sheet.getByText('From the sheet.')).toBeVisible()
+    await expect(sheet.locator('.prose-thread-reply .prose-card-name', { hasText: 'Sheet Sana' })).toBeVisible()
+    // The stored name now personalizes the composer.
+    await expect(sheet.locator('.prose-sheet-as')).toHaveText('Replying as Sheet Sana')
+    await sheet.locator('.prose-sheet-back').click()
+    await expect(page.locator('#prose-download-copy')).toContainText('(1 new)')
+  })
+
+  test('a narrow annotated copy leaks no narrow-mode DOM', async ({ page }) => {
+    // Add a reply from the sheet so the copy is a real annotated one.
+    await page.locator('article span[data-comment-id="c1"]').click()
+    const sheet = page.locator('#prose-sheet')
+    await sheet.locator('.prose-sheet-composer textarea').fill('Bake me.')
+    await sheet.locator('.prose-sheet-composer input').fill('Narrow Nia')
+    await sheet.locator('.prose-sheet-send').click()
+    await expect(sheet.getByText('Bake me.')).toBeVisible()
+    await sheet.locator('.prose-sheet-back').click()
+
+    // Scroll fully down so the footer link clears the fixed bottom bar
+    // (narrow mode pads the footer past the bar for exactly this reason).
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('#prose-download-copy').click(),
+    ])
+    const savedPath = join(tmpDir, 'narrow-annotated.html')
+    await download.saveAs(savedPath)
+    const copyHtml = readFileSync(savedPath, 'utf-8')
+    expect(copyHtml).not.toContain('id="prose-bottom-bar"')
+    expect(copyHtml).not.toContain('id="prose-sheet"')
+    expect(copyHtml).not.toContain('id="prose-narrow-form-wrap"')
+    expect(copyHtml).not.toContain('prose-mark-index"')
+    expect(copyHtml).not.toContain('id="prose-comment-rail"')
+    const block = extractCommentsFromHtml(copyHtml)
+    expect(
+      block!.comments.find((c) => c.id === 'c1')!.replies!.some((r) => r.text === 'Bake me.')
+    ).toBe(true)
+  })
+})
+
 test.describe('share artifact opened locally', () => {
   test('file:// wins over share config: offline annotate mode, no network posts', async ({ page }) => {
     const requests: string[] = []

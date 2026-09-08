@@ -631,6 +631,140 @@ export const VIEWER_STYLES = `
     text-decoration: underline;
     cursor: pointer;
   }
+  #prose-bottom-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 15;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 18px 16px 14px;
+    background: linear-gradient(to top, var(--bg) 62%, transparent);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: hsl(var(--muted-foreground));
+    pointer-events: none;
+  }
+  #prose-bottom-bar > * { pointer-events: auto; }
+  #prose-bottom-bar button {
+    border: 1px solid hsl(var(--border));
+    border-radius: 6px;
+    background: hsl(var(--popover));
+    color: hsl(var(--foreground));
+    font: 500 12px var(--font-mono);
+    height: 34px;
+    padding: 0 14px;
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+  }
+  body.prose-narrow .prose-artifact-footer { padding-bottom: 132px; }
+  sup.prose-mark-index {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1;
+    color: hsl(var(--comment));
+    cursor: pointer;
+  }
+  sup.prose-mark-index::after { content: attr(data-n); }
+  #prose-sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .prose-sheet-head {
+    flex-shrink: 0;
+    height: 54px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    border-bottom: 1px solid hsl(var(--border));
+    font-size: 12px;
+    color: hsl(var(--muted-foreground));
+  }
+  .prose-sheet-back {
+    border: none;
+    background: none;
+    padding: 0;
+    font: inherit;
+    color: hsl(var(--foreground));
+    cursor: pointer;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+  .prose-sheet-scroll { flex: 1; overflow-y: auto; padding: 16px; }
+  .prose-sheet-quote {
+    display: block;
+    font-family: var(--font-serif);
+    font-size: 17px;
+    line-height: 1.5;
+    border-left: 2px solid hsl(var(--comment));
+    padding-left: 12px;
+    margin-bottom: 16px;
+    color: hsl(var(--muted-foreground));
+  }
+  .prose-sheet-thread .prose-thread-body { margin-top: 6px; }
+  .prose-sheet-composer {
+    flex-shrink: 0;
+    border-top: 1px solid hsl(var(--border));
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  }
+  .prose-sheet-as { font-size: 11px; color: hsl(var(--muted-foreground)); margin-bottom: 8px; }
+  .prose-sheet-composer textarea, .prose-sheet-composer input {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border: 1px solid hsl(var(--input));
+    border-radius: 6px;
+    font: inherit;
+    background: transparent;
+    color: inherit;
+    resize: none;
+    outline: none;
+  }
+  .prose-sheet-composer input { height: 34px; margin-top: 8px; }
+  .prose-sheet-send {
+    margin-top: 10px;
+    width: 100%;
+    height: 44px;
+    border: none;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font: 500 13px var(--font-mono);
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    cursor: pointer;
+  }
+  #prose-narrow-form-wrap {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    background: var(--bg);
+    border-top: 1px solid hsl(var(--border));
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: hsl(var(--foreground));
+  }
 `
 
 export const VIEWER_SCRIPT = `(function () {
@@ -917,6 +1051,42 @@ export const VIEWER_SCRIPT = `(function () {
     renderRail()
   }
 
+  // One reply pipeline for the rail composer and the narrow sheet: offline
+  // appends locally; online posts to the public route, appends optimistically
+  // under the SERVER id (mergeLive dedupes by id, so the next poll can't
+  // double it), with the same not-sent fallback semantics as comments.
+  function sendReply(c, name, text, onDone, onShownError) {
+    try { window.localStorage.setItem('prose-commenter-name', name) } catch (e) { /* blocked storage */ }
+    if (!online) {
+      addLocalReply(c, name, text, false)
+      onDone()
+      return
+    }
+    postReplyRequest(c.id, name, text).then(function (created) {
+      c.replies = c.replies || []
+      c.replies.push({
+        id: created.id,
+        text: text,
+        authorName: name,
+        createdAt: created.createdAt ? new Date(created.createdAt).getTime() : Date.now(),
+        fromAuthor: false
+      })
+      mineIds[created.id] = true
+      renderRail()
+      window.setTimeout(fetchLiveComments, 2000)
+      onDone()
+    }).catch(function (err) {
+      if (err && err.proseShow) {
+        onShownError(err.message)
+        return
+      }
+      // Network down or server failure — keep the reply in the page,
+      // tagged "not sent". No auto-retry: the annotated copy recovers it.
+      addLocalReply(c, name, text, true)
+      onDone()
+    })
+  }
+
   function renderReplyComposer(c) {
     var wrap = el('div', 'prose-reply-composer')
     // Typing in the composer must not re-trigger the card's activate-and-
@@ -959,36 +1129,13 @@ export const VIEWER_SCRIPT = `(function () {
         showError('Name and comment are required.')
         return
       }
-      try { window.localStorage.setItem('prose-commenter-name', name) } catch (e) { /* blocked storage */ }
-      if (!online) {
-        addLocalReply(c, name, text, false)
-        return
-      }
       sendBtn.disabled = true
-      postReplyRequest(c.id, name, text).then(function (created) {
-        // Optimistic append under the SERVER id — mergeLive dedupes replies
-        // by id, so the next poll can't double it.
-        c.replies = c.replies || []
-        c.replies.push({
-          id: created.id,
-          text: text,
-          authorName: name,
-          createdAt: created.createdAt ? new Date(created.createdAt).getTime() : Date.now(),
-          fromAuthor: false
-        })
-        mineIds[created.id] = true
+      sendReply(c, name, text, function () {
         replyFor = null
         renderRail()
-        window.setTimeout(fetchLiveComments, 2000)
-      }).catch(function (err) {
-        if (err && err.proseShow) {
-          sendBtn.disabled = false
-          showError(err.message)
-          return
-        }
-        // Network down or server failure — keep the reply in the page,
-        // tagged "not sent". No auto-retry: the annotated copy recovers it.
-        addLocalReply(c, name, text, true)
+      }, function (message) {
+        sendBtn.disabled = false
+        showError(message)
       })
     }
     sendBtn.addEventListener('click', submitReply)
@@ -1022,6 +1169,19 @@ export const VIEWER_SCRIPT = `(function () {
       ? el('span', 'prose-card-date prose-not-sent', 'not sent')
       : el('span', 'prose-card-date', formatDate(ts)))
     return row
+  }
+
+  // One reply row, shared by the rail cards and the narrow sheet.
+  function renderReplyRow(r) {
+    // Author replies: live-pushed rows carry fromAuthor; baked desktop
+    // replies have no authorName. Tagged " · author" per the design.
+    var isAuthor = r.fromAuthor === true || (!r.authorName && r.author !== 'ai')
+    var replyEl = el('div', isAuthor ? 'prose-thread-reply prose-reply-author' : 'prose-thread-reply')
+    var label = r.authorName || (r.author === 'ai' ? 'AI' : 'Author')
+    var tag = isAuthor ? ' · author' : mineTag(r.id, r.authorName)
+    replyEl.appendChild(headerRow(label, tag, r.createdAt, notSentIds[r.id] === true))
+    replyEl.appendChild(el('div', 'prose-thread-body', r.text))
+    return replyEl
   }
 
   var activeId = null
@@ -1060,16 +1220,7 @@ export const VIEWER_SCRIPT = `(function () {
     card.appendChild(el('div', 'prose-thread-body', c.comment))
     var replies = c.replies || []
     for (var i = 0; i < replies.length; i++) {
-      var r = replies[i]
-      // Author replies: live-pushed rows carry fromAuthor; baked desktop
-      // replies have no authorName. Tagged " · author" per the design.
-      var isAuthor = r.fromAuthor === true || (!r.authorName && r.author !== 'ai')
-      var replyEl = el('div', isAuthor ? 'prose-thread-reply prose-reply-author' : 'prose-thread-reply')
-      var label = r.authorName || (r.author === 'ai' ? 'AI' : 'Author')
-      var tag = isAuthor ? ' · author' : mineTag(r.id, r.authorName)
-      replyEl.appendChild(headerRow(label, tag, r.createdAt, notSentIds[r.id] === true))
-      replyEl.appendChild(el('div', 'prose-thread-body', r.text))
-      card.appendChild(replyEl)
+      card.appendChild(renderReplyRow(replies[i]))
     }
     if (!lost && !c.resolved) {
       if (replyFor === c.id) {
@@ -1126,6 +1277,7 @@ export const VIEWER_SCRIPT = `(function () {
   var resolvedOpen = false
 
   function renderRail() {
+    renderMarkIndices()
     openList.textContent = ''
     resolvedSection.textContent = ''
     lostSection.textContent = ''
@@ -1189,11 +1341,13 @@ export const VIEWER_SCRIPT = `(function () {
       offlineSection.appendChild(offlineCard)
     }
 
-    if (railCount) railCount.textContent = open.length + ' comments'
+    if (railCount) railCount.textContent = isNarrow ? String(open.length) : open.length + ' comments'
+    bottomBtn.textContent = 'Comments ' + open.length
     downloadBtn.textContent = unsavedAdditions > 0
       ? 'Download annotated copy (' + unsavedAdditions + ' new)'
       : 'Download annotated copy'
     downloadBtn.classList.toggle('prose-has-additions', unsavedAdditions > 0)
+    if (sheetOpenId) renderSheetContent()
     layoutRail()
     scheduleLayout()
   }
@@ -1275,6 +1429,195 @@ export const VIEWER_SCRIPT = `(function () {
     layoutTimer = window.setTimeout(layoutRail, 220)
   }
 
+  // --- Narrow mode (< 1000px): bottom bar, sup indices, thread sheet --------
+  // The rail never renders narrow. Marks get superscript numbers and open a
+  // full-screen sheet; the bottom bar mirrors the count and opens the first
+  // thread. All of it is runtime DOM, stripped from annotated copies.
+  var isNarrow = null
+  var railPreferredOpen = true
+
+  var bottomBar = el('div', null)
+  bottomBar.id = 'prose-bottom-bar'
+  bottomBar.appendChild(el('span', null, 'Select text to comment'))
+  var bottomBtn = el('button', null, 'Comments 0')
+  bottomBtn.type = 'button'
+  bottomBtn.addEventListener('click', function () { openFirstThreadSheet() })
+  bottomBar.appendChild(bottomBtn)
+
+  // Fixed-bottom home for #prose-comment-form when there is no rail.
+  var narrowFormWrap = el('div', null)
+  narrowFormWrap.id = 'prose-narrow-form-wrap'
+
+  // Thread ids in document order of their first mark — the sup numbering and
+  // the sheet's "K of N".
+  var narrowOrder = []
+
+  function renderMarkIndices() {
+    var olds = article.querySelectorAll('sup.prose-mark-index')
+    for (var i = 0; i < olds.length; i++) olds[i].parentNode.removeChild(olds[i])
+    narrowOrder = []
+    if (!isNarrow) return
+    // The sup carries NO text child — the number renders via CSS
+    // attr(data-n) — so article.textContent (the anchor input on both the
+    // viewer and desktop sides) is byte-identical with indices present.
+    var spans = article.querySelectorAll('span.comment-mark[data-comment-id]')
+    var lastSpan = {}
+    for (var j = 0; j < spans.length; j++) {
+      var id = spans[j].getAttribute('data-comment-id')
+      if (!lastSpan[id]) narrowOrder.push(id)
+      lastSpan[id] = spans[j]
+    }
+    for (var k = 0; k < narrowOrder.length; k++) {
+      var sup = document.createElement('sup')
+      sup.className = 'prose-mark-index'
+      sup.setAttribute('data-n', String(k + 1))
+      sup.setAttribute('data-comment-id', narrowOrder[k])
+      var anchorSpan = lastSpan[narrowOrder[k]]
+      anchorSpan.parentNode.insertBefore(sup, anchorSpan.nextSibling)
+    }
+  }
+
+  // --- Full-screen thread sheet ---------------------------------------------
+  var sheetOpenId = null
+  var sheet = el('div', null)
+  sheet.id = 'prose-sheet'
+  var sheetHead = el('div', 'prose-sheet-head')
+  var sheetBack = el('button', 'prose-sheet-back', '‹ Back to text')
+  sheetBack.type = 'button'
+  sheetBack.addEventListener('click', function () { closeSheet() })
+  var sheetCount = el('span', 'prose-sheet-count', '')
+  sheetHead.appendChild(sheetBack)
+  sheetHead.appendChild(sheetCount)
+  var sheetScroll = el('div', 'prose-sheet-scroll')
+  var sheetComposer = el('div', 'prose-sheet-composer')
+  sheet.appendChild(sheetHead)
+  sheet.appendChild(sheetScroll)
+  sheet.appendChild(sheetComposer)
+
+  function threadById(id) {
+    for (var i = 0; i < comments.length; i++) {
+      if (comments[i].id === id) return comments[i]
+    }
+    return null
+  }
+
+  function renderSheetContent() {
+    var c = sheetOpenId ? threadById(sheetOpenId) : null
+    if (!c) { closeSheet(); return }
+    var pos = -1
+    for (var i = 0; i < narrowOrder.length; i++) {
+      if (narrowOrder[i] === c.id) pos = i
+    }
+    sheetCount.textContent = pos >= 0 ? (pos + 1) + ' of ' + narrowOrder.length : ''
+    sheetScroll.textContent = ''
+    if (c.markedText) sheetScroll.appendChild(el('span', 'prose-sheet-quote', '"' + c.markedText + '"'))
+    var thread = el('div', 'prose-sheet-thread')
+    thread.appendChild(headerRow(authorLabel(c), mineTag(c.id, c.authorName), c.createdAt, notSentIds[c.id] === true))
+    thread.appendChild(el('div', 'prose-thread-body', c.comment))
+    var replies = c.replies || []
+    for (var ri = 0; ri < replies.length; ri++) thread.appendChild(renderReplyRow(replies[ri]))
+    sheetScroll.appendChild(thread)
+    renderSheetComposer(c)
+  }
+
+  function renderSheetComposer(c) {
+    sheetComposer.textContent = ''
+    if (c.resolved) return
+    var name = storedName()
+    if (name) sheetComposer.appendChild(el('div', 'prose-sheet-as', 'Replying as ' + name))
+    var textArea = el('textarea', null)
+    textArea.placeholder = 'Reply'
+    textArea.rows = 2
+    textArea.maxLength = 5000
+    sheetComposer.appendChild(textArea)
+    var nameInput = null
+    if (!name) {
+      nameInput = el('input', null)
+      nameInput.placeholder = 'Your name'
+      nameInput.maxLength = 100
+      sheetComposer.appendChild(nameInput)
+    }
+    var errorEl = el('div', 'prose-form-error', '')
+    errorEl.style.display = 'none'
+    sheetComposer.appendChild(errorEl)
+    var sendBtn = el('button', 'prose-sheet-send', 'Reply')
+    sendBtn.type = 'button'
+    var submitSheetReply = function () {
+      var text = textArea.value.trim()
+      var who = (nameInput ? nameInput.value.trim() : storedName())
+      if (!text || !who) {
+        errorEl.textContent = 'Name and comment are required.'
+        errorEl.style.display = 'block'
+        return
+      }
+      sendBtn.disabled = true
+      sendReply(c, who, text, function () {
+        renderSheetContent()
+      }, function (message) {
+        sendBtn.disabled = false
+        errorEl.textContent = message
+        errorEl.style.display = 'block'
+      })
+    }
+    sendBtn.addEventListener('click', submitSheetReply)
+    textArea.addEventListener('keydown', function (ev) {
+      if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') {
+        ev.preventDefault()
+        submitSheetReply()
+      }
+    })
+    sheetComposer.appendChild(sendBtn)
+  }
+
+  function openSheet(id) {
+    sheetOpenId = id
+    renderSheetContent()
+    if (sheetOpenId && !document.body.contains(sheet)) document.body.appendChild(sheet)
+  }
+
+  function closeSheet() {
+    sheetOpenId = null
+    if (sheet.parentNode) sheet.parentNode.removeChild(sheet)
+  }
+
+  function openFirstThreadSheet() {
+    if (narrowOrder.length > 0) { openSheet(narrowOrder[0]); return }
+    for (var i = 0; i < comments.length; i++) {
+      var c = comments[i]
+      if (!c.resolved && !lostIds[c.id]) { openSheet(c.id); return }
+    }
+  }
+
+  // Applies the UI for the current width; keeps an open compose form alive
+  // across the boundary by rehoming it.
+  function syncNarrowMode() {
+    var narrow = window.innerWidth < 1000
+    if (narrow === isNarrow) return
+    isNarrow = narrow
+    var form = document.getElementById('prose-comment-form')
+    if (narrow) {
+      rail.remove()
+      document.body.classList.remove('prose-rail-open')
+      document.body.classList.add('prose-narrow')
+      document.body.appendChild(bottomBar)
+      if (form) {
+        narrowFormWrap.appendChild(form)
+        document.body.appendChild(narrowFormWrap)
+      }
+    } else {
+      closeSheet()
+      bottomBar.remove()
+      narrowFormWrap.remove()
+      document.body.classList.remove('prose-narrow')
+      if (form) formSlot.appendChild(form)
+      if (railPreferredOpen) {
+        document.body.appendChild(rail)
+        document.body.classList.add('prose-rail-open')
+      }
+    }
+    renderRail()
+  }
+
   // --- Download a (possibly annotated) self-contained copy ------------------
   // The entry point is the baked footer link (#prose-download-copy).
 
@@ -1298,15 +1641,26 @@ export const VIEWER_SCRIPT = `(function () {
     clone.classList.remove('dark')
     // Strip the viewer's runtime DOM — the reopened copy rebuilds it fresh.
     // Baked chrome (top bar, footer) intentionally survives the copy.
-    var strip = ['#prose-comment-rail', '#prose-add-comment-btn', '#prose-file-banner']
+    var strip = [
+      '#prose-comment-rail',
+      '#prose-add-comment-btn',
+      '#prose-file-banner',
+      '#prose-bottom-bar',
+      '#prose-sheet',
+      '#prose-narrow-form-wrap',
+      '.prose-mark-index'
+    ]
     for (var i = 0; i < strip.length; i++) {
-      var node = clone.querySelector(strip[i])
-      if (node) node.remove()
+      var nodes = clone.querySelectorAll(strip[i])
+      for (var ni = 0; ni < nodes.length; ni++) nodes[ni].remove()
     }
     var actives = clone.querySelectorAll('.prose-viewer-active')
     for (var j = 0; j < actives.length; j++) actives[j].classList.remove('prose-viewer-active')
     var body = clone.querySelector('body')
-    if (body) body.classList.remove('prose-rail-open')
+    if (body) {
+      body.classList.remove('prose-rail-open')
+      body.classList.remove('prose-narrow')
+    }
     // Reset chrome state that belongs to THIS session, not the copy.
     var dl = clone.querySelector('#prose-download-copy')
     if (dl) {
@@ -1350,7 +1704,13 @@ export const VIEWER_SCRIPT = `(function () {
   })
 
   toggle.addEventListener('click', function () {
+    // Narrow has no rail to toggle — the count button opens the sheet.
+    if (isNarrow) {
+      openFirstThreadSheet()
+      return
+    }
     var isOpen = document.body.contains(rail)
+    railPreferredOpen = !isOpen
     if (isOpen) {
       rail.remove()
       document.body.classList.remove('prose-rail-open')
@@ -1381,15 +1741,15 @@ export const VIEWER_SCRIPT = `(function () {
   }
 
   anchorAllThreads()
-  renderRail()
-  if (window.innerWidth >= 1000) {
-    document.body.appendChild(rail)
-    document.body.classList.add('prose-rail-open')
-    layoutRail()
-  }
+  // Applies the width-appropriate UI (rail vs bottom bar) and renders.
+  syncNarrowMode()
 
-  // Late reflows (fonts, image decode, window resize) restack the rail.
-  window.addEventListener('resize', scheduleLayout)
+  // Late reflows (fonts, image decode, window resize) restack the rail; a
+  // resize can also cross the narrow boundary.
+  window.addEventListener('resize', function () {
+    syncNarrowMode()
+    scheduleLayout()
+  })
   if (window.ResizeObserver) new ResizeObserver(scheduleLayout).observe(pageRoot)
   if (document.fonts && document.fonts.ready && document.fonts.ready.then) {
     document.fonts.ready.then(function () { scheduleLayout() })
@@ -1496,8 +1856,14 @@ export const VIEWER_SCRIPT = `(function () {
     var target = ev.target
     while (target && target !== article) {
       if (target.getAttribute && target.getAttribute('data-comment-id')) {
+        var id = target.getAttribute('data-comment-id')
+        // Narrow: a mark (or its sup index) opens the thread sheet.
+        if (isNarrow) {
+          openSheet(id)
+          return
+        }
         if (!document.body.contains(rail)) toggle.click()
-        setActive(target.getAttribute('data-comment-id'), false)
+        setActive(id, false)
         return
       }
       target = target.parentNode
@@ -1556,6 +1922,8 @@ export const VIEWER_SCRIPT = `(function () {
 
   function clearForm() {
     formSlot.textContent = ''
+    narrowFormWrap.textContent = ''
+    narrowFormWrap.remove()
     railHint.textContent = 'Select text to comment'
     layoutRail()
   }
@@ -1659,9 +2027,16 @@ export const VIEWER_SCRIPT = `(function () {
     actions.appendChild(cancelBtn)
     actions.appendChild(el('span', 'prose-form-kbd', '⌘↵'))
     form.appendChild(actions)
-    formSlot.appendChild(form)
-    if (!document.body.contains(rail)) toggle.click()
-    layoutRail()
+    if (isNarrow) {
+      // No rail to host the slot — the form docks as a fixed bottom card.
+      narrowFormWrap.textContent = ''
+      narrowFormWrap.appendChild(form)
+      document.body.appendChild(narrowFormWrap)
+    } else {
+      formSlot.appendChild(form)
+      if (!document.body.contains(rail)) toggle.click()
+      layoutRail()
+    }
     textArea.focus()
   }
 

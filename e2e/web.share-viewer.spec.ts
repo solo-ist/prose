@@ -958,6 +958,24 @@ test.describe('narrow mode (< 1000px)', () => {
     await expect(page.locator('#prose-sheet')).toHaveCount(0)
   })
 
+  test('sheet prev/next cycles through open threads with wraparound', async ({ page }) => {
+    await page.locator('article span[data-comment-id="c1"]').click()
+    const sheet = page.locator('#prose-sheet')
+    await expect(sheet.locator('.prose-sheet-count')).toHaveText('1 of 2')
+    await expect(sheet.locator('.prose-sheet-quote')).toHaveText('"quick brown fox"')
+
+    await sheet.locator('.prose-sheet-step[aria-label="Next comment"]').click()
+    await expect(sheet.locator('.prose-sheet-count')).toHaveText('2 of 2')
+    await expect(sheet.locator('.prose-sheet-quote')).toHaveText('"notable text"')
+
+    // Next off the end wraps to the first; prev wraps back to the last.
+    await sheet.locator('.prose-sheet-step[aria-label="Next comment"]').click()
+    await expect(sheet.locator('.prose-sheet-count')).toHaveText('1 of 2')
+    await expect(sheet.locator('.prose-sheet-quote')).toHaveText('"quick brown fox"')
+    await sheet.locator('.prose-sheet-step[aria-label="Previous comment"]').click()
+    await expect(sheet.locator('.prose-sheet-count')).toHaveText('2 of 2')
+  })
+
   test('the bottom-bar button opens the first thread; a sheet reply lands and arms the download', async ({ page }) => {
     await page.locator('#prose-bottom-bar button').click()
     const sheet = page.locator('#prose-sheet')

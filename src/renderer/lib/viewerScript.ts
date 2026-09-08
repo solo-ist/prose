@@ -705,6 +705,20 @@ export const VIEWER_STYLES = `
     display: inline-flex;
     align-items: center;
   }
+  .prose-sheet-nav { display: inline-flex; align-items: center; gap: 2px; }
+  .prose-sheet-step {
+    border: none;
+    background: none;
+    padding: 0 12px;
+    font: inherit;
+    font-size: 17px;
+    line-height: 1;
+    color: hsl(var(--foreground));
+    cursor: pointer;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
   .prose-sheet-scroll { flex: 1; overflow-y: auto; padding: 16px; }
   .prose-sheet-quote {
     display: block;
@@ -1487,9 +1501,32 @@ export const VIEWER_SCRIPT = `(function () {
   var sheetBack = el('button', 'prose-sheet-back', '‹ Back to text')
   sheetBack.type = 'button'
   sheetBack.addEventListener('click', function () { closeSheet() })
+  // Prev / K of N / next — cycling wraps, matching the app's review panels.
+  var sheetNav = el('span', 'prose-sheet-nav')
+  var sheetPrev = el('button', 'prose-sheet-step', '‹')
+  sheetPrev.type = 'button'
+  sheetPrev.setAttribute('aria-label', 'Previous comment')
+  sheetPrev.addEventListener('click', function () { stepSheet(-1) })
   var sheetCount = el('span', 'prose-sheet-count', '')
+  var sheetNext = el('button', 'prose-sheet-step', '›')
+  sheetNext.type = 'button'
+  sheetNext.setAttribute('aria-label', 'Next comment')
+  sheetNext.addEventListener('click', function () { stepSheet(1) })
+  sheetNav.appendChild(sheetPrev)
+  sheetNav.appendChild(sheetCount)
+  sheetNav.appendChild(sheetNext)
   sheetHead.appendChild(sheetBack)
-  sheetHead.appendChild(sheetCount)
+  sheetHead.appendChild(sheetNav)
+
+  function stepSheet(delta) {
+    if (narrowOrder.length < 1) return
+    var idx = -1
+    for (var i = 0; i < narrowOrder.length; i++) {
+      if (narrowOrder[i] === sheetOpenId) idx = i
+    }
+    var next = idx === -1 ? 0 : (idx + delta + narrowOrder.length) % narrowOrder.length
+    openSheet(narrowOrder[next])
+  }
   var sheetScroll = el('div', 'prose-sheet-scroll')
   var sheetComposer = el('div', 'prose-sheet-composer')
   sheet.appendChild(sheetHead)
@@ -1511,6 +1548,10 @@ export const VIEWER_SCRIPT = `(function () {
       if (narrowOrder[i] === c.id) pos = i
     }
     sheetCount.textContent = pos >= 0 ? (pos + 1) + ' of ' + narrowOrder.length : ''
+    var canCycle = narrowOrder.length > 1
+    sheetPrev.style.display = canCycle ? '' : 'none'
+    sheetNext.style.display = canCycle ? '' : 'none'
+    sheetScroll.scrollTop = 0
     sheetScroll.textContent = ''
     if (c.markedText) sheetScroll.appendChild(el('span', 'prose-sheet-quote', '"' + c.markedText + '"'))
     var thread = el('div', 'prose-sheet-thread')

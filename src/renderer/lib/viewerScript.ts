@@ -501,6 +501,65 @@ export const VIEWER_STYLES = `
   }
   #prose-comment-form button.prose-secondary { background: transparent; color: hsl(var(--muted-foreground)); padding: 0 10px; }
   .prose-form-kbd { margin-left: auto; font-size: 11px; color: hsl(var(--muted-foreground)); }
+  .prose-reply-link {
+    display: block;
+    border: none;
+    background: none;
+    padding: 0;
+    margin-top: 10px;
+    font: inherit;
+    font-size: 11px;
+    color: hsl(var(--muted-foreground));
+    cursor: pointer;
+  }
+  .prose-reply-link:hover { color: hsl(var(--foreground)); }
+  .prose-reply-composer {
+    margin-top: 10px;
+    padding-left: 10px;
+    border-left: 1px solid hsl(var(--comment) / 0.6);
+  }
+  .prose-reply-composer textarea {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border: 1px solid hsl(var(--input));
+    border-radius: 6px;
+    font: inherit;
+    background: transparent;
+    color: inherit;
+    resize: none;
+    outline: none;
+  }
+  .prose-reply-composer input {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 8px;
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid hsl(var(--input));
+    border-radius: 6px;
+    font: inherit;
+    background: transparent;
+    color: inherit;
+    outline: none;
+  }
+  .prose-reply-actions { margin-top: 8px; display: flex; gap: 8px; align-items: center; }
+  .prose-reply-actions button {
+    border: none;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    font: 500 12px var(--font-mono);
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    cursor: pointer;
+  }
+  .prose-reply-actions button.prose-reply-cancel { background: none; color: hsl(var(--muted-foreground)); padding: 0 8px; }
+  .prose-reply-as { margin-left: auto; font-size: 11px; color: hsl(var(--muted-foreground)); }
   .prose-nudge {
     margin-top: 12px;
     padding-top: 10px;
@@ -760,6 +819,98 @@ export const VIEWER_SCRIPT = `(function () {
   var NUDGE_COPY = 'Posted. Replies go to your email if you gave one.'
   var nudgeShown = false
   var nudgeThreadId = null
+
+  // Thread id whose inline reply composer is open (one at a time).
+  var replyFor = null
+
+  function renderReplyComposer(c) {
+    var wrap = el('div', 'prose-reply-composer')
+    // Typing in the composer must not re-trigger the card's activate-and-
+    // scroll click behavior.
+    wrap.addEventListener('click', function (ev) { ev.stopPropagation() })
+    var textArea = el('textarea', null)
+    textArea.placeholder = 'Reply'
+    textArea.rows = 2
+    textArea.maxLength = 5000
+    wrap.appendChild(textArea)
+    // First-time repliers haven't given a name yet — the route requires one.
+    var nameInput = null
+    if (!storedName()) {
+      nameInput = el('input', null)
+      nameInput.placeholder = 'Your name'
+      nameInput.maxLength = 100
+      wrap.appendChild(nameInput)
+    }
+    var errorEl = el('div', 'prose-form-error', '')
+    errorEl.style.display = 'none'
+    wrap.appendChild(errorEl)
+    var actions = el('div', 'prose-reply-actions')
+    var sendBtn = el('button', null, 'Reply')
+    sendBtn.type = 'button'
+    var cancelBtn = el('button', 'prose-reply-cancel', 'Cancel')
+    cancelBtn.type = 'button'
+    cancelBtn.addEventListener('click', function () {
+      replyFor = null
+      renderRail()
+    })
+    var showError = function (message) {
+      errorEl.textContent = message
+      errorEl.style.display = 'block'
+      layoutRail()
+    }
+    var submitReply = function () {
+      var text = textArea.value.trim()
+      var name = (nameInput ? nameInput.value.trim() : storedName())
+      if (!text || !name) {
+        showError('Name and comment are required.')
+        return
+      }
+      try { window.localStorage.setItem('prose-commenter-name', name) } catch (e) { /* blocked storage */ }
+      if (!online) {
+        var localReply = { id: makeId(), author: 'user', authorName: name, text: text, createdAt: Date.now() }
+        c.replies = c.replies || []
+        c.replies.push(localReply)
+        mineIds[localReply.id] = true
+        localAdditions++
+        unsavedAdditions++
+        replyFor = null
+        renderRail()
+        return
+      }
+      sendBtn.disabled = true
+      postReplyRequest(c.id, name, text).then(function (created) {
+        // Optimistic append under the SERVER id — mergeLive dedupes replies
+        // by id, so the next poll can't double it.
+        c.replies = c.replies || []
+        c.replies.push({
+          id: created.id,
+          text: text,
+          authorName: name,
+          createdAt: created.createdAt ? new Date(created.createdAt).getTime() : Date.now(),
+          fromAuthor: false
+        })
+        mineIds[created.id] = true
+        replyFor = null
+        renderRail()
+        window.setTimeout(fetchLiveComments, 2000)
+      }).catch(function (err) {
+        sendBtn.disabled = false
+        showError(err && err.message ? err.message : 'Failed to post comment.')
+      })
+    }
+    sendBtn.addEventListener('click', submitReply)
+    textArea.addEventListener('keydown', function (ev) {
+      if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') {
+        ev.preventDefault()
+        submitReply()
+      }
+    })
+    actions.appendChild(sendBtn)
+    actions.appendChild(cancelBtn)
+    actions.appendChild(el('span', 'prose-reply-as', 'as ' + (storedName() || 'you')))
+    wrap.appendChild(actions)
+    return wrap
+  }
   function mineTag(id, authorName) {
     if (mineIds[id]) return ' · you'
     var name = storedName()
@@ -822,6 +973,23 @@ export const VIEWER_SCRIPT = `(function () {
       replyEl.appendChild(headerRow(label, tag, r.createdAt))
       replyEl.appendChild(el('div', 'prose-thread-body', r.text))
       card.appendChild(replyEl)
+    }
+    if (!lost && !c.resolved) {
+      if (replyFor === c.id) {
+        card.appendChild(renderReplyComposer(c))
+      } else {
+        var replyLink = el('button', 'prose-reply-link', 'Reply')
+        replyLink.type = 'button'
+        replyLink.addEventListener('click', function (ev) {
+          ev.stopPropagation()
+          replyFor = c.id
+          renderRail()
+          setActive(c.id, false)
+          var ta = openList.querySelector('[data-thread-id="' + CSS.escape(c.id) + '"] textarea')
+          if (ta) ta.focus()
+        })
+        card.appendChild(replyLink)
+      }
     }
     if (c.id === nudgeThreadId) {
       var nudge = el('div', 'prose-nudge')
@@ -1384,23 +1552,37 @@ export const VIEWER_SCRIPT = `(function () {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
-    }).then(function (resp) {
-      if (resp.status === 429) {
-        // The gateway sends the honest wait — render "try again at H:MM"
-        // instead of a vague minute.
-        return resp.json().catch(function () { return {} }).then(function (body) {
-          var secs = body && typeof body.retryAfter === 'number' && body.retryAfter > 0 ? body.retryAfter : 60
-          var when = ''
-          try {
-            when = new Date(Date.now() + secs * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-          } catch (e) { /* no locale time */ }
-          throw new Error('Too many comments in a minute. Your text is kept here. Try again' + (when ? ' at ' + when : ' shortly') + '.')
-        })
+    }).then(handleShareResponse)
+  }
+
+  function handleShareResponse(resp) {
+    if (resp.status === 429) {
+      // The gateway sends the honest wait — render "try again at H:MM"
+      // instead of a vague minute.
+      return resp.json().catch(function () { return {} }).then(function (body) {
+        var secs = body && typeof body.retryAfter === 'number' && body.retryAfter > 0 ? body.retryAfter : 60
+        var when = ''
+        try {
+          when = new Date(Date.now() + secs * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+        } catch (e) { /* no locale time */ }
+        throw new Error('Too many comments in a minute. Your text is kept here. Try again' + (when ? ' at ' + when : ' shortly') + '.')
+      })
+    }
+    if (resp.status === 410) throw new Error('This share link has been revoked.')
+    if (!resp.ok) throw new Error('Failed to post comment (' + resp.status + ').')
+    return resp.json()
+  }
+
+  function postReplyRequest(threadId, name, text) {
+    var payload = { commentText: text, authorName: name, publishRev: shareConfig.publishRev }
+    return window.fetch(
+      shareConfig.shareEndpoint.replace(/\\/$/, '') + '/s/' + token + '/comments/' + encodeURIComponent(threadId) + '/replies',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
       }
-      if (resp.status === 410) throw new Error('This share link has been revoked.')
-      if (!resp.ok) throw new Error('Failed to post comment (' + resp.status + ').')
-      return resp.json()
-    })
+    ).then(handleShareResponse)
   }
 })()
 `

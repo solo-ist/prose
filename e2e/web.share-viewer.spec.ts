@@ -312,6 +312,28 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
     await expect(page.locator('#prose-download-copy')).toContainText('annotated copy (1 new)')
   })
 
+  test('an offline reply lands in the thread, arms the download, bakes into the copy', async ({ page }) => {
+    const c1 = page.locator('.prose-thread[data-thread-id="c1"]')
+    await c1.locator('.prose-reply-link').click()
+    await c1.locator('.prose-reply-composer input').fill('Reply Riley')
+    await c1.locator('.prose-reply-composer textarea').fill('Offline reply here.')
+    await c1.locator('.prose-reply-actions button', { hasText: 'Reply' }).first().click()
+
+    await expect(c1.getByText('Offline reply here.')).toBeVisible()
+    await expect(page.locator('#prose-download-copy')).toContainText('(1 new)')
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('#prose-download-copy').click(),
+    ])
+    const savedPath = join(tmpDir, 'reply-annotated.html')
+    await download.saveAs(savedPath)
+    const block = extractCommentsFromHtml(readFileSync(savedPath, 'utf-8'))
+    const replies = block!.comments.find((c) => c.id === 'c1')!.replies!
+    const added = replies.find((r) => r.text === 'Offline reply here.')
+    expect(added?.authorName).toBe('Reply Riley')
+  })
+
   test('⌘↵ / Ctrl+Enter submits the comment form', async ({ page }) => {
     await page.locator('article p').first().click({ clickCount: 3 })
     await page.locator('#prose-add-comment-btn').click()
@@ -635,6 +657,23 @@ test.describe('live conversation loop (online viewer)', () => {
           res.writeHead(201, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ id, createdAt: '2026-09-07T00:05:00.000Z' }))
         })
+      } else if (req.method === 'POST' && /^\/s\/testtoken\/comments\/[^/]+\/replies$/.test(url)) {
+        let body = ''
+        req.on('data', (c) => { body += c })
+        req.on('end', () => {
+          const parsed = JSON.parse(body) as { commentText: string; authorName: string }
+          const parentId = url.split('/')[4]
+          const id = `srv-reply-${postedRows.length + 1}`
+          postedRows.push(row({
+            id,
+            parentId,
+            commentText: parsed.commentText,
+            authorName: parsed.authorName,
+            createdAt: '2026-09-07T00:06:00.000Z',
+          }))
+          res.writeHead(201, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ id, createdAt: '2026-09-07T00:06:00.000Z' }))
+        })
       } else {
         res.writeHead(404)
         res.end()
@@ -713,6 +752,26 @@ test.describe('live conversation loop (online viewer)', () => {
     await page.evaluate(() => window.dispatchEvent(new Event('focus')))
     await page.waitForTimeout(300)
     await expect(page.getByText('Posted live.')).toHaveCount(1)
+  })
+
+  test('a reply posts to the public route and is not duplicated by the next poll', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    const thread = page.locator('.prose-thread', { hasText: 'Live-only thread.' })
+    await thread.locator('.prose-reply-link').click()
+    // Fresh context has no stored commenter name — the composer asks for one.
+    await thread.locator('.prose-reply-composer input').fill('Reply Rae')
+    await thread.locator('.prose-reply-composer textarea').fill('From the rail.')
+    await thread.locator('.prose-reply-actions button', { hasText: 'Reply' }).first().click()
+
+    await expect(thread.getByText('From the rail.')).toBeVisible()
+    await expect(thread.getByText('Reply Rae', { exact: false })).toBeVisible()
+    await expect(thread.locator('.prose-author-tag', { hasText: '· you' })).toBeVisible()
+
+    // The optimistic reply carries the server id — the next poll returns the
+    // same row and the merge must not double it.
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await page.waitForTimeout(300)
+    await expect(thread.getByText('From the rail.')).toHaveCount(1)
   })
 
   test('a 429 shows the honest retry time and keeps the draft', async ({ page }) => {

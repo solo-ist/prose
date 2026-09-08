@@ -1222,7 +1222,7 @@ export const VIEWER_SCRIPT = `(function () {
     for (var i = 0; i < replies.length; i++) {
       card.appendChild(renderReplyRow(replies[i]))
     }
-    if (!lost && !c.resolved) {
+    if (!lost && !c.resolved && !revoked) {
       if (replyFor === c.id) {
         card.appendChild(renderReplyComposer(c))
       } else {
@@ -1522,7 +1522,7 @@ export const VIEWER_SCRIPT = `(function () {
 
   function renderSheetComposer(c) {
     sheetComposer.textContent = ''
-    if (c.resolved) return
+    if (c.resolved || revoked) return
     var name = storedName()
     if (name) sheetComposer.appendChild(el('div', 'prose-sheet-as', 'Replying as ' + name))
     var textArea = el('textarea', null)
@@ -1766,6 +1766,9 @@ export const VIEWER_SCRIPT = `(function () {
   // server row id at publish time.
   var pollTimer = null
   var pollStopped = false
+  // Flipped when the gateway answers 410: the author took the link down.
+  // The page stays readable but every commenting entry point closes.
+  var revoked = false
 
   function rowToReply(row) {
     return {
@@ -1834,8 +1837,13 @@ export const VIEWER_SCRIPT = `(function () {
     window.fetch(shareConfig.shareEndpoint.replace(/\\/$/, '') + '/s/' + token + '/comments').then(function (resp) {
       if (resp.status === 410) {
         pollStopped = true
+        revoked = true
         if (pollTimer) window.clearInterval(pollTimer)
-        note.textContent = 'This share link has been revoked.'
+        note.textContent = 'This link was taken down by its author.'
+        // Close NEW entry points only — an open compose form keeps its
+        // draft (its submit surfaces the revoked error without clearing).
+        addBtn.remove()
+        renderRail()
         return null
       }
       if (!resp.ok) return null
@@ -1901,6 +1909,7 @@ export const VIEWER_SCRIPT = `(function () {
 
   document.addEventListener('mouseup', function () {
     window.setTimeout(function () {
+      if (revoked) { addBtn.remove(); return }
       var sel = window.getSelection()
       if (!sel || sel.isCollapsed || sel.rangeCount === 0) { addBtn.remove(); return }
       var anchor = computeAnchor(sel)
@@ -2078,7 +2087,10 @@ export const VIEWER_SCRIPT = `(function () {
         throw shownError('Too many comments in a minute. Your text is kept here. Try again' + (when ? ' at ' + when : ' shortly') + '.')
       })
     }
-    if (resp.status === 410) throw shownError('This share link has been revoked.')
+    if (resp.status === 410) {
+      revoked = true
+      throw shownError('This link was taken down by its author.')
+    }
     if (!resp.ok) {
       // 4xx = the request was wrong — surface it. 5xx = the server failed —
       // the caller falls back to a local not-sent comment.

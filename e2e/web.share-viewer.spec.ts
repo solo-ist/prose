@@ -616,6 +616,7 @@ test.describe('live conversation loop (online viewer)', () => {
   let postedRows: Array<Record<string, unknown>> = []
   let post429RetryAfter = 0
   let post500 = false
+  let commentsGone = false
 
   const row = (over: Record<string, unknown>): Record<string, unknown> => ({
     parentId: null,
@@ -639,6 +640,11 @@ test.describe('live conversation loop (online viewer)', () => {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': CSP })
         res.end(artifactHtmlOnline)
       } else if (req.method === 'GET' && url.startsWith('/s/testtoken/comments')) {
+        if (commentsGone) {
+          res.writeHead(410, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'revoked' }))
+          return
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ comments: [...commentRows, ...postedRows], nextCursor: null }))
       } else if (req.method === 'POST' && url === '/s/testtoken/comments') {
@@ -723,6 +729,7 @@ test.describe('live conversation loop (online viewer)', () => {
     postedRows = []
     post429RetryAfter = 0
     post500 = false
+    commentsGone = false
     commentRows = [
       // The pushed author reply, now a gateway row.
       row({ id: 'srv-1', parentId: 'c1', commentText: 'On it.', authorName: 'Angel', fromAuthor: true, createdAt: '2026-09-06T00:00:00.000Z' }),
@@ -865,6 +872,26 @@ test.describe('live conversation loop (online viewer)', () => {
     expect(added?.authorName).toBe('Stranded Sam')
     const parent = block!.comments.find((c) => c.id === 'srv-2')
     expect(parent?.replies?.some((r) => r.text === 'Reply while down.')).toBe(true)
+  })
+
+  test('a mid-session revocation closes commenting but keeps the page readable', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
+    await expect(page.locator('.prose-reply-link').first()).toBeVisible()
+
+    commentsGone = true
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+
+    // The rail note swaps to the takedown copy…
+    await expect(page.locator('.prose-rail-note')).toHaveText('This link was taken down by its author.')
+    // …commenting entry points close…
+    await expect(page.locator('.prose-reply-link')).toHaveCount(0)
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.waitForTimeout(150)
+    await expect(page.locator('#prose-add-comment-btn')).toHaveCount(0)
+    // …but the document and existing conversation stay readable.
+    await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
+    await expect(page.locator('article')).toContainText('quick brown fox')
   })
 
   test('first post shows the one-time nudge; dismissible; never repeats', async ({ page }) => {

@@ -254,6 +254,15 @@ async function main() {
   expect(revoke.status === 204, 'revoke returns 204', `status ${revoke.status}`)
   const gone = await fetch(pub.shareUrl)
   expect(gone.status === 410, 'revoked share 410s', `status ${gone.status}`)
+  // The 410 is the styled takedown page on the artifact headers — not bare
+  // text; the comment surfaces below keep their JSON 410s.
+  expect((gone.headers.get('content-type') ?? '').includes('text/html'), 'revoked page is HTML', gone.headers.get('content-type'))
+  expect((gone.headers.get('content-security-policy') ?? '').includes("default-src 'none'"), 'revoked page carries the artifact CSP')
+  expect(gone.headers.get('cache-control') === 'no-store', 'revoked page is no-store')
+  const goneHtml = await gone.text()
+  expect(goneHtml.includes('This link was taken down by its author.'), 'revoked page headline present')
+  expect(goneHtml.includes('it still opens and still shows its comments'), 'revoked page downloaded-copy note present')
+  expect(goneHtml.includes('· 410'), 'revoked page status footer present')
   const commentGone = await fetch(commentUrl, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ markedText: 'v', commentText: 'late', authorName: 'L' }),
@@ -261,6 +270,7 @@ async function main() {
   expect(commentGone.status === 410, 'comments on a revoked share 410', `status ${commentGone.status}`)
   const liveGone = await fetch(commentUrl)
   expect(liveGone.status === 410, 'live GET on a revoked share 410s', `status ${liveGone.status}`)
+  expect((liveGone.headers.get('content-type') ?? '').includes('application/json'), 'live 410 stays JSON')
   const pullAfter = await fetch(`${BASE}/api/share/${pub.publicationId}/comments`, { headers: authed })
   expect((await pullAfter.json()).comments.length === 0, 'revoke deleted reviewer comments')
 

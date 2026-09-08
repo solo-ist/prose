@@ -37,6 +37,46 @@ const ARTIFACT_HEADERS: Record<string, string> = {
 
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
+/** HTML-escape for the revoked page — the request host lands in markup. */
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+/**
+ * The revoked-link page — the one piece of share chrome the gateway renders
+ * itself (the artifact is gone, so its baked viewer can't). Static dark HTML,
+ * no script, served on ARTIFACT_HEADERS; mirrors the copy the live viewer
+ * shows when its poll hits the same 410. The comments GET/POST keep JSON 410s.
+ */
+function revokedPage(host: string): string {
+  const safeHost = escapeHtml(host)
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Link taken down</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0a0a0a; color: #f2efe6; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  main { max-width: 460px; padding: 32px 24px; text-align: center; }
+  .wordmark { font-family: Georgia, serif; font-style: italic; font-weight: 700; font-size: 22px; letter-spacing: -0.012em; color: #e2d9cb; margin-bottom: 40px; }
+  h1 { font-size: 15px; font-weight: 500; line-height: 1.5; margin: 0 0 14px; }
+  p { font-size: 12px; line-height: 1.7; color: rgba(242, 239, 230, 0.55); margin: 0 0 32px; }
+  .meta { font-size: 11px; color: rgba(242, 239, 230, 0.35); }
+</style>
+</head>
+<body>
+<main>
+  <div class="wordmark">¶ Prose.</div>
+  <h1>This link was taken down by its author.</h1>
+  <p>Nothing here is cached. If you have a downloaded copy, it still opens and still shows its comments.</p>
+  <div class="meta">${safeHost}/s/… · 410</div>
+</main>
+</body>
+</html>
+`
+}
+
 type CommentPayload = {
   markedText: string
   occurrenceIndex: number
@@ -82,7 +122,9 @@ const commentWriteLimit = ipRateLimit(10, 60)
 sharePublicRoutes.get('/:token', async (c) => {
   const pub = await findPublicationByToken(c.req.param('token'))
   if (!pub) return c.text('Not found', 404)
-  if (pub.revokedAt) return c.text('This share link has been revoked.', 410)
+  if (pub.revokedAt) {
+    return c.body(revokedPage(new URL(c.req.url).host), 410, ARTIFACT_HEADERS)
+  }
 
   const html = await getArtifact(pub)
   if (!html) return c.text('Not found', 404)

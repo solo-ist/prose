@@ -454,19 +454,40 @@ export const VIEWER_STYLES = `
   }
   .prose-offline-note { margin-top: 8px; font-size: 11px; color: hsl(var(--muted-foreground)); }
   #prose-file-banner {
-    min-height: 36px;
+    position: sticky;
+    top: 52px;
+    z-index: 4;
     box-sizing: border-box;
+    min-height: 36px;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    justify-content: center;
-    padding: 4px 16px;
-    background: hsl(var(--muted));
-    color: hsl(var(--foreground));
+    justify-content: space-between;
+    gap: 6px 16px;
+    padding: 6px 24px;
+    background: var(--bg);
+    border-bottom: 1px solid hsl(var(--border));
     font-family: var(--font-mono);
     font-size: 11.5px;
     letter-spacing: 0.02em;
-    text-align: center;
+    color: hsl(var(--muted-foreground));
+    transition: background 0.3s ease;
   }
+  .prose-local-sync { display: inline-flex; align-items: center; gap: 12px; flex-shrink: 0; }
+  .prose-local-state.prose-local-err { color: hsl(var(--pending)); }
+  #prose-publish-comments {
+    border: none;
+    height: 26px;
+    padding: 0 12px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    font: 500 11.5px var(--font-mono);
+    background: hsl(var(--comment));
+    color: #0a0a0a;
+    cursor: pointer;
+  }
+  #prose-publish-comments[disabled] { opacity: 0.6; cursor: default; }
   .prose-rail-note {
     position: absolute;
     width: 300px;
@@ -823,6 +844,21 @@ export const VIEWER_SCRIPT = `(function () {
     token = m ? m[1] : null
   }
   var online = !!(shareConfig && shareConfig.shareEndpoint && token && !isFile)
+
+  // The comment API base for THIS page:
+  // - served (/s/<token>): endpoint from the share block + token from the URL
+  //   (the PUBLISHED artifact never embeds the token);
+  // - a downloaded annotated copy (file://): the full capability URL the
+  //   viewer baked into the copy at download time — the downloader already
+  //   held it. This is what lets a local copy publish its comments back.
+  var shareApiBase = null
+  if (online) {
+    shareApiBase = shareConfig.shareEndpoint.replace(/\\/$/, '') + '/s/' + token
+  } else if (isFile && shareConfig && typeof shareConfig.shareUrl === 'string' && /^https?:\\/\\//.test(shareConfig.shareUrl)) {
+    shareApiBase = shareConfig.shareUrl.replace(/\\/$/, '')
+  }
+  // Local draft/publish mode: annotate in the file, push in one exchange.
+  var canPublish = isFile && !!shareApiBase
 
   // Comments a reader added in THIS page (offline mode) but hasn't downloaded.
   var localAdditions = 0
@@ -1357,10 +1393,21 @@ export const VIEWER_SCRIPT = `(function () {
 
     if (railCount) railCount.textContent = isNarrow ? String(open.length) : open.length + ' comments'
     bottomBtn.textContent = 'Comments ' + open.length
-    downloadBtn.textContent = unsavedAdditions > 0
-      ? 'Download annotated copy (' + unsavedAdditions + ' new)'
-      : 'Download annotated copy'
+    if (isFile) {
+      // The reader already HAS this file — offer a save only when the page
+      // holds additions the on-disk copy lacks.
+      downloadBtn.style.display = unsavedAdditions > 0 ? '' : 'none'
+      downloadBtn.textContent = unsavedAdditions > 0
+        ? 'Save updated copy (' + unsavedAdditions + ' new)'
+        : 'Download annotated copy'
+    } else {
+      downloadBtn.style.display = ''
+      downloadBtn.textContent = unsavedAdditions > 0
+        ? 'Download annotated copy (' + unsavedAdditions + ' new)'
+        : 'Download annotated copy'
+    }
     downloadBtn.classList.toggle('prose-has-additions', unsavedAdditions > 0)
+    renderLocalSync()
     if (sheetOpenId) renderSheetContent()
     layoutRail()
     scheduleLayout()
@@ -1369,7 +1416,9 @@ export const VIEWER_SCRIPT = `(function () {
   var note = el('div', 'prose-rail-note')
   note.textContent = online
     ? 'Select text to leave a comment.'
-    : 'Select text to leave a comment. Comments live in this file — download the annotated copy to keep or return them.'
+    : canPublish
+      ? 'Select text to leave a comment. Publish to send your comments to the shared page.'
+      : 'Select text to leave a comment. Comments live in this file — download the annotated copy to keep or return them.'
 
   rail.appendChild(railHead)
   rail.appendChild(note)
@@ -1710,6 +1759,21 @@ export const VIEWER_SCRIPT = `(function () {
       dl.textContent = 'Download annotated copy'
       dl.classList.remove('prose-has-additions')
     }
+    // A copy downloaded from the SERVED page carries the full capability URL
+    // so it can publish comments back from file:// — the person downloading
+    // already holds that URL. The served artifact itself never embeds the
+    // token; offline re-downloads keep whatever the file already carried.
+    if (online) {
+      var shareBlock = clone.querySelector('script[type="application/x-prose-share"]')
+      if (shareBlock) {
+        shareBlock.textContent = JSON.stringify({
+          shareEndpoint: shareConfig.shareEndpoint,
+          publishRev: shareConfig.publishRev,
+          publishedAt: shareConfig.publishedAt,
+          shareUrl: shareApiBase
+        }).replace(/</g, '\\\\u003c')
+      }
+    }
     // Re-embed the full comment set (original + local additions).
     var script = clone.querySelector('script[type="application/x-prose-comments"]')
     if (script) {
@@ -1774,13 +1838,51 @@ export const VIEWER_SCRIPT = `(function () {
     })
   }
 
-  // file:// posture: a local copy travels with its comments — say so up top.
-  // Runtime-inserted (never baked), so annotated copies stay banner-free and
-  // re-derive it from their own protocol on open.
+  // file:// posture: the local bar sits under the top bar as part of the
+  // chrome — the "this is a local copy" line plus, when the copy carries its
+  // share URL, the draft state and a Publish action. Runtime-inserted (never
+  // baked), so annotated copies re-derive it from their own protocol on open.
+  var localStateEl = null
+  var localPublishBtn = null
   if (isFile) {
-    var fileBanner = el('div', null, 'Local copy. Comments you add here stay in this file until you send it back.')
+    var fileBanner = el('div', null)
     fileBanner.id = 'prose-file-banner'
-    document.body.insertBefore(fileBanner, document.body.firstChild)
+    fileBanner.appendChild(el('span', 'prose-local-label', canPublish
+      ? 'Local copy — comments you add here stay in this file until you publish them.'
+      : 'Local copy. Comments you add here stay in this file until you send it back.'))
+    var syncBox = el('span', 'prose-local-sync')
+    localStateEl = el('span', 'prose-local-state', '')
+    syncBox.appendChild(localStateEl)
+    if (canPublish) {
+      localPublishBtn = el('button', null, 'Publish comments')
+      localPublishBtn.id = 'prose-publish-comments'
+      localPublishBtn.type = 'button'
+      localPublishBtn.addEventListener('click', publishLocalAdditions)
+      syncBox.appendChild(localPublishBtn)
+    }
+    fileBanner.appendChild(syncBox)
+    var topbarEl = document.querySelector('.prose-topbar')
+    if (topbarEl && topbarEl.parentNode) topbarEl.parentNode.insertBefore(fileBanner, topbarEl.nextSibling)
+    else document.body.insertBefore(fileBanner, document.body.firstChild)
+  }
+
+  // Draft / published state in the local bar. Rendered from renderRail so
+  // counts track every mutation.
+  function renderLocalSync() {
+    if (!localStateEl) return
+    var n = unpublishedCount()
+    var err = publishStateKind === 'err'
+    var text = ''
+    if (publishing) text = 'Publishing…'
+    else if (err) text = publishState
+    else if (n > 0) text = 'Draft · ' + n + ' unpublished'
+    else if (publishStateKind === 'ok') text = 'All comments published'
+    localStateEl.textContent = text
+    localStateEl.classList.toggle('prose-local-err', err && !publishing)
+    if (localPublishBtn) {
+      localPublishBtn.style.display = canPublish && n > 0 ? '' : 'none'
+      localPublishBtn.disabled = publishing
+    }
   }
 
   anchorAllThreads()
@@ -1875,17 +1977,26 @@ export const VIEWER_SCRIPT = `(function () {
     }
   }
 
-  function fetchLiveComments() {
-    if (!online || pollStopped) return
-    window.fetch(shareConfig.shareEndpoint.replace(/\\/$/, '') + '/s/' + token + '/comments').then(function (resp) {
+  // One GET+merge exchange, shared by the online poll and the local publish
+  // flow's pull half.
+  function pullComments() {
+    if (!shareApiBase) return Promise.resolve()
+    return window.fetch(shareApiBase + '/comments').then(function (resp) {
       if (resp.status === 410) {
         pollStopped = true
-        revoked = true
         if (pollTimer) window.clearInterval(pollTimer)
-        note.textContent = 'This link was taken down by its author.'
-        // Close NEW entry points only — an open compose form keeps its
-        // draft (its submit surfaces the revoked error without clearing).
-        addBtn.remove()
+        if (online) {
+          revoked = true
+          note.textContent = 'This link was taken down by its author.'
+          // Close NEW entry points only — an open compose form keeps its
+          // draft (its submit surfaces the revoked error without clearing).
+          addBtn.remove()
+        } else {
+          // A local copy stays annotatable — only the publish path closes.
+          canPublish = false
+          publishStateKind = 'err'
+          publishState = 'This link was taken down by its author. Comments stay in this file.'
+        }
         renderRail()
         return null
       }
@@ -1893,13 +2004,117 @@ export const VIEWER_SCRIPT = `(function () {
       return resp.json()
     }).then(function (body) {
       if (body && body.comments) mergeLive(body.comments)
-    }).catch(function () { /* transient network failure — the next poll retries */ })
+    })
+  }
+
+  function fetchLiveComments() {
+    if (!online || pollStopped) return
+    pullComments().catch(function () { /* transient network failure — the next poll retries */ })
   }
 
   if (online) {
     fetchLiveComments()
     pollTimer = window.setInterval(fetchLiveComments, 45000)
     window.addEventListener('focus', fetchLiveComments)
+  }
+
+  // --- Local publish (file:// copies with a baked share URL) ----------------
+  // Local additions are a DRAFT: they never auto-post. "Publish comments"
+  // pushes every local-id thread/reply up in one sequential exchange (order
+  // keeps reply parents resolving to server ids; the write limiter allows
+  // ~10/min), then pulls the latest conversation. Anything with a 'local-'
+  // id — including additions baked into the file by an earlier session — is
+  // unpublished by definition.
+  var publishing = false
+  var publishState = ''
+  var publishStateKind = ''
+
+  function isLocalId(id) { return typeof id === 'string' && id.indexOf('local-') === 0 }
+
+  function unpublishedCount() {
+    var n = 0
+    for (var i = 0; i < comments.length; i++) {
+      if (isLocalId(comments[i].id)) n++
+      var reps = comments[i].replies || []
+      for (var j = 0; j < reps.length; j++) {
+        if (isLocalId(reps[j].id)) n++
+      }
+    }
+    return n
+  }
+
+  // A published row keeps its viewer-side identity under the new server id.
+  function remapId(oldId, newId) {
+    var spans = article.querySelectorAll('span[data-comment-id="' + CSS.escape(oldId) + '"]')
+    for (var i = 0; i < spans.length; i++) spans[i].setAttribute('data-comment-id', newId)
+    if (mineIds[oldId]) { delete mineIds[oldId]; mineIds[newId] = true }
+    if (lostIds[oldId]) { delete lostIds[oldId]; lostIds[newId] = true }
+    delete notSentIds[oldId]
+    if (activeId === oldId) activeId = newId
+    if (sheetOpenId === oldId) sheetOpenId = newId
+  }
+
+  function publishLocalAdditions() {
+    if (publishing || !canPublish) return
+    publishing = true
+    publishStateKind = ''
+    renderLocalSync()
+    var chain = Promise.resolve()
+    for (var ci = 0; ci < comments.length; ci++) {
+      (function (c) {
+        if (isLocalId(c.id)) {
+          chain = chain.then(function () {
+            return postComment(
+              { markedText: c.markedText || '', occurrenceIndex: c.occurrenceIndex || 0 },
+              c.authorName || 'Reader',
+              '',
+              c.comment
+            ).then(function (created) {
+              var old = c.id
+              c.id = created.id
+              remapId(old, created.id)
+            })
+          })
+        }
+        var reps = c.replies || []
+        for (var ri = 0; ri < reps.length; ri++) {
+          (function (r) {
+            if (!isLocalId(r.id)) return
+            chain = chain.then(function () {
+              // c.id reads at execution time — a just-published parent
+              // thread has its server id by now.
+              return postReplyRequest(c.id, r.authorName || 'Reader', r.text).then(function (created) {
+                var old = r.id
+                r.id = created.id
+                remapId(old, created.id)
+              })
+            })
+          })(reps[ri])
+        }
+      })(comments[ci])
+    }
+    chain.then(function () {
+      // The pull half of the exchange: catch up on the live conversation.
+      return pullComments()
+    }).then(function () {
+      publishing = false
+      if (unpublishedCount() === 0) {
+        publishStateKind = 'ok'
+        // Everything this page held is on the shared page now — nothing left
+        // to lose with the tab, nothing left worth saving into a copy.
+        unsavedAdditions = 0
+      }
+      renderRail()
+    }).catch(function (err) {
+      // Partial progress stands: already-published rows keep their server
+      // ids; the remainder stays draft.
+      publishing = false
+      publishStateKind = 'err'
+      publishState = err && err.proseShow && err.message
+        ? err.message
+        : 'Could not reach the shared page. Comments are safe in this file.'
+      renderRail()
+    })
   }
 
   // --- Highlight interactions ----------------------------------------------
@@ -2101,7 +2316,7 @@ export const VIEWER_SCRIPT = `(function () {
       publishRev: shareConfig.publishRev
     }
     if (email) payload.authorEmail = email
-    return window.fetch(shareConfig.shareEndpoint.replace(/\\/$/, '') + '/s/' + token + '/comments', {
+    return window.fetch(shareApiBase + '/comments', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -2131,7 +2346,10 @@ export const VIEWER_SCRIPT = `(function () {
       })
     }
     if (resp.status === 410) {
-      revoked = true
+      // Served pages close commenting entirely; a local copy stays
+      // annotatable and only loses its publish path.
+      if (online) revoked = true
+      else canPublish = false
       throw shownError('This link was taken down by its author.')
     }
     if (!resp.ok) {
@@ -2147,7 +2365,7 @@ export const VIEWER_SCRIPT = `(function () {
   function postReplyRequest(threadId, name, text) {
     var payload = { commentText: text, authorName: name, publishRev: shareConfig.publishRev }
     return window.fetch(
-      shareConfig.shareEndpoint.replace(/\\/$/, '') + '/s/' + token + '/comments/' + encodeURIComponent(threadId) + '/replies',
+      shareApiBase + '/comments/' + encodeURIComponent(threadId) + '/replies',
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

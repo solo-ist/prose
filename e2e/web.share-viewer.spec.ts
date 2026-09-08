@@ -315,7 +315,13 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
     await expect(page.locator('.prose-rail-head')).toContainText('Comments · 3')
     await expect(page.getByText('Added without any server.')).toBeVisible()
     await expect(page.getByText('Offline Olive', { exact: false })).toBeVisible()
-    await expect(page.locator('#prose-download-copy')).toContainText('annotated copy (1 new)')
+    // Local footer: the save offer appears only once there is something new.
+    await expect(page.locator('#prose-download-copy')).toHaveText('Save updated copy (1 new)')
+  })
+
+  test('the local footer offers no download when the page holds nothing new', async ({ page }) => {
+    await expect(page.locator('.prose-rail-head')).toContainText('Comments · 2')
+    await expect(page.locator('#prose-download-copy')).toBeHidden()
   })
 
   test('an offline reply lands in the thread, arms the download, bakes into the copy', async ({ page }) => {
@@ -384,25 +390,6 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
     await page.goto(pathToFileURL(savedPath).href)
     await expect(page.locator('.prose-rail-head')).toContainText('Comments · 3')
     await expect(page.getByText('Round-trip me.')).toBeVisible()
-  })
-
-  test('download without additions produces a clean copy', async ({ page }) => {
-    const [download] = await Promise.all([
-      page.waitForEvent('download'),
-      page.locator('#prose-download-copy').click(),
-    ])
-    const savedPath = join(tmpDir, 'clean-copy.html')
-    await download.saveAs(savedPath)
-    const copyHtml = readFileSync(savedPath, 'utf-8')
-    expect(extractCommentsFromHtml(copyHtml)!.comments).toHaveLength(3)
-    // Runtime viewer DOM is stripped; baked chrome (top bar, footer) stays.
-    expect(copyHtml).not.toContain('id="prose-comment-rail"')
-    expect(copyHtml).not.toContain('id="prose-file-banner"')
-    expect(copyHtml).toContain('id="prose-rail-toggle"')
-    expect(copyHtml).toContain('id="prose-download-copy"')
-    // The downloading viewer's theme preference must not be baked into the
-    // copy — its next reader re-derives theme from their own storage/OS.
-    expect(copyHtml).not.toMatch(/<html[^>]*class="[^"]*dark/)
   })
 
   test('rail toggle hides and shows the rail', async ({ page }) => {
@@ -634,32 +621,44 @@ test.describe('live conversation loop (online viewer)', () => {
   test.beforeAll(async () => {
     const { createServer } = await import('node:http')
     let artifactHtmlOnline = ''
+    // Mirrors the gateway's CORS posture on /s/* (hono/cors, origin *): this
+    // is what lets a downloaded file:// copy (Origin: null) publish comments.
+    const corsJson = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
     server = createServer((req, res) => {
       const url = req.url ?? ''
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204, {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        })
+        res.end()
+        return
+      }
       if (req.method === 'GET' && url === '/s/testtoken') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': CSP })
         res.end(artifactHtmlOnline)
       } else if (req.method === 'GET' && url.startsWith('/s/testtoken/comments')) {
         if (commentsGone) {
-          res.writeHead(410, { 'Content-Type': 'application/json' })
+          res.writeHead(410, corsJson)
           res.end(JSON.stringify({ error: 'revoked' }))
           return
         }
-        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.writeHead(200, corsJson)
         res.end(JSON.stringify({ comments: [...commentRows, ...postedRows], nextCursor: null }))
       } else if (req.method === 'POST' && url === '/s/testtoken/comments') {
         let body = ''
         req.on('data', (c) => { body += c })
         req.on('end', () => {
           if (post500) {
-            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.writeHead(500, corsJson)
             res.end(JSON.stringify({ error: 'internal_error' }))
             return
           }
           if (post429RetryAfter > 0) {
             const retryAfter = post429RetryAfter
             post429RetryAfter = 0
-            res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': String(retryAfter) })
+            res.writeHead(429, { ...corsJson, 'Retry-After': String(retryAfter) })
             res.end(JSON.stringify({ error: 'rate_limited', retryAfter }))
             return
           }
@@ -673,7 +672,7 @@ test.describe('live conversation loop (online viewer)', () => {
             authorName: parsed.authorName,
             createdAt: '2026-09-07T00:05:00.000Z',
           }))
-          res.writeHead(201, { 'Content-Type': 'application/json' })
+          res.writeHead(201, corsJson)
           res.end(JSON.stringify({ id, createdAt: '2026-09-07T00:05:00.000Z' }))
         })
       } else if (req.method === 'POST' && /^\/s\/testtoken\/comments\/[^/]+\/replies$/.test(url)) {
@@ -681,7 +680,7 @@ test.describe('live conversation loop (online viewer)', () => {
         req.on('data', (c) => { body += c })
         req.on('end', () => {
           if (post500) {
-            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.writeHead(500, corsJson)
             res.end(JSON.stringify({ error: 'internal_error' }))
             return
           }
@@ -695,7 +694,7 @@ test.describe('live conversation loop (online viewer)', () => {
             authorName: parsed.authorName,
             createdAt: '2026-09-07T00:06:00.000Z',
           }))
-          res.writeHead(201, { 'Content-Type': 'application/json' })
+          res.writeHead(201, corsJson)
           res.end(JSON.stringify({ id, createdAt: '2026-09-07T00:06:00.000Z' }))
         })
       } else {
@@ -892,6 +891,80 @@ test.describe('live conversation loop (online viewer)', () => {
     // …but the document and existing conversation stay readable.
     await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
     await expect(page.locator('article')).toContainText('quick brown fox')
+  })
+
+  test('a served-page download without additions produces a clean copy carrying the share URL', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    // Let the initial poll land so the baked comment set is deterministic.
+    await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('#prose-download-copy').click(),
+    ])
+    const savedPath = join(tmpDir, 'clean-copy.html')
+    await download.saveAs(savedPath)
+    const copyHtml = readFileSync(savedPath, 'utf-8')
+    // Baked thread + the live-merged one travel in the copy.
+    expect(extractCommentsFromHtml(copyHtml)!.comments).toHaveLength(2)
+    // The copy carries the full capability URL — the downloader already held
+    // it — which is what lets the file:// copy publish comments back.
+    expect(extractShareConfigFromHtml(copyHtml)!.shareUrl).toBe(`${origin}/s/testtoken`)
+    // Runtime viewer DOM is stripped; baked chrome (top bar, footer) stays.
+    expect(copyHtml).not.toContain('id="prose-comment-rail"')
+    expect(copyHtml).not.toContain('id="prose-file-banner"')
+    expect(copyHtml).toContain('id="prose-rail-toggle"')
+    expect(copyHtml).toContain('id="prose-download-copy"')
+    // The downloading viewer's theme preference must not be baked into the
+    // copy — its next reader re-derives theme from their own storage/OS.
+    expect(copyHtml).not.toMatch(/<html[^>]*class="[^"]*dark/)
+  })
+
+  test('a downloaded copy publishes its comments back through the baked share URL', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('#prose-download-copy').click(),
+    ])
+    const savedPath = join(tmpDir, 'local-publish.html')
+    await download.saveAs(savedPath)
+
+    // A reply lands on the server while the reader is away — the publish
+    // exchange's pull half should bring it in.
+    commentRows.push(
+      row({ id: 'srv-late', parentId: 'srv-2', commentText: 'Landed while offline.', authorName: 'Late Reviewer', createdAt: '2026-09-08T00:00:00.000Z' })
+    )
+
+    // Reopen from file:// — publish-capable local mode.
+    await page.goto(pathToFileURL(savedPath).href)
+    await expect(page.locator('#prose-file-banner')).toContainText('until you publish them')
+    await expect(page.locator('#prose-publish-comments')).toBeHidden()
+    await expect(page.getByText('Landed while offline.')).toBeHidden()
+
+    // A local addition is a draft: no auto-post, state + button appear.
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').fill('Local Lia')
+    await page.locator('#prose-comment-form textarea').fill('Published from a local file.')
+    await page.locator('#prose-comment-form button', { hasText: 'Add' }).first().click()
+    await expect(page.locator('.prose-local-state')).toHaveText('Draft · 1 unpublished')
+    expect(postedRows).toHaveLength(0)
+
+    // Publish: pushes the draft, pulls the conversation, clears the state.
+    await page.locator('#prose-publish-comments').click()
+    await expect(page.locator('.prose-local-state')).toHaveText('All comments published')
+    expect(postedRows).toHaveLength(1)
+    expect(postedRows[0].commentText).toBe('Published from a local file.')
+    expect(postedRows[0].authorName).toBe('Local Lia')
+    // The thread now lives under its server id and stays tagged as ours.
+    const card = page.locator('.prose-thread', { hasText: 'Published from a local file.' })
+    await expect(card).toHaveAttribute('data-thread-id', /^srv-posted-/)
+    await expect(card.locator('.prose-author-tag').first()).toHaveText('· you')
+    // The pull half of the exchange landed the reply posted since download.
+    await expect(page.getByText('Landed while offline.')).toBeVisible()
+    // Nothing left at risk — the local footer offers no save.
+    await expect(page.locator('#prose-download-copy')).toBeHidden()
+    await expect(page.locator('#prose-publish-comments')).toBeHidden()
   })
 
   test('first post shows the one-time nudge; dismissible; never repeats', async ({ page }) => {

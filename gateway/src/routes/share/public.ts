@@ -6,10 +6,13 @@
  * POST /s/:token/comments             → anonymous reviewer comment
  * POST /s/:token/comments/:id/replies → anonymous reviewer reply (one level)
  *
- * No session, no CORS exposure (the artifact posts same-origin). Rate-limited
- * per IP. The raw token is a bearer capability — never log the URL path.
+ * No session. This surface serves permissive CORS headers: the routes are
+ * anonymous and capability-gated (the token is the credential, no cookies),
+ * which lets downloaded file:// copies sync their comments. Rate-limited per
+ * IP. The raw token is a bearer capability — never log the URL path.
  */
 import { Hono } from 'hono'
+import { cors } from 'hono/cors'
 import { prisma } from '../../db/index.js'
 import { getArtifact } from '../../artifacts/index.js'
 import { ipRateLimit } from '../../middleware/ipRateLimit.js'
@@ -118,6 +121,16 @@ function parseCommentBody(body: Record<string, unknown>, requireAnchor: boolean)
 }
 
 export const sharePublicRoutes = new Hono()
+
+// CORS wide open on this surface — deliberately. These routes are anonymous
+// and capability-gated: the token IS the credential, no cookies are involved
+// (no Allow-Credentials), and rate limits still apply. This is what lets a
+// DOWNLOADED annotated copy (file://, Origin: null) publish its comments back
+// through the shareUrl baked into it by the viewer's download.
+sharePublicRoutes.use(
+  '*',
+  cors({ origin: '*', allowMethods: ['GET', 'POST', 'OPTIONS'], allowHeaders: ['Content-Type'], maxAge: 86400 })
+)
 
 // Writes get a tighter budget than the app-level /s/* limit (which mainly
 // blunts token brute-forcing on GET): ~10 comments/min per IP.

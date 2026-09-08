@@ -20,11 +20,17 @@ export interface EmbeddedCommentsBlock {
   comments: CommentData[]
 }
 
-/** Shape of the embedded share-config block (#768). Published artifacts only — never local exports. NO token: the viewer reads it from window.location. */
+/** Shape of the embedded share-config block (#768). Published artifacts only —
+ * never local exports. NO token in the PUBLISHED artifact: the viewer reads it
+ * from window.location, so a gateway/R2 dump never exposes live links.
+ * `shareUrl` (the full capability URL) appears ONLY in annotated copies the
+ * viewer downloads from the served page — the downloader already holds that
+ * URL — and lets a local file:// copy publish its comments back. */
 export interface ShareConfig {
   shareEndpoint: string
   publishRev: string
   publishedAt: string
+  shareUrl?: string
 }
 
 /**

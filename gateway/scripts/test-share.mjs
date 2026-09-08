@@ -172,6 +172,15 @@ async function main() {
   })
   expect(nested.status === 404, 'reply-to-reply rejected (one level only)', `status ${nested.status}`)
 
+  // --- CORS (downloaded file:// copies publish cross-origin) ----------------
+  const preflight = await fetch(commentUrl, {
+    method: 'OPTIONS',
+    headers: { Origin: 'null', 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'Content-Type' },
+  })
+  expect(preflight.status === 204, 'comment preflight returns 204', `status ${preflight.status}`)
+  expect(preflight.headers.get('access-control-allow-origin') === '*', 'preflight allows any origin')
+  expect(c1.headers.get('access-control-allow-origin') === '*', 'comment POST carries the CORS header')
+
   // --- Author pull (privacy) ------------------------------------------------
   const pullRes = await fetch(`${BASE}/api/share/${pub.publicationId}/comments`, { headers: authed })
   expect(pullRes.status === 200, 'author comment pull works', `status ${pullRes.status}`)

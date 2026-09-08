@@ -1352,18 +1352,18 @@ export const VIEWER_SCRIPT = `(function () {
     scheduleLayout()
   }
 
+  var note = el('div', 'prose-rail-note')
+  note.textContent = online
+    ? 'Select text to leave a comment.'
+    : 'Select text to leave a comment. Comments live in this file — download the annotated copy to keep or return them.'
+
   rail.appendChild(railHead)
+  rail.appendChild(note)
   rail.appendChild(formSlot)
   rail.appendChild(openList)
   rail.appendChild(resolvedSection)
   rail.appendChild(lostSection)
   rail.appendChild(offlineSection)
-
-  var note = el('div', 'prose-rail-note')
-  note.textContent = online
-    ? 'Select text to leave a comment.'
-    : 'Select text to leave a comment. Comments live in this file — download the annotated copy to keep or return them.'
-  rail.appendChild(note)
 
   // --- Rail stacking engine -------------------------------------------------
   // Open cards align to their highlight (top = markTop - 6), pushing down on
@@ -1380,6 +1380,10 @@ export const VIEWER_SCRIPT = `(function () {
   function layoutRail() {
     if (!document.body.contains(rail)) return
     var rootTop = pageRoot.getBoundingClientRect().top
+    // The instructional note (and, when revoked, the takedown notice) sits
+    // at the top of the column, right under the head; cards start below it.
+    var noteTop = 78 + railHead.offsetHeight + 12
+    note.style.top = noteTop + 'px'
     var entries = []
     for (var i = 0; i < openList.children.length; i++) {
       var card = openList.children[i]
@@ -1393,7 +1397,7 @@ export const VIEWER_SCRIPT = `(function () {
     }
     entries.sort(function (a, b) { return a.markTop - b.markTop })
 
-    var cursor = LAYOUT_TOP
+    var cursor = Math.max(LAYOUT_TOP, noteTop + note.offsetHeight + LAYOUT_GAP)
     if (formSlot.firstChild) {
       var formTop = Math.max(formAnchorTop - LAYOUT_NUDGE, cursor)
       formSlot.style.top = formTop + 'px'
@@ -1417,8 +1421,6 @@ export const VIEWER_SCRIPT = `(function () {
       offlineSection.style.top = (cursor + 8) + 'px'
       cursor += 8 + offlineSection.offsetHeight + LAYOUT_GAP
     }
-    note.style.top = (cursor + 8) + 'px'
-    cursor += 8 + note.offsetHeight
     // The rail's own height extends the page's scrollable overflow so cards
     // stacked past the article end stay reachable.
     rail.style.height = (cursor + 40) + 'px'

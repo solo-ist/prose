@@ -229,6 +229,12 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
     await page.goto(artifactUrl)
   })
 
+  test('file:// shows the local-copy banner', async ({ page }) => {
+    await expect(page.locator('#prose-file-banner')).toHaveText(
+      'Local copy. Comments you add here stay in this file until you send it back.'
+    )
+  })
+
   test('renders the comment rail with open and resolved threads', async ({ page }) => {
     const rail = page.locator('#prose-comment-rail')
     await expect(rail).toBeVisible()
@@ -391,6 +397,7 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
     expect(extractCommentsFromHtml(copyHtml)!.comments).toHaveLength(3)
     // Runtime viewer DOM is stripped; baked chrome (top bar, footer) stays.
     expect(copyHtml).not.toContain('id="prose-comment-rail"')
+    expect(copyHtml).not.toContain('id="prose-file-banner"')
     expect(copyHtml).toContain('id="prose-rail-toggle"')
     expect(copyHtml).toContain('id="prose-download-copy"')
     // The downloading viewer's theme preference must not be baked into the
@@ -608,6 +615,7 @@ test.describe('live conversation loop (online viewer)', () => {
   let commentRows: Array<Record<string, unknown>> = []
   let postedRows: Array<Record<string, unknown>> = []
   let post429RetryAfter = 0
+  let post500 = false
 
   const row = (over: Record<string, unknown>): Record<string, unknown> => ({
     parentId: null,
@@ -637,6 +645,11 @@ test.describe('live conversation loop (online viewer)', () => {
         let body = ''
         req.on('data', (c) => { body += c })
         req.on('end', () => {
+          if (post500) {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'internal_error' }))
+            return
+          }
           if (post429RetryAfter > 0) {
             const retryAfter = post429RetryAfter
             post429RetryAfter = 0
@@ -661,6 +674,11 @@ test.describe('live conversation loop (online viewer)', () => {
         let body = ''
         req.on('data', (c) => { body += c })
         req.on('end', () => {
+          if (post500) {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'internal_error' }))
+            return
+          }
           const parsed = JSON.parse(body) as { commentText: string; authorName: string }
           const parentId = url.split('/')[4]
           const id = `srv-reply-${postedRows.length + 1}`
@@ -704,6 +722,7 @@ test.describe('live conversation loop (online viewer)', () => {
   test.beforeEach(() => {
     postedRows = []
     post429RetryAfter = 0
+    post500 = false
     commentRows = [
       // The pushed author reply, now a gateway row.
       row({ id: 'srv-1', parentId: 'c1', commentText: 'On it.', authorName: 'Angel', fromAuthor: true, createdAt: '2026-09-06T00:00:00.000Z' }),
@@ -723,6 +742,8 @@ test.describe('live conversation loop (online viewer)', () => {
     await expect(page.locator('.prose-thread-reply.prose-reply-author')).toHaveCount(1)
     // The live-only thread anchors to its text — no baked span needed.
     await expect(page.locator('article span[data-comment-id="srv-2"]')).toHaveText('lazy dog')
+    // The local-copy banner is a file:// posture — never shown when served.
+    await expect(page.locator('#prose-file-banner')).toHaveCount(0)
   })
 
   test('a resolve landing between polls moves the thread to Resolved on focus', async ({ page }) => {
@@ -786,12 +807,64 @@ test.describe('live conversation loop (online viewer)', () => {
     const error = page.locator('.prose-form-error')
     await expect(error).toContainText('Too many comments in a minute')
     await expect(error).toContainText('Try again at')
-    // The draft is kept in place.
+    // The draft is kept in place — a 429 is a shown error, never the
+    // offline not-sent fallback.
     await expect(page.locator('#prose-comment-form textarea')).toHaveValue('Held back once.')
+    await expect(page.locator('.prose-offline-card')).toHaveCount(0)
+    await expect(page.locator('.prose-not-sent')).toHaveCount(0)
 
     // The limiter window passes (the harness 429s only once) — retry lands.
     await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
     await expect(page.getByText('Held back once.')).toBeVisible()
+  })
+
+  test('a failed post falls back to a not-sent local comment with recovery UI', async ({ page }) => {
+    post500 = true
+    await page.goto(`${origin}/s/testtoken`)
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').first().fill('Stranded Sam')
+    await page.locator('#prose-comment-form textarea').fill('Server was down.')
+    await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
+
+    // The comment lands locally: card tagged "not sent" instead of a date,
+    // highlight applied to the selected text.
+    const card = page.locator('.prose-thread', { hasText: 'Server was down.' })
+    await expect(card).toBeVisible()
+    await expect(card.locator('.prose-not-sent')).toHaveText('not sent')
+    const id = await card.getAttribute('data-thread-id')
+    expect(await page.locator(`article span[data-comment-id="${id}"]`).count()).toBeGreaterThan(0)
+
+    // Recovery UI: offline chip in the rail head + explainer card + armed
+    // download.
+    await expect(page.locator('.prose-offline-chip')).toContainText('offline')
+    await expect(page.locator('.prose-offline-card')).toContainText(
+      "You're offline. 1 comment saved in this page, not on the server."
+    )
+    await expect(page.locator('.prose-offline-card')).toContainText('Send the file back')
+    await expect(page.locator('#prose-download-copy')).toContainText('(1 new)')
+
+    // A failed reply gets the same tag (the composer reuses the stored name).
+    const thread = page.locator('.prose-thread', { hasText: 'Live-only thread.' })
+    await thread.locator('.prose-reply-link').click()
+    await thread.locator('.prose-reply-composer textarea').fill('Reply while down.')
+    await thread.locator('.prose-reply-actions button', { hasText: 'Reply' }).first().click()
+    await expect(thread.getByText('Reply while down.')).toBeVisible()
+    await expect(thread.locator('.prose-not-sent')).toHaveText('not sent')
+    await expect(page.locator('.prose-offline-card')).toContainText('2 comments saved in this page')
+
+    // The not-sent additions bake into the annotated copy — the recovery path.
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('#prose-download-copy').click(),
+    ])
+    const savedPath = join(tmpDir, 'not-sent-annotated.html')
+    await download.saveAs(savedPath)
+    const block = extractCommentsFromHtml(readFileSync(savedPath, 'utf-8'))
+    const added = block!.comments.find((c) => c.comment === 'Server was down.')
+    expect(added?.authorName).toBe('Stranded Sam')
+    const parent = block!.comments.find((c) => c.id === 'srv-2')
+    expect(parent?.replies?.some((r) => r.text === 'Reply while down.')).toBe(true)
   })
 
   test('first post shows the one-time nudge; dismissible; never repeats', async ({ page }) => {

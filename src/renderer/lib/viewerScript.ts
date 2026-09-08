@@ -323,6 +323,15 @@ export const VIEWER_STYLES = `
     letter-spacing: 0.04em;
     color: hsl(var(--muted-foreground));
   }
+  .prose-rail-head-left { display: inline-flex; align-items: center; gap: 10px; }
+  .prose-offline-chip { display: inline-flex; align-items: center; gap: 5px; }
+  .prose-offline-dot {
+    width: 6px;
+    height: 6px;
+    box-sizing: border-box;
+    border-radius: 50%;
+    border: 1.5px solid hsl(var(--pending));
+  }
   .prose-form-slot { position: absolute; width: 300px; z-index: 1; }
   .prose-thread {
     position: absolute;
@@ -414,6 +423,50 @@ export const VIEWER_STYLES = `
   .prose-thread-lost { border-style: dashed; }
   .prose-thread-lost .prose-thread-quote { margin-bottom: 4px; }
   .prose-lost-note { font-size: 11px; color: hsl(var(--muted-foreground)); margin-bottom: 10px; }
+  .prose-not-sent {
+    color: hsl(var(--pending));
+    text-decoration: underline dashed hsl(var(--pending));
+    text-underline-offset: 3px;
+  }
+  .prose-offline-section { position: absolute; width: 300px; }
+  .prose-offline-card {
+    box-sizing: border-box;
+    border: 1px solid hsl(var(--border));
+    border-left: 2px solid hsl(var(--pending));
+    border-radius: 8px;
+    padding: 12px 14px 12px 13px;
+    background: hsl(var(--card));
+    font-size: 11.5px;
+    line-height: 1.6;
+  }
+  .prose-offline-card button {
+    border: none;
+    height: 30px;
+    margin-top: 10px;
+    padding: 0 12px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    font: 500 12px var(--font-mono);
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    cursor: pointer;
+  }
+  .prose-offline-note { margin-top: 8px; font-size: 11px; color: hsl(var(--muted-foreground)); }
+  #prose-file-banner {
+    min-height: 36px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 16px;
+    background: hsl(var(--muted));
+    color: hsl(var(--foreground));
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    letter-spacing: 0.02em;
+    text-align: center;
+  }
   .prose-rail-note {
     position: absolute;
     width: 300px;
@@ -813,6 +866,11 @@ export const VIEWER_SCRIPT = `(function () {
   // Threads/replies this reader created in THIS page session — tagged " · you".
   var mineIds = {}
 
+  // Threads/replies whose POST never reached the server (network down, 5xx).
+  // They live in this page only, tagged "not sent"; the annotated copy is the
+  // recovery vehicle. Runtime-only, like lostIds — never baked.
+  var notSentIds = {}
+
   // One-time post confirmation, shown inside the newly created thread card.
   // The empty link-slot span reserves room for the future account-layer
   // sign-in link without DOM surgery.
@@ -822,6 +880,42 @@ export const VIEWER_SCRIPT = `(function () {
 
   // Thread id whose inline reply composer is open (one at a time).
   var replyFor = null
+
+  // Shared by the offline path and the failed-POST fallback: the comment
+  // stays in the page and arms the annotated-copy download.
+  function addLocalThread(anchor, name, text, notSent) {
+    var localComment = {
+      id: makeId(),
+      markedText: anchor.markedText,
+      occurrenceIndex: anchor.occurrenceIndex,
+      comment: text,
+      authorName: name,
+      createdAt: Date.now(),
+      resolved: false,
+      replies: []
+    }
+    comments.push(localComment)
+    localAdditions++
+    unsavedAdditions++
+    mineIds[localComment.id] = true
+    if (notSent) notSentIds[localComment.id] = true
+    if (!anchorThread(localComment)) lostIds[localComment.id] = true
+    clearForm()
+    renderRail()
+    setActive(localComment.id, false)
+  }
+
+  function addLocalReply(c, name, text, notSent) {
+    var localReply = { id: makeId(), author: 'user', authorName: name, text: text, createdAt: Date.now() }
+    c.replies = c.replies || []
+    c.replies.push(localReply)
+    mineIds[localReply.id] = true
+    if (notSent) notSentIds[localReply.id] = true
+    localAdditions++
+    unsavedAdditions++
+    replyFor = null
+    renderRail()
+  }
 
   function renderReplyComposer(c) {
     var wrap = el('div', 'prose-reply-composer')
@@ -867,14 +961,7 @@ export const VIEWER_SCRIPT = `(function () {
       }
       try { window.localStorage.setItem('prose-commenter-name', name) } catch (e) { /* blocked storage */ }
       if (!online) {
-        var localReply = { id: makeId(), author: 'user', authorName: name, text: text, createdAt: Date.now() }
-        c.replies = c.replies || []
-        c.replies.push(localReply)
-        mineIds[localReply.id] = true
-        localAdditions++
-        unsavedAdditions++
-        replyFor = null
-        renderRail()
+        addLocalReply(c, name, text, false)
         return
       }
       sendBtn.disabled = true
@@ -894,8 +981,14 @@ export const VIEWER_SCRIPT = `(function () {
         renderRail()
         window.setTimeout(fetchLiveComments, 2000)
       }).catch(function (err) {
-        sendBtn.disabled = false
-        showError(err && err.message ? err.message : 'Failed to post comment.')
+        if (err && err.proseShow) {
+          sendBtn.disabled = false
+          showError(err.message)
+          return
+        }
+        // Network down or server failure — keep the reply in the page,
+        // tagged "not sent". No auto-retry: the annotated copy recovers it.
+        addLocalReply(c, name, text, true)
       })
     }
     sendBtn.addEventListener('click', submitReply)
@@ -917,13 +1010,17 @@ export const VIEWER_SCRIPT = `(function () {
     return name && authorName === name ? ' · you' : ''
   }
 
-  // Card header row: name (+ muted tag) left, date right. textContent only.
-  function headerRow(name, tagText, ts) {
+  // Card header row: name (+ muted tag) left, date right — or a "not sent"
+  // tag replacing the date when the row never reached the server.
+  // textContent only.
+  function headerRow(name, tagText, ts, notSent) {
     var row = el('div', 'prose-card-head')
     var nameEl = el('span', 'prose-card-name', name)
     if (tagText) nameEl.appendChild(el('span', 'prose-author-tag', tagText))
     row.appendChild(nameEl)
-    row.appendChild(el('span', 'prose-card-date', formatDate(ts)))
+    row.appendChild(notSent
+      ? el('span', 'prose-card-date prose-not-sent', 'not sent')
+      : el('span', 'prose-card-date', formatDate(ts)))
     return row
   }
 
@@ -959,7 +1056,7 @@ export const VIEWER_SCRIPT = `(function () {
     // point at their live highlight instead.
     if (c.markedText && (c.resolved || lost)) card.appendChild(el('span', 'prose-thread-quote', '"' + c.markedText + '"'))
     if (lost) card.appendChild(el('div', 'prose-lost-note', 'This passage is no longer in the document.'))
-    card.appendChild(headerRow(authorLabel(c), mineTag(c.id, c.authorName), c.createdAt))
+    card.appendChild(headerRow(authorLabel(c), mineTag(c.id, c.authorName), c.createdAt, notSentIds[c.id] === true))
     card.appendChild(el('div', 'prose-thread-body', c.comment))
     var replies = c.replies || []
     for (var i = 0; i < replies.length; i++) {
@@ -970,7 +1067,7 @@ export const VIEWER_SCRIPT = `(function () {
       var replyEl = el('div', isAuthor ? 'prose-thread-reply prose-reply-author' : 'prose-thread-reply')
       var label = r.authorName || (r.author === 'ai' ? 'AI' : 'Author')
       var tag = isAuthor ? ' · author' : mineTag(r.id, r.authorName)
-      replyEl.appendChild(headerRow(label, tag, r.createdAt))
+      replyEl.appendChild(headerRow(label, tag, r.createdAt, notSentIds[r.id] === true))
       replyEl.appendChild(el('div', 'prose-thread-body', r.text))
       card.appendChild(replyEl)
     }
@@ -1012,14 +1109,20 @@ export const VIEWER_SCRIPT = `(function () {
   var rail = el('aside', null)
   rail.id = 'prose-comment-rail'
   var railHead = el('div', 'prose-rail-head')
+  var railHeadLeft = el('span', 'prose-rail-head-left')
   var railHeadCount = el('span', null, 'Comments · 0')
+  var offlineChip = el('span', 'prose-offline-chip')
+  offlineChip.appendChild(el('span', 'prose-offline-dot'))
+  offlineChip.appendChild(document.createTextNode('offline'))
   var railHint = el('span', null, 'Select text to comment')
-  railHead.appendChild(railHeadCount)
+  railHeadLeft.appendChild(railHeadCount)
+  railHead.appendChild(railHeadLeft)
   railHead.appendChild(railHint)
   var formSlot = el('div', 'prose-form-slot')
   var openList = el('div', 'prose-open-section')
   var resolvedSection = el('div', 'prose-resolved-section')
   var lostSection = el('div', 'prose-lost-section')
+  var offlineSection = el('div', 'prose-offline-section')
   var resolvedOpen = false
 
   function renderRail() {
@@ -1066,6 +1169,26 @@ export const VIEWER_SCRIPT = `(function () {
         for (var j = 0; j < resolved.length; j++) resolvedSection.appendChild(renderThread(resolved[j]))
       }
     }
+    // Failed-POST recovery UI: "offline" chip in the head + an explainer card
+    // pointing at the annotated-copy download. Keyed on the not-sent set —
+    // there is no auto-retry, so this stays until the page is closed.
+    var notSentCount = 0
+    for (var key in notSentIds) { if (notSentIds[key]) notSentCount++ }
+    if (notSentCount > 0 && !offlineChip.parentNode) railHeadLeft.appendChild(offlineChip)
+    if (notSentCount === 0 && offlineChip.parentNode) offlineChip.parentNode.removeChild(offlineChip)
+    offlineSection.textContent = ''
+    if (notSentCount > 0) {
+      var offlineCard = el('div', 'prose-offline-card')
+      offlineCard.appendChild(el('div', null,
+        "You're offline. " + notSentCount + ' comment' + (notSentCount === 1 ? '' : 's') + ' saved in this page, not on the server.'))
+      var offlineDl = el('button', null, 'Download annotated copy')
+      offlineDl.type = 'button'
+      offlineDl.addEventListener('click', function () { downloadBtn.click() })
+      offlineCard.appendChild(offlineDl)
+      offlineCard.appendChild(el('div', 'prose-offline-note', 'Send the file back. Prose imports the comments when the author opens it.'))
+      offlineSection.appendChild(offlineCard)
+    }
+
     if (railCount) railCount.textContent = open.length + ' comments'
     downloadBtn.textContent = unsavedAdditions > 0
       ? 'Download annotated copy (' + unsavedAdditions + ' new)'
@@ -1080,6 +1203,7 @@ export const VIEWER_SCRIPT = `(function () {
   rail.appendChild(openList)
   rail.appendChild(resolvedSection)
   rail.appendChild(lostSection)
+  rail.appendChild(offlineSection)
 
   var note = el('div', 'prose-rail-note')
   note.textContent = online
@@ -1135,6 +1259,10 @@ export const VIEWER_SCRIPT = `(function () {
       lostSection.style.top = cursor + 'px'
       cursor += lostSection.offsetHeight + LAYOUT_GAP
     }
+    if (offlineSection.firstChild) {
+      offlineSection.style.top = (cursor + 8) + 'px'
+      cursor += 8 + offlineSection.offsetHeight + LAYOUT_GAP
+    }
     note.style.top = (cursor + 8) + 'px'
     cursor += 8 + note.offsetHeight
     // The rail's own height extends the page's scrollable overflow so cards
@@ -1170,7 +1298,7 @@ export const VIEWER_SCRIPT = `(function () {
     clone.classList.remove('dark')
     // Strip the viewer's runtime DOM — the reopened copy rebuilds it fresh.
     // Baked chrome (top bar, footer) intentionally survives the copy.
-    var strip = ['#prose-comment-rail', '#prose-add-comment-btn']
+    var strip = ['#prose-comment-rail', '#prose-add-comment-btn', '#prose-file-banner']
     for (var i = 0; i < strip.length; i++) {
       var node = clone.querySelector(strip[i])
       if (node) node.remove()
@@ -1241,6 +1369,15 @@ export const VIEWER_SCRIPT = `(function () {
       // Restack after the 300ms surface transition settles.
       window.setTimeout(scheduleLayout, 320)
     })
+  }
+
+  // file:// posture: a local copy travels with its comments — say so up top.
+  // Runtime-inserted (never baked), so annotated copies stay banner-free and
+  // re-derive it from their own protocol on open.
+  if (isFile) {
+    var fileBanner = el('div', null, 'Local copy. Comments you add here stay in this file until you send it back.')
+    fileBanner.id = 'prose-file-banner'
+    document.body.insertBefore(fileBanner, document.body.firstChild)
   }
 
   anchorAllThreads()
@@ -1466,24 +1603,7 @@ export const VIEWER_SCRIPT = `(function () {
       }
       try { window.localStorage.setItem('prose-commenter-name', name) } catch (e) { /* blocked storage */ }
       if (!online) {
-        var localComment = {
-          id: makeId(),
-          markedText: anchor.markedText,
-          occurrenceIndex: anchor.occurrenceIndex,
-          comment: text,
-          authorName: name,
-          createdAt: Date.now(),
-          resolved: false,
-          replies: []
-        }
-        comments.push(localComment)
-        localAdditions++
-        unsavedAdditions++
-        mineIds[localComment.id] = true
-        if (!anchorThread(localComment)) lostIds[localComment.id] = true
-        clearForm()
-        renderRail()
-        setActive(localComment.id, false)
+        addLocalThread(anchor, name, text, false)
         return
       }
       postBtn.disabled = true
@@ -1511,10 +1631,16 @@ export const VIEWER_SCRIPT = `(function () {
         // just-posted comment merges by its server id — no duplicate).
         window.setTimeout(fetchLiveComments, 2000)
       }).catch(function (err) {
-        postBtn.disabled = false
-        errorEl.textContent = err && err.message ? err.message : 'Failed to post comment.'
-        errorEl.style.display = 'block'
-        layoutRail()
+        if (err && err.proseShow) {
+          postBtn.disabled = false
+          errorEl.textContent = err.message
+          errorEl.style.display = 'block'
+          layoutRail()
+          return
+        }
+        // Network down or server failure — the comment stays in this page,
+        // tagged "not sent". No auto-retry: the annotated copy carries it back.
+        addLocalThread(anchor, name, text, true)
       })
     }
     postBtn.addEventListener('click', submit)
@@ -1555,6 +1681,15 @@ export const VIEWER_SCRIPT = `(function () {
     }).then(handleShareResponse)
   }
 
+  // Errors the composer should DISPLAY (draft kept in place). Anything
+  // unmarked — a fetch rejection, a 5xx below — routes to the local
+  // "not sent" fallback instead.
+  function shownError(message) {
+    var err = new Error(message)
+    err.proseShow = true
+    return err
+  }
+
   function handleShareResponse(resp) {
     if (resp.status === 429) {
       // The gateway sends the honest wait — render "try again at H:MM"
@@ -1565,11 +1700,17 @@ export const VIEWER_SCRIPT = `(function () {
         try {
           when = new Date(Date.now() + secs * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
         } catch (e) { /* no locale time */ }
-        throw new Error('Too many comments in a minute. Your text is kept here. Try again' + (when ? ' at ' + when : ' shortly') + '.')
+        throw shownError('Too many comments in a minute. Your text is kept here. Try again' + (when ? ' at ' + when : ' shortly') + '.')
       })
     }
-    if (resp.status === 410) throw new Error('This share link has been revoked.')
-    if (!resp.ok) throw new Error('Failed to post comment (' + resp.status + ').')
+    if (resp.status === 410) throw shownError('This share link has been revoked.')
+    if (!resp.ok) {
+      // 4xx = the request was wrong — surface it. 5xx = the server failed —
+      // the caller falls back to a local not-sent comment.
+      var err = new Error('Failed to post comment (' + resp.status + ').')
+      if (resp.status < 500) err.proseShow = true
+      throw err
+    }
     return resp.json()
   }
 

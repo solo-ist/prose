@@ -125,6 +125,7 @@ A **portable, self-hostable Node monolith** — Hono + Postgres (**Prisma 7**) +
 
 - **auto** — every save (manual or autosave, caught as the editor store's `isDirty` true→false transition) schedules a background artifact push (`lib/shareContentSync.ts`: 4s quiet debounce + 15s per-publication floor against the ~20/min per-user budget and 8 MB artifacts). No user-facing version ceremony; `publishRev`/`revCount` stay as internal anchoring/diagnostic state.
 - **publish** — content freezes at the last push; saves set a `shareDirty` badge on the status icon until "Share latest updates" pushes on demand. Push failures degrade to dirty + status `offline`/`error` and retry on the next save or window focus — local state is never blocked on the gateway.
+- **Dirty is honest in both modes:** `shareDirty` is set the moment the document *goes* dirty (and seeded when an already-dirty doc's entry resolves — restored tabs), not only at save time. Content still pushes exclusively from saves — disk is the source of truth — so with autosave off the ◎ shows "unshared changes" with a *save to sync* hint instead of falsely reading synced over unsaved edits; publish mode's manual push hides while the doc is unsaved (it would publish the un-saved buffer).
 
 **Live conversation, both directions and both modes:**
 

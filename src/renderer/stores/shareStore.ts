@@ -59,7 +59,9 @@ export function deriveShareStatus(s: {
   if (s.pushing) return 'syncing'
   if (s.lastErrorCode === 'unreachable') return 'offline'
   if (s.lastError) return 'error'
-  if (s.shareDirty && s.entry?.syncMode === 'publish') return 'dirty'
+  // Both modes: unpushed changes (an unsaved doc, or a save awaiting its
+  // auto push / manual publish) must never render as synced.
+  if (s.shareDirty) return 'dirty'
   return 'synced'
 }
 
@@ -94,6 +96,12 @@ export const useShareStore = create<ShareState>()(
       // Guard against a doc switch racing the lookup.
       if (useEditorStore.getState().document.path !== path) return
       set({ entry })
+      // A doc that is ALREADY dirty when its entry resolves (restored dirty
+      // tab on launch, switch to a dirty tab) fires no isDirty transition —
+      // seed the flag here so the ◎ can't show synced over unsaved edits.
+      if (entry && !entry.revokedAt && useEditorStore.getState().document.isDirty) {
+        set({ shareDirty: true })
+      }
     },
 
     applyEntry: (entry) => {

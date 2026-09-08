@@ -4,11 +4,13 @@
  * 2.4px gold pupil; every state is a stroke/fill change on the same geometry
  * (nothing moves position, nothing scales). Click opens the share popover.
  *
- * States: synced (dim ring, gold pupil) · dirty, publish mode only (dashed
- * gold ring + badge dot) · syncing (rotating gold arc, breathing pupil) ·
- * error/offline (red tint). Not shared → the icon is absent (parent gates).
+ * States: synced (dim ring, gold pupil) · dirty, both modes — unsaved edits
+ * or a save awaiting push (dashed gold ring + badge dot) · syncing (rotating
+ * gold arc, breathing pupil) · error/offline (red tint). Not shared → the
+ * icon is absent (parent gates).
  */
 import { useShareStore, deriveShareStatus, type ShareStatus } from '../../stores/shareStore'
+import { useEditorStore } from '../../stores/editorStore'
 
 /** The solo.ist share accent — constant across themes. */
 export const SHARE_GOLD = '#c8a45a'
@@ -96,13 +98,17 @@ export function ShareStatusIcon() {
   const popoverOpen = useShareStore((s) => s.popoverOpen)
   const setPopoverOpen = useShareStore((s) => s.setPopoverOpen)
   const unseen = useShareStore((s) => s.unseenComments)
+  const docDirty = useEditorStore((s) => s.document.isDirty)
 
   if (!entry) return null
   const status = deriveShareStatus({ pushing, shareDirty, lastError, lastErrorCode, entry })
-  const tooltip =
-    unseen > 0
-      ? `${TOOLTIPS[status]} · ${unseen} new comment${unseen === 1 ? '' : 's'}`
+  // Dirty needs a mode-aware action: an unsaved doc syncs on save (auto pushes
+  // it, publish arms the badge); a saved-but-unpushed one wants the popover.
+  const base =
+    status === 'dirty' && docDirty
+      ? 'Unshared changes — save to sync'
       : TOOLTIPS[status]
+  const tooltip = unseen > 0 ? `${base} · ${unseen} new comment${unseen === 1 ? '' : 's'}` : base
 
   return (
     <button

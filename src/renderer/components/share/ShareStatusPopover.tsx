@@ -29,6 +29,7 @@ export function ShareStatusPopover() {
   const setPopoverOpen = useShareStore((s) => s.setPopoverOpen)
   const setSyncMode = useShareStore((s) => s.setSyncMode)
   const unseen = useShareStore((s) => s.unseenComments)
+  const docDirty = useEditorStore((s) => s.document.isDirty)
   const pendingComments = useCommentStore((s) => s.pendingComments)
   const openCount = countOpenThreads(pendingComments)
   // The most recent reviewer threads — the popover's jump list into the
@@ -200,7 +201,17 @@ export function ShareStatusPopover() {
             ? 'Saves push in the background. No version ceremony.'
             : 'Content freezes at the last publish. Comments stay live.'}
         </p>
-        {!auto && status === 'dirty' && (
+        {/* Unsaved edits never sync in either mode (disk is the source of
+            truth) — say so, or an autosave-off user waits forever. */}
+        {docDirty && status === 'dirty' && (
+          <p className="text-[10px] leading-relaxed" style={{ color: SHARE_GOLD }}>
+            Unsaved changes don&apos;t sync — save (⌘S) to share them.
+          </p>
+        )}
+        {/* docDirty gate: with unsaved edits the action is save-first (the
+            hint above) — a manual push here would publish the unsaved
+            buffer, content that isn't on disk. */}
+        {!auto && status === 'dirty' && !docDirty && (
           <button
             type="button"
             onClick={handleShareLatest}

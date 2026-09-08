@@ -10,6 +10,11 @@
  * pushShareContent('manual') — the popover's "Share latest updates" — does
  * the same push on demand.
  *
+ * Both modes mark shareDirty the moment the document GOES dirty, not just on
+ * save: content only ever pushes from a save (disk is the source of truth),
+ * but a ◎ reading "synced" over unsaved edits would be a lie — with autosave
+ * off a doc can sit dirty indefinitely.
+ *
  * Failures degrade to shareDirty + status error/offline and retry on the
  * next save; local state is never blocked on the gateway.
  */
@@ -131,16 +136,33 @@ export function useShareContentSync(): void {
     const unsubSave = useEditorStore.subscribe(
       (s) => s.document.isDirty,
       (isDirty, prevDirty) => {
-        if (!prevDirty || isDirty) return // only the save transition (true → false)
         const share = useShareStore.getState()
         if (!share.entry || share.entry.revokedAt) return
-        share.markShareDirty()
-        if (share.entry.syncMode === 'auto') scheduleAutoPush(AUTO_PUSH_QUIET_MS)
+        if (isDirty && !prevDirty) {
+          // The share diverged the moment the document went dirty — surface
+          // it now, not at save time. With autosave off a doc can sit dirty
+          // indefinitely, and a "synced" ◎ over unpushed edits is a lie
+          // (content still only pushes on save: disk stays the source of
+          // truth).
+          share.markShareDirty()
+          return
+        }
+        if (!isDirty && prevDirty) {
+          // The save transition: push (auto) or leave the badge (publish).
+          share.markShareDirty()
+          if (share.entry.syncMode === 'auto') scheduleAutoPush(AUTO_PUSH_QUIET_MS)
+        }
       }
     )
 
     const unsubDoc = useEditorStore.subscribe(
-      (s) => s.document.documentId,
+      // BOTH identity fields: the entry lookup keys on path, and restore /
+      // open flows can set documentId and path in separate store updates. A
+      // documentId-only subscription can fire while path is still null — the
+      // refresh then caches entry:null and nothing ever re-runs it (live QA
+      // caught exactly this: a stable null entry silently disabling every
+      // save-driven push).
+      (s) => `${s.document.documentId}|${s.document.path ?? ''}`,
       () => {
         // Per-document view state: a pending push must not target the wrong doc.
         cancelScheduledPush()

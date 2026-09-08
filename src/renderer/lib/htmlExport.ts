@@ -300,7 +300,15 @@ ${inlinedHtml}
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="generator" content="Prose">${shareEndpoint !== null ? '\n  <meta name="referrer" content="no-referrer">' : ''}
-  <title>${escapeHtml(title)}</title>${withViewer ? `\n  <script>/* prose-theme */\n${THEME_INIT_SCRIPT}</script>` : ''}
+  <title>${escapeHtml(title)}</title>${
+    withViewer
+      ? `
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@1,700&family=IBM+Plex+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
+  <script>/* prose-theme */\n${THEME_INIT_SCRIPT}</script>`
+      : ''
+  }
   <style>${withViewer ? `${ARTIFACT_BASE_STYLES}${VIEWER_STYLES}` : PLAIN_EXPORT_STYLES}
   </style>
 </head>

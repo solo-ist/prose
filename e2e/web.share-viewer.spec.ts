@@ -608,7 +608,7 @@ test.describe('live conversation loop (online viewer)', () => {
   // the live poll is CSP-blocked in production too) and scripts the comment
   // list across polls.
   const CSP =
-    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'self'"
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; img-src data: blob:; font-src data: https://fonts.gstatic.com; connect-src 'self'"
 
   let server: import('node:http').Server
   let origin: string

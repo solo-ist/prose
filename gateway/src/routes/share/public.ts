@@ -24,14 +24,18 @@ import {
 } from './common.js'
 
 /** Headers for served artifacts — see web-platform.md §4.3. connect-src 'self'
- * covers the viewer's same-origin comment POSTs. Cache is disabled so
- * revocation takes effect immediately (a CDN layer can revisit this). */
+ * covers the viewer's same-origin comment POSTs; the Google Fonts pair covers
+ * the artifact's webfont links (Newsreader/Fraunces/IBM Plex Mono — approved
+ * 2026-09-07). Cache is disabled so revocation takes effect immediately (a
+ * CDN layer can revisit this). LOCKSTEP: this CSP string is mirrored in
+ * e2e/web.share-viewer.spec.ts (harness) and scripts/test-share.mjs
+ * (assertion) — change all three together. */
 const ARTIFACT_HEADERS: Record<string, string> = {
   'Content-Type': 'text/html; charset=utf-8',
   'Referrer-Policy': 'no-referrer',
   'X-Frame-Options': 'DENY',
   'Content-Security-Policy':
-    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'self'",
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; img-src data: blob:; font-src data: https://fonts.gstatic.com; connect-src 'self'",
   'Cache-Control': 'no-store',
 }
 

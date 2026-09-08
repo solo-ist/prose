@@ -122,7 +122,13 @@ async function main() {
   expect((await serveRes.text()).includes('v1'), 'served artifact has the published content')
   expect(serveRes.headers.get('referrer-policy') === 'no-referrer', 'no-referrer header set')
   expect(serveRes.headers.get('x-frame-options') === 'DENY', 'x-frame-options set')
-  expect((serveRes.headers.get('content-security-policy') ?? '').includes("connect-src 'self'"), 'CSP set')
+  const servedCsp = serveRes.headers.get('content-security-policy') ?? ''
+  expect(servedCsp.includes("connect-src 'self'"), 'CSP set')
+  expect(
+    servedCsp.includes("style-src 'unsafe-inline' https://fonts.googleapis.com") &&
+      servedCsp.includes('font-src data: https://fonts.gstatic.com'),
+    'CSP allows Google Fonts (style + font hosts)'
+  )
   expect(serveRes.headers.get('cache-control') === 'no-store', 'no-store cache header set')
 
   const bogus = await fetch(`${BASE}/s/${'a'.repeat(43)}`)

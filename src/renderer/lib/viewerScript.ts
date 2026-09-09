@@ -18,6 +18,10 @@
  *   the page and "Download annotated copy" serializes the ORIGINAL artifact +
  *   additions into a new self-contained file. Prose re-imports that file's
  *   comments as real threads (lib/artifactImport.ts) — the sneakernet loop.
+ *   A copy downloaded from the served page also carries its share URL: drafts
+ *   publish back in one exchange, and the copy joins the live loop (pull on
+ *   open + poll), so a reload re-shows what it published and author replies
+ *   reach the local reader. Copies without the URL stay fully offline.
  *
  * Security invariants (do not regress):
  * - Comment/author content is rendered ONLY via `textContent` /
@@ -1909,6 +1913,13 @@ export const VIEWER_SCRIPT = `(function () {
   // resolution state of rows it returns. Dedupe is by id: posted comments
   // land with server ids, and baked author replies are embedded under their
   // server row id at publish time.
+  //
+  // Publish-capable local copies (file:// with a baked share URL) join the
+  // loop too: reading the conversation is strictly less privileged than the
+  // publish POST the copy can already make, and without it a reload showed
+  // only the baked snapshot — comments published from this file in an earlier
+  // session "disappeared" and author replies never arrived. Pull failures are
+  // swallowed: the copy must keep opening anywhere, network or not.
   var pollTimer = null
   var pollStopped = false
   // Flipped when the gateway answers 410: the author took the link down.
@@ -2008,11 +2019,12 @@ export const VIEWER_SCRIPT = `(function () {
   }
 
   function fetchLiveComments() {
-    if (!online || pollStopped) return
+    // canPublish re-checks at call time — a 410 mid-session flips it off.
+    if ((!online && !canPublish) || pollStopped) return
     pullComments().catch(function () { /* transient network failure — the next poll retries */ })
   }
 
-  if (online) {
+  if (online || canPublish) {
     fetchLiveComments()
     pollTimer = window.setInterval(fetchLiveComments, 45000)
     window.addEventListener('focus', fetchLiveComments)

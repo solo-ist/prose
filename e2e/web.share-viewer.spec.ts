@@ -940,17 +940,17 @@ test.describe('live conversation loop (online viewer)', () => {
     const savedPath = join(tmpDir, 'local-publish.html')
     await download.saveAs(savedPath)
 
-    // A reply lands on the server while the reader is away — the publish
-    // exchange's pull half should bring it in.
+    // A reply lands on the server while the reader is away — the copy
+    // carries its share URL, so its load pull brings it in immediately.
     commentRows.push(
       row({ id: 'srv-late', parentId: 'srv-2', commentText: 'Landed while offline.', authorName: 'Late Reviewer', createdAt: '2026-09-08T00:00:00.000Z' })
     )
 
-    // Reopen from file:// — publish-capable local mode.
+    // Reopen from file:// — publish-capable local mode, live for reads.
     await page.goto(pathToFileURL(savedPath).href)
     await expect(page.locator('#prose-file-banner')).toContainText('until you publish them')
     await expect(page.locator('#prose-publish-comments')).toBeHidden()
-    await expect(page.getByText('Landed while offline.')).toBeHidden()
+    await expect(page.getByText('Landed while offline.')).toBeVisible()
 
     // A local addition is a draft: no auto-post, state + button appear.
     await page.locator('article p').first().click({ clickCount: 3 })
@@ -971,11 +971,46 @@ test.describe('live conversation loop (online viewer)', () => {
     const card = page.locator('.prose-thread', { hasText: 'Published from a local file.' })
     await expect(card).toHaveAttribute('data-thread-id', /^srv-posted-/)
     await expect(card.locator('.prose-author-tag').first()).toHaveText('· you')
-    // The pull half of the exchange landed the reply posted since download.
-    await expect(page.getByText('Landed while offline.')).toBeVisible()
     // Nothing left at risk — the local footer offers no save.
     await expect(page.locator('#prose-download-copy')).toBeHidden()
     await expect(page.locator('#prose-publish-comments')).toBeHidden()
+  })
+
+  test('reloading a local copy re-shows what it published and polls in author replies', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('#prose-download-copy').click(),
+    ])
+    const savedPath = join(tmpDir, 'local-reload.html')
+    await download.saveAs(savedPath)
+
+    // Publish a comment from the file:// copy.
+    await page.goto(pathToFileURL(savedPath).href)
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').fill('Reload Rai')
+    await page.locator('#prose-comment-form textarea').fill('Survives a reload.')
+    await page.locator('#prose-comment-form button', { hasText: 'Add' }).first().click()
+    await page.locator('#prose-publish-comments').click()
+    await expect(page.locator('.prose-local-state')).toHaveText('All comments published')
+
+    // Reload the SAME file: the on-disk snapshot predates the publish, but
+    // the load pull recovers the published thread from the server — the
+    // comment doesn't "disappear" — and re-anchors its highlight.
+    await page.reload()
+    const card = page.locator('.prose-thread', { hasText: 'Survives a reload.' })
+    await expect(card).toBeVisible()
+    await expect(card).toHaveAttribute('data-thread-id', /^srv-posted-/)
+    await expect(page.locator('article span[data-comment-id^="srv-posted-"]').first()).toBeVisible()
+
+    // An author reply lands after the reload — the copy's poll picks it up.
+    postedRows.push(
+      row({ id: 'srv-auth-reply', parentId: 'srv-posted-1', commentText: 'Captured on the local copy.', authorName: 'Author', fromAuthor: true, createdAt: '2026-09-09T00:00:00.000Z' })
+    )
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.getByText('Captured on the local copy.')).toBeVisible()
   })
 
   test('first post shows the one-time nudge; dismissible; never repeats', async ({ page }) => {

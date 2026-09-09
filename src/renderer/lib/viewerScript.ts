@@ -295,37 +295,50 @@ export const VIEWER_STYLES = `
     border-bottom-color: hsl(var(--comment));
   }
   #prose-comment-rail {
-    position: absolute;
-    top: 0;
-    left: calc(50% + 204px);
-    width: 300px;
+    position: fixed;
+    top: 64px;
+    right: 20px;
+    bottom: 20px;
+    width: 340px;
     box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
     font-family: var(--font-mono);
     font-size: 12.5px;
     line-height: 1.5;
     color: hsl(var(--foreground));
-    z-index: 4;
+    background: hsl(var(--background));
+    border: 1px solid hsl(var(--border));
+    border-radius: 12px;
+    box-shadow: 0 8px 24px hsl(var(--foreground) / 0.08);
+    z-index: 5;
   }
-  body.prose-rail-open .prose-doc-header,
-  body.prose-rail-open article,
-  body.prose-rail-open .prose-end-mark,
-  body.prose-rail-open .prose-artifact-footer { position: relative; left: -174px; }
+  body.prose-local-mode #prose-comment-rail { top: 104px; }
+  /* The article yields to the panel only where its own right whitespace
+     can't hold it; at >=1460px the 660px column's margin fits the panel and
+     the page stays perfectly centered — the panel truly floats. */
+  @media (max-width: 1459px) {
+    body.prose-rail-open .prose-page { padding-right: 372px; }
+  }
   @media (max-width: 999px) {
     #prose-comment-rail { display: none; }
-    body.prose-rail-open .prose-doc-header,
-    body.prose-rail-open article,
-    body.prose-rail-open .prose-end-mark,
-    body.prose-rail-open .prose-artifact-footer { left: 0; }
+    body.prose-rail-open .prose-page { padding-right: 0; }
   }
   .prose-rail-head {
-    position: absolute;
-    top: 78px;
-    width: 300px;
+    flex-shrink: 0;
+    padding: 14px 16px 0;
     display: flex;
     justify-content: space-between;
     font-size: 11px;
     letter-spacing: 0.04em;
     color: hsl(var(--muted-foreground));
+  }
+  .prose-rail-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    padding: 0 16px 16px;
   }
   .prose-rail-head-left { display: inline-flex; align-items: center; gap: 10px; }
   .prose-offline-chip { display: inline-flex; align-items: center; gap: 5px; }
@@ -336,19 +349,18 @@ export const VIEWER_STYLES = `
     border-radius: 50%;
     border: 1.5px solid hsl(var(--pending));
   }
-  .prose-form-slot { position: absolute; width: 300px; z-index: 1; }
   .prose-thread {
-    position: absolute;
-    width: 300px;
     box-sizing: border-box;
     border: 1px solid hsl(var(--border));
-    border-radius: 8px;
-    padding: 12px 14px;
-    background: hsl(var(--card));
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 9px;
+    background: hsl(var(--muted) / 0.5);
     cursor: pointer;
-    transition: top 0.15s ease;
+    transition: background 0.15s ease, border-color 0.15s ease;
   }
-  .prose-thread.prose-viewer-active { border-left: 2px solid hsl(var(--comment)); padding-left: 13px; }
+  .prose-thread:hover { background: hsl(var(--muted) / 0.85); border-color: hsl(var(--muted-foreground) / 0.3); }
+  .prose-thread.prose-viewer-active { border-left: 2px solid hsl(var(--comment)); padding-left: 11px; }
   .prose-card-head { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: hsl(var(--muted-foreground)); }
   .prose-card-name {
     color: hsl(var(--foreground));
@@ -361,20 +373,22 @@ export const VIEWER_STYLES = `
   .prose-author-tag { font-weight: 400; color: hsl(var(--muted-foreground)); }
   .prose-thread-body { white-space: pre-wrap; word-break: break-word; margin-top: 6px; }
   .prose-thread-quote {
-    display: block;
-    font-family: var(--font-serif);
-    font-size: 14px;
-    line-height: 1.45;
-    color: hsl(var(--muted-foreground));
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-size: 13.5px;
+    line-height: 1.4;
+    color: hsl(var(--foreground) / 0.8);
     margin-bottom: 8px;
   }
   .prose-thread-meta { color: hsl(var(--muted-foreground)); font-size: 11px; margin-top: 0.25rem; }
-  .prose-thread-reply { margin-top: 10px; padding-left: 10px; border-left: 1px solid hsl(var(--border)); }
+  .prose-thread-reply { margin-top: 10px; padding-top: 10px; border-top: 1px solid hsl(var(--border) / 0.5); }
   .prose-thread-reply .prose-thread-body { margin-top: 4px; }
-  .prose-resolved-section, .prose-lost-section { position: absolute; width: 300px; }
+  .prose-resolved-section .prose-thread { opacity: 0.6; }
+  .prose-resolved-section .prose-thread:hover { opacity: 1; }
   .prose-resolved-head {
     display: flex;
     justify-content: space-between;
@@ -403,10 +417,7 @@ export const VIEWER_STYLES = `
   .prose-resolved-section.prose-open .prose-resolved-chev { transform: rotate(90deg); }
   .prose-resolved-section .prose-thread,
   .prose-lost-section .prose-thread {
-    position: static;
-    margin-bottom: 10px;
     cursor: default;
-    transition: none;
   }
   .prose-resolved-section .prose-thread {
     background: transparent;
@@ -432,7 +443,7 @@ export const VIEWER_STYLES = `
     text-decoration: underline dashed hsl(var(--pending));
     text-underline-offset: 3px;
   }
-  .prose-offline-section { position: absolute; width: 300px; }
+  .prose-offline-section { margin-top: 8px; }
   .prose-offline-card {
     box-sizing: border-box;
     border: 1px solid hsl(var(--border));
@@ -460,15 +471,15 @@ export const VIEWER_STYLES = `
   #prose-file-banner {
     position: sticky;
     top: 52px;
-    z-index: 4;
+    z-index: 6;
     box-sizing: border-box;
-    min-height: 36px;
+    height: 36px;
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
     justify-content: space-between;
-    gap: 6px 16px;
-    padding: 6px 24px;
+    gap: 16px;
+    padding: 0 24px;
     background: var(--bg);
     border-bottom: 1px solid hsl(var(--border));
     font-family: var(--font-mono);
@@ -477,7 +488,13 @@ export const VIEWER_STYLES = `
     color: hsl(var(--muted-foreground));
     transition: background 0.3s ease;
   }
-  .prose-local-sync { display: inline-flex; align-items: center; gap: 12px; flex-shrink: 0; }
+  .prose-local-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .prose-local-sync { display: inline-flex; align-items: center; gap: 12px; flex-shrink: 0; white-space: nowrap; }
   .prose-local-state.prose-local-err { color: hsl(var(--pending)); }
   #prose-publish-comments {
     border: none;
@@ -493,13 +510,11 @@ export const VIEWER_STYLES = `
   }
   #prose-publish-comments[disabled] { opacity: 0.6; cursor: default; }
   .prose-rail-note {
-    position: absolute;
-    width: 300px;
-    box-sizing: border-box;
-    padding-top: 10px;
-    border-top: 1px solid hsl(var(--border));
+    flex-shrink: 0;
+    padding: 8px 16px 12px;
     color: hsl(var(--muted-foreground));
     font-size: 11px;
+    line-height: 1.5;
   }
   #prose-add-comment-btn {
     position: absolute;
@@ -517,14 +532,44 @@ export const VIEWER_STYLES = `
     cursor: pointer;
     box-shadow: 0 4px 12px hsl(var(--foreground) / 0.15);
   }
+  #prose-float-form {
+    position: absolute;
+    z-index: 12;
+    width: 384px;
+    max-width: calc(100vw - 32px);
+    box-sizing: border-box;
+    border: 1px solid hsl(var(--border));
+    border-radius: 12px;
+    background: hsl(var(--popover));
+    box-shadow: 0 12px 32px hsl(var(--foreground) / 0.16);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: hsl(var(--foreground));
+  }
   #prose-comment-form {
     border: 1px solid hsl(var(--border));
-    border-left: 2px solid hsl(var(--comment));
     border-radius: 8px;
-    padding: 12px 14px 12px 13px;
+    padding: 12px 14px;
     background: hsl(var(--card));
   }
-  #prose-comment-form .prose-thread-quote { margin-bottom: 0; }
+  #prose-float-form #prose-comment-form {
+    border: none;
+    border-radius: 12px;
+    background: transparent;
+  }
+  .prose-form-eyebrow {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: hsl(var(--muted-foreground));
+    margin-bottom: 6px;
+  }
+  .prose-form-anchor .prose-thread-quote {
+    border-left: 2px solid hsl(var(--comment));
+    padding-left: 10px;
+    margin-bottom: 0;
+  }
   #prose-comment-form textarea {
     display: block;
     width: 100%;
@@ -1174,7 +1219,6 @@ export const VIEWER_SCRIPT = `(function () {
     var showError = function (message) {
       errorEl.textContent = message
       errorEl.style.display = 'block'
-      layoutRail()
     }
     var submitReply = function () {
       var text = textArea.value.trim()
@@ -1259,16 +1303,14 @@ export const VIEWER_SCRIPT = `(function () {
       var span = article.querySelector('span[data-comment-id="' + CSS.escape(id) + '"]')
       if (span) span.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
-    // The active card's accent border changes its height — restack.
-    scheduleLayout()
   }
 
   function renderThread(c, lost) {
     var card = el('div', lost ? 'prose-thread prose-thread-lost' : 'prose-thread')
     card.setAttribute('data-thread-id', c.id)
-    // The serif quote shows on resolved and lost-anchor cards; open cards
-    // point at their live highlight instead.
-    if (c.markedText && (c.resolved || lost)) card.appendChild(el('span', 'prose-thread-quote', '"' + c.markedText + '"'))
+    // Every card carries its serif quote (2-line clamp): the panel sits apart
+    // from the marks, so the quote is what anchors a card to its passage.
+    if (c.markedText) card.appendChild(el('span', 'prose-thread-quote', '“' + c.markedText + '”'))
     if (lost) card.appendChild(el('div', 'prose-lost-note', 'This passage is no longer in the document.'))
     card.appendChild(headerRow(authorLabel(c), mineTag(c.id, c.authorName), c.createdAt, notSentIds[c.id] === true))
     card.appendChild(el('div', 'prose-thread-body', c.comment))
@@ -1319,11 +1361,17 @@ export const VIEWER_SCRIPT = `(function () {
   var offlineChip = el('span', 'prose-offline-chip')
   offlineChip.appendChild(el('span', 'prose-offline-dot'))
   offlineChip.appendChild(document.createTextNode('offline'))
-  var railHint = el('span', null, 'Select text to comment')
+  // Empty at rest (the note below the head already invites selection);
+  // flips to 'writing' while the composer is open.
+  var railHint = el('span', null, '')
   railHeadLeft.appendChild(railHeadCount)
   railHead.appendChild(railHeadLeft)
   railHead.appendChild(railHint)
-  var formSlot = el('div', 'prose-form-slot')
+  // Floating home for #prose-comment-form (wide mode): a popover-style card
+  // absolutely positioned at the selection, scrolling with the text — the
+  // desktop CommentPopover analog. Runtime DOM, stripped from copies.
+  var floatWrap = el('div', null)
+  floatWrap.id = 'prose-float-form'
   var openList = el('div', 'prose-open-section')
   var resolvedSection = el('div', 'prose-resolved-section')
   var lostSection = el('div', 'prose-lost-section')
@@ -1344,7 +1392,20 @@ export const VIEWER_SCRIPT = `(function () {
       else if (lostIds[entry.id]) lost.push(entry)
       else open.push(entry)
     }
-    open.sort(function (a, b) { return (a.createdAt || 0) - (b.createdAt || 0) })
+    // Document order: cards list in the order their highlights appear in the
+    // text (the panel is detached from the marks, so this is what keeps it
+    // readable against the article). Unanchored threads sort last by age.
+    var markTops = {}
+    for (var oi = 0; oi < open.length; oi++) {
+      var span = article.querySelector('span[data-comment-id="' + CSS.escape(open[oi].id) + '"]')
+      markTops[open[oi].id] = span ? span.getBoundingClientRect().top : Infinity
+    }
+    open.sort(function (a, b) {
+      var ta = markTops[a.id]
+      var tb = markTops[b.id]
+      if (ta !== tb) return ta < tb ? -1 : 1
+      return (a.createdAt || 0) - (b.createdAt || 0)
+    })
 
     railHeadCount.textContent = 'Comments · ' + open.length
     for (var i = 0; i < open.length; i++) openList.appendChild(renderThread(open[i]))
@@ -1413,8 +1474,6 @@ export const VIEWER_SCRIPT = `(function () {
     downloadBtn.classList.toggle('prose-has-additions', unsavedAdditions > 0)
     renderLocalSync()
     if (sheetOpenId) renderSheetContent()
-    layoutRail()
-    scheduleLayout()
   }
 
   var note = el('div', 'prose-rail-note')
@@ -1424,79 +1483,18 @@ export const VIEWER_SCRIPT = `(function () {
       ? 'Select text to leave a comment. Publish to send your comments to the shared page.'
       : 'Select text to leave a comment. Comments live in this file — download the annotated copy to keep or return them.'
 
+  // Panel structure: head + note stay fixed at the top; everything below
+  // scrolls inside .prose-rail-body. Cards are normal flow — no stacking
+  // engine, no absolute tops. The panel itself is position: fixed, so page
+  // scroll can never drive its content into the chrome.
+  var railBody = el('div', 'prose-rail-body')
   rail.appendChild(railHead)
   rail.appendChild(note)
-  rail.appendChild(formSlot)
-  rail.appendChild(openList)
-  rail.appendChild(resolvedSection)
-  rail.appendChild(lostSection)
-  rail.appendChild(offlineSection)
-
-  // --- Rail stacking engine -------------------------------------------------
-  // Open cards align to their highlight (top = markTop - 6), pushing down on
-  // collision; the compose form takes priority at the selection; resolved,
-  // lost and note sections flow below the last card. Coordinates are relative
-  // to .prose-page (the rail's offset parent sits at its top). Read pass then
-  // write pass — no interleaved thrash.
-  var LAYOUT_TOP = 120
-  var LAYOUT_GAP = 10
-  var LAYOUT_NUDGE = 6
-  var layoutTimer = null
-  var formAnchorTop = 0
-
-  function layoutRail() {
-    if (!document.body.contains(rail)) return
-    var rootTop = pageRoot.getBoundingClientRect().top
-    // The instructional note (and, when revoked, the takedown notice) sits
-    // at the top of the column, right under the head; cards start below it.
-    var noteTop = 78 + railHead.offsetHeight + 12
-    note.style.top = noteTop + 'px'
-    var entries = []
-    for (var i = 0; i < openList.children.length; i++) {
-      var card = openList.children[i]
-      var id = card.getAttribute('data-thread-id') || ''
-      var span = article.querySelector('span[data-comment-id="' + CSS.escape(id) + '"]')
-      entries.push({
-        el: card,
-        markTop: span ? span.getBoundingClientRect().top - rootTop : Infinity,
-        h: card.offsetHeight
-      })
-    }
-    entries.sort(function (a, b) { return a.markTop - b.markTop })
-
-    var cursor = Math.max(LAYOUT_TOP, noteTop + note.offsetHeight + LAYOUT_GAP)
-    if (formSlot.firstChild) {
-      var formTop = Math.max(formAnchorTop - LAYOUT_NUDGE, cursor)
-      formSlot.style.top = formTop + 'px'
-      cursor = formTop + formSlot.offsetHeight + LAYOUT_GAP
-    }
-    for (var k = 0; k < entries.length; k++) {
-      var want = entries[k].markTop - LAYOUT_NUDGE
-      var top = isFinite(want) ? Math.max(want, cursor) : cursor
-      entries[k].el.style.top = top + 'px'
-      cursor = top + entries[k].h + LAYOUT_GAP
-    }
-    if (resolvedSection.firstChild) {
-      resolvedSection.style.top = (cursor + 16) + 'px'
-      cursor += 16 + resolvedSection.offsetHeight + LAYOUT_GAP
-    }
-    if (lostSection.firstChild) {
-      lostSection.style.top = cursor + 'px'
-      cursor += lostSection.offsetHeight + LAYOUT_GAP
-    }
-    if (offlineSection.firstChild) {
-      offlineSection.style.top = (cursor + 8) + 'px'
-      cursor += 8 + offlineSection.offsetHeight + LAYOUT_GAP
-    }
-    // The rail's own height extends the page's scrollable overflow so cards
-    // stacked past the article end stay reachable.
-    rail.style.height = (cursor + 40) + 'px'
-  }
-
-  function scheduleLayout() {
-    if (layoutTimer) window.clearTimeout(layoutTimer)
-    layoutTimer = window.setTimeout(layoutRail, 220)
-  }
+  rail.appendChild(railBody)
+  railBody.appendChild(openList)
+  railBody.appendChild(resolvedSection)
+  railBody.appendChild(lostSection)
+  railBody.appendChild(offlineSection)
 
   // --- Narrow mode (< 1000px): bottom bar, sup indices, thread sheet --------
   // The rail never renders narrow. Marks get superscript numbers and open a
@@ -1693,6 +1691,7 @@ export const VIEWER_SCRIPT = `(function () {
     var form = document.getElementById('prose-comment-form')
     if (narrow) {
       rail.remove()
+      floatWrap.remove()
       document.body.classList.remove('prose-rail-open')
       document.body.classList.add('prose-narrow')
       document.body.appendChild(bottomBar)
@@ -1705,7 +1704,14 @@ export const VIEWER_SCRIPT = `(function () {
       bottomBar.remove()
       narrowFormWrap.remove()
       document.body.classList.remove('prose-narrow')
-      if (form) formSlot.appendChild(form)
+      if (form) {
+        // The float wrapper keeps its last placement — good enough across a
+        // width change; the draft is what matters. A form born narrow has no
+        // placement yet and gets a sane default under the chrome.
+        floatWrap.appendChild(form)
+        if (floatWrap.style.top) document.body.appendChild(floatWrap)
+        else placeFloatForm({ top: 120, bottom: 120, left: 24 })
+      }
       if (railPreferredOpen) {
         document.body.appendChild(rail)
         document.body.classList.add('prose-rail-open')
@@ -1740,6 +1746,7 @@ export const VIEWER_SCRIPT = `(function () {
     var strip = [
       '#prose-comment-rail',
       '#prose-add-comment-btn',
+      '#prose-float-form',
       '#prose-file-banner',
       '#prose-bottom-bar',
       '#prose-sheet',
@@ -1756,6 +1763,7 @@ export const VIEWER_SCRIPT = `(function () {
     if (body) {
       body.classList.remove('prose-rail-open')
       body.classList.remove('prose-narrow')
+      body.classList.remove('prose-local-mode')
     }
     // Reset chrome state that belongs to THIS session, not the copy.
     var dl = clone.querySelector('#prose-download-copy')
@@ -1828,7 +1836,6 @@ export const VIEWER_SCRIPT = `(function () {
     } else {
       document.body.appendChild(rail)
       document.body.classList.add('prose-rail-open')
-      layoutRail()
     }
   })
 
@@ -1837,8 +1844,6 @@ export const VIEWER_SCRIPT = `(function () {
       var dark = !document.documentElement.classList.contains('dark')
       document.documentElement.classList.toggle('dark', dark)
       try { window.localStorage.setItem('prose-viewer-theme', dark ? 'dark' : 'light') } catch (e) { /* blocked storage */ }
-      // Restack after the 300ms surface transition settles.
-      window.setTimeout(scheduleLayout, 320)
     })
   }
 
@@ -1868,6 +1873,8 @@ export const VIEWER_SCRIPT = `(function () {
     var topbarEl = document.querySelector('.prose-topbar')
     if (topbarEl && topbarEl.parentNode) topbarEl.parentNode.insertBefore(fileBanner, topbarEl.nextSibling)
     else document.body.insertBefore(fileBanner, document.body.firstChild)
+    // The banner adds 36px of sticky chrome — the fixed panel starts lower.
+    document.body.classList.add('prose-local-mode')
   }
 
   // Draft / published state in the local bar. Rendered from renderRail so
@@ -1893,16 +1900,9 @@ export const VIEWER_SCRIPT = `(function () {
   // Applies the width-appropriate UI (rail vs bottom bar) and renders.
   syncNarrowMode()
 
-  // Late reflows (fonts, image decode, window resize) restack the rail; a
-  // resize can also cross the narrow boundary.
-  window.addEventListener('resize', function () {
-    syncNarrowMode()
-    scheduleLayout()
-  })
-  if (window.ResizeObserver) new ResizeObserver(scheduleLayout).observe(pageRoot)
-  if (document.fonts && document.fonts.ready && document.fonts.ready.then) {
-    document.fonts.ready.then(function () { scheduleLayout() })
-  }
+  // A resize can cross the narrow boundary; card layout needs no restack —
+  // the panel is normal flow inside a fixed container.
+  window.addEventListener('resize', syncNarrowMode)
 
   // --- Live conversation loop (#769) ---------------------------------------
   // The page polls the publication's comment list so the conversation is
@@ -2175,7 +2175,7 @@ export const VIEWER_SCRIPT = `(function () {
   addBtn.appendChild(svgIcon('M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'))
   addBtn.appendChild(document.createTextNode('Comment'))
   var pendingAnchor = null
-  var pendingAnchorTop = 0
+  var pendingRect = null
 
   document.addEventListener('mouseup', function () {
     window.setTimeout(function () {
@@ -2186,7 +2186,7 @@ export const VIEWER_SCRIPT = `(function () {
       if (!anchor) { addBtn.remove(); return }
       pendingAnchor = anchor
       var rect = sel.getRangeAt(0).getBoundingClientRect()
-      pendingAnchorTop = rect.top - pageRoot.getBoundingClientRect().top
+      pendingRect = { top: rect.top, bottom: rect.bottom, left: rect.left }
       addBtn.style.top = (window.scrollY + rect.bottom + 6) + 'px'
       addBtn.style.left = (window.scrollX + Math.max(8, rect.left)) + 'px'
       document.body.appendChild(addBtn)
@@ -2200,20 +2200,37 @@ export const VIEWER_SCRIPT = `(function () {
   })
 
   function clearForm() {
-    formSlot.textContent = ''
+    floatWrap.textContent = ''
+    floatWrap.remove()
     narrowFormWrap.textContent = ''
     narrowFormWrap.remove()
-    railHint.textContent = 'Select text to comment'
-    layoutRail()
+    railHint.textContent = ''
+  }
+
+  // Place the float wrapper at the selection: below it, left-aligned and
+  // clamped to the viewport; flipped above when the viewport bottom would
+  // clip it. Absolute (document coords), so it scrolls with the text.
+  function placeFloatForm(rect) {
+    var width = Math.min(384, window.innerWidth - 32)
+    var left = Math.max(16, Math.min(rect.left, window.innerWidth - width - 16))
+    floatWrap.style.left = (window.scrollX + left) + 'px'
+    floatWrap.style.top = (window.scrollY + rect.bottom + 8) + 'px'
+    document.body.appendChild(floatWrap)
+    var h = floatWrap.offsetHeight
+    if (rect.bottom + 8 + h > window.innerHeight - 16 && rect.top - 8 - h > 0) {
+      floatWrap.style.top = (window.scrollY + rect.top - 8 - h) + 'px'
+    }
   }
 
   function showForm(anchor) {
-    formSlot.textContent = ''
-    formAnchorTop = pendingAnchorTop
+    floatWrap.textContent = ''
     railHint.textContent = 'writing'
     var form = el('div', null)
     form.id = 'prose-comment-form'
-    form.appendChild(el('span', 'prose-thread-quote', '"' + anchor.markedText + '"'))
+    var anchorBlock = el('div', 'prose-form-anchor')
+    anchorBlock.appendChild(el('div', 'prose-form-eyebrow', 'Commenting on'))
+    anchorBlock.appendChild(el('span', 'prose-thread-quote', '“' + anchor.markedText + '”'))
+    form.appendChild(anchorBlock)
     var errorEl = el('div', 'prose-form-error', '')
     errorEl.style.display = 'none'
     var textArea = el('textarea', null)
@@ -2245,7 +2262,6 @@ export const VIEWER_SCRIPT = `(function () {
       if (!name || !text) {
         errorEl.textContent = 'Name and comment are required.'
         errorEl.style.display = 'block'
-        layoutRail()
         return
       }
       try { window.localStorage.setItem('prose-commenter-name', name) } catch (e) { /* blocked storage */ }
@@ -2282,7 +2298,6 @@ export const VIEWER_SCRIPT = `(function () {
           postBtn.disabled = false
           errorEl.textContent = err.message
           errorEl.style.display = 'block'
-          layoutRail()
           return
         }
         // Network down or server failure — the comment stays in this page,
@@ -2307,14 +2322,15 @@ export const VIEWER_SCRIPT = `(function () {
     actions.appendChild(el('span', 'prose-form-kbd', '⌘↵'))
     form.appendChild(actions)
     if (isNarrow) {
-      // No rail to host the slot — the form docks as a fixed bottom card.
+      // No floating card narrow — the form docks as a fixed bottom card.
       narrowFormWrap.textContent = ''
       narrowFormWrap.appendChild(form)
       document.body.appendChild(narrowFormWrap)
     } else {
-      formSlot.appendChild(form)
+      floatWrap.appendChild(form)
+      placeFloatForm(pendingRect || { top: 120, bottom: 120, left: 24 })
+      // Open the panel so the posted card has somewhere visible to land.
       if (!document.body.contains(rail)) toggle.click()
-      layoutRail()
     }
     textArea.focus()
   }

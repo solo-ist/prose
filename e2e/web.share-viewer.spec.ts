@@ -257,28 +257,28 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
     await expect(rail.locator('.prose-resolved-head')).toContainText('Resolved · 1')
     await expect(rail.locator('.prose-resolved-section .prose-thread')).toHaveCount(0)
     await rail.locator('.prose-resolved-toggle').click()
-    await expect(rail.locator('.prose-resolved-section .prose-thread-quote')).toHaveText('"lazy dog"')
+    await expect(rail.locator('.prose-resolved-section .prose-thread-quote')).toHaveText('“lazy dog”')
     await expect(rail.getByText('This thread was resolved.')).toBeVisible()
   })
 
-  test('rail cards stack aligned to their marks without overlap', async ({ page }) => {
+  test('the panel floats fixed on the right with cards in document order', async ({ page }) => {
     const c1 = page.locator('.prose-thread[data-thread-id="c1"]')
     const c2 = page.locator('.prose-thread[data-thread-id="c2"]')
     await expect(c1).toBeVisible()
     await expect(c2).toBeVisible()
-    const top1 = await c1.evaluate((node) => parseFloat((node as HTMLElement).style.top))
-    const top2 = await c2.evaluate((node) => parseFloat((node as HTMLElement).style.top))
-    const h1 = await c1.evaluate((node) => (node as HTMLElement).offsetHeight)
-    expect(top1).toBeGreaterThan(0)
-    // No overlap: the later card sits below the earlier one plus the gap.
-    expect(top2).toBeGreaterThanOrEqual(top1 + h1 + 10)
-    // The first card aligns to its highlight (markTop - 6) when unobstructed.
-    const markTop = await page.evaluate(() => {
-      const root = document.querySelector('.prose-page')!.getBoundingClientRect().top
-      const mark = document.querySelector('article span[data-comment-id="c1"]')!
-      return mark.getBoundingClientRect().top - root
-    })
-    expect(Math.abs(top1 - (markTop - 6))).toBeLessThan(1.5)
+    // The panel is a fixed floating surface, not part of the page flow.
+    const position = await page.locator('#prose-comment-rail').evaluate((node) => getComputedStyle(node).position)
+    expect(position).toBe('fixed')
+    // Cards are normal flow inside the scroll body (no absolute stacking)…
+    const top1 = await c1.evaluate((node) => (node as HTMLElement).style.top)
+    expect(top1).toBe('')
+    // …ordered by where their marks appear in the document: c1 before c2.
+    const order = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('.prose-open-section .prose-thread')).map((n) => n.getAttribute('data-thread-id'))
+    )
+    expect(order).toEqual(['c1', 'c2'])
+    // Every open card carries its quote — the panel sits apart from the marks.
+    await expect(c1.locator('.prose-thread-quote')).toHaveText('“quick brown fox”')
   })
 
   test('renders hostile comment content inert', async ({ page }) => {
@@ -565,7 +565,7 @@ test.describe('client-side anchoring', () => {
     )
     await expect(page.locator('.prose-lost-head')).toContainText('Lost their place · 1')
     const lostCard = page.locator('.prose-lost-section .prose-thread-lost')
-    await expect(lostCard.locator('.prose-thread-quote')).toHaveText('"vanished passage"')
+    await expect(lostCard.locator('.prose-thread-quote')).toHaveText('“vanished passage”')
     await expect(lostCard.locator('.prose-lost-note')).toHaveText('This passage is no longer in the document.')
     // Lost threads are excluded from the open conversation count.
     await expect(page.locator('.prose-rail-head')).toContainText('Comments · 0')

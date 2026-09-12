@@ -37,7 +37,9 @@ function Toast({ notification }: { notification: AppNotification }) {
           : undefined
       }
       className={`pointer-events-auto relative w-80 rounded-lg border border-border bg-popover text-popover-foreground shadow-lg p-4 animate-in fade-in slide-in-from-bottom-2 ${
-        bodyClickable ? 'cursor-pointer transition-colors hover:border-muted-foreground/40 hover:bg-muted/40' : ''
+        // hover bg must stay OPAQUE — an alpha color here replaces the solid
+        // popover background and the editor bleeds through the toast.
+        bodyClickable ? 'cursor-pointer transition-colors hover:border-muted-foreground/40 hover:bg-muted' : ''
       }`}
     >
       <button

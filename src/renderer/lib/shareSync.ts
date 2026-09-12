@@ -18,6 +18,7 @@ import { mergeCommentThreads, cleanString } from './commentMerge'
 import { useCommentStore } from '../extensions/comments/store'
 import { useEditorStore } from '../stores/editorStore'
 import { useNotificationStore } from '../stores/notificationStore'
+import { useReviewStore } from '../stores/reviewStore'
 import { useShareStore } from '../stores/shareStore'
 import { isWebPlatformEnabled } from './featureFlags'
 import { flushPendingShareOps } from './sharePush'
@@ -116,6 +117,9 @@ export async function syncShareComments(entry: ShareEntry, documentId: string): 
   }
 
   const existing = store.pendingComments
+  // Reply counts before the merge — whichever thread is new or grew is the
+  // one the toast click should land on.
+  const beforeCounts = new Map(existing.map((c) => [c.id, (c.replies ?? []).length]))
   // Known ids include shareIds: a thread pushed live from this desktop is
   // known under its server row id too, so replies to it that arrive after the
   // cursor passed the thread row still get their graft shell.
@@ -129,9 +133,14 @@ export async function syncShareComments(entry: ShareEntry, documentId: string): 
     await store.saveComments(documentId, merged)
     // Reload → sets needsRestore → the Editor restore effect re-derives marks.
     await store.loadComments(documentId)
+    const target = merged.find(
+      (c) => !beforeCounts.has(c.id) || (c.replies?.length ?? 0) > (beforeCounts.get(c.id) ?? 0)
+    )
     useNotificationStore.getState().notify({
       message: `Synced ${added} reviewer comment${added === 1 ? '' : 's'} into this document.`,
       durationMs: 5000,
+      // Clicking the toast opens the (first) new thread in Comment Review.
+      onAction: target ? () => useReviewStore.getState().enterCommentReview(target.id) : undefined,
     })
     // Light up the ◎ badge until the user looks (popover or Comment Review).
     useShareStore.getState().addUnseenComments(added)

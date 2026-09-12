@@ -159,9 +159,14 @@ export function ShareStatusPopover() {
           <span className="text-[10px] text-muted-foreground">{statusLine}</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="min-w-0 flex-1 truncate rounded-[5px] border border-border bg-background px-2 py-1.5 text-[11px] text-foreground">
+          <button
+            type="button"
+            onClick={() => void getApi().openExternal?.(entry.shareUrl)}
+            title="Open in browser"
+            className="min-w-0 flex-1 cursor-pointer truncate rounded-[5px] border border-border bg-background px-2 py-1.5 text-left text-[11px] text-foreground transition-colors hover:border-muted-foreground/40 hover:text-foreground"
+          >
             {entry.shareUrl}
-          </span>
+          </button>
           <button
             type="button"
             onClick={handleCopy}

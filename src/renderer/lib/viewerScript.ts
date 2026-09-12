@@ -161,7 +161,9 @@ export const ARTIFACT_BASE_STYLES = `
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 24px;
+    /* Right padding matches the panel's right inset so the tools cluster
+       sits flush with the panel edge below it. */
+    padding: 0 20px 0 24px;
     background: var(--bg);
     transition: background 0.3s ease;
   }
@@ -310,11 +312,14 @@ export const VIEWER_STYLES = `
     background: hsl(var(--background));
     border: 1px solid hsl(var(--border));
     border-radius: 12px;
-    box-shadow: 0 8px 24px hsl(var(--foreground) / 0.08);
+    /* Always shadow in black — a foreground-based shadow glows white on
+       dark mode ("looks a little cheesy" — Angel). The border carries the
+       separation in dark; the shadow reads in light. */
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
     z-index: 5;
   }
-  /* 12px below the chrome in both modes: topbar 52 + 12, banner adds 36. */
-  body.prose-local-mode #prose-comment-rail { top: 100px; }
+  /* One compact chrome bar in every mode — local-copy state lives IN the
+     top bar, so the panel always starts 12px below it. */
   /* The article yields to the panel only where its own right whitespace
      can't hold it; at >=1460px the 660px column's margin fits the panel and
      the page stays perfectly centered — the panel truly floats. */
@@ -469,33 +474,27 @@ export const VIEWER_STYLES = `
     cursor: pointer;
   }
   .prose-offline-note { margin-top: 8px; font-size: 11px; color: hsl(var(--muted-foreground)); }
+  /* The local-copy readout sits centered INSIDE the top bar — one compact
+     bar, no second chrome row. The Publish action rides in the right tools
+     cluster, left of the comment count (per Angel's chrome feedback). */
   #prose-file-banner {
-    position: sticky;
-    top: 52px;
-    z-index: 6;
-    box-sizing: border-box;
-    height: 36px;
-    display: flex;
-    flex-wrap: nowrap;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: 34vw;
+    display: inline-flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 0 24px;
-    background: var(--bg);
-    border-bottom: 1px solid hsl(var(--border));
+    gap: 8px;
+    overflow: hidden;
+    white-space: nowrap;
     font-family: var(--font-mono);
     font-size: 11.5px;
     letter-spacing: 0.02em;
     color: hsl(var(--muted-foreground));
-    transition: background 0.3s ease;
   }
-  .prose-local-label {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .prose-local-sync { display: inline-flex; align-items: center; gap: 12px; flex-shrink: 0; white-space: nowrap; }
+  .prose-local-label { flex-shrink: 0; }
+  .prose-local-state { overflow: hidden; text-overflow: ellipsis; }
+  .prose-local-state:not(:empty)::before { content: '·'; margin-right: 8px; }
   .prose-local-state.prose-local-err { color: hsl(var(--pending)); }
   #prose-publish-comments {
     border: none;
@@ -532,7 +531,7 @@ export const VIEWER_STYLES = `
     background: hsl(var(--popover));
     color: hsl(var(--foreground));
     cursor: pointer;
-    box-shadow: 0 4px 12px hsl(var(--foreground) / 0.15);
+    box-shadow: 0 4px 12px rgb(0 0 0 / 0.2);
   }
   #prose-float-form {
     position: absolute;
@@ -543,7 +542,7 @@ export const VIEWER_STYLES = `
     border: 1px solid hsl(var(--border));
     border-radius: 12px;
     background: hsl(var(--popover));
-    box-shadow: 0 12px 32px hsl(var(--foreground) / 0.16);
+    box-shadow: 0 12px 32px rgb(0 0 0 / 0.24);
     font-family: var(--font-mono);
     font-size: 12.5px;
     line-height: 1.5;
@@ -612,16 +611,18 @@ export const VIEWER_STYLES = `
     color: hsl(var(--foreground));
   }
   .prose-form-actions { margin-top: 12px; display: flex; gap: 8px; align-items: center; }
+  /* The commenting accent is amber — Post matches Publish, and reads as
+     THE action in the floating card ("could be more pronounced" — Angel). */
   #prose-comment-form button {
     border: none;
     height: 30px;
-    padding: 0 12px;
+    padding: 0 14px;
     border-radius: 6px;
     display: inline-flex;
     align-items: center;
-    font: 500 12px var(--font-mono);
-    background: hsl(var(--primary));
-    color: hsl(var(--primary-foreground));
+    font: 600 12px var(--font-mono);
+    background: hsl(var(--comment));
+    color: #0a0a0a;
     cursor: pointer;
   }
   #prose-comment-form button.prose-secondary { background: transparent; color: hsl(var(--muted-foreground)); padding: 0 10px; }
@@ -674,13 +675,13 @@ export const VIEWER_STYLES = `
   .prose-reply-actions button {
     border: none;
     height: 28px;
-    padding: 0 10px;
+    padding: 0 12px;
     border-radius: 6px;
     display: inline-flex;
     align-items: center;
-    font: 500 12px var(--font-mono);
-    background: hsl(var(--primary));
-    color: hsl(var(--primary-foreground));
+    font: 600 12px var(--font-mono);
+    background: hsl(var(--comment));
+    color: #0a0a0a;
     cursor: pointer;
   }
   .prose-reply-actions button.prose-reply-cancel { background: none; color: hsl(var(--muted-foreground)); padding: 0 8px; }
@@ -1757,6 +1758,7 @@ export const VIEWER_SCRIPT = `(function () {
       '#prose-add-comment-btn',
       '#prose-float-form',
       '#prose-file-banner',
+      '#prose-publish-comments',
       '#prose-bottom-bar',
       '#prose-sheet',
       '#prose-narrow-form-wrap',
@@ -1772,7 +1774,6 @@ export const VIEWER_SCRIPT = `(function () {
     if (body) {
       body.classList.remove('prose-rail-open')
       body.classList.remove('prose-narrow')
-      body.classList.remove('prose-local-mode')
     }
     // Reset chrome state that belongs to THIS session, not the copy.
     var dl = clone.querySelector('#prose-download-copy')
@@ -1856,34 +1857,31 @@ export const VIEWER_SCRIPT = `(function () {
     })
   }
 
-  // file:// posture: the local bar sits under the top bar as part of the
-  // chrome — the "this is a local copy" line plus, when the copy carries its
-  // share URL, the draft state and a Publish action. Runtime-inserted (never
-  // baked), so annotated copies re-derive it from their own protocol on open.
+  // file:// posture: the local-copy readout lives INSIDE the top bar — one
+  // compact chrome bar. "Local copy · Draft · N unpublished" centered; the
+  // Publish action joins the right tools cluster, left of the comment count.
+  // Runtime-inserted (never baked), so annotated copies re-derive it from
+  // their own protocol on open.
   var localStateEl = null
   var localPublishBtn = null
   if (isFile) {
-    var fileBanner = el('div', null)
+    var fileBanner = el('span', null)
     fileBanner.id = 'prose-file-banner'
-    // Just the label — the full explanation lives in the panel note, so the
-    // banner never has to truncate a sentence to fit the state + button.
     fileBanner.appendChild(el('span', 'prose-local-label', 'Local copy'))
-    var syncBox = el('span', 'prose-local-sync')
     localStateEl = el('span', 'prose-local-state', '')
-    syncBox.appendChild(localStateEl)
+    fileBanner.appendChild(localStateEl)
+    var topbarEl = document.querySelector('.prose-topbar')
+    if (topbarEl) topbarEl.appendChild(fileBanner)
+    else document.body.insertBefore(fileBanner, document.body.firstChild)
     if (canPublish) {
       localPublishBtn = el('button', null, 'Publish comments')
       localPublishBtn.id = 'prose-publish-comments'
       localPublishBtn.type = 'button'
       localPublishBtn.addEventListener('click', publishLocalAdditions)
-      syncBox.appendChild(localPublishBtn)
+      var toolsEl = document.querySelector('.prose-topbar-tools')
+      if (toolsEl) toolsEl.insertBefore(localPublishBtn, toolsEl.firstChild)
+      else fileBanner.appendChild(localPublishBtn)
     }
-    fileBanner.appendChild(syncBox)
-    var topbarEl = document.querySelector('.prose-topbar')
-    if (topbarEl && topbarEl.parentNode) topbarEl.parentNode.insertBefore(fileBanner, topbarEl.nextSibling)
-    else document.body.insertBefore(fileBanner, document.body.firstChild)
-    // The banner adds 36px of sticky chrome — the fixed panel starts lower.
-    document.body.classList.add('prose-local-mode')
   }
 
   // Draft / published state in the local bar. Rendered from renderRail so

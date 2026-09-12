@@ -11,7 +11,7 @@ import { bodyLimit } from 'hono/body-limit'
 import { corsMiddleware } from './middleware/cors.js'
 import { requireSession, type AppEnv } from './middleware/session.js'
 import { requireEntitlement } from './middleware/entitlement.js'
-import { rateLimit } from './middleware/rateLimit.js'
+import { rateLimit, userRateLimit } from './middleware/rateLimit.js'
 import { ipRateLimit } from './middleware/ipRateLimit.js'
 import { auth } from './auth/index.js'
 import health from './routes/health.js'
@@ -73,7 +73,9 @@ export function createApp() {
 
   // Gated share management (#768): publish/re-publish/list/comments/revoke.
   // The artifact ceiling covers image-fattened exports; the JSON envelope
-  // roughly doubles the raw HTML bytes.
+  // roughly doubles the raw HTML bytes. Its OWN rate bucket — sharing the
+  // LLM proxy's 20/min starved conversation migrations (one write per
+  // thread/reply/resolve in a burst) and then 429'd the re-publish itself.
   app.use(
     '/api/share/*',
     bodyLimit({
@@ -82,7 +84,7 @@ export function createApp() {
     }),
     requireSession,
     requireEntitlement('share_publish'),
-    rateLimit
+    userRateLimit(config.SHARE_RATE_LIMIT_MAX, config.RATE_LIMIT_WINDOW_S)
   )
   app.route('/api/share', shareAuthorRoutes)
 

@@ -1417,9 +1417,12 @@ export const VIEWER_SCRIPT = `(function () {
   var railHead = el('div', 'prose-rail-head')
   var railHeadLeft = el('span', 'prose-rail-head-left')
   var railHeadCount = el('span', null, 'Comments · 0')
+  // Cause-neutral: a row lands "not sent" when the network is down OR when
+  // its thread's server row is gone (stale history) — "offline" would lie in
+  // the second case.
   var offlineChip = el('span', 'prose-offline-chip')
   offlineChip.appendChild(el('span', 'prose-offline-dot'))
-  offlineChip.appendChild(document.createTextNode('offline'))
+  offlineChip.appendChild(document.createTextNode('not sent'))
   // Empty at rest (the note below the head already invites selection);
   // flips to 'writing' while the composer is open.
   var railHint = el('span', null, '')
@@ -1578,7 +1581,7 @@ export const VIEWER_SCRIPT = `(function () {
     if (notSentCount > 0) {
       var offlineCard = el('div', 'prose-offline-card')
       offlineCard.appendChild(el('div', null,
-        "You're offline. " + notSentCount + ' comment' + (notSentCount === 1 ? '' : 's') + ' saved in this page, not on the server.'))
+        notSentCount + ' comment' + (notSentCount === 1 ? '' : 's') + " couldn't reach the server — saved in this page instead."))
       var offlineDl = el('button', null, 'Download annotated copy')
       offlineDl.type = 'button'
       offlineDl.addEventListener('click', function () { downloadBtn.click() })

@@ -38,6 +38,19 @@ function opKey(op: PendingOp): string {
 const inFlight = new Set<string>()
 let pendingOps: PendingOp[] = []
 
+// After a gateway 'rate_limited', hold ALL pushes for the window instead of
+// hammering it shut — every retry burns budget the queued ops need. Ops that
+// fire while limited queue instead of sending.
+let rateLimitedUntil = 0
+
+function noteRateLimit(code?: string | null): void {
+  if (code === 'rate_limited') rateLimitedUntil = Date.now() + 60_000
+}
+
+function isRateLimited(): boolean {
+  return Date.now() < rateLimitedUntil
+}
+
 /** Active non-revoked entry for the current document, or null. */
 async function activeEntry(): Promise<ShareEntry | null> {
   const path = useEditorStore.getState().document.path
@@ -76,6 +89,10 @@ async function pushThread(threadId: string): Promise<void> {
   if (!isWebPlatformEnabled()) return
   const thread = useCommentStore.getState().pendingComments.find((c) => c.id === threadId)
   if (!thread || thread.shareId || !thread.markedText) return
+  if (isRateLimited()) {
+    queueOnce({ kind: 'thread', threadId })
+    return
+  }
 
   const key = `thread:${threadId}`
   if (inFlight.has(key)) return
@@ -101,6 +118,7 @@ async function pushThread(threadId: string): Promise<void> {
         ...(isViewerThread ? { fromAuthor: false } : {})
       })
       if (!res.ok) {
+        noteRateLimit(res.code)
         queueOnce({ kind: 'thread', threadId })
         reportPushError(res.error, res.code)
         return
@@ -147,6 +165,9 @@ export async function backfillShareThreads(): Promise<boolean> {
   const docId = useEditorStore.getState().document.documentId
   const store = useCommentStore.getState()
   if (!docId || store.documentId !== docId) return false
+  // A closed rate window means every push below would bounce — wait for the
+  // next content push rather than burning the reopening budget.
+  if (isRateLimited()) return false
   const entry = await activeEntry()
   if (!entry) return false
 
@@ -185,7 +206,12 @@ export async function backfillShareThreads(): Promise<boolean> {
     .pendingComments.filter((c) => !c.shareId && c.markedText)
     .map((c) => c.id)
   if (missing.length === 0) return false
-  for (const id of missing) await pushThread(id)
+  for (const id of missing) {
+    // A mid-loop 429 closes the window — stop instead of queueing bounces;
+    // the remainder re-detects as missing on the next content push.
+    if (isRateLimited()) break
+    await pushThread(id)
+  }
   const after = useCommentStore.getState().pendingComments
   for (const c of after) {
     if (c.shareId) verifiedRows.add(`${entry.publicationId}:${c.shareId}`)
@@ -204,6 +230,10 @@ export function pushReplyToShare(threadId: string, replyId: string): void {
   if (!thread?.shareId) return
   const reply = (thread.replies ?? []).find((r) => r.id === replyId)
   if (!reply || reply.shareId) return
+  if (isRateLimited()) {
+    queueOnce({ kind: 'reply', threadId, replyId })
+    return
+  }
 
   const key = `reply:${threadId}:${replyId}`
   if (inFlight.has(key)) return
@@ -224,6 +254,7 @@ export function pushReplyToShare(threadId: string, replyId: string): void {
         isViewerReply ? false : undefined
       )
       if (!res.ok) {
+        noteRateLimit(res.code)
         queueOnce({ kind: 'reply', threadId, replyId })
         reportPushError(res.error, res.code)
         return
@@ -258,6 +289,10 @@ export function pushResolveToShare(threadId: string): void {
   const { pendingComments } = useCommentStore.getState()
   const thread = pendingComments.find((c) => c.id === threadId)
   if (!thread?.shareId) return
+  if (isRateLimited()) {
+    queueOnce({ kind: 'resolve', threadId })
+    return
+  }
 
   const key = `resolve:${threadId}`
   if (inFlight.has(key)) return
@@ -276,6 +311,7 @@ export function pushResolveToShare(threadId: string): void {
         current.resolved === true
       )
       if (!res.ok) {
+        noteRateLimit(res.code)
         queueOnce({ kind: 'resolve', threadId })
         reportPushError(res.error, res.code)
         return
@@ -291,7 +327,7 @@ export function pushResolveToShare(threadId: string): void {
 
 /** Retry queued pushes (window focus, or after a successful content push). */
 export function flushPendingShareOps(): void {
-  if (pendingOps.length === 0) return
+  if (pendingOps.length === 0 || isRateLimited()) return
   const ops = pendingOps
   pendingOps = []
   for (const op of ops) {

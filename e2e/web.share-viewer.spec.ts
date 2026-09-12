@@ -921,11 +921,12 @@ test.describe('live conversation loop (online viewer)', () => {
     const id = await card.getAttribute('data-thread-id')
     expect(await page.locator(`article span[data-comment-id="${id}"]`).count()).toBeGreaterThan(0)
 
-    // Recovery UI: offline chip in the rail head + explainer card + armed
-    // download.
-    await expect(page.locator('.prose-offline-chip')).toContainText('offline')
+    // Recovery UI: not-sent chip in the rail head + explainer card + armed
+    // download. Copy is cause-neutral — network down and gone-row replies
+    // share this surface.
+    await expect(page.locator('.prose-offline-chip')).toContainText('not sent')
     await expect(page.locator('.prose-offline-card')).toContainText(
-      "You're offline. 1 comment saved in this page, not on the server."
+      "1 comment couldn't reach the server — saved in this page instead."
     )
     await expect(page.locator('.prose-offline-card')).toContainText('Send the file back')
     await expect(page.locator('#prose-download-copy')).toContainText('(1 new)')
@@ -937,7 +938,7 @@ test.describe('live conversation loop (online viewer)', () => {
     await thread.locator('.prose-reply-actions button', { hasText: 'Reply' }).first().click()
     await expect(thread.getByText('Reply while down.')).toBeVisible()
     await expect(thread.locator('.prose-not-sent')).toHaveText('not sent')
-    await expect(page.locator('.prose-offline-card')).toContainText('2 comments saved in this page')
+    await expect(page.locator('.prose-offline-card')).toContainText("2 comments couldn't reach the server")
 
     // The not-sent additions bake into the annotated copy — the recovery path.
     const [download] = await Promise.all([

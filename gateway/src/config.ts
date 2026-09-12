@@ -30,6 +30,11 @@ const EnvSchema = z.object({
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
   RATE_LIMIT_WINDOW_S: z.coerce.number().int().positive().default(60),
 
+  // Share author surface rate limit (its own bucket): comment rows are tiny
+  // writes, and a revoke→republish conversation migration bursts one write
+  // per thread/reply/resolve plus the re-bake PUT.
+  SHARE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
+
   // Cloudflare R2 (blobs only; stub in Phase 0).
   R2_ACCOUNT_ID: z.string().optional(),
   R2_ACCESS_KEY_ID: z.string().optional(),

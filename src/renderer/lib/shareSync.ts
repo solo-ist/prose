@@ -130,6 +130,13 @@ export async function syncShareComments(entry: ShareEntry, documentId: string): 
   const { merged, added } = mergeCommentThreads(existing, incoming)
 
   if (added > 0) {
+    // Land the merge in the LIVE store synchronously, before any await: every
+    // routine save (tab-switch, the comment-transaction mirror) reads
+    // pendingComments, and the old persist-then-reload order left a window
+    // where a concurrent save wrote the PRE-merge set straight over the
+    // just-persisted one — a pulled thread vanished, and the acked cursor
+    // made the drop permanent (observed live, 2026-09-12).
+    useCommentStore.setState({ pendingComments: merged })
     await store.saveComments(documentId, merged)
     // Reload → sets needsRestore → the Editor restore effect re-derives marks.
     await store.loadComments(documentId)

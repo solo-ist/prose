@@ -611,6 +611,9 @@ test.describe('live conversation loop (online viewer)', () => {
   let origin: string
   let commentRows: Array<Record<string, unknown>> = []
   let postedRows: Array<Record<string, unknown>> = []
+  // authorEmail from each comment POST body, by index — the GET rows must
+  // never carry it (mirrors publicComment excluding it), so assert here.
+  let postedEmails: Array<string | undefined> = []
   let post429RetryAfter = 0
   let post500 = false
   let commentsGone = false
@@ -672,7 +675,8 @@ test.describe('live conversation loop (online viewer)', () => {
             res.end(JSON.stringify({ error: 'rate_limited', retryAfter }))
             return
           }
-          const parsed = JSON.parse(body) as { commentText: string; markedText: string; occurrenceIndex: number; authorName: string }
+          const parsed = JSON.parse(body) as { commentText: string; markedText: string; occurrenceIndex: number; authorName: string; authorEmail?: string }
+          postedEmails.push(parsed.authorEmail)
           const id = `srv-posted-${postedRows.length + 1}`
           postedRows.push(row({
             id,
@@ -736,6 +740,7 @@ test.describe('live conversation loop (online viewer)', () => {
 
   test.beforeEach(() => {
     postedRows = []
+    postedEmails = []
     post429RetryAfter = 0
     post500 = false
     commentsGone = false
@@ -953,21 +958,26 @@ test.describe('live conversation loop (online viewer)', () => {
     await expect(page.locator('#prose-publish-comments')).toBeHidden()
     await expect(page.getByText('Landed while offline.')).toBeVisible()
 
-    // A local addition is a draft: no auto-post, state + button appear.
+    // A local addition is a draft: no auto-post, state + button appear. A
+    // publish-capable copy offers the email field (it can reach the server).
     await page.locator('article p').first().click({ clickCount: 3 })
     await page.locator('#prose-add-comment-btn').click()
-    await page.locator('#prose-comment-form input').fill('Local Lia')
+    await expect(page.locator('#prose-comment-form input')).toHaveCount(2)
+    await page.locator('#prose-comment-form input').first().fill('Local Lia')
+    await page.locator('#prose-comment-form input').nth(1).fill('lia@example.com')
     await page.locator('#prose-comment-form textarea').fill('Published from a local file.')
     await page.locator('#prose-comment-form button', { hasText: 'Add' }).first().click()
     await expect(page.locator('.prose-local-state')).toHaveText('Draft · 1 unpublished')
     expect(postedRows).toHaveLength(0)
 
     // Publish: pushes the draft, pulls the conversation, clears the state.
+    // The remembered email rides on the reader's own draft…
     await page.locator('#prose-publish-comments').click()
     await expect(page.locator('.prose-local-state')).toHaveText('All comments published')
     expect(postedRows).toHaveLength(1)
     expect(postedRows[0].commentText).toBe('Published from a local file.')
     expect(postedRows[0].authorName).toBe('Local Lia')
+    expect(postedEmails[0]).toBe('lia@example.com')
     // The thread now lives under its server id and stays tagged as ours.
     const card = page.locator('.prose-thread', { hasText: 'Published from a local file.' })
     await expect(card).toHaveAttribute('data-thread-id', /^srv-posted-/)
@@ -991,7 +1001,7 @@ test.describe('live conversation loop (online viewer)', () => {
     await page.goto(pathToFileURL(savedPath).href)
     await page.locator('article p').first().click({ clickCount: 3 })
     await page.locator('#prose-add-comment-btn').click()
-    await page.locator('#prose-comment-form input').fill('Reload Rai')
+    await page.locator('#prose-comment-form input').first().fill('Reload Rai')
     await page.locator('#prose-comment-form textarea').fill('Survives a reload.')
     await page.locator('#prose-comment-form button', { hasText: 'Add' }).first().click()
     await page.locator('#prose-publish-comments').click()
@@ -1034,6 +1044,34 @@ test.describe('live conversation loop (online viewer)', () => {
     await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
     await expect(page.getByText('Second post.')).toBeVisible()
     await expect(page.locator('.prose-nudge')).toHaveCount(0)
+  })
+
+  test('the composer remembers name and email; the email is sent but never baked', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').first().fill('Memo Mae')
+    await page.locator('#prose-comment-form input').nth(1).fill('mae@example.com')
+    await page.locator('#prose-comment-form textarea').fill('Remember me.')
+    await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
+    await expect(page.getByText('Remember me.')).toBeVisible()
+    expect(postedEmails[0]).toBe('mae@example.com')
+
+    // The next form opens prefilled from storage.
+    await page.locator('article p').nth(1).click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await expect(page.locator('#prose-comment-form input').first()).toHaveValue('Memo Mae')
+    await expect(page.locator('#prose-comment-form input').nth(1)).toHaveValue('mae@example.com')
+
+    // The email lives in localStorage only — a downloaded copy of a page
+    // whose threads include the posted comment must not carry it.
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('#prose-download-copy').click(),
+    ])
+    const savedPath = join(tmpDir, 'email-leak-check.html')
+    await download.saveAs(savedPath)
+    expect(readFileSync(savedPath, 'utf-8')).not.toContain('mae@example.com')
   })
 })
 

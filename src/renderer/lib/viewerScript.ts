@@ -1098,6 +1098,13 @@ export const VIEWER_SCRIPT = `(function () {
     try { return window.localStorage.getItem('prose-commenter-name') || '' } catch (e) { return '' }
   }
 
+  // The reader's email lives in localStorage ONLY — never on a thread object,
+  // where it would bake into annotated copies and travel with the file. It is
+  // attached at POST time (and at local publish, for this reader's drafts).
+  function storedEmail() {
+    try { return window.localStorage.getItem('prose-commenter-email') || '' } catch (e) { return '' }
+  }
+
   // Threads/replies this reader created in THIS page session — tagged " · you".
   var mineIds = {}
 
@@ -2078,10 +2085,13 @@ export const VIEWER_SCRIPT = `(function () {
       (function (c) {
         if (isLocalId(c.id)) {
           chain = chain.then(function () {
+            // Attach the remembered email ONLY to drafts this reader wrote in
+            // THIS page (mineIds) — a draft baked by an earlier session may be
+            // someone else's, and must not get this reader's notifications.
             return postComment(
               { markedText: c.markedText || '', occurrenceIndex: c.occurrenceIndex || 0 },
               c.authorName || 'Reader',
-              '',
+              mineIds[c.id] ? storedEmail() : '',
               c.comment
             ).then(function (created) {
               var old = c.id
@@ -2245,12 +2255,16 @@ export const VIEWER_SCRIPT = `(function () {
     nameInput.maxLength = 100
     nameInput.value = storedName()
     fields.appendChild(nameInput)
+    // Email is offered wherever the comment can reach the server — served
+    // pages and publish-capable local copies alike. A pure-offline copy has
+    // no field: nothing ever posts, so there is nothing to notify about.
     var emailInput = null
-    if (online) {
+    if (online || canPublish) {
       emailInput = el('input', null)
       emailInput.placeholder = 'email, optional'
       emailInput.type = 'email'
       emailInput.maxLength = 254
+      emailInput.value = storedEmail()
       fields.appendChild(emailInput)
     }
     var postBtn = el('button', null, online ? 'Post' : 'Add')
@@ -2267,6 +2281,11 @@ export const VIEWER_SCRIPT = `(function () {
         return
       }
       try { window.localStorage.setItem('prose-commenter-name', name) } catch (e) { /* blocked storage */ }
+      // Remember the email (or its clearing) before any branch — a local
+      // draft posts later, at Publish, from the stored value.
+      if (emailInput) {
+        try { window.localStorage.setItem('prose-commenter-email', emailInput.value.trim()) } catch (e) { /* blocked storage */ }
+      }
       if (!online) {
         addLocalThread(anchor, name, text, false)
         return
@@ -2316,7 +2335,7 @@ export const VIEWER_SCRIPT = `(function () {
     })
     form.appendChild(textArea)
     form.appendChild(fields)
-    if (online) form.appendChild(el('div', 'prose-form-helper', 'Email is only used to tell you about replies. It is never shown.'))
+    if (emailInput) form.appendChild(el('div', 'prose-form-helper', 'Email is only used to tell you about replies. It is never shown.'))
     form.appendChild(errorEl)
     var actions = el('div', 'prose-form-actions')
     actions.appendChild(postBtn)

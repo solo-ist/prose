@@ -313,7 +313,8 @@ export const VIEWER_STYLES = `
     box-shadow: 0 8px 24px hsl(var(--foreground) / 0.08);
     z-index: 5;
   }
-  body.prose-local-mode #prose-comment-rail { top: 104px; }
+  /* 12px below the chrome in both modes: topbar 52 + 12, banner adds 36. */
+  body.prose-local-mode #prose-comment-rail { top: 100px; }
   /* The article yields to the panel only where its own right whitespace
      can't hold it; at >=1460px the 660px column's margin fits the panel and
      the page stays perfectly centered — the panel truly floats. */
@@ -326,7 +327,7 @@ export const VIEWER_STYLES = `
   }
   .prose-rail-head {
     flex-shrink: 0;
-    padding: 14px 16px 0;
+    padding: 12px 16px 0;
     display: flex;
     justify-content: space-between;
     font-size: 11px;
@@ -338,7 +339,7 @@ export const VIEWER_STYLES = `
     min-height: 0;
     overflow-y: auto;
     scrollbar-width: thin;
-    padding: 0 16px 16px;
+    padding: 12px 16px 16px;
   }
   .prose-rail-head-left { display: inline-flex; align-items: center; gap: 10px; }
   .prose-offline-chip { display: inline-flex; align-items: center; gap: 5px; }
@@ -511,10 +512,11 @@ export const VIEWER_STYLES = `
   #prose-publish-comments[disabled] { opacity: 0.6; cursor: default; }
   .prose-rail-note {
     flex-shrink: 0;
-    padding: 8px 16px 12px;
+    padding: 4px 16px 10px;
+    border-bottom: 1px solid hsl(var(--border) / 0.6);
     color: hsl(var(--muted-foreground));
     font-size: 11px;
-    line-height: 1.5;
+    line-height: 1.45;
   }
   #prose-add-comment-btn {
     position: absolute;
@@ -1856,9 +1858,9 @@ export const VIEWER_SCRIPT = `(function () {
   if (isFile) {
     var fileBanner = el('div', null)
     fileBanner.id = 'prose-file-banner'
-    fileBanner.appendChild(el('span', 'prose-local-label', canPublish
-      ? 'Local copy — comments you add here stay in this file until you publish them.'
-      : 'Local copy. Comments you add here stay in this file until you send it back.'))
+    // Just the label — the full explanation lives in the panel note, so the
+    // banner never has to truncate a sentence to fit the state + button.
+    fileBanner.appendChild(el('span', 'prose-local-label', 'Local copy'))
     var syncBox = el('span', 'prose-local-sync')
     localStateEl = el('span', 'prose-local-state', '')
     syncBox.appendChild(localStateEl)

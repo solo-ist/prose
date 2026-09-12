@@ -240,10 +240,9 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
     await page.goto(artifactUrl)
   })
 
-  test('file:// shows the local-copy banner', async ({ page }) => {
-    await expect(page.locator('#prose-file-banner')).toHaveText(
-      'Local copy. Comments you add here stay in this file until you send it back.'
-    )
+  test('file:// shows the local-copy banner; the panel note explains the file loop', async ({ page }) => {
+    await expect(page.locator('#prose-file-banner')).toContainText('Local copy')
+    await expect(page.locator('#prose-comment-rail .prose-rail-note')).toContainText('download the annotated copy')
   })
 
   test('renders the comment rail with open and resolved threads', async ({ page }) => {
@@ -946,9 +945,11 @@ test.describe('live conversation loop (online viewer)', () => {
       row({ id: 'srv-late', parentId: 'srv-2', commentText: 'Landed while offline.', authorName: 'Late Reviewer', createdAt: '2026-09-08T00:00:00.000Z' })
     )
 
-    // Reopen from file:// — publish-capable local mode, live for reads.
+    // Reopen from file:// — publish-capable local mode, live for reads. The
+    // banner carries only the label; the note explains the publish loop.
     await page.goto(pathToFileURL(savedPath).href)
-    await expect(page.locator('#prose-file-banner')).toContainText('until you publish them')
+    await expect(page.locator('#prose-file-banner')).toContainText('Local copy')
+    await expect(page.locator('#prose-comment-rail .prose-rail-note')).toContainText('Publish to send')
     await expect(page.locator('#prose-publish-comments')).toBeHidden()
     await expect(page.getByText('Landed while offline.')).toBeVisible()
 

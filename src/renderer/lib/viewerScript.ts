@@ -553,6 +553,26 @@ export const VIEWER_STYLES = `
     font-size: 11px;
     line-height: 1.45;
   }
+  #prose-live-toast {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    z-index: 20;
+    max-width: 300px;
+    padding: 10px 14px;
+    border: 1px solid hsl(var(--border));
+    border-radius: 8px;
+    background: hsl(var(--popover));
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+    color: hsl(var(--foreground));
+    cursor: pointer;
+  }
+  #prose-live-toast:hover { border-color: hsl(var(--muted-foreground) / 0.4); }
+  #prose-live-toast .prose-toast-hint { color: hsl(var(--muted-foreground)); font-size: 11px; }
+  body.prose-narrow #prose-live-toast { right: 16px; bottom: 72px; }
   #prose-add-comment-btn {
     position: absolute;
     z-index: 12;
@@ -1153,7 +1173,12 @@ export const VIEWER_SCRIPT = `(function () {
   // One-time post confirmation, shown inside the newly created thread card.
   // The empty link-slot span reserves room for the future account-layer
   // sign-in link without DOM surgery.
-  var NUDGE_COPY = 'Posted. Replies go to your email if you gave one.'
+  // Email capture is OFF until reply notifications actually send — capturing
+  // an address while nothing emails would be a false promise. Flip this back
+  // on with the notification pipeline (gate, don't delete).
+  var EMAIL_CAPTURE = false
+
+  var NUDGE_COPY = 'Posted to the shared page.'
   var nudgeShown = false
   var nudgeThreadId = null
 
@@ -1886,6 +1911,7 @@ export const VIEWER_SCRIPT = `(function () {
       '#prose-bottom-bar',
       '#prose-sheet',
       '#prose-narrow-form-wrap',
+      '#prose-live-toast',
       '.prose-mark-index'
     ]
     for (var i = 0; i < strip.length; i++) {
@@ -2071,6 +2097,9 @@ export const VIEWER_SCRIPT = `(function () {
   function mergeLive(rows) {
     var changed = false
     var byId = {}
+    var newThreads = 0
+    var newReplies = 0
+    var toastTarget = null
     for (var mi = 0; mi < comments.length; mi++) byId[comments[mi].id] = comments[mi]
     for (var ti = 0; ti < rows.length; ti++) {
       var row = rows[ti]
@@ -2091,6 +2120,8 @@ export const VIEWER_SCRIPT = `(function () {
         comments.push(thread)
         byId[row.id] = thread
         changed = true
+        newThreads++
+        if (!toastTarget) toastTarget = row.id
       } else if (!!existing.resolved !== resolved) {
         // Boolean-normalized: baked open threads omit the field, and
         // undefined !== false must not count as a change every poll.
@@ -2111,13 +2142,58 @@ export const VIEWER_SCRIPT = `(function () {
       if (!seen) {
         parent.replies.push(rowToReply(reply))
         changed = true
+        newReplies++
+        if (!toastTarget) toastTarget = reply.parentId
       }
     }
     if (changed) {
       anchorAllThreads()
       renderRail()
       if (activeId) setActive(activeId, false)
+      // New conversation activity gets a toast — but only AFTER the first
+      // pull settled the baseline: the initial catch-up merge is the page
+      // loading, not news. Own posts merge under known ids and never count.
+      if (firstPullDone && (newThreads > 0 || newReplies > 0) && toastTarget) {
+        showLiveToast(toastTarget, newThreads, newReplies)
+      }
     }
+  }
+
+  // --- Live activity toast ---------------------------------------------------
+  // One small clickable card, batched per merge ("1 new comment · 2 new
+  // replies"); clicking views the first new thread. Runtime DOM, stripped
+  // from annotated copies. Singleton: a newer merge replaces the message.
+  var firstPullDone = false
+  var liveToast = null
+  var liveToastTimer = null
+
+  function dismissLiveToast() {
+    if (liveToastTimer) window.clearTimeout(liveToastTimer)
+    liveToastTimer = null
+    if (liveToast) liveToast.remove()
+    liveToast = null
+  }
+
+  function showLiveToast(targetId, newThreads, newReplies) {
+    dismissLiveToast()
+    var parts = []
+    if (newThreads > 0) parts.push(newThreads + ' new comment' + (newThreads === 1 ? '' : 's'))
+    if (newReplies > 0) parts.push(newReplies + ' new repl' + (newReplies === 1 ? 'y' : 'ies'))
+    liveToast = el('div', null)
+    liveToast.id = 'prose-live-toast'
+    liveToast.appendChild(el('div', null, parts.join(' · ')))
+    liveToast.appendChild(el('div', 'prose-toast-hint', 'Click to view'))
+    liveToast.addEventListener('click', function () {
+      dismissLiveToast()
+      if (isNarrow) {
+        openSheet(targetId)
+        return
+      }
+      if (!document.body.contains(rail)) toggle.click()
+      setActive(targetId, true)
+    })
+    document.body.appendChild(liveToast)
+    liveToastTimer = window.setTimeout(dismissLiveToast, 6000)
   }
 
   // One GET+merge exchange, shared by the online poll and the local publish
@@ -2147,6 +2223,8 @@ export const VIEWER_SCRIPT = `(function () {
       return resp.json()
     }).then(function (body) {
       if (body && body.comments) mergeLive(body.comments)
+      // Baseline settled: activity in LATER merges is news worth a toast.
+      firstPullDone = true
     })
   }
 
@@ -2217,7 +2295,7 @@ export const VIEWER_SCRIPT = `(function () {
             return postComment(
               { markedText: c.markedText || '', occurrenceIndex: c.occurrenceIndex || 0 },
               c.authorName || 'Reader',
-              mineIds[c.id] ? storedEmail() : '',
+              EMAIL_CAPTURE && mineIds[c.id] ? storedEmail() : '',
               c.comment
             ).then(function (created) {
               var old = c.id
@@ -2393,8 +2471,9 @@ export const VIEWER_SCRIPT = `(function () {
     // Email is offered wherever the comment can reach the server — served
     // pages and publish-capable local copies alike. A pure-offline copy has
     // no field: nothing ever posts, so there is nothing to notify about.
+    // (Gated off entirely until the notification pipeline sends real email.)
     var emailInput = null
-    if (online || canPublish) {
+    if (EMAIL_CAPTURE && (online || canPublish)) {
       emailInput = el('input', null)
       emailInput.placeholder = 'email, optional'
       emailInput.type = 'email'

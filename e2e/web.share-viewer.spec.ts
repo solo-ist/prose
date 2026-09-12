@@ -1040,26 +1040,24 @@ test.describe('live conversation loop (online viewer)', () => {
     await expect(page.locator('#prose-publish-comments')).toBeHidden()
     await expect(page.getByText('Landed while offline.')).toBeVisible()
 
-    // A local addition is a draft: no auto-post, state + button appear. A
-    // publish-capable copy offers the email field (it can reach the server).
+    // A local addition is a draft: no auto-post, state + button appear.
+    // (Email capture is gated off until notifications send — one input.)
     await page.locator('article p').first().click({ clickCount: 3 })
     await page.locator('#prose-add-comment-btn').click()
-    await expect(page.locator('#prose-comment-form input')).toHaveCount(2)
+    await expect(page.locator('#prose-comment-form input')).toHaveCount(1)
     await page.locator('#prose-comment-form input').first().fill('Local Lia')
-    await page.locator('#prose-comment-form input').nth(1).fill('lia@example.com')
     await page.locator('#prose-comment-form textarea').fill('Published from a local file.')
     await page.locator('#prose-comment-form button', { hasText: 'Add' }).first().click()
     await expect(page.locator('.prose-local-state')).toHaveText('Draft · 1 unpublished')
     expect(postedRows).toHaveLength(0)
 
     // Publish: pushes the draft, pulls the conversation, clears the state.
-    // The remembered email rides on the reader's own draft…
     await page.locator('#prose-publish-comments').click()
     await expect(page.locator('.prose-local-state')).toHaveText('All comments published')
     expect(postedRows).toHaveLength(1)
     expect(postedRows[0].commentText).toBe('Published from a local file.')
     expect(postedRows[0].authorName).toBe('Local Lia')
-    expect(postedEmails[0]).toBe('lia@example.com')
+    expect(postedEmails[0]).toBeUndefined()
     // The thread now lives under its server id and stays tagged as ours.
     const card = page.locator('.prose-thread', { hasText: 'Published from a local file.' })
     await expect(card).toHaveAttribute('data-thread-id', /^srv-posted-/)
@@ -1115,7 +1113,7 @@ test.describe('live conversation loop (online viewer)', () => {
     await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
 
     const nudge = page.locator('.prose-nudge')
-    await expect(nudge).toContainText('Posted. Replies go to your email if you gave one.')
+    await expect(nudge).toContainText('Posted to the shared page.')
     await nudge.locator('.prose-nudge-dismiss').click()
     await expect(page.locator('.prose-nudge')).toHaveCount(0)
 
@@ -1128,32 +1126,42 @@ test.describe('live conversation loop (online viewer)', () => {
     await expect(page.locator('.prose-nudge')).toHaveCount(0)
   })
 
-  test('the composer remembers name and email; the email is sent but never baked', async ({ page }) => {
+  test('the composer remembers the name; email capture is gated off', async ({ page }) => {
     await page.goto(`${origin}/s/testtoken`)
     await page.locator('article p').first().click({ clickCount: 3 })
     await page.locator('#prose-add-comment-btn').click()
+    // One input: no email field until reply notifications actually send.
+    await expect(page.locator('#prose-comment-form input')).toHaveCount(1)
     await page.locator('#prose-comment-form input').first().fill('Memo Mae')
-    await page.locator('#prose-comment-form input').nth(1).fill('mae@example.com')
     await page.locator('#prose-comment-form textarea').fill('Remember me.')
     await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
     await expect(page.getByText('Remember me.')).toBeVisible()
-    expect(postedEmails[0]).toBe('mae@example.com')
+    expect(postedEmails[0]).toBeUndefined()
 
     // The next form opens prefilled from storage.
     await page.locator('article p').nth(1).click({ clickCount: 3 })
     await page.locator('#prose-add-comment-btn').click()
     await expect(page.locator('#prose-comment-form input').first()).toHaveValue('Memo Mae')
-    await expect(page.locator('#prose-comment-form input').nth(1)).toHaveValue('mae@example.com')
+  })
 
-    // The email lives in localStorage only — a downloaded copy of a page
-    // whose threads include the posted comment must not carry it.
-    const [download] = await Promise.all([
-      page.waitForEvent('download'),
-      page.locator('#prose-download-copy').click(),
-    ])
-    const savedPath = join(tmpDir, 'email-leak-check.html')
-    await download.saveAs(savedPath)
-    expect(readFileSync(savedPath, 'utf-8')).not.toContain('mae@example.com')
+  test('live activity after first paint raises a clickable toast; the initial merge does not', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    // Initial poll merges the live-only thread — page load, not news.
+    await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
+    await expect(page.locator('#prose-live-toast')).toHaveCount(0)
+
+    // A thread and a reply land between polls.
+    commentRows.push(
+      row({ id: 'srv-toast', markedText: 'notable text', commentText: 'Fresh thread.', authorName: 'Toast Tia', createdAt: '2026-09-12T01:00:00.000Z' }),
+      row({ id: 'srv-toast-r', parentId: 'srv-2', commentText: 'Fresh reply.', authorName: 'Toast Tia', createdAt: '2026-09-12T01:01:00.000Z' })
+    )
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    const toast = page.locator('#prose-live-toast')
+    await expect(toast).toContainText('1 new comment · 1 new reply')
+    // Clicking views the first new thread and dismisses the toast.
+    await toast.click()
+    await expect(page.locator('#prose-live-toast')).toHaveCount(0)
+    await expect(page.locator('.prose-thread[data-thread-id="srv-toast"]')).toHaveClass(/prose-viewer-active/)
   })
 })
 

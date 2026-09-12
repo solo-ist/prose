@@ -263,15 +263,17 @@ async function buildArtifactHtml(
     // Docs that open with their own H1 keep it as the display title inside
     // <article>; otherwise the derived title is baked into the header.
     const hasLeadingH1 = /^\s*<h1[\s>]/.test(inlinedHtml)
-    bodyContent = `  <div class="prose-page">
-    <div class="prose-topbar">
-      <span class="prose-wordmark"><span class="prose-pilcrow">¶</span><span>Prose.</span></span>
-      <div class="prose-topbar-tools">
-        <button id="prose-rail-toggle" type="button" aria-label="Toggle comments"><span class="prose-comment-dot"></span><span id="prose-rail-count">${openCount} comments</span></button>
-        <span class="prose-topbar-divider"></span>
-        <button id="prose-theme-toggle" type="button" aria-label="Toggle appearance">${SUN_SVG}${MOON_SVG}</button>
-      </div>
+    // The top bar sits OUTSIDE .prose-page: the panel-open article yield
+    // pads .prose-page, and chrome must stay viewport-wide, not squeeze.
+    bodyContent = `  <div class="prose-topbar">
+    <span class="prose-wordmark"><span class="prose-pilcrow">¶</span><span>Prose.</span></span>
+    <div class="prose-topbar-tools">
+      <button id="prose-rail-toggle" type="button" aria-label="Toggle comments"><span class="prose-comment-dot"></span><span id="prose-rail-count">${openCount} comments</span></button>
+      <span class="prose-topbar-divider"></span>
+      <button id="prose-theme-toggle" type="button" aria-label="Toggle appearance">${SUN_SVG}${MOON_SVG}</button>
     </div>
+  </div>
+  <div class="prose-page">
     <header class="prose-doc-header">
       <div class="prose-doc-eyebrow">${escapeHtml(eyebrow)}</div>${hasLeadingH1 ? '' : `\n      <h1 class="prose-doc-title">${escapeHtml(title)}</h1>`}
     </header>

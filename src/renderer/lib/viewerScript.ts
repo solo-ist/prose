@@ -510,19 +510,19 @@ export const VIEWER_STYLES = `
     cursor: pointer;
   }
   .prose-offline-note { margin-top: 8px; font-size: 11px; color: hsl(var(--muted-foreground)); }
-  /* The local-copy readout sits centered INSIDE the top bar — one compact
-     bar, no second chrome row. The Publish action rides in the right tools
-     cluster, left of the comment count (per Angel's chrome feedback). */
+  /* The local-copy readout is a FLEX CHILD of the top bar between wordmark
+     and tools — one compact bar, and long state text ellipsizes instead of
+     ever overlapping the Publish button or the count (QA screenshot). */
   #prose-file-banner {
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
-    max-width: 34vw;
+    flex: 1;
+    min-width: 0;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 8px;
     overflow: hidden;
     white-space: nowrap;
+    padding: 0 16px;
     font-family: var(--font-mono);
     font-size: 11.5px;
     letter-spacing: 0.02em;
@@ -1424,8 +1424,10 @@ export const VIEWER_SCRIPT = `(function () {
   // document order; 'focus' = one thread at a time with prev/next, the
   // desktop Comment Review analog. Toggle lives in the head; the preference
   // sticks per reader.
-  var railMode = 'list'
-  try { if (window.localStorage.getItem('prose-viewer-panel-mode') === 'focus') railMode = 'focus' } catch (e) { /* blocked storage */ }
+  // Focus is the default (Angel's call after comparing); an explicit 'list'
+  // choice is remembered per reader.
+  var railMode = 'focus'
+  try { if (window.localStorage.getItem('prose-viewer-panel-mode') === 'list') railMode = 'list' } catch (e) { /* blocked storage */ }
   var focusIdx = 0
   var focusOrder = []
 
@@ -1986,14 +1988,15 @@ export const VIEWER_SCRIPT = `(function () {
     localStateEl = el('span', 'prose-local-state', '')
     fileBanner.appendChild(localStateEl)
     var topbarEl = document.querySelector('.prose-topbar')
-    if (topbarEl) topbarEl.appendChild(fileBanner)
+    var toolsEl = document.querySelector('.prose-topbar-tools')
+    if (topbarEl && toolsEl) topbarEl.insertBefore(fileBanner, toolsEl)
+    else if (topbarEl) topbarEl.appendChild(fileBanner)
     else document.body.insertBefore(fileBanner, document.body.firstChild)
     if (canPublish) {
       localPublishBtn = el('button', null, 'Publish comments')
       localPublishBtn.id = 'prose-publish-comments'
       localPublishBtn.type = 'button'
       localPublishBtn.addEventListener('click', publishLocalAdditions)
-      var toolsEl = document.querySelector('.prose-topbar-tools')
       if (toolsEl) toolsEl.insertBefore(localPublishBtn, toolsEl.firstChild)
       else fileBanner.appendChild(localPublishBtn)
     }

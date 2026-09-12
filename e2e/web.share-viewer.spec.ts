@@ -227,6 +227,26 @@ test.describe('artifact format', () => {
   })
 })
 
+// Focus is the panel's DEFAULT for fresh readers; most tests assert the list
+// surface, so they seed a remembered 'list' choice before first paint.
+const seedListMode = (page: import('@playwright/test').Page): Promise<void> =>
+  page.addInitScript(() => {
+    try {
+      window.localStorage.setItem('prose-viewer-panel-mode', 'list')
+    } catch {
+      /* blocked storage */
+    }
+  })
+
+test.describe('panel default mode', () => {
+  test('a fresh reader lands in focus mode', async ({ page }) => {
+    await page.goto(artifactUrl)
+    await expect(page.locator('.prose-rail-mode button.prose-mode-on')).toHaveText('focus')
+    await expect(page.locator('.prose-open-section .prose-thread')).toHaveCount(1)
+    await expect(page.locator('.prose-focus-nav')).toContainText('1 of 2')
+  })
+})
+
 test.describe('inline viewer from file:// (offline read-only)', () => {
   let dialogAppeared: boolean
 
@@ -237,6 +257,7 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
       dialogAppeared = true
       await dialog.dismiss()
     })
+    await seedListMode(page)
     await page.goto(artifactUrl)
   })
 
@@ -501,6 +522,10 @@ test.describe('baked chrome', () => {
 })
 
 test.describe('client-side anchoring', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedListMode(page)
+  })
+
   const anchorComment = (over: Partial<CommentData>): CommentData => ({
     id: 'm1',
     markedText: '',
@@ -597,6 +622,10 @@ test.describe('client-side anchoring', () => {
 })
 
 test.describe('author reply styling (offline)', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedListMode(page)
+  })
+
   test('baked author replies (no authorName) render with the author tag', async ({ page }) => {
     const withAuthorReply: CommentData[] = [
       {
@@ -760,6 +789,10 @@ test.describe('live conversation loop (online viewer)', () => {
 
   test.afterAll(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()))
+  })
+
+  test.beforeEach(async ({ page }) => {
+    await seedListMode(page)
   })
 
   test.beforeEach(() => {
@@ -1206,6 +1239,10 @@ test.describe('narrow mode (< 1000px)', () => {
 })
 
 test.describe('share artifact opened locally', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedListMode(page)
+  })
+
   test('file:// wins over share config: offline annotate mode, no network posts', async ({ page }) => {
     const requests: string[] = []
     page.on('request', (req) => {

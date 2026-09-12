@@ -22,7 +22,7 @@ import { useEffect } from 'react'
 import { getApi } from './browserApi'
 import { isWebPlatformEnabled } from './featureFlags'
 import { buildShareArtifact } from './shareArtifact'
-import { flushPendingShareOps } from './sharePush'
+import { backfillShareThreads, flushPendingShareOps } from './sharePush'
 import { useEditorStore } from '../stores/editorStore'
 import { useEditorInstanceStore } from '../stores/editorInstanceStore'
 import { useSettingsStore } from '../stores/settingsStore'
@@ -81,6 +81,11 @@ export async function pushShareContent(reason: 'auto' | 'manual'): Promise<boole
   pushInFlight = true
   share.setPushing(true)
   try {
+    // Threads created before the doc was shared have no server row (the
+    // on-create push had no publication to hit) — push them NOW, before
+    // baking, so the artifact bakes under server ids and viewer replies to
+    // those threads have a live row to land on.
+    await backfillShareThreads()
     const artifact = await buildShareArtifact(useEditorInstanceStore.getState().editor, {
       content: doc.content,
       path: doc.path,

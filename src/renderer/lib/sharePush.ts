@@ -69,6 +69,10 @@ function queueOnce(op: PendingOp): void {
  * flows through the now-unblocked reply/resolve pushes.
  */
 export function pushNewThreadToShare(threadId: string): void {
+  void pushThread(threadId)
+}
+
+async function pushThread(threadId: string): Promise<void> {
   if (!isWebPlatformEnabled()) return
   const thread = useCommentStore.getState().pendingComments.find((c) => c.id === threadId)
   if (!thread || thread.shareId || !thread.markedText) return
@@ -77,7 +81,7 @@ export function pushNewThreadToShare(threadId: string): void {
   if (inFlight.has(key)) return
   inFlight.add(key)
 
-  void (async () => {
+  await (async () => {
     try {
       const entry = await activeEntry()
       if (!entry) return
@@ -115,6 +119,27 @@ export function pushNewThreadToShare(threadId: string): void {
       inFlight.delete(key)
     }
   })()
+}
+
+/**
+ * Backfill: push every thread that never got a server row. Threads created
+ * BEFORE the document was shared miss the on-create push (no publication
+ * existed), bake under their desktop ids, and every viewer reply to them
+ * 404s — this is the repair. The content push calls it BEFORE baking, so
+ * the artifact always bakes under server ids. Sequential on purpose (the
+ * dedupe invariant writes shareIds between pushes); pulled viewer threads
+ * already carry a shareId and are untouched.
+ */
+export async function backfillShareThreads(): Promise<boolean> {
+  if (!isWebPlatformEnabled()) return false
+  const missing = useCommentStore
+    .getState()
+    .pendingComments.filter((c) => !c.shareId && c.markedText)
+    .map((c) => c.id)
+  if (missing.length === 0) return false
+  for (const id of missing) await pushThread(id)
+  const after = useCommentStore.getState().pendingComments
+  return after.some((c) => missing.indexOf(c.id) !== -1 && c.shareId)
 }
 
 /**

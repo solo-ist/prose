@@ -20,6 +20,8 @@ import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { getApi } from '../../lib/browserApi'
 import { buildShareArtifact } from '../../lib/shareArtifact'
+import { backfillShareThreads } from '../../lib/sharePush'
+import { pushShareContent } from '../../lib/shareContentSync'
 import { useEditor } from '../../hooks/useEditor'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useShareStore } from '../../stores/shareStore'
@@ -116,6 +118,12 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
       // Hand off to the pinned ◎ — it appears immediately with the new entry.
       useShareStore.getState().applyEntry(res.entry)
       openShareControls()
+      // Threads written before this publication existed have no server rows
+      // — the just-PUT artifact baked them under desktop ids. Push them and
+      // re-bake so viewer replies to them have live rows to land on.
+      void backfillShareThreads().then((pushed) => {
+        if (pushed) void pushShareContent('manual')
+      })
       return null
     })
 

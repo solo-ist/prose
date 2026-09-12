@@ -173,6 +173,32 @@ async function main() {
   })
   expect(nested.status === 404, 'reply-to-reply rejected (one level only)', `status ${nested.status}`)
 
+  // --- Name editing via the anonymous edit token ------------------------------
+  expect(typeof c1Body.editToken === 'string' && c1Body.editToken.length > 20, 'comment POST returns an editToken')
+  expect(typeof r1Body.editToken === 'string' && r1Body.editToken.length > 20, 'reply POST returns an editToken')
+  const readBack = (await (await fetch(commentUrl)).json()).comments
+  expect(readBack.every((cm) => !('editToken' in cm)), 'editToken never appears on the public GET')
+
+  const rename = await fetch(`${commentUrl}/${c1Body.id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ editToken: c1Body.editToken, authorName: 'Renamed Rae' }),
+  })
+  expect(rename.status === 200, 'rename with the edit token accepted', `status ${rename.status}`)
+  const renamedRow = (await (await fetch(commentUrl)).json()).comments.find((cm) => cm.id === c1Body.id)
+  expect(renamedRow?.authorName === 'Renamed Rae', 'rename visible on the public GET')
+
+  const renameBadToken = await fetch(`${commentUrl}/${c1Body.id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ editToken: 'wrong-token-entirely-000000', authorName: 'Mallory' }),
+  })
+  expect(renameBadToken.status === 403, 'rename with a wrong token rejected', `status ${renameBadToken.status}`)
+
+  const renameNoName = await fetch(`${commentUrl}/${c1Body.id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ editToken: c1Body.editToken, authorName: '' }),
+  })
+  expect(renameNoName.status === 400, 'rename without a name rejected', `status ${renameNoName.status}`)
+
   // --- CORS (downloaded file:// copies publish cross-origin) ----------------
   const preflight = await fetch(commentUrl, {
     method: 'OPTIONS',

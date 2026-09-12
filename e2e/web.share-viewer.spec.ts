@@ -374,6 +374,19 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
     await expect(page.locator('#prose-download-copy')).toHaveText('Save updated copy (1 new)')
   })
 
+  test('a draft comment name is click-to-edit before it ships', async ({ page }) => {
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').fill('Draft Dana')
+    await page.locator('#prose-comment-form textarea').fill('Local draft.')
+    await page.locator('#prose-comment-form button', { hasText: 'Add' }).first().click()
+    const card = page.locator('.prose-thread', { hasText: 'Local draft.' })
+    await card.locator('.prose-card-name').first().click()
+    await card.locator('.prose-name-input').fill('Dana Prime')
+    await card.locator('.prose-name-input').press('Enter')
+    await expect(card.locator('.prose-card-name').first()).toContainText('Dana Prime')
+  })
+
   test('the local footer offers no download when the page holds nothing new', async ({ page }) => {
     await expect(page.locator('.prose-rail-head')).toContainText('Comments · 2')
     await expect(page.locator('#prose-download-copy')).toBeHidden()
@@ -671,6 +684,7 @@ test.describe('live conversation loop (online viewer)', () => {
   let post500 = false
   let replyNotFound = false
   let commentsGone = false
+  let renames: Array<{ id: string; editToken?: string; authorName?: string }> = []
 
   const row = (over: Record<string, unknown>): Record<string, unknown> => ({
     parentId: null,
@@ -696,7 +710,7 @@ test.describe('live conversation loop (online viewer)', () => {
       if (req.method === 'OPTIONS') {
         res.writeHead(204, {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+          'Access-Control-Allow-Methods': 'GET,POST,PATCH,OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type',
         })
         res.end()
@@ -741,7 +755,7 @@ test.describe('live conversation loop (online viewer)', () => {
             createdAt: '2026-09-07T00:05:00.000Z',
           }))
           res.writeHead(201, corsJson)
-          res.end(JSON.stringify({ id, createdAt: '2026-09-07T00:05:00.000Z' }))
+          res.end(JSON.stringify({ id, createdAt: '2026-09-07T00:05:00.000Z', editToken: `tok-${id}` }))
         })
       } else if (req.method === 'POST' && /^\/s\/testtoken\/comments\/[^/]+\/replies$/.test(url)) {
         let body = ''
@@ -769,7 +783,24 @@ test.describe('live conversation loop (online viewer)', () => {
             createdAt: '2026-09-07T00:06:00.000Z',
           }))
           res.writeHead(201, corsJson)
-          res.end(JSON.stringify({ id, createdAt: '2026-09-07T00:06:00.000Z' }))
+          res.end(JSON.stringify({ id, createdAt: '2026-09-07T00:06:00.000Z', editToken: `tok-${id}` }))
+        })
+      } else if (req.method === 'PATCH' && /^\/s\/testtoken\/comments\/[^/]+$/.test(url)) {
+        let body = ''
+        req.on('data', (c) => { body += c })
+        req.on('end', () => {
+          const id = url.split('/')[4]
+          const parsed = JSON.parse(body) as { editToken?: string; authorName?: string }
+          renames.push({ id, ...parsed })
+          if (parsed.editToken !== `tok-${id}`) {
+            res.writeHead(403, corsJson)
+            res.end(JSON.stringify({ error: 'forbidden' }))
+            return
+          }
+          const target = postedRows.find((r) => r.id === id)
+          if (target) target.authorName = parsed.authorName
+          res.writeHead(200, corsJson)
+          res.end(JSON.stringify({ ok: true, authorName: parsed.authorName }))
         })
       } else {
         res.writeHead(404)
@@ -807,6 +838,7 @@ test.describe('live conversation loop (online viewer)', () => {
     postedEmails = []
     post429RetryAfter = 0
     replyNotFound = false
+    renames = []
     post500 = false
     commentsGone = false
     commentRows = [
@@ -1142,6 +1174,31 @@ test.describe('live conversation loop (online viewer)', () => {
     await page.locator('article p').nth(1).click({ clickCount: 3 })
     await page.locator('#prose-add-comment-btn').click()
     await expect(page.locator('#prose-comment-form input').first()).toHaveValue('Memo Mae')
+  })
+
+  test('clicking your name on a posted comment edits it via the edit token', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').first().fill('Typo Tam')
+    await page.locator('#prose-comment-form textarea').fill('Rename me.')
+    await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
+    const card = page.locator('.prose-thread', { hasText: 'Rename me.' })
+    await expect(card).toBeVisible()
+    // Another reviewer's card offers no editing (no token held for it).
+    const other = page.locator('.prose-thread', { hasText: 'Live-only thread.' })
+    await expect(other.locator('.prose-card-name').first()).not.toHaveClass(/prose-name-editable/)
+    // Click the name, retype, Enter: optimistic rename + PATCH with the token.
+    await card.locator('.prose-card-name').first().click()
+    await card.locator('.prose-name-input').fill('Fixed Fay')
+    await card.locator('.prose-name-input').press('Enter')
+    await expect(card.locator('.prose-card-name').first()).toContainText('Fixed Fay')
+    expect(renames).toHaveLength(1)
+    expect(renames[0]).toMatchObject({ id: 'srv-posted-1', editToken: 'tok-srv-posted-1', authorName: 'Fixed Fay' })
+    // The new name becomes the remembered default.
+    await page.locator('article p').nth(1).click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await expect(page.locator('#prose-comment-form input').first()).toHaveValue('Fixed Fay')
   })
 
   test('live activity after first paint raises a clickable toast; the initial merge does not', async ({ page }) => {

@@ -11,6 +11,7 @@
  * which lets downloaded file:// copies sync their comments. Rate-limited per
  * IP. The raw token is a bearer capability — never log the URL path.
  */
+import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { prisma } from '../../db/index.js'
@@ -129,8 +130,22 @@ export const sharePublicRoutes = new Hono()
 // through the shareUrl baked into it by the viewer's download.
 sharePublicRoutes.use(
   '*',
-  cors({ origin: '*', allowMethods: ['GET', 'POST', 'OPTIONS'], allowHeaders: ['Content-Type'], maxAge: 86400 })
+  cors({ origin: '*', allowMethods: ['GET', 'POST', 'PATCH', 'OPTIONS'], allowHeaders: ['Content-Type'], maxAge: 86400 })
 )
+
+// Anonymous-ownership capability for a created row: returned ONLY in the
+// creating POST's response and stored by the viewer that posted it. Whoever
+// holds it may edit that row's authorName. Never readable back.
+function newEditToken(): string {
+  return randomBytes(24).toString('base64url')
+}
+
+function editTokenMatches(stored: string | null, presented: string): boolean {
+  if (!stored) return false
+  const a = Buffer.from(stored)
+  const b = Buffer.from(presented)
+  return a.length === b.length && timingSafeEqual(a, b)
+}
 
 // Writes get a tighter budget than the app-level /s/* limit (which mainly
 // blunts token brute-forcing on GET): ~10 comments/min per IP.
@@ -195,10 +210,11 @@ sharePublicRoutes.post('/:token/comments', commentWriteLimit, async (c) => {
   const payload = parseCommentBody(body, true)
   if (!payload) return c.json({ error: 'invalid_comment' }, 400)
 
+  const editToken = newEditToken()
   const row = await prisma.shareComment.create({
-    data: { publicationId: pub.id, ...payload },
+    data: { publicationId: pub.id, ...payload, editToken },
   })
-  return c.json({ id: row.id, createdAt: row.createdAt.toISOString() }, 201)
+  return c.json({ id: row.id, createdAt: row.createdAt.toISOString(), editToken }, 201)
 })
 
 sharePublicRoutes.post('/:token/comments/:commentId/replies', commentWriteLimit, async (c) => {
@@ -224,6 +240,7 @@ sharePublicRoutes.post('/:token/comments/:commentId/replies', commentWriteLimit,
   const payload = parseCommentBody(body, false)
   if (!payload) return c.json({ error: 'invalid_comment' }, 400)
 
+  const editToken = newEditToken()
   const row = await prisma.shareComment.create({
     data: {
       publicationId: pub.id,
@@ -232,7 +249,34 @@ sharePublicRoutes.post('/:token/comments/:commentId/replies', commentWriteLimit,
       // A reply anchors through its parent; ignore any client-sent anchor.
       markedText: '',
       occurrenceIndex: 0,
+      editToken,
     },
   })
-  return c.json({ id: row.id, createdAt: row.createdAt.toISOString() }, 201)
+  return c.json({ id: row.id, createdAt: row.createdAt.toISOString(), editToken }, 201)
+})
+
+// Rename a row you created (#769 QA ask): the editToken from the creating
+// POST is the proof of authorship — viewers are anonymous, so without it any
+// visitor could rename anyone. Name only; comment text stays immutable.
+sharePublicRoutes.patch('/:token/comments/:commentId', commentWriteLimit, async (c) => {
+  const pub = await findPublicationByToken(c.req.param('token'))
+  if (!pub) return c.json({ error: 'not_found' }, 404)
+  if (pub.revokedAt) return c.json({ error: 'revoked' }, 410)
+
+  let body: Record<string, unknown>
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: 'invalid_json' }, 400)
+  }
+  const presented = typeof body.editToken === 'string' ? body.editToken : ''
+  const authorName = sanitizeField(body.authorName, MAX_NAME_CHARS)
+  if (!presented || !authorName) return c.json({ error: 'invalid_edit' }, 400)
+
+  const row = await prisma.shareComment.findUnique({ where: { id: c.req.param('commentId') } })
+  if (!row || row.publicationId !== pub.id) return c.json({ error: 'not_found' }, 404)
+  if (!editTokenMatches(row.editToken, presented)) return c.json({ error: 'forbidden' }, 403)
+
+  await prisma.shareComment.update({ where: { id: row.id }, data: { authorName } })
+  return c.json({ ok: true, authorName })
 })

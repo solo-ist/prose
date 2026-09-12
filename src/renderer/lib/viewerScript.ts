@@ -413,6 +413,20 @@ export const VIEWER_STYLES = `
   }
   .prose-card-date { flex-shrink: 0; }
   .prose-author-tag { font-weight: 400; color: hsl(var(--muted-foreground)); }
+  .prose-name-editable { cursor: text; border-bottom: 1px dashed transparent; }
+  .prose-name-editable:hover { border-bottom-color: hsl(var(--muted-foreground) / 0.5); }
+  .prose-name-input {
+    min-width: 0;
+    max-width: 160px;
+    padding: 0 4px;
+    border: 1px solid hsl(var(--input));
+    border-radius: 4px;
+    font: inherit;
+    font-weight: 500;
+    background: transparent;
+    color: hsl(var(--foreground));
+    outline: none;
+  }
   .prose-thread-body { white-space: pre-wrap; word-break: break-word; margin-top: 6px; }
   .prose-thread-quote {
     display: -webkit-box;
@@ -1182,6 +1196,30 @@ export const VIEWER_SCRIPT = `(function () {
     try { return window.localStorage.getItem('prose-commenter-email') || '' } catch (e) { return '' }
   }
 
+  // Edit tokens: the anonymous-ownership capability a creating POST returns.
+  // Held per row id in localStorage (never on the thread object — an
+  // annotated copy must not carry the power to rename). Holding one makes
+  // that row's name click-to-edit.
+  function storedEditTokens() {
+    try { return JSON.parse(window.localStorage.getItem('prose-edit-tokens') || '{}') || {} } catch (e) { return {} }
+  }
+
+  function rememberEditToken(id, token) {
+    if (!token || typeof token !== 'string') return
+    try {
+      var map = storedEditTokens()
+      map[id] = token
+      var keys = Object.keys(map)
+      while (keys.length > 200) { delete map[keys.shift()] }
+      window.localStorage.setItem('prose-edit-tokens', JSON.stringify(map))
+    } catch (e) { /* blocked storage */ }
+  }
+
+  function editTokenFor(id) {
+    var t = storedEditTokens()[id]
+    return typeof t === 'string' ? t : null
+  }
+
   // Threads/replies this reader created in THIS page session — tagged " · you".
   var mineIds = {}
 
@@ -1262,6 +1300,7 @@ export const VIEWER_SCRIPT = `(function () {
         fromAuthor: false
       })
       mineIds[created.id] = true
+      rememberEditToken(created.id, created.editToken)
       renderRail()
       window.setTimeout(fetchLiveComments, 2000)
       onDone()
@@ -1350,18 +1389,85 @@ export const VIEWER_SCRIPT = `(function () {
     return name && authorName === name ? ' · you' : ''
   }
 
+  // Rename a posted row through its edit token. Optimistic callers revert on
+  // failure; PATCH goes to the same public surface as posts.
+  function renameRowRequest(rowId, name) {
+    return window.fetch(shareApiBase + '/comments/' + rowId, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ editToken: editTokenFor(rowId), authorName: name })
+    }).then(function (resp) {
+      if (!resp.ok) throw new Error('rename failed (' + resp.status + ')')
+    })
+  }
+
   // Card header row: name (+ muted tag) left, date right — or a "not sent"
   // tag replacing the date when the row never reached the server.
-  // textContent only.
-  function headerRow(name, tagText, ts, notSent) {
+  // textContent only. When onRename is given (a row this reader owns), the
+  // name is click-to-edit inline: Enter/blur commits, Esc cancels.
+  function headerRow(name, tagText, ts, notSent, onRename) {
     var row = el('div', 'prose-card-head')
     var nameEl = el('span', 'prose-card-name', name)
     if (tagText) nameEl.appendChild(el('span', 'prose-author-tag', tagText))
+    if (onRename) {
+      nameEl.classList.add('prose-name-editable')
+      nameEl.title = 'Click to edit your name'
+      nameEl.addEventListener('click', function (ev) {
+        ev.stopPropagation()
+        if (row.querySelector('input')) return
+        var input = el('input', 'prose-name-input')
+        input.value = name
+        input.maxLength = 100
+        var settled = false
+        var commit = function () {
+          if (settled) return
+          settled = true
+          var next = input.value.trim()
+          if (!next || next === name) { renderRail(); return }
+          onRename(next)
+        }
+        input.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') { e.preventDefault(); commit() }
+          if (e.key === 'Escape') { settled = true; renderRail() }
+        })
+        input.addEventListener('blur', commit)
+        input.addEventListener('click', function (e) { e.stopPropagation() })
+        row.replaceChild(input, nameEl)
+        input.focus()
+        input.select()
+      })
+    }
     row.appendChild(nameEl)
     row.appendChild(notSent
       ? el('span', 'prose-card-date prose-not-sent', 'not sent')
       : el('span', 'prose-card-date', formatDate(ts)))
     return row
+  }
+
+  // Build the rename handler for a row this reader owns, or null. Drafts
+  // (local- ids) rename purely in the page; posted rows PATCH through their
+  // edit token, optimistically, reverting on failure. Either way the new
+  // name becomes the remembered default for future comments.
+  function renameHandlerFor(rowObj, rowId) {
+    if (revoked) return null
+    var isDraft = isLocalId(rowId) && mineIds[rowId]
+    var token = !isDraft && editTokenFor(rowId)
+    if (!isDraft && !token) return null
+    return function (next) {
+      var prev = rowObj.authorName
+      rowObj.authorName = next
+      try { window.localStorage.setItem('prose-commenter-name', next) } catch (e) { /* blocked storage */ }
+      if (isDraft) {
+        unsavedAdditions++
+        renderRail()
+        return
+      }
+      renderRail()
+      renameRowRequest(rowId, next).catch(function () {
+        rowObj.authorName = prev
+        renderRail()
+      })
+    }
   }
 
   // One reply row, shared by the rail cards and the narrow sheet.
@@ -1372,7 +1478,7 @@ export const VIEWER_SCRIPT = `(function () {
     var replyEl = el('div', isAuthor ? 'prose-thread-reply prose-reply-author' : 'prose-thread-reply')
     var label = r.authorName || (r.author === 'ai' ? 'AI' : 'Author')
     var tag = isAuthor ? ' · author' : mineTag(r.id, r.authorName)
-    replyEl.appendChild(headerRow(label, tag, r.createdAt, notSentIds[r.id] === true))
+    replyEl.appendChild(headerRow(label, tag, r.createdAt, notSentIds[r.id] === true, renameHandlerFor(r, r.id)))
     replyEl.appendChild(el('div', 'prose-thread-body', r.text))
     return replyEl
   }
@@ -1416,7 +1522,7 @@ export const VIEWER_SCRIPT = `(function () {
     // from the marks, so the quote is what anchors a card to its passage.
     if (c.markedText) card.appendChild(el('span', 'prose-thread-quote', '“' + c.markedText + '”'))
     if (lost) card.appendChild(el('div', 'prose-lost-note', 'This passage is no longer in the document.'))
-    card.appendChild(headerRow(authorLabel(c), mineTag(c.id, c.authorName), c.createdAt, notSentIds[c.id] === true))
+    card.appendChild(headerRow(authorLabel(c), mineTag(c.id, c.authorName), c.createdAt, notSentIds[c.id] === true, renameHandlerFor(c, c.id)))
     card.appendChild(el('div', 'prose-thread-body', c.comment))
     var replies = c.replies || []
     for (var i = 0; i < replies.length; i++) {
@@ -2333,6 +2439,7 @@ export const VIEWER_SCRIPT = `(function () {
               var old = c.id
               c.id = created.id
               remapId(old, created.id)
+              rememberEditToken(created.id, created.editToken)
             })
           })
         }
@@ -2347,6 +2454,7 @@ export const VIEWER_SCRIPT = `(function () {
                 var old = r.id
                 r.id = created.id
                 remapId(old, created.id)
+                rememberEditToken(created.id, created.editToken)
               }).catch(function (err) {
                 // The parent's row is gone (stale pre-revoke history): this
                 // reply can never publish. Tag it not-sent and keep going —
@@ -2550,6 +2658,7 @@ export const VIEWER_SCRIPT = `(function () {
         }
         comments.push(newThread)
         mineIds[created.id] = true
+        rememberEditToken(created.id, created.editToken)
         if (!anchorThread(newThread)) lostIds[created.id] = true
         if (!nudgeShown) {
           nudgeShown = true

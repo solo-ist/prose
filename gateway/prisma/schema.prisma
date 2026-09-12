@@ -93,6 +93,10 @@ model ShareComment {
   commentText     String
   authorName      String
   authorEmail     String?
+  // Anonymous-ownership capability: returned ONLY in the creating POST's
+  // response, never on any read. Whoever holds it may edit the row's
+  // authorName (viewers are anonymous — this is the proof of authorship).
+  editToken       String?
   fromAuthor      Boolean       @default(false)
   resolvedAt      DateTime?
   parentId        String?

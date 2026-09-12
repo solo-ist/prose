@@ -347,6 +347,42 @@ export const VIEWER_STYLES = `
     padding: 12px 16px 16px;
   }
   .prose-rail-head-left { display: inline-flex; align-items: center; gap: 10px; }
+  .prose-rail-right { display: inline-flex; align-items: center; gap: 10px; }
+  .prose-rail-mode { display: inline-flex; gap: 8px; }
+  .prose-rail-mode button {
+    border: none;
+    background: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+    cursor: pointer;
+  }
+  .prose-rail-mode button.prose-mode-on { color: hsl(var(--foreground)); }
+  .prose-focus-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 9px;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: hsl(var(--muted-foreground));
+  }
+  .prose-focus-nav button {
+    width: 26px;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid hsl(var(--border));
+    border-radius: 6px;
+    background: none;
+    font: 14px var(--font-mono);
+    color: hsl(var(--foreground));
+    cursor: pointer;
+  }
+  .prose-focus-empty { color: hsl(var(--muted-foreground)); font-size: 11.5px; }
   .prose-offline-chip { display: inline-flex; align-items: center; gap: 5px; }
   .prose-offline-dot {
     width: 6px;
@@ -1296,6 +1332,15 @@ export const VIEWER_SCRIPT = `(function () {
 
   function setActive(id, scrollArticle) {
     activeId = id
+    // Focus mode follows activation: clicking a mark retargets the focused
+    // thread (re-render first, so the class toggles hit the fresh DOM).
+    if (railMode === 'focus' && !isNarrow) {
+      var fio = focusOrder.indexOf(id)
+      if (fio !== -1 && fio !== focusIdx) {
+        focusIdx = fio
+        renderRail()
+      }
+    }
     var spans = article.querySelectorAll('span[data-comment-id]')
     for (var i = 0; i < spans.length; i++) {
       spans[i].classList.toggle('prose-viewer-active', spans[i].getAttribute('data-comment-id') === id)
@@ -1374,9 +1419,44 @@ export const VIEWER_SCRIPT = `(function () {
   // Empty at rest (the note below the head already invites selection);
   // flips to 'writing' while the composer is open.
   var railHint = el('span', null, '')
+
+  // Panel mode prototype (Angel's QA ask): 'list' = every card stacked in
+  // document order; 'focus' = one thread at a time with prev/next, the
+  // desktop Comment Review analog. Toggle lives in the head; the preference
+  // sticks per reader.
+  var railMode = 'list'
+  try { if (window.localStorage.getItem('prose-viewer-panel-mode') === 'focus') railMode = 'focus' } catch (e) { /* blocked storage */ }
+  var focusIdx = 0
+  var focusOrder = []
+
+  function setRailMode(mode) {
+    railMode = mode
+    try { window.localStorage.setItem('prose-viewer-panel-mode', mode) } catch (e) { /* blocked storage */ }
+    if (mode === 'focus' && activeId) {
+      var ai = focusOrder.indexOf(activeId)
+      if (ai !== -1) focusIdx = ai
+    }
+    modeListBtn.classList.toggle('prose-mode-on', mode === 'list')
+    modeFocusBtn.classList.toggle('prose-mode-on', mode === 'focus')
+    renderRail()
+  }
+
+  var modeWrap = el('span', 'prose-rail-mode')
+  var modeListBtn = el('button', railMode === 'list' ? 'prose-mode-on' : null, 'list')
+  modeListBtn.type = 'button'
+  modeListBtn.addEventListener('click', function () { setRailMode('list') })
+  var modeFocusBtn = el('button', railMode === 'focus' ? 'prose-mode-on' : null, 'focus')
+  modeFocusBtn.type = 'button'
+  modeFocusBtn.addEventListener('click', function () { setRailMode('focus') })
+  modeWrap.appendChild(modeListBtn)
+  modeWrap.appendChild(modeFocusBtn)
+
+  var railRight = el('span', 'prose-rail-right')
+  railRight.appendChild(railHint)
+  railRight.appendChild(modeWrap)
   railHeadLeft.appendChild(railHeadCount)
   railHead.appendChild(railHeadLeft)
-  railHead.appendChild(railHint)
+  railHead.appendChild(railRight)
   // Floating home for #prose-comment-form (wide mode): a popover-style card
   // absolutely positioned at the selection, scrolling with the text — the
   // desktop CommentPopover analog. Runtime DOM, stripped from copies.
@@ -1418,9 +1498,44 @@ export const VIEWER_SCRIPT = `(function () {
     })
 
     railHeadCount.textContent = 'Comments · ' + open.length
-    for (var i = 0; i < open.length; i++) openList.appendChild(renderThread(open[i]))
+    focusOrder = []
+    for (var fi = 0; fi < open.length; fi++) focusOrder.push(open[fi].id)
 
-    if (lost.length > 0) {
+    if (railMode === 'focus' && !isNarrow) {
+      // One thread at a time: nav row + the focused card. Resolved and lost
+      // sections stay a list-mode surface — the focus lane is open threads
+      // only, like the desktop Comment Review.
+      if (open.length === 0) {
+        openList.appendChild(el('div', 'prose-focus-empty', 'No open comments.'))
+      } else {
+        if (focusIdx >= open.length) focusIdx = open.length - 1
+        if (focusIdx < 0) focusIdx = 0
+        var nav = el('div', 'prose-focus-nav')
+        var prevBtn = el('button', null, '‹')
+        prevBtn.type = 'button'
+        prevBtn.addEventListener('click', function () {
+          focusIdx = (focusIdx - 1 + focusOrder.length) % focusOrder.length
+          renderRail()
+          setActive(focusOrder[focusIdx], true)
+        })
+        var nextBtn = el('button', null, '›')
+        nextBtn.type = 'button'
+        nextBtn.addEventListener('click', function () {
+          focusIdx = (focusIdx + 1) % focusOrder.length
+          renderRail()
+          setActive(focusOrder[focusIdx], true)
+        })
+        nav.appendChild(prevBtn)
+        nav.appendChild(el('span', null, (focusIdx + 1) + ' of ' + open.length))
+        nav.appendChild(nextBtn)
+        openList.appendChild(nav)
+        openList.appendChild(renderThread(open[focusIdx]))
+      }
+    } else {
+      for (var i = 0; i < open.length; i++) openList.appendChild(renderThread(open[i]))
+    }
+
+    if (railMode !== 'focus' && lost.length > 0) {
       var lostHead = el('div', 'prose-lost-head')
       lostHead.appendChild(el('span', null, 'Lost their place · ' + lost.length))
       lostHead.appendChild(el('span', null, 'text changed since'))
@@ -1428,7 +1543,7 @@ export const VIEWER_SCRIPT = `(function () {
       for (var li = 0; li < lost.length; li++) lostSection.appendChild(renderThread(lost[li], true))
     }
 
-    if (resolved.length > 0) {
+    if (railMode !== 'focus' && resolved.length > 0) {
       var head = el('div', 'prose-resolved-head')
       var resolvedToggle = el('button', 'prose-resolved-toggle')
       resolvedToggle.type = 'button'

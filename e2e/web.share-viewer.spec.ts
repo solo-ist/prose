@@ -280,6 +280,30 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
     await expect(c1.locator('.prose-thread-quote')).toHaveText('“quick brown fox”')
   })
 
+  test('focus mode shows one thread at a time; nav wraps; mark click retargets', async ({ page }) => {
+    await page.locator('.prose-rail-mode button', { hasText: 'focus' }).click()
+    // One card + position indicator, first thread in document order.
+    await expect(page.locator('.prose-open-section .prose-thread')).toHaveCount(1)
+    await expect(page.locator('.prose-open-section .prose-thread')).toHaveAttribute('data-thread-id', 'c1')
+    await expect(page.locator('.prose-focus-nav')).toContainText('1 of 2')
+    // Resolved section is a list-mode surface.
+    await expect(page.locator('.prose-resolved-head')).toHaveCount(0)
+    // Next → c2, next again wraps to c1.
+    await page.locator('.prose-focus-nav button').nth(1).click()
+    await expect(page.locator('.prose-open-section .prose-thread')).toHaveAttribute('data-thread-id', 'c2')
+    await expect(page.locator('.prose-focus-nav')).toContainText('2 of 2')
+    await page.locator('.prose-focus-nav button').nth(1).click()
+    await expect(page.locator('.prose-open-section .prose-thread')).toHaveAttribute('data-thread-id', 'c1')
+    // Clicking a mark focuses its thread.
+    await page.locator('article span[data-comment-id="c2"]').click()
+    await expect(page.locator('.prose-open-section .prose-thread')).toHaveAttribute('data-thread-id', 'c2')
+    await expect(page.locator('.prose-open-section .prose-thread')).toHaveClass(/prose-viewer-active/)
+    // Back to list mode: both cards return.
+    await page.locator('.prose-rail-mode button', { hasText: 'list' }).click()
+    await expect(page.locator('.prose-open-section .prose-thread')).toHaveCount(2)
+    await expect(page.locator('.prose-resolved-head')).toContainText('Resolved · 1')
+  })
+
   test('renders hostile comment content inert', async ({ page }) => {
     const xssThread = page.locator('.prose-thread[data-thread-id="c2"]')
     // The literal text is displayed…

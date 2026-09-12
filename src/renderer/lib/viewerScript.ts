@@ -553,26 +553,46 @@ export const VIEWER_STYLES = `
     font-size: 11px;
     line-height: 1.45;
   }
+  @keyframes prose-toast-in {
+    from { opacity: 0; transform: translate(-50%, -10px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
+  }
   #prose-live-toast {
     position: fixed;
-    right: 20px;
-    bottom: 20px;
+    top: 64px;
+    left: 50%;
+    transform: translate(-50%, 0);
     z-index: 20;
-    max-width: 300px;
-    padding: 10px 14px;
+    max-width: 420px;
+    padding: 14px 40px 14px 20px;
     border: 1px solid hsl(var(--border));
-    border-radius: 8px;
+    border-left: 3px solid hsl(var(--comment));
+    border-radius: 10px;
     background: hsl(var(--popover));
-    box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+    box-shadow: 0 12px 32px rgb(0 0 0 / 0.22);
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: 13.5px;
+    font-weight: 500;
     line-height: 1.5;
     color: hsl(var(--foreground));
     cursor: pointer;
+    animation: prose-toast-in 0.2s ease-out;
   }
-  #prose-live-toast:hover { border-color: hsl(var(--muted-foreground) / 0.4); }
-  #prose-live-toast .prose-toast-hint { color: hsl(var(--muted-foreground)); font-size: 11px; }
-  body.prose-narrow #prose-live-toast { right: 16px; bottom: 72px; }
+  #prose-live-toast:hover { border-color: hsl(var(--muted-foreground) / 0.4); border-left-color: hsl(var(--comment)); }
+  #prose-live-toast .prose-toast-hint { color: hsl(var(--muted-foreground)); font-size: 11.5px; font-weight: 400; margin-top: 2px; }
+  .prose-toast-dismiss {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    border: none;
+    background: none;
+    padding: 4px;
+    font: 14px var(--font-mono);
+    line-height: 1;
+    color: hsl(var(--muted-foreground));
+    cursor: pointer;
+  }
+  .prose-toast-dismiss:hover { color: hsl(var(--foreground)); }
   #prose-add-comment-btn {
     position: absolute;
     z-index: 12;
@@ -1532,8 +1552,15 @@ export const VIEWER_SCRIPT = `(function () {
     })
 
     railHeadCount.textContent = 'Comments · ' + open.length
+    // Focus follows the THREAD, not the index: a merged-in thread that sorts
+    // earlier must not silently swap what the reader is looking at.
+    var prevFocusId = focusOrder[focusIdx]
     focusOrder = []
     for (var fi = 0; fi < open.length; fi++) focusOrder.push(open[fi].id)
+    if (prevFocusId) {
+      var keepIdx = focusOrder.indexOf(prevFocusId)
+      if (keepIdx !== -1) focusIdx = keepIdx
+    }
 
     if (railMode === 'focus' && !isNarrow) {
       // One thread at a time: nav row + the focused card. Resolved and lost
@@ -2160,16 +2187,14 @@ export const VIEWER_SCRIPT = `(function () {
   }
 
   // --- Live activity toast ---------------------------------------------------
-  // One small clickable card, batched per merge ("1 new comment · 2 new
-  // replies"); clicking views the first new thread. Runtime DOM, stripped
-  // from annotated copies. Singleton: a newer merge replaces the message.
+  // One clickable card sliding in top-center, batched per merge ("1 new
+  // comment · 2 new replies"); clicking views the first new thread. It
+  // PERSISTS until clicked or dismissed — a newer merge replaces the message
+  // in place. Runtime DOM, stripped from annotated copies.
   var firstPullDone = false
   var liveToast = null
-  var liveToastTimer = null
 
   function dismissLiveToast() {
-    if (liveToastTimer) window.clearTimeout(liveToastTimer)
-    liveToastTimer = null
     if (liveToast) liveToast.remove()
     liveToast = null
   }
@@ -2183,6 +2208,14 @@ export const VIEWER_SCRIPT = `(function () {
     liveToast.id = 'prose-live-toast'
     liveToast.appendChild(el('div', null, parts.join(' · ')))
     liveToast.appendChild(el('div', 'prose-toast-hint', 'Click to view'))
+    var dismissBtn = el('button', 'prose-toast-dismiss', '×')
+    dismissBtn.type = 'button'
+    dismissBtn.setAttribute('aria-label', 'Dismiss')
+    dismissBtn.addEventListener('click', function (ev) {
+      ev.stopPropagation()
+      dismissLiveToast()
+    })
+    liveToast.appendChild(dismissBtn)
     liveToast.addEventListener('click', function () {
       dismissLiveToast()
       if (isNarrow) {
@@ -2193,7 +2226,6 @@ export const VIEWER_SCRIPT = `(function () {
       setActive(targetId, true)
     })
     document.body.appendChild(liveToast)
-    liveToastTimer = window.setTimeout(dismissLiveToast, 6000)
   }
 
   // One GET+merge exchange, shared by the online poll and the local publish

@@ -1162,6 +1162,35 @@ test.describe('live conversation loop (online viewer)', () => {
     await toast.click()
     await expect(page.locator('#prose-live-toast')).toHaveCount(0)
     await expect(page.locator('.prose-thread[data-thread-id="srv-toast"]')).toHaveClass(/prose-viewer-active/)
+
+    // The × dismisses without viewing (active thread unchanged).
+    commentRows.push(
+      row({ id: 'srv-toast-2', parentId: 'srv-2', commentText: 'Another reply.', authorName: 'Toast Tia', createdAt: '2026-09-12T01:02:00.000Z' })
+    )
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.locator('#prose-live-toast')).toContainText('1 new reply')
+    await page.locator('.prose-toast-dismiss').click()
+    await expect(page.locator('#prose-live-toast')).toHaveCount(0)
+    await expect(page.locator('.prose-thread[data-thread-id="srv-toast"]')).toHaveClass(/prose-viewer-active/)
+  })
+
+  test('focus mode follows the thread, not the index, when a merge inserts earlier', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
+    // Switch to focus and navigate to the SECOND thread (srv-2, "lazy dog").
+    await page.locator('.prose-rail-mode button', { hasText: 'focus' }).click()
+    await page.locator('.prose-focus-nav button').nth(1).click()
+    await expect(page.locator('.prose-open-section .prose-thread')).toHaveAttribute('data-thread-id', 'srv-2')
+
+    // A synced thread lands anchored EARLIER in the document ("quick brown
+    // fox" paragraph precedes "lazy dog") — the focused card must not swap.
+    commentRows.push(
+      row({ id: 'srv-early', markedText: 'quick brown fox', commentText: 'Sorts first.', authorName: 'Early Bird', createdAt: '2026-09-12T02:00:00.000Z' })
+    )
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.locator('#prose-live-toast')).toBeVisible()
+    await expect(page.locator('.prose-open-section .prose-thread')).toHaveAttribute('data-thread-id', 'srv-2')
+    await expect(page.locator('.prose-focus-nav')).toContainText('of 3')
   })
 })
 

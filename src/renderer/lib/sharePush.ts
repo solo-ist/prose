@@ -132,9 +132,14 @@ async function pushThread(threadId: string): Promise<void> {
  */
 export async function backfillShareThreads(): Promise<boolean> {
   if (!isWebPlatformEnabled()) return false
-  const missing = useCommentStore
-    .getState()
-    .pendingComments.filter((c) => !c.shareId && c.markedText)
+  // The comment store must hold THIS document's threads — right after a tab
+  // switch it can still hold the previous doc's, and pushing those to this
+  // doc's publication would cross-pollinate conversations.
+  const docId = useEditorStore.getState().document.documentId
+  const store = useCommentStore.getState()
+  if (!docId || store.documentId !== docId) return false
+  const missing = store.pendingComments
+    .filter((c) => !c.shareId && c.markedText)
     .map((c) => c.id)
   if (missing.length === 0) return false
   for (const id of missing) await pushThread(id)

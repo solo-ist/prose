@@ -175,11 +175,15 @@ export async function revokePublication(
   if (!res.ok && res.status !== 404) throw await toError(res)
 }
 
-/** Push a new author comment thread into the live conversation (#769). */
+/**
+ * Push a new author comment thread into the live conversation (#769).
+ * `fromAuthor: false` re-seeds a viewer's thread (revoke→republish
+ * migration) — the original name is required by the gateway then.
+ */
 export async function postAuthorComment(
   config: ShareClientConfig,
   publicationId: string,
-  args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string }
+  args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string; fromAuthor?: boolean }
 ): Promise<{ id: string; createdAt: string }> {
   const res = await fetch(`${base(config)}/api/share/${publicationId}/comments`, {
     method: 'POST',
@@ -189,24 +193,31 @@ export async function postAuthorComment(
       markedText: args.markedText,
       occurrenceIndex: args.occurrenceIndex,
       ...(args.authorName ? { authorName: args.authorName } : {}),
+      ...(args.fromAuthor === false ? { fromAuthor: false } : {}),
     }),
   })
   if (!res.ok) throw await toError(res)
   return (await res.json()) as { id: string; createdAt: string }
 }
 
-/** Push an author reply into the live conversation (#769). */
+/** Push an author reply into the live conversation (#769). `fromAuthor:
+ * false` re-seeds a viewer's reply with its original name (migration). */
 export async function postAuthorReply(
   config: ShareClientConfig,
   publicationId: string,
   commentId: string,
   text: string,
-  authorName?: string
+  authorName?: string,
+  fromAuthor?: boolean
 ): Promise<{ id: string; createdAt: string }> {
   const res = await fetch(`${base(config)}/api/share/${publicationId}/comments/${commentId}/replies`, {
     method: 'POST',
     headers: await authedHeaders(),
-    body: JSON.stringify(authorName ? { commentText: text, authorName } : { commentText: text }),
+    body: JSON.stringify({
+      commentText: text,
+      ...(authorName ? { authorName } : {}),
+      ...(fromAuthor === false ? { fromAuthor: false } : {}),
+    }),
   })
   if (!res.ok) throw await toError(res)
   return (await res.json()) as { id: string; createdAt: string }

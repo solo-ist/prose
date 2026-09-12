@@ -290,6 +290,34 @@ async function main() {
   })
   expect(vReplyToAuthorThread.status === 201, 'viewer can reply to an author thread', `status ${vReplyToAuthorThread.status}`)
 
+  // --- Conversation migration (revoke → republish re-seed) -------------------
+  // The author may re-seed a viewer's row with fromAuthor: false + the
+  // original name; identity round-trips on the public GET.
+  const seeded = await fetch(`${BASE}/api/share/${pub.publicationId}/comments`, {
+    method: 'POST', headers: authed,
+    body: JSON.stringify({ commentText: 'Migrated viewer thread.', markedText: 'markedtext', occurrenceIndex: 0, authorName: 'Original Olive', fromAuthor: false }),
+  })
+  expect(seeded.status === 201, 'migrated viewer thread accepted', `status ${seeded.status}`)
+  const seededBody = await seeded.json()
+  const seededReply = await fetch(`${BASE}/api/share/${pub.publicationId}/comments/${seededBody.id}/replies`, {
+    method: 'POST', headers: authed,
+    body: JSON.stringify({ commentText: 'Migrated viewer reply.', authorName: 'Original Rae', fromAuthor: false }),
+  })
+  expect(seededReply.status === 201, 'migrated viewer reply accepted', `status ${seededReply.status}`)
+  const liveMigrated = (await (await fetch(commentUrl)).json()).comments
+  const migThread = liveMigrated.find((cm) => cm.id === seededBody.id)
+  const migReply = liveMigrated.find((cm) => cm.parentId === seededBody.id)
+  expect(
+    !!migThread && migThread.fromAuthor === false && migThread.authorName === 'Original Olive' &&
+      !!migReply && migReply.fromAuthor === false && migReply.authorName === 'Original Rae',
+    'migrated rows keep viewer identity (fromAuthor false + original names)'
+  )
+  const seededNameless = await fetch(`${BASE}/api/share/${pub.publicationId}/comments`, {
+    method: 'POST', headers: authed,
+    body: JSON.stringify({ commentText: 'no name', markedText: 'markedtext', fromAuthor: false }),
+  })
+  expect(seededNameless.status === 400, 'migration without the original name rejected', `status ${seededNameless.status}`)
+
   // --- Re-publish -----------------------------------------------------------
   const repub = await fetch(`${BASE}/api/share/${pub.publicationId}/publish`, {
     method: 'PUT', headers: authed, body: JSON.stringify({ title: 'Test Doc v2', html: artifact('v2') }),

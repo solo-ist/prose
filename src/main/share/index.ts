@@ -219,7 +219,7 @@ export async function setSyncMode(
 /** Push a new author comment thread into the live conversation (#769). */
 export async function createComment(
   publicationId: string,
-  args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string }
+  args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string; fromAuthor?: boolean }
 ): Promise<ShareResult<{ id: string; createdAt: string }>> {
   const config = await getShareConfig()
   const entry = await getShareEntry(publicationId)
@@ -237,13 +237,14 @@ export async function replyToComment(
   publicationId: string,
   commentId: string,
   text: string,
-  authorName?: string
+  authorName?: string,
+  fromAuthor?: boolean
 ): Promise<ShareResult<{ id: string; createdAt: string }>> {
   const config = await getShareConfig()
   const entry = await getShareEntry(publicationId)
   if (!entry) return { ok: false, error: 'No local record of this share.' }
   try {
-    const result = await client.postAuthorReply(config, publicationId, commentId, text, authorName)
+    const result = await client.postAuthorReply(config, publicationId, commentId, text, authorName, fromAuthor)
     return { ok: true, ...result }
   } catch (err) {
     return asError(err)

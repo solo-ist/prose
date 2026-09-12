@@ -172,6 +172,12 @@ shareAuthorRoutes.get('/:pubId/comments', async (c) => {
 // reply invariant: the desktop records the returned id as the thread's
 // shareId, bakes emit the thread under it, and the pull-merge treats both
 // ids as one thread.
+//
+// Migration identity: `fromAuthor: false` marks a row the author is
+// RE-SEEDING into this publication — a viewer's comment whose original row
+// lives in a revoked publication (revoke → republish continues the
+// conversation). The name must be the original commenter's; the author is
+// authenticated, so this is the author restating history they already hold.
 shareAuthorRoutes.post('/:pubId/comments', async (c) => {
   const user = c.get('user')
   const pub = await prisma.publication.findUnique({ where: { id: c.req.param('pubId') } })
@@ -183,6 +189,7 @@ shareAuthorRoutes.post('/:pubId/comments', async (c) => {
     authorName?: unknown
     markedText?: unknown
     occurrenceIndex?: unknown
+    fromAuthor?: unknown
   }
   try {
     body = await c.req.json()
@@ -200,14 +207,17 @@ shareAuthorRoutes.post('/:pubId/comments', async (c) => {
     body.occurrenceIndex <= 100000
       ? body.occurrenceIndex
       : 0
-  const authorName = sanitizeField(body.authorName, MAX_NAME_CHARS) || 'Author'
+  const fromAuthor = body.fromAuthor !== false
+  const authorName = sanitizeField(body.authorName, MAX_NAME_CHARS)
+  // A re-seeded viewer row without its original name would misattribute.
+  if (!fromAuthor && !authorName) return c.json({ error: 'invalid_comment' }, 400)
 
   const row = await prisma.shareComment.create({
     data: {
       publicationId: pub.id,
       commentText,
-      authorName,
-      fromAuthor: true,
+      authorName: authorName || 'Author',
+      fromAuthor,
       markedText,
       occurrenceIndex,
       publishRev: pub.publishRev,
@@ -233,7 +243,7 @@ shareAuthorRoutes.post('/:pubId/comments/:commentId/replies', async (c) => {
     return c.json({ error: 'not_found' }, 404)
   }
 
-  let body: { commentText?: unknown; authorName?: unknown }
+  let body: { commentText?: unknown; authorName?: unknown; fromAuthor?: unknown }
   try {
     body = await c.req.json()
   } catch {
@@ -241,15 +251,19 @@ shareAuthorRoutes.post('/:pubId/comments/:commentId/replies', async (c) => {
   }
   const commentText = sanitizeField(body.commentText, MAX_COMMENT_CHARS)
   if (!commentText) return c.json({ error: 'invalid_comment' }, 400)
-  const authorName = sanitizeField(body.authorName, MAX_NAME_CHARS) || 'Author'
+  // Same migration identity rule as the thread push: fromAuthor: false marks
+  // a re-seeded viewer reply and requires its original name.
+  const fromAuthor = body.fromAuthor !== false
+  const authorName = sanitizeField(body.authorName, MAX_NAME_CHARS)
+  if (!fromAuthor && !authorName) return c.json({ error: 'invalid_comment' }, 400)
 
   const row = await prisma.shareComment.create({
     data: {
       publicationId: pub.id,
       parentId: parent.id,
       commentText,
-      authorName,
-      fromAuthor: true,
+      authorName: authorName || 'Author',
+      fromAuthor,
       // A reply anchors through its parent.
       markedText: '',
       occurrenceIndex: 0,

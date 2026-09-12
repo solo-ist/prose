@@ -669,6 +669,7 @@ test.describe('live conversation loop (online viewer)', () => {
   let postedEmails: Array<string | undefined> = []
   let post429RetryAfter = 0
   let post500 = false
+  let replyNotFound = false
   let commentsGone = false
 
   const row = (over: Record<string, unknown>): Record<string, unknown> => ({
@@ -746,6 +747,12 @@ test.describe('live conversation loop (online viewer)', () => {
         let body = ''
         req.on('data', (c) => { body += c })
         req.on('end', () => {
+          if (replyNotFound) {
+            replyNotFound = false
+            res.writeHead(404, corsJson)
+            res.end(JSON.stringify({ error: 'not_found' }))
+            return
+          }
           if (post500) {
             res.writeHead(500, corsJson)
             res.end(JSON.stringify({ error: 'internal_error' }))
@@ -799,6 +806,7 @@ test.describe('live conversation loop (online viewer)', () => {
     postedRows = []
     postedEmails = []
     post429RetryAfter = 0
+    replyNotFound = false
     post500 = false
     commentsGone = false
     commentRows = [
@@ -943,6 +951,22 @@ test.describe('live conversation loop (online viewer)', () => {
     expect(added?.authorName).toBe('Stranded Sam')
     const parent = block!.comments.find((c) => c.id === 'srv-2')
     expect(parent?.replies?.some((r) => r.text === 'Reply while down.')).toBe(true)
+  })
+
+  test('a reply 404 (stale pre-revoke thread) degrades to a not-sent reply, not an error', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    const thread = page.locator('.prose-thread', { hasText: 'Live-only thread.' })
+    await expect(thread).toBeVisible()
+    replyNotFound = true
+    await thread.locator('.prose-reply-link').click()
+    await thread.locator('.prose-reply-composer textarea').fill('Ghost thread reply.')
+    await thread.locator('.prose-reply-composer input').fill('Fallback Fay')
+    await thread.locator('.prose-reply-actions button', { hasText: 'Reply' }).first().click()
+    // The reply stays in the page tagged "not sent" — no dead-end error.
+    await expect(thread.getByText('Ghost thread reply.')).toBeVisible()
+    await expect(thread.locator('.prose-not-sent')).toHaveText('not sent')
+    await expect(page.locator('.prose-reply-composer')).toHaveCount(0)
+    await expect(page.locator('#prose-download-copy')).toContainText('(1 new)')
   })
 
   test('a mid-session revocation closes commenting but keeps the page readable', async ({ page }) => {

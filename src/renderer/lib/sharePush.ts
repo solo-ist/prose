@@ -89,11 +89,16 @@ async function pushThread(threadId: string): Promise<void> {
       // thread deleted/merged meanwhile must not post.
       const current = useCommentStore.getState().pendingComments.find((c) => c.id === threadId)
       if (!current || current.shareId || !current.markedText) return
+      // A thread carrying an authorName is a viewer's (pulled) — re-seeding
+      // it (revoke→republish migration) must keep the original identity, so
+      // it posts as fromAuthor: false under that name.
+      const isViewerThread = current.author !== 'ai' && !!current.authorName
       const res = await getApi().shareCreateComment(entry.publicationId, {
         markedText: current.markedText,
         occurrenceIndex: current.occurrenceIndex ?? 0,
         text: current.comment,
-        authorName: current.author === 'ai' ? 'Prose' : undefined
+        authorName: current.author === 'ai' ? 'Prose' : current.authorName || undefined,
+        ...(isViewerThread ? { fromAuthor: false } : {})
       })
       if (!res.ok) {
         queueOnce({ kind: 'thread', threadId })
@@ -130,6 +135,10 @@ async function pushThread(threadId: string): Promise<void> {
  * dedupe invariant writes shareIds between pushes); pulled viewer threads
  * already carry a shareId and are untouched.
  */
+// Row ids proven to exist in a publication (`${pubId}:${rowId}`) — rows
+// never leave a live publication, so a verification holds for the session.
+const verifiedRows = new Set<string>()
+
 export async function backfillShareThreads(): Promise<boolean> {
   if (!isWebPlatformEnabled()) return false
   // The comment store must hold THIS document's threads — right after a tab
@@ -138,12 +147,49 @@ export async function backfillShareThreads(): Promise<boolean> {
   const docId = useEditorStore.getState().document.documentId
   const store = useCommentStore.getState()
   if (!docId || store.documentId !== docId) return false
-  const missing = store.pendingComments
-    .filter((c) => !c.shareId && c.markedText)
+  const entry = await activeEntry()
+  if (!entry) return false
+
+  // Conversation migration (revoke → republish): a shareId whose row is not
+  // in THIS publication is stale — its row lived in a revoked publication,
+  // and revoke deletes reviewer rows server-side. Clear those ids (thread +
+  // replies) so the missing-push below re-seeds them, with viewer identity
+  // preserved via fromAuthor: false.
+  const unverified = store.pendingComments.filter(
+    (c) => c.shareId && !verifiedRows.has(`${entry.publicationId}:${c.shareId}`)
+  )
+  if (unverified.length > 0) {
+    const res = await getApi().shareComments(entry.publicationId)
+    if (res.ok) {
+      const live = new Set(res.comments.map((r) => r.id))
+      for (const id of live) verifiedRows.add(`${entry.publicationId}:${id}`)
+      const staleIds = new Set(
+        unverified.filter((c) => !live.has(c.shareId as string)).map((c) => c.id)
+      )
+      if (staleIds.size > 0) {
+        const cleared = useCommentStore.getState().pendingComments.map((c) =>
+          staleIds.has(c.id)
+            ? { ...c, shareId: undefined, replies: (c.replies ?? []).map((r) => ({ ...r, shareId: undefined })) }
+            : c
+        )
+        // Not persisted here — the re-pushes below record and save the new
+        // shareIds; if they all fail, the stale ids return on reload and are
+        // re-detected next push.
+        useCommentStore.setState({ pendingComments: cleared })
+      }
+    }
+  }
+
+  const missing = useCommentStore
+    .getState()
+    .pendingComments.filter((c) => !c.shareId && c.markedText)
     .map((c) => c.id)
   if (missing.length === 0) return false
   for (const id of missing) await pushThread(id)
   const after = useCommentStore.getState().pendingComments
+  for (const c of after) {
+    if (c.shareId) verifiedRows.add(`${entry.publicationId}:${c.shareId}`)
+  }
   return after.some((c) => missing.indexOf(c.id) !== -1 && c.shareId)
 }
 
@@ -167,11 +213,15 @@ export function pushReplyToShare(threadId: string, replyId: string): void {
     try {
       const entry = await activeEntry()
       if (!entry) return
+      // Same migration identity rule as threads: a reply with an authorName
+      // is a viewer's and re-seeds under that name as fromAuthor: false.
+      const isViewerReply = reply.author !== 'ai' && !!reply.authorName
       const res = await getApi().shareReplyToComment(
         entry.publicationId,
         thread.shareId as string,
         reply.text,
-        reply.author === 'ai' ? 'Prose' : undefined
+        reply.author === 'ai' ? 'Prose' : reply.authorName || undefined,
+        isViewerReply ? false : undefined
       )
       if (!res.ok) {
         queueOnce({ kind: 'reply', threadId, replyId })

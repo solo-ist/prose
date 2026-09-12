@@ -310,8 +310,8 @@ export interface ElectronAPI {
   shareAckCursor: (publicationId: string, cursor: string) => Promise<unknown>
   shareUpdateLocalPath: (oldPath: string, newPath: string, newDocumentId: string) => Promise<unknown>
   shareSetSyncMode: (publicationId: string, mode: string) => Promise<unknown>
-  shareCreateComment: (publicationId: string, args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string }) => Promise<unknown>
-  shareReplyToComment: (publicationId: string, commentId: string, text: string, authorName?: string) => Promise<unknown>
+  shareCreateComment: (publicationId: string, args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string; fromAuthor?: boolean }) => Promise<unknown>
+  shareReplyToComment: (publicationId: string, commentId: string, text: string, authorName?: string, fromAuthor?: boolean) => Promise<unknown>
   shareResolveComment: (publicationId: string, commentId: string, resolved: boolean) => Promise<unknown>
   // MCP Server integration
   mcpGetStatus: () => Promise<McpServerStatus>
@@ -622,10 +622,10 @@ const api: ElectronAPI = {
     ipcRenderer.invoke('share:updateLocalPath', oldPath, newPath, newDocumentId),
   shareSetSyncMode: (publicationId: string, mode: string) =>
     ipcRenderer.invoke('share:setSyncMode', publicationId, mode),
-  shareCreateComment: (publicationId: string, args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string }) =>
+  shareCreateComment: (publicationId: string, args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string; fromAuthor?: boolean }) =>
     ipcRenderer.invoke('share:createComment', publicationId, args),
-  shareReplyToComment: (publicationId: string, commentId: string, text: string, authorName?: string) =>
-    ipcRenderer.invoke('share:replyToComment', publicationId, commentId, text, authorName),
+  shareReplyToComment: (publicationId: string, commentId: string, text: string, authorName?: string, fromAuthor?: boolean) =>
+    ipcRenderer.invoke('share:replyToComment', publicationId, commentId, text, authorName, fromAuthor),
   shareResolveComment: (publicationId: string, commentId: string, resolved: boolean) =>
     ipcRenderer.invoke('share:resolveComment', publicationId, commentId, resolved),
   // MCP Server integration

@@ -1221,7 +1221,11 @@ export const VIEWER_SCRIPT = `(function () {
       window.setTimeout(fetchLiveComments, 2000)
       onDone()
     }).catch(function (err) {
-      if (err && err.proseShow) {
+      // A 404 means the thread's server row is gone (pre-revoke history on
+      // a re-published link) — the reply can never land there. Keep it in
+      // the page tagged "not sent" instead of surfacing a dead-end error;
+      // the annotated copy carries it back to the author.
+      if (err && err.proseShow && err.proseStatus !== 404) {
         onShownError(err.message)
         return
       }
@@ -2169,12 +2173,15 @@ export const VIEWER_SCRIPT = `(function () {
   function isLocalId(id) { return typeof id === 'string' && id.indexOf('local-') === 0 }
 
   function unpublishedCount() {
+    // Not-sent rows are excluded: they are UNPUBLISHABLE (their thread's
+    // server row is gone) — the annotated copy is their recovery vehicle,
+    // and counting them would pin "Draft · N" forever.
     var n = 0
     for (var i = 0; i < comments.length; i++) {
-      if (isLocalId(comments[i].id)) n++
+      if (isLocalId(comments[i].id) && !notSentIds[comments[i].id]) n++
       var reps = comments[i].replies || []
       for (var j = 0; j < reps.length; j++) {
-        if (isLocalId(reps[j].id)) n++
+        if (isLocalId(reps[j].id) && !notSentIds[reps[j].id]) n++
       }
     }
     return n
@@ -2219,7 +2226,7 @@ export const VIEWER_SCRIPT = `(function () {
         var reps = c.replies || []
         for (var ri = 0; ri < reps.length; ri++) {
           (function (r) {
-            if (!isLocalId(r.id)) return
+            if (!isLocalId(r.id) || notSentIds[r.id]) return
             chain = chain.then(function () {
               // c.id reads at execution time — a just-published parent
               // thread has its server id by now.
@@ -2227,6 +2234,15 @@ export const VIEWER_SCRIPT = `(function () {
                 var old = r.id
                 r.id = created.id
                 remapId(old, created.id)
+              }).catch(function (err) {
+                // The parent's row is gone (stale pre-revoke history): this
+                // reply can never publish. Tag it not-sent and keep going —
+                // the rest of the drafts still deserve their push.
+                if (err && err.proseStatus === 404) {
+                  notSentIds[r.id] = true
+                  return
+                }
+                throw err
               })
             })
           })(reps[ri])
@@ -2519,9 +2535,12 @@ export const VIEWER_SCRIPT = `(function () {
     }
     if (!resp.ok) {
       // 4xx = the request was wrong — surface it. 5xx = the server failed —
-      // the caller falls back to a local not-sent comment.
+      // the caller falls back to a local not-sent comment. The status rides
+      // on the error so reply paths can special-case 404 (a reply to a
+      // thread whose row is gone — stale pre-revoke history).
       var err = new Error('Failed to post comment (' + resp.status + ').')
       if (resp.status < 500) err.proseShow = true
+      err.proseStatus = resp.status
       throw err
     }
     return resp.json()

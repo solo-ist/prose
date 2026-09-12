@@ -690,8 +690,8 @@ export interface ElectronAPI {
   shareAckCursor: (publicationId: string, cursor: string) => Promise<ShareOp<object>>
   shareUpdateLocalPath: (oldPath: string, newPath: string, newDocumentId: string) => Promise<ShareOp<{ touched: number }>>
   shareSetSyncMode: (publicationId: string, mode: 'auto' | 'publish') => Promise<ShareOp<{ entry: ShareEntry }>>
-  shareCreateComment: (publicationId: string, args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string }) => Promise<ShareOp<{ id: string; createdAt: string }>>
-  shareReplyToComment: (publicationId: string, commentId: string, text: string, authorName?: string) => Promise<ShareOp<{ id: string; createdAt: string }>>
+  shareCreateComment: (publicationId: string, args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string; fromAuthor?: boolean }) => Promise<ShareOp<{ id: string; createdAt: string }>>
+  shareReplyToComment: (publicationId: string, commentId: string, text: string, authorName?: string, fromAuthor?: boolean) => Promise<ShareOp<{ id: string; createdAt: string }>>
   shareResolveComment: (publicationId: string, commentId: string, resolved: boolean) => Promise<ShareOp>
   // Emoji generation (runs in main process to avoid CORS)
   emojiGenerate: (title: string, contentPreview?: string) => Promise<{ emoji: string | null; error?: string }>

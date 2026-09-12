@@ -1790,27 +1790,36 @@ export function setupIpcHandlers(): void {
     async (
       _event,
       publicationId: string,
-      args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string }
+      args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string; fromAuthor?: boolean }
     ) => {
       const share = await import('./share/index')
       return share.createComment(String(publicationId ?? ''), {
         markedText: String(args?.markedText ?? ''),
         occurrenceIndex: Number.isInteger(args?.occurrenceIndex) ? args.occurrenceIndex : 0,
         text: String(args?.text ?? ''),
-        authorName: args?.authorName === undefined ? undefined : String(args.authorName)
+        authorName: args?.authorName === undefined ? undefined : String(args.authorName),
+        fromAuthor: args?.fromAuthor === false ? false : undefined
       })
     }
   )
 
   ipcMain.handle(
     'share:replyToComment',
-    async (_event, publicationId: string, commentId: string, text: string, authorName?: string) => {
+    async (
+      _event,
+      publicationId: string,
+      commentId: string,
+      text: string,
+      authorName?: string,
+      fromAuthor?: boolean
+    ) => {
       const share = await import('./share/index')
       return share.replyToComment(
         String(publicationId ?? ''),
         String(commentId ?? ''),
         String(text ?? ''),
-        authorName === undefined ? undefined : String(authorName)
+        authorName === undefined ? undefined : String(authorName),
+        fromAuthor === false ? false : undefined
       )
     }
   )

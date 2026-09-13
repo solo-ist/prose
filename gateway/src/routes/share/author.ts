@@ -164,6 +164,10 @@ shareAuthorRoutes.get('/:pubId/comments', async (c) => {
       // drops rows that share the last returned row's millisecond across a
       // page boundary (PR #901 review). Re-fetching the boundary row(s) is
       // harmless — the desktop merge dedupes by id/shareId.
+      // KNOWN LIMIT: >500 rows sharing ONE millisecond would re-return the
+      // same page forever (cursor can't advance past the group). Unreachable
+      // at current limits; future pagination work must move to a compound
+      // (createdAt, id) cursor before raising `take` or write throughput.
       ...(sinceDate ? { createdAt: { gte: sinceDate } } : {}),
     },
     orderBy: { createdAt: 'asc' },

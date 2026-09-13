@@ -188,6 +188,9 @@ sharePublicRoutes.get('/:token/comments', commentReadLimit, async (c) => {
       // gte, not gt — mirrors the author pull: a timestamp cursor with `gt`
       // drops same-millisecond rows across a page boundary; the viewer's
       // merge dedupes re-fetched boundary rows by id (PR #901 review).
+      // KNOWN LIMIT: >500 rows in ONE millisecond would re-return the same
+      // page forever — see the author pull's cursor comment before changing
+      // pagination here.
       ...(sinceDate ? { createdAt: { gte: sinceDate } } : {}),
     },
     orderBy: { createdAt: 'asc' },

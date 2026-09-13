@@ -3,9 +3,11 @@
  * sync metadata pattern (main/google/sync.ts). Persisted to
  * `<userData>/share-sync.json`.
  *
- * SECURITY: the raw capability token and the gateway session are NEVER in
- * this file — they live in credentialStore (safeStorage). This JSON is safe
- * to include in diagnostics.
+ * SECURITY: the gateway SESSION is never in this file — it lives in
+ * credentialStore (safeStorage). However, each entry's `shareUrl` embeds the
+ * raw capability token: treat this file like a password store. Do NOT
+ * include it in diagnostics or bug reports without redacting the
+ * /s/<token> path segment of every shareUrl.
  */
 import { app } from 'electron'
 import { readFile, writeFile } from 'fs/promises'

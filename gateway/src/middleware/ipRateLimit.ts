@@ -16,11 +16,18 @@ function clientIp(c: Parameters<MiddlewareHandler>[0]): string {
   // Render APPENDS to any passed-in X-Forwarded-For and never clears it —
   // https://feedback.render.com/features/p/send-the-correct-x-forwarded-for /
   // community "Accessing client IPs" guidance. The LAST entry is therefore
-  // proxy-observed and unspoofable; client-supplied entries precede it. At
-  // worst (an upstream CDN hop in front) the last entry over-aggregates to
-  // the edge's IP — never to a client-chosen value. If the deployment ever
-  // moves to a PREPENDING proxy, this must flip to counted right-to-left
-  // hops — re-verify, don't assume.
+  // written by Render (the hop directly in front of this app) and is never
+  // a client-chosen value.
+  //
+  // TOPOLOGY DEPENDENCE — re-verify on ANY infra change: this holds only
+  // while Render is the hop directly in front of the app. Put a CDN in
+  // front (Cloudflare/Fastly) and the last entry becomes the CDN's egress
+  // IP — still not client-spoofable (Render still appends last), but rate
+  // limits collapse onto shared CDN IPs. In that world, switch to counting
+  // right-to-left past the KNOWN proxy hops, or key on the CDN's canonical
+  // client header (e.g. CF-Connecting-IP) after verifying the CDN strips
+  // client-supplied copies of it. A PREPENDING proxy instead of Render
+  // would make the last entry client-controlled — never assume, re-verify.
   // Keys are lowercased so IPv6 case variants share a bucket. Full IPv6
   // canonicalization is unnecessary here: the entry we key on is written by
   // the proxy (append-trust above), so a client can't alternate forms.
@@ -31,10 +38,23 @@ function clientIp(c: Parameters<MiddlewareHandler>[0]): string {
     if (last && IP_SHAPE.test(last)) return last.toLowerCase()
   }
   try {
-    return (getConnInfo(c).remote.address ?? 'unknown').toLowerCase()
+    return (getConnInfo(c).remote.address ?? fallbackBucket()).toLowerCase()
   } catch {
-    return 'unknown'
+    return fallbackBucket()
   }
+}
+
+// When no IP is resolvable, everyone shares ONE bucket — deliberately
+// conservative (a stricter shared allowance, not a bypass), but it would
+// throttle legitimate traffic if it ever fired in production, so make the
+// condition observable the first time it happens.
+let warnedUnknownIp = false
+function fallbackBucket(): string {
+  if (!warnedUnknownIp) {
+    warnedUnknownIp = true
+    console.warn('[ipRateLimit] client IP unresolvable — sharing the "unknown" bucket (all such callers throttle together)')
+  }
+  return 'unknown'
 }
 
 export function ipRateLimit(maxPerWindow: number, windowS: number): MiddlewareHandler {

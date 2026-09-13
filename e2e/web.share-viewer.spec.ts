@@ -374,6 +374,29 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
     await expect(page.locator('#prose-download-copy')).toHaveText('Save updated copy (1 new)')
   })
 
+  test('drafts survive a reload via localStorage and clear when deleted', async ({ page }) => {
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').fill('Persistent Pia')
+    await page.locator('#prose-comment-form textarea').fill('Survive the reload.')
+    await page.locator('#prose-comment-form button', { hasText: 'Add' }).first().click()
+    await expect(page.getByText('Survive the reload.')).toBeVisible()
+
+    // Reload: the draft re-joins the page from localStorage, download armed.
+    await page.reload()
+    const card = page.locator('.prose-thread', { hasText: 'Survive the reload.' })
+    await expect(card).toBeVisible()
+    await expect(card.locator('.prose-author-tag').first()).toHaveText('· you')
+    await expect(page.locator('#prose-download-copy')).toContainText('(1 new)')
+
+    // Deleting the draft clears the store — a further reload shows nothing.
+    await card.locator('.prose-own-actions button', { hasText: 'Delete' }).click()
+    await card.locator('.prose-own-actions button', { hasText: 'yes' }).click()
+    await expect(page.locator('.prose-thread', { hasText: 'Survive the reload.' })).toHaveCount(0)
+    await page.reload()
+    await expect(page.locator('.prose-thread', { hasText: 'Survive the reload.' })).toHaveCount(0)
+  })
+
   test('a draft comment name is click-to-edit before it ships', async ({ page }) => {
     await page.locator('article p').first().click({ clickCount: 3 })
     await page.locator('#prose-add-comment-btn').click()
@@ -684,7 +707,8 @@ test.describe('live conversation loop (online viewer)', () => {
   let post500 = false
   let replyNotFound = false
   let commentsGone = false
-  let renames: Array<{ id: string; editToken?: string; authorName?: string }> = []
+  let renames: Array<{ id: string; editToken?: string; authorName?: string; commentText?: string }> = []
+  let deletes: Array<{ id: string; editToken?: string }> = []
 
   const row = (over: Record<string, unknown>): Record<string, unknown> => ({
     parentId: null,
@@ -790,7 +814,7 @@ test.describe('live conversation loop (online viewer)', () => {
         req.on('data', (c) => { body += c })
         req.on('end', () => {
           const id = url.split('/')[4]
-          const parsed = JSON.parse(body) as { editToken?: string; authorName?: string }
+          const parsed = JSON.parse(body) as { editToken?: string; authorName?: string; commentText?: string }
           renames.push({ id, ...parsed })
           if (parsed.editToken !== `tok-${id}`) {
             res.writeHead(403, corsJson)
@@ -798,9 +822,36 @@ test.describe('live conversation loop (online viewer)', () => {
             return
           }
           const target = postedRows.find((r) => r.id === id)
-          if (target) target.authorName = parsed.authorName
+          if (target) {
+            if (parsed.authorName) target.authorName = parsed.authorName
+            if (parsed.commentText) {
+              target.commentText = parsed.commentText
+              target.editedAt = '2026-09-13T00:10:00.000Z'
+            }
+          }
           res.writeHead(200, corsJson)
-          res.end(JSON.stringify({ ok: true, authorName: parsed.authorName }))
+          res.end(JSON.stringify({ ok: true }))
+        })
+      } else if (req.method === 'DELETE' && /^\/s\/testtoken\/comments\/[^/]+$/.test(url)) {
+        let body = ''
+        req.on('data', (c) => { body += c })
+        req.on('end', () => {
+          const id = url.split('/')[4]
+          const parsed = JSON.parse(body) as { editToken?: string }
+          deletes.push({ id, ...parsed })
+          if (parsed.editToken !== `tok-${id}`) {
+            res.writeHead(403, corsJson)
+            res.end(JSON.stringify({ error: 'forbidden' }))
+            return
+          }
+          const target = postedRows.find((r) => r.id === id)
+          if (target) {
+            target.deleted = true
+            target.commentText = ''
+            target.authorName = ''
+          }
+          res.writeHead(200, corsJson)
+          res.end(JSON.stringify({ ok: true }))
         })
       } else {
         res.writeHead(404)
@@ -839,6 +890,7 @@ test.describe('live conversation loop (online viewer)', () => {
     post429RetryAfter = 0
     replyNotFound = false
     renames = []
+    deletes = []
     post500 = false
     commentsGone = false
     commentRows = [
@@ -1174,6 +1226,86 @@ test.describe('live conversation loop (online viewer)', () => {
     await page.locator('article p').nth(1).click({ clickCount: 3 })
     await page.locator('#prose-add-comment-btn').click()
     await expect(page.locator('#prose-comment-form input').first()).toHaveValue('Memo Mae')
+  })
+
+  test('own comment text edits inline; edited marker; replied threads lose Delete', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').first().fill('Editor Em')
+    await page.locator('#prose-comment-form textarea').fill('First draft wording.')
+    await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
+    const card = page.locator('.prose-thread', { hasText: 'First draft wording.' })
+    await expect(card).toBeVisible()
+
+    // Edit inline: textarea swaps in, Save PATCHes with the token. (The
+    // body text leaves the card while editing, so address it by thread id.)
+    await card.locator('.prose-own-actions button', { hasText: 'Edit' }).click()
+    const editingCard = page.locator('.prose-thread[data-thread-id="srv-posted-1"]')
+    await editingCard.locator('.prose-body-editor textarea').fill('Second, better wording.')
+    await editingCard.locator('.prose-body-editor button', { hasText: 'Save' }).click()
+    const edited = page.locator('.prose-thread', { hasText: 'Second, better wording.' })
+    await expect(edited).toBeVisible()
+    await expect(edited.locator('.prose-edited-tag')).toHaveText('edited')
+    expect(renames.some((r) => r.id === 'srv-posted-1' && r.commentText === 'Second, better wording.')).toBe(true)
+
+    // Reply to own thread → Delete disappears (editable only), Edit stays.
+    await edited.locator('.prose-reply-link', { hasText: 'Reply' }).first().click()
+    await edited.locator('.prose-reply-composer textarea').fill('Follow-up.')
+    await edited.locator('.prose-reply-actions button', { hasText: 'Reply' }).first().click()
+    await expect(edited.getByText('Follow-up.')).toBeVisible()
+    await expect(edited.locator('.prose-own-actions').last().locator('button', { hasText: 'Edit' }).first()).toBeVisible()
+    // The thread-level actions row (the card's last own-actions) has no Delete.
+    const threadActions = edited.locator('.prose-own-actions').last()
+    await expect(threadActions.locator('button', { hasText: 'Delete' })).toHaveCount(0)
+  })
+
+  test('own childless thread deletes after confirm; the highlight unwraps', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').first().fill('Gone Gil')
+    await page.locator('#prose-comment-form textarea').fill('Delete this one.')
+    await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
+    const card = page.locator('.prose-thread', { hasText: 'Delete this one.' })
+    await expect(card).toBeVisible()
+    expect(await page.locator('article span[data-comment-id="srv-posted-1"]').count()).toBeGreaterThan(0)
+
+    await card.locator('.prose-own-actions button', { hasText: 'Delete' }).click()
+    await card.locator('.prose-own-actions button', { hasText: 'yes' }).click()
+    await expect(page.locator('.prose-thread', { hasText: 'Delete this one.' })).toHaveCount(0)
+    await expect(page.locator('article span[data-comment-id="srv-posted-1"]')).toHaveCount(0)
+    await expect.poll(() => deletes.length).toBe(1)
+    expect(deletes[0]).toMatchObject({ id: 'srv-posted-1', editToken: 'tok-srv-posted-1' })
+  })
+
+  test('the poll adopts another reviewer\'s edits and deletions', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    const thread = page.locator('.prose-thread', { hasText: 'Live-only thread.' })
+    await expect(thread).toBeVisible()
+    await expect(page.getByText('Live reply.')).toBeVisible()
+
+    // The other reviewer edits their thread and deletes their reply.
+    const srv2 = commentRows.find((r) => r.id === 'srv-2')!
+    srv2.commentText = 'Live-only thread, reworded.'
+    srv2.editedAt = '2026-09-13T00:20:00.000Z'
+    const srv3 = commentRows.find((r) => r.id === 'srv-3')!
+    srv3.deleted = true
+    srv3.commentText = ''
+    srv3.authorName = ''
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    const reworded = page.locator('.prose-thread', { hasText: 'Live-only thread, reworded.' })
+    await expect(reworded).toBeVisible()
+    await expect(reworded.locator('.prose-edited-tag')).toHaveText('edited')
+    await expect(page.getByText('Live reply.')).toHaveCount(0)
+
+    // Then they delete the whole (now childless) thread.
+    srv2.deleted = true
+    srv2.commentText = ''
+    srv2.authorName = ''
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.locator('.prose-thread', { hasText: 'reworded' })).toHaveCount(0)
+    await expect(page.locator('article span[data-comment-id="srv-2"]')).toHaveCount(0)
   })
 
   test('clicking your name on a posted comment edits it via the edit token', async ({ page }) => {

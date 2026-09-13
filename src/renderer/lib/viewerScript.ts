@@ -413,6 +413,26 @@ export const VIEWER_STYLES = `
   }
   .prose-card-date { flex-shrink: 0; }
   .prose-author-tag { font-weight: 400; color: hsl(var(--muted-foreground)); }
+  .prose-edited-tag { flex-shrink: 0; margin-left: auto; padding-right: 6px; font-size: 10px; color: hsl(var(--muted-foreground)); }
+  .prose-card-head .prose-edited-tag + .prose-card-date { margin-left: 0; }
+  .prose-own-actions { display: flex; gap: 10px; align-items: baseline; margin-top: 8px; }
+  .prose-own-actions .prose-inline-action { margin-top: 0; display: inline; }
+  .prose-delete-confirm { font-size: 11px; color: hsl(var(--pending)); }
+  .prose-delete-yes { color: hsl(var(--pending)); }
+  .prose-body-editor { margin-top: 6px; }
+  .prose-body-editor textarea {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border: 1px solid hsl(var(--input));
+    border-radius: 6px;
+    font: inherit;
+    background: transparent;
+    color: inherit;
+    resize: none;
+    outline: none;
+  }
   .prose-name-editable { cursor: text; border-bottom: 1px dashed transparent; }
   .prose-name-editable:hover { border-bottom-color: hsl(var(--muted-foreground) / 0.5); }
   .prose-name-input {
@@ -1242,6 +1262,9 @@ export const VIEWER_SCRIPT = `(function () {
 
   // Thread id whose inline reply composer is open (one at a time).
   var replyFor = null
+  // Row id whose body is being edited inline / whose delete confirm shows.
+  var editingRow = null
+  var deleteArmed = null
 
   // Shared by the offline path and the failed-POST fallback: the comment
   // stays in the page and arms the annotated-copy download.
@@ -1262,6 +1285,7 @@ export const VIEWER_SCRIPT = `(function () {
     mineIds[localComment.id] = true
     if (notSent) notSentIds[localComment.id] = true
     if (!anchorThread(localComment)) lostIds[localComment.id] = true
+    persistDrafts()
     clearForm()
     renderRail()
     setActive(localComment.id, false)
@@ -1275,6 +1299,7 @@ export const VIEWER_SCRIPT = `(function () {
     if (notSent) notSentIds[localReply.id] = true
     localAdditions++
     unsavedAdditions++
+    persistDrafts()
     replyFor = null
     renderRail()
   }
@@ -1389,16 +1414,273 @@ export const VIEWER_SCRIPT = `(function () {
     return name && authorName === name ? ' · you' : ''
   }
 
-  // Rename a posted row through its edit token. Optimistic callers revert on
-  // failure; PATCH goes to the same public surface as posts.
-  function renameRowRequest(rowId, name) {
+  // Inline body editor for a row this reader owns. Drafts commit in-page;
+  // posted rows PATCH optimistically (editedAt set locally, reverted on
+  // failure) with the in-flight guard holding the poll's adoption off.
+  function renderBodyEditor(obj, field, rowId) {
+    var wrap = el('div', 'prose-body-editor')
+    wrap.addEventListener('click', function (ev) { ev.stopPropagation() })
+    var ta = el('textarea', null)
+    ta.value = obj[field] || ''
+    ta.maxLength = 5000
+    ta.rows = 3
+    var commit = function () {
+      var next = ta.value.trim()
+      editingRow = null
+      if (!next || next === obj[field]) { renderRail(); return }
+      var own = ownershipOf(rowId)
+      var prev = obj[field]
+      var prevEdited = obj.editedAt
+      obj[field] = next
+      if (own === 'draft') {
+        unsavedAdditions++
+        persistDrafts()
+        renderRail()
+        return
+      }
+      obj.editedAt = new Date().toISOString()
+      inFlightEdits[rowId] = true
+      renderRail()
+      patchRowRequest(rowId, { commentText: next }).then(function () {
+        delete inFlightEdits[rowId]
+      }).catch(function () {
+        delete inFlightEdits[rowId]
+        obj[field] = prev
+        obj.editedAt = prevEdited
+        renderRail()
+      })
+    }
+    ta.addEventListener('keydown', function (ev) {
+      if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') { ev.preventDefault(); commit() }
+      if (ev.key === 'Escape') { editingRow = null; renderRail() }
+    })
+    var actions = el('div', 'prose-reply-actions')
+    var saveBtn = el('button', null, 'Save')
+    saveBtn.type = 'button'
+    saveBtn.addEventListener('click', commit)
+    var cancelBtn = el('button', 'prose-reply-cancel', 'Cancel')
+    cancelBtn.type = 'button'
+    cancelBtn.addEventListener('click', function () { editingRow = null; renderRail() })
+    actions.appendChild(saveBtn)
+    actions.appendChild(cancelBtn)
+    actions.appendChild(el('span', 'prose-form-kbd', '⌘↵'))
+    wrap.appendChild(ta)
+    wrap.appendChild(actions)
+    window.setTimeout(function () { ta.focus() }, 0)
+    return wrap
+  }
+
+  // "Edit · Delete" links for an owned row; Delete is two-step and hidden on
+  // threads that still have replies (mirrors the server's editable-only 409).
+  function ownActionsRow(obj, field, rowId, canDelete, onDelete) {
+    var row = el('div', 'prose-own-actions')
+    var editLink = el('button', 'prose-reply-link prose-inline-action', 'Edit')
+    editLink.type = 'button'
+    editLink.addEventListener('click', function (ev) {
+      ev.stopPropagation()
+      editingRow = rowId
+      deleteArmed = null
+      replyFor = null
+      renderRail()
+    })
+    row.appendChild(editLink)
+    if (canDelete) {
+      if (deleteArmed === rowId) {
+        row.appendChild(el('span', 'prose-delete-confirm', 'Delete?'))
+        var yes = el('button', 'prose-reply-link prose-inline-action prose-delete-yes', 'yes')
+        yes.type = 'button'
+        yes.addEventListener('click', function (ev) { ev.stopPropagation(); onDelete() })
+        var no = el('button', 'prose-reply-link prose-inline-action', 'no')
+        no.type = 'button'
+        no.addEventListener('click', function (ev) { ev.stopPropagation(); deleteArmed = null; renderRail() })
+        row.appendChild(yes)
+        row.appendChild(no)
+      } else {
+        var delLink = el('button', 'prose-reply-link prose-inline-action', 'Delete')
+        delLink.type = 'button'
+        delLink.addEventListener('click', function (ev) {
+          ev.stopPropagation()
+          deleteArmed = rowId
+          renderRail()
+        })
+        row.appendChild(delLink)
+      }
+    }
+    return row
+  }
+
+  // Edit/delete a posted row through its edit token. Optimistic callers
+  // revert on failure; both go to the same public surface as posts.
+  function patchRowRequest(rowId, fields) {
+    var body = { editToken: editTokenFor(rowId) }
+    for (var k in fields) { if (Object.prototype.hasOwnProperty.call(fields, k)) body[k] = fields[k] }
     return window.fetch(shareApiBase + '/comments/' + rowId, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ editToken: editTokenFor(rowId), authorName: name })
+      body: JSON.stringify(body)
     }).then(function (resp) {
-      if (!resp.ok) throw new Error('rename failed (' + resp.status + ')')
+      if (!resp.ok) throw new Error('edit failed (' + resp.status + ')')
     })
+  }
+
+  function deleteRowRequest(rowId) {
+    return window.fetch(shareApiBase + '/comments/' + rowId, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ editToken: editTokenFor(rowId) })
+    }).then(function (resp) {
+      if (!resp.ok) throw new Error('delete failed (' + resp.status + ')')
+    })
+  }
+
+  // 'draft' (an unpublished local row of this reader's), 'posted' (a server
+  // row this reader holds the edit token for), or null (not ours).
+  function ownershipOf(id) {
+    if (isLocalId(id)) return mineIds[id] ? 'draft' : null
+    return editTokenFor(id) ? 'posted' : null
+  }
+
+  // Remove a deleted row's highlight, keeping the text: replace each mark
+  // span with its children (textContent unchanged — anchor math is safe).
+  function unwrapMarks(id) {
+    var spans = article.querySelectorAll('span[data-comment-id="' + CSS.escape(id) + '"]')
+    for (var i = 0; i < spans.length; i++) {
+      var s = spans[i]
+      while (s.firstChild) s.parentNode.insertBefore(s.firstChild, s)
+      s.parentNode.removeChild(s)
+    }
+  }
+
+  // Rows with an edit PATCH in flight: the poll must not "adopt" the stale
+  // server text back over an optimistic local edit mid-request.
+  var inFlightEdits = {}
+
+  // --- Draft persistence ------------------------------------------------------
+  // Unpublished local rows (drafts + not-sent fallbacks) survive a reload via
+  // localStorage, keyed by the share token when the page carries one (stable
+  // across republishes) else the baked publishRev. Only this reader's own
+  // local- rows persist; published rows live on the server. A re-opened
+  // annotated copy bakes the same local- ids, so restore dedupes by id.
+  var DRAFT_PREFIX = 'prose-drafts:'
+  // True once drafts have successfully landed in localStorage — the
+  // beforeunload warning only fires when persistence ISN'T protecting them.
+  var draftsPersisted = false
+
+  function draftStoreKey() {
+    if (shareApiBase) {
+      var m = shareApiBase.match(/\\/s\\/([^/?#]+)/)
+      if (m) return DRAFT_PREFIX + m[1]
+    }
+    return blockMeta.publishRev ? DRAFT_PREFIX + blockMeta.publishRev : null
+  }
+
+  function persistDrafts() {
+    var key = draftStoreKey()
+    if (!key) return
+    try {
+      var threads = []
+      var orphanReplies = []
+      var notSent = {}
+      for (var i = 0; i < comments.length; i++) {
+        var c = comments[i]
+        if (isLocalId(c.id) && mineIds[c.id]) {
+          var ownReplies = []
+          for (var j = 0; j < (c.replies || []).length; j++) {
+            var rr = c.replies[j]
+            if (isLocalId(rr.id) && mineIds[rr.id]) {
+              ownReplies.push(rr)
+              if (notSentIds[rr.id]) notSent[rr.id] = true
+            }
+          }
+          threads.push({
+            id: c.id, markedText: c.markedText, occurrenceIndex: c.occurrenceIndex,
+            comment: c.comment, authorName: c.authorName, createdAt: c.createdAt, replies: ownReplies
+          })
+          if (notSentIds[c.id]) notSent[c.id] = true
+        } else {
+          for (var k = 0; k < (c.replies || []).length; k++) {
+            var r = c.replies[k]
+            if (isLocalId(r.id) && mineIds[r.id]) {
+              orphanReplies.push({ parentId: c.id, reply: r })
+              if (notSentIds[r.id]) notSent[r.id] = true
+            }
+          }
+        }
+      }
+      if (threads.length === 0 && orphanReplies.length === 0) {
+        window.localStorage.removeItem(key)
+        return
+      }
+      window.localStorage.setItem(key, JSON.stringify({
+        v: 1, at: Date.now(),
+        threads: threads.slice(0, 50), replies: orphanReplies.slice(0, 50), notSent: notSent
+      }))
+      draftsPersisted = true
+      // Prune: keep the ~10 most recent draft stores.
+      var entries = []
+      for (var s = 0; s < window.localStorage.length; s++) {
+        var name = window.localStorage.key(s)
+        if (name && name.indexOf(DRAFT_PREFIX) === 0) {
+          var at = 0
+          try { at = (JSON.parse(window.localStorage.getItem(name) || '{}') || {}).at || 0 } catch (e2) { /* corrupt */ }
+          entries.push({ name: name, at: at })
+        }
+      }
+      if (entries.length > 10) {
+        entries.sort(function (a, b) { return a.at - b.at })
+        for (var d = 0; d < entries.length - 10; d++) window.localStorage.removeItem(entries[d].name)
+      }
+    } catch (e) { /* blocked storage — drafts stay session-only */ }
+  }
+
+  function restoreDrafts() {
+    var key = draftStoreKey()
+    if (!key) return
+    try {
+      var data = JSON.parse(window.localStorage.getItem(key) || 'null')
+      if (!data || data.v !== 1) return
+      var known = {}
+      for (var i = 0; i < comments.length; i++) {
+        known[comments[i].id] = comments[i]
+        for (var j = 0; j < (comments[i].replies || []).length; j++) known[comments[i].replies[j].id] = true
+      }
+      var mark = function (id) {
+        mineIds[id] = true
+        if (data.notSent && data.notSent[id]) notSentIds[id] = true
+        localAdditions++
+        unsavedAdditions++
+      }
+      for (var t = 0; t < (data.threads || []).length; t++) {
+        var th = data.threads[t]
+        if (!th || typeof th.id !== 'string' || known[th.id]) continue
+        var restored = {
+          id: th.id, markedText: cleanText(th.markedText), occurrenceIndex: th.occurrenceIndex || 0,
+          comment: cleanText(th.comment), authorName: cleanText(th.authorName), createdAt: th.createdAt || Date.now(),
+          resolved: false, replies: []
+        }
+        comments.push(restored)
+        mark(th.id)
+        for (var rj = 0; rj < (th.replies || []).length; rj++) {
+          var trr = th.replies[rj]
+          if (!trr || typeof trr.id !== 'string') continue
+          restored.replies.push({ id: trr.id, author: 'user', authorName: cleanText(trr.authorName), text: cleanText(trr.text), createdAt: trr.createdAt || Date.now() })
+          mark(trr.id)
+        }
+      }
+      for (var o = 0; o < (data.replies || []).length; o++) {
+        var rec = data.replies[o]
+        if (!rec || !rec.reply || typeof rec.reply.id !== 'string' || known[rec.reply.id]) continue
+        var parent = known[rec.parentId]
+        if (!parent || parent === true) continue
+        parent.replies = parent.replies || []
+        parent.replies.push({ id: rec.reply.id, author: 'user', authorName: cleanText(rec.reply.authorName), text: cleanText(rec.reply.text), createdAt: rec.reply.createdAt || Date.now() })
+        mark(rec.reply.id)
+      }
+    } catch (e) { /* blocked or corrupt storage — nothing to restore */ }
+  }
+
+  function cleanText(v) {
+    return typeof v === 'string' ? v.substring(0, 5000) : ''
   }
 
   // Card header row: name (+ muted tag) left, date right — or a "not sent"
@@ -1450,20 +1732,20 @@ export const VIEWER_SCRIPT = `(function () {
   // name becomes the remembered default for future comments.
   function renameHandlerFor(rowObj, rowId) {
     if (revoked) return null
-    var isDraft = isLocalId(rowId) && mineIds[rowId]
-    var token = !isDraft && editTokenFor(rowId)
-    if (!isDraft && !token) return null
+    var own = ownershipOf(rowId)
+    if (!own) return null
     return function (next) {
       var prev = rowObj.authorName
       rowObj.authorName = next
       try { window.localStorage.setItem('prose-commenter-name', next) } catch (e) { /* blocked storage */ }
-      if (isDraft) {
+      if (own === 'draft') {
         unsavedAdditions++
+        persistDrafts()
         renderRail()
         return
       }
       renderRail()
-      renameRowRequest(rowId, next).catch(function () {
+      patchRowRequest(rowId, { authorName: next }).catch(function () {
         rowObj.authorName = prev
         renderRail()
       })
@@ -1471,16 +1753,71 @@ export const VIEWER_SCRIPT = `(function () {
   }
 
   // One reply row, shared by the rail cards and the narrow sheet.
-  function renderReplyRow(r) {
+  function renderReplyRow(r, parentThread) {
     // Author replies: live-pushed rows carry fromAuthor; baked desktop
     // replies have no authorName. Tagged " · author" per the design.
     var isAuthor = r.fromAuthor === true || (!r.authorName && r.author !== 'ai')
     var replyEl = el('div', isAuthor ? 'prose-thread-reply prose-reply-author' : 'prose-thread-reply')
     var label = r.authorName || (r.author === 'ai' ? 'AI' : 'Author')
     var tag = isAuthor ? ' · author' : mineTag(r.id, r.authorName)
-    replyEl.appendChild(headerRow(label, tag, r.createdAt, notSentIds[r.id] === true, renameHandlerFor(r, r.id)))
-    replyEl.appendChild(el('div', 'prose-thread-body', r.text))
+    var head = headerRow(label, tag, r.createdAt, notSentIds[r.id] === true, renameHandlerFor(r, r.id))
+    if (r.editedAt) head.insertBefore(el('span', 'prose-edited-tag', 'edited'), head.lastChild)
+    replyEl.appendChild(head)
+    if (editingRow === r.id) {
+      replyEl.appendChild(renderBodyEditor(r, 'text', r.id))
+    } else {
+      replyEl.appendChild(el('div', 'prose-thread-body', r.text))
+      if (!revoked && ownershipOf(r.id) && parentThread) {
+        replyEl.appendChild(ownActionsRow(r, 'text', r.id, true, function () {
+          deleteReply(parentThread, r)
+        }))
+      }
+    }
     return replyEl
+  }
+
+  function deleteReply(parentThread, r) {
+    deleteArmed = null
+    var idx = (parentThread.replies || []).indexOf(r)
+    if (idx === -1) { renderRail(); return }
+    parentThread.replies.splice(idx, 1)
+    if (ownershipOf(r.id) === 'draft') {
+      if (localAdditions > 0) localAdditions--
+      if (unsavedAdditions > 0) unsavedAdditions--
+      delete notSentIds[r.id]
+      persistDrafts()
+      renderRail()
+      return
+    }
+    renderRail()
+    deleteRowRequest(r.id).catch(function () {
+      parentThread.replies.splice(idx, 0, r)
+      renderRail()
+    })
+  }
+
+  function deleteThread(c) {
+    deleteArmed = null
+    var idx = comments.indexOf(c)
+    if (idx === -1) { renderRail(); return }
+    comments.splice(idx, 1)
+    unwrapMarks(c.id)
+    if (activeId === c.id) activeId = null
+    if (ownershipOf(c.id) === 'draft') {
+      var removed = 1 + (c.replies || []).length
+      localAdditions = Math.max(0, localAdditions - removed)
+      unsavedAdditions = Math.max(0, unsavedAdditions - removed)
+      delete notSentIds[c.id]
+      persistDrafts()
+      renderRail()
+      return
+    }
+    renderRail()
+    deleteRowRequest(c.id).catch(function () {
+      comments.splice(idx, 0, c)
+      anchorAllThreads()
+      renderRail()
+    })
   }
 
   var activeId = null
@@ -1522,11 +1859,17 @@ export const VIEWER_SCRIPT = `(function () {
     // from the marks, so the quote is what anchors a card to its passage.
     if (c.markedText) card.appendChild(el('span', 'prose-thread-quote', '“' + c.markedText + '”'))
     if (lost) card.appendChild(el('div', 'prose-lost-note', 'This passage is no longer in the document.'))
-    card.appendChild(headerRow(authorLabel(c), mineTag(c.id, c.authorName), c.createdAt, notSentIds[c.id] === true, renameHandlerFor(c, c.id)))
-    card.appendChild(el('div', 'prose-thread-body', c.comment))
+    var head = headerRow(authorLabel(c), mineTag(c.id, c.authorName), c.createdAt, notSentIds[c.id] === true, renameHandlerFor(c, c.id))
+    if (c.editedAt) head.insertBefore(el('span', 'prose-edited-tag', 'edited'), head.lastChild)
+    card.appendChild(head)
+    if (editingRow === c.id) {
+      card.appendChild(renderBodyEditor(c, 'comment', c.id))
+    } else {
+      card.appendChild(el('div', 'prose-thread-body', c.comment))
+    }
     var replies = c.replies || []
     for (var i = 0; i < replies.length; i++) {
-      card.appendChild(renderReplyRow(replies[i]))
+      card.appendChild(renderReplyRow(replies[i], c))
     }
     if (!lost && !c.resolved && !revoked) {
       if (replyFor === c.id) {
@@ -1544,6 +1887,14 @@ export const VIEWER_SCRIPT = `(function () {
         })
         card.appendChild(replyLink)
       }
+    }
+    // Owned rows: Edit always; Delete only while nothing hangs off the
+    // thread (drafts are all this reader's, so they delete whole).
+    if (!revoked && ownershipOf(c.id) && editingRow !== c.id) {
+      var canDeleteThread = ownershipOf(c.id) === 'draft' || replies.length === 0
+      card.appendChild(ownActionsRow(c, 'comment', c.id, canDeleteThread, function () {
+        deleteThread(c)
+      }))
     }
     if (c.id === nudgeThreadId) {
       var nudge = el('div', 'prose-nudge')
@@ -2107,9 +2458,10 @@ export const VIEWER_SCRIPT = `(function () {
     renderRail()
   })
 
-  // Losing the tab loses un-downloaded offline comments — warn.
+  // Losing the tab loses un-downloaded offline comments — warn, but only
+  // when localStorage ISN'T already protecting them (blocked storage).
   window.addEventListener('beforeunload', function (ev) {
-    if (unsavedAdditions > 0) {
+    if (unsavedAdditions > 0 && !draftsPersisted) {
       ev.preventDefault()
       ev.returnValue = ''
     }
@@ -2187,6 +2539,8 @@ export const VIEWER_SCRIPT = `(function () {
     }
   }
 
+  // Reload-surviving drafts re-join the page before anchors derive.
+  restoreDrafts()
   anchorAllThreads()
   // Applies the width-appropriate UI (rail vs bottom bar) and renders.
   syncNarrowMode()
@@ -2223,7 +2577,8 @@ export const VIEWER_SCRIPT = `(function () {
       text: row.commentText,
       authorName: row.authorName,
       createdAt: Date.parse(row.createdAt) || Date.now(),
-      fromAuthor: row.fromAuthor === true
+      fromAuthor: row.fromAuthor === true,
+      editedAt: row.editedAt || null
     }
   }
 
@@ -2240,6 +2595,8 @@ export const VIEWER_SCRIPT = `(function () {
       var existing = byId[row.id]
       var resolved = !!row.resolvedAt
       if (!existing) {
+        // A tombstone for a thread this page never had is a non-event.
+        if (row.deleted) continue
         var thread = {
           id: row.id,
           markedText: row.markedText,
@@ -2248,6 +2605,7 @@ export const VIEWER_SCRIPT = `(function () {
           authorName: row.authorName,
           createdAt: Date.parse(row.createdAt) || Date.now(),
           resolved: resolved,
+          editedAt: row.editedAt || null,
           replies: []
         }
         comments.push(thread)
@@ -2255,11 +2613,39 @@ export const VIEWER_SCRIPT = `(function () {
         changed = true
         newThreads++
         if (!toastTarget) toastTarget = row.id
-      } else if (!!existing.resolved !== resolved) {
-        // Boolean-normalized: baked open threads omit the field, and
-        // undefined !== false must not count as a change every poll.
-        existing.resolved = resolved
+      } else if (row.deleted) {
+        // The owner deleted it: the row is authoritative — remove the
+        // thread and its highlight. No toast (a retraction is not news).
+        var gone = comments.indexOf(existing)
+        if (gone !== -1) comments.splice(gone, 1)
+        delete byId[row.id]
+        unwrapMarks(existing.id)
+        if (activeId === existing.id) activeId = null
         changed = true
+      } else {
+        if (!!existing.resolved !== resolved) {
+          // Boolean-normalized: baked open threads omit the field, and
+          // undefined !== false must not count as a change every poll.
+          existing.resolved = resolved
+          changed = true
+        }
+        // Adopt the owner's edits (text/name/edited marker) — viewer rows
+        // only (the author's rows keep their baked/desktop identity), and
+        // not while OUR own optimistic edit is still in flight.
+        if (row.fromAuthor !== true && !inFlightEdits[existing.id]) {
+          if (row.commentText && existing.comment !== row.commentText) {
+            existing.comment = row.commentText
+            changed = true
+          }
+          if (row.authorName && existing.authorName !== row.authorName) {
+            existing.authorName = row.authorName
+            changed = true
+          }
+          if ((existing.editedAt || null) !== (row.editedAt || null)) {
+            existing.editedAt = row.editedAt || null
+            changed = true
+          }
+        }
       }
     }
     for (var ri = 0; ri < rows.length; ri++) {
@@ -2268,15 +2654,32 @@ export const VIEWER_SCRIPT = `(function () {
       var parent = byId[reply.parentId]
       if (!parent) continue
       parent.replies = parent.replies || []
-      var seen = false
+      var match = null
       for (var si = 0; si < parent.replies.length; si++) {
-        if (parent.replies[si].id === reply.id) { seen = true; break }
+        if (parent.replies[si].id === reply.id) { match = parent.replies[si]; break }
       }
-      if (!seen) {
+      if (!match) {
+        if (reply.deleted) continue
         parent.replies.push(rowToReply(reply))
         changed = true
         newReplies++
         if (!toastTarget) toastTarget = reply.parentId
+      } else if (reply.deleted) {
+        parent.replies.splice(parent.replies.indexOf(match), 1)
+        changed = true
+      } else if (reply.fromAuthor !== true && !inFlightEdits[match.id]) {
+        if (reply.commentText && match.text !== reply.commentText) {
+          match.text = reply.commentText
+          changed = true
+        }
+        if (reply.authorName && match.authorName !== reply.authorName) {
+          match.authorName = reply.authorName
+          changed = true
+        }
+        if ((match.editedAt || null) !== (reply.editedAt || null)) {
+          match.editedAt = reply.editedAt || null
+          changed = true
+        }
       }
     }
     if (changed) {
@@ -2481,10 +2884,13 @@ export const VIEWER_SCRIPT = `(function () {
         // to lose with the tab, nothing left worth saving into a copy.
         unsavedAdditions = 0
       }
+      // Published rows carry server ids now — the draft store sheds them.
+      persistDrafts()
       renderRail()
     }).catch(function (err) {
       // Partial progress stands: already-published rows keep their server
       // ids; the remainder stays draft.
+      persistDrafts()
       publishing = false
       publishStateKind = 'err'
       publishState = err && err.proseShow && err.message

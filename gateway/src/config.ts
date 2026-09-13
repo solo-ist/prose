@@ -35,6 +35,11 @@ const EnvSchema = z.object({
   // per thread/reply/resolve plus the re-bake PUT.
   SHARE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
 
+  // Public (anonymous) comment writes per IP per minute. Env-configurable so
+  // the test suite — one IP making every request — can fit its legitimate
+  // writes without loosening the production default.
+  SHARE_PUBLIC_WRITE_MAX: z.coerce.number().int().positive().default(10),
+
   // Cloudflare R2 (blobs only; stub in Phase 0).
   R2_ACCOUNT_ID: z.string().optional(),
   R2_ACCESS_KEY_ID: z.string().optional(),

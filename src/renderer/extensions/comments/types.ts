@@ -28,6 +28,8 @@ export interface CommentReply {
    * live poll), never a duplicate. Missing → never pushed.
    */
   shareId?: string
+  /** ISO stamp when the reviewer edited their reply text (#769). */
+  editedAt?: string | null
 }
 
 export interface CommentData {
@@ -70,6 +72,8 @@ export interface CommentData {
    * instead of being dropped (#769). Missing → anchored normally.
    */
   anchorLost?: boolean
+  /** ISO stamp when the reviewer edited their comment text (#769). */
+  editedAt?: string | null
   /**
    * Artifact revision (content hash) this comment was anchored against at
    * publish time (#768). Missing → created locally, never published.

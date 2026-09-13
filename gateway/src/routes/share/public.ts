@@ -15,6 +15,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { prisma } from '../../db/index.js'
+import { config } from '../../config.js'
 import { getArtifact } from '../../artifacts/index.js'
 import { ipRateLimit } from '../../middleware/ipRateLimit.js'
 import {
@@ -130,7 +131,7 @@ export const sharePublicRoutes = new Hono()
 // through the shareUrl baked into it by the viewer's download.
 sharePublicRoutes.use(
   '*',
-  cors({ origin: '*', allowMethods: ['GET', 'POST', 'PATCH', 'OPTIONS'], allowHeaders: ['Content-Type'], maxAge: 86400 })
+  cors({ origin: '*', allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'], allowHeaders: ['Content-Type'], maxAge: 86400 })
 )
 
 // Anonymous-ownership capability for a created row: returned ONLY in the
@@ -149,7 +150,7 @@ function editTokenMatches(stored: string | null, presented: string): boolean {
 
 // Writes get a tighter budget than the app-level /s/* limit (which mainly
 // blunts token brute-forcing on GET): ~10 comments/min per IP.
-const commentWriteLimit = ipRateLimit(10, 60)
+const commentWriteLimit = ipRateLimit(config.SHARE_PUBLIC_WRITE_MAX, 60)
 
 sharePublicRoutes.get('/:token', async (c) => {
   const pub = await findPublicationByToken(c.req.param('token'))
@@ -225,9 +226,9 @@ sharePublicRoutes.post('/:token/comments/:commentId/replies', commentWriteLimit,
   const parent = await prisma.shareComment.findUnique({
     where: { id: c.req.param('commentId') },
   })
-  // Replies attach only to this share's TOP-LEVEL threads (one level deep,
-  // matching the desktop CommentReply model).
-  if (!parent || parent.publicationId !== pub.id || parent.parentId) {
+  // Replies attach only to this share's TOP-LEVEL, live threads (one level
+  // deep, matching the desktop CommentReply model; a deleted parent is gone).
+  if (!parent || parent.publicationId !== pub.id || parent.parentId || parent.deletedAt) {
     return c.json({ error: 'not_found' }, 404)
   }
 
@@ -255,9 +256,10 @@ sharePublicRoutes.post('/:token/comments/:commentId/replies', commentWriteLimit,
   return c.json({ id: row.id, createdAt: row.createdAt.toISOString(), editToken }, 201)
 })
 
-// Rename a row you created (#769 QA ask): the editToken from the creating
+// Edit a row you created (#769 QA asks): the editToken from the creating
 // POST is the proof of authorship — viewers are anonymous, so without it any
-// visitor could rename anyone. Name only; comment text stays immutable.
+// visitor could edit anyone. Accepts authorName and/or commentText; a text
+// change stamps editedAt (viewers render an "edited" marker).
 sharePublicRoutes.patch('/:token/comments/:commentId', commentWriteLimit, async (c) => {
   const pub = await findPublicationByToken(c.req.param('token'))
   if (!pub) return c.json({ error: 'not_found' }, 404)
@@ -270,13 +272,66 @@ sharePublicRoutes.patch('/:token/comments/:commentId', commentWriteLimit, async 
     return c.json({ error: 'invalid_json' }, 400)
   }
   const presented = typeof body.editToken === 'string' ? body.editToken : ''
-  const authorName = sanitizeField(body.authorName, MAX_NAME_CHARS)
-  if (!presented || !authorName) return c.json({ error: 'invalid_edit' }, 400)
+  const wantsName = body.authorName !== undefined
+  const wantsText = body.commentText !== undefined
+  const authorName = wantsName ? sanitizeField(body.authorName, MAX_NAME_CHARS) : ''
+  const commentText = wantsText ? sanitizeField(body.commentText, MAX_COMMENT_CHARS) : ''
+  // At least one field, and any provided field must be non-empty.
+  if (!presented || (!wantsName && !wantsText)) return c.json({ error: 'invalid_edit' }, 400)
+  if ((wantsName && !authorName) || (wantsText && !commentText)) return c.json({ error: 'invalid_edit' }, 400)
 
   const row = await prisma.shareComment.findUnique({ where: { id: c.req.param('commentId') } })
-  if (!row || row.publicationId !== pub.id) return c.json({ error: 'not_found' }, 404)
+  if (!row || row.publicationId !== pub.id || row.deletedAt) return c.json({ error: 'not_found' }, 404)
   if (!editTokenMatches(row.editToken, presented)) return c.json({ error: 'forbidden' }, 403)
 
-  await prisma.shareComment.update({ where: { id: row.id }, data: { authorName } })
-  return c.json({ ok: true, authorName })
+  const updated = await prisma.shareComment.update({
+    where: { id: row.id },
+    data: {
+      ...(wantsName ? { authorName } : {}),
+      ...(wantsText ? { commentText, editedAt: new Date() } : {}),
+    },
+  })
+  return c.json({
+    ok: true,
+    authorName: updated.authorName,
+    commentText: updated.commentText,
+    editedAt: updated.editedAt ? updated.editedAt.toISOString() : null,
+  })
+})
+
+// Delete a row you created — SOFT: content scrubbed immediately (the words
+// and the notification email leave, the capability burns), the row stays as
+// a tombstone so polls/pulls convey the deletion and the revoke→republish
+// backfill can't resurrect it. A thread with live replies is editable only
+// (409): nobody's words vanish because someone else retracted theirs.
+sharePublicRoutes.delete('/:token/comments/:commentId', commentWriteLimit, async (c) => {
+  const pub = await findPublicationByToken(c.req.param('token'))
+  if (!pub) return c.json({ error: 'not_found' }, 404)
+  if (pub.revokedAt) return c.json({ error: 'revoked' }, 410)
+
+  let body: Record<string, unknown>
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: 'invalid_json' }, 400)
+  }
+  const presented = typeof body.editToken === 'string' ? body.editToken : ''
+  if (!presented) return c.json({ error: 'invalid_edit' }, 400)
+
+  const row = await prisma.shareComment.findUnique({ where: { id: c.req.param('commentId') } })
+  if (!row || row.publicationId !== pub.id || row.deletedAt) return c.json({ error: 'not_found' }, 404)
+  if (!editTokenMatches(row.editToken, presented)) return c.json({ error: 'forbidden' }, 403)
+
+  if (!row.parentId) {
+    const liveReplies = await prisma.shareComment.count({
+      where: { parentId: row.id, deletedAt: null },
+    })
+    if (liveReplies > 0) return c.json({ error: 'has_replies' }, 409)
+  }
+
+  await prisma.shareComment.update({
+    where: { id: row.id },
+    data: { deletedAt: new Date(), commentText: '', authorName: '', authorEmail: null, editToken: null },
+  })
+  return c.json({ ok: true })
 })

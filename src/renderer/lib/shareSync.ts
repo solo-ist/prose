@@ -43,7 +43,83 @@ function toReply(r: SharePulledComment): CommentReply {
     text: cleanString(r.commentText),
     createdAt: Date.parse(r.createdAt) || Date.now(),
     ...(r.authorName ? { authorName: cleanString(r.authorName, 100) } : {}),
+    ...(r.editedAt ? { editedAt: r.editedAt } : {}),
   }
+}
+
+/**
+ * Reviewer revisions (#769 edit/delete): rows the desktop already holds may
+ * have been edited or deleted by their owner since the last pull. Viewer-
+ * sourced rows only — pulled threads have id === shareId, pulled replies
+ * have no shareId of their own — the author's rows are never touched (the
+ * desktop is their source of truth). Returns the revised list + a count.
+ */
+function applyRevisions(
+  existing: CommentData[],
+  pulled: SharePulledComment[]
+): { revised: CommentData[]; changes: number } {
+  const rowById = new Map(pulled.map((r) => [r.id, r]))
+  let changes = 0
+  const revised: CommentData[] = []
+
+  for (const c of existing) {
+    const viewerThread = !!c.shareId && c.id === c.shareId
+    const row = viewerThread ? rowById.get(c.id) : undefined
+    if (viewerThread && row?.deleted) {
+      changes++
+      continue // The owner deleted it — the thread (and its highlight on next restore) goes.
+    }
+    let thread = c
+    if (viewerThread && row) {
+      const nextText = row.commentText && row.commentText !== c.comment ? cleanString(row.commentText) : null
+      const nextName = row.authorName && row.authorName !== c.authorName ? cleanString(row.authorName, 100) : null
+      const editedChanged = (row.editedAt ?? null) !== (c.editedAt ?? null)
+      if (nextText || nextName || editedChanged) {
+        thread = {
+          ...c,
+          ...(nextText ? { comment: nextText } : {}),
+          ...(nextName ? { authorName: nextName } : {}),
+          editedAt: row.editedAt ?? null,
+        }
+        changes++
+      }
+    }
+    const replies = thread.replies ?? []
+    if (replies.length > 0) {
+      let repliesChanged = false
+      const keep: CommentReply[] = []
+      for (const r of replies) {
+        // Viewer replies carry no shareId of their own (they arrived by pull
+        // or graft under their row id); desktop-authored replies have one.
+        const rrow = !r.shareId ? rowById.get(r.id) : undefined
+        if (rrow?.deleted) {
+          repliesChanged = true
+          changes++
+          continue
+        }
+        if (
+          rrow &&
+          ((rrow.commentText && rrow.commentText !== r.text) ||
+            (rrow.authorName && rrow.authorName !== r.authorName) ||
+            (rrow.editedAt ?? null) !== (r.editedAt ?? null))
+        ) {
+          keep.push({
+            ...r,
+            text: rrow.commentText ? cleanString(rrow.commentText) : r.text,
+            ...(rrow.authorName ? { authorName: cleanString(rrow.authorName, 100) } : {}),
+            editedAt: rrow.editedAt ?? null,
+          })
+          repliesChanged = true
+          changes++
+        } else {
+          keep.push(r)
+        }
+      }
+      if (repliesChanged) thread = { ...thread, replies: keep }
+    }
+    revised.push(thread)
+  }
+  return { revised, changes }
 }
 
 /**
@@ -53,8 +129,11 @@ function toReply(r: SharePulledComment): CommentReply {
  * thread, so the shell's other fields never land).
  */
 function toThreads(pulled: SharePulledComment[], knownThreadIds: Set<string>): CommentData[] {
-  const topLevel = pulled.filter((c) => !c.parentId)
-  const replies = pulled.filter((c) => c.parentId)
+  // Tombstones never CREATE anything — the pre-pass in syncShareComments
+  // already removed any local copy they matched.
+  const live = pulled.filter((c) => c.deleted !== true)
+  const topLevel = live.filter((c) => !c.parentId)
+  const replies = live.filter((c) => c.parentId)
   const batchIds = new Set(topLevel.map((c) => c.id))
 
   const threads: CommentData[] = topLevel.map((c) => ({
@@ -64,6 +143,7 @@ function toThreads(pulled: SharePulledComment[], knownThreadIds: Set<string>): C
     createdAt: Date.parse(c.createdAt) || Date.now(),
     author: 'user',
     ...(c.authorName ? { authorName: cleanString(c.authorName, 100) } : {}),
+    ...(c.editedAt ? { editedAt: c.editedAt } : {}),
     occurrenceIndex: typeof c.occurrenceIndex === 'number' ? c.occurrenceIndex : 0,
     from: 0,
     to: 0,
@@ -116,7 +196,9 @@ export async function syncShareComments(entry: ShareEntry, documentId: string): 
     return { ok: false, error: 'Document changed while syncing — open it and retry.' }
   }
 
-  const existing = store.pendingComments
+  // Reviewer revisions land first: deletions remove the local copy, edits
+  // update it (viewer-sourced rows only — author rows stay local-truth).
+  const { revised: existing, changes } = applyRevisions(store.pendingComments, res.comments)
   // Reply counts before the merge — whichever thread is new or grew is the
   // one the toast click should land on.
   const beforeCounts = new Map(existing.map((c) => [c.id, (c.replies ?? []).length]))
@@ -129,7 +211,7 @@ export async function syncShareComments(entry: ShareEntry, documentId: string): 
   )
   const { merged, added } = mergeCommentThreads(existing, incoming)
 
-  if (added > 0) {
+  if (added > 0 || changes > 0) {
     // Land the merge in the LIVE store synchronously, before any await: every
     // routine save (tab-switch, the comment-transaction mirror) reads
     // pendingComments, and the old persist-then-reload order left a window
@@ -140,17 +222,21 @@ export async function syncShareComments(entry: ShareEntry, documentId: string): 
     await store.saveComments(documentId, merged)
     // Reload → sets needsRestore → the Editor restore effect re-derives marks.
     await store.loadComments(documentId)
-    const target = merged.find(
-      (c) => !beforeCounts.has(c.id) || (c.replies?.length ?? 0) > (beforeCounts.get(c.id) ?? 0)
-    )
-    useNotificationStore.getState().notify({
-      message: `Synced ${added} reviewer comment${added === 1 ? '' : 's'} into this document.`,
-      durationMs: 5000,
-      // Clicking the toast opens the (first) new thread in Comment Review.
-      onAction: target ? () => useReviewStore.getState().enterCommentReview(target.id) : undefined,
-    })
-    // Light up the ◎ badge until the user looks (popover or Comment Review).
-    useShareStore.getState().addUnseenComments(added)
+    // Only NEW conversation is news — reviewer edits/deletions sync silently
+    // (they're revisions of things already seen).
+    if (added > 0) {
+      const target = merged.find(
+        (c) => !beforeCounts.has(c.id) || (c.replies?.length ?? 0) > (beforeCounts.get(c.id) ?? 0)
+      )
+      useNotificationStore.getState().notify({
+        message: `Synced ${added} reviewer comment${added === 1 ? '' : 's'} into this document.`,
+        durationMs: 5000,
+        // Clicking the toast opens the (first) new thread in Comment Review.
+        onAction: target ? () => useReviewStore.getState().enterCommentReview(target.id) : undefined,
+      })
+      // Light up the ◎ badge until the user looks (popover or Comment Review).
+      useShareStore.getState().addUnseenComments(added)
+    }
   }
 
   if (res.nextCursor) {

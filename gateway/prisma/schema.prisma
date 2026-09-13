@@ -94,9 +94,14 @@ model ShareComment {
   authorName      String
   authorEmail     String?
   // Anonymous-ownership capability: returned ONLY in the creating POST's
-  // response, never on any read. Whoever holds it may edit the row's
-  // authorName (viewers are anonymous — this is the proof of authorship).
+  // response, never on any read. Whoever holds it may edit or delete the
+  // row (viewers are anonymous — this is the proof of authorship).
   editToken       String?
+  // Set when the owner edited the text (viewers see an "edited" marker).
+  editedAt        DateTime?
+  // Soft delete: content scrubbed, row kept as a tombstone so polls/pulls
+  // convey the deletion and the migration backfill can't resurrect it.
+  deletedAt       DateTime?
   fromAuthor      Boolean       @default(false)
   resolvedAt      DateTime?
   parentId        String?

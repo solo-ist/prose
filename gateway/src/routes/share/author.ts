@@ -120,7 +120,9 @@ shareAuthorRoutes.get('/', async (c) => {
   const rows = await prisma.publication.findMany({
     where: { authorId: user.id },
     orderBy: { publishedAt: 'desc' },
-    include: { _count: { select: { comments: true } } },
+    // Deleted rows stay as tombstones (they propagate deletions) but they
+    // are not conversation — the count shows live rows only.
+    include: { _count: { select: { comments: { where: { deletedAt: null } } } } },
   })
   return c.json({
     publications: rows.map((p) => ({
@@ -239,7 +241,7 @@ shareAuthorRoutes.post('/:pubId/comments/:commentId/replies', async (c) => {
   const parent = await prisma.shareComment.findUnique({
     where: { id: c.req.param('commentId') },
   })
-  if (!parent || parent.publicationId !== pub.id || parent.parentId) {
+  if (!parent || parent.publicationId !== pub.id || parent.parentId || parent.deletedAt) {
     return c.json({ error: 'not_found' }, 404)
   }
 

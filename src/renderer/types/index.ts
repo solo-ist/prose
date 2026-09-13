@@ -563,6 +563,10 @@ export interface SharePulledComment {
   fromAuthor: boolean
   /** Author-controlled resolution; the desktop pull ignores it (local wins). */
   resolvedAt: string | null
+  /** Owner edited the text (via their anonymous edit token). */
+  editedAt?: string | null
+  /** Soft-deleted tombstone: content scrubbed, conveys the deletion. */
+  deleted?: boolean
   publishRev: string
   createdAt: string
 }

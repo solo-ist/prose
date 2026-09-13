@@ -45,6 +45,9 @@ const gw = spawn('npx', ['tsx', 'src/index.ts'], {
     NODE_ENV: 'development',
     BETTER_AUTH_URL: BASE,
     UPSTREAM_URL: 'http://localhost:4001',
+    // One IP makes every request in this suite; fit its legitimate writes
+    // while leaving < 12 budget for the final burst test to trip the 429.
+    SHARE_PUBLIC_WRITE_MAX: '25',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
@@ -199,6 +202,64 @@ async function main() {
   })
   expect(renameNoName.status === 400, 'rename without a name rejected', `status ${renameNoName.status}`)
 
+  // --- Text editing + deletion via the edit token -----------------------------
+  const editText = await fetch(`${commentUrl}/${c1Body.id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ editToken: c1Body.editToken, commentText: 'first! (better phrased)' }),
+  })
+  expect(editText.status === 200, 'text edit with the token accepted', `status ${editText.status}`)
+  const editedRow = (await (await fetch(commentUrl)).json()).comments.find((cm) => cm.id === c1Body.id)
+  expect(
+    editedRow?.commentText === 'first! (better phrased)' && typeof editedRow?.editedAt === 'string',
+    'edited text + editedAt visible on the public GET'
+  )
+
+  // Dedicated rows for the deletion tests — later sections still use c1/r1.
+  const cDel = await (await fetch(commentUrl, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ markedText: 'v1', commentText: 'delete me', authorName: 'Deleter Dee' }),
+  })).json()
+  const rDel = await (await fetch(`${commentUrl}/${cDel.id}/replies`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ commentText: 'hold on', authorName: 'Holdout' }),
+  })).json()
+
+  // A thread with a live reply is editable only, never deletable.
+  const delRepliedThread = await fetch(`${commentUrl}/${cDel.id}`, {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ editToken: cDel.editToken }),
+  })
+  expect(delRepliedThread.status === 409, 'deleting a replied-to thread rejected (409)', `status ${delRepliedThread.status}`)
+
+  // The reply itself deletes to a scrubbed tombstone.
+  const delReply = await fetch(`${commentUrl}/${rDel.id}`, {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ editToken: rDel.editToken }),
+  })
+  expect(delReply.status === 200, 'deleting own reply accepted', `status ${delReply.status}`)
+  const tomb = (await (await fetch(commentUrl)).json()).comments.find((cm) => cm.id === rDel.id)
+  expect(
+    !!tomb && tomb.deleted === true && tomb.commentText === '' && tomb.authorName === '',
+    'deleted reply is a scrubbed tombstone on the GET'
+  )
+  const editAfterDelete = await fetch(`${commentUrl}/${rDel.id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ editToken: rDel.editToken, authorName: 'Ghost' }),
+  })
+  expect(editAfterDelete.status === 404, 'editing a deleted row rejected', `status ${editAfterDelete.status}`)
+
+  // With its only reply deleted, the thread becomes deletable.
+  const delFreedThread = await fetch(`${commentUrl}/${cDel.id}`, {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ editToken: cDel.editToken }),
+  })
+  expect(delFreedThread.status === 200, 'thread deletable once its replies are gone', `status ${delFreedThread.status}`)
+  const replyToDeleted = await fetch(`${commentUrl}/${cDel.id}/replies`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ commentText: 'too late', authorName: 'Straggler' }),
+  })
+  expect(replyToDeleted.status === 404, 'replying to a deleted thread rejected', `status ${replyToDeleted.status}`)
+
   // --- CORS (downloaded file:// copies publish cross-origin) ----------------
   const preflight = await fetch(commentUrl, {
     method: 'OPTIONS',
@@ -212,7 +273,10 @@ async function main() {
   const pullRes = await fetch(`${BASE}/api/share/${pub.publicationId}/comments`, { headers: authed })
   expect(pullRes.status === 200, 'author comment pull works', `status ${pullRes.status}`)
   const pull = await pullRes.json()
-  expect(pull.comments.length === 2, 'pull returns comment + reply', `${pull.comments.length}`)
+  // c1 + r1 + the two deletion-test tombstones — pulls INCLUDE tombstones so
+  // the desktop learns of deletions.
+  expect(pull.comments.length === 4, 'pull returns comment + reply + tombstones', `${pull.comments.length}`)
+  expect(pull.comments.filter((c) => c.deleted === true).length === 2, 'pull tombstones carry deleted: true')
   expect(
     pull.comments.every((c) => !('authorEmail' in c)),
     'authorEmail NEVER exposed in the pull'
@@ -229,7 +293,8 @@ async function main() {
   const list = await listRes.json()
   expect(
     list.publications.length === 1 && list.publications[0].commentCount === 2,
-    'author list shows the publication with its comment count'
+    'author list counts only LIVE comments (tombstones excluded)',
+    `count ${list.publications[0]?.commentCount}`
   )
 
   // --- Author reply + resolve push (live conversation, #769) ----------------
@@ -264,7 +329,9 @@ async function main() {
   const liveRes = await fetch(commentUrl)
   expect(liveRes.status === 200, 'public comment GET works', `status ${liveRes.status}`)
   const live = await liveRes.json()
-  expect(live.comments.length === 3, 'live GET returns comment + both replies', `${live.comments.length}`)
+  // c1 + r1 + author reply + the two tombstones (viewers must learn of
+  // deletions through the poll).
+  expect(live.comments.length === 5, 'live GET returns rows incl. tombstones', `${live.comments.length}`)
   expect(live.comments.every((cm) => !('authorEmail' in cm)), 'authorEmail NEVER exposed in the live GET')
   const liveAuthorReply = live.comments.find((cm) => cm.id === aReplyBody.id)
   expect(

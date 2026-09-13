@@ -42,6 +42,9 @@ export async function findPublicationByToken(token: string) {
 /**
  * The comment shape safe for ANY reader (author pull today, future bridge).
  * `authorEmail` is notification-only and deliberately absent — never add it.
+ * `editToken` is the anonymous-ownership capability — never add it either.
+ * Deleted rows appear as tombstones (deleted: true, content already
+ * scrubbed) so polls and pulls can convey the deletion.
  */
 export function publicComment(row: {
   id: string
@@ -52,6 +55,8 @@ export function publicComment(row: {
   authorName: string
   fromAuthor: boolean
   resolvedAt: Date | null
+  editedAt: Date | null
+  deletedAt: Date | null
   publishRev: string
   createdAt: Date
 }) {
@@ -64,6 +69,8 @@ export function publicComment(row: {
     authorName: row.authorName,
     fromAuthor: row.fromAuthor === true,
     resolvedAt: row.resolvedAt ? row.resolvedAt.toISOString() : null,
+    editedAt: row.editedAt ? row.editedAt.toISOString() : null,
+    deleted: row.deletedAt !== null,
     publishRev: row.publishRev,
     createdAt: row.createdAt.toISOString(),
   }

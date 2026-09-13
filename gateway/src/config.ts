@@ -40,6 +40,13 @@ const EnvSchema = z.object({
   // writes without loosening the production default.
   SHARE_PUBLIC_WRITE_MAX: z.coerce.number().int().positive().default(10),
 
+  // Origin isolation for served share pages (#902): when set, /s/* lives on
+  // THIS host (cookie-less — author-controlled artifact JS can never reach a
+  // session or the API origin's localStorage) and the API host redirects
+  // artifact page loads here. Unset = single-origin (dev default; accepted
+  // debt only while share_publish stays with trusted accounts).
+  SHARE_BASE_URL: z.string().url().optional(),
+
   // Cloudflare R2 (blobs only; stub in Phase 0).
   R2_ACCOUNT_ID: z.string().optional(),
   R2_ACCESS_KEY_ID: z.string().optional(),

@@ -1024,7 +1024,10 @@ export const VIEWER_SCRIPT = `(function () {
 
   var shareApiBase = null
   if (online) {
-    shareApiBase = shareConfig.shareEndpoint.replace(/\\/$/, '') + '/s/' + token
+    // The page's OWN origin, not the baked endpoint: the comment routes live
+    // wherever the page is served (incl. an isolated share host, #902), and
+    // this always satisfies connect-src 'self'.
+    shareApiBase = window.location.origin + '/s/' + token
   } else if (
     isFile && shareConfig &&
     typeof shareConfig.shareUrl === 'string' && /^https?:\\/\\//.test(shareConfig.shareUrl) &&
@@ -2436,7 +2439,10 @@ export const VIEWER_SCRIPT = `(function () {
       var shareBlock = clone.querySelector('script[type="application/x-prose-share"]')
       if (shareBlock) {
         shareBlock.textContent = JSON.stringify({
-          shareEndpoint: shareConfig.shareEndpoint,
+          // The serving origin, not the baked endpoint: with an isolated
+          // share host (#902) the comment routes live HERE, and the copy's
+          // shareUrl-vs-shareEndpoint origin check must agree.
+          shareEndpoint: window.location.origin,
           publishRev: shareConfig.publishRev,
           publishedAt: shareConfig.publishedAt,
           shareUrl: shareApiBase

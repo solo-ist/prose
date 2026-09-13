@@ -25,7 +25,8 @@ import { config } from '../../config.js'
 
 /** Public origin the share URL should use (the gateway serves /s/*). */
 function shareBase(): string {
-  return config.BETTER_AUTH_URL.replace(/\/$/, '')
+  // Share links live on the isolated share origin when configured (#902).
+  return (config.SHARE_BASE_URL ?? config.BETTER_AUTH_URL).replace(/\/$/, '')
 }
 
 /** The artifact must be a Prose export — a cheap structural check, not a parse. */

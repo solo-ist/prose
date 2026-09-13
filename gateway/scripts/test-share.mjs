@@ -48,6 +48,11 @@ const gw = spawn('npx', ['tsx', 'src/index.ts'], {
     // One IP makes every request in this suite; fit its legitimate writes
     // while leaving < 12 budget for the final burst test to trip the 429.
     SHARE_PUBLIC_WRITE_MAX: '25',
+    // Origin isolation (#902) under test: localhost is the API host,
+    // 127.0.0.1 the share host — same server, genuinely different origins.
+    // Every share/comment call below rides pub.shareUrl and so exercises
+    // the partition for real.
+    SHARE_BASE_URL: `http://127.0.0.1:${PORT}`,
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
@@ -137,6 +142,19 @@ async function main() {
 
   const bogus = await fetch(`${BASE}/s/${'a'.repeat(43)}`)
   expect(bogus.status === 404, 'unknown token 404s', `status ${bogus.status}`)
+
+  // --- Origin isolation (#902) ----------------------------------------------
+  expect(pub.shareUrl.startsWith(`http://127.0.0.1:${PORT}/s/`), 'shareUrl lives on the share host', pub.shareUrl)
+  const apiHostPage = await fetch(pub.shareUrl.replace('127.0.0.1', 'localhost'), { redirect: 'manual' })
+  expect(
+    apiHostPage.status === 308 && (apiHostPage.headers.get('location') ?? '').startsWith(`http://127.0.0.1:${PORT}/s/`),
+    'artifact page load on the API host 308-redirects to the share host',
+    `status ${apiHostPage.status}`
+  )
+  const apiOnShareHost = await fetch(`http://127.0.0.1:${PORT}/api/share`, { headers: authed })
+  expect(apiOnShareHost.status === 404, 'API routes 404 on the share host', `status ${apiOnShareHost.status}`)
+  const commentsOnApiHost = await fetch(`${pub.shareUrl.replace('127.0.0.1', 'localhost')}/comments`)
+  expect(commentsOnApiHost.status === 200, 'comment JSON routes stay dual-host (old file:// copies)', `status ${commentsOnApiHost.status}`)
 
   // --- Reviewer comments ----------------------------------------------------
   const commentUrl = `${pub.shareUrl.replace(BASE, BASE)}/comments`

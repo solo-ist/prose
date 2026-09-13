@@ -46,6 +46,41 @@ export function createApp() {
       xFrameOptions: 'DENY',
     })
   )
+
+  // Origin isolation (#902): served share pages are author-controlled
+  // HTML+JS by design, so when SHARE_BASE_URL is set they live on a
+  // dedicated cookie-less host. The share host serves ONLY /s/* (+ health) —
+  // artifact JS finds no API and no session there, and the two origins'
+  // localStorage never mix. The API host redirects artifact PAGE loads to
+  // the share host; the JSON comment sub-routes stay dual-host so file://
+  // copies baked before the split keep publishing (they're capability-gated
+  // and cookie-free — serving them on either host executes nothing).
+  const shareHost = (() => {
+    if (!config.SHARE_BASE_URL) return null
+    const host = new URL(config.SHARE_BASE_URL).host
+    if (host === new URL(config.BETTER_AUTH_URL).host) {
+      console.warn('[app] SHARE_BASE_URL matches the API host — origin isolation disabled')
+      return null
+    }
+    return host
+  })()
+  if (shareHost) {
+    const shareBase = config.SHARE_BASE_URL!.replace(/\/$/, '')
+    const ARTIFACT_PAGE = /^\/s\/[^/]+$/
+    app.use('*', async (c, next) => {
+      const host = c.req.header('host')
+      const path = c.req.path
+      if (host === shareHost) {
+        if (!path.startsWith('/s/') && path !== '/health') {
+          return c.text('Not found', 404)
+        }
+      } else if (ARTIFACT_PAGE.test(path) && (c.req.method === 'GET' || c.req.method === 'HEAD')) {
+        return c.redirect(shareBase + path, 308)
+      }
+      await next()
+    })
+  }
+
   app.use('/api/*', corsMiddleware)
 
   // Better Auth owns all /api/auth/* routes (magic-link, session, sign-out…).

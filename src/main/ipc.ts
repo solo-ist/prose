@@ -1737,12 +1737,20 @@ export function setupIpcHandlers(): void {
   ipcMain.handle(
     'share:republish',
     async (_event, args: { publicationId: string; title: string; html: string }) => {
+      // Same MAS gate as share:publish — a migrated share-sync.json must not
+      // reopen write surfaces the publish gate closed (PR #901 review).
+      if (IS_MAS_BUILD) {
+        return { ok: false, error: 'Sharing is not available in the Mac App Store version.' }
+      }
       const share = await import('./share/index')
       return share.republish(args)
     }
   )
 
   ipcMain.handle('share:revoke', async (_event, publicationId: string) => {
+    if (IS_MAS_BUILD) {
+      return { ok: false, error: 'Sharing is not available in the Mac App Store version.' }
+    }
     const share = await import('./share/index')
     return share.revoke(String(publicationId ?? ''))
   })

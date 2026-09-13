@@ -159,7 +159,11 @@ shareAuthorRoutes.get('/:pubId/comments', async (c) => {
   const rows = await prisma.shareComment.findMany({
     where: {
       publicationId: pub.id,
-      ...(sinceDate ? { createdAt: { gt: sinceDate } } : {}),
+      // gte, not gt: with a timestamp cursor + take-limit, `gt` permanently
+      // drops rows that share the last returned row's millisecond across a
+      // page boundary (PR #901 review). Re-fetching the boundary row(s) is
+      // harmless — the desktop merge dedupes by id/shareId.
+      ...(sinceDate ? { createdAt: { gte: sinceDate } } : {}),
     },
     orderBy: { createdAt: 'asc' },
     take: 500,

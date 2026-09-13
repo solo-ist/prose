@@ -21,14 +21,17 @@ function clientIp(c: Parameters<MiddlewareHandler>[0]): string {
   // the edge's IP — never to a client-chosen value. If the deployment ever
   // moves to a PREPENDING proxy, this must flip to counted right-to-left
   // hops — re-verify, don't assume.
+  // Keys are lowercased so IPv6 case variants share a bucket. Full IPv6
+  // canonicalization is unnecessary here: the entry we key on is written by
+  // the proxy (append-trust above), so a client can't alternate forms.
   const xff = c.req.header('x-forwarded-for')
   if (xff) {
     const parts = xff.split(',').map((s) => s.trim()).filter(Boolean)
     const last = parts[parts.length - 1]
-    if (last && IP_SHAPE.test(last)) return last
+    if (last && IP_SHAPE.test(last)) return last.toLowerCase()
   }
   try {
-    return getConnInfo(c).remote.address ?? 'unknown'
+    return (getConnInfo(c).remote.address ?? 'unknown').toLowerCase()
   } catch {
     return 'unknown'
   }

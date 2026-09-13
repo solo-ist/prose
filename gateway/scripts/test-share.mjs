@@ -287,7 +287,15 @@ async function main() {
     `${BASE}/api/share/${pub.publicationId}/comments?since=${encodeURIComponent(pull.nextCursor)}`,
     { headers: authed }
   )
-  expect((await since.json()).comments.length === 0, 'since-cursor excludes already-pulled comments')
+  // gte semantics: the boundary row(s) at the cursor timestamp re-fetch (the
+  // client merge dedupes by id) — but nothing EARLIER than the cursor does.
+  const sinceRows = (await since.json()).comments
+  const pulledIds = new Set(pull.comments.map((cm) => cm.id))
+  expect(
+    sinceRows.length >= 1 && sinceRows.every((cm) => pulledIds.has(cm.id)),
+    'since-cursor returns only already-seen boundary rows (gte + dedupe)',
+    `${sinceRows.length} rows`
+  )
 
   const listRes = await fetch(`${BASE}/api/share`, { headers: authed })
   const list = await listRes.json()
@@ -342,7 +350,14 @@ async function main() {
   expect(!!liveTop && !!liveTop.resolvedAt && liveTop.fromAuthor === false, 'resolved state visible on the live GET')
 
   const liveSince = await fetch(`${commentUrl}?since=${encodeURIComponent(live.nextCursor)}`)
-  expect((await liveSince.json()).comments.length === 0, 'live GET since-cursor filters')
+  // gte semantics: boundary rows at the cursor timestamp re-fetch (clients
+  // dedupe by id); nothing earlier than the cursor comes back.
+  const liveSinceRows = (await liveSince.json()).comments
+  const liveIds = new Set(live.comments.map((cm) => cm.id))
+  expect(
+    liveSinceRows.every((cm) => liveIds.has(cm.id)),
+    'live GET since-cursor returns only already-seen boundary rows (gte)'
+  )
 
   const unresolve = await fetch(`${BASE}/api/share/${pub.publicationId}/comments/${c1Body.id}`, {
     method: 'PATCH', headers: authed, body: JSON.stringify({ resolved: false }),

@@ -185,7 +185,10 @@ sharePublicRoutes.get('/:token/comments', commentReadLimit, async (c) => {
   const rows = await prisma.shareComment.findMany({
     where: {
       publicationId: pub.id,
-      ...(sinceDate ? { createdAt: { gt: sinceDate } } : {}),
+      // gte, not gt — mirrors the author pull: a timestamp cursor with `gt`
+      // drops same-millisecond rows across a page boundary; the viewer's
+      // merge dedupes re-fetched boundary rows by id (PR #901 review).
+      ...(sinceDate ? { createdAt: { gte: sinceDate } } : {}),
     },
     orderBy: { createdAt: 'asc' },
     take: 500,

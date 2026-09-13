@@ -12,6 +12,7 @@
 import { extractCommentsFromHtml } from './htmlExport'
 import { loadComments, saveComments } from './persistence'
 import type { CommentData } from '../extensions/comments/types'
+import { useCommentStore } from '../extensions/comments/store'
 import { useNotificationStore } from '../stores/notificationStore'
 import { cleanString, cleanReply, mergeCommentThreads } from './commentMerge'
 
@@ -54,7 +55,20 @@ export async function importArtifactComments(rawHtml: string, documentId: string
   const { merged, added } = mergeCommentThreads(existing, incoming)
 
   if (added > 0) {
+    // Annotation-persistence invariant rule 3: if this document is the one
+    // currently OPEN, the merge must land in the live store before any
+    // await — a concurrent routine save reading stale pendingComments would
+    // otherwise write the pre-import set over the just-imported one (the
+    // exact race caught live in shareSync; PR #901 review flagged the same
+    // hole here for re-imports of an already-open document).
+    const store = useCommentStore.getState()
+    const isOpenDocument = store.documentId === documentId
+    if (isOpenDocument) useCommentStore.setState({ pendingComments: merged })
     await saveComments(documentId, merged)
+    if (isOpenDocument) {
+      // Reload → needsRestore → the Editor restore effect re-derives marks.
+      await useCommentStore.getState().loadComments(documentId)
+    }
     useNotificationStore.getState().notify({
       message: `Imported ${added} comment${added === 1 ? '' : 's'} from the shared copy.`,
       durationMs: 5000,

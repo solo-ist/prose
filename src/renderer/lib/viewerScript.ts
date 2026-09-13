@@ -1013,10 +1013,23 @@ export const VIEWER_SCRIPT = `(function () {
   // - a downloaded annotated copy (file://): the full capability URL the
   //   viewer baked into the copy at download time — the downloader already
   //   held it. This is what lets a local copy publish its comments back.
+  // A file:// copy's shareUrl must sit on the SAME ORIGIN as its baked
+  // shareEndpoint — a consistency check that blocks lazy tampering of just
+  // the URL field (redirecting comment POSTs elsewhere). A fully tampered
+  // artifact is attacker HTML end to end — the same trust model as any
+  // saved page — which is what origin isolation (#902) addresses.
+  function sameOrigin(a, b) {
+    try { return new URL(a).origin === new URL(b).origin } catch (e) { return false }
+  }
+
   var shareApiBase = null
   if (online) {
     shareApiBase = shareConfig.shareEndpoint.replace(/\\/$/, '') + '/s/' + token
-  } else if (isFile && shareConfig && typeof shareConfig.shareUrl === 'string' && /^https?:\\/\\//.test(shareConfig.shareUrl)) {
+  } else if (
+    isFile && shareConfig &&
+    typeof shareConfig.shareUrl === 'string' && /^https?:\\/\\//.test(shareConfig.shareUrl) &&
+    typeof shareConfig.shareEndpoint === 'string' && sameOrigin(shareConfig.shareUrl, shareConfig.shareEndpoint)
+  ) {
     shareApiBase = shareConfig.shareUrl.replace(/\\/$/, '')
   }
   // Local draft/publish mode: annotate in the file, push in one exchange.

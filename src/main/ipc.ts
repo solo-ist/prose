@@ -1774,9 +1774,15 @@ export function setupIpcHandlers(): void {
     return share.list()
   })
 
+  // MAS policy for share:* handlers — deliberate read/write split: WRITE
+  // surfaces and credentialStore-touching handlers are IS_MAS_BUILD-gated
+  // (publish/republish/revoke/sign-in/out/authStatus); pure READS of local
+  // metadata (list, getForPath, comments) stay callable so a user migrating
+  // from a non-MAS install can still SEE their existing shares. webPlatform
+  // is force-off on MAS, so no UI reaches any of them.
   ipcMain.handle('share:getForPath', async (_event, localPath: string) => {
     const share = await import('./share/index')
-    return share.getForPath(String(localPath ?? ''))
+    return share.getForPath(validatePath(String(localPath ?? '')))
   })
 
   ipcMain.handle('share:comments', async (_event, publicationId: string) => {

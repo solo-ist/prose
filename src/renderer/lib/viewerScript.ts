@@ -2757,7 +2757,11 @@ export const VIEWER_SCRIPT = `(function () {
   }
 
   // One GET+merge exchange, shared by the online poll and the local publish
-  // flow's pull half.
+  // flow's pull half. DELIBERATELY cursor-less: edits and deletion
+  // tombstones don't bump createdAt, so a since-cursor poll would never see
+  // an owner revising or retracting an old row — full-state is what makes
+  // revision adoption in mergeLive correct. Payloads are bounded (take 500,
+  // 45s cadence, tiny rows); revisit only with a dedicated updatedAt cursor.
   function pullComments() {
     if (!shareApiBase) return Promise.resolve()
     return window.fetch(shareApiBase + '/comments').then(function (resp) {

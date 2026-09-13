@@ -1,0 +1,22 @@
+# Local Postgres for gateway dev ONLY. Never used in production (Render manages PG).
+# Port 5433 on the host to avoid colliding with a system Postgres on 5432.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: prose-gateway-pg
+    environment:
+      POSTGRES_USER: prose
+      POSTGRES_PASSWORD: prose
+      POSTGRES_DB: prose_gateway
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prose -d prose_gateway"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

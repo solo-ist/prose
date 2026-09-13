@@ -1,0 +1,98 @@
+// Prose Gateway schema — Phase 0 (#765).
+// Better Auth's models (user/session/account/verification) are emitted here by
+// `npx @better-auth/cli generate`. The custom `entitlements` model backs the
+// `ai_proxy` gate. Prisma 7 `prisma-client` generator (WASM query compiler).
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  // Force .js import extensions so the compiled `dist` (node) resolves them —
+  // the default varies with the build environment (tsconfig presence).
+  importFileExtension = "js"
+  moduleFormat        = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Phase 0 gate: which users may use which gated features (e.g. `ai_proxy`).
+/// `userId` is a FK to Better Auth's `user`. The full entitlements table
+/// (with a Stripe `granted_by` seam) is generalized in Phase 4 (#770).
+model Entitlement {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feature   String
+  grantedBy String    @default("manual")
+  grantedAt DateTime  @default(now())
+  expiresAt DateTime?
+  notes     String?
+
+  @@unique([userId, feature])
+  @@map("entitlements")
+}
+
+model User {
+  id            String    @id
+  name          String
+  email         String
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  entitlements  Entitlement[]
+
+  @@unique([email])
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}

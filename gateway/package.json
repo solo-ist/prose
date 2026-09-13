@@ -1,0 +1,42 @@
+{
+  "name": "prose-gateway",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Prose Web Foundations gateway — Hono + Prisma 7 + Better Auth monolith (Phase 0, #765)",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "prisma generate && tsc",
+    "start": "prisma migrate deploy && node dist/index.js",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "db:migrate:dev": "prisma migrate dev",
+    "db:studio": "prisma studio",
+    "dev:db": "docker compose up -d postgres",
+    "dev:full": "docker compose up -d postgres && prisma migrate deploy && tsx watch src/index.ts",
+    "seed:ai-proxy": "tsx scripts/seed-ai-proxy.ts",
+    "mock": "node scripts/mock-upstream.mjs",
+    "test": "node scripts/test-gateway.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1077.0",
+    "@hono/node-server": "^2.0.6",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "better-auth": "^1.6.23",
+    "dotenv": "^17.4.2",
+    "hono": "^4.12.27",
+    "pg": "^8.22.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.20.0",
+    "prisma": "^7.8.0",
+    "tsx": "^4.22.4",
+    "typescript": "^5.7.0"
+  }
+}

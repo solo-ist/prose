@@ -7,14 +7,25 @@
 import type { MiddlewareHandler } from 'hono'
 import { getConnInfo } from '@hono/node-server/conninfo'
 
+// A plausible IPv4/IPv6 literal — a defense-in-depth gate on the XFF entry
+// we key rate limits on (a junk value falls through to the socket address).
+const IP_SHAPE = /^[0-9a-fA-F.:]{2,45}$/
+
 function clientIp(c: Parameters<MiddlewareHandler>[0]): string {
-  // Render fronts the service with a proxy that sets X-Forwarded-For; the
-  // FIRST hop it appends is trustworthy on Render (client-supplied entries
-  // precede it, so take the LAST address).
+  // Trust direction VERIFIED against Render's docs (PR #901 review finding):
+  // Render APPENDS to any passed-in X-Forwarded-For and never clears it —
+  // https://feedback.render.com/features/p/send-the-correct-x-forwarded-for /
+  // community "Accessing client IPs" guidance. The LAST entry is therefore
+  // proxy-observed and unspoofable; client-supplied entries precede it. At
+  // worst (an upstream CDN hop in front) the last entry over-aggregates to
+  // the edge's IP — never to a client-chosen value. If the deployment ever
+  // moves to a PREPENDING proxy, this must flip to counted right-to-left
+  // hops — re-verify, don't assume.
   const xff = c.req.header('x-forwarded-for')
   if (xff) {
     const parts = xff.split(',').map((s) => s.trim()).filter(Boolean)
-    if (parts.length > 0) return parts[parts.length - 1]
+    const last = parts[parts.length - 1]
+    if (last && IP_SHAPE.test(last)) return last
   }
   try {
     return getConnInfo(c).remote.address ?? 'unknown'

@@ -29,11 +29,18 @@ function shareBase(): string {
 }
 
 /** The artifact must be a Prose export — a cheap structural check, not a parse. */
+// Structural sniff, not a sanitizer: an authorized author can bake any
+// content into an artifact (self-contained pages ARE author-controlled
+// HTML+JS by design). The real containment boundary for hostile authors is
+// serving /s/* from an isolated origin — tracked as a hardening follow-up
+// (PR #901 review, finding 2). This check only rejects obvious non-artifact
+// uploads early.
 function looksLikeProseArtifact(html: unknown): html is string {
   return (
     typeof html === 'string' &&
     html.length > 0 &&
     html.length <= MAX_ARTIFACT_BYTES &&
+    /^\s*<!doctype html/i.test(html) &&
     html.includes('application/x-prose-markdown')
   )
 }
@@ -312,7 +319,14 @@ shareAuthorRoutes.delete('/:pubId', async (c) => {
 
   // Revoke: tombstone the row (410 on /s/), destroy the artifact, and delete
   // reviewer comments (privacy — their words leave when the share does).
-  await deleteArtifact(pub)
+  // The tombstone is what makes the link dead — it must land even if the
+  // artifact cleanup half-fails (e.g. the R2 object deleted but a follow-up
+  // write blips; a bare retry would then NoSuchKey forever). PR #901 review.
+  try {
+    await deleteArtifact(pub)
+  } catch (err) {
+    console.error(`[share] revoke ${pub.id}: artifact cleanup failed, tombstoning anyway`, err)
+  }
   await prisma.shareComment.deleteMany({ where: { publicationId: pub.id } })
   await prisma.publication.update({
     where: { id: pub.id },

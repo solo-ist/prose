@@ -1725,6 +1725,11 @@ export function setupIpcHandlers(): void {
   })
 
   ipcMain.handle('share:signOut', async () => {
+    // Consistency with the other credentialStore-touching handlers — no MAS
+    // surface calls this (webPlatform is force-off there).
+    if (IS_MAS_BUILD) {
+      return { ok: false, error: 'Sharing is not available in the Mac App Store version.' }
+    }
     const share = await import('./share/index')
     return share.signOut()
   })
@@ -1735,8 +1740,11 @@ export function setupIpcHandlers(): void {
       if (IS_MAS_BUILD) {
         return { ok: false, error: 'Sharing is not available in the Mac App Store version.' }
       }
+      // localPath is only stored in share-sync.json today, but the repo rule
+      // is every path-taking IPC handler validates — a future reader of this
+      // field must not inherit an unvalidated value.
       const share = await import('./share/index')
-      return share.publish(args)
+      return share.publish({ ...args, localPath: validatePath(String(args?.localPath ?? '')) })
     }
   )
 
@@ -1790,7 +1798,11 @@ export function setupIpcHandlers(): void {
     'share:updateLocalPath',
     async (_event, oldPath: string, newPath: string, newDocumentId: string) => {
       const share = await import('./share/index')
-      return share.renamedLocalPath(String(oldPath ?? ''), String(newPath ?? ''), String(newDocumentId ?? ''))
+      return share.renamedLocalPath(
+        validatePath(String(oldPath ?? '')),
+        validatePath(String(newPath ?? '')),
+        String(newDocumentId ?? '')
+      )
     }
   )
 

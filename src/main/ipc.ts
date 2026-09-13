@@ -1698,6 +1698,12 @@ export function setupIpcHandlers(): void {
   // MAS guard here is belt-and-braces, mirroring google:startAuth.
 
   ipcMain.handle('share:authStatus', async () => {
+    // MAS: no sharing surface exists (webPlatform is force-off), and this
+    // handler would touch credentialStore — gate it like the write handlers
+    // for symmetry (PR #901 round 4).
+    if (IS_MAS_BUILD) {
+      return { ok: false, error: 'Sharing is not available in the Mac App Store version.' }
+    }
     const share = await import('./share/index')
     return share.authStatus()
   })

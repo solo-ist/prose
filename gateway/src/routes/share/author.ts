@@ -336,11 +336,16 @@ shareAuthorRoutes.delete('/:pubId', async (c) => {
   } catch (err) {
     console.error(`[share] revoke ${pub.id}: artifact cleanup failed, tombstoning anyway`, err)
   }
-  await prisma.shareComment.deleteMany({ where: { publicationId: pub.id } })
-  await prisma.publication.update({
-    where: { id: pub.id },
-    data: { revokedAt: new Date() },
-  })
+  // One atomic unit: comment deletion is irreversible (privacy), so the
+  // tombstone must land with it — a blip between the two would hard-delete
+  // reviewer words while the artifact kept serving (PR #901 round 4).
+  await prisma.$transaction([
+    prisma.shareComment.deleteMany({ where: { publicationId: pub.id } }),
+    prisma.publication.update({
+      where: { id: pub.id },
+      data: { revokedAt: new Date() },
+    }),
+  ])
   return c.body(null, 204)
 })
 

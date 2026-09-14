@@ -75,13 +75,19 @@ const MIME_TYPES: Record<string, string> = {
 
 /**
  * Read a local image file and return its data URI, or null on failure.
+ * The read is CONTAINED to the document's directory by the main process
+ * (audit H-03): document content controls these paths, so an imported
+ * artifact could otherwise point one at any readable file and exfiltrate
+ * it through the export/share. A refused read simply leaves the original
+ * URL in place (the image shows broken outside this machine — honest).
  */
-async function readImageAsDataUri(filePath: string): Promise<string | null> {
+async function readImageAsDataUri(filePath: string, documentDir: string | null): Promise<string | null> {
   if (typeof window === 'undefined' || !window.api?.readFileBase64) return null
+  if (!documentDir) return null
   const ext = filePath.split('.').pop()?.toLowerCase() || 'png'
   const mime = MIME_TYPES[ext] || 'image/png'
   try {
-    const base64 = await window.api.readFileBase64(filePath)
+    const base64 = await window.api.readFileBase64(filePath, documentDir)
     return `data:${mime};base64,${base64}`
   } catch {
     return null
@@ -92,7 +98,7 @@ async function readImageAsDataUri(filePath: string): Promise<string | null> {
  * Build a map of local file paths to data URIs for all local images.
  * Used to inline images in both the visible HTML and the embedded markdown.
  */
-async function buildImageMap(html: string): Promise<Map<string, string>> {
+async function buildImageMap(html: string, documentDir: string | null): Promise<Map<string, string>> {
   const map = new Map<string, string>()
 
   // From HTML: local-file:// URLs
@@ -100,7 +106,7 @@ async function buildImageMap(html: string): Promise<Map<string, string>> {
   for (const match of htmlMatches) {
     const filePath = match[1]
     if (map.has(filePath)) continue
-    const dataUri = await readImageAsDataUri(filePath)
+    const dataUri = await readImageAsDataUri(filePath, documentDir)
     if (dataUri) map.set(filePath, dataUri)
   }
 
@@ -231,7 +237,7 @@ async function buildArtifactHtml(
   comments: CommentData[] | undefined,
   shareEndpoint: string | null
 ): Promise<string> {
-  const imageMap = await buildImageMap(editorHtml)
+  const imageMap = await buildImageMap(editorHtml, documentDir)
   const inlinedHtml = inlineHtmlImages(editorHtml, imageMap)
   const inlinedMarkdown = inlineMarkdownImages(
     serializeMarkdown(markdown, frontmatter),

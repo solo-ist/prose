@@ -1615,12 +1615,45 @@ export const VIEWER_SCRIPT = `(function () {
   // beforeunload warning only fires when persistence ISN'T protecting them.
   var draftsPersisted = false
 
+  // One-way 64-bit digest (FNV-1a forward + reversed) for draft key names:
+  // localStorage keys are enumerable origin-wide, so the raw share token
+  // must never appear in a KEY NAME — any page on the share host could read
+  // tokens straight out of the key list (audit H-02). Inverting the digest
+  // means searching token space; confirming a guessed token is useless
+  // (guessing IS the hard part).
+  function fnv1aHex(s) {
+    var h = 0x811c9dc5
+    for (var fi = 0; fi < s.length; fi++) {
+      h ^= s.charCodeAt(fi)
+      h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0
+    }
+    return ('0000000' + h.toString(16)).slice(-8)
+  }
+
+  var draftKeyCached
   function draftStoreKey() {
+    if (draftKeyCached !== undefined) return draftKeyCached
+    draftKeyCached = null
     if (shareApiBase) {
       var m = shareApiBase.match(/\\/s\\/([^/?#]+)/)
-      if (m) return DRAFT_PREFIX + m[1]
+      if (m) {
+        var digested = DRAFT_PREFIX + 'k' + fnv1aHex(m[1]) + fnv1aHex(m[1].split('').reverse().join(''))
+        try {
+          // Migrate a legacy raw-token key once, then remove it.
+          var legacy = window.localStorage.getItem(DRAFT_PREFIX + m[1])
+          if (legacy !== null) {
+            if (window.localStorage.getItem(digested) === null) {
+              window.localStorage.setItem(digested, legacy)
+            }
+            window.localStorage.removeItem(DRAFT_PREFIX + m[1])
+          }
+        } catch (e) { /* blocked storage */ }
+        draftKeyCached = digested
+        return draftKeyCached
+      }
     }
-    return blockMeta.publishRev ? DRAFT_PREFIX + blockMeta.publishRev : null
+    draftKeyCached = blockMeta.publishRev ? DRAFT_PREFIX + blockMeta.publishRev : null
+    return draftKeyCached
   }
 
   function persistDrafts() {
@@ -2909,9 +2942,50 @@ export const VIEWER_SCRIPT = `(function () {
       if (!resp.ok) return null
       return resp.json()
     }).then(function (body) {
-      if (body && body.comments) mergeLive(body.comments)
-      // Baseline settled: activity in LATER merges is news worth a toast.
-      firstPullDone = true
+      if (!body || !body.comments) return
+      // Walk the 500-row pages to completion (audit M-05): a single capped
+      // page hides every later comment — a filled first page would deny
+      // visibility of the rest of the conversation. createdAt never moves
+      // and deletes are tombstones, so a since-walk enumerates every row;
+      // the merge dedupes re-fetched gte boundary rows by id.
+      if (body.comments.length < 500 || !body.nextCursor) {
+        mergeLive(body.comments)
+        firstPullDone = true
+        return
+      }
+      var all = body.comments
+      var seenIds = {}
+      for (var pi = 0; pi < all.length; pi++) seenIds[all[pi].id] = true
+      var walk = function (cursor, pagesLeft) {
+        if (!cursor || pagesLeft <= 0) {
+          mergeLive(all)
+          firstPullDone = true
+          return
+        }
+        return window.fetch(shareApiBase + '/comments?since=' + encodeURIComponent(cursor)).then(function (r) {
+          return r.ok ? r.json() : null
+        }).then(function (page) {
+          if (!page || !page.comments) { mergeLive(all); firstPullDone = true; return }
+          var added = 0
+          for (var qi = 0; qi < page.comments.length; qi++) {
+            if (!seenIds[page.comments[qi].id]) {
+              seenIds[page.comments[qi].id] = true
+              all.push(page.comments[qi])
+              added++
+            }
+          }
+          // <500 rows = last page; a full page that added nothing is the
+          // same-millisecond stall documented on the route — stop either way.
+          if (page.comments.length < 500 || (added === 0 && page.nextCursor === cursor)) {
+            mergeLive(all)
+            firstPullDone = true
+            return
+          }
+          return walk(page.nextCursor, pagesLeft - 1)
+        })
+      }
+      // 8 more pages = 4,500 rows, past the per-publication ceiling.
+      return walk(body.nextCursor, 8)
     })
   }
 

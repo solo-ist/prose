@@ -111,8 +111,29 @@ export async function completeSignIn(magicUrl: string): Promise<ShareResult<{ em
 }
 
 export async function signOut(): Promise<ShareResult<object>> {
-  await client.signOut()
+  await client.signOut(await getShareConfig())
   return { ok: true }
+}
+
+/**
+ * Share entries are bound to the gateway that minted them (audit M-02):
+ * operating on a publication id against a DIFFERENT gateway silently
+ * targets the wrong service — worst on revoke, where a 404 used to read as
+ * success while the original link stayed live. Legacy entries (no recorded
+ * origin) are tolerated and adopt the current origin on their next patch.
+ */
+function entryOriginError(entry: ShareSyncEntry, config: client.ShareClientConfig): { ok: false; error: string; code: string } | null {
+  if (!entry.gatewayOrigin) return null
+  try {
+    if (entry.gatewayOrigin === new URL(config.baseUrl).origin) return null
+  } catch {
+    return null
+  }
+  return {
+    ok: false,
+    error: `This share lives on ${entry.gatewayOrigin} — switch the gateway back to manage it.`,
+    code: 'wrong_gateway',
+  }
 }
 
 export async function publish(args: {
@@ -137,6 +158,7 @@ export async function publish(args: {
       lastCommentCursor: null,
       revokedAt: null,
       syncMode: 'auto',
+      gatewayOrigin: new URL(config.baseUrl).origin,
     }
     await upsertShareEntry(entry)
     return { ok: true, entry }
@@ -151,6 +173,11 @@ export async function republish(args: {
   html: string
 }): Promise<ShareResult<{ entry: ShareSyncEntry }>> {
   const config = await getShareConfig()
+  const existing = await getShareEntry(args.publicationId)
+  if (existing) {
+    const mismatch = entryOriginError(existing, config)
+    if (mismatch) return mismatch
+  }
   try {
     const result = await client.republishArtifact(config, args.publicationId, args.title, args.html)
     const entry = await patchShareEntry(args.publicationId, {
@@ -167,6 +194,11 @@ export async function republish(args: {
 
 export async function revoke(publicationId: string): Promise<ShareResult<object>> {
   const config = await getShareConfig()
+  const existing = await getShareEntry(publicationId)
+  if (existing) {
+    const mismatch = entryOriginError(existing, config)
+    if (mismatch) return mismatch
+  }
   try {
     await client.revokePublication(config, publicationId)
     await patchShareEntry(publicationId, { revokedAt: new Date().toISOString() })
@@ -232,6 +264,8 @@ export async function fetchAllComments(
   const config = await getShareConfig()
   const entry = await getShareEntry(publicationId)
   if (!entry) return { ok: false, error: 'No local record of this share.' }
+  const mismatch = entryOriginError(entry, config)
+  if (mismatch) return mismatch
   try {
     const { comments } = await fetchCompleteComments(config, publicationId)
     return { ok: true, comments }
@@ -255,6 +289,8 @@ export async function pullComments(
   const config = await getShareConfig()
   const entry = await getShareEntry(publicationId)
   if (!entry) return { ok: false, error: 'No local record of this share.' }
+  const mismatch = entryOriginError(entry, config)
+  if (mismatch) return mismatch
   try {
     const { comments, nextCursor } = await fetchCompleteComments(config, publicationId)
     return { ok: true, comments, nextCursor }
@@ -300,6 +336,8 @@ export async function createComment(
   const config = await getShareConfig()
   const entry = await getShareEntry(publicationId)
   if (!entry) return { ok: false, error: 'No local record of this share.' }
+  const originMismatch = entryOriginError(entry, config)
+  if (originMismatch) return originMismatch
   try {
     const result = await client.postAuthorComment(config, publicationId, args)
     return { ok: true, ...result }
@@ -319,6 +357,8 @@ export async function replyToComment(
   const config = await getShareConfig()
   const entry = await getShareEntry(publicationId)
   if (!entry) return { ok: false, error: 'No local record of this share.' }
+  const originMismatch = entryOriginError(entry, config)
+  if (originMismatch) return originMismatch
   try {
     const result = await client.postAuthorReply(config, publicationId, commentId, text, authorName, fromAuthor)
     return { ok: true, ...result }
@@ -336,6 +376,8 @@ export async function resolveComment(
   const config = await getShareConfig()
   const entry = await getShareEntry(publicationId)
   if (!entry) return { ok: false, error: 'No local record of this share.' }
+  const originMismatch = entryOriginError(entry, config)
+  if (originMismatch) return originMismatch
   try {
     await client.setCommentResolved(config, publicationId, commentId, resolved)
     return { ok: true }

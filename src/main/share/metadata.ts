@@ -39,6 +39,14 @@ export interface ShareSyncEntry {
    * merge can never mark a row seen before it actually landed.
    */
   seenRowIds?: string[]
+  /**
+   * Origin of the gateway that minted this publication (audit M-02).
+   * Operations against a differently-configured gateway are refused —
+   * without this, a revoke against the wrong service 404'd and used to be
+   * recorded as a local tombstone while the real link stayed live. Absent
+   * on legacy entries (tolerated).
+   */
+  gatewayOrigin?: string
   revokedAt: string | null
   /**
    * Content sync mode (#769): 'auto' pushes the artifact in the background on

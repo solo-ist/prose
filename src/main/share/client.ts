@@ -52,10 +52,42 @@ function base(config: ShareClientConfig): string {
   return config.baseUrl.replace(/\/$/, '')
 }
 
-async function authedHeaders(): Promise<Record<string, string>> {
-  const cookie = await credentialStore.get(SESSION_KEY)
-  if (!cookie) throw new ShareClientError('Not signed in to the gateway', 401, 'no_session')
-  return { 'Content-Type': 'application/json', Cookie: cookie }
+/**
+ * The stored session is BOUND to the gateway origin it was minted by
+ * (independent security audit, M-01): a global cookie would follow any
+ * later-configured gateway, handing an attacker-controlled or cleartext
+ * host a replayable credential for the original one. Stored as JSON
+ * {origin, cookie}; a legacy bare-cookie record predates binding and is
+ * refused (one re-sign-in).
+ */
+interface StoredSession {
+  origin: string
+  cookie: string
+}
+
+async function storedSession(): Promise<StoredSession | null> {
+  const raw = await credentialStore.get(SESSION_KEY)
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as StoredSession
+    if (typeof parsed?.origin === 'string' && typeof parsed?.cookie === 'string') return parsed
+  } catch {
+    // Legacy bare cookie — unbound, refuse below.
+  }
+  return null
+}
+
+async function authedHeaders(config: ShareClientConfig): Promise<Record<string, string>> {
+  const session = await storedSession()
+  if (!session) throw new ShareClientError('Not signed in to the gateway', 401, 'no_session')
+  if (session.origin !== new URL(base(config)).origin) {
+    throw new ShareClientError(
+      `Signed in to ${session.origin}, not this gateway — sign in again here.`,
+      401,
+      'origin_mismatch'
+    )
+  }
+  return { 'Content-Type': 'application/json', Cookie: session.cookie }
 }
 
 async function toError(res: Response): Promise<ShareClientError> {
@@ -111,17 +143,37 @@ export async function completeSignIn(config: ShareClientConfig, magicUrl: string
   if (!sessionCookie) {
     throw new ShareClientError('The link did not produce a session (expired?). Request a new one.', 401, 'no_cookie')
   }
-  await credentialStore.set(SESSION_KEY, sessionCookie)
+  await credentialStore.set(
+    SESSION_KEY,
+    JSON.stringify({ origin: new URL(base(config)).origin, cookie: sessionCookie } satisfies StoredSession)
+  )
 }
 
-export async function signOut(): Promise<void> {
+/**
+ * Revoke server-side FIRST (audit M-01: deleting only the local copy left a
+ * stolen session live until expiry), then delete locally even if the network
+ * call failed — signing out locally is the user's intent regardless.
+ */
+export async function signOut(config: ShareClientConfig): Promise<void> {
+  const session = await storedSession()
+  if (session && session.origin === new URL(base(config)).origin) {
+    try {
+      await fetch(`${base(config)}/api/auth/sign-out`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: session.cookie, Origin: base(config) },
+      })
+    } catch {
+      // Gateway unreachable — local deletion still proceeds.
+    }
+  }
   await credentialStore.delete(SESSION_KEY)
 }
 
-/** True when a session cookie exists AND the gateway accepts it. */
+/** True when a session cookie exists for THIS gateway AND it accepts it. */
 export async function checkSession(config: ShareClientConfig): Promise<{ signedIn: boolean; email?: string }> {
-  const cookie = await credentialStore.get(SESSION_KEY)
-  if (!cookie) return { signedIn: false }
+  const session = await storedSession()
+  if (!session || session.origin !== new URL(base(config)).origin) return { signedIn: false }
+  const cookie = session.cookie
   try {
     const res = await fetch(`${base(config)}/api/auth/get-session`, {
       headers: { Cookie: cookie },
@@ -142,7 +194,7 @@ export async function publishArtifact(
 ): Promise<PublishResult> {
   const res = await fetch(`${base(config)}/api/share/publish`, {
     method: 'POST',
-    headers: await authedHeaders(),
+    headers: await authedHeaders(config),
     body: JSON.stringify({ title, html }),
   })
   if (!res.ok) throw await toError(res)
@@ -157,7 +209,7 @@ export async function republishArtifact(
 ): Promise<{ publishRev: string; revCount: number }> {
   const res = await fetch(`${base(config)}/api/share/${encodeURIComponent(publicationId)}/publish`, {
     method: 'PUT',
-    headers: await authedHeaders(),
+    headers: await authedHeaders(config),
     body: JSON.stringify({ title, html }),
   })
   if (!res.ok) throw await toError(res)
@@ -170,9 +222,21 @@ export async function revokePublication(
 ): Promise<void> {
   const res = await fetch(`${base(config)}/api/share/${encodeURIComponent(publicationId)}`, {
     method: 'DELETE',
-    headers: await authedHeaders(),
+    headers: await authedHeaders(config),
   })
-  if (!res.ok && res.status !== 404) throw await toError(res)
+  // A 404 is NOT success (audit M-02): it means this gateway/account has no
+  // such publication — likely the wrong gateway or account — and treating
+  // it as revoked would record a false local tombstone while the original
+  // bearer URL stayed live. Already-revoked publications return 204 (the
+  // gateway re-stamps the tombstone), so retries stay idempotent.
+  if (res.status === 404) {
+    throw new ShareClientError(
+      'This gateway has no record of that share (wrong gateway or account?) — nothing was revoked.',
+      404,
+      'not_found_on_gateway'
+    )
+  }
+  if (!res.ok) throw await toError(res)
 }
 
 /**
@@ -187,7 +251,7 @@ export async function postAuthorComment(
 ): Promise<{ id: string; createdAt: string }> {
   const res = await fetch(`${base(config)}/api/share/${encodeURIComponent(publicationId)}/comments`, {
     method: 'POST',
-    headers: await authedHeaders(),
+    headers: await authedHeaders(config),
     body: JSON.stringify({
       commentText: args.text,
       markedText: args.markedText,
@@ -212,7 +276,7 @@ export async function postAuthorReply(
 ): Promise<{ id: string; createdAt: string }> {
   const res = await fetch(`${base(config)}/api/share/${encodeURIComponent(publicationId)}/comments/${encodeURIComponent(commentId)}/replies`, {
     method: 'POST',
-    headers: await authedHeaders(),
+    headers: await authedHeaders(config),
     body: JSON.stringify({
       commentText: text,
       ...(authorName ? { authorName } : {}),
@@ -232,7 +296,7 @@ export async function setCommentResolved(
 ): Promise<void> {
   const res = await fetch(`${base(config)}/api/share/${encodeURIComponent(publicationId)}/comments/${encodeURIComponent(commentId)}`, {
     method: 'PATCH',
-    headers: await authedHeaders(),
+    headers: await authedHeaders(config),
     body: JSON.stringify({ resolved }),
   })
   if (!res.ok) throw await toError(res)
@@ -245,7 +309,7 @@ export async function fetchComments(
 ): Promise<{ comments: PulledShareComment[]; nextCursor: string | null }> {
   const url = new URL(`${base(config)}/api/share/${encodeURIComponent(publicationId)}/comments`)
   if (since) url.searchParams.set('since', since)
-  const res = await fetch(url.toString(), { headers: await authedHeaders() })
+  const res = await fetch(url.toString(), { headers: await authedHeaders(config) })
   if (!res.ok) throw await toError(res)
   return (await res.json()) as { comments: PulledShareComment[]; nextCursor: string | null }
 }

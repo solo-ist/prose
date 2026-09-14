@@ -552,6 +552,8 @@ export interface ShareEntry {
    * filter drops it instead of resurrecting it.
    */
   seenRowIds?: string[]
+  /** Origin of the minting gateway (audit M-02) — ops elsewhere are refused. */
+  gatewayOrigin?: string
   revokedAt: string | null
   /** Content sync mode (#769): auto = background push on save; publish = explicit. */
   syncMode: 'auto' | 'publish'
@@ -584,7 +586,7 @@ export interface ElectronAPI {
   exportTxt: (content: string, defaultFilename?: string) => Promise<string | null>
   exportHtml: (content: string, defaultFilename?: string) => Promise<string | null>
   readFile: (path: string) => Promise<string>
-  readFileBase64: (path: string) => Promise<string>
+  readFileBase64: (path: string, allowedRoot: string) => Promise<string>
   loadSettings: () => Promise<SettingsOnDisk>
   saveSettings: (settings: Settings) => Promise<void>
   testApiKey: (request: TestApiKeyRequest) => Promise<TestApiKeyResult>

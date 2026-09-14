@@ -14,6 +14,7 @@ import type { AppEnv } from '../../middleware/session.js'
 import {
   MAX_ARTIFACT_BYTES,
   MAX_COMMENT_CHARS,
+  MAX_COMMENTS_PER_PUBLICATION,
   MAX_MARKED_TEXT_CHARS,
   MAX_NAME_CHARS,
   MAX_TITLE_CHARS,
@@ -244,6 +245,9 @@ shareAuthorRoutes.post('/:pubId/comments', async (c) => {
   // A re-seeded viewer row without its original name would misattribute.
   if (!fromAuthor && !authorName) return c.json({ error: 'invalid_comment' }, 400)
 
+  const rowCount = await prisma.shareComment.count({ where: { publicationId: pub.id } })
+  if (rowCount >= MAX_COMMENTS_PER_PUBLICATION) return c.json({ error: 'comment_limit' }, 409)
+
   const row = await prisma.shareComment.create({
     data: {
       publicationId: pub.id,
@@ -288,6 +292,9 @@ shareAuthorRoutes.post('/:pubId/comments/:commentId/replies', async (c) => {
   const fromAuthor = body.fromAuthor !== false
   const authorName = sanitizeField(body.authorName, MAX_NAME_CHARS)
   if (!fromAuthor && !authorName) return c.json({ error: 'invalid_comment' }, 400)
+
+  const rowCount = await prisma.shareComment.count({ where: { publicationId: pub.id } })
+  if (rowCount >= MAX_COMMENTS_PER_PUBLICATION) return c.json({ error: 'comment_limit' }, 409)
 
   const row = await prisma.shareComment.create({
     data: {

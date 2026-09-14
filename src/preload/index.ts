@@ -206,7 +206,7 @@ export interface ElectronAPI {
   exportTxt: (content: string, defaultFilename?: string) => Promise<string | null>
   exportHtml: (content: string, defaultFilename?: string) => Promise<string | null>
   readFile: (path: string) => Promise<string>
-  readFileBase64: (path: string) => Promise<string>
+  readFileBase64: (path: string, allowedRoot: string) => Promise<string>
   loadSettings: () => Promise<Settings>
   saveSettings: (settings: Settings) => Promise<void>
   testApiKey: (request: TestApiKeyRequest) => Promise<TestApiKeyResult>
@@ -407,7 +407,7 @@ const api: ElectronAPI = {
     const result = await ipcRenderer.invoke('file:read', path) as ReadFileResult
     return unwrapReadFileResult(result)
   },
-  readFileBase64: (path: string) => ipcRenderer.invoke('file:readBase64', path),
+  readFileBase64: (path: string, allowedRoot: string) => ipcRenderer.invoke('file:readBase64', path, allowedRoot),
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (settings: Settings) => ipcRenderer.invoke('settings:save', settings),
   testApiKey: (request: TestApiKeyRequest) => ipcRenderer.invoke('settings:testApiKey', request),

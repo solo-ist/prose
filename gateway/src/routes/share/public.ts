@@ -20,6 +20,7 @@ import { getArtifact } from '../../artifacts/index.js'
 import { ipRateLimit } from '../../middleware/ipRateLimit.js'
 import {
   MAX_COMMENT_CHARS,
+  MAX_COMMENTS_PER_PUBLICATION,
   MAX_EMAIL_CHARS,
   MAX_MARKED_TEXT_CHARS,
   MAX_NAME_CHARS,
@@ -244,6 +245,9 @@ sharePublicRoutes.post('/:token/comments', commentWriteLimit, async (c) => {
   const payload = parseCommentBody(body, true)
   if (!payload) return c.json({ error: 'invalid_comment' }, 400)
 
+  const rowCount = await prisma.shareComment.count({ where: { publicationId: pub.id } })
+  if (rowCount >= MAX_COMMENTS_PER_PUBLICATION) return c.json({ error: 'comment_limit' }, 409)
+
   const editToken = newEditToken()
   const row = await prisma.shareComment.create({
     data: { publicationId: pub.id, ...payload, editToken: hashShareToken(editToken) },
@@ -273,6 +277,9 @@ sharePublicRoutes.post('/:token/comments/:commentId/replies', commentWriteLimit,
   }
   const payload = parseCommentBody(body, false)
   if (!payload) return c.json({ error: 'invalid_comment' }, 400)
+
+  const rowCount = await prisma.shareComment.count({ where: { publicationId: pub.id } })
+  if (rowCount >= MAX_COMMENTS_PER_PUBLICATION) return c.json({ error: 'comment_limit' }, 409)
 
   const editToken = newEditToken()
   const row = await prisma.shareComment.create({

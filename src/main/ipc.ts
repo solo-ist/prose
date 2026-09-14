@@ -1,7 +1,7 @@
 import { ipcMain, dialog, app, shell, BrowserWindow, clipboard, nativeImage } from 'electron'
 import { IS_MAS_BUILD } from './env'
 import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat, copyFile } from 'fs/promises'
-import { join, dirname, normalize, isAbsolute } from 'path'
+import { join, dirname, normalize, isAbsolute, resolve, sep } from 'path'
 import { randomUUID } from 'crypto'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
@@ -220,10 +220,27 @@ export function setupIpcHandlers(): void {
     }
   })
 
-  // File: Read binary file as base64
-  ipcMain.handle('file:readBase64', async (_event, path: string) => {
-    const safePath = validatePath(path)
-    const buffer = await readFile(safePath)
+  // File: Read binary file as base64 — used ONLY by HTML export's image
+  // inlining, and constrained accordingly (independent security audit,
+  // H-03): document content controls these paths (an imported artifact's
+  // markdown can carry `![x](../../.ssh/id_rsa)` or an absolute local-file:
+  // URL), and validatePath alone is no containment — normalize() resolves
+  // the `..` before the traversal check ever runs. The caller must name the
+  // directory the read is allowed to happen under (the open document's
+  // folder); the resolved path must stay inside it and look like an image.
+  ipcMain.handle('file:readBase64', async (_event, path: string, allowedRoot: string) => {
+    const root = String(allowedRoot ?? '')
+    if (!root) throw new Error('readBase64 requires a containment root')
+    const resolvedRoot = resolve(expandPath(root))
+    const resolved = resolve(resolvedRoot, expandPath(String(path ?? '')))
+    if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + sep)) {
+      throw new Error('readBase64 outside the document directory refused')
+    }
+    const ext = resolved.split('.').pop()?.toLowerCase() ?? ''
+    if (!['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', 'bmp', 'ico'].includes(ext)) {
+      throw new Error('readBase64 is limited to image files')
+    }
+    const buffer = await readFile(resolved)
     return Buffer.from(buffer).toString('base64')
   })
 

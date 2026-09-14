@@ -11,6 +11,11 @@ import { prisma } from '../../db/index.js'
 
 export const MAX_COMMENT_CHARS = 5000
 export const MAX_MARKED_TEXT_CHARS = 5000
+// Hard per-publication row ceiling (audit M-05): without one, anonymous
+// writers grow the table without bound, and rows past the read pages become
+// a visibility-denial lever. Tombstones count — the ceiling is a table
+// bound, not a conversation-size opinion.
+export const MAX_COMMENTS_PER_PUBLICATION = 1000
 export const MAX_NAME_CHARS = 100
 export const MAX_EMAIL_CHARS = 254
 export const MAX_TITLE_CHARS = 200

@@ -153,14 +153,18 @@ dist/mac-arm64/prose.app
 
 ### Automated Review Analysis
 
-When a PR is opened — and again every time E2E passes (`ci-gate.yml`'s `trigger-review` job auto-posts a `/review` on green CI, self-debounced ~10 min) — Claude auto-reviews it (via `claude.yml`). A second workflow (`review-feedback.yml`) auto-analyzes that review:
+Claude reviews a PR whenever E2E passes on it — on PR open and after every push — because `ci-gate.yml`'s `trigger-review` job auto-posts a `/review` on green CI (self-debounced ~10 min). `claude.yml` has **no** `pull_request` trigger: a `/review` comment is the only way in. A second workflow (`review-feedback.yml`) auto-analyzes that review:
 
 1. **Detection**: Triggers on `issue_comment` from `claude[bot]` containing `## Code Review`
 2. **Analysis**: Calls Claude Sonnet API to categorize feedback (Blocking / Functional / Quality / Nitpicks / Questions)
 3. **Output**: Posts structured triage comment with severity, effort, and MERGE / FIX REQUIRED / NEEDS DISCUSSION recommendation
 4. **Loop prevention**: Analysis comments include a `<!-- review-feedback-analysis -->` sentinel excluded from detection
 
-**On-demand review**: Comment `/review` on a PR to trigger a fresh code review. **You rarely need to** — `ci-gate.yml` auto-posts `/review` whenever E2E passes (on PR open *and* after each push), so a green CI already triggers the review. Only post `/review` manually when CI is green but no auto-review appeared (e.g. E2E was skipped, or a fork PR). A redundant manual `/review` double-runs the cloud reviewer *and* the `review-feedback` analysis — wasted cloud-agent runs.
+**On-demand review**: Comment `/review` on a PR to trigger a fresh code review. **You rarely need to** — `ci-gate.yml` auto-posts `/review` whenever E2E passes (on PR open *and* after each push), so a green CI already triggers the review. A redundant manual `/review` double-runs the cloud reviewer *and* the `review-feedback` analysis — wasted cloud-agent runs.
+
+**When no auto-review appears on green CI**, it was almost certainly the **author-trust gate**: `trigger-review` skips the review unless the *PR author* has repo `write`/`admin` (checked via `getCollaboratorPermissionLevel` — **not** `author_association`, which misreports private org members as `CONTRIBUTOR`). The gate lives in `ci-gate.yml` rather than `claude.yml` because the `/review` is posted as the PROJECT_TOKEN owner, who is always trusted — so `claude.yml`'s commenter check structurally cannot catch a fork author, and an outside contributor could otherwise spend Anthropic credits on demand.
+
+So a fork PR from an outside contributor goes green with **no review**, logging `Notice — auto-review skipped (untrusted author)` in the CI Gate run. To review it, post `/review` yourself: `claude.yml` checks the *commenter's* permission, so a maintainer comment passes, and the review reads the diff via `gh pr diff`, which works across forks. Same remedy when E2E was skipped entirely.
 
 **Manual trigger**: Run `workflow_dispatch` on `review-feedback.yml` with a PR number to re-analyze any PR.
 
@@ -169,11 +173,11 @@ When a PR is opened — and again every time E2E passes (`ci-gate.yml`'s `trigge
 ### CI/CD Workflows
 
 All workflows in `.github/workflows/`:
-- `claude.yml` - Auto-review on PR open + `@claude` mention handler
+- `claude.yml` - Code review + `@claude` mention handler; entered via `/review` comment only (no `pull_request` trigger)
 - `review-feedback.yml` - Analyzes claude[bot] review comments, posts structured triage
 - `e2e.yml` - Electron Playwright tests on every PR (or `/test` comment)
 - `web-e2e.yml` - Browser Playwright tests for `accelerated`-labeled or bot PRs
-- `ci-gate.yml` - On E2E `workflow_run` success, auto-posts `/review` (the green-CI review trigger); on failure, routes to auto-fix
+- `ci-gate.yml` - On E2E `workflow_run` success, auto-posts `/review` (the green-CI review trigger), gated on the PR author having repo write access; on failure, routes to auto-fix
 - `pipeline-triage.yml` - Scores review findings, routes to auto-fix or human review
 - `pipeline-fix.yml` - Claude agent auto-fixes simple review findings
 - `dispatch.yml` - Routes `/triage`, `/fix`, `/pipeline` slash commands to downstream workflows

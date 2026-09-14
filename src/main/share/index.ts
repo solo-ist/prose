@@ -188,6 +188,14 @@ export async function pullComments(
   if (!entry) return { ok: false, error: 'No local record of this share.' }
   try {
     const { comments, nextCursor } = await client.fetchComments(config, publicationId, null)
+    if (comments.length >= 500) {
+      // The gateway's take-500 was hit — rows beyond the cap are silently
+      // absent from this pull. Surface it so the condition is observable
+      // before pagination work exists (PR #901 review, finding 4).
+      console.warn(
+        `[share] pull for ${publicationId} returned exactly the 500-row cap — older comments may be truncated; pagination needed`
+      )
+    }
     return { ok: true, comments, nextCursor }
   } catch (err) {
     return asError(err)

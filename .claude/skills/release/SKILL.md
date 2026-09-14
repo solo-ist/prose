@@ -22,6 +22,7 @@ Manages the full release workflow for Prose across two distribution channels:
 | `/release` | Show current version, build number, and release status |
 | `/release mas` | Build and prepare MAS `.pkg` for Transporter upload |
 | `/release github` | Build DMG and create GitHub Release |
+| `/release copy` | Update the solo.ist/prose marketing copy after a release |
 | `/release bump-build` | Increment `buildVersion` and rebuild MAS `.pkg` |
 | `/release bump-version <version>` | Bump marketing version (e.g., `1.1.0`) |
 | `/release smoke` | Build the DMG and walk 7 critical paths (~5 min) — fast pre-release sanity check |
@@ -224,6 +225,106 @@ gh release create "v${VERSION}" \
   --notes-file RELEASE_NOTES.md \
   "dist/Prose-${VERSION}-arm64.dmg" \
   "dist/Prose-${VERSION}-arm64-mac.zip"
+```
+
+### 6. Update the marketing copy
+
+The release is not finished when the tag is published. Run **`/release copy`** (next section) to bring solo.ist/prose up to the version you just shipped — nothing in CI does this, and the page has drifted five releases behind before.
+
+---
+
+## Workflow: Post-release Marketing Copy (`/release copy`)
+
+Run this **after** a GitHub release publishes (and again when a MAS version clears review, if the App Store link or availability changed). The marketing site is a **separate repo** and nothing in CI touches it — if this step is skipped, solo.ist/prose silently falls behind. It sat pinned at v1.6.2 through five releases because this section didn't exist.
+
+### Where the copy lives
+
+| Repo | Path | What it is |
+|------|------|------------|
+| `solo-ist/solo-ist` (`~/Code/solo.ist`) | `prose/index.html` | The solo.ist/prose page — hand-authored HTML, no build step |
+| `solo-ist/solo-ist` | `COPY.md` | Canonical copy mirror for solo.ist and its project pages |
+| `solo-ist/prose` | `docs/app-store-copy.md` | App Store listing copy — canonical **here**, not in the site repo |
+
+Vercel deploys `solo-ist/solo-ist` on push to `main`. `prose/index.html` has no build step — it ships exactly as authored, so a typo is live the moment the PR merges.
+
+### 1. Pre-flight
+
+```bash
+git -C ~/Code/solo.ist fetch origin
+git -C ~/Code/solo.ist status --porcelain
+gh release list --repo solo-ist/prose --limit 10
+```
+
+Working tree must be clean. Branch off freshly-fetched `main`:
+
+```bash
+git -C ~/Code/solo.ist checkout -b prose-v<version>-copy origin/main
+```
+
+Use `git -C <path>` rather than `cd && git` — compound chains get flagged for manual approval and block unattended agents.
+
+### 2. Read every release since the last copy update
+
+Not just the newest one. Find where the copy actually left off:
+
+```bash
+git -C ~/Code/solo.ist log -1 --format=%cI -- prose/index.html    # last time the page moved
+gh release view <tag> --repo solo-ist/prose --json body -q .body  # for each tag since
+```
+
+Point releases are where the good material hides — a `.5` can carry far more user-facing change than the `.0` before it.
+
+### 3. Walk the version-sensitive surfaces
+
+Check **all** of these in `prose/index.html`. Each has gone stale at least once:
+
+| # | Surface | Check against |
+|---|---------|---------------|
+| 1 | Nav version chip (`.nav-ver`) | Latest published release tag |
+| 2 | "What's new" section label | The current release era |
+| 3 | "What's new" cells (`.news-tag` / `.news-title` / `.news-desc`) | Everything shipped since the last copy update |
+| 4 | "What's next" preview cell | `docs/roadmap.md` — reconcile, don't guess |
+| 5 | MCP tool list (`.mcp-tools`) | `mcpToolNames` in `src/shared/tools/registry.ts` |
+| 6 | Feature cards (`.feat-desc`) | A release may have widened a feature's scope |
+| 7 | Hero sub-paragraph | Its twin in `COPY.md` — update both or neither |
+| 8 | Download / App Store links | MAS link is live only once that version clears review |
+
+### 4. Write it as marketing, not as a changelog
+
+- Lead with what the reader can now **do**, not what was implemented.
+- One idea per cell. If a cell needs a semicolon, it's two cells.
+- Tag each cell with the version that actually **introduced** the feature (`v1.6.5 — Comments`), not the version being shipped — readers returning after a gap need to place it.
+- Fold dependency bumps and internal refactors out entirely. If a release *is* the security story, give it one plainly-stated cell.
+- Never invent a feature. Every claim traces back to a release note.
+
+### 5. Verify locally
+
+```bash
+python3 -m http.server 8899 --directory ~/Code/solo.ist
+```
+
+Open <http://localhost:8899/prose/>. Pick an unused port — other agents may hold the common ones. Confirm the nav chip, the "What's new" grid at both desktop and narrow widths, and that no cell overflows its box.
+
+### 6. Open the PR
+
+```bash
+git -C ~/Code/solo.ist add prose/index.html COPY.md
+git -C ~/Code/solo.ist commit -m "feat(prose): refresh marketing copy for v<version>"
+git -C ~/Code/solo.ist push -u origin prose-v<version>-copy
+gh pr create --repo solo-ist/solo-ist --title "Prose v<version> marketing copy" --body "<summary>"
+```
+
+⚠️ **Never auto-merge and never push straight to `main`.** Marketing voice is a human call — the PR stops for review even when every fact in it is right.
+
+### 7. Report
+
+```
+## Marketing Copy — v<version>
+
+- **PR:** <url>
+- **Updated:** <surfaces changed>
+- **Checked, no change needed:** <surfaces>
+- **Left stale, with reason:** <surfaces, or "none">
 ```
 
 ---

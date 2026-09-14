@@ -1757,7 +1757,13 @@ export function setupIpcHandlers(): void {
         return { ok: false, error: 'Sharing is not available in the Mac App Store version.' }
       }
       const share = await import('./share/index')
-      return share.republish(args)
+      // Coerce like every other share:* handler — publicationId lands in a
+      // fetch URL (PR #901 round 10).
+      return share.republish({
+        publicationId: String(args?.publicationId ?? ''),
+        title: String(args?.title ?? ''),
+        html: String(args?.html ?? ''),
+      })
     }
   )
 

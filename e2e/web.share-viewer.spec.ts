@@ -1074,7 +1074,7 @@ test.describe('live conversation loop (online viewer)', () => {
     await expect(page.locator('article')).toContainText('quick brown fox')
   })
 
-  test('a served-page download without additions produces a clean copy carrying the share URL', async ({ page }) => {
+  test('a served-page LIVE download carries the share URL (labeled, publish-capable)', async ({ page }) => {
     await page.goto(`${origin}/s/testtoken`)
     // Let the initial poll land so the baked comment set is deterministic.
     await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
@@ -1100,6 +1100,38 @@ test.describe('live conversation loop (online viewer)', () => {
     expect(copyHtml).not.toMatch(/<html[^>]*class="[^"]*dark/)
   })
 
+  test('the CLEAN download strips the capability; both flavors offered and labeled', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
+    // Both flavors present, honestly labeled (#901 hitl review: forwarding
+    // the live file forwards access to the share).
+    await expect(page.locator('#prose-download-copy')).toHaveText('Download live copy')
+    const cleanBtn = page.locator('#prose-download-clean')
+    await expect(cleanBtn).toHaveText('Download copy')
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      cleanBtn.click(),
+    ])
+    const savedPath = join(tmpDir, 'forwardable-copy.html')
+    await download.saveAs(savedPath)
+    const copyHtml = readFileSync(savedPath, 'utf-8')
+    // The capability is GONE: no share block, no token anywhere in the file.
+    expect(extractShareConfigFromHtml(copyHtml)).toBeNull()
+    expect(copyHtml).not.toContain('testtoken')
+    // Comments still travel — it stays a valid, reopenable artifact — and
+    // the injected clean link itself is runtime DOM, stripped from copies.
+    expect(extractCommentsFromHtml(copyHtml)!.comments).toHaveLength(2)
+    expect(copyHtml).not.toContain('id="prose-download-clean"')
+
+    // Reopened from file:// the clean copy is fully offline: no publish
+    // affordance and no clean/live split (there is no capability to strip).
+    await page.goto(pathToFileURL(savedPath).href)
+    await expect(page.locator('.prose-rail-head')).toContainText('Comments · 2')
+    await expect(page.locator('#prose-publish-comments')).toHaveCount(0)
+    await expect(page.locator('#prose-download-clean')).toHaveCount(0)
+  })
+
   test('a downloaded copy publishes its comments back through the baked share URL', async ({ page }) => {
     await page.goto(`${origin}/s/testtoken`)
     await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
@@ -1123,6 +1155,9 @@ test.describe('live conversation loop (online viewer)', () => {
     await expect(page.locator('#prose-comment-rail .prose-rail-note')).toContainText('Publish to send')
     await expect(page.locator('#prose-publish-comments')).toBeHidden()
     await expect(page.getByText('Landed while offline.')).toBeVisible()
+    // A live file:// copy holds the capability too — the clean-snapshot
+    // link is offered so it can be forwarded without handing out the share.
+    await expect(page.locator('#prose-download-clean')).toHaveText('Download copy')
 
     // A local addition is a draft: no auto-post, state + button appear.
     // (Email capture is gated off until notifications send — one input.)

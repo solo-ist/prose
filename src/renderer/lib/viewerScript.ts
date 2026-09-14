@@ -18,10 +18,13 @@
  *   the page and "Download annotated copy" serializes the ORIGINAL artifact +
  *   additions into a new self-contained file. Prose re-imports that file's
  *   comments as real threads (lib/artifactImport.ts) — the sneakernet loop.
- *   A copy downloaded from the served page also carries its share URL: drafts
- *   publish back in one exchange, and the copy joins the live loop (pull on
- *   open + poll), so a reload re-shows what it published and author replies
- *   reach the local reader. Copies without the URL stay fully offline.
+ *   Capability-holding pages offer TWO downloads (#901 hitl review): the
+ *   LIVE copy carries the share URL — drafts publish back in one exchange,
+ *   the copy joins the live loop (pull on open + poll), and forwarding the
+ *   file forwards that access, so it is labeled accordingly; the CLEAN copy
+ *   strips the capability (comments included, cannot post back) for
+ *   snapshots meant to be passed on. Copies without the URL stay fully
+ *   offline.
  *
  * Security invariants (do not regress):
  * - Comment/author content is rendered ONLY via `textContent` /
@@ -261,6 +264,13 @@ export const ARTIFACT_BASE_STYLES = `
   #prose-download-copy.prose-has-additions {
     color: hsl(var(--comment));
     border-bottom-color: hsl(var(--comment));
+  }
+  #prose-download-clean {
+    color: hsl(var(--foreground));
+    text-decoration: none;
+    border-bottom: 1px solid hsl(var(--border));
+    cursor: pointer;
+    margin-right: 14px;
   }
   @media (max-width: 640px) {
     article { font-size: 17px; line-height: 1.6; }
@@ -2125,10 +2135,12 @@ export const VIEWER_SCRIPT = `(function () {
         ? 'Save updated copy (' + unsavedAdditions + ' new)'
         : 'Download annotated copy'
     } else {
+      // Served page: the primary download is the LIVE copy (capability
+      // baked in) — say so; the clean-snapshot link sits beside it.
       downloadBtn.style.display = ''
       downloadBtn.textContent = unsavedAdditions > 0
-        ? 'Download annotated copy (' + unsavedAdditions + ' new)'
-        : 'Download annotated copy'
+        ? 'Download live copy (' + unsavedAdditions + ' new)'
+        : 'Download live copy'
     }
     downloadBtn.classList.toggle('prose-has-additions', unsavedAdditions > 0)
     renderLocalSync()
@@ -2395,7 +2407,7 @@ export const VIEWER_SCRIPT = `(function () {
     return title + (unsavedAdditions > 0 ? '-annotated' : '-copy') + '.html'
   }
 
-  function buildAnnotatedCopy() {
+  function buildAnnotatedCopy(includeCapability) {
     var clone = document.documentElement.cloneNode(true)
     // The theme class is this viewer's preference, not the document's — the
     // reopened copy re-derives it from its reader's storage/OS scheme.
@@ -2412,6 +2424,7 @@ export const VIEWER_SCRIPT = `(function () {
       '#prose-sheet',
       '#prose-narrow-form-wrap',
       '#prose-live-toast',
+      '#prose-download-clean',
       '.prose-mark-index'
     ]
     for (var i = 0; i < strip.length; i++) {
@@ -2431,11 +2444,18 @@ export const VIEWER_SCRIPT = `(function () {
       dl.textContent = 'Download annotated copy'
       dl.classList.remove('prose-has-additions')
     }
-    // A copy downloaded from the SERVED page carries the full capability URL
-    // so it can publish comments back from file:// — the person downloading
-    // already holds that URL. The served artifact itself never embeds the
-    // token; offline re-downloads keep whatever the file already carried.
-    if (online) {
+    // Two download flavors (#901 hitl review): the LIVE copy carries the full
+    // capability URL so it can publish comments back from file:// — the
+    // person downloading already holds that URL, but forwarding the FILE
+    // forwards that access too. The CLEAN copy strips the capability
+    // entirely (comments included, cannot post back) so a snapshot can be
+    // passed on without handing out the share. The served artifact itself
+    // never embeds the token; a live file:// re-download keeps whatever the
+    // file already carried.
+    if (!includeCapability) {
+      var capBlock = clone.querySelector('script[type="application/x-prose-share"]')
+      if (capBlock) capBlock.remove()
+    } else if (online) {
       var shareBlock = clone.querySelector('script[type="application/x-prose-share"]')
       if (shareBlock) {
         shareBlock.textContent = JSON.stringify({
@@ -2462,9 +2482,8 @@ export const VIEWER_SCRIPT = `(function () {
     return '<!DOCTYPE html>\\n' + clone.outerHTML
   }
 
-  downloadBtn.addEventListener('click', function (ev) {
-    ev.preventDefault()
-    var blob = new Blob([buildAnnotatedCopy()], { type: 'text/html' })
+  function triggerCopyDownload(html) {
+    var blob = new Blob([html], { type: 'text/html' })
     var url = URL.createObjectURL(blob)
     var a = document.createElement('a')
     a.href = url
@@ -2473,9 +2492,32 @@ export const VIEWER_SCRIPT = `(function () {
     a.click()
     a.remove()
     window.setTimeout(function () { URL.revokeObjectURL(url) }, 5000)
+    // Either flavor physically preserves the page's additions on disk.
     unsavedAdditions = 0
     renderRail()
+  }
+
+  downloadBtn.addEventListener('click', function (ev) {
+    ev.preventDefault()
+    triggerCopyDownload(buildAnnotatedCopy(true))
   })
+
+  // Capability-holding pages offer BOTH flavors: the primary button keeps
+  // the live copy (labeled — it posts back), and this sibling link saves a
+  // clean snapshot that can be forwarded without handing out the share.
+  if (online || canPublish) {
+    var cleanBtn = document.createElement('a')
+    cleanBtn.id = 'prose-download-clean'
+    cleanBtn.href = '#'
+    cleanBtn.textContent = 'Download copy'
+    cleanBtn.title = 'Clean snapshot — comments included, cannot post back to this share.'
+    downloadBtn.title = 'Carries the share link and posts comments back — forward this file only like you would the link.'
+    if (downloadBtn.parentNode) downloadBtn.parentNode.insertBefore(cleanBtn, downloadBtn)
+    cleanBtn.addEventListener('click', function (ev) {
+      ev.preventDefault()
+      triggerCopyDownload(buildAnnotatedCopy(false))
+    })
+  }
 
   // Losing the tab loses un-downloaded offline comments — warn, but only
   // when localStorage ISN'T already protecting them (blocked storage).

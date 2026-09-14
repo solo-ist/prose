@@ -1266,6 +1266,22 @@ export const VIEWER_SCRIPT = `(function () {
     return typeof t === 'string' ? t : null
   }
 
+  // Revocation hygiene (#912): the rows are hard-deleted server-side, so
+  // this share's edit tokens are dead capabilities — drop them rather than
+  // letting them sit in localStorage indefinitely. (Drafts are deliberately
+  // KEPT: they are the reader's own unpublished words, stored only in their
+  // browser.)
+  function forgetEditTokensFor(ids) {
+    try {
+      var map = storedEditTokens()
+      var dropped = false
+      for (var i = 0; i < ids.length; i++) {
+        if (map[ids[i]] !== undefined) { delete map[ids[i]]; dropped = true }
+      }
+      if (dropped) window.localStorage.setItem('prose-edit-tokens', JSON.stringify(map))
+    } catch (e) { /* blocked storage */ }
+  }
+
   // Threads/replies this reader created in THIS page session — tagged " · you".
   var mineIds = {}
 
@@ -1581,6 +1597,13 @@ export const VIEWER_SCRIPT = `(function () {
   // server text back over an optimistic local edit mid-request.
   var inFlightEdits = {}
 
+  // Rows this reader deleted (#910): a poll response captured before the
+  // DELETE processed still carries the row live — without this ledger the
+  // merge re-adds the reader's own deletion (with a "new comment" toast) and
+  // a failed DELETE could leave duplicate objects. Cleared on DELETE failure
+  // (the row comes back) or when the server tombstone is observed.
+  var locallyDeleted = {}
+
   // --- Draft persistence ------------------------------------------------------
   // Unpublished local rows (drafts + not-sent fallbacks) survive a reload via
   // localStorage, keyed by the share token when the page carries one (stable
@@ -1771,7 +1794,13 @@ export const VIEWER_SCRIPT = `(function () {
         return
       }
       renderRail()
-      patchRowRequest(rowId, { authorName: next }).catch(function () {
+      // Same in-flight guard as text edits (#910): a poll landing mid-PATCH
+      // must not adopt the stale server name back over the rename.
+      inFlightEdits[rowId] = true
+      patchRowRequest(rowId, { authorName: next }).then(function () {
+        delete inFlightEdits[rowId]
+      }).catch(function () {
+        delete inFlightEdits[rowId]
         rowObj.authorName = prev
         renderRail()
       })
@@ -1815,9 +1844,17 @@ export const VIEWER_SCRIPT = `(function () {
       renderRail()
       return
     }
+    locallyDeleted[r.id] = true
     renderRail()
     deleteRowRequest(r.id).catch(function () {
-      parentThread.replies.splice(idx, 0, r)
+      delete locallyDeleted[r.id]
+      // Idempotent re-insert — a merge must never leave two objects with
+      // one id (#910).
+      var back = false
+      for (var bi = 0; bi < (parentThread.replies || []).length; bi++) {
+        if (parentThread.replies[bi].id === r.id) { back = true; break }
+      }
+      if (!back) parentThread.replies.splice(idx, 0, r)
       renderRail()
     })
   }
@@ -1838,9 +1875,15 @@ export const VIEWER_SCRIPT = `(function () {
       renderRail()
       return
     }
+    locallyDeleted[c.id] = true
     renderRail()
     deleteRowRequest(c.id).catch(function () {
-      comments.splice(idx, 0, c)
+      delete locallyDeleted[c.id]
+      var back = false
+      for (var bi = 0; bi < comments.length; bi++) {
+        if (comments[bi].id === c.id) { back = true; break }
+      }
+      if (!back) comments.splice(idx, 0, c)
       anchorAllThreads()
       renderRail()
     })
@@ -2659,8 +2702,12 @@ export const VIEWER_SCRIPT = `(function () {
       var existing = byId[row.id]
       var resolved = !!row.resolvedAt
       if (!existing) {
-        // A tombstone for a thread this page never had is a non-event.
-        if (row.deleted) continue
+        // A tombstone for a thread this page never had is a non-event; a
+        // locally-deleted row whose tombstone the server has now confirmed
+        // clears its ledger entry.
+        if (row.deleted) { delete locallyDeleted[row.id]; continue }
+        // Never re-add the reader's own in-flight deletion (#910).
+        if (locallyDeleted[row.id]) continue
         var thread = {
           id: row.id,
           markedText: row.markedText,
@@ -2678,11 +2725,27 @@ export const VIEWER_SCRIPT = `(function () {
         newThreads++
         if (!toastTarget) toastTarget = row.id
       } else if (row.deleted) {
-        // The owner deleted it: the row is authoritative — remove the
-        // thread and its highlight. No toast (a retraction is not news).
-        var gone = comments.indexOf(existing)
-        if (gone !== -1) comments.splice(gone, 1)
+        // The owner deleted it: the row is authoritative — remove EVERY
+        // entry with this id (a failed-delete reinsert could have left a
+        // duplicate object; indexOf would strand the ghost — #910) and its
+        // highlight. No toast (a retraction is not news).
+        for (var gi = comments.length - 1; gi >= 0; gi--) {
+          if (comments[gi].id === row.id) comments.splice(gi, 1)
+        }
+        // The reader's own DRAFT replies nested under it leave with it —
+        // release their unsaved/local counters and stored records, or the
+        // "unsaved changes" count sticks with nothing to save (#912).
+        var exReplies = existing.replies || []
+        for (var xr = 0; xr < exReplies.length; xr++) {
+          if (ownershipOf(exReplies[xr].id) === 'draft') {
+            if (localAdditions > 0) localAdditions--
+            if (unsavedAdditions > 0) unsavedAdditions--
+            delete notSentIds[exReplies[xr].id]
+          }
+        }
+        persistDrafts()
         delete byId[row.id]
+        delete locallyDeleted[row.id]
         unwrapMarks(existing.id)
         if (activeId === existing.id) activeId = null
         changed = true
@@ -2723,13 +2786,19 @@ export const VIEWER_SCRIPT = `(function () {
         if (parent.replies[si].id === reply.id) { match = parent.replies[si]; break }
       }
       if (!match) {
-        if (reply.deleted) continue
+        if (reply.deleted) { delete locallyDeleted[reply.id]; continue }
+        // Never re-add the reader's own in-flight deletion (#910).
+        if (locallyDeleted[reply.id]) continue
         parent.replies.push(rowToReply(reply))
         changed = true
         newReplies++
         if (!toastTarget) toastTarget = reply.parentId
       } else if (reply.deleted) {
-        parent.replies.splice(parent.replies.indexOf(match), 1)
+        // Remove every entry with this id, not just the first (#910).
+        for (var rgi = parent.replies.length - 1; rgi >= 0; rgi--) {
+          if (parent.replies[rgi].id === reply.id) parent.replies.splice(rgi, 1)
+        }
+        delete locallyDeleted[reply.id]
         changed = true
       } else if (reply.fromAuthor !== true && !inFlightEdits[match.id]) {
         if (reply.commentText && match.text !== reply.commentText) {
@@ -2819,6 +2888,15 @@ export const VIEWER_SCRIPT = `(function () {
           // Close NEW entry points only — an open compose form keeps its
           // draft (its submit surfaces the revoked error without clearing).
           addBtn.remove()
+          // The share's rows are gone server-side — burn this page's stored
+          // edit tokens (#912).
+          var deadIds = []
+          for (var di = 0; di < comments.length; di++) {
+            deadIds.push(comments[di].id)
+            var drs = comments[di].replies || []
+            for (var dj = 0; dj < drs.length; dj++) deadIds.push(drs[dj].id)
+          }
+          forgetEditTokensFor(deadIds)
         } else {
           // A local copy stays annotatable — only the publish path closes.
           canPublish = false

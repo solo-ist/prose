@@ -148,7 +148,12 @@ function toThreads(pulled: SharePulledComment[], knownThreadIds: Set<string>): C
     from: 0,
     to: 0,
     replies: replies.filter((r) => r.parentId === c.id).map(toReply),
-    resolved: false,
+    // Adopt the server's resolve state at CREATION (fresh install / second
+    // machine — #909): resolution is author-only, so a pulled thread's
+    // resolvedAt came from this author's own desktop somewhere. Ongoing
+    // resolve changes are still local-truth (the merge never re-takes this
+    // field), avoiding flap when a resolve push is queued.
+    resolved: !!c.resolvedAt,
     publishRev: c.publishRev,
     shareId: c.id,
     // Not yet anchored — restoreComments clears this once it finds the text.
@@ -196,9 +201,26 @@ export async function syncShareComments(entry: ShareEntry, documentId: string): 
     return { ok: false, error: 'Document changed while syncing — open it and retry.' }
   }
 
+  // Author-deletion memory (#905 follow-up): pulls are cursor-less, so a
+  // thread or reply the author deleted locally would come back as "new" on
+  // every poll — forever. The per-publication seenRowIds ledger marks rows
+  // this desktop has merged before; a seen row that is no longer anywhere in
+  // the local store was deliberately removed here, so drop it instead of
+  // resurrecting it. Rows still present locally always pass, keeping
+  // revision adoption (edits/tombstones) fed.
+  const seenRows = new Set(entry.seenRowIds ?? [])
+  const localIds = new Set(
+    store.pendingComments.flatMap((c) => [
+      c.id,
+      ...(c.shareId ? [c.shareId] : []),
+      ...(c.replies ?? []).flatMap((r) => [r.id, ...(r.shareId ? [r.shareId] : [])]),
+    ])
+  )
+  const rows = res.comments.filter((r) => !seenRows.has(r.id) || localIds.has(r.id))
+
   // Reviewer revisions land first: deletions remove the local copy, edits
   // update it (viewer-sourced rows only — author rows stay local-truth).
-  const { revised: existing, changes } = applyRevisions(store.pendingComments, res.comments)
+  const { revised: existing, changes } = applyRevisions(store.pendingComments, rows)
   // Reply counts before the merge — whichever thread is new or grew is the
   // one the toast click should land on.
   const beforeCounts = new Map(existing.map((c) => [c.id, (c.replies ?? []).length]))
@@ -206,7 +228,7 @@ export async function syncShareComments(entry: ShareEntry, documentId: string): 
   // known under its server row id too, so replies to it that arrive after the
   // cursor passed the thread row still get their graft shell.
   const incoming = toThreads(
-    res.comments,
+    rows,
     new Set(existing.flatMap((c) => (c.shareId ? [c.id, c.shareId] : [c.id])))
   )
   const { merged, added } = mergeCommentThreads(existing, incoming)
@@ -240,8 +262,12 @@ export async function syncShareComments(entry: ShareEntry, documentId: string): 
   }
 
   if (res.nextCursor) {
-    // Merge persisted — safe to advance the pull cursor.
-    void getApi().shareAckCursor(entry.publicationId, res.nextCursor)
+    // Merge persisted — record the (informational) cursor AND every pulled
+    // row id into the seen ledger. Ordering is the safety property: ids
+    // land only after the merge persisted, so a crashed merge re-pulls its
+    // rows instead of marking them seen-and-gone. Ids filtered out above
+    // are already in the ledger, so passing the full pull is idempotent.
+    void getApi().shareAckCursor(entry.publicationId, res.nextCursor, res.comments.map((r) => r.id))
   }
   return { ok: true, added }
 }

@@ -17,11 +17,38 @@ import {
   getShareEntry,
   listShareEntries,
   patchShareEntry,
+  recordShareAck,
   upsertShareEntry,
   updateShareLocalPath,
 } from './metadata'
 
 export const DEFAULT_GATEWAY_URL = 'https://prose-gateway.onrender.com'
+
+// Every request to the gateway carries the safeStorage session cookie, and
+// settings.json is renderer-writable — an arbitrary gatewayUrl would let a
+// compromised renderer point the session (and published document HTML) at
+// any host (#907). Allowlist what the dogfood flow actually uses: any
+// https:// origin under our domains, plus loopback for local gateway dev.
+// There is deliberately no settings UI for this field; hand-edits outside
+// the allowlist fall back to the default.
+function isAllowedGatewayUrl(url: string): boolean {
+  try {
+    const u = new URL(url)
+    if (u.username || u.password) return false
+    const loopback = u.hostname === 'localhost' || u.hostname === '127.0.0.1'
+    if (u.protocol === 'http:') return loopback
+    if (u.protocol !== 'https:') return false
+    return (
+      loopback ||
+      u.hostname === 'prose-gateway.onrender.com' ||
+      u.hostname === 'prose.solo.ist' ||
+      u.hostname.endsWith('.prose.solo.ist') ||
+      u.hostname.endsWith('.solo.ist')
+    )
+  } catch {
+    return false
+  }
+}
 
 /** Gateway origin from settings (webPlatform.gatewayUrl), else the default. */
 export async function getShareConfig(): Promise<client.ShareClientConfig> {
@@ -30,7 +57,8 @@ export async function getShareConfig(): Promise<client.ShareClientConfig> {
     const settings = JSON.parse(raw) as { webPlatform?: { gatewayUrl?: string } }
     const url = settings.webPlatform?.gatewayUrl
     if (typeof url === 'string' && /^https?:\/\//.test(url)) {
-      return { baseUrl: url }
+      if (isAllowedGatewayUrl(url)) return { baseUrl: url }
+      console.warn(`[share] gatewayUrl ${url} is outside the allowlist — using the default gateway`)
     }
   } catch {
     // Missing/malformed settings → default
@@ -156,6 +184,47 @@ export async function getForPath(localPath: string): Promise<ShareResult<{ entri
   return { ok: true, entries: await getShareEntriesByPath(localPath) }
 }
 
+/**
+ * Fetch the COMPLETE comment set by walking the gateway's 500-row pages
+ * (since = last page's createdAt cursor; gte + id-dedupe handles the
+ * boundary). createdAt is immutable and deletes are tombstones, so a
+ * createdAt walk enumerates every row exactly once — a single capped page
+ * is NOT the complete set, and treating it as one made the backfill judge
+ * rows past the cap "stale", duplicating live rows and resurrecting
+ * tombstones (#906).
+ */
+async function fetchCompleteComments(
+  config: client.ShareClientConfig,
+  publicationId: string
+): Promise<{ comments: client.PulledShareComment[]; nextCursor: string | null }> {
+  const seen = new Set<string>()
+  const all: client.PulledShareComment[] = []
+  let since: string | null = null
+  let cursor: string | null = null
+  // Hard stop at 40 pages (20k rows) — far past any Phase-0 conversation.
+  for (let page = 0; page < 40; page++) {
+    const { comments, nextCursor } = await client.fetchComments(config, publicationId, since)
+    let added = 0
+    for (const c of comments) {
+      if (!seen.has(c.id)) {
+        seen.add(c.id)
+        all.push(c)
+        added++
+      }
+    }
+    cursor = nextCursor ?? cursor
+    if (comments.length < 500 || !nextCursor) break
+    if (nextCursor === since && added === 0) {
+      // >500 rows in one millisecond — the documented KNOWN LIMIT on the
+      // route. Surface it; a compound cursor is the eventual fix.
+      console.warn(`[share] pull for ${publicationId} stalled at a same-millisecond page boundary — set may be truncated`)
+      break
+    }
+    since = nextCursor
+  }
+  return { comments: all, nextCursor: cursor }
+}
+
 /** Read-only comment view for the ShareDialog list. Does NOT advance the sync cursor. */
 export async function fetchAllComments(
   publicationId: string
@@ -164,7 +233,7 @@ export async function fetchAllComments(
   const entry = await getShareEntry(publicationId)
   if (!entry) return { ok: false, error: 'No local record of this share.' }
   try {
-    const { comments } = await client.fetchComments(config, publicationId, null)
+    const { comments } = await fetchCompleteComments(config, publicationId)
     return { ok: true, comments }
   } catch (err) {
     return asError(err)
@@ -172,13 +241,13 @@ export async function fetchAllComments(
 }
 
 /**
- * Sync pull (#769): the full comment set, deliberately cursor-less — same
- * rationale as the viewer poll. The gateway's `since` filters on createdAt,
- * and edits/tombstones don't bump createdAt, so a cursor would permanently
- * hide revisions of rows older than it (PR #901 review). The renderer merge
- * dedupes by id and applyRevisions adopts edits/deletions, so re-pulling the
- * whole set is safe; the gateway's take-500 caps a pull at 500 rows per
- * publication (documented KNOWN LIMIT on the route).
+ * Sync pull (#769): the COMPLETE comment set, deliberately cursor-less —
+ * same rationale as the viewer poll. The gateway's `since` filters on
+ * createdAt, and edits/tombstones don't bump createdAt, so a sync cursor
+ * would permanently hide revisions of rows older than it (#905). The
+ * renderer merge dedupes by id, applyRevisions adopts edits/deletions, and
+ * the seenRowIds ledger (recorded via the ack) keeps author-deleted rows
+ * from resurrecting out of the full set.
  */
 export async function pullComments(
   publicationId: string
@@ -187,15 +256,7 @@ export async function pullComments(
   const entry = await getShareEntry(publicationId)
   if (!entry) return { ok: false, error: 'No local record of this share.' }
   try {
-    const { comments, nextCursor } = await client.fetchComments(config, publicationId, null)
-    if (comments.length >= 500) {
-      // The gateway's take-500 was hit — rows beyond the cap are silently
-      // absent from this pull. Surface it so the condition is observable
-      // before pagination work exists (PR #901 review, finding 4).
-      console.warn(
-        `[share] pull for ${publicationId} returned exactly the 500-row cap — older comments may be truncated; pagination needed`
-      )
-    }
+    const { comments, nextCursor } = await fetchCompleteComments(config, publicationId)
     return { ok: true, comments, nextCursor }
   } catch (err) {
     return asError(err)
@@ -203,17 +264,17 @@ export async function pullComments(
 }
 
 /**
- * Second phase of the sync pull: the renderer persisted the merge. Records
- * lastPulledAt (and the cursor, now informational — pulls are cursor-less).
+ * Second phase of the sync pull: the renderer persisted the merge — record
+ * lastPulledAt, the (informational) cursor, and the pulled row ids into the
+ * seenRowIds ledger. The ordering is the safety property: ids land here
+ * only AFTER the merge persisted, so a crashed merge re-pulls its rows.
  */
 export async function ackCommentCursor(
   publicationId: string,
-  cursor: string
+  cursor: string,
+  seenRowIds: string[] = []
 ): Promise<ShareResult<object>> {
-  const entry = await patchShareEntry(publicationId, {
-    lastCommentCursor: cursor,
-    lastPulledAt: new Date().toISOString(),
-  })
+  const entry = await recordShareAck(publicationId, cursor, seenRowIds)
   if (!entry) return { ok: false, error: 'No local record of this share.' }
   return { ok: true }
 }

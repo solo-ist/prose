@@ -46,8 +46,9 @@ const gw = spawn('npx', ['tsx', 'src/index.ts'], {
     BETTER_AUTH_URL: BASE,
     UPSTREAM_URL: 'http://localhost:4001',
     // One IP makes every request in this suite; fit its legitimate writes
-    // while leaving < 12 budget for the final burst test to trip the 429.
-    SHARE_PUBLIC_WRITE_MAX: '25',
+    // under the cap. The final burst test loops a full cap's worth of
+    // requests, so it trips the 429 regardless of prior spend.
+    SHARE_PUBLIC_WRITE_MAX: '30',
     // Origin isolation (#902) under test: localhost is the API host,
     // 127.0.0.1 the share host — same server, genuinely different origins.
     // Every share/comment call below rides pub.shareUrl and so exercises
@@ -181,6 +182,15 @@ async function main() {
   })
   expect(badEmail.status === 400, 'malformed email rejected', `status ${badEmail.status}`)
 
+  // A pre-cursor row reserved for the Gap-1 tombstone contract below: it
+  // must exist BEFORE the author pull captures its cursor.
+  const cGap = await fetch(commentUrl, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ markedText: 'v1', occurrenceIndex: 0, commentText: 'delete me later', authorName: 'Gap Reviewer' }),
+  })
+  expect(cGap.status === 201, 'gap-contract comment accepted', `status ${cGap.status}`)
+  const cGapBody = await cGap.json()
+
   const r1 = await fetch(`${commentUrl}/${c1Body.id}/replies`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ commentText: 'agreed', authorName: 'Second Reviewer' }),
@@ -292,9 +302,9 @@ async function main() {
   expect(pullRes.status === 200, 'author comment pull works', `status ${pullRes.status}`)
   expect(pullRes.headers.get('cache-control') === 'no-store', 'author pull is no-store (revocation must stick)')
   const pull = await pullRes.json()
-  // c1 + r1 + the two deletion-test tombstones — pulls INCLUDE tombstones so
-  // the desktop learns of deletions.
-  expect(pull.comments.length === 4, 'pull returns comment + reply + tombstones', `${pull.comments.length}`)
+  // c1 + cGap + r1 + the two deletion-test tombstones — pulls INCLUDE
+  // tombstones so the desktop learns of deletions.
+  expect(pull.comments.length === 5, 'pull returns comment + reply + tombstones', `${pull.comments.length}`)
   expect(pull.comments.filter((c) => c.deleted === true).length === 2, 'pull tombstones carry deleted: true')
   expect(
     pull.comments.every((c) => !('authorEmail' in c)),
@@ -346,6 +356,33 @@ async function main() {
     'cursor-less pull carries the pre-cursor edit (the desktop sync contract)'
   )
 
+  // The tombstone half of the same contract — deletion is the half that
+  // resurrects content when missed: delete a PRE-CURSOR row, then prove the
+  // cursor pull can't see the retraction while the cursor-less pull can.
+  const gapDelete = await fetch(`${commentUrl}/${cGapBody.id}`, {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ editToken: cGapBody.editToken }),
+  })
+  expect(gapDelete.status === 200, 'pre-cursor row deletion accepted', `status ${gapDelete.status}`)
+  if (new Date(cGapBody.createdAt).getTime() < new Date(pull.nextCursor).getTime()) {
+    const sinceAfterDelete = (await (await fetch(
+      `${BASE}/api/share/${pub.publicationId}/comments?since=${encodeURIComponent(pull.nextCursor)}`,
+      { headers: authed }
+    )).json()).comments
+    expect(
+      !sinceAfterDelete.some((cm) => cm.id === cGapBody.id),
+      'since-cursor pull misses the pre-cursor tombstone (deletions never sync through a cursor)'
+    )
+  }
+  const fullAfterDelete = (await (await fetch(
+    `${BASE}/api/share/${pub.publicationId}/comments`, { headers: authed }
+  )).json()).comments
+  const gapTombstone = fullAfterDelete.find((cm) => cm.id === cGapBody.id)
+  expect(
+    gapTombstone?.deleted === true && gapTombstone?.commentText === '',
+    'cursor-less pull carries the pre-cursor tombstone, scrubbed'
+  )
+
   const listRes = await fetch(`${BASE}/api/share`, { headers: authed })
   const list = await listRes.json()
   expect(
@@ -387,9 +424,10 @@ async function main() {
   expect(liveRes.status === 200, 'public comment GET works', `status ${liveRes.status}`)
   expect(liveRes.headers.get('cache-control') === 'no-store', 'public comment GET is no-store (CORS * + caches must not outlive revocation)')
   const live = await liveRes.json()
-  // c1 + r1 + author reply + the two tombstones (viewers must learn of
-  // deletions through the poll).
-  expect(live.comments.length === 5, 'live GET returns rows incl. tombstones', `${live.comments.length}`)
+  // c1 + r1 + author reply + the two deletion-test tombstones + the
+  // gap-contract tombstone (viewers must learn of deletions through the
+  // poll).
+  expect(live.comments.length === 6, 'live GET returns rows incl. tombstones', `${live.comments.length}`)
   expect(live.comments.every((cm) => !('authorEmail' in cm)), 'authorEmail NEVER exposed in the live GET')
   const liveAuthorReply = live.comments.find((cm) => cm.id === aReplyBody.id)
   expect(
@@ -536,7 +574,7 @@ async function main() {
   })
   const pub2 = await pub2Res.json()
   let got429 = null
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 30; i++) {
     const res = await fetch(`${pub2.shareUrl}/comments`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ markedText: 'rl', commentText: `burst ${i}`, authorName: 'Flood' }),

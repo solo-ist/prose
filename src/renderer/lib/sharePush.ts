@@ -43,6 +43,9 @@ const inFlight = new Set<string>()
 // could still emit the thread under its desktop id and every viewer reply
 // to it would 404. (Addendum review — confirmed by trace.)
 const inFlightThreads = new Map<string, Promise<void>>()
+// Resolve pushes that arrived while one was in flight — re-fired on settle
+// so the server converges on the final toggle state (#909).
+const resolveRerun = new Set<string>()
 let pendingOps: PendingOp[] = []
 
 // After a gateway 'rate_limited', hold ALL pushes for the window instead of
@@ -304,20 +307,31 @@ export function pushResolveToShare(threadId: string): void {
   }
 
   const key = `resolve:${threadId}`
-  if (inFlight.has(key)) return
+  // Resolve is a TOGGLE, so a concurrent call can't just no-op past an
+  // in-flight push: a double-click lands inside the HTTP window, the
+  // early-return drops the newer state, and — resolution being author-only —
+  // nothing ever pulls the server back into line (#909). Coalesce instead:
+  // note the re-request and re-fire once the in-flight push settles; the
+  // send-time re-read then pushes whatever the store says NOW.
+  if (inFlight.has(key)) {
+    resolveRerun.add(key)
+    return
+  }
   inFlight.add(key)
 
   void (async () => {
+    let sentState: boolean | null = null
     try {
       const entry = await activeEntry()
       if (!entry) return
       // Re-read at send time — the source of truth is the local store.
       const current = useCommentStore.getState().pendingComments.find((c) => c.id === threadId)
       if (!current?.shareId) return
+      sentState = current.resolved === true
       const res = await getApi().shareResolveComment(
         entry.publicationId,
         current.shareId,
-        current.resolved === true
+        sentState
       )
       if (!res.ok) {
         noteRateLimit(res.code)
@@ -330,6 +344,14 @@ export function pushResolveToShare(threadId: string): void {
       queueOnce({ kind: 'resolve', threadId })
     } finally {
       inFlight.delete(key)
+      // A toggle arrived mid-flight, or the state changed after we read it —
+      // converge on the final local state instead of leaving the server on
+      // the stale value.
+      const latest = useCommentStore.getState().pendingComments.find((c) => c.id === threadId)
+      const changedUnderUs = sentState !== null && latest !== undefined && (latest.resolved === true) !== sentState
+      if (resolveRerun.delete(key) || changedUnderUs) {
+        pushResolveToShare(threadId)
+      }
     }
   })()
 }

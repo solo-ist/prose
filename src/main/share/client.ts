@@ -155,7 +155,7 @@ export async function republishArtifact(
   title: string,
   html: string
 ): Promise<{ publishRev: string; revCount: number }> {
-  const res = await fetch(`${base(config)}/api/share/${publicationId}/publish`, {
+  const res = await fetch(`${base(config)}/api/share/${encodeURIComponent(publicationId)}/publish`, {
     method: 'PUT',
     headers: await authedHeaders(),
     body: JSON.stringify({ title, html }),
@@ -168,7 +168,7 @@ export async function revokePublication(
   config: ShareClientConfig,
   publicationId: string
 ): Promise<void> {
-  const res = await fetch(`${base(config)}/api/share/${publicationId}`, {
+  const res = await fetch(`${base(config)}/api/share/${encodeURIComponent(publicationId)}`, {
     method: 'DELETE',
     headers: await authedHeaders(),
   })
@@ -185,7 +185,7 @@ export async function postAuthorComment(
   publicationId: string,
   args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string; fromAuthor?: boolean }
 ): Promise<{ id: string; createdAt: string }> {
-  const res = await fetch(`${base(config)}/api/share/${publicationId}/comments`, {
+  const res = await fetch(`${base(config)}/api/share/${encodeURIComponent(publicationId)}/comments`, {
     method: 'POST',
     headers: await authedHeaders(),
     body: JSON.stringify({
@@ -210,7 +210,7 @@ export async function postAuthorReply(
   authorName?: string,
   fromAuthor?: boolean
 ): Promise<{ id: string; createdAt: string }> {
-  const res = await fetch(`${base(config)}/api/share/${publicationId}/comments/${commentId}/replies`, {
+  const res = await fetch(`${base(config)}/api/share/${encodeURIComponent(publicationId)}/comments/${encodeURIComponent(commentId)}/replies`, {
     method: 'POST',
     headers: await authedHeaders(),
     body: JSON.stringify({
@@ -230,7 +230,7 @@ export async function setCommentResolved(
   commentId: string,
   resolved: boolean
 ): Promise<void> {
-  const res = await fetch(`${base(config)}/api/share/${publicationId}/comments/${commentId}`, {
+  const res = await fetch(`${base(config)}/api/share/${encodeURIComponent(publicationId)}/comments/${encodeURIComponent(commentId)}`, {
     method: 'PATCH',
     headers: await authedHeaders(),
     body: JSON.stringify({ resolved }),
@@ -243,7 +243,7 @@ export async function fetchComments(
   publicationId: string,
   since: string | null
 ): Promise<{ comments: PulledShareComment[]; nextCursor: string | null }> {
-  const url = new URL(`${base(config)}/api/share/${publicationId}/comments`)
+  const url = new URL(`${base(config)}/api/share/${encodeURIComponent(publicationId)}/comments`)
   if (since) url.searchParams.set('since', since)
   const res = await fetch(url.toString(), { headers: await authedHeaders() })
   if (!res.ok) throw await toError(res)

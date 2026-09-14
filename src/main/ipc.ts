@@ -1706,6 +1706,8 @@ export function setupIpcHandlers(): void {
     return /^[A-Za-z0-9-]{1,64}$/.test(s) ? s : ''
   }
 
+  const MAS_SHARE_BLOCKED = { ok: false as const, error: 'Sharing is not available in the Mac App Store version.' }
+
   ipcMain.handle('share:authStatus', async () => {
     // MAS: no sharing surface exists (webPlatform is force-off), and this
     // handler would touch credentialStore — gate it like the write handlers
@@ -1751,9 +1753,19 @@ export function setupIpcHandlers(): void {
       }
       // localPath is only stored in share-sync.json today, but the repo rule
       // is every path-taking IPC handler validates — a future reader of this
-      // field must not inherit an unvalidated value.
+      // field must not inherit an unvalidated value. Reject empty explicitly:
+      // String(undefined ?? '') would otherwise normalize to '.' inside
+      // validatePath (#914). All other fields coerce like the rest of the
+      // share:* set.
+      const localPath = String(args?.localPath ?? '')
+      if (!localPath) return { ok: false, error: 'A local path is required to publish.' }
       const share = await import('./share/index')
-      return share.publish({ ...args, localPath: validatePath(String(args?.localPath ?? '')) })
+      return share.publish({
+        title: String(args?.title ?? ''),
+        html: String(args?.html ?? ''),
+        documentId: shareRowId(args?.documentId),
+        localPath: validatePath(localPath),
+      })
     }
   )
 
@@ -1789,35 +1801,50 @@ export function setupIpcHandlers(): void {
     return share.list()
   })
 
-  // MAS policy for share:* handlers — deliberate read/write split: WRITE
-  // surfaces and credentialStore-touching handlers are IS_MAS_BUILD-gated
-  // (publish/republish/revoke/sign-in/out/authStatus); pure READS of local
-  // metadata (list, getForPath, comments) stay callable so a user migrating
-  // from a non-MAS install can still SEE their existing shares. webPlatform
-  // is force-off on MAS, so no UI reaches any of them.
+  // MAS policy for share:* handlers — deliberate split, matched to the
+  // implementation (#908): ONLY `share:list` and `share:getForPath` — pure
+  // local-metadata reads — stay callable, so a user migrating from a
+  // non-MAS install can still SEE their existing shares. Everything that
+  // writes (gateway or share-sync.json) or touches credentialStore +
+  // network (comments/pullComments attach the session cookie) is
+  // IS_MAS_BUILD-gated. webPlatform is force-off on MAS, so no UI reaches
+  // any of them; the gates close the bare-IPC surface.
   ipcMain.handle('share:getForPath', async (_event, localPath: string) => {
     const share = await import('./share/index')
     return share.getForPath(validatePath(String(localPath ?? '')))
   })
 
   ipcMain.handle('share:comments', async (_event, publicationId: string) => {
+    if (IS_MAS_BUILD) return MAS_SHARE_BLOCKED
     const share = await import('./share/index')
     return share.fetchAllComments(shareRowId(publicationId))
   })
 
   ipcMain.handle('share:pullComments', async (_event, publicationId: string) => {
+    if (IS_MAS_BUILD) return MAS_SHARE_BLOCKED
     const share = await import('./share/index')
     return share.pullComments(shareRowId(publicationId))
   })
 
-  ipcMain.handle('share:ackCursor', async (_event, publicationId: string, cursor: string) => {
-    const share = await import('./share/index')
-    return share.ackCommentCursor(shareRowId(publicationId), String(cursor ?? ''))
-  })
+  ipcMain.handle(
+    'share:ackCursor',
+    async (_event, publicationId: string, cursor: string, seenRowIds?: unknown) => {
+      if (IS_MAS_BUILD) return MAS_SHARE_BLOCKED
+      const share = await import('./share/index')
+      // The seen-row ledger ids (#905 follow-up): same charset guard as
+      // every other row id, capped so a hostile renderer can't balloon
+      // share-sync.json.
+      const ids = Array.isArray(seenRowIds)
+        ? seenRowIds.slice(0, 2000).map(shareRowId).filter((s) => s !== '')
+        : []
+      return share.ackCommentCursor(shareRowId(publicationId), String(cursor ?? ''), ids)
+    }
+  )
 
   ipcMain.handle(
     'share:updateLocalPath',
     async (_event, oldPath: string, newPath: string, newDocumentId: string) => {
+      if (IS_MAS_BUILD) return MAS_SHARE_BLOCKED
       const share = await import('./share/index')
       return share.renamedLocalPath(
         validatePath(String(oldPath ?? '')),
@@ -1828,6 +1855,7 @@ export function setupIpcHandlers(): void {
   )
 
   ipcMain.handle('share:setSyncMode', async (_event, publicationId: string, mode: string) => {
+    if (IS_MAS_BUILD) return MAS_SHARE_BLOCKED
     const share = await import('./share/index')
     return share.setSyncMode(shareRowId(publicationId), String(mode ?? ''))
   })
@@ -1839,6 +1867,7 @@ export function setupIpcHandlers(): void {
       publicationId: string,
       args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string; fromAuthor?: boolean }
     ) => {
+      if (IS_MAS_BUILD) return MAS_SHARE_BLOCKED
       const share = await import('./share/index')
       return share.createComment(shareRowId(publicationId), {
         markedText: String(args?.markedText ?? ''),
@@ -1860,6 +1889,7 @@ export function setupIpcHandlers(): void {
       authorName?: string,
       fromAuthor?: boolean
     ) => {
+      if (IS_MAS_BUILD) return MAS_SHARE_BLOCKED
       const share = await import('./share/index')
       return share.replyToComment(
         shareRowId(publicationId),
@@ -1874,6 +1904,7 @@ export function setupIpcHandlers(): void {
   ipcMain.handle(
     'share:resolveComment',
     async (_event, publicationId: string, commentId: string, resolved: boolean) => {
+      if (IS_MAS_BUILD) return MAS_SHARE_BLOCKED
       const share = await import('./share/index')
       return share.resolveComment(shareRowId(publicationId), shareRowId(commentId), Boolean(resolved))
     }

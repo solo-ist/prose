@@ -546,6 +546,12 @@ export interface ShareEntry {
   publishedAt: string
   lastPulledAt: string | null
   lastCommentCursor: string | null
+  /**
+   * Server row ids this desktop has merged at least once (#905 follow-up):
+   * a seen row absent from the local store was author-deleted — the pull
+   * filter drops it instead of resurrecting it.
+   */
+  seenRowIds?: string[]
   revokedAt: string | null
   /** Content sync mode (#769): auto = background push on save; publish = explicit. */
   syncMode: 'auto' | 'publish'
@@ -702,7 +708,7 @@ export interface ElectronAPI {
   shareGetForPath: (localPath: string) => Promise<ShareOp<{ entries: ShareEntry[] }>>
   shareComments: (publicationId: string) => Promise<ShareOp<{ comments: SharePulledComment[] }>>
   sharePullComments: (publicationId: string) => Promise<ShareOp<{ comments: SharePulledComment[]; nextCursor: string | null }>>
-  shareAckCursor: (publicationId: string, cursor: string) => Promise<ShareOp<object>>
+  shareAckCursor: (publicationId: string, cursor: string, seenRowIds?: string[]) => Promise<ShareOp<object>>
   shareUpdateLocalPath: (oldPath: string, newPath: string, newDocumentId: string) => Promise<ShareOp<{ touched: number }>>
   shareSetSyncMode: (publicationId: string, mode: 'auto' | 'publish') => Promise<ShareOp<{ entry: ShareEntry }>>
   shareCreateComment: (publicationId: string, args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string; fromAuthor?: boolean }) => Promise<ShareOp<{ id: string; createdAt: string }>>

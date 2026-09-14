@@ -307,7 +307,7 @@ export interface ElectronAPI {
   shareGetForPath: (localPath: string) => Promise<unknown>
   shareComments: (publicationId: string) => Promise<unknown>
   sharePullComments: (publicationId: string) => Promise<unknown>
-  shareAckCursor: (publicationId: string, cursor: string) => Promise<unknown>
+  shareAckCursor: (publicationId: string, cursor: string, seenRowIds?: string[]) => Promise<unknown>
   shareUpdateLocalPath: (oldPath: string, newPath: string, newDocumentId: string) => Promise<unknown>
   shareSetSyncMode: (publicationId: string, mode: string) => Promise<unknown>
   shareCreateComment: (publicationId: string, args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string; fromAuthor?: boolean }) => Promise<unknown>
@@ -616,8 +616,8 @@ const api: ElectronAPI = {
   shareGetForPath: (localPath: string) => ipcRenderer.invoke('share:getForPath', localPath),
   shareComments: (publicationId: string) => ipcRenderer.invoke('share:comments', publicationId),
   sharePullComments: (publicationId: string) => ipcRenderer.invoke('share:pullComments', publicationId),
-  shareAckCursor: (publicationId: string, cursor: string) =>
-    ipcRenderer.invoke('share:ackCursor', publicationId, cursor),
+  shareAckCursor: (publicationId: string, cursor: string, seenRowIds?: string[]) =>
+    ipcRenderer.invoke('share:ackCursor', publicationId, cursor, seenRowIds),
   shareUpdateLocalPath: (oldPath: string, newPath: string, newDocumentId: string) =>
     ipcRenderer.invoke('share:updateLocalPath', oldPath, newPath, newDocumentId),
   shareSetSyncMode: (publicationId: string, mode: string) =>

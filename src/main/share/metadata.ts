@@ -15,7 +15,12 @@ import { join } from 'path'
 
 export interface ShareSyncEntry {
   publicationId: string
-  /** The full share URL (contains the capability token — display/copy only; the token half is also in credentialStore). */
+  /**
+   * The full share URL. It embeds the raw capability token and THIS FILE is
+   * its only store on disk (nothing shareUrl-related lives in
+   * credentialStore — only the gateway session does). Hence the 0600 perms
+   * and the redaction rule in the header. (#912)
+   */
   shareUrl: string
   localPath: string
   documentId: string
@@ -25,6 +30,15 @@ export interface ShareSyncEntry {
   publishedAt: string
   lastPulledAt: string | null
   lastCommentCursor: string | null
+  /**
+   * Server row ids this desktop has merged at least once (#905 follow-up).
+   * Pulls are cursor-less, so without this ledger a row the author deleted
+   * locally would re-appear as "new" on every poll — a seen row that is
+   * absent from the local store was deliberately removed and stays dead.
+   * Recorded only after a successful merge persist (the ack), so a crashed
+   * merge can never mark a row seen before it actually landed.
+   */
+  seenRowIds?: string[]
   revokedAt: string | null
   /**
    * Content sync mode (#769): 'auto' pushes the artifact in the background on
@@ -117,6 +131,34 @@ export function patchShareEntry(
     const existing = meta.shares[publicationId]
     if (!existing) return null
     const updated = { ...existing, ...patch }
+    meta.shares[publicationId] = updated
+    await save(meta)
+    return updated
+  })
+}
+
+/**
+ * The sync ack: cursor + lastPulledAt + the seen-row ledger, merged in ONE
+ * serialized read-modify-write so two racing acks can't drop each other's
+ * ids (a plain patch would overwrite the array wholesale).
+ */
+export function recordShareAck(
+  publicationId: string,
+  cursor: string,
+  rowIds: string[]
+): Promise<ShareSyncEntry | null> {
+  return serialized(async () => {
+    const meta = await load()
+    const existing = meta.shares[publicationId]
+    if (!existing) return null
+    const seen = new Set(existing.seenRowIds ?? [])
+    for (const id of rowIds) seen.add(id)
+    const updated: ShareSyncEntry = {
+      ...existing,
+      lastCommentCursor: cursor,
+      lastPulledAt: new Date().toISOString(),
+      seenRowIds: [...seen],
+    }
     meta.shares[publicationId] = updated
     await save(meta)
     return updated

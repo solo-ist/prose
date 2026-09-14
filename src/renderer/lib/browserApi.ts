@@ -513,6 +513,18 @@ export const browserApi: ElectronAPI = {
   // Native menu state - no-op in browser (no native menu)
   setReopenClosedTabEnabled: async (): Promise<void> => {},
 
+  // MCP server install management - desktop only
+  mcpGetStatus: async () => ({
+    installed: false,
+    version: null,
+    appVersion: '',
+    needsUpdate: false,
+    configPath: '',
+    serverPath: '',
+  }),
+  mcpInstall: async () => ({ success: false, error: 'MCP is not available in the browser.' }),
+  mcpUninstall: async () => ({ success: false, error: 'MCP is not available in the browser.' }),
+
   // Clipboard - use browser API in web mode
   copyToClipboard: async (text: string): Promise<void> => { await navigator.clipboard.writeText(text) },
 

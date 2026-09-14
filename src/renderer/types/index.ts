@@ -662,6 +662,17 @@ export interface ElectronAPI {
   sendMcpToolResult: (requestId: string, result: ToolResult) => void
   // MCP server status
   onMcpStatus: (callback: (status: McpStatus) => void) => () => void
+  // MCP server install management (Settings → Integrations)
+  mcpGetStatus: () => Promise<{
+    installed: boolean
+    version: string | null
+    appVersion: string
+    needsUpdate: boolean
+    configPath: string
+    serverPath: string
+  }>
+  mcpInstall: () => Promise<{ success: boolean; error?: string }>
+  mcpUninstall: () => Promise<{ success: boolean; error?: string }>
   // File association (default markdown editor)
   // Returns: true (is default), false (not default), null (can't detect)
   fileAssociationIsDefault: () => Promise<boolean | null>
@@ -701,9 +712,14 @@ export interface ElectronAPI {
   emojiGenerate: (title: string, contentPreview?: string) => Promise<{ emoji: string | null; error?: string }>
   // Window fullscreen state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => () => void
+  isFullScreen: () => Promise<boolean>
+  exitFullScreen: () => Promise<void>
   // Recent files
   getRecentFiles: () => Promise<string[]>
   clearRecentFiles: () => Promise<void>
+  refreshRecentMenu: () => Promise<void>
+  // Native menu: enable/disable "Reopen Closed Tab" based on closed-tab stack
+  setReopenClosedTabEnabled: (enabled: boolean) => Promise<void>
   // Clipboard
   copyToClipboard: (text: string) => Promise<void>
   // Sentry error tracking

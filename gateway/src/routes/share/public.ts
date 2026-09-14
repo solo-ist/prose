@@ -24,6 +24,7 @@ import {
   MAX_MARKED_TEXT_CHARS,
   MAX_NAME_CHARS,
   findPublicationByToken,
+  hashShareToken,
   publicComment,
   sanitizeField,
 } from './common.js'
@@ -139,6 +140,18 @@ sharePublicRoutes.use(
   cors({ origin: '*', allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'], allowHeaders: ['Content-Type'], maxAge: 86400 })
 )
 
+// Revocation must actually take effect: with CORS wide open, a cached
+// comments-JSON response in any intermediary would let comment bodies (and a
+// created row's editToken) outlive the share. The artifact page sets its own
+// no-store via ARTIFACT_HEADERS; this covers every JSON response on the
+// surface. (Addendum review.)
+sharePublicRoutes.use('*', async (c, next) => {
+  await next()
+  if (!c.res.headers.get('Cache-Control')) {
+    c.res.headers.set('Cache-Control', 'no-store')
+  }
+})
+
 // Anonymous-ownership capability for a created row: returned ONLY in the
 // creating POST's response and stored by the viewer that posted it. Whoever
 // holds it may edit that row's authorName. Never readable back.
@@ -146,10 +159,19 @@ function newEditToken(): string {
   return randomBytes(24).toString('base64url')
 }
 
+// Stored HASHED (like the publication token): a DB dump must not hand out
+// every reviewer's edit/delete capability (PR #901 round 9). Legacy rows
+// stored the raw token (32 base64url chars, never 64 hex) — compare those
+// directly; the PATCH handler upgrades them in place on a successful match.
+function isHashedEditToken(stored: string): boolean {
+  return /^[0-9a-f]{64}$/.test(stored)
+}
+
 function editTokenMatches(stored: string | null, presented: string): boolean {
-  if (!stored) return false
+  if (!stored || !presented) return false
+  const expected = isHashedEditToken(stored) ? hashShareToken(presented) : presented
   const a = Buffer.from(stored)
-  const b = Buffer.from(presented)
+  const b = Buffer.from(expected)
   return a.length === b.length && timingSafeEqual(a, b)
 }
 
@@ -224,7 +246,7 @@ sharePublicRoutes.post('/:token/comments', commentWriteLimit, async (c) => {
 
   const editToken = newEditToken()
   const row = await prisma.shareComment.create({
-    data: { publicationId: pub.id, ...payload, editToken },
+    data: { publicationId: pub.id, ...payload, editToken: hashShareToken(editToken) },
   })
   return c.json({ id: row.id, createdAt: row.createdAt.toISOString(), editToken }, 201)
 })
@@ -261,7 +283,7 @@ sharePublicRoutes.post('/:token/comments/:commentId/replies', commentWriteLimit,
       // A reply anchors through its parent; ignore any client-sent anchor.
       markedText: '',
       occurrenceIndex: 0,
-      editToken,
+      editToken: hashShareToken(editToken),
     },
   })
   return c.json({ id: row.id, createdAt: row.createdAt.toISOString(), editToken }, 201)
@@ -300,6 +322,11 @@ sharePublicRoutes.patch('/:token/comments/:commentId', commentWriteLimit, async 
     data: {
       ...(wantsName ? { authorName } : {}),
       ...(wantsText ? { commentText, editedAt: new Date() } : {}),
+      // Legacy row (raw token stored): upgrade to the hashed form now that
+      // the presented token proved ownership.
+      ...(row.editToken && !isHashedEditToken(row.editToken)
+        ? { editToken: hashShareToken(presented) }
+        : {}),
     },
   })
   return c.json({

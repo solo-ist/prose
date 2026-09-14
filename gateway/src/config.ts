@@ -90,6 +90,39 @@ const EnvSchema = z.object({
       message: 'required in production',
     })
   }
+  // #902 origin isolation must be a decision, not a default: without
+  // SHARE_BASE_URL, author-controlled artifact JS (script-src unsafe-inline)
+  // is served from the session-cookie origin. Fail the boot rather than
+  // silently ship single-origin. (Addendum review: "single-origin unless
+  // someone remembers an env var" is not a posture.)
+  if (!env.SHARE_BASE_URL) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['SHARE_BASE_URL'],
+      message: 'required outside development (#902) — the share host must be a separate origin',
+    })
+  } else {
+    if (!env.SHARE_BASE_URL.startsWith('https://')) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['SHARE_BASE_URL'],
+        message: 'must be an explicit https:// URL outside development',
+      })
+    }
+    try {
+      // Same host would make app.ts's partition guard disable itself at
+      // runtime — reject at boot instead of degrading silently.
+      if (new URL(env.SHARE_BASE_URL).host === new URL(env.BETTER_AUTH_URL).host) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['SHARE_BASE_URL'],
+          message: 'must be a different host from BETTER_AUTH_URL (#902 origin isolation)',
+        })
+      }
+    } catch {
+      // Unparseable URLs are already rejected by the field schemas above.
+    }
+  }
 })
 
 export type Env = z.infer<typeof EnvSchema>

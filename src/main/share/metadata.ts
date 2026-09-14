@@ -66,6 +66,21 @@ async function save(meta: ShareSyncMetadata): Promise<void> {
   await writeFile(metadataPath(), JSON.stringify(meta, null, 2), 'utf-8')
 }
 
+// Every read-modify-write cycle serializes through this chain: two
+// concurrent IPC handlers (a cursor ack racing a publish, a rename racing a
+// pull) would otherwise interleave load/save and the later save would
+// silently drop the earlier one's change (PR #901 round 9).
+let writeChain: Promise<unknown> = Promise.resolve()
+
+function serialized<T>(op: () => Promise<T>): Promise<T> {
+  const next = writeChain.then(op, op)
+  writeChain = next.then(
+    () => undefined,
+    () => undefined
+  )
+  return next
+}
+
 export async function listShareEntries(): Promise<ShareSyncEntry[]> {
   const meta = await load()
   return Object.values(meta.shares).sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
@@ -81,40 +96,46 @@ export async function getShareEntriesByPath(localPath: string): Promise<ShareSyn
   return Object.values(meta.shares).filter((s) => s.localPath === localPath && !s.revokedAt)
 }
 
-export async function upsertShareEntry(entry: ShareSyncEntry): Promise<void> {
-  const meta = await load()
-  meta.shares[entry.publicationId] = entry
-  await save(meta)
+export function upsertShareEntry(entry: ShareSyncEntry): Promise<void> {
+  return serialized(async () => {
+    const meta = await load()
+    meta.shares[entry.publicationId] = entry
+    await save(meta)
+  })
 }
 
-export async function patchShareEntry(
+export function patchShareEntry(
   publicationId: string,
   patch: Partial<ShareSyncEntry>
 ): Promise<ShareSyncEntry | null> {
-  const meta = await load()
-  const existing = meta.shares[publicationId]
-  if (!existing) return null
-  const updated = { ...existing, ...patch }
-  meta.shares[publicationId] = updated
-  await save(meta)
-  return updated
+  return serialized(async () => {
+    const meta = await load()
+    const existing = meta.shares[publicationId]
+    if (!existing) return null
+    const updated = { ...existing, ...patch }
+    meta.shares[publicationId] = updated
+    await save(meta)
+    return updated
+  })
 }
 
 /** Rename/move hook: keep share entries pointing at the document's new path. */
-export async function updateShareLocalPath(
+export function updateShareLocalPath(
   oldPath: string,
   newPath: string,
   newDocumentId: string
 ): Promise<number> {
-  const meta = await load()
-  let touched = 0
-  for (const entry of Object.values(meta.shares)) {
-    if (entry.localPath === oldPath) {
-      entry.localPath = newPath
-      entry.documentId = newDocumentId
-      touched++
+  return serialized(async () => {
+    const meta = await load()
+    let touched = 0
+    for (const entry of Object.values(meta.shares)) {
+      if (entry.localPath === oldPath) {
+        entry.localPath = newPath
+        entry.documentId = newDocumentId
+        touched++
+      }
     }
-  }
-  if (touched > 0) await save(meta)
-  return touched
+    if (touched > 0) await save(meta)
+    return touched
+  })
 }

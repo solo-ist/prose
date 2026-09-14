@@ -30,7 +30,12 @@ export function hashShareToken(token: string): string {
 const CONTROL_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g
 
 export function sanitizeField(value: unknown, maxLength: number): string {
-  return String(value ?? '').replace(CONTROL_CHARS, '').substring(0, maxLength).trim()
+  // Strings only — String() coercion would let non-string JSON through:
+  // {} becomes "[object Object]" in a comment body, and ["a@b.co"] coerces
+  // to a string that passes the email shape check. Anything non-string
+  // sanitizes to empty and fails the caller's required-field validation.
+  if (typeof value !== 'string') return ''
+  return value.replace(CONTROL_CHARS, '').substring(0, maxLength).trim()
 }
 
 /** Resolve a live (or revoked) publication from a raw URL token. */

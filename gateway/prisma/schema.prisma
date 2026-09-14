@@ -96,6 +96,9 @@ model ShareComment {
   // Anonymous-ownership capability: returned ONLY in the creating POST's
   // response, never on any read. Whoever holds it may edit or delete the
   // row (viewers are anonymous — this is the proof of authorship).
+  // Stored as a SHA-256 hex hash — a DB dump must not hand out the
+  // capability. (Legacy rows held the raw token; the PATCH handler
+  // upgrades them in place on a successful match.)
   editToken       String?
   // Set when the owner edited the text (viewers see an "edited" marker).
   editedAt        DateTime?

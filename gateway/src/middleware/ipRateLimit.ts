@@ -62,6 +62,7 @@ export function ipRateLimit(maxPerWindow: number, windowS: number): MiddlewareHa
   // Per-INSTANCE bucket — the app-level /s/* limiter and the stricter
   // comment-write limiter must not share counts.
   const hits = new Map<string, number[]>()
+  let lastSweep = Date.now()
   return async (c, next) => {
     const ip = clientIp(c)
     const now = Date.now()
@@ -76,7 +77,11 @@ export function ipRateLimit(maxPerWindow: number, windowS: number): MiddlewareHa
     recent.push(now)
     hits.set(ip, recent)
 
-    if (hits.size > 5000) {
+    // Sweep fully-expired entries once per window (plus immediately above
+    // 5000 keys) — the old size-only trigger let a slow trickle of unique
+    // IPs sit in the map forever below the threshold. (Addendum review.)
+    if (hits.size > 5000 || now - lastSweep >= windowMs) {
+      lastSweep = now
       for (const [key, ts] of hits) {
         if (ts.every((t) => now - t >= windowMs)) hits.delete(key)
       }

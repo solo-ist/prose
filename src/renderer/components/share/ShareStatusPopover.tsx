@@ -137,6 +137,21 @@ export function ShareStatusPopover() {
       setRevokeArmed(true)
       return
     }
+    // Final pull before the rows are gone: revoke hard-deletes reviewer rows
+    // server-side, and any viewer deletion the desktop never pulled would
+    // otherwise survive here and be re-seeded by the next republish's
+    // backfill — resurrecting a comment its writer deleted, under a row id
+    // whose edit token they no longer hold. Best-effort: a failed pull must
+    // not block the revoke itself. (Addendum review — narrows the window to
+    // deletions made after this pull.)
+    const documentId = useEditorStore.getState().document.documentId
+    if (documentId) {
+      try {
+        await syncShareComments(entry, documentId)
+      } catch {
+        // proceed — revoking is the user's intent
+      }
+    }
     const res = await getApi().shareRevoke(entry.publicationId)
     if (res.ok) {
       useShareStore.getState().applyEntry(null)

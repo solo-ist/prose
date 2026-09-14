@@ -36,6 +36,13 @@ function opKey(op: PendingOp): string {
 }
 
 const inFlight = new Set<string>()
+// Thread pushes keep their promise so a concurrent caller can WAIT for the
+// in-flight push instead of no-opping past it. The backfill awaits every
+// thread push before the caller bakes; if a concurrent on-create push made
+// its await resolve instantly (the old Set-only early return), the bake
+// could still emit the thread under its desktop id and every viewer reply
+// to it would 404. (Addendum review — confirmed by trace.)
+const inFlightThreads = new Map<string, Promise<void>>()
 let pendingOps: PendingOp[] = []
 
 // After a gateway 'rate_limited', hold ALL pushes for the window instead of
@@ -95,10 +102,10 @@ async function pushThread(threadId: string): Promise<void> {
   }
 
   const key = `thread:${threadId}`
-  if (inFlight.has(key)) return
-  inFlight.add(key)
+  const existing = inFlightThreads.get(key)
+  if (existing) return existing
 
-  await (async () => {
+  const run = (async () => {
     try {
       const entry = await activeEntry()
       if (!entry) return
@@ -139,9 +146,11 @@ async function pushThread(threadId: string): Promise<void> {
     } catch {
       queueOnce({ kind: 'thread', threadId })
     } finally {
-      inFlight.delete(key)
+      inFlightThreads.delete(key)
     }
   })()
+  inFlightThreads.set(key, run)
+  return run
 }
 
 /**

@@ -48,6 +48,16 @@ function looksLikeProseArtifact(html: unknown): html is string {
 
 export const shareAuthorRoutes = new Hono<AppEnv>()
 
+// Same caching posture as the public surface: pulls carry comment bodies and
+// publish responses carry the share URL (capability token) — none of it may
+// sit in an intermediary past revocation.
+shareAuthorRoutes.use('*', async (c, next) => {
+  await next()
+  if (!c.res.headers.get('Cache-Control')) {
+    c.res.headers.set('Cache-Control', 'no-store')
+  }
+})
+
 shareAuthorRoutes.post('/publish', async (c) => {
   const user = c.get('user')
   let body: { title?: unknown; html?: unknown }

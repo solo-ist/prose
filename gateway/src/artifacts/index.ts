@@ -60,11 +60,24 @@ export async function deleteArtifact(pub: {
   storage: string
   r2Key: string | null
 }): Promise<void> {
-  if (pub.storage === 'r2' && pub.r2Key && r2) {
-    await r2.send(new DeleteObjectCommand({ Bucket: requireBucket(), Key: pub.r2Key }))
+  // Clear r2Key only after the object is actually gone. If the R2 client is
+  // unconfigured at revoke time (config drift between publish and revoke),
+  // nulling the key would orphan the bytes in the bucket with no way to ever
+  // find them again — keep the pointer so a later cleanup can. (Addendum
+  // review: revoked bytes must not outlive the share unfindably.)
+  let r2Deleted = true
+  if (pub.storage === 'r2' && pub.r2Key) {
+    if (r2) {
+      await r2.send(new DeleteObjectCommand({ Bucket: requireBucket(), Key: pub.r2Key }))
+    } else {
+      r2Deleted = false
+      console.warn(
+        `[share] revoke ${pub.id}: R2 client unconfigured — object ${pub.r2Key} left in bucket, key retained for later cleanup`
+      )
+    }
   }
   await prisma.publication.update({
     where: { id: pub.id },
-    data: { artifactHtml: null, r2Key: null },
+    data: { artifactHtml: null, ...(r2Deleted ? { r2Key: null } : {}) },
   })
 }

@@ -290,6 +290,7 @@ async function main() {
   // --- Author pull (privacy) ------------------------------------------------
   const pullRes = await fetch(`${BASE}/api/share/${pub.publicationId}/comments`, { headers: authed })
   expect(pullRes.status === 200, 'author comment pull works', `status ${pullRes.status}`)
+  expect(pullRes.headers.get('cache-control') === 'no-store', 'author pull is no-store (revocation must stick)')
   const pull = await pullRes.json()
   // c1 + r1 + the two deletion-test tombstones — pulls INCLUDE tombstones so
   // the desktop learns of deletions.
@@ -313,6 +314,36 @@ async function main() {
     sinceRows.length >= 1 && sinceRows.every((cm) => pulledIds.has(cm.id)),
     'since-cursor returns only already-seen boundary rows (gte + dedupe)',
     `${sinceRows.length} rows`
+  )
+
+  // Gap-1 fetch contract (addendum review): edits and tombstones do NOT bump
+  // createdAt, so a since-cursor pull can never see a revision of a row older
+  // than the cursor — which is exactly why the desktop sync pull is
+  // cursor-less. Prove both halves against a real pre-cursor edit.
+  const gapEdit = await fetch(`${commentUrl}/${c1Body.id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ editToken: c1Body.editToken, commentText: 'first! (edited after the cursor passed)' }),
+  })
+  expect(gapEdit.status === 200, 'pre-cursor row edit accepted', `status ${gapEdit.status}`)
+  if (new Date(c1Body.createdAt).getTime() < new Date(pull.nextCursor).getTime()) {
+    // (Guarded: in a same-millisecond run c1 IS the boundary row and gte
+    // legitimately returns it.)
+    const sinceAfterEdit = (await (await fetch(
+      `${BASE}/api/share/${pub.publicationId}/comments?since=${encodeURIComponent(pull.nextCursor)}`,
+      { headers: authed }
+    )).json()).comments
+    expect(
+      !sinceAfterEdit.some((cm) => cm.id === c1Body.id),
+      'since-cursor pull misses the pre-cursor edit (the trap: createdAt never moves)'
+    )
+  }
+  const fullAfterEdit = (await (await fetch(
+    `${BASE}/api/share/${pub.publicationId}/comments`, { headers: authed }
+  )).json()).comments
+  const editedC1Pull = fullAfterEdit.find((cm) => cm.id === c1Body.id)
+  expect(
+    editedC1Pull?.commentText === 'first! (edited after the cursor passed)' && typeof editedC1Pull?.editedAt === 'string',
+    'cursor-less pull carries the pre-cursor edit (the desktop sync contract)'
   )
 
   const listRes = await fetch(`${BASE}/api/share`, { headers: authed })
@@ -354,6 +385,7 @@ async function main() {
   // --- Public live GET (viewer poll, #769) ----------------------------------
   const liveRes = await fetch(commentUrl)
   expect(liveRes.status === 200, 'public comment GET works', `status ${liveRes.status}`)
+  expect(liveRes.headers.get('cache-control') === 'no-store', 'public comment GET is no-store (CORS * + caches must not outlive revocation)')
   const live = await liveRes.json()
   // c1 + r1 + author reply + the two tombstones (viewers must learn of
   // deletions through the poll).
@@ -381,6 +413,11 @@ async function main() {
     method: 'PATCH', headers: authed, body: JSON.stringify({ resolved: false }),
   })
   expect((await unresolve.json()).resolvedAt === null, 'unresolve clears resolvedAt')
+  const liveAfterUnresolve = (await (await fetch(commentUrl)).json()).comments
+  expect(
+    liveAfterUnresolve.find((cm) => cm.id === c1Body.id)?.resolvedAt === null,
+    'unresolve converges on the public GET (resolve → unresolve round-trip)'
+  )
 
   // --- Author thread push (live new-comment sync, #769) ---------------------
   const aThread = await fetch(`${BASE}/api/share/${pub.publicationId}/comments`, {
@@ -400,6 +437,16 @@ async function main() {
     method: 'POST', headers: authed, body: JSON.stringify({ commentText: 'anchorless' }),
   })
   expect(aThreadNoAnchor.status === 400, 'author thread without markedText rejected', `status ${aThreadNoAnchor.status}`)
+
+  const aThreadNonString = await fetch(`${BASE}/api/share/${pub.publicationId}/comments`, {
+    method: 'POST', headers: authed,
+    body: JSON.stringify({ commentText: {}, markedText: 'markedtext', authorName: 'Angel' }),
+  })
+  expect(
+    aThreadNonString.status === 400,
+    'non-string commentText rejected (sanitizeField must not String()-coerce)',
+    `status ${aThreadNonString.status}`
+  )
 
   const liveWithThread = (await (await fetch(commentUrl)).json()).comments
   const liveAuthorThread = liveWithThread.find((cm) => cm.id === aThreadBody.id)

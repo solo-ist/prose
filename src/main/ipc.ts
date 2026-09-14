@@ -1697,6 +1697,15 @@ export function setupIpcHandlers(): void {
   // Gated in the renderer by the webPlatform flag (force-off on MAS); the
   // MAS guard here is belt-and-braces, mirroring google:startAuth.
 
+  // Server row ids are Prisma-generated (cuid/uuid charset) — the strict
+  // guard keeps a crafted id (e.g. '../../api/auth/x') out of the fetch
+  // URLs the share client interpolates them into (PR #901 round 11). An
+  // invalid id becomes '' and fails the module's entry lookup safely.
+  const shareRowId = (v: unknown): string => {
+    const s = String(v ?? '')
+    return /^[A-Za-z0-9-]{1,64}$/.test(s) ? s : ''
+  }
+
   ipcMain.handle('share:authStatus', async () => {
     // MAS: no sharing surface exists (webPlatform is force-off), and this
     // handler would touch credentialStore — gate it like the write handlers
@@ -1760,7 +1769,7 @@ export function setupIpcHandlers(): void {
       // Coerce like every other share:* handler — publicationId lands in a
       // fetch URL (PR #901 round 10).
       return share.republish({
-        publicationId: String(args?.publicationId ?? ''),
+        publicationId: shareRowId(args?.publicationId),
         title: String(args?.title ?? ''),
         html: String(args?.html ?? ''),
       })
@@ -1772,7 +1781,7 @@ export function setupIpcHandlers(): void {
       return { ok: false, error: 'Sharing is not available in the Mac App Store version.' }
     }
     const share = await import('./share/index')
-    return share.revoke(String(publicationId ?? ''))
+    return share.revoke(shareRowId(publicationId))
   })
 
   ipcMain.handle('share:list', async () => {
@@ -1793,17 +1802,17 @@ export function setupIpcHandlers(): void {
 
   ipcMain.handle('share:comments', async (_event, publicationId: string) => {
     const share = await import('./share/index')
-    return share.fetchAllComments(String(publicationId ?? ''))
+    return share.fetchAllComments(shareRowId(publicationId))
   })
 
   ipcMain.handle('share:pullComments', async (_event, publicationId: string) => {
     const share = await import('./share/index')
-    return share.pullComments(String(publicationId ?? ''))
+    return share.pullComments(shareRowId(publicationId))
   })
 
   ipcMain.handle('share:ackCursor', async (_event, publicationId: string, cursor: string) => {
     const share = await import('./share/index')
-    return share.ackCommentCursor(String(publicationId ?? ''), String(cursor ?? ''))
+    return share.ackCommentCursor(shareRowId(publicationId), String(cursor ?? ''))
   })
 
   ipcMain.handle(
@@ -1820,7 +1829,7 @@ export function setupIpcHandlers(): void {
 
   ipcMain.handle('share:setSyncMode', async (_event, publicationId: string, mode: string) => {
     const share = await import('./share/index')
-    return share.setSyncMode(String(publicationId ?? ''), String(mode ?? ''))
+    return share.setSyncMode(shareRowId(publicationId), String(mode ?? ''))
   })
 
   ipcMain.handle(
@@ -1831,7 +1840,7 @@ export function setupIpcHandlers(): void {
       args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string; fromAuthor?: boolean }
     ) => {
       const share = await import('./share/index')
-      return share.createComment(String(publicationId ?? ''), {
+      return share.createComment(shareRowId(publicationId), {
         markedText: String(args?.markedText ?? ''),
         occurrenceIndex: Number.isInteger(args?.occurrenceIndex) ? args.occurrenceIndex : 0,
         text: String(args?.text ?? ''),
@@ -1853,8 +1862,8 @@ export function setupIpcHandlers(): void {
     ) => {
       const share = await import('./share/index')
       return share.replyToComment(
-        String(publicationId ?? ''),
-        String(commentId ?? ''),
+        shareRowId(publicationId),
+        shareRowId(commentId),
         String(text ?? ''),
         authorName === undefined ? undefined : String(authorName),
         fromAuthor === false ? false : undefined
@@ -1866,7 +1875,7 @@ export function setupIpcHandlers(): void {
     'share:resolveComment',
     async (_event, publicationId: string, commentId: string, resolved: boolean) => {
       const share = await import('./share/index')
-      return share.resolveComment(String(publicationId ?? ''), String(commentId ?? ''), Boolean(resolved))
+      return share.resolveComment(shareRowId(publicationId), shareRowId(commentId), Boolean(resolved))
     }
   )
 

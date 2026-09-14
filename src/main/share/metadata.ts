@@ -10,7 +10,7 @@
  * /s/<token> path segment of every shareUrl.
  */
 import { app } from 'electron'
-import { readFile, writeFile } from 'fs/promises'
+import { chmod, readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
 
 export interface ShareSyncEntry {
@@ -63,7 +63,11 @@ async function load(): Promise<ShareSyncMetadata> {
 }
 
 async function save(meta: ShareSyncMetadata): Promise<void> {
-  await writeFile(metadataPath(), JSON.stringify(meta, null, 2), 'utf-8')
+  // Owner-only perms to match the file's password-store posture (shareUrls
+  // embed capability tokens). mode applies only on create, so chmod covers
+  // files that already existed (PR #901 round 11).
+  await writeFile(metadataPath(), JSON.stringify(meta, null, 2), { encoding: 'utf-8', mode: 0o600 })
+  await chmod(metadataPath(), 0o600).catch(() => {})
 }
 
 // Every read-modify-write cycle serializes through this chain: two

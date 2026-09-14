@@ -2151,7 +2151,10 @@ export const VIEWER_SCRIPT = `(function () {
   note.textContent = online
     ? 'Select text to leave a comment.'
     : canPublish
-      ? 'Select text to leave a comment. Publish to send your comments to the shared page.'
+      // The in-file disclosure that this copy holds the capability — the
+      // download button's tooltip alone doesn't travel with the file
+      // (PR #901 round 11).
+      ? 'Select text to leave a comment. Publish to send your comments to the shared page. This copy carries the share link — forward it only like you would the link.'
       : 'Select text to leave a comment. Comments live in this file — download the annotated copy to keep or return them.'
 
   // Panel structure: head + note stay fixed at the top; everything below

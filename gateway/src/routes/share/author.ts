@@ -340,19 +340,15 @@ shareAuthorRoutes.delete('/:pubId', async (c) => {
   const pub = await prisma.publication.findUnique({ where: { id: c.req.param('pubId') } })
   if (!pub || pub.authorId !== user.id) return c.json({ error: 'not_found' }, 404)
 
-  // Revoke: tombstone the row (410 on /s/), destroy the artifact, and delete
-  // reviewer comments (privacy — their words leave when the share does).
-  // The tombstone is what makes the link dead — it must land even if the
-  // artifact cleanup half-fails (e.g. the R2 object deleted but a follow-up
-  // write blips; a bare retry would then NoSuchKey forever). PR #901 review.
-  try {
-    await deleteArtifact(pub)
-  } catch (err) {
-    console.error(`[share] revoke ${pub.id}: artifact cleanup failed, tombstoning anyway`, err)
-  }
-  // One atomic unit: comment deletion is irreversible (privacy), so the
-  // tombstone must land with it — a blip between the two would hard-delete
-  // reviewer words while the artifact kept serving (PR #901 round 4).
+  // Revoke: tombstone the row (410 on /s/) and delete reviewer comments in
+  // one atomic unit FIRST — comment deletion is irreversible (privacy), so
+  // the tombstone must land with it (PR #901 round 4) — THEN destroy the
+  // artifact. The old order (artifact first) could leave a share that was
+  // still live but served nothing when the transaction blipped after the
+  // artifact was gone (PR #901 round 11); this order fails safe: the link
+  // dies first, and a failed cleanup leaves bytes that are revoked-dark,
+  // findable via the retained r2Key, and re-deletable (R2 DeleteObject is
+  // idempotent) on the author's next revoke retry or a later sweep.
   await prisma.$transaction([
     prisma.shareComment.deleteMany({ where: { publicationId: pub.id } }),
     prisma.publication.update({
@@ -360,6 +356,11 @@ shareAuthorRoutes.delete('/:pubId', async (c) => {
       data: { revokedAt: new Date() },
     }),
   ])
+  try {
+    await deleteArtifact(pub)
+  } catch (err) {
+    console.error(`[share] revoke ${pub.id}: artifact cleanup failed after tombstone (bytes unreachable; r2Key retained)`, err)
+  }
   return c.body(null, 204)
 })
 

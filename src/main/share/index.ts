@@ -172,9 +172,13 @@ export async function fetchAllComments(
 }
 
 /**
- * Sync pull (#769): comments since the stored cursor. Deliberately does NOT
- * advance the cursor — the renderer merges + persists first, then acks via
- * ackCommentCursor, so a failed merge can never lose comments.
+ * Sync pull (#769): the full comment set, deliberately cursor-less — same
+ * rationale as the viewer poll. The gateway's `since` filters on createdAt,
+ * and edits/tombstones don't bump createdAt, so a cursor would permanently
+ * hide revisions of rows older than it (PR #901 review). The renderer merge
+ * dedupes by id and applyRevisions adopts edits/deletions, so re-pulling the
+ * whole set is safe; the gateway's take-500 caps a pull at 500 rows per
+ * publication (documented KNOWN LIMIT on the route).
  */
 export async function pullComments(
   publicationId: string
@@ -183,14 +187,17 @@ export async function pullComments(
   const entry = await getShareEntry(publicationId)
   if (!entry) return { ok: false, error: 'No local record of this share.' }
   try {
-    const { comments, nextCursor } = await client.fetchComments(config, publicationId, entry.lastCommentCursor)
+    const { comments, nextCursor } = await client.fetchComments(config, publicationId, null)
     return { ok: true, comments, nextCursor }
   } catch (err) {
     return asError(err)
   }
 }
 
-/** Second phase of the sync pull: the renderer persisted the merge — advance the cursor. */
+/**
+ * Second phase of the sync pull: the renderer persisted the merge. Records
+ * lastPulledAt (and the cursor, now informational — pulls are cursor-less).
+ */
 export async function ackCommentCursor(
   publicationId: string,
   cursor: string

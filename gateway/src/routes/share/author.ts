@@ -168,6 +168,10 @@ shareAuthorRoutes.get('/:pubId/comments', async (c) => {
       // same page forever (cursor can't advance past the group). Unreachable
       // at current limits; future pagination work must move to a compound
       // (createdAt, id) cursor before raising `take` or write throughput.
+      // NOTE: `since` filters on CREATION time — edits and tombstones don't
+      // bump createdAt, so a caller that wants revisions must pull without
+      // `since`. The desktop sync pull is deliberately cursor-less for this
+      // reason (PR #901 review); `since` remains for pagination only.
       ...(sinceDate ? { createdAt: { gte: sinceDate } } : {}),
     },
     orderBy: { createdAt: 'asc' },

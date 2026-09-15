@@ -325,6 +325,11 @@ test.beforeAll(async () => {
   })
   app = launched.app
   page = launched.page
+  // The switch only SELECTS the basic_text backend; isEncryptionAvailable()
+  // stays false on Linux until the app opts into the in-memory key. Without
+  // this, credentialStore.set (the sign-in's session write) throws on any
+  // keyring-less machine. Documented no-op on macOS/Windows.
+  await app.evaluate(({ safeStorage }) => safeStorage.setUsePlainTextEncryption(true))
   await waitForAppReady(page)
   await dismissOnboarding(page)
   await dismissOverlay(page)
@@ -357,8 +362,8 @@ test('magic-link sign-in captures an origin-bound session', async () => {
     'shareCompleteSignIn',
     `${gateway.origin}/api/auth/magic-link/verify?token=e2e`,
   )
-  expect(res.ok).toBe(true)
-  expect(res.email).toBe('reviewer@e2e.test')
+  // toMatchObject so a failure prints the result's error/code fields.
+  expect(res).toMatchObject({ ok: true, email: 'reviewer@e2e.test' })
 
   const status = await callApi<{ ok: boolean; signedIn?: boolean; email?: string }>('shareAuthStatus')
   expect(status.ok).toBe(true)
@@ -398,7 +403,7 @@ test('publish records an entry with its minting origin, owner-only perms', async
     'sharePublish',
     { title: 'Shared Doc', html: '<p>hello</p>', localPath: '/tmp/published.md', documentId: 'doc-published' },
   )
-  expect(res.ok).toBe(true)
+  expect(res).toMatchObject({ ok: true })
   expect(res.entry?.publicationId).toBe('pub-published')
   expect(res.entry?.gatewayOrigin).toBe(gateway.origin)
 
@@ -420,7 +425,7 @@ test('pull walks the 500-row pages to completion and dedupes the gte boundary', 
   gateway.requests = []
 
   const res = await callApi<{ ok: boolean; comments?: Array<{ id: string }> }>('sharePullComments', 'pub1')
-  expect(res.ok).toBe(true)
+  expect(res).toMatchObject({ ok: true })
   expect(res.comments).toHaveLength(1001)
   expect(new Set(res.comments!.map((c) => c.id)).size).toBe(1001)
 
@@ -450,8 +455,7 @@ test('first sync merges pulled threads and acks the seen ledger', async () => {
     .not.toBeNull()
 
   const res = await syncNow()
-  expect(res.ok).toBe(true)
-  expect(res.added).toBe(3)
+  expect(res).toMatchObject({ ok: true, added: 3 })
 
   const threads = await commentStoreThreads()
   const byId = new Map(threads.map((t) => [t.id, t]))
@@ -477,7 +481,7 @@ test('sync is cursor-less: pre-cursor edits and tombstones are adopted (Gap 1)',
   gateway.requests = []
 
   const res = await syncNow()
-  expect(res.ok).toBe(true)
+  expect(res).toMatchObject({ ok: true })
 
   const threads = await commentStoreThreads()
   const byId = new Map(threads.map((t) => [t.id, t]))
@@ -503,8 +507,7 @@ test('author-deleted threads stay dead across polls (#905 regression)', async ()
   // seenRowIds ledger this resurrected the thread (with a toast) every time.
   for (let i = 0; i < 2; i++) {
     const res = await syncNow()
-    expect(res.ok).toBe(true)
-    expect(res.added).toBe(0)
+    expect(res).toMatchObject({ ok: true, added: 0 })
   }
   threads = await commentStoreThreads()
   expect(threads.some((t) => t.id === 'row-a')).toBe(false)
@@ -562,7 +565,7 @@ test('revoke treats a gateway 404 as failure, success as a local tombstone', asy
 
   gateway.revokeStatus = 204
   const ok = await callApi<{ ok: boolean }>('shareRevoke', 'pub-published')
-  expect(ok.ok).toBe(true)
+  expect(ok).toMatchObject({ ok: true })
   expect(readSyncEntry('pub-published')?.revokedAt).not.toBeNull()
 })
 

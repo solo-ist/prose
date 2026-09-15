@@ -11,6 +11,8 @@ import { useAnnotationStore } from './extensions/ai-annotations'
 import { useCommentStore } from './extensions/comments/store'
 import { useTabStore } from './stores/tabStore'
 import { useChatStore } from './stores/chatStore'
+import { useEditorStore } from './stores/editorStore'
+import { syncShareComments } from './lib/shareSync'
 import type { ChatMessage } from './types'
 import { getApi } from './lib/browserApi'
 import './lib/remarkableBridge'
@@ -44,6 +46,34 @@ import './index.css'
   // Comment store access for e2e verification of threading (#699).
   getCommentStore: () => useCommentStore.getState().pendingComments,
   getCommentDocId: () => useCommentStore.getState().documentId,
+}
+// Share-sync seam for e2e (#915) — same always-on tier as __prose_tools.
+// `sync` drives the REAL pull-merge (the exact path the ShareStatusPopover's
+// open-pull takes: fresh entry lookup → syncShareComments) without the
+// interval/debounce, so tests control when each pull happens. `deleteThread`
+// mirrors CommentPopover's handleRemove (unset mark, drop the record,
+// persist) — the author-deletion gesture whose non-resurrection the
+// seenRowIds ledger guarantees (#905).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+;(window as any).__prose_share = {
+  sync: async () => {
+    const { document } = useEditorStore.getState()
+    if (!document.path || !document.documentId) return { ok: false, error: 'no document open' }
+    const res = await getApi().shareGetForPath(document.path)
+    if (!res.ok || res.entries.length === 0) return { ok: false, error: 'no share entry' }
+    const entry = res.entries.find((e) => !e.revokedAt)
+    if (!entry) return { ok: false, error: 'revoked' }
+    return syncShareComments(entry, document.documentId)
+  },
+  deleteThread: (id: string) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const editor = (window as any).__prose_editor
+    editor?.commands.unsetComment(id)
+    const { pendingComments, documentId, saveComments } = useCommentStore.getState()
+    const updated = pendingComments.filter((c) => c.id !== id)
+    useCommentStore.setState({ pendingComments: updated })
+    if (documentId) void saveComments(documentId, updated)
+  },
 }
 // Test seam — INTENTIONALLY always-on, same tier as __prose_tools/__prose_debug.
 // Lets Playwright drive the chat surface with zero LLM: seed a conversation and

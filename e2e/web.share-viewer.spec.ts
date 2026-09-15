@@ -1548,3 +1548,158 @@ test.describe('share artifact opened locally', () => {
     expect(requests).toHaveLength(0)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Live (served) mode — the artifact at /s/<token>, gateway stubbed via
+// page.route so the REAL viewer runs its online poll against controlled
+// responses (#915).
+// ---------------------------------------------------------------------------
+
+/** Node-side mirror of the viewer's fnv1aHex — the draft-key digest scheme. */
+function fnv1aHex(s: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0
+  }
+  return ('0000000' + h.toString(16)).slice(-8)
+}
+
+interface LiveRow {
+  id: string
+  parentId: string | null
+  markedText: string
+  occurrenceIndex: number
+  commentText: string
+  authorName: string
+  resolvedAt: string | null
+  createdAt: string
+}
+
+const LIVE_ORIGIN = 'https://stub.example'
+const LIVE_T0 = Date.parse('2026-09-14T10:00:00.000Z')
+const liveIso = (offsetMs: number): string => new Date(LIVE_T0 + offsetMs).toISOString()
+
+function liveRow(id: string, createdAt: string, text: string): LiveRow {
+  return {
+    id,
+    parentId: null,
+    markedText: 'quick brown fox',
+    occurrenceIndex: 0,
+    commentText: text,
+    authorName: 'Reviewer Rae',
+    resolvedAt: null,
+    createdAt,
+  }
+}
+
+/**
+ * Serve the share artifact at LIVE_ORIGIN/s/<token> and its comments route
+ * from `rows`, paging exactly like the gateway (500-row pages, gte boundary,
+ * nextCursor = last row's createdAt). Records each GET's `since` param.
+ */
+async function serveLive(
+  page: import('@playwright/test').Page,
+  token: string,
+  rows: LiveRow[],
+  sinceLog: Array<string | null>,
+): Promise<void> {
+  const html = await buildShareHtml(EDITOR_HTML, MARKDOWN, {}, 'Share Test', null, [], LIVE_ORIGIN)
+  await page.route(`${LIVE_ORIGIN}/**`, async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === `/s/${token}` && route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, contentType: 'text/html', body: html })
+    }
+    if (url.pathname === `/s/${token}/comments` && route.request().method() === 'GET') {
+      const since = url.searchParams.get('since')
+      sinceLog.push(since)
+      const eligible = since ? rows.filter((r) => r.createdAt >= since) : rows
+      const pageRows = eligible.slice(0, 500)
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          comments: pageRows,
+          nextCursor: pageRows.length > 0 ? pageRows[pageRows.length - 1].createdAt : null,
+        }),
+      })
+    }
+    return route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"not_found"}' })
+  })
+}
+
+test.describe('live viewer against a stubbed gateway', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedListMode(page)
+  })
+
+  test('the poll walks full 500-row pages and dedupes the gte boundary', async ({ page }) => {
+    // 501 rows: page 1 is exactly full, so the walk must fetch page 2 (which
+    // re-serves the boundary row under gte) — a single-page poll would
+    // silently hide row 501 (audit M-05).
+    const rows = Array.from({ length: 501 }, (_, i) =>
+      liveRow(`srv-${String(i + 1).padStart(3, '0')}`, liveIso(i * 1000), `Live row ${i + 1}`),
+    )
+    const sinceLog: Array<string | null> = []
+    await serveLive(page, 'tok-walk', rows, sinceLog)
+    await page.goto(`${LIVE_ORIGIN}/s/tok-walk`)
+
+    await expect(page.locator('#prose-rail-toggle')).toContainText('501 comments', { timeout: 15000 })
+    expect(sinceLog).toEqual([null, liveIso(499 * 1000)])
+    // The boundary row appears once, and the past-the-page row made it in.
+    await expect(page.locator('.prose-thread[data-thread-id="srv-500"]')).toHaveCount(1)
+    await expect(page.locator('.prose-thread[data-thread-id="srv-501"]')).toHaveCount(1)
+  })
+
+  test('legacy raw-token draft keys migrate to the digested key (H-02 hygiene)', async ({ page }) => {
+    const token = 'tok-migrate-me'
+    const legacyKey = `prose-drafts:${token}`
+    const digestedKey = `prose-drafts:k${fnv1aHex(token)}${fnv1aHex(token.split('').reverse().join(''))}`
+    await page.addInitScript(
+      ({ key }) => {
+        window.localStorage.setItem(
+          key,
+          JSON.stringify({
+            v: 1,
+            at: Date.now(),
+            threads: [
+              {
+                id: 'local-migrated-1',
+                markedText: 'quick brown fox',
+                occurrenceIndex: 0,
+                comment: 'Migrated draft',
+                authorName: 'Draft Dana',
+                createdAt: Date.now(),
+                replies: [],
+              },
+            ],
+            replies: [],
+            notSent: {},
+          }),
+        )
+      },
+      { key: legacyKey },
+    )
+    const sinceLog: Array<string | null> = []
+    await serveLive(page, token, [], sinceLog)
+    await page.goto(`${LIVE_ORIGIN}/s/${token}`)
+
+    // The draft survived the key migration and renders.
+    await expect(page.getByText('Migrated draft')).toBeVisible()
+    // The raw token no longer appears in any localStorage KEY NAME — the
+    // enumerable-keys leak the digest scheme exists to close.
+    const keys = await page.evaluate(() => {
+      const out: Record<string, boolean> = {}
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const k = window.localStorage.key(i)
+        if (k) out[k] = true
+      }
+      return out
+    })
+    expect(keys[legacyKey]).toBeUndefined()
+    expect(keys[digestedKey]).toBe(true)
+    expect(Object.keys(keys).some((k) => k.includes(token))).toBe(false)
+    const migrated = await page.evaluate((k) => window.localStorage.getItem(k), digestedKey)
+    expect(migrated).toContain('Migrated draft')
+  })
+})

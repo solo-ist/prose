@@ -370,7 +370,7 @@ Step-by-step recipes for common extension tasks (settings tab, IPC channel, TipT
 
 ## Security Rules
 
-- **Path validation** — every filesystem IPC handler must call `validatePath()` (`src/main/ipc.ts`). Rejects paths containing `..` after normalization.
+- **Path validation** — every filesystem IPC handler must call `validatePath()` (`src/main/ipc.ts`). KNOW WHAT IT IS: a normalizer, NOT containment — `normalize()` resolves `..` before the traversal check, so `a/../../etc/x` passes clean. That is acceptable ONLY for user-chosen paths (dialogs, the file explorer). Any handler whose path can originate from DOCUMENT CONTENT or an imported artifact must additionally take a containment root and verify the resolved path stays under it (see `file:readBase64` — audit H-03). Never cite `validatePath()` as a traversal defense.
 - **API keys** — store via `credentialStore` (OS `safeStorage`), never in plaintext. If `safeStorage` is unavailable, keys are stripped, not saved.
 - **No `innerHTML` with dynamic data** — use JSX or `textContent`. LLM-generated content must never be inserted as raw HTML.
 - **Sandbox settings** — `contextIsolation: true`, `nodeIntegration: false` — never change these.

@@ -315,7 +315,14 @@ test.beforeAll(async () => {
     ),
   )
 
-  const launched = await launchApp({ env: { PROSE_USER_DATA_DIR: userDataDir } })
+  // Linux CI has no keyring: without --password-store=basic, safeStorage
+  // reports unavailable and credentialStore.set (the sign-in's session
+  // write) throws. Basic-backend obfuscation is fine for a throwaway
+  // profile; macOS/Windows ignore the switch.
+  const launched = await launchApp({
+    env: { PROSE_USER_DATA_DIR: userDataDir },
+    args: process.platform === 'linux' ? ['--password-store=basic'] : [],
+  })
   app = launched.app
   page = launched.page
   await waitForAppReady(page)

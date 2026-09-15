@@ -30,6 +30,23 @@ const EnvSchema = z.object({
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
   RATE_LIMIT_WINDOW_S: z.coerce.number().int().positive().default(60),
 
+  // Share author surface rate limit (its own bucket): comment rows are tiny
+  // writes, and a revoke→republish conversation migration bursts one write
+  // per thread/reply/resolve plus the re-bake PUT.
+  SHARE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
+
+  // Public (anonymous) comment writes per IP per minute. Env-configurable so
+  // the test suite — one IP making every request — can fit its legitimate
+  // writes without loosening the production default.
+  SHARE_PUBLIC_WRITE_MAX: z.coerce.number().int().positive().default(10),
+
+  // Origin isolation for served share pages (#902): when set, /s/* lives on
+  // THIS host (cookie-less — author-controlled artifact JS can never reach a
+  // session or the API origin's localStorage) and the API host redirects
+  // artifact page loads here. Unset = single-origin (dev default; accepted
+  // debt only while share_publish stays with trusted accounts).
+  SHARE_BASE_URL: z.string().url().optional(),
+
   // Cloudflare R2 (blobs only; stub in Phase 0).
   R2_ACCOUNT_ID: z.string().optional(),
   R2_ACCESS_KEY_ID: z.string().optional(),
@@ -72,6 +89,39 @@ const EnvSchema = z.object({
       path: ['ANTHROPIC_API_KEY'],
       message: 'required in production',
     })
+  }
+  // #902 origin isolation must be a decision, not a default: without
+  // SHARE_BASE_URL, author-controlled artifact JS (script-src unsafe-inline)
+  // is served from the session-cookie origin. Fail the boot rather than
+  // silently ship single-origin. (Addendum review: "single-origin unless
+  // someone remembers an env var" is not a posture.)
+  if (!env.SHARE_BASE_URL) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['SHARE_BASE_URL'],
+      message: 'required outside development (#902) — the share host must be a separate origin',
+    })
+  } else {
+    if (!env.SHARE_BASE_URL.startsWith('https://')) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['SHARE_BASE_URL'],
+        message: 'must be an explicit https:// URL outside development',
+      })
+    }
+    try {
+      // Same host would make app.ts's partition guard disable itself at
+      // runtime — reject at boot instead of degrading silently.
+      if (new URL(env.SHARE_BASE_URL).host === new URL(env.BETTER_AUTH_URL).host) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['SHARE_BASE_URL'],
+          message: 'must be a different host from BETTER_AUTH_URL (#902 origin isolation)',
+        })
+      }
+    } catch {
+      // Unparseable URLs are already rejected by the field schemas above.
+    }
   }
 })
 

@@ -20,6 +20,16 @@ export interface CommentReply {
    * the reply came from this desktop (the author) or the AI.
    */
   authorName?: string
+  /**
+   * Gateway row id after this reply was pushed to the live conversation
+   * (#769). Invariant: pull-merge dedupes incoming replies against both id
+   * AND shareId, and artifact bakes emit the reply under shareId when
+   * present — so a pushed reply is one row everywhere (desktop, baked page,
+   * live poll), never a duplicate. Missing → never pushed.
+   */
+  shareId?: string
+  /** ISO stamp when the reviewer edited their reply text (#769). */
+  editedAt?: string | null
 }
 
 export interface CommentData {
@@ -33,6 +43,12 @@ export interface CommentData {
    * older data → treated as 'user'.
    */
   author?: 'user' | 'ai'
+  /**
+   * Display name for threads that arrived from a share reviewer (#768/#769) —
+   * via the gateway or an annotated-artifact import. Missing → the thread was
+   * created on this desktop.
+   */
+  authorName?: string
   /** 0-based index of which occurrence of markedText this comment anchors to. Missing in older data → treated as 0. */
   occurrenceIndex?: number
   from: number
@@ -56,6 +72,8 @@ export interface CommentData {
    * instead of being dropped (#769). Missing → anchored normally.
    */
   anchorLost?: boolean
+  /** ISO stamp when the reviewer edited their comment text (#769). */
+  editedAt?: string | null
   /**
    * Artifact revision (content hash) this comment was anchored against at
    * publish time (#768). Missing → created locally, never published.

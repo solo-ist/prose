@@ -1,7 +1,7 @@
 import { ipcMain, dialog, app, shell, BrowserWindow, clipboard, nativeImage } from 'electron'
 import { IS_MAS_BUILD } from './env'
 import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat, copyFile } from 'fs/promises'
-import { join, dirname, normalize, isAbsolute } from 'path'
+import { join, dirname, normalize, isAbsolute, resolve, sep } from 'path'
 import { randomUUID } from 'crypto'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
@@ -220,10 +220,27 @@ export function setupIpcHandlers(): void {
     }
   })
 
-  // File: Read binary file as base64
-  ipcMain.handle('file:readBase64', async (_event, path: string) => {
-    const safePath = validatePath(path)
-    const buffer = await readFile(safePath)
+  // File: Read binary file as base64 — used ONLY by HTML export's image
+  // inlining, and constrained accordingly (independent security audit,
+  // H-03): document content controls these paths (an imported artifact's
+  // markdown can carry `![x](../../.ssh/id_rsa)` or an absolute local-file:
+  // URL), and validatePath alone is no containment — normalize() resolves
+  // the `..` before the traversal check ever runs. The caller must name the
+  // directory the read is allowed to happen under (the open document's
+  // folder); the resolved path must stay inside it and look like an image.
+  ipcMain.handle('file:readBase64', async (_event, path: string, allowedRoot: string) => {
+    const root = String(allowedRoot ?? '')
+    if (!root) throw new Error('readBase64 requires a containment root')
+    const resolvedRoot = resolve(expandPath(root))
+    const resolved = resolve(resolvedRoot, expandPath(String(path ?? '')))
+    if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + sep)) {
+      throw new Error('readBase64 outside the document directory refused')
+    }
+    const ext = resolved.split('.').pop()?.toLowerCase() ?? ''
+    if (!['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', 'bmp', 'ico'].includes(ext)) {
+      throw new Error('readBase64 is limited to image files')
+    }
+    const buffer = await readFile(resolved)
     return Buffer.from(buffer).toString('base64')
   })
 
@@ -1692,6 +1709,223 @@ export function setupIpcHandlers(): void {
     const { removeGoogleSyncMetadataEntry } = await import('./google/sync')
     await removeGoogleSyncMetadataEntry(googleDocId)
   })
+
+  // --- Share (#768): publish/re-publish/revoke + interim gateway sign-in ---
+  // Gated in the renderer by the webPlatform flag (force-off on MAS); the
+  // MAS guard here is belt-and-braces, mirroring google:startAuth.
+
+  // Server row ids are Prisma-generated (cuid/uuid charset) — the strict
+  // guard keeps a crafted id (e.g. '../../api/auth/x') out of the fetch
+  // URLs the share client interpolates them into (PR #901 round 11). An
+  // invalid id becomes '' and fails the module's entry lookup safely.
+  const shareRowId = (v: unknown): string => {
+    const s = String(v ?? '')
+    return /^[A-Za-z0-9-]{1,64}$/.test(s) ? s : ''
+  }
+
+  const MAS_SHARE_BLOCKED = { ok: false as const, error: 'Sharing is not available in the Mac App Store version.' }
+
+  ipcMain.handle('share:authStatus', async () => {
+    // MAS: no sharing surface exists (webPlatform is force-off), and this
+    // handler would touch credentialStore — gate it like the write handlers
+    // for symmetry (PR #901 round 4).
+    if (IS_MAS_BUILD) {
+      return { ok: false, error: 'Sharing is not available in the Mac App Store version.' }
+    }
+    const share = await import('./share/index')
+    return share.authStatus()
+  })
+
+  ipcMain.handle('share:requestSignIn', async (_event, email: string) => {
+    if (IS_MAS_BUILD) {
+      return { ok: false, error: 'Sharing is not available in the Mac App Store version.' }
+    }
+    const share = await import('./share/index')
+    return share.requestSignIn(String(email ?? ''))
+  })
+
+  ipcMain.handle('share:completeSignIn', async (_event, magicUrl: string) => {
+    if (IS_MAS_BUILD) {
+      return { ok: false, error: 'Sharing is not available in the Mac App Store version.' }
+    }
+    const share = await import('./share/index')
+    return share.completeSignIn(String(magicUrl ?? ''))
+  })
+
+  ipcMain.handle('share:signOut', async () => {
+    // Consistency with the other credentialStore-touching handlers — no MAS
+    // surface calls this (webPlatform is force-off there).
+    if (IS_MAS_BUILD) {
+      return { ok: false, error: 'Sharing is not available in the Mac App Store version.' }
+    }
+    const share = await import('./share/index')
+    return share.signOut()
+  })
+
+  ipcMain.handle(
+    'share:publish',
+    async (_event, args: { title: string; html: string; localPath: string; documentId: string }) => {
+      if (IS_MAS_BUILD) {
+        return { ok: false, error: 'Sharing is not available in the Mac App Store version.' }
+      }
+      // localPath is only stored in share-sync.json today, but the repo rule
+      // is every path-taking IPC handler validates — a future reader of this
+      // field must not inherit an unvalidated value. Reject empty explicitly:
+      // String(undefined ?? '') would otherwise normalize to '.' inside
+      // validatePath (#914). All other fields coerce like the rest of the
+      // share:* set.
+      const localPath = String(args?.localPath ?? '')
+      if (!localPath) return { ok: false, error: 'A local path is required to publish.' }
+      const share = await import('./share/index')
+      return share.publish({
+        title: String(args?.title ?? ''),
+        html: String(args?.html ?? ''),
+        documentId: shareRowId(args?.documentId),
+        localPath: validatePath(localPath),
+      })
+    }
+  )
+
+  ipcMain.handle(
+    'share:republish',
+    async (_event, args: { publicationId: string; title: string; html: string }) => {
+      // Same MAS gate as share:publish — a migrated share-sync.json must not
+      // reopen write surfaces the publish gate closed (PR #901 review).
+      if (IS_MAS_BUILD) {
+        return { ok: false, error: 'Sharing is not available in the Mac App Store version.' }
+      }
+      const share = await import('./share/index')
+      // Coerce like every other share:* handler — publicationId lands in a
+      // fetch URL (PR #901 round 10).
+      return share.republish({
+        publicationId: shareRowId(args?.publicationId),
+        title: String(args?.title ?? ''),
+        html: String(args?.html ?? ''),
+      })
+    }
+  )
+
+  ipcMain.handle('share:revoke', async (_event, publicationId: string) => {
+    if (IS_MAS_BUILD) {
+      return { ok: false, error: 'Sharing is not available in the Mac App Store version.' }
+    }
+    const share = await import('./share/index')
+    return share.revoke(shareRowId(publicationId))
+  })
+
+  ipcMain.handle('share:list', async () => {
+    const share = await import('./share/index')
+    return share.list()
+  })
+
+  // MAS policy for share:* handlers — deliberate split, matched to the
+  // implementation (#908): ONLY `share:list` and `share:getForPath` — pure
+  // local-metadata reads — stay callable, so a user migrating from a
+  // non-MAS install can still SEE their existing shares. Everything that
+  // writes (gateway or share-sync.json) or touches credentialStore +
+  // network (comments/pullComments attach the session cookie) is
+  // IS_MAS_BUILD-gated. webPlatform is force-off on MAS, so no UI reaches
+  // any of them; the gates close the bare-IPC surface.
+  ipcMain.handle('share:getForPath', async (_event, localPath: string) => {
+    const share = await import('./share/index')
+    return share.getForPath(validatePath(String(localPath ?? '')))
+  })
+
+  ipcMain.handle('share:comments', async (_event, publicationId: string) => {
+    if (IS_MAS_BUILD) return MAS_SHARE_BLOCKED
+    const share = await import('./share/index')
+    return share.fetchAllComments(shareRowId(publicationId))
+  })
+
+  ipcMain.handle('share:pullComments', async (_event, publicationId: string) => {
+    if (IS_MAS_BUILD) return MAS_SHARE_BLOCKED
+    const share = await import('./share/index')
+    return share.pullComments(shareRowId(publicationId))
+  })
+
+  ipcMain.handle(
+    'share:ackCursor',
+    async (_event, publicationId: string, cursor: string, seenRowIds?: unknown) => {
+      if (IS_MAS_BUILD) return MAS_SHARE_BLOCKED
+      const share = await import('./share/index')
+      // The seen-row ledger ids (#905 follow-up): same charset guard as
+      // every other row id, capped so a hostile renderer can't balloon
+      // share-sync.json.
+      const ids = Array.isArray(seenRowIds)
+        ? seenRowIds.slice(0, 2000).map(shareRowId).filter((s) => s !== '')
+        : []
+      return share.ackCommentCursor(shareRowId(publicationId), String(cursor ?? ''), ids)
+    }
+  )
+
+  ipcMain.handle(
+    'share:updateLocalPath',
+    async (_event, oldPath: string, newPath: string, newDocumentId: string) => {
+      if (IS_MAS_BUILD) return MAS_SHARE_BLOCKED
+      const share = await import('./share/index')
+      return share.renamedLocalPath(
+        validatePath(String(oldPath ?? '')),
+        validatePath(String(newPath ?? '')),
+        String(newDocumentId ?? '')
+      )
+    }
+  )
+
+  ipcMain.handle('share:setSyncMode', async (_event, publicationId: string, mode: string) => {
+    if (IS_MAS_BUILD) return MAS_SHARE_BLOCKED
+    const share = await import('./share/index')
+    return share.setSyncMode(shareRowId(publicationId), String(mode ?? ''))
+  })
+
+  ipcMain.handle(
+    'share:createComment',
+    async (
+      _event,
+      publicationId: string,
+      args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string; fromAuthor?: boolean }
+    ) => {
+      if (IS_MAS_BUILD) return MAS_SHARE_BLOCKED
+      const share = await import('./share/index')
+      return share.createComment(shareRowId(publicationId), {
+        markedText: String(args?.markedText ?? ''),
+        occurrenceIndex: Number.isInteger(args?.occurrenceIndex) ? args.occurrenceIndex : 0,
+        text: String(args?.text ?? ''),
+        authorName: args?.authorName === undefined ? undefined : String(args.authorName),
+        fromAuthor: args?.fromAuthor === false ? false : undefined
+      })
+    }
+  )
+
+  ipcMain.handle(
+    'share:replyToComment',
+    async (
+      _event,
+      publicationId: string,
+      commentId: string,
+      text: string,
+      authorName?: string,
+      fromAuthor?: boolean
+    ) => {
+      if (IS_MAS_BUILD) return MAS_SHARE_BLOCKED
+      const share = await import('./share/index')
+      return share.replyToComment(
+        shareRowId(publicationId),
+        shareRowId(commentId),
+        String(text ?? ''),
+        authorName === undefined ? undefined : String(authorName),
+        fromAuthor === false ? false : undefined
+      )
+    }
+  )
+
+  ipcMain.handle(
+    'share:resolveComment',
+    async (_event, publicationId: string, commentId: string, resolved: boolean) => {
+      if (IS_MAS_BUILD) return MAS_SHARE_BLOCKED
+      const share = await import('./share/index')
+      return share.resolveComment(shareRowId(publicationId), shareRowId(commentId), Boolean(resolved))
+    }
+  )
 
   // MCP: Get installation status
   ipcMain.handle('mcp:getStatus', async (): Promise<{

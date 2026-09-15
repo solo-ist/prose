@@ -26,7 +26,7 @@ export * from './shared'
  * Locally, can optionally launch from source via electron-vite dev.
  */
 export async function launchApp(
-  options?: { env?: Record<string, string> },
+  options?: { env?: Record<string, string>; args?: string[] },
 ): Promise<{ app: ElectronApplication; page: Page }> {
   const projectRoot = resolve(__dirname, '..')
   // Merge env overrides over the inherited environment — Playwright's `env`
@@ -35,6 +35,10 @@ export async function launchApp(
   const env = options?.env
     ? { ...(process.env as Record<string, string>), ...options.env }
     : undefined
+  // Extra Chromium/Electron switches (e.g. --password-store=basic so
+  // safeStorage works on keyring-less Linux CI). Position-independent:
+  // Chromium parses switches from anywhere in argv.
+  const extraArgs = options?.args ?? []
 
   // Try to find a packaged build first (electron-builder output)
   let appPath: string
@@ -61,12 +65,12 @@ export async function launchApp(
     const appInfo = parseElectronApp(appPath)
     app = await electron.launch({
       executablePath: appInfo.executable,
-      args: [appInfo.main],
+      args: [appInfo.main, ...extraArgs],
       ...(env ? { env } : {}),
     })
   } else {
     app = await electron.launch({
-      args: [appPath],
+      args: [appPath, ...extraArgs],
       ...(env ? { env } : {}),
     })
   }

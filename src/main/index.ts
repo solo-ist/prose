@@ -55,9 +55,11 @@ import { setupFileWatcherHandlers, teardownFileWatcher } from './fileWatcher'
 console.log('[Main] Environment loaded. OCR URL:', process.env.REMARKABLE_OCR_URL ? 'set' : 'not set')
 console.log('[Main] Google configured:', process.env.GOOGLE_CLIENT_ID ? 'ID set' : 'ID missing', process.env.GOOGLE_CLIENT_SECRET ? 'Secret set' : 'Secret missing')
 
-// Enable remote debugging in dev mode for QA automation (Circuit Electron, Playwright)
+// Enable remote debugging in dev mode for QA automation (Circuit Electron, Playwright).
+// PROSE_DEBUG_PORT overrides the default so concurrent agent sessions (other
+// worktrees) don't collide on 9222 — a bind failure here kills the app.
 if (is.dev) {
-  app.commandLine.appendSwitch('remote-debugging-port', '9222')
+  app.commandLine.appendSwitch('remote-debugging-port', process.env.PROSE_DEBUG_PORT ?? '9222')
 }
 
 // Write PID file in dev mode for safe process cleanup by Claude Code agents

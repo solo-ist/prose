@@ -20,14 +20,33 @@ function Toast({ notification }: { notification: AppNotification }) {
     return () => clearTimeout(timer)
   }, [id, durationMs, triggeredAt, dismiss])
 
+  // A toast with an action but no button label is clickable as a whole —
+  // e.g. the comment-sync toast opens the new thread in Comment Review.
+  const bodyClickable = !!onAction && !actionLabel
+
   return (
     <div
       role="status"
       aria-live="polite"
-      className="pointer-events-auto relative w-80 rounded-lg border border-border bg-popover text-popover-foreground shadow-lg p-4 animate-in fade-in slide-in-from-bottom-2"
+      onClick={
+        bodyClickable
+          ? () => {
+              onAction?.()
+              dismiss(id)
+            }
+          : undefined
+      }
+      className={`pointer-events-auto relative w-80 rounded-lg border border-border bg-popover text-popover-foreground shadow-lg p-4 animate-in fade-in slide-in-from-bottom-2 ${
+        // hover bg must stay OPAQUE — an alpha color here replaces the solid
+        // popover background and the editor bleeds through the toast.
+        bodyClickable ? 'cursor-pointer transition-colors hover:border-muted-foreground/40 hover:bg-muted' : ''
+      }`}
     >
       <button
-        onClick={() => dismiss(id)}
+        onClick={(e) => {
+          e.stopPropagation()
+          dismiss(id)
+        }}
         aria-label="Dismiss"
         className="absolute top-2 right-2 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:text-foreground"
       >

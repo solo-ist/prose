@@ -44,9 +44,77 @@ model User {
   sessions      Session[]
   accounts      Account[]
   entitlements  Entitlement[]
+  publications  Publication[]
 
   @@unique([email])
   @@map("user")
+}
+
+/// A published share artifact (#768). The raw capability token lives ONLY in
+/// the share URL — the row stores its SHA-256, so a DB dump never exposes a
+/// live link. Artifact HTML goes to R2 when configured (`r2Key`), else to the
+/// `artifactHtml` fallback column (single-instance beta / local dev).
+/// `atproto*` columns are the §8 ATProto seam (docs/architecture/atproto-publishing.md).
+model Publication {
+  id                 String    @id @default(uuid())
+  tokenHash          String    @unique
+  authorId           String
+  author             User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  title              String
+  publishRev         String
+  revCount           Int       @default(1)
+  storage            String    @default("db") // 'r2' | 'db'
+  r2Key              String?
+  artifactHtml       String?
+  publishedAt        DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  revokedAt          DateTime?
+  atprotoAtUri       String?
+  atprotoBskyPostUri String?
+  comments           ShareComment[]
+
+  @@index([authorId])
+  @@map("publications")
+}
+
+/// An anonymous reviewer comment or reply on a publication (#768).
+/// `authorEmail` is notification-only and MUST NEVER be exposed through any
+/// read endpoint or embedded artifact. Replies self-join one level deep
+/// (parent must be top-level), matching the desktop CommentReply model.
+/// `fromAuthor` marks rows pushed by the publication's author from Prose
+/// (replies/live conversation, #769); `resolvedAt` is author-controlled
+/// resolution state, meaningful on top-level rows only.
+model ShareComment {
+  id              String        @id @default(uuid())
+  publicationId   String
+  publication     Publication   @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+  markedText      String
+  occurrenceIndex Int           @default(0)
+  commentText     String
+  authorName      String
+  authorEmail     String?
+  // Anonymous-ownership capability: returned ONLY in the creating POST's
+  // response, never on any read. Whoever holds it may edit or delete the
+  // row (viewers are anonymous — this is the proof of authorship).
+  // Stored as a SHA-256 hex hash — a DB dump must not hand out the
+  // capability. (Legacy rows held the raw token; the PATCH handler
+  // upgrades them in place on a successful match.)
+  editToken       String?
+  // Set when the owner edited the text (viewers see an "edited" marker).
+  editedAt        DateTime?
+  // Soft delete: content scrubbed, row kept as a tombstone so polls/pulls
+  // convey the deletion and the migration backfill can't resurrect it.
+  deletedAt       DateTime?
+  fromAuthor      Boolean       @default(false)
+  resolvedAt      DateTime?
+  parentId        String?
+  parent          ShareComment?  @relation("thread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies         ShareComment[] @relation("thread")
+  publishRev      String
+  createdAt       DateTime      @default(now())
+
+  @@index([publicationId, createdAt])
+  @@map("share_comments")
 }
 
 model Session {

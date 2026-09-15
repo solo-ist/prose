@@ -159,6 +159,30 @@ function sanitizeField(value: unknown, maxLength: number): string {
   return String(value ?? '').replace(CONTROL_CHARS, '').substring(0, maxLength)
 }
 
+/**
+ * Rewrite the article's inline comment-mark ids to match the comments block.
+ *
+ * The block bakes each thread under its server row id (shareId) — see
+ * sanitizeComments — but the article HTML comes straight from the editor,
+ * whose mark spans carry the LOCAL comment id. Left unremapped, the served
+ * viewer looks a thread up by its (server) block id, fails to find the
+ * (local) article mark, and anchorAllThreads wraps a SECOND mark: every
+ * pushed thread ends up double-marked (wrong narrow superscripts, "N of N"
+ * counts off by the duplication, broken tap targets). Only top-level threads
+ * carry article marks — replies never do — so this maps thread ids only.
+ * A literal split/join keyed on the exact attribute is safe: ids are
+ * controlled slugs and appear nowhere else in the article.
+ */
+function remapArticleCommentIds(html: string, comments: CommentData[]): string {
+  let out = html
+  for (const c of comments) {
+    if (c.shareId && c.shareId !== c.id) {
+      out = out.split(`data-comment-id="${c.id}"`).join(`data-comment-id="${c.shareId}"`)
+    }
+  }
+  return out
+}
+
 function sanitizeComments(comments: CommentData[]): CommentData[] {
   return comments.map(({ shareId, ...c }) => ({
     ...c,
@@ -238,7 +262,11 @@ async function buildArtifactHtml(
   shareEndpoint: string | null
 ): Promise<string> {
   const imageMap = await buildImageMap(editorHtml, documentDir)
-  const inlinedHtml = inlineHtmlImages(editorHtml, imageMap)
+  // Remap inline mark ids to the block's server ids BEFORE hashing, so the
+  // served article, the comments block, and publishRev are all internally
+  // consistent (and republish stays idempotent — shareIds are stable).
+  const remappedHtml = comments ? remapArticleCommentIds(editorHtml, comments) : editorHtml
+  const inlinedHtml = inlineHtmlImages(remappedHtml, imageMap)
   const inlinedMarkdown = inlineMarkdownImages(
     serializeMarkdown(markdown, frontmatter),
     imageMap,

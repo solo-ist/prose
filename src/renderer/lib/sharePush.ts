@@ -43,6 +43,31 @@ const inFlight = new Set<string>()
 // could still emit the thread under its desktop id and every viewer reply
 // to it would 404. (Addendum review — confirmed by trace.)
 const inFlightThreads = new Map<string, Promise<void>>()
+
+// Every in-flight push (thread, reply, resolve) registers here so a content
+// bake can wait for ALL of them to assign their shareIds first. A reply
+// baked while its push is still in flight lands under its LOCAL id, while
+// the live poll returns the same reply under its SERVER id — the viewer then
+// shows it twice. `awaitPendingPushes()` before the bake closes that race.
+const pendingPushes = new Set<Promise<unknown>>()
+
+function track(p: Promise<unknown>): void {
+  pendingPushes.add(p)
+  void p.finally(() => pendingPushes.delete(p))
+}
+
+/**
+ * Resolve once no comment push is in flight. A thread push can spawn reply
+ * and resolve pushes as it settles (they were queued while it had no server
+ * row), so drain in a short loop rather than a single wait; the cap bounds it
+ * against a pathological retry storm (queued failures wait for focus, not
+ * this drain).
+ */
+export async function awaitPendingPushes(): Promise<void> {
+  for (let i = 0; i < 5 && pendingPushes.size > 0; i++) {
+    await Promise.allSettled([...pendingPushes])
+  }
+}
 // Resolve pushes that arrived while one was in flight — re-fired on settle
 // so the server converges on the final toggle state (#909).
 const resolveRerun = new Set<string>()
@@ -153,6 +178,7 @@ async function pushThread(threadId: string): Promise<void> {
     }
   })()
   inFlightThreads.set(key, run)
+  track(run)
   return run
 }
 
@@ -251,7 +277,7 @@ export function pushReplyToShare(threadId: string, replyId: string): void {
   if (inFlight.has(key)) return
   inFlight.add(key)
 
-  void (async () => {
+  track((async () => {
     try {
       const entry = await activeEntry()
       if (!entry) return
@@ -289,7 +315,7 @@ export function pushReplyToShare(threadId: string, replyId: string): void {
     } finally {
       inFlight.delete(key)
     }
-  })()
+  })())
 }
 
 /**
@@ -319,7 +345,7 @@ export function pushResolveToShare(threadId: string): void {
   }
   inFlight.add(key)
 
-  void (async () => {
+  track((async () => {
     let sentState: boolean | null = null
     try {
       const entry = await activeEntry()
@@ -353,7 +379,7 @@ export function pushResolveToShare(threadId: string): void {
         pushResolveToShare(threadId)
       }
     }
-  })()
+  })())
 }
 
 /** Retry queued pushes (window focus, or after a successful content push). */

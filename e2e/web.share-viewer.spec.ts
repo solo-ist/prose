@@ -173,6 +173,58 @@ test.describe('artifact format', () => {
     expect(threads.every((t) => !('shareId' in t))).toBe(true)
   })
 
+  test('the article mark is remapped to the shareId too, matching the block', async () => {
+    // Regression (manual QA, 2026-09-15): the block was remapped to the server
+    // id but the article's inline mark kept the LOCAL editor id, so the viewer
+    // looked a thread up by its (server) block id, missed the (local) article
+    // mark, and anchored a SECOND mark — every pushed thread double-marked
+    // (wrong narrow superscripts, "N of N" counts, broken tap targets). The
+    // article mark and the block id must agree.
+    const withPushed: CommentData[] = [{ ...COMMENTS[0], shareId: 'srv-t1' }, COMMENTS[1]]
+    const baked = await buildProseHtml(EDITOR_HTML, MARKDOWN, {}, 'Share Test', null, withPushed)
+    // The pushed thread's mark now carries the server id, and the pre-remap
+    // local id is gone from the article.
+    expect(baked).toContain('data-comment-id="srv-t1"')
+    expect(baked).not.toContain('data-comment-id="c1"')
+    // The unpushed thread (no shareId) keeps its local id in both places.
+    expect(baked).toContain('data-comment-id="c2"')
+  })
+
+  test('a pushed thread renders exactly one mark and one superscript, not two', async ({ page }) => {
+    // The end-to-end shape of the same bug: served-mode artifact with a thread
+    // whose block id (shareId) differs from its editor mark id. Before the fix
+    // the viewer painted two overlapping marks per thread — 6 sups for 3
+    // threads, "6 of 6" in the sheet. Rendered from file:// (offline), where
+    // the block ids ARE the anchors, this pins one-mark-per-thread.
+    const withShareIds: CommentData[] = [
+      { ...COMMENTS[0], shareId: 'srv-a' },
+      { ...COMMENTS[1], shareId: 'srv-b' },
+    ]
+    const html = await buildProseHtml(EDITOR_HTML, MARKDOWN, {}, 'Share Test', null, withShareIds)
+    const file = join(tmpDir, 'remapped-marks.html')
+    writeFileSync(file, html, 'utf-8')
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto(pathToFileURL(file).href)
+    await expect(page.locator('#prose-bottom-bar')).toBeVisible()
+    // Two threads → two distinct mark ids → two marks → two superscripts.
+    const diag = await page.evaluate(() => {
+      const marks = document.querySelectorAll('article span.comment-mark[data-comment-id]')
+      const ids: Record<string, number> = {}
+      marks.forEach((m) => {
+        const id = m.getAttribute('data-comment-id') as string
+        ids[id] = (ids[id] ?? 0) + 1
+      })
+      return {
+        markSpans: marks.length,
+        distinctIds: Object.keys(ids).sort(),
+        sups: document.querySelectorAll('sup.prose-mark-index').length,
+      }
+    })
+    expect(diag.markSpans).toBe(2)
+    expect(diag.distinctIds).toEqual(['srv-a', 'srv-b'])
+    expect(diag.sups).toBe(2)
+  })
+
   test('export without comments is viewer-free and stays re-importable', async () => {
     const plain = await buildProseHtml(EDITOR_HTML, MARKDOWN, {}, 'Share Test', null)
     expect(isProseHtml(plain)).toBe(true)

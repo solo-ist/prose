@@ -22,7 +22,7 @@ import { useEffect } from 'react'
 import { getApi } from './browserApi'
 import { isWebPlatformEnabled } from './featureFlags'
 import { buildShareArtifact } from './shareArtifact'
-import { backfillShareThreads, flushPendingShareOps } from './sharePush'
+import { awaitPendingPushes, backfillShareThreads, flushPendingShareOps } from './sharePush'
 import { useEditorStore } from '../stores/editorStore'
 import { useEditorInstanceStore } from '../stores/editorInstanceStore'
 import { useSettingsStore } from '../stores/settingsStore'
@@ -86,6 +86,11 @@ export async function pushShareContent(reason: 'auto' | 'manual'): Promise<boole
     // baking, so the artifact bakes under server ids and viewer replies to
     // those threads have a live row to land on.
     await backfillShareThreads()
+    // Drain any comment/reply/resolve push still assigning its shareId before
+    // baking: a reply baked under its local id while its push is in flight
+    // would collide with the same reply arriving via the live poll under its
+    // server id, and the viewer would show it twice. (Manual QA, 2026-09-15.)
+    await awaitPendingPushes()
     const artifact = await buildShareArtifact(useEditorInstanceStore.getState().editor, {
       content: doc.content,
       path: doc.path,

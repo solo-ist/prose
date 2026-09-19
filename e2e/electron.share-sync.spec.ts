@@ -29,7 +29,7 @@
 import { test, expect } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -272,6 +272,12 @@ test.beforeAll(async () => {
   )
   writeFileSync(join(docsDir, 'inline.png'), TINY_PNG)
   writeFileSync(join(userDataDir, 'outside.png'), TINY_PNG)
+  // Symlink-escape fixtures (H-03): links that sit lexically INSIDE docsDir but
+  // resolve OUTSIDE it. `readFile` would follow them and leak the target's
+  // bytes — the realpath containment check must refuse both.
+  writeFileSync(join(userDataDir, 'secret.txt'), 'SECRET-OUTSIDE-BYTES')
+  symlinkSync(join(userDataDir, 'secret.txt'), join(docsDir, 'leak.png')) // -> outside non-image
+  symlinkSync(join(userDataDir, 'outside.png'), join(docsDir, 'sneaky.png')) // -> outside image
 
   writeSettings(gateway.origin)
 
@@ -595,4 +601,11 @@ test('readBase64 refuses escapes, non-images, and a missing root', async () => {
   expect(await attempt(join(userDataDir, 'outside.png'), docsDir)).toContain('outside the document directory')
   expect(await attempt('shared-doc.md', docsDir)).toContain('limited to image files')
   expect(await attempt('inline.png', '')).toContain('requires a containment root')
+
+  // Symlink escapes (H-03): lexically in-root, but realpath lands outside.
+  // Must be refused — never return the outside file's bytes.
+  const leak = await attempt('leak.png', docsDir)
+  expect(leak).toContain('outside the document directory')
+  expect(leak).not.toContain(Buffer.from('SECRET-OUTSIDE-BYTES').toString('base64'))
+  expect(await attempt('sneaky.png', docsDir)).toContain('outside the document directory')
 })

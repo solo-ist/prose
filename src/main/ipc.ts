@@ -1,6 +1,6 @@
 import { ipcMain, dialog, app, shell, BrowserWindow, clipboard, nativeImage } from 'electron'
 import { IS_MAS_BUILD } from './env'
-import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat, copyFile } from 'fs/promises'
+import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat, copyFile, realpath } from 'fs/promises'
 import { join, dirname, normalize, isAbsolute, resolve, sep } from 'path'
 import { randomUUID } from 'crypto'
 import { homedir } from 'os'
@@ -233,14 +233,32 @@ export function setupIpcHandlers(): void {
     if (!root) throw new Error('readBase64 requires a containment root')
     const resolvedRoot = resolve(expandPath(root))
     const resolved = resolve(resolvedRoot, expandPath(String(path ?? '')))
+    // Lexical check first — a fast reject for `..` traversal.
     if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + sep)) {
       throw new Error('readBase64 outside the document directory refused')
     }
-    const ext = resolved.split('.').pop()?.toLowerCase() ?? ''
+    // Canonicalize before reading: readFile() follows symlinks, so a
+    // lexically-contained `inline.png` that is actually a symlink pointing
+    // outside the folder (or at a non-image) would otherwise leak arbitrary
+    // file bytes into the export. Compare REAL paths, and derive the extension
+    // allowlist from the real target too (defeats `inline.png` -> `secret.key`
+    // inside the folder). realpath throws for a missing target — reject.
+    let realRoot: string
+    let realResolved: string
+    try {
+      realRoot = await realpath(resolvedRoot)
+      realResolved = await realpath(resolved)
+    } catch {
+      throw new Error('readBase64 target not found')
+    }
+    if (realResolved !== realRoot && !realResolved.startsWith(realRoot + sep)) {
+      throw new Error('readBase64 outside the document directory refused')
+    }
+    const ext = realResolved.split('.').pop()?.toLowerCase() ?? ''
     if (!['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', 'bmp', 'ico'].includes(ext)) {
       throw new Error('readBase64 is limited to image files')
     }
-    const buffer = await readFile(resolved)
+    const buffer = await readFile(realResolved)
     return Buffer.from(buffer).toString('base64')
   })
 

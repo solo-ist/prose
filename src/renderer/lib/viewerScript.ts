@@ -1239,13 +1239,16 @@ export const VIEWER_SCRIPT = `(function () {
     try { return window.localStorage.getItem('prose-commenter-name') || '' } catch (e) { return '' }
   }
 
-  // SECURITY (#919): these secrets live in ORIGIN-WIDE localStorage. Because
-  // every publication is served from the one gateway origin and each carries
-  // author-authored inline JS, a malicious entitled publisher can read another
-  // publication's email + edit tokens from this shared store. Not reachable
-  // while publishing is limited to trusted (manually-entitled) authors; must be
-  // isolated (path-scoped cookies or per-publication origins) BEFORE untrusted
-  // / multi-user publishing ships. Keying tokens per-row does NOT isolate them.
+  // SECURITY (#919): these secrets live in ORIGIN-WIDE localStorage. Every
+  // publication is served from the one gateway origin and each carries
+  // author-authored inline JS, so a malicious OR COMPROMISED entitled publisher
+  // can read another publication's remembered email + edit tokens from this
+  // shared store. Manual entitlements limit WHO can publish — they do NOT make
+  // the flaw unreachable. Accepted as a known P1 under that trusted-publisher
+  // restriction; #919 gates self-service / untrusted publishing. Real isolation
+  // needs a genuine browser boundary (per-publication origins) or a trusted
+  // viewer that prevents author scripts from running — path-scoping or per-row
+  // keying does NOT isolate hostile pages on the same origin.
 
   // The reader's email lives in localStorage ONLY — never on a thread object,
   // where it would bake into annotated copies and travel with the file. It is

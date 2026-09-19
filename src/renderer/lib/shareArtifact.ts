@@ -34,13 +34,24 @@ export async function buildShareArtifact(
   doc: ShareArtifactDoc
 ): Promise<{ title: string; html: string } | null> {
   if (!editor || !doc.content || !doc.path) return null
+  // Identity guard (TOCTOU). A caller may await between choosing this document
+  // and reaching here (auth lookup, thread backfill, push drain). If the active
+  // document has since switched, the live editor + comment store now belong to
+  // a DIFFERENT document — baking them would publish that document's private
+  // content under THIS publication's link. The comment store's documentId
+  // tracks the active document, so a mismatch means we switched: refuse.
+  if (useCommentStore.getState().documentId !== doc.documentId) return null
+  // Snapshot the live editor HTML and comments SYNCHRONOUSLY, before the async
+  // auth lookup below — a switch during that await must not swap in another
+  // document's content after the identity check has passed.
+  const editorHtml = editor.getHTML()
+  const merged = mergeCommentsForPersistence(editor, useCommentStore.getState().pendingComments)
   const status = await getApi().shareAuthStatus()
   const gatewayUrl = status.ok ? status.gatewayUrl : ''
   const title = documentTitle(doc.content, doc.path)
   const docDir = doc.path.substring(0, doc.path.lastIndexOf('/')) || null
-  const merged = mergeCommentsForPersistence(editor, useCommentStore.getState().pendingComments)
   const html = await buildShareHtml(
-    editor.getHTML(),
+    editorHtml,
     doc.content,
     doc.frontmatter,
     title,

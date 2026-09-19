@@ -18,6 +18,9 @@ interface ReviewStoreState {
   previousChatWidth: Record<string, number>
   /** Thread to open Comment Review focused on (from a card/popover expand icon); null = start at 0. Transient, global. */
   commentReviewTargetId: string | null
+  /** Bumped on every enterCommentReview call. Lets the panel re-focus the target
+   *  even when it's already open on the same thread id (repeat expand). */
+  commentReviewTargetSeq: number
   setReviewMode: (mode: ReviewMode | null) => void
   setCurrentSuggestionIndex: (index: number) => void
   setPreviousChatWidth: (width: number) => void
@@ -36,6 +39,7 @@ export const useReviewStore = create<ReviewStoreState>((set, get) => ({
   wasChatOpenBeforeReview: {},
   previousChatWidth: {},
   commentReviewTargetId: null,
+  commentReviewTargetSeq: 0,
 
   setReviewMode: (mode) => {
     const tabId = getActiveTabId()
@@ -89,7 +93,10 @@ export const useReviewStore = create<ReviewStoreState>((set, get) => ({
   },
 
   enterCommentReview: (threadId) => {
-    set({ commentReviewTargetId: threadId ?? null })
+    // Bump the seq so every entry re-fires the panel's focus effect — even when
+    // the SAME thread is requested again after the reviewer navigated away in
+    // the panel (id-only would be a no-op and leave them stranded elsewhere).
+    set((s) => ({ commentReviewTargetId: threadId ?? null, commentReviewTargetSeq: s.commentReviewTargetSeq + 1 }))
     // Reuse setReviewMode so the snapshot / panel-open / resize logic (and the
     // App-level effect keyed on reviewMode) treats Comment Review exactly like
     // Quick Review.
@@ -111,6 +118,12 @@ export function getActiveReviewMode(): ReviewMode | null {
 /** The thread Comment Review should open focused on (null = start at first). */
 export function useCommentReviewTargetId(): string | null {
   return useReviewStore((s) => s.commentReviewTargetId)
+}
+
+/** Bumped on every enterCommentReview call so the panel re-focuses the target
+ *  even when the same thread is requested again (repeat expand after nav). */
+export function useCommentReviewTargetSeq(): number {
+  return useReviewStore((s) => s.commentReviewTargetSeq)
 }
 
 /** Current suggestion index for the currently active tab */

@@ -403,10 +403,9 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
           {!isResolved && (
             <button
               onClick={handleReview}
-              disabled={inCommentReview}
-              aria-label="Open in Review"
-              title={inCommentReview ? 'Already in Review' : 'Open in Review'}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-violet-600 disabled:pointer-events-none disabled:opacity-40 dark:hover:text-violet-400"
+              aria-label={inCommentReview ? 'Show in Review' : 'Open in Review'}
+              title={inCommentReview ? 'Show in Review' : 'Open in Review'}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-violet-600 dark:hover:text-violet-400"
             >
               <Maximize2 className="h-3.5 w-3.5" />
             </button>

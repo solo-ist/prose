@@ -39,11 +39,14 @@ interface CommentReviewPanelProps {
   onExit: () => void
   /** Open Review focused on this thread (from a card's expand icon); else start at 0. */
   initialThreadId?: string | null
+  /** Bumped on every focus request so a repeat expand on the same thread (after
+   *  navigating away in the panel) still re-jumps. */
+  focusSeq?: number
 }
 
 const SWIPE_THRESHOLD = 90
 
-export function CommentReviewPanel({ onExit, initialThreadId }: CommentReviewPanelProps) {
+export function CommentReviewPanel({ onExit, initialThreadId, focusSeq }: CommentReviewPanelProps) {
   const editor = useEditorInstanceStore((s) => s.editor)
   const pendingComments = useCommentStore((s) => s.pendingComments)
   const documentId = useCommentStore((s) => s.documentId)
@@ -64,13 +67,16 @@ export function CommentReviewPanel({ onExit, initialThreadId }: CommentReviewPan
   const total = openThreads.length
   const current = total > 0 ? openThreads[Math.min(index, total - 1)] : undefined
 
-  // Jump to a specific thread when entered via a card's expand icon.
+  // Jump to a specific thread when entered (or re-targeted) via a card/popover
+  // expand icon. Keyed on focusSeq — which bumps on every request — so clicking
+  // expand on a thread the panel already has open (but that the reviewer has
+  // since navigated past) still re-focuses it.
   useEffect(() => {
     if (!initialThreadId) return
     const i = openThreads.findIndex((c) => c.id === initialThreadId)
     if (i >= 0) setIndex(i)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialThreadId])
+  }, [focusSeq, initialThreadId])
 
   // Clamp the index as the set shrinks (resolve removes a thread).
   useEffect(() => {

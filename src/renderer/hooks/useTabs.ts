@@ -10,7 +10,9 @@ import { useCommentStore } from '../extensions/comments/store'
 import { mergeCommentsForPersistence } from '../extensions/comments'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFileListStore } from '../stores/fileListStore'
-import { parseMarkdown, serializeMarkdown, prepareTextContent } from '../lib/markdown'
+import { parseMarkdown, serializeMarkdown } from '../lib/markdown'
+import { resolveOpenedFileContent } from '../lib/openDocument'
+import { getApi } from '../lib/browserApi'
 import { pipelineLog } from '../lib/aiPipelineLog'
 import { handleMissingPath, isMissingPathFileError } from '../lib/stalePath'
 import {
@@ -397,11 +399,12 @@ export function useTabs() {
       console.error('[useTabs] Failed to open file:', error)
       return false
     }
-    const isTxt = filePath.endsWith('.txt')
-    const parsed = parseMarkdown(isTxt ? prepareTextContent(rawContent) : rawContent)
-
     // Generate document ID from path for persistent chat history
     const newDocumentId = await generateIdFromPath(filePath)
+    // Prose artifacts resolve to their embedded markdown + import their
+    // travelling comments (#768); non-Prose HTML falls back to the raw bytes.
+    const resolved = await resolveOpenedFileContent(filePath, rawContent, newDocumentId)
+    const parsed = parseMarkdown(resolved.content ?? rawContent)
 
     // Extract title from path
     const fullFileName = filePath.split('/').pop() || 'Untitled'
@@ -537,9 +540,11 @@ export function useTabs() {
       console.error('[useTabs] Failed to preview file:', error)
       return false
     }
-    const isTxt = filePath.endsWith('.txt')
-    const parsed = parseMarkdown(isTxt ? prepareTextContent(rawContent) : rawContent)
     const newDocumentId = await generateIdFromPath(filePath)
+    // Same artifact resolution as openFileInTab (#768) — previews included,
+    // so single-click browsing an annotated copy still lands its comments.
+    const resolved = await resolveOpenedFileContent(filePath, rawContent, newDocumentId)
+    const parsed = parseMarkdown(resolved.content ?? rawContent)
 
     const fullFileName = filePath.split('/').pop() || 'Untitled'
     const hasExtension = fullFileName.includes('.')
@@ -966,6 +971,11 @@ export function useTabs() {
           comments: comments.length,
         })
       }
+
+      // Keep share-sync metadata pointing at the renamed file (#768). Fire and
+      // forget — a miss only means the ShareDialog loses the association until
+      // the next publish.
+      void getApi().shareUpdateLocalPath(tab.path, newPath, newDocumentId).catch(() => {})
 
       // Update tab (including its documentId — the old path-derived id no
       // longer matches what a fresh open of newPath would compute)

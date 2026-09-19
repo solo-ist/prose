@@ -28,6 +28,7 @@ import { aiUnavailableMessage } from '../../lib/llm'
 import type { CommentReply } from '../../extensions/comments/types'
 import { formatAge } from '../../types/annotations'
 import { generateId } from '../../lib/persistence'
+import { pushReplyToShare, pushResolveToShare } from '../../lib/sharePush'
 import { renderMarkdown } from '../chat/ChatMessage'
 import { PROSE_ICONS, IconThumb } from '../../lib/prose-icons'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -38,11 +39,14 @@ interface CommentReviewPanelProps {
   onExit: () => void
   /** Open Review focused on this thread (from a card's expand icon); else start at 0. */
   initialThreadId?: string | null
+  /** Bumped on every focus request so a repeat expand on the same thread (after
+   *  navigating away in the panel) still re-jumps. */
+  focusSeq?: number
 }
 
 const SWIPE_THRESHOLD = 90
 
-export function CommentReviewPanel({ onExit, initialThreadId }: CommentReviewPanelProps) {
+export function CommentReviewPanel({ onExit, initialThreadId, focusSeq }: CommentReviewPanelProps) {
   const editor = useEditorInstanceStore((s) => s.editor)
   const pendingComments = useCommentStore((s) => s.pendingComments)
   const documentId = useCommentStore((s) => s.documentId)
@@ -63,13 +67,16 @@ export function CommentReviewPanel({ onExit, initialThreadId }: CommentReviewPan
   const total = openThreads.length
   const current = total > 0 ? openThreads[Math.min(index, total - 1)] : undefined
 
-  // Jump to a specific thread when entered via a card's expand icon.
+  // Jump to a specific thread when entered (or re-targeted) via a card/popover
+  // expand icon. Keyed on focusSeq — which bumps on every request — so clicking
+  // expand on a thread the panel already has open (but that the reviewer has
+  // since navigated past) still re-focuses it.
   useEffect(() => {
     if (!initialThreadId) return
     const i = openThreads.findIndex((c) => c.id === initialThreadId)
     if (i >= 0) setIndex(i)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialThreadId])
+  }, [focusSeq, initialThreadId])
 
   // Clamp the index as the set shrinks (resolve removes a thread).
   useEffect(() => {
@@ -119,6 +126,7 @@ export function CommentReviewPanel({ onExit, initialThreadId }: CommentReviewPan
     if (documentId) saveComments(documentId, updated)
     editor?.commands.unsetComment(id)
     setDraft('')
+    pushResolveToShare(id)
     // The set shrinks; the next open thread slides into this index (clamped).
   }, [current, documentId, saveComments, editor])
 
@@ -138,6 +146,7 @@ export function CommentReviewPanel({ onExit, initialThreadId }: CommentReviewPan
     if (documentId) saveComments(documentId, updated)
     setDraft('')
     composerRef.current?.focus()
+    pushReplyToShare(current.id, reply.id)
   }, [draft, current, documentId, saveComments])
 
   const onDragEnd = useCallback(
@@ -288,6 +297,11 @@ export function CommentReviewPanel({ onExit, initialThreadId }: CommentReviewPan
                 <div className="border-l-2 border-amber-500 pl-2.5 text-[12.5px] italic leading-relaxed text-foreground/70">
                   {quote}
                 </div>
+                {current.anchorLost && (
+                  <div className="mt-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                    The text this comment pointed at has changed — anchor lost, thread kept.
+                  </div>
+                )}
               </div>
             )}
 
@@ -297,7 +311,11 @@ export function CommentReviewPanel({ onExit, initialThreadId }: CommentReviewPan
                 <ReviewAvatar kind={current.author === 'ai' ? 'ai' : 'user'} />
                 <div className="min-w-0 flex-1">
                   <div className="mb-0.5 flex items-baseline gap-2">
-                    <span className="text-xs font-semibold text-foreground">{current.author === 'ai' ? 'Prose' : 'You'}</span>
+                    <span className="text-xs font-semibold text-foreground">
+                      {current.author === 'ai'
+                        ? 'Prose'
+                        : current.authorName || (current.shareId ? 'Reviewer' : 'You')}
+                    </span>
                     <span className="text-[11px] text-muted-foreground">{formatAge(current.createdAt)}</span>
                   </div>
                   {current.author === 'ai' ? (
@@ -439,7 +457,7 @@ function ReviewReplyRow({ reply, editor }: { reply: CommentReply; editor: Return
       <ReviewAvatar kind={isAI ? 'ai' : 'user'} />
       <div className="min-w-0 flex-1">
         <div className="mb-0.5 flex items-baseline gap-2">
-          <span className="text-xs font-semibold text-foreground">{isAI ? 'Prose' : 'You'}</span>
+          <span className="text-xs font-semibold text-foreground">{isAI ? 'Prose' : reply.authorName || 'You'}</span>
           <span className="text-[11px] text-muted-foreground">{formatAge(reply.createdAt)}</span>
         </div>
         {isAI ? (

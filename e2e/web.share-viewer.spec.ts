@@ -84,9 +84,11 @@ let artifactUrl: string
 let shareArtifactUrl: string
 let artifactHtml: string
 let shareArtifactHtml: string
+let tmpDir: string
 
 test.beforeAll(async () => {
   const dir = mkdtempSync(join(tmpdir(), 'prose-share-'))
+  tmpDir = dir
   artifactHtml = await buildProseHtml(EDITOR_HTML, MARKDOWN, {}, 'Share Test', null, COMMENTS)
   shareArtifactHtml = await buildShareHtml(
     EDITOR_HTML,
@@ -140,12 +142,96 @@ test.describe('artifact format', () => {
     expect(extractCommentsFromHtml(changed)!.publishRev).not.toBe(extractCommentsFromHtml(artifactHtml)!.publishRev)
   })
 
+  test('pushed replies bake under their server id; shareId is never embedded', async () => {
+    // Dedupe invariant (#769): a reply with shareId (already pushed to the
+    // gateway) must appear in the artifact under the server row id, so the
+    // baked copy and the live-poll row are one id and the viewer can't show
+    // it twice. shareId itself is local bookkeeping and stays out of the file.
+    const withPushed: CommentData[] = [
+      {
+        ...COMMENTS[0],
+        replies: [
+          { id: 'local-1', author: 'user', text: 'On it.', createdAt: 1756200400000, shareId: 'srv-1' },
+          { id: 'local-2', author: 'user', text: 'Not pushed yet.', createdAt: 1756200500000 },
+        ],
+      },
+    ]
+    const baked = await buildProseHtml(EDITOR_HTML, MARKDOWN, {}, 'Share Test', null, withPushed)
+    const replies = extractCommentsFromHtml(baked)!.comments[0].replies!
+    expect(replies.map((r) => r.id)).toEqual(['srv-1', 'local-2'])
+    expect(replies.every((r) => !('shareId' in r))).toBe(true)
+  })
+
+  test('pushed threads bake under their server id; shareId is never embedded', async () => {
+    // The same invariant at thread level: an author comment pushed live from
+    // the desktop bakes under its gateway row id, so the baked row and the
+    // live-poll row are one identity in the viewer merge.
+    const withPushed: CommentData[] = [{ ...COMMENTS[0], shareId: 'srv-t1' }, COMMENTS[1]]
+    const baked = await buildProseHtml(EDITOR_HTML, MARKDOWN, {}, 'Share Test', null, withPushed)
+    const threads = extractCommentsFromHtml(baked)!.comments
+    expect(threads.map((t) => t.id)).toEqual(['srv-t1', 'c2'])
+    expect(threads.every((t) => !('shareId' in t))).toBe(true)
+  })
+
+  test('the article mark is remapped to the shareId too, matching the block', async () => {
+    // Regression (manual QA, 2026-09-15): the block was remapped to the server
+    // id but the article's inline mark kept the LOCAL editor id, so the viewer
+    // looked a thread up by its (server) block id, missed the (local) article
+    // mark, and anchored a SECOND mark — every pushed thread double-marked
+    // (wrong narrow superscripts, "N of N" counts, broken tap targets). The
+    // article mark and the block id must agree.
+    const withPushed: CommentData[] = [{ ...COMMENTS[0], shareId: 'srv-t1' }, COMMENTS[1]]
+    const baked = await buildProseHtml(EDITOR_HTML, MARKDOWN, {}, 'Share Test', null, withPushed)
+    // The pushed thread's mark now carries the server id, and the pre-remap
+    // local id is gone from the article.
+    expect(baked).toContain('data-comment-id="srv-t1"')
+    expect(baked).not.toContain('data-comment-id="c1"')
+    // The unpushed thread (no shareId) keeps its local id in both places.
+    expect(baked).toContain('data-comment-id="c2"')
+  })
+
+  test('a pushed thread renders exactly one mark and one superscript, not two', async ({ page }) => {
+    // The end-to-end shape of the same bug: served-mode artifact with a thread
+    // whose block id (shareId) differs from its editor mark id. Before the fix
+    // the viewer painted two overlapping marks per thread — 6 sups for 3
+    // threads, "6 of 6" in the sheet. Rendered from file:// (offline), where
+    // the block ids ARE the anchors, this pins one-mark-per-thread.
+    const withShareIds: CommentData[] = [
+      { ...COMMENTS[0], shareId: 'srv-a' },
+      { ...COMMENTS[1], shareId: 'srv-b' },
+    ]
+    const html = await buildProseHtml(EDITOR_HTML, MARKDOWN, {}, 'Share Test', null, withShareIds)
+    const file = join(tmpDir, 'remapped-marks.html')
+    writeFileSync(file, html, 'utf-8')
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto(pathToFileURL(file).href)
+    await expect(page.locator('#prose-bottom-bar')).toBeVisible()
+    // Two threads → two distinct mark ids → two marks → two superscripts.
+    const diag = await page.evaluate(() => {
+      const marks = document.querySelectorAll('article span.comment-mark[data-comment-id]')
+      const ids: Record<string, number> = {}
+      marks.forEach((m) => {
+        const id = m.getAttribute('data-comment-id') as string
+        ids[id] = (ids[id] ?? 0) + 1
+      })
+      return {
+        markSpans: marks.length,
+        distinctIds: Object.keys(ids).sort(),
+        sups: document.querySelectorAll('sup.prose-mark-index').length,
+      }
+    })
+    expect(diag.markSpans).toBe(2)
+    expect(diag.distinctIds).toEqual(['srv-a', 'srv-b'])
+    expect(diag.sups).toBe(2)
+  })
+
   test('export without comments is viewer-free and stays re-importable', async () => {
     const plain = await buildProseHtml(EDITOR_HTML, MARKDOWN, {}, 'Share Test', null)
     expect(isProseHtml(plain)).toBe(true)
     expect(extractMarkdownFromHtml(plain)).toContain('quick brown fox')
     expect(plain).not.toContain('application/x-prose-comments')
     expect(plain).not.toContain('prose-comment-rail')
+    expect(plain).not.toContain('prose-doc-header')
   })
 
   test('sanitizer strips C0/C1 control chars, preserves ordinary text and \\t \\n \\u00a0', async () => {
@@ -193,6 +279,26 @@ test.describe('artifact format', () => {
   })
 })
 
+// Focus is the panel's DEFAULT for fresh readers; most tests assert the list
+// surface, so they seed a remembered 'list' choice before first paint.
+const seedListMode = (page: import('@playwright/test').Page): Promise<void> =>
+  page.addInitScript(() => {
+    try {
+      window.localStorage.setItem('prose-viewer-panel-mode', 'list')
+    } catch {
+      /* blocked storage */
+    }
+  })
+
+test.describe('panel default mode', () => {
+  test('a fresh reader lands in focus mode', async ({ page }) => {
+    await page.goto(artifactUrl)
+    await expect(page.locator('.prose-rail-mode button.prose-mode-on')).toHaveText('focus')
+    await expect(page.locator('.prose-open-section .prose-thread')).toHaveCount(1)
+    await expect(page.locator('.prose-focus-nav')).toContainText('1 of 2')
+  })
+})
+
 test.describe('inline viewer from file:// (offline read-only)', () => {
   let dialogAppeared: boolean
 
@@ -203,18 +309,72 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
       dialogAppeared = true
       await dialog.dismiss()
     })
+    await seedListMode(page)
     await page.goto(artifactUrl)
+  })
+
+  test('file:// shows the local-copy banner; the panel note explains the file loop', async ({ page }) => {
+    await expect(page.locator('#prose-file-banner')).toContainText('Local copy')
+    await expect(page.locator('#prose-comment-rail .prose-rail-note')).toContainText('download the annotated copy')
   })
 
   test('renders the comment rail with open and resolved threads', async ({ page }) => {
     const rail = page.locator('#prose-comment-rail')
     await expect(rail).toBeVisible()
-    await expect(rail.getByRole('heading', { name: 'Comments (2)' })).toBeVisible()
-    await expect(rail.getByRole('heading', { name: 'Resolved (1)' })).toBeVisible()
-    await expect(rail.locator('.prose-thread-quote').first()).toHaveText('quick brown fox')
+    await expect(rail.locator('.prose-rail-head')).toContainText('Comments · 2')
     await expect(rail.getByText('Agreed — keep it.')).toBeVisible()
     await expect(rail.getByText('Reviewer Rae', { exact: false })).toBeVisible()
-    await expect(page.locator('#prose-rail-toggle')).toHaveText('💬 2')
+    await expect(page.locator('#prose-rail-toggle')).toHaveText('2 comments')
+    // Resolved section: collapsed by default, expands to the struck quote.
+    await expect(rail.locator('.prose-resolved-head')).toContainText('Resolved · 1')
+    await expect(rail.locator('.prose-resolved-section .prose-thread')).toHaveCount(0)
+    await rail.locator('.prose-resolved-toggle').click()
+    await expect(rail.locator('.prose-resolved-section .prose-thread-quote')).toHaveText('“lazy dog”')
+    await expect(rail.getByText('This thread was resolved.')).toBeVisible()
+  })
+
+  test('the panel floats fixed on the right with cards in document order', async ({ page }) => {
+    const c1 = page.locator('.prose-thread[data-thread-id="c1"]')
+    const c2 = page.locator('.prose-thread[data-thread-id="c2"]')
+    await expect(c1).toBeVisible()
+    await expect(c2).toBeVisible()
+    // The panel is a fixed floating surface, not part of the page flow.
+    const position = await page.locator('#prose-comment-rail').evaluate((node) => getComputedStyle(node).position)
+    expect(position).toBe('fixed')
+    // Cards are normal flow inside the scroll body (no absolute stacking)…
+    const top1 = await c1.evaluate((node) => (node as HTMLElement).style.top)
+    expect(top1).toBe('')
+    // …ordered by where their marks appear in the document: c1 before c2.
+    const order = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('.prose-open-section .prose-thread')).map((n) => n.getAttribute('data-thread-id'))
+    )
+    expect(order).toEqual(['c1', 'c2'])
+    // Every open card carries its quote — the panel sits apart from the marks.
+    await expect(c1.locator('.prose-thread-quote')).toHaveText('“quick brown fox”')
+  })
+
+  test('focus mode shows one thread at a time; nav wraps; mark click retargets', async ({ page }) => {
+    await page.locator('.prose-rail-mode button', { hasText: 'focus' }).click()
+    // One card + position indicator, first thread in document order.
+    await expect(page.locator('.prose-open-section .prose-thread')).toHaveCount(1)
+    await expect(page.locator('.prose-open-section .prose-thread')).toHaveAttribute('data-thread-id', 'c1')
+    await expect(page.locator('.prose-focus-nav')).toContainText('1 of 2')
+    // Resolved section is a list-mode surface.
+    await expect(page.locator('.prose-resolved-head')).toHaveCount(0)
+    // Next → c2, next again wraps to c1.
+    await page.locator('.prose-focus-nav button').nth(1).click()
+    await expect(page.locator('.prose-open-section .prose-thread')).toHaveAttribute('data-thread-id', 'c2')
+    await expect(page.locator('.prose-focus-nav')).toContainText('2 of 2')
+    await page.locator('.prose-focus-nav button').nth(1).click()
+    await expect(page.locator('.prose-open-section .prose-thread')).toHaveAttribute('data-thread-id', 'c1')
+    // Clicking a mark focuses its thread.
+    await page.locator('article span[data-comment-id="c2"]').click()
+    await expect(page.locator('.prose-open-section .prose-thread')).toHaveAttribute('data-thread-id', 'c2')
+    await expect(page.locator('.prose-open-section .prose-thread')).toHaveClass(/prose-viewer-active/)
+    // Back to list mode: both cards return.
+    await page.locator('.prose-rail-mode button', { hasText: 'list' }).click()
+    await expect(page.locator('.prose-open-section .prose-thread')).toHaveCount(2)
+    await expect(page.locator('.prose-resolved-head')).toContainText('Resolved · 1')
   })
 
   test('renders hostile comment content inert', async ({ page }) => {
@@ -238,14 +398,141 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
     await expect(page.locator('.prose-thread[data-thread-id="c2"]')).toHaveClass(/prose-viewer-active/)
   })
 
-  test('offline mode: no add-comment affordance, read-only note shown', async ({ page }) => {
-    await expect(page.locator('#prose-comment-rail .prose-rail-note')).toContainText('Read-only copy')
+  test('offline mode: selecting text offers add-comment; form has no email field', async ({ page }) => {
+    await expect(page.locator('#prose-comment-rail .prose-rail-note')).toContainText('download the annotated copy')
 
-    // Select text in the article — no add-comment button may appear offline.
     const paragraph = page.locator('article p').first()
     await paragraph.click({ clickCount: 3 })
-    await page.waitForTimeout(100)
-    expect(await page.locator('#prose-add-comment-btn').count()).toBe(0)
+    await expect(page.locator('#prose-add-comment-btn')).toBeVisible()
+
+    await page.locator('#prose-add-comment-btn').click()
+    const form = page.locator('#prose-comment-form')
+    await expect(form).toBeVisible()
+    // Offline: name + comment only — the notification-email field is online-only.
+    expect(await form.locator('input').count()).toBe(1)
+  })
+
+  test('offline add-comment lands in the rail and arms the download button', async ({ page }) => {
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').fill('Offline Olive')
+    await page.locator('#prose-comment-form textarea').fill('Added without any server.')
+    await page.locator('#prose-comment-form button', { hasText: 'Add' }).first().click()
+
+    await expect(page.locator('.prose-rail-head')).toContainText('Comments · 3')
+    await expect(page.getByText('Added without any server.')).toBeVisible()
+    await expect(page.getByText('Offline Olive', { exact: false })).toBeVisible()
+    // Local footer: the save offer appears only once there is something new.
+    await expect(page.locator('#prose-download-copy')).toHaveText('Save updated copy (1 new)')
+  })
+
+  test('drafts survive a reload via localStorage and clear when deleted', async ({ page }) => {
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').fill('Persistent Pia')
+    await page.locator('#prose-comment-form textarea').fill('Survive the reload.')
+    await page.locator('#prose-comment-form button', { hasText: 'Add' }).first().click()
+    await expect(page.getByText('Survive the reload.')).toBeVisible()
+
+    // Reload: the draft re-joins the page from localStorage, download armed.
+    await page.reload()
+    const card = page.locator('.prose-thread', { hasText: 'Survive the reload.' })
+    await expect(card).toBeVisible()
+    await expect(card.locator('.prose-author-tag').first()).toHaveText('· you')
+    await expect(page.locator('#prose-download-copy')).toContainText('(1 new)')
+
+    // Deleting the draft clears the store — a further reload shows nothing.
+    await card.locator('.prose-own-actions button', { hasText: 'Delete' }).click()
+    await card.locator('.prose-own-actions button', { hasText: 'yes' }).click()
+    await expect(page.locator('.prose-thread', { hasText: 'Survive the reload.' })).toHaveCount(0)
+    await page.reload()
+    await expect(page.locator('.prose-thread', { hasText: 'Survive the reload.' })).toHaveCount(0)
+  })
+
+  test('a draft comment name is click-to-edit before it ships', async ({ page }) => {
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').fill('Draft Dana')
+    await page.locator('#prose-comment-form textarea').fill('Local draft.')
+    await page.locator('#prose-comment-form button', { hasText: 'Add' }).first().click()
+    const card = page.locator('.prose-thread', { hasText: 'Local draft.' })
+    await card.locator('.prose-card-name').first().click()
+    await card.locator('.prose-name-input').fill('Dana Prime')
+    await card.locator('.prose-name-input').press('Enter')
+    await expect(card.locator('.prose-card-name').first()).toContainText('Dana Prime')
+  })
+
+  test('the local footer offers no download when the page holds nothing new', async ({ page }) => {
+    await expect(page.locator('.prose-rail-head')).toContainText('Comments · 2')
+    await expect(page.locator('#prose-download-copy')).toBeHidden()
+  })
+
+  test('an offline reply lands in the thread, arms the download, bakes into the copy', async ({ page }) => {
+    const c1 = page.locator('.prose-thread[data-thread-id="c1"]')
+    await c1.locator('.prose-reply-link').click()
+    await c1.locator('.prose-reply-composer input').fill('Reply Riley')
+    await c1.locator('.prose-reply-composer textarea').fill('Offline reply here.')
+    await c1.locator('.prose-reply-actions button', { hasText: 'Reply' }).first().click()
+
+    await expect(c1.getByText('Offline reply here.')).toBeVisible()
+    await expect(page.locator('#prose-download-copy')).toContainText('(1 new)')
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('#prose-download-copy').click(),
+    ])
+    const savedPath = join(tmpDir, 'reply-annotated.html')
+    await download.saveAs(savedPath)
+    const block = extractCommentsFromHtml(readFileSync(savedPath, 'utf-8'))
+    const replies = block!.comments.find((c) => c.id === 'c1')!.replies!
+    const added = replies.find((r) => r.text === 'Offline reply here.')
+    expect(added?.authorName).toBe('Reply Riley')
+  })
+
+  test('⌘↵ / Ctrl+Enter submits the comment form', async ({ page }) => {
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').fill('Keyboard Kai')
+    const textarea = page.locator('#prose-comment-form textarea')
+    await textarea.fill('Submitted by keyboard.')
+    await textarea.press('Control+Enter')
+    await expect(page.locator('.prose-rail-head')).toContainText('Comments · 3')
+    await expect(page.getByText('Submitted by keyboard.')).toBeVisible()
+  })
+
+  test('download annotated copy: valid artifact carrying the new comment, reopenable', async ({ page }) => {
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').fill('Offline Olive')
+    await page.locator('#prose-comment-form textarea').fill('Round-trip me.')
+    await page.locator('#prose-comment-form button', { hasText: 'Add' }).first().click()
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('#prose-download-copy').click(),
+    ])
+    expect(download.suggestedFilename()).toContain('-annotated')
+    const savedPath = join(tmpDir, 'annotated.html')
+    await download.saveAs(savedPath)
+    const annotatedHtml = readFileSync(savedPath, 'utf-8')
+
+    // Still a fully valid Prose artifact: markdown block intact, comments
+    // block now carries the original threads + the offline addition.
+    expect(isProseHtml(annotatedHtml)).toBe(true)
+    expect(extractMarkdownFromHtml(annotatedHtml)).toContain('quick brown fox')
+    const block = extractCommentsFromHtml(annotatedHtml)
+    expect(block).not.toBeNull()
+    expect(block!.comments).toHaveLength(4)
+    const added = block!.comments.find((c) => c.comment === 'Round-trip me.')
+    expect(added?.authorName).toBe('Offline Olive')
+    expect((added?.markedText ?? '').length).toBeGreaterThan(0)
+    // No viewer runtime DOM leaked into the copy.
+    expect(annotatedHtml).not.toContain('id="prose-comment-rail"')
+
+    // The annotated copy reopens as a working artifact with the new thread.
+    await page.goto(pathToFileURL(savedPath).href)
+    await expect(page.locator('.prose-rail-head')).toContainText('Comments · 3')
+    await expect(page.getByText('Round-trip me.')).toBeVisible()
   })
 
   test('rail toggle hides and shows the rail', async ({ page }) => {
@@ -257,15 +544,1214 @@ test.describe('inline viewer from file:// (offline read-only)', () => {
   })
 })
 
+test.describe('theme', () => {
+  test('follows prefers-color-scheme by default, before first paint', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'dark' })
+    await page.goto(artifactUrl)
+    await expect(page.locator('html')).toHaveClass(/dark/)
+
+    await page.emulateMedia({ colorScheme: 'light' })
+    await page.reload()
+    await expect(page.locator('html')).not.toHaveClass(/dark/)
+  })
+
+  test('a stored preference wins over the media query', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'dark' })
+    await page.goto(artifactUrl)
+    await expect(page.locator('html')).toHaveClass(/dark/)
+
+    await page.evaluate(() => window.localStorage.setItem('prose-viewer-theme', 'light'))
+    await page.reload()
+    await expect(page.locator('html')).not.toHaveClass(/dark/)
+
+    await page.evaluate(() => window.localStorage.removeItem('prose-viewer-theme'))
+  })
+})
+
+test.describe('baked chrome', () => {
+  test('top bar, eyebrow, end mark and footer render around the article', async ({ page }) => {
+    await page.goto(artifactUrl)
+    await expect(page.locator('.prose-wordmark')).toHaveText('¶Prose.')
+    await expect(page.locator('.prose-doc-eyebrow')).toHaveText(/^[A-Z][a-z]+ \d{4}$/)
+    await expect(page.locator('.prose-end-mark')).toHaveText('— End')
+    await expect(page.locator('.prose-artifact-footer')).toContainText('Shared with Prose')
+    await expect(page.locator('#prose-download-copy')).toHaveText('Download annotated copy')
+  })
+
+  test('chrome text stays outside <article> (anchor purity guard)', async ({ page }) => {
+    // computeAnchor (viewer) and restoreComments (desktop) both normalize
+    // article text — any chrome text inside <article> silently shifts every
+    // occurrence index. This pins the D1 shell invariant.
+    await page.goto(artifactUrl)
+    const articleText = await page.evaluate(() => document.querySelector('article')?.textContent ?? '')
+    expect(articleText).toContain('quick brown fox')
+    expect(articleText).not.toContain('— End')
+    expect(articleText).not.toContain('Shared with Prose')
+    expect(articleText).not.toMatch(/[A-Z][a-z]+ \d{4}/)
+  })
+
+  test('a doc without a leading H1 gets the derived title baked into the header', async ({ page }) => {
+    const noH1Html = [
+      '<p>The <span data-comment-id="c1" class="comment-mark">quick brown fox</span> jumps.</p>',
+    ].join('\n')
+    const html = await buildProseHtml(noH1Html, 'The quick brown fox jumps.', {}, 'Derived Title', null, [])
+    const file = join(tmpDir, 'no-h1.html')
+    writeFileSync(file, html, 'utf-8')
+    await page.goto(pathToFileURL(file).href)
+
+    await expect(page.locator('.prose-doc-title')).toHaveText('Derived Title')
+    // The injected title lives in the header, never inside the article.
+    const articleText = await page.evaluate(() => document.querySelector('article')?.textContent ?? '')
+    expect(articleText).not.toContain('Derived Title')
+    // The fixture doc DOES lead with an H1 — no title injection there.
+    await page.goto(artifactUrl)
+    await expect(page.locator('.prose-doc-title')).toHaveCount(0)
+  })
+})
+
+test.describe('client-side anchoring', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedListMode(page)
+  })
+
+  const anchorComment = (over: Partial<CommentData>): CommentData => ({
+    id: 'm1',
+    markedText: '',
+    comment: 'Anchor me.',
+    createdAt: 1756200000000,
+    author: 'user',
+    occurrenceIndex: 0,
+    from: 0,
+    to: 0,
+    replies: [],
+    ...over,
+  })
+
+  const openAnchorArtifact = async (
+    page: import('@playwright/test').Page,
+    editorHtml: string,
+    comment: CommentData,
+    name: string
+  ) => {
+    const html = await buildProseHtml(editorHtml, 'anchor fixture', {}, 'Anchor Test', null, [comment])
+    const file = join(tmpDir, name)
+    writeFileSync(file, html, 'utf-8')
+    await page.goto(pathToFileURL(file).href)
+  }
+
+  test('a thread with no baked span anchors to its text on load', async ({ page }) => {
+    await openAnchorArtifact(
+      page,
+      '<p>Alpha beta gamma delta.</p><p>Second alpha beta here.</p>',
+      anchorComment({ markedText: 'beta gamma' }),
+      'anchor-basic.html'
+    )
+    const span = page.locator('article span[data-comment-id="m1"]')
+    await expect(span).toHaveText('beta gamma')
+    await expect(page.locator('.prose-lost-section .prose-thread')).toHaveCount(0)
+  })
+
+  test('cross-element marks wrap every covered segment under one id', async ({ page }) => {
+    await openAnchorArtifact(
+      page,
+      '<p>one <em>two</em> three ends.</p>',
+      anchorComment({ markedText: 'one two three' }),
+      'anchor-cross.html'
+    )
+    const spans = page.locator('article span[data-comment-id="m1"]')
+    await expect(spans.first()).toBeVisible()
+    expect(await spans.count()).toBeGreaterThanOrEqual(2)
+    const joined = await page.evaluate(() => {
+      const parts = Array.from(document.querySelectorAll('article span[data-comment-id="m1"]'))
+      return parts.map((s) => s.textContent).join('')
+    })
+    expect(joined.replace(/ /g, '')).toBe('onetwothree')
+    // Clicking the thread activates every segment.
+    await page.locator('.prose-thread[data-thread-id="m1"]').click()
+    for (const span of await spans.all()) {
+      await expect(span).toHaveClass(/prose-viewer-active/)
+    }
+  })
+
+  test('occurrenceIndex picks the nth occurrence', async ({ page }) => {
+    await openAnchorArtifact(
+      page,
+      '<p>dup phrase here. dup phrase again.</p>',
+      anchorComment({ markedText: 'dup phrase', occurrenceIndex: 1 }),
+      'anchor-nth.html'
+    )
+    const span = page.locator('article span[data-comment-id="m1"]')
+    await expect(span).toHaveText('dup phrase')
+    const before = await page.evaluate(() => {
+      const mark = document.querySelector('article span[data-comment-id="m1"]')!
+      const range = document.createRange()
+      range.selectNodeContents(document.querySelector('article')!)
+      range.setEndBefore(mark)
+      return range.toString()
+    })
+    expect(before).toContain('dup phrase here')
+  })
+
+  test('unmatchable markedText lands in Lost their place', async ({ page }) => {
+    await openAnchorArtifact(
+      page,
+      '<p>Nothing matches in this document.</p>',
+      anchorComment({ markedText: 'vanished passage' }),
+      'anchor-lost.html'
+    )
+    await expect(page.locator('.prose-lost-head')).toContainText('Lost their place · 1')
+    const lostCard = page.locator('.prose-lost-section .prose-thread-lost')
+    await expect(lostCard.locator('.prose-thread-quote')).toHaveText('“vanished passage”')
+    await expect(lostCard.locator('.prose-lost-note')).toHaveText('This passage is no longer in the document.')
+    // Lost threads are excluded from the open conversation count.
+    await expect(page.locator('.prose-rail-head')).toContainText('Comments · 0')
+    expect(await page.locator('article span[data-comment-id="m1"]').count()).toBe(0)
+  })
+})
+
+test.describe('author reply styling (offline)', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedListMode(page)
+  })
+
+  test('baked author replies (no authorName) render with the author tag', async ({ page }) => {
+    const withAuthorReply: CommentData[] = [
+      {
+        ...COMMENTS[0],
+        replies: [
+          { id: 'r1', author: 'user', text: 'Agreed — keep it.', createdAt: 1756200100000, authorName: 'Reviewer Rae' },
+          { id: 'srv-9', author: 'user', text: 'Done in the next rev.', createdAt: 1756200200000 },
+        ],
+      },
+    ]
+    const html = await buildProseHtml(EDITOR_HTML, MARKDOWN, {}, 'Share Test', null, withAuthorReply)
+    const file = join(tmpDir, 'author-reply.html')
+    writeFileSync(file, html, 'utf-8')
+    await page.goto(pathToFileURL(file).href)
+
+    const authorReply = page.locator('.prose-thread-reply.prose-reply-author')
+    await expect(authorReply).toHaveCount(1)
+    await expect(authorReply).toContainText('Done in the next rev.')
+    await expect(authorReply.locator('.prose-author-tag')).toHaveText('· author')
+    // The reviewer reply stays unstyled.
+    const reviewerReply = page.locator('.prose-thread-reply', { hasText: 'Agreed — keep it.' })
+    await expect(reviewerReply).not.toHaveClass(/prose-reply-author/)
+  })
+})
+
+test.describe('live conversation loop (online viewer)', () => {
+  // A tiny http harness standing in for the gateway's /s/:token surface. It
+  // serves the REAL artifact with the REAL CSP (mirrors ARTIFACT_HEADERS in
+  // gateway/src/routes/share/public.ts — a same-origin regression here means
+  // the live poll is CSP-blocked in production too) and scripts the comment
+  // list across polls.
+  const CSP =
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; img-src data: blob:; font-src data: https://fonts.gstatic.com; connect-src 'self'"
+
+  let server: import('node:http').Server
+  let origin: string
+  let commentRows: Array<Record<string, unknown>> = []
+  let postedRows: Array<Record<string, unknown>> = []
+  // authorEmail from each comment POST body, by index — the GET rows must
+  // never carry it (mirrors publicComment excluding it), so assert here.
+  let postedEmails: Array<string | undefined> = []
+  let post429RetryAfter = 0
+  let post500 = false
+  let replyNotFound = false
+  let commentsGone = false
+  let renames: Array<{ id: string; editToken?: string; authorName?: string; commentText?: string }> = []
+  let deletes: Array<{ id: string; editToken?: string }> = []
+
+  const row = (over: Record<string, unknown>): Record<string, unknown> => ({
+    parentId: null,
+    markedText: '',
+    occurrenceIndex: 0,
+    commentText: '',
+    authorName: 'Angel Web',
+    fromAuthor: false,
+    resolvedAt: null,
+    publishRev: 'rev',
+    createdAt: '2026-09-07T00:00:00.000Z',
+    ...over,
+  })
+
+  test.beforeAll(async () => {
+    const { createServer } = await import('node:http')
+    let artifactHtmlOnline = ''
+    // Mirrors the gateway's CORS posture on /s/* (hono/cors, origin *): this
+    // is what lets a downloaded file:// copy (Origin: null) publish comments.
+    const corsJson = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+    server = createServer((req, res) => {
+      const url = req.url ?? ''
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204, {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET,POST,PATCH,OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        })
+        res.end()
+        return
+      }
+      if (req.method === 'GET' && url === '/s/testtoken') {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': CSP })
+        res.end(artifactHtmlOnline)
+      } else if (req.method === 'GET' && url.startsWith('/s/testtoken/comments')) {
+        if (commentsGone) {
+          res.writeHead(410, corsJson)
+          res.end(JSON.stringify({ error: 'revoked' }))
+          return
+        }
+        res.writeHead(200, corsJson)
+        res.end(JSON.stringify({ comments: [...commentRows, ...postedRows], nextCursor: null }))
+      } else if (req.method === 'POST' && url === '/s/testtoken/comments') {
+        let body = ''
+        req.on('data', (c) => { body += c })
+        req.on('end', () => {
+          if (post500) {
+            res.writeHead(500, corsJson)
+            res.end(JSON.stringify({ error: 'internal_error' }))
+            return
+          }
+          if (post429RetryAfter > 0) {
+            const retryAfter = post429RetryAfter
+            post429RetryAfter = 0
+            res.writeHead(429, { ...corsJson, 'Retry-After': String(retryAfter) })
+            res.end(JSON.stringify({ error: 'rate_limited', retryAfter }))
+            return
+          }
+          const parsed = JSON.parse(body) as { commentText: string; markedText: string; occurrenceIndex: number; authorName: string; authorEmail?: string }
+          postedEmails.push(parsed.authorEmail)
+          const id = `srv-posted-${postedRows.length + 1}`
+          postedRows.push(row({
+            id,
+            markedText: parsed.markedText,
+            occurrenceIndex: parsed.occurrenceIndex,
+            commentText: parsed.commentText,
+            authorName: parsed.authorName,
+            createdAt: '2026-09-07T00:05:00.000Z',
+          }))
+          res.writeHead(201, corsJson)
+          res.end(JSON.stringify({ id, createdAt: '2026-09-07T00:05:00.000Z', editToken: `tok-${id}` }))
+        })
+      } else if (req.method === 'POST' && /^\/s\/testtoken\/comments\/[^/]+\/replies$/.test(url)) {
+        let body = ''
+        req.on('data', (c) => { body += c })
+        req.on('end', () => {
+          if (replyNotFound) {
+            replyNotFound = false
+            res.writeHead(404, corsJson)
+            res.end(JSON.stringify({ error: 'not_found' }))
+            return
+          }
+          if (post500) {
+            res.writeHead(500, corsJson)
+            res.end(JSON.stringify({ error: 'internal_error' }))
+            return
+          }
+          const parsed = JSON.parse(body) as { commentText: string; authorName: string }
+          const parentId = url.split('/')[4]
+          const id = `srv-reply-${postedRows.length + 1}`
+          postedRows.push(row({
+            id,
+            parentId,
+            commentText: parsed.commentText,
+            authorName: parsed.authorName,
+            createdAt: '2026-09-07T00:06:00.000Z',
+          }))
+          res.writeHead(201, corsJson)
+          res.end(JSON.stringify({ id, createdAt: '2026-09-07T00:06:00.000Z', editToken: `tok-${id}` }))
+        })
+      } else if (req.method === 'PATCH' && /^\/s\/testtoken\/comments\/[^/]+$/.test(url)) {
+        let body = ''
+        req.on('data', (c) => { body += c })
+        req.on('end', () => {
+          const id = url.split('/')[4]
+          const parsed = JSON.parse(body) as { editToken?: string; authorName?: string; commentText?: string }
+          renames.push({ id, ...parsed })
+          if (parsed.editToken !== `tok-${id}`) {
+            res.writeHead(403, corsJson)
+            res.end(JSON.stringify({ error: 'forbidden' }))
+            return
+          }
+          const target = postedRows.find((r) => r.id === id)
+          if (target) {
+            if (parsed.authorName) target.authorName = parsed.authorName
+            if (parsed.commentText) {
+              target.commentText = parsed.commentText
+              target.editedAt = '2026-09-13T00:10:00.000Z'
+            }
+          }
+          res.writeHead(200, corsJson)
+          res.end(JSON.stringify({ ok: true }))
+        })
+      } else if (req.method === 'DELETE' && /^\/s\/testtoken\/comments\/[^/]+$/.test(url)) {
+        let body = ''
+        req.on('data', (c) => { body += c })
+        req.on('end', () => {
+          const id = url.split('/')[4]
+          const parsed = JSON.parse(body) as { editToken?: string }
+          deletes.push({ id, ...parsed })
+          if (parsed.editToken !== `tok-${id}`) {
+            res.writeHead(403, corsJson)
+            res.end(JSON.stringify({ error: 'forbidden' }))
+            return
+          }
+          const target = postedRows.find((r) => r.id === id)
+          if (target) {
+            target.deleted = true
+            target.commentText = ''
+            target.authorName = ''
+          }
+          res.writeHead(200, corsJson)
+          res.end(JSON.stringify({ ok: true }))
+        })
+      } else {
+        res.writeHead(404)
+        res.end()
+      }
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const address = server.address()
+    if (address === null || typeof address === 'string') throw new Error('no server address')
+    origin = `http://127.0.0.1:${address.port}`
+
+    // c1 carries a pushed author reply (shareId srv-1) — baked under the
+    // server id, so the live GET returning the same row must not double it.
+    const online: CommentData[] = [
+      {
+        ...COMMENTS[0],
+        replies: [
+          { id: 'local-1', author: 'user', text: 'On it.', createdAt: 1756200100000, shareId: 'srv-1' },
+        ],
+      },
+    ]
+    artifactHtmlOnline = await buildShareHtml(EDITOR_HTML, MARKDOWN, {}, 'Share Test', null, online, origin)
+  })
+
+  test.afterAll(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  })
+
+  test.beforeEach(async ({ page }) => {
+    await seedListMode(page)
+  })
+
+  test.beforeEach(() => {
+    postedRows = []
+    postedEmails = []
+    post429RetryAfter = 0
+    replyNotFound = false
+    renames = []
+    deletes = []
+    post500 = false
+    commentsGone = false
+    commentRows = [
+      // The pushed author reply, now a gateway row.
+      row({ id: 'srv-1', parentId: 'c1', commentText: 'On it.', authorName: 'Angel', fromAuthor: true, createdAt: '2026-09-06T00:00:00.000Z' }),
+      // A reviewer thread that exists only on the gateway (posted after bake).
+      row({ id: 'srv-2', markedText: 'lazy dog', commentText: 'Live-only thread.', createdAt: '2026-09-06T01:00:00.000Z' }),
+      // A reviewer reply to it.
+      row({ id: 'srv-3', parentId: 'srv-2', commentText: 'Live reply.', authorName: 'Second Reviewer', createdAt: '2026-09-06T02:00:00.000Z' }),
+    ]
+  })
+
+  test('initial poll merges live-only threads and never duplicates the baked author reply', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
+    await expect(page.getByText('Live reply.')).toBeVisible()
+    // Baked + live-GET copies of srv-1 collapse into one reply.
+    await expect(page.getByText('On it.')).toHaveCount(1)
+    await expect(page.locator('.prose-thread-reply.prose-reply-author')).toHaveCount(1)
+    // The live-only thread anchors to its text — no baked span needed.
+    await expect(page.locator('article span[data-comment-id="srv-2"]')).toHaveText('lazy dog')
+    // The local-copy banner is a file:// posture — never shown when served.
+    await expect(page.locator('#prose-file-banner')).toHaveCount(0)
+  })
+
+  test('a resolve landing between polls moves the thread to Resolved on focus', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
+    await expect(page.locator('.prose-resolved-section .prose-thread')).toHaveCount(0)
+
+    commentRows = commentRows.map((r) => (r.id === 'srv-2' ? { ...r, resolvedAt: '2026-09-07T03:00:00.000Z' } : r))
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.locator('.prose-resolved-head')).toContainText('Resolved · 1')
+    await page.locator('.prose-resolved-toggle').click()
+    await expect(page.locator('.prose-resolved-section .prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
+    await expect(page.locator('.prose-rail-head')).toContainText('Comments · 1')
+  })
+
+  test('a posted comment is not duplicated by the follow-up poll', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').first().fill('Poster Pat')
+    await page.locator('#prose-comment-form textarea').fill('Posted live.')
+    await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
+    await expect(page.getByText('Posted live.')).toBeVisible()
+
+    // Force the next poll (instead of waiting out the 2s refetch) and give the
+    // merge a beat — the posted row comes back from the server by its id.
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await page.waitForTimeout(300)
+    await expect(page.getByText('Posted live.')).toHaveCount(1)
+  })
+
+  test('a reply posts to the public route and is not duplicated by the next poll', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    const thread = page.locator('.prose-thread', { hasText: 'Live-only thread.' })
+    await thread.locator('.prose-reply-link').click()
+    // Fresh context has no stored commenter name — the composer asks for one.
+    await thread.locator('.prose-reply-composer input').fill('Reply Rae')
+    await thread.locator('.prose-reply-composer textarea').fill('From the rail.')
+    await thread.locator('.prose-reply-actions button', { hasText: 'Reply' }).first().click()
+
+    await expect(thread.getByText('From the rail.')).toBeVisible()
+    await expect(thread.getByText('Reply Rae', { exact: false })).toBeVisible()
+    await expect(thread.locator('.prose-author-tag', { hasText: '· you' })).toBeVisible()
+
+    // The optimistic reply carries the server id — the next poll returns the
+    // same row and the merge must not double it.
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await page.waitForTimeout(300)
+    await expect(thread.getByText('From the rail.')).toHaveCount(1)
+  })
+
+  test('a 429 shows the honest retry time and keeps the draft', async ({ page }) => {
+    post429RetryAfter = 90
+    await page.goto(`${origin}/s/testtoken`)
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').first().fill('Limited Lee')
+    await page.locator('#prose-comment-form textarea').fill('Held back once.')
+    await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
+
+    const error = page.locator('.prose-form-error')
+    await expect(error).toContainText('Too many comments in a minute')
+    await expect(error).toContainText('Try again at')
+    // The draft is kept in place — a 429 is a shown error, never the
+    // offline not-sent fallback.
+    await expect(page.locator('#prose-comment-form textarea')).toHaveValue('Held back once.')
+    await expect(page.locator('.prose-offline-card')).toHaveCount(0)
+    await expect(page.locator('.prose-not-sent')).toHaveCount(0)
+
+    // The limiter window passes (the harness 429s only once) — retry lands.
+    await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
+    await expect(page.getByText('Held back once.')).toBeVisible()
+  })
+
+  test('a failed post falls back to a not-sent local comment with recovery UI', async ({ page }) => {
+    post500 = true
+    await page.goto(`${origin}/s/testtoken`)
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').first().fill('Stranded Sam')
+    await page.locator('#prose-comment-form textarea').fill('Server was down.')
+    await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
+
+    // The comment lands locally: card tagged "not sent" instead of a date,
+    // highlight applied to the selected text.
+    const card = page.locator('.prose-thread', { hasText: 'Server was down.' })
+    await expect(card).toBeVisible()
+    await expect(card.locator('.prose-not-sent')).toHaveText('not sent')
+    const id = await card.getAttribute('data-thread-id')
+    expect(await page.locator(`article span[data-comment-id="${id}"]`).count()).toBeGreaterThan(0)
+
+    // Recovery UI: not-sent chip in the rail head + explainer card + armed
+    // download. Copy is cause-neutral — network down and gone-row replies
+    // share this surface.
+    await expect(page.locator('.prose-offline-chip')).toContainText('not sent')
+    await expect(page.locator('.prose-offline-card')).toContainText(
+      "1 comment couldn't reach the server — saved in this page instead."
+    )
+    await expect(page.locator('.prose-offline-card')).toContainText('Send the file back')
+    await expect(page.locator('#prose-download-copy')).toContainText('(1 new)')
+
+    // A failed reply gets the same tag (the composer reuses the stored name).
+    const thread = page.locator('.prose-thread', { hasText: 'Live-only thread.' })
+    await thread.locator('.prose-reply-link').click()
+    await thread.locator('.prose-reply-composer textarea').fill('Reply while down.')
+    await thread.locator('.prose-reply-actions button', { hasText: 'Reply' }).first().click()
+    await expect(thread.getByText('Reply while down.')).toBeVisible()
+    await expect(thread.locator('.prose-not-sent')).toHaveText('not sent')
+    await expect(page.locator('.prose-offline-card')).toContainText("2 comments couldn't reach the server")
+
+    // The not-sent additions bake into the annotated copy — the recovery path.
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('#prose-download-copy').click(),
+    ])
+    const savedPath = join(tmpDir, 'not-sent-annotated.html')
+    await download.saveAs(savedPath)
+    const block = extractCommentsFromHtml(readFileSync(savedPath, 'utf-8'))
+    const added = block!.comments.find((c) => c.comment === 'Server was down.')
+    expect(added?.authorName).toBe('Stranded Sam')
+    const parent = block!.comments.find((c) => c.id === 'srv-2')
+    expect(parent?.replies?.some((r) => r.text === 'Reply while down.')).toBe(true)
+  })
+
+  test('a reply 404 (stale pre-revoke thread) degrades to a not-sent reply, not an error', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    const thread = page.locator('.prose-thread', { hasText: 'Live-only thread.' })
+    await expect(thread).toBeVisible()
+    replyNotFound = true
+    await thread.locator('.prose-reply-link').click()
+    await thread.locator('.prose-reply-composer textarea').fill('Ghost thread reply.')
+    await thread.locator('.prose-reply-composer input').fill('Fallback Fay')
+    await thread.locator('.prose-reply-actions button', { hasText: 'Reply' }).first().click()
+    // The reply stays in the page tagged "not sent" — no dead-end error.
+    await expect(thread.getByText('Ghost thread reply.')).toBeVisible()
+    await expect(thread.locator('.prose-not-sent')).toHaveText('not sent')
+    await expect(page.locator('.prose-reply-composer')).toHaveCount(0)
+    await expect(page.locator('#prose-download-copy')).toContainText('(1 new)')
+  })
+
+  test('a mid-session revocation closes commenting but keeps the page readable', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
+    await expect(page.locator('.prose-reply-link').first()).toBeVisible()
+
+    commentsGone = true
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+
+    // The rail note swaps to the takedown copy…
+    await expect(page.locator('.prose-rail-note')).toHaveText('This link was taken down by its author.')
+    // …commenting entry points close…
+    await expect(page.locator('.prose-reply-link')).toHaveCount(0)
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.waitForTimeout(150)
+    await expect(page.locator('#prose-add-comment-btn')).toHaveCount(0)
+    // …but the document and existing conversation stay readable.
+    await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
+    await expect(page.locator('article')).toContainText('quick brown fox')
+  })
+
+  test('a served-page LIVE download carries the share URL (labeled, publish-capable)', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    // Let the initial poll land so the baked comment set is deterministic.
+    await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('#prose-download-copy').click(),
+    ])
+    const savedPath = join(tmpDir, 'clean-copy.html')
+    await download.saveAs(savedPath)
+    const copyHtml = readFileSync(savedPath, 'utf-8')
+    // Baked thread + the live-merged one travel in the copy.
+    expect(extractCommentsFromHtml(copyHtml)!.comments).toHaveLength(2)
+    // The copy carries the full capability URL — the downloader already held
+    // it — which is what lets the file:// copy publish comments back.
+    expect(extractShareConfigFromHtml(copyHtml)!.shareUrl).toBe(`${origin}/s/testtoken`)
+    // Runtime viewer DOM is stripped; baked chrome (top bar, footer) stays.
+    expect(copyHtml).not.toContain('id="prose-comment-rail"')
+    expect(copyHtml).not.toContain('id="prose-file-banner"')
+    expect(copyHtml).toContain('id="prose-rail-toggle"')
+    expect(copyHtml).toContain('id="prose-download-copy"')
+    // The downloading viewer's theme preference must not be baked into the
+    // copy — its next reader re-derives theme from their own storage/OS.
+    expect(copyHtml).not.toMatch(/<html[^>]*class="[^"]*dark/)
+  })
+
+  test('the CLEAN download strips the capability; both flavors offered and labeled', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
+    // Both flavors present, honestly labeled (#901 hitl review: forwarding
+    // the live file forwards access to the share).
+    await expect(page.locator('#prose-download-copy')).toHaveText('Download live copy')
+    const cleanBtn = page.locator('#prose-download-clean')
+    await expect(cleanBtn).toHaveText('Download copy')
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      cleanBtn.click(),
+    ])
+    const savedPath = join(tmpDir, 'forwardable-copy.html')
+    await download.saveAs(savedPath)
+    const copyHtml = readFileSync(savedPath, 'utf-8')
+    // The capability is GONE: no share block, no token anywhere in the file.
+    expect(extractShareConfigFromHtml(copyHtml)).toBeNull()
+    expect(copyHtml).not.toContain('testtoken')
+    // Comments still travel — it stays a valid, reopenable artifact — and
+    // the injected clean link itself is runtime DOM, stripped from copies.
+    expect(extractCommentsFromHtml(copyHtml)!.comments).toHaveLength(2)
+    expect(copyHtml).not.toContain('id="prose-download-clean"')
+
+    // Reopened from file:// the clean copy is fully offline: no publish
+    // affordance and no clean/live split (there is no capability to strip).
+    await page.goto(pathToFileURL(savedPath).href)
+    await expect(page.locator('.prose-rail-head')).toContainText('Comments · 2')
+    await expect(page.locator('#prose-publish-comments')).toHaveCount(0)
+    await expect(page.locator('#prose-download-clean')).toHaveCount(0)
+  })
+
+  test('a downloaded copy publishes its comments back through the baked share URL', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('#prose-download-copy').click(),
+    ])
+    const savedPath = join(tmpDir, 'local-publish.html')
+    await download.saveAs(savedPath)
+
+    // A reply lands on the server while the reader is away — the copy
+    // carries its share URL, so its load pull brings it in immediately.
+    commentRows.push(
+      row({ id: 'srv-late', parentId: 'srv-2', commentText: 'Landed while offline.', authorName: 'Late Reviewer', createdAt: '2026-09-08T00:00:00.000Z' })
+    )
+
+    // Reopen from file:// — publish-capable local mode, live for reads. The
+    // banner carries only the label; the note explains the publish loop.
+    await page.goto(pathToFileURL(savedPath).href)
+    await expect(page.locator('#prose-file-banner')).toContainText('Local copy')
+    await expect(page.locator('#prose-comment-rail .prose-rail-note')).toContainText('Publish to send')
+    await expect(page.locator('#prose-publish-comments')).toBeHidden()
+    await expect(page.getByText('Landed while offline.')).toBeVisible()
+    // A live file:// copy holds the capability too — the clean-snapshot
+    // link is offered so it can be forwarded without handing out the share.
+    await expect(page.locator('#prose-download-clean')).toHaveText('Download copy')
+
+    // A local addition is a draft: no auto-post, state + button appear.
+    // (Email capture is gated off until notifications send — one input.)
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await expect(page.locator('#prose-comment-form input')).toHaveCount(1)
+    await page.locator('#prose-comment-form input').first().fill('Local Lia')
+    await page.locator('#prose-comment-form textarea').fill('Published from a local file.')
+    await page.locator('#prose-comment-form button', { hasText: 'Add' }).first().click()
+    await expect(page.locator('.prose-local-state')).toHaveText('Draft · 1 unpublished')
+    expect(postedRows).toHaveLength(0)
+
+    // Publish: pushes the draft, pulls the conversation, clears the state.
+    await page.locator('#prose-publish-comments').click()
+    await expect(page.locator('.prose-local-state')).toHaveText('All comments published')
+    expect(postedRows).toHaveLength(1)
+    expect(postedRows[0].commentText).toBe('Published from a local file.')
+    expect(postedRows[0].authorName).toBe('Local Lia')
+    expect(postedEmails[0]).toBeUndefined()
+    // The thread now lives under its server id and stays tagged as ours.
+    const card = page.locator('.prose-thread', { hasText: 'Published from a local file.' })
+    await expect(card).toHaveAttribute('data-thread-id', /^srv-posted-/)
+    await expect(card.locator('.prose-author-tag').first()).toHaveText('· you')
+    // Nothing left at risk — the local footer offers no save.
+    await expect(page.locator('#prose-download-copy')).toBeHidden()
+    await expect(page.locator('#prose-publish-comments')).toBeHidden()
+  })
+
+  test('reloading a local copy re-shows what it published and polls in author replies', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('#prose-download-copy').click(),
+    ])
+    const savedPath = join(tmpDir, 'local-reload.html')
+    await download.saveAs(savedPath)
+
+    // Publish a comment from the file:// copy.
+    await page.goto(pathToFileURL(savedPath).href)
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').first().fill('Reload Rai')
+    await page.locator('#prose-comment-form textarea').fill('Survives a reload.')
+    await page.locator('#prose-comment-form button', { hasText: 'Add' }).first().click()
+    await page.locator('#prose-publish-comments').click()
+    await expect(page.locator('.prose-local-state')).toHaveText('All comments published')
+
+    // Reload the SAME file: the on-disk snapshot predates the publish, but
+    // the load pull recovers the published thread from the server — the
+    // comment doesn't "disappear" — and re-anchors its highlight.
+    await page.reload()
+    const card = page.locator('.prose-thread', { hasText: 'Survives a reload.' })
+    await expect(card).toBeVisible()
+    await expect(card).toHaveAttribute('data-thread-id', /^srv-posted-/)
+    await expect(page.locator('article span[data-comment-id^="srv-posted-"]').first()).toBeVisible()
+
+    // An author reply lands after the reload — the copy's poll picks it up.
+    postedRows.push(
+      row({ id: 'srv-auth-reply', parentId: 'srv-posted-1', commentText: 'Captured on the local copy.', authorName: 'Author', fromAuthor: true, createdAt: '2026-09-09T00:00:00.000Z' })
+    )
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.getByText('Captured on the local copy.')).toBeVisible()
+  })
+
+  test('first post shows the one-time nudge; dismissible; never repeats', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').first().fill('Nudge Nia')
+    await page.locator('#prose-comment-form textarea').fill('First post here.')
+    await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
+
+    const nudge = page.locator('.prose-nudge')
+    await expect(nudge).toContainText('Posted to the shared page.')
+    await nudge.locator('.prose-nudge-dismiss').click()
+    await expect(page.locator('.prose-nudge')).toHaveCount(0)
+
+    // A second post gets no nudge.
+    await page.locator('article p').nth(1).click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form textarea').fill('Second post.')
+    await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
+    await expect(page.getByText('Second post.')).toBeVisible()
+    await expect(page.locator('.prose-nudge')).toHaveCount(0)
+  })
+
+  test('the composer remembers the name; email capture is gated off', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    // One input: no email field until reply notifications actually send.
+    await expect(page.locator('#prose-comment-form input')).toHaveCount(1)
+    await page.locator('#prose-comment-form input').first().fill('Memo Mae')
+    await page.locator('#prose-comment-form textarea').fill('Remember me.')
+    await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
+    await expect(page.getByText('Remember me.')).toBeVisible()
+    expect(postedEmails[0]).toBeUndefined()
+
+    // The next form opens prefilled from storage.
+    await page.locator('article p').nth(1).click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await expect(page.locator('#prose-comment-form input').first()).toHaveValue('Memo Mae')
+  })
+
+  test('own comment text edits inline; edited marker; replied threads lose Delete', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').first().fill('Editor Em')
+    await page.locator('#prose-comment-form textarea').fill('First draft wording.')
+    await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
+    const card = page.locator('.prose-thread', { hasText: 'First draft wording.' })
+    await expect(card).toBeVisible()
+
+    // Edit inline: textarea swaps in, Save PATCHes with the token. (The
+    // body text leaves the card while editing, so address it by thread id.)
+    await card.locator('.prose-own-actions button', { hasText: 'Edit' }).click()
+    const editingCard = page.locator('.prose-thread[data-thread-id="srv-posted-1"]')
+    await editingCard.locator('.prose-body-editor textarea').fill('Second, better wording.')
+    await editingCard.locator('.prose-body-editor button', { hasText: 'Save' }).click()
+    const edited = page.locator('.prose-thread', { hasText: 'Second, better wording.' })
+    await expect(edited).toBeVisible()
+    await expect(edited.locator('.prose-edited-tag')).toHaveText('edited')
+    expect(renames.some((r) => r.id === 'srv-posted-1' && r.commentText === 'Second, better wording.')).toBe(true)
+
+    // Reply to own thread → Delete disappears (editable only), Edit stays.
+    await edited.locator('.prose-reply-link', { hasText: 'Reply' }).first().click()
+    await edited.locator('.prose-reply-composer textarea').fill('Follow-up.')
+    await edited.locator('.prose-reply-actions button', { hasText: 'Reply' }).first().click()
+    await expect(edited.getByText('Follow-up.')).toBeVisible()
+    await expect(edited.locator('.prose-own-actions').last().locator('button', { hasText: 'Edit' }).first()).toBeVisible()
+    // The thread-level actions row (the card's last own-actions) has no Delete.
+    const threadActions = edited.locator('.prose-own-actions').last()
+    await expect(threadActions.locator('button', { hasText: 'Delete' })).toHaveCount(0)
+  })
+
+  test('own childless thread deletes after confirm; the highlight unwraps', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').first().fill('Gone Gil')
+    await page.locator('#prose-comment-form textarea').fill('Delete this one.')
+    await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
+    const card = page.locator('.prose-thread', { hasText: 'Delete this one.' })
+    await expect(card).toBeVisible()
+    expect(await page.locator('article span[data-comment-id="srv-posted-1"]').count()).toBeGreaterThan(0)
+
+    await card.locator('.prose-own-actions button', { hasText: 'Delete' }).click()
+    await card.locator('.prose-own-actions button', { hasText: 'yes' }).click()
+    await expect(page.locator('.prose-thread', { hasText: 'Delete this one.' })).toHaveCount(0)
+    await expect(page.locator('article span[data-comment-id="srv-posted-1"]')).toHaveCount(0)
+    await expect.poll(() => deletes.length).toBe(1)
+    expect(deletes[0]).toMatchObject({ id: 'srv-posted-1', editToken: 'tok-srv-posted-1' })
+  })
+
+  test('the poll adopts another reviewer\'s edits and deletions', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    const thread = page.locator('.prose-thread', { hasText: 'Live-only thread.' })
+    await expect(thread).toBeVisible()
+    await expect(page.getByText('Live reply.')).toBeVisible()
+
+    // The other reviewer edits their thread and deletes their reply.
+    const srv2 = commentRows.find((r) => r.id === 'srv-2')!
+    srv2.commentText = 'Live-only thread, reworded.'
+    srv2.editedAt = '2026-09-13T00:20:00.000Z'
+    const srv3 = commentRows.find((r) => r.id === 'srv-3')!
+    srv3.deleted = true
+    srv3.commentText = ''
+    srv3.authorName = ''
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    const reworded = page.locator('.prose-thread', { hasText: 'Live-only thread, reworded.' })
+    await expect(reworded).toBeVisible()
+    await expect(reworded.locator('.prose-edited-tag')).toHaveText('edited')
+    await expect(page.getByText('Live reply.')).toHaveCount(0)
+
+    // Then they delete the whole (now childless) thread.
+    srv2.deleted = true
+    srv2.commentText = ''
+    srv2.authorName = ''
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.locator('.prose-thread', { hasText: 'reworded' })).toHaveCount(0)
+    await expect(page.locator('article span[data-comment-id="srv-2"]')).toHaveCount(0)
+  })
+
+  test('clicking your name on a posted comment edits it via the edit token', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').first().fill('Typo Tam')
+    await page.locator('#prose-comment-form textarea').fill('Rename me.')
+    await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
+    const card = page.locator('.prose-thread', { hasText: 'Rename me.' })
+    await expect(card).toBeVisible()
+    // Another reviewer's card offers no editing (no token held for it).
+    const other = page.locator('.prose-thread', { hasText: 'Live-only thread.' })
+    await expect(other.locator('.prose-card-name').first()).not.toHaveClass(/prose-name-editable/)
+    // Click the name, retype, Enter: optimistic rename + PATCH with the token.
+    await card.locator('.prose-card-name').first().click()
+    await card.locator('.prose-name-input').fill('Fixed Fay')
+    await card.locator('.prose-name-input').press('Enter')
+    await expect(card.locator('.prose-card-name').first()).toContainText('Fixed Fay')
+    expect(renames).toHaveLength(1)
+    expect(renames[0]).toMatchObject({ id: 'srv-posted-1', editToken: 'tok-srv-posted-1', authorName: 'Fixed Fay' })
+    // The new name becomes the remembered default.
+    await page.locator('article p').nth(1).click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await expect(page.locator('#prose-comment-form input').first()).toHaveValue('Fixed Fay')
+  })
+
+  test('live activity after first paint raises a clickable toast; the initial merge does not', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    // Initial poll merges the live-only thread — page load, not news.
+    await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
+    await expect(page.locator('#prose-live-toast')).toHaveCount(0)
+
+    // A thread and a reply land between polls.
+    commentRows.push(
+      row({ id: 'srv-toast', markedText: 'notable text', commentText: 'Fresh thread.', authorName: 'Toast Tia', createdAt: '2026-09-12T01:00:00.000Z' }),
+      row({ id: 'srv-toast-r', parentId: 'srv-2', commentText: 'Fresh reply.', authorName: 'Toast Tia', createdAt: '2026-09-12T01:01:00.000Z' })
+    )
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    const toast = page.locator('#prose-live-toast')
+    await expect(toast).toContainText('1 new comment · 1 new reply')
+    // Clicking views the first new thread and dismisses the toast.
+    await toast.click()
+    await expect(page.locator('#prose-live-toast')).toHaveCount(0)
+    await expect(page.locator('.prose-thread[data-thread-id="srv-toast"]')).toHaveClass(/prose-viewer-active/)
+
+    // The × dismisses without viewing (active thread unchanged).
+    commentRows.push(
+      row({ id: 'srv-toast-2', parentId: 'srv-2', commentText: 'Another reply.', authorName: 'Toast Tia', createdAt: '2026-09-12T01:02:00.000Z' })
+    )
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.locator('#prose-live-toast')).toContainText('1 new reply')
+    await page.locator('.prose-toast-dismiss').click()
+    await expect(page.locator('#prose-live-toast')).toHaveCount(0)
+    await expect(page.locator('.prose-thread[data-thread-id="srv-toast"]')).toHaveClass(/prose-viewer-active/)
+  })
+
+  test('focus mode follows the thread, not the index, when a merge inserts earlier', async ({ page }) => {
+    await page.goto(`${origin}/s/testtoken`)
+    await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
+    // Switch to focus and navigate to the SECOND thread (srv-2, "lazy dog").
+    await page.locator('.prose-rail-mode button', { hasText: 'focus' }).click()
+    await page.locator('.prose-focus-nav button').nth(1).click()
+    await expect(page.locator('.prose-open-section .prose-thread')).toHaveAttribute('data-thread-id', 'srv-2')
+
+    // A synced thread lands anchored EARLIER in the document ("quick brown
+    // fox" paragraph precedes "lazy dog") — the focused card must not swap.
+    commentRows.push(
+      row({ id: 'srv-early', markedText: 'quick brown fox', commentText: 'Sorts first.', authorName: 'Early Bird', createdAt: '2026-09-12T02:00:00.000Z' })
+    )
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.locator('#prose-live-toast')).toBeVisible()
+    await expect(page.locator('.prose-open-section .prose-thread')).toHaveAttribute('data-thread-id', 'srv-2')
+    await expect(page.locator('.prose-focus-nav')).toContainText('of 3')
+  })
+})
+
+test.describe('narrow mode (< 1000px)', () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto(artifactUrl)
+  })
+
+  test('no rail; bottom bar and text-free sup indices render instead', async ({ page }) => {
+    await expect(page.locator('#prose-bottom-bar')).toBeVisible()
+    await expect(page.locator('#prose-bottom-bar button')).toHaveText('Comments 2')
+    expect(await page.locator('#prose-comment-rail').count()).toBe(0)
+    // The top-bar count drops the word on narrow.
+    await expect(page.locator('#prose-rail-toggle')).toHaveText('2')
+    // Sup indices number open threads in document order. They render via CSS
+    // attr(data-n) with NO text child, so article.textContent — the anchor
+    // input on both the viewer and desktop sides — is unchanged.
+    const sups = page.locator('article sup.prose-mark-index')
+    await expect(sups).toHaveCount(2)
+    await expect(sups.nth(0)).toHaveAttribute('data-n', '1')
+    await expect(sups.nth(1)).toHaveAttribute('data-n', '2')
+    expect(
+      await page.evaluate(() =>
+        Array.from(document.querySelectorAll('sup.prose-mark-index'))
+          .map((s) => s.textContent)
+          .join('')
+      )
+    ).toBe('')
+  })
+
+  test('tapping a mark opens the sheet; back returns to the text', async ({ page }) => {
+    await page.locator('article span[data-comment-id="c1"]').click()
+    const sheet = page.locator('#prose-sheet')
+    await expect(sheet).toBeVisible()
+    await expect(sheet.locator('.prose-sheet-count')).toHaveText('1 of 2')
+    await expect(sheet.locator('.prose-sheet-quote')).toHaveText('"quick brown fox"')
+    await expect(sheet.getByText('Nice phrase')).toBeVisible()
+    await expect(sheet.getByText('Agreed — keep it.')).toBeVisible()
+    await sheet.locator('.prose-sheet-back').click()
+    await expect(page.locator('#prose-sheet')).toHaveCount(0)
+  })
+
+  test('sheet prev/next cycles through open threads with wraparound', async ({ page }) => {
+    await page.locator('article span[data-comment-id="c1"]').click()
+    const sheet = page.locator('#prose-sheet')
+    await expect(sheet.locator('.prose-sheet-count')).toHaveText('1 of 2')
+    await expect(sheet.locator('.prose-sheet-quote')).toHaveText('"quick brown fox"')
+
+    await sheet.locator('.prose-sheet-step[aria-label="Next comment"]').click()
+    await expect(sheet.locator('.prose-sheet-count')).toHaveText('2 of 2')
+    await expect(sheet.locator('.prose-sheet-quote')).toHaveText('"notable text"')
+
+    // Next off the end wraps to the first; prev wraps back to the last.
+    await sheet.locator('.prose-sheet-step[aria-label="Next comment"]').click()
+    await expect(sheet.locator('.prose-sheet-count')).toHaveText('1 of 2')
+    await expect(sheet.locator('.prose-sheet-quote')).toHaveText('"quick brown fox"')
+    await sheet.locator('.prose-sheet-step[aria-label="Previous comment"]').click()
+    await expect(sheet.locator('.prose-sheet-count')).toHaveText('2 of 2')
+  })
+
+  test('the bottom-bar button opens the first thread; a sheet reply lands and arms the download', async ({ page }) => {
+    await page.locator('#prose-bottom-bar button').click()
+    const sheet = page.locator('#prose-sheet')
+    await expect(sheet.locator('.prose-sheet-count')).toHaveText('1 of 2')
+    await sheet.locator('.prose-sheet-composer textarea').fill('From the sheet.')
+    await sheet.locator('.prose-sheet-composer input').fill('Sheet Sana')
+    await sheet.locator('.prose-sheet-send').click()
+    await expect(sheet.getByText('From the sheet.')).toBeVisible()
+    await expect(sheet.locator('.prose-thread-reply .prose-card-name', { hasText: 'Sheet Sana' })).toBeVisible()
+    // The stored name now personalizes the composer.
+    await expect(sheet.locator('.prose-sheet-as')).toHaveText('Replying as Sheet Sana')
+    await sheet.locator('.prose-sheet-back').click()
+    await expect(page.locator('#prose-download-copy')).toContainText('(1 new)')
+  })
+
+  test('a narrow annotated copy leaks no narrow-mode DOM', async ({ page }) => {
+    // Add a reply from the sheet so the copy is a real annotated one.
+    await page.locator('article span[data-comment-id="c1"]').click()
+    const sheet = page.locator('#prose-sheet')
+    await sheet.locator('.prose-sheet-composer textarea').fill('Bake me.')
+    await sheet.locator('.prose-sheet-composer input').fill('Narrow Nia')
+    await sheet.locator('.prose-sheet-send').click()
+    await expect(sheet.getByText('Bake me.')).toBeVisible()
+    await sheet.locator('.prose-sheet-back').click()
+
+    // Scroll fully down so the footer link clears the fixed bottom bar
+    // (narrow mode pads the footer past the bar for exactly this reason).
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('#prose-download-copy').click(),
+    ])
+    const savedPath = join(tmpDir, 'narrow-annotated.html')
+    await download.saveAs(savedPath)
+    const copyHtml = readFileSync(savedPath, 'utf-8')
+    expect(copyHtml).not.toContain('id="prose-bottom-bar"')
+    expect(copyHtml).not.toContain('id="prose-sheet"')
+    expect(copyHtml).not.toContain('id="prose-narrow-form-wrap"')
+    expect(copyHtml).not.toContain('prose-mark-index"')
+    expect(copyHtml).not.toContain('id="prose-comment-rail"')
+    const block = extractCommentsFromHtml(copyHtml)
+    expect(
+      block!.comments.find((c) => c.id === 'c1')!.replies!.some((r) => r.text === 'Bake me.')
+    ).toBe(true)
+  })
+})
+
 test.describe('share artifact opened locally', () => {
-  test('stays offline (file:// wins over share config) with the local-copy banner', async ({ page }) => {
+  test.beforeEach(async ({ page }) => {
+    await seedListMode(page)
+  })
+
+  test('file:// wins over share config: offline annotate mode, no network posts', async ({ page }) => {
+    const requests: string[] = []
+    page.on('request', (req) => {
+      if (req.url().includes('/comments')) requests.push(req.url())
+    })
     await page.goto(shareArtifactUrl)
     await expect(page.locator('#prose-comment-rail')).toBeVisible()
-    await expect(page.locator('#prose-comment-rail .prose-rail-note')).toContainText('local copy')
+    await expect(page.locator('#prose-comment-rail .prose-rail-note')).toContainText('download the annotated copy')
 
-    const paragraph = page.locator('article p').first()
-    await paragraph.click({ clickCount: 3 })
-    await page.waitForTimeout(100)
-    expect(await page.locator('#prose-add-comment-btn').count()).toBe(0)
+    // Adding a comment offline never POSTs to the embedded share endpoint.
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').fill('Local Lee')
+    await page.locator('#prose-comment-form textarea').fill('Stays in the file.')
+    await page.locator('#prose-comment-form button', { hasText: 'Add' }).first().click()
+    await expect(page.getByText('Stays in the file.')).toBeVisible()
+    expect(requests).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Live (served) mode — the artifact at /s/<token>, gateway stubbed via
+// page.route so the REAL viewer runs its online poll against controlled
+// responses (#915).
+// ---------------------------------------------------------------------------
+
+/** Node-side mirror of the viewer's fnv1aHex — the draft-key digest scheme. */
+function fnv1aHex(s: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0
+  }
+  return ('0000000' + h.toString(16)).slice(-8)
+}
+
+interface LiveRow {
+  id: string
+  parentId: string | null
+  markedText: string
+  occurrenceIndex: number
+  commentText: string
+  authorName: string
+  resolvedAt: string | null
+  createdAt: string
+}
+
+const LIVE_ORIGIN = 'https://stub.example'
+const LIVE_T0 = Date.parse('2026-09-14T10:00:00.000Z')
+const liveIso = (offsetMs: number): string => new Date(LIVE_T0 + offsetMs).toISOString()
+
+function liveRow(id: string, createdAt: string, text: string): LiveRow {
+  return {
+    id,
+    parentId: null,
+    markedText: 'quick brown fox',
+    occurrenceIndex: 0,
+    commentText: text,
+    authorName: 'Reviewer Rae',
+    resolvedAt: null,
+    createdAt,
+  }
+}
+
+/**
+ * Serve the share artifact at LIVE_ORIGIN/s/<token> and its comments route
+ * from `rows`, paging exactly like the gateway (500-row pages, gte boundary,
+ * nextCursor = last row's createdAt). Records each GET's `since` param.
+ */
+async function serveLive(
+  page: import('@playwright/test').Page,
+  token: string,
+  rows: LiveRow[],
+  sinceLog: Array<string | null>,
+): Promise<void> {
+  const html = await buildShareHtml(EDITOR_HTML, MARKDOWN, {}, 'Share Test', null, [], LIVE_ORIGIN)
+  await page.route(`${LIVE_ORIGIN}/**`, async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === `/s/${token}` && route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, contentType: 'text/html', body: html })
+    }
+    if (url.pathname === `/s/${token}/comments` && route.request().method() === 'GET') {
+      const since = url.searchParams.get('since')
+      sinceLog.push(since)
+      const eligible = since ? rows.filter((r) => r.createdAt >= since) : rows
+      const pageRows = eligible.slice(0, 500)
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          comments: pageRows,
+          nextCursor: pageRows.length > 0 ? pageRows[pageRows.length - 1].createdAt : null,
+        }),
+      })
+    }
+    return route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"not_found"}' })
+  })
+}
+
+test.describe('live viewer against a stubbed gateway', () => {
+  test.beforeEach(async ({ page }) => {
+    await seedListMode(page)
+  })
+
+  test('the poll walks full 500-row pages and dedupes the gte boundary', async ({ page }) => {
+    // 501 rows: page 1 is exactly full, so the walk must fetch page 2 (which
+    // re-serves the boundary row under gte) — a single-page poll would
+    // silently hide row 501 (audit M-05).
+    const rows = Array.from({ length: 501 }, (_, i) =>
+      liveRow(`srv-${String(i + 1).padStart(3, '0')}`, liveIso(i * 1000), `Live row ${i + 1}`),
+    )
+    const sinceLog: Array<string | null> = []
+    await serveLive(page, 'tok-walk', rows, sinceLog)
+    await page.goto(`${LIVE_ORIGIN}/s/tok-walk`)
+
+    await expect(page.locator('#prose-rail-toggle')).toContainText('501 comments', { timeout: 15000 })
+    expect(sinceLog).toEqual([null, liveIso(499 * 1000)])
+    // The boundary row appears once, and the past-the-page row made it in.
+    await expect(page.locator('.prose-thread[data-thread-id="srv-500"]')).toHaveCount(1)
+    await expect(page.locator('.prose-thread[data-thread-id="srv-501"]')).toHaveCount(1)
+  })
+
+  test('legacy raw-token draft keys migrate to the digested key (H-02 hygiene)', async ({ page }) => {
+    const token = 'tok-migrate-me'
+    const legacyKey = `prose-drafts:${token}`
+    const digestedKey = `prose-drafts:k${fnv1aHex(token)}${fnv1aHex(token.split('').reverse().join(''))}`
+    await page.addInitScript(
+      ({ key }) => {
+        window.localStorage.setItem(
+          key,
+          JSON.stringify({
+            v: 1,
+            at: Date.now(),
+            threads: [
+              {
+                id: 'local-migrated-1',
+                markedText: 'quick brown fox',
+                occurrenceIndex: 0,
+                comment: 'Migrated draft',
+                authorName: 'Draft Dana',
+                createdAt: Date.now(),
+                replies: [],
+              },
+            ],
+            replies: [],
+            notSent: {},
+          }),
+        )
+      },
+      { key: legacyKey },
+    )
+    const sinceLog: Array<string | null> = []
+    await serveLive(page, token, [], sinceLog)
+    await page.goto(`${LIVE_ORIGIN}/s/${token}`)
+
+    // The draft survived the key migration and renders.
+    await expect(page.getByText('Migrated draft')).toBeVisible()
+    // The raw token no longer appears in any localStorage KEY NAME — the
+    // enumerable-keys leak the digest scheme exists to close.
+    const keys = await page.evaluate(() => {
+      const out: Record<string, boolean> = {}
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const k = window.localStorage.key(i)
+        if (k) out[k] = true
+      }
+      return out
+    })
+    expect(keys[legacyKey]).toBeUndefined()
+    expect(keys[digestedKey]).toBe(true)
+    expect(Object.keys(keys).some((k) => k.includes(token))).toBe(false)
+    const migrated = await page.evaluate((k) => window.localStorage.getItem(k), digestedKey)
+    expect(migrated).toContain('Migrated draft')
   })
 })

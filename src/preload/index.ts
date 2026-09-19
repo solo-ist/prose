@@ -206,7 +206,7 @@ export interface ElectronAPI {
   exportTxt: (content: string, defaultFilename?: string) => Promise<string | null>
   exportHtml: (content: string, defaultFilename?: string) => Promise<string | null>
   readFile: (path: string) => Promise<string>
-  readFileBase64: (path: string) => Promise<string>
+  readFileBase64: (path: string, allowedRoot: string) => Promise<string>
   loadSettings: () => Promise<Settings>
   saveSettings: (settings: Settings) => Promise<void>
   testApiKey: (request: TestApiKeyRequest) => Promise<TestApiKeyResult>
@@ -295,6 +295,24 @@ export interface ElectronAPI {
   googleGetSyncMetadata: () => Promise<GoogleSyncMetadata | null>
   googleUpdateSyncMetadataEntry: (entry: GoogleDocEntry) => Promise<void>
   googleRemoveSyncMetadataEntry: (googleDocId: string) => Promise<void>
+  // Share service (#768) — result shapes defined in renderer types (ShareOp/ShareEntry/SharePulledComment)
+  shareAuthStatus: () => Promise<unknown>
+  shareRequestSignIn: (email: string) => Promise<unknown>
+  shareCompleteSignIn: (magicUrl: string) => Promise<unknown>
+  shareSignOut: () => Promise<unknown>
+  sharePublish: (args: { title: string; html: string; localPath: string; documentId: string }) => Promise<unknown>
+  shareRepublish: (args: { publicationId: string; title: string; html: string }) => Promise<unknown>
+  shareRevoke: (publicationId: string) => Promise<unknown>
+  shareList: () => Promise<unknown>
+  shareGetForPath: (localPath: string) => Promise<unknown>
+  shareComments: (publicationId: string) => Promise<unknown>
+  sharePullComments: (publicationId: string) => Promise<unknown>
+  shareAckCursor: (publicationId: string, cursor: string, seenRowIds?: string[]) => Promise<unknown>
+  shareUpdateLocalPath: (oldPath: string, newPath: string, newDocumentId: string) => Promise<unknown>
+  shareSetSyncMode: (publicationId: string, mode: string) => Promise<unknown>
+  shareCreateComment: (publicationId: string, args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string; fromAuthor?: boolean }) => Promise<unknown>
+  shareReplyToComment: (publicationId: string, commentId: string, text: string, authorName?: string, fromAuthor?: boolean) => Promise<unknown>
+  shareResolveComment: (publicationId: string, commentId: string, resolved: boolean) => Promise<unknown>
   // MCP Server integration
   mcpGetStatus: () => Promise<McpServerStatus>
   mcpInstall: () => Promise<McpInstallResult>
@@ -389,7 +407,7 @@ const api: ElectronAPI = {
     const result = await ipcRenderer.invoke('file:read', path) as ReadFileResult
     return unwrapReadFileResult(result)
   },
-  readFileBase64: (path: string) => ipcRenderer.invoke('file:readBase64', path),
+  readFileBase64: (path: string, allowedRoot: string) => ipcRenderer.invoke('file:readBase64', path, allowedRoot),
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (settings: Settings) => ipcRenderer.invoke('settings:save', settings),
   testApiKey: (request: TestApiKeyRequest) => ipcRenderer.invoke('settings:testApiKey', request),
@@ -584,6 +602,32 @@ const api: ElectronAPI = {
   googleGetSyncMetadata: () => ipcRenderer.invoke('google:getSyncMetadata'),
   googleUpdateSyncMetadataEntry: (entry: GoogleDocEntry) => ipcRenderer.invoke('google:updateSyncMetadataEntry', entry),
   googleRemoveSyncMetadataEntry: (googleDocId: string) => ipcRenderer.invoke('google:removeSyncMetadataEntry', googleDocId),
+  // Share service (#768)
+  shareAuthStatus: () => ipcRenderer.invoke('share:authStatus'),
+  shareRequestSignIn: (email: string) => ipcRenderer.invoke('share:requestSignIn', email),
+  shareCompleteSignIn: (magicUrl: string) => ipcRenderer.invoke('share:completeSignIn', magicUrl),
+  shareSignOut: () => ipcRenderer.invoke('share:signOut'),
+  sharePublish: (args: { title: string; html: string; localPath: string; documentId: string }) =>
+    ipcRenderer.invoke('share:publish', args),
+  shareRepublish: (args: { publicationId: string; title: string; html: string }) =>
+    ipcRenderer.invoke('share:republish', args),
+  shareRevoke: (publicationId: string) => ipcRenderer.invoke('share:revoke', publicationId),
+  shareList: () => ipcRenderer.invoke('share:list'),
+  shareGetForPath: (localPath: string) => ipcRenderer.invoke('share:getForPath', localPath),
+  shareComments: (publicationId: string) => ipcRenderer.invoke('share:comments', publicationId),
+  sharePullComments: (publicationId: string) => ipcRenderer.invoke('share:pullComments', publicationId),
+  shareAckCursor: (publicationId: string, cursor: string, seenRowIds?: string[]) =>
+    ipcRenderer.invoke('share:ackCursor', publicationId, cursor, seenRowIds),
+  shareUpdateLocalPath: (oldPath: string, newPath: string, newDocumentId: string) =>
+    ipcRenderer.invoke('share:updateLocalPath', oldPath, newPath, newDocumentId),
+  shareSetSyncMode: (publicationId: string, mode: string) =>
+    ipcRenderer.invoke('share:setSyncMode', publicationId, mode),
+  shareCreateComment: (publicationId: string, args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string; fromAuthor?: boolean }) =>
+    ipcRenderer.invoke('share:createComment', publicationId, args),
+  shareReplyToComment: (publicationId: string, commentId: string, text: string, authorName?: string, fromAuthor?: boolean) =>
+    ipcRenderer.invoke('share:replyToComment', publicationId, commentId, text, authorName, fromAuthor),
+  shareResolveComment: (publicationId: string, commentId: string, resolved: boolean) =>
+    ipcRenderer.invoke('share:resolveComment', publicationId, commentId, resolved),
   // MCP Server integration
   mcpGetStatus: () => ipcRenderer.invoke('mcp:getStatus'),
   mcpInstall: () => ipcRenderer.invoke('mcp:install'),

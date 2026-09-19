@@ -15,7 +15,9 @@ import { useCommentStore } from '../../extensions/comments/store'
 import { mergeCommentsForPersistence } from '../../extensions/comments/extension'
 import { extractFirstH1 } from '../../lib/markdown'
 import { useTabTier } from '../../hooks/useTabTier'
-import { useGoogleDocsEnabled } from '../../lib/featureFlags'
+import { useGoogleDocsEnabled, useWebPlatformEnabled } from '../../lib/featureFlags'
+import { ShareDialog } from '../share/ShareDialog'
+import { useShareStore } from '../../stores/shareStore'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import {
@@ -64,7 +66,8 @@ import {
   EyeOff,
   Code,
   FileText,
-  Sparkles
+  Sparkles,
+  Share2
 } from 'lucide-react'
 
 function extractTitle(content: string, path?: string | null): string {
@@ -101,8 +104,10 @@ export function Toolbar() {
   const isPreviewTab = useEditorStore((state) => state.isPreviewTab)
   const isGoogleSyncing = useFileListStore((state) => state.isGoogleSyncing)
   const googleDocsEnabled = useGoogleDocsEnabled()
+  const webPlatformEnabled = useWebPlatformEnabled()
 
   const [hasCopied, setHasCopied] = useState(false)
+  const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [googlePicture, setGooglePicture] = useState<string | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const tabBarContainerRef = useRef<HTMLDivElement>(null)
@@ -318,6 +323,23 @@ export function Toolbar() {
       { id: 'save', label: 'Save', icon: <Save />, onSelect: saveFile },
       { id: 'save-as', label: 'Save as...', icon: <FileDown />, onSelect: saveFileAs },
       { id: 'export-html', label: 'Export HTML...', icon: <FileCode />, disabled: !document.content, onSelect: handleExportHtml },
+      ...(webPlatformEnabled
+        ? [{
+            id: 'share',
+            label: 'Share...',
+            icon: <Share2 />,
+            disabled: !document.content,
+            onSelect: () => {
+              // Already published → the pinned ◎ popover is the share surface;
+              // the dialog only handles sign-in + first publish (#769).
+              if (useShareStore.getState().entry) {
+                useShareStore.getState().setPopoverOpen(true)
+              } else {
+                setShareDialogOpen(true)
+              }
+            },
+          }]
+        : []),
       { id: 'settings', label: 'Settings', icon: <Settings />, separatorBefore: true, onSelect: () => setDialogOpen(true) },
       ...(!isMas
         ? [{ id: 'download-skill', label: 'Download Skill', icon: <Sparkles />, onSelect: () => downloadSkillWithAlert() }]
@@ -331,7 +353,7 @@ export function Toolbar() {
       { id: 'close', label: 'Close', icon: <X />, onSelect: handleClose, pinned: true },
     ]
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [document.content, handleExportHtml, handleClose, openFile, saveFile, saveFileAs, setDialogOpen])
+  }, [document.content, handleExportHtml, handleClose, openFile, saveFile, saveFileAs, setDialogOpen, webPlatformEnabled])
 
   // Unified, customizable right-side action set: the stateful toggle buttons and
   // the document actions are ONE drag-reorderable, hide-able list (#701). Each
@@ -684,6 +706,8 @@ export function Toolbar() {
       </div>
 
       {/* Save confirmation dialog */}
+      {webPlatformEnabled && <ShareDialog open={shareDialogOpen} onOpenChange={setShareDialogOpen} />}
+
       <AlertDialog open={pendingCloseTabId !== null} onOpenChange={(open) => !open && handleCancelClose()}>
         <AlertDialogContent>
           <AlertDialogHeader>

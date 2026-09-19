@@ -1,0 +1,314 @@
+/**
+ * shareSync.ts — pull reviewer comments from the gateway and merge them into
+ * the open document's comment store (#769, the pull half of the sync engine).
+ *
+ * Pure data merge: threads land in the store shaped like any local thread and
+ * the existing comment-load → restoreComments path derives their marks from
+ * markedText + occurrenceIndex. Threads whose anchor text no longer exists
+ * stay in the store flagged `anchorLost` (restore sets/clears the flag) —
+ * they are never dropped.
+ *
+ * Cursor protocol is two-phase so a failed merge can't lose comments: the
+ * main process pulls since the stored cursor WITHOUT advancing it; the
+ * renderer merges + persists, then acks the new cursor.
+ */
+import { useEffect } from 'react'
+import { getApi } from './browserApi'
+import { mergeCommentThreads, cleanString } from './commentMerge'
+import { useCommentStore } from '../extensions/comments/store'
+import { useEditorStore } from '../stores/editorStore'
+import { useNotificationStore } from '../stores/notificationStore'
+import { useReviewStore } from '../stores/reviewStore'
+import { useShareStore } from '../stores/shareStore'
+import { isWebPlatformEnabled } from './featureFlags'
+import { flushPendingShareOps } from './sharePush'
+import type { CommentData, CommentReply } from '../extensions/comments/types'
+import type { ShareEntry, SharePulledComment } from '../types'
+
+/**
+ * Pull cadence: "the conversation is always live" has to hold on the desktop
+ * too, not just the viewer (which polls its comment list continuously). A
+ * background interval pulls while a shared document is open and the window
+ * is visible; window focus pulls as well. Both share one per-publication
+ * debounce so overlapping triggers cost one GET, not several.
+ */
+const PULL_INTERVAL_MS = 60 * 1000
+const PULL_MIN_MS = 30 * 1000
+const lastSyncAt = new Map<string, number>()
+
+function toReply(r: SharePulledComment): CommentReply {
+  return {
+    id: cleanString(r.id, 128),
+    author: 'user',
+    text: cleanString(r.commentText),
+    createdAt: Date.parse(r.createdAt) || Date.now(),
+    ...(r.authorName ? { authorName: cleanString(r.authorName, 100) } : {}),
+    ...(r.editedAt ? { editedAt: r.editedAt } : {}),
+  }
+}
+
+/**
+ * Reviewer revisions (#769 edit/delete): rows the desktop already holds may
+ * have been edited or deleted by their owner since the last pull. Viewer-
+ * sourced rows only — pulled threads have id === shareId, pulled replies
+ * have no shareId of their own — the author's rows are never touched (the
+ * desktop is their source of truth). Returns the revised list + a count.
+ */
+function applyRevisions(
+  existing: CommentData[],
+  pulled: SharePulledComment[]
+): { revised: CommentData[]; changes: number } {
+  const rowById = new Map(pulled.map((r) => [r.id, r]))
+  let changes = 0
+  const revised: CommentData[] = []
+
+  for (const c of existing) {
+    const viewerThread = !!c.shareId && c.id === c.shareId
+    const row = viewerThread ? rowById.get(c.id) : undefined
+    if (viewerThread && row?.deleted) {
+      changes++
+      continue // The owner deleted it — the thread (and its highlight on next restore) goes.
+    }
+    let thread = c
+    if (viewerThread && row) {
+      const nextText = row.commentText && row.commentText !== c.comment ? cleanString(row.commentText) : null
+      const nextName = row.authorName && row.authorName !== c.authorName ? cleanString(row.authorName, 100) : null
+      const editedChanged = (row.editedAt ?? null) !== (c.editedAt ?? null)
+      if (nextText || nextName || editedChanged) {
+        thread = {
+          ...c,
+          ...(nextText ? { comment: nextText } : {}),
+          ...(nextName ? { authorName: nextName } : {}),
+          editedAt: row.editedAt ?? null,
+        }
+        changes++
+      }
+    }
+    const replies = thread.replies ?? []
+    if (replies.length > 0) {
+      let repliesChanged = false
+      const keep: CommentReply[] = []
+      for (const r of replies) {
+        // Viewer replies carry no shareId of their own (they arrived by pull
+        // or graft under their row id); desktop-authored replies have one.
+        const rrow = !r.shareId ? rowById.get(r.id) : undefined
+        if (rrow?.deleted) {
+          repliesChanged = true
+          changes++
+          continue
+        }
+        if (
+          rrow &&
+          ((rrow.commentText && rrow.commentText !== r.text) ||
+            (rrow.authorName && rrow.authorName !== r.authorName) ||
+            (rrow.editedAt ?? null) !== (r.editedAt ?? null))
+        ) {
+          keep.push({
+            ...r,
+            text: rrow.commentText ? cleanString(rrow.commentText) : r.text,
+            ...(rrow.authorName ? { authorName: cleanString(rrow.authorName, 100) } : {}),
+            editedAt: rrow.editedAt ?? null,
+          })
+          repliesChanged = true
+          changes++
+        } else {
+          keep.push(r)
+        }
+      }
+      if (repliesChanged) thread = { ...thread, replies: keep }
+    }
+    revised.push(thread)
+  }
+  return { revised, changes }
+}
+
+/**
+ * Shape pulled gateway rows into CommentData threads. Replies whose parent is
+ * in this batch nest under it; replies to threads already in the store become
+ * graft-only shells (the merge only takes replies from a known-id incoming
+ * thread, so the shell's other fields never land).
+ */
+function toThreads(pulled: SharePulledComment[], knownThreadIds: Set<string>): CommentData[] {
+  // Tombstones never CREATE anything — the pre-pass in syncShareComments
+  // already removed any local copy they matched.
+  const live = pulled.filter((c) => c.deleted !== true)
+  const topLevel = live.filter((c) => !c.parentId)
+  const replies = live.filter((c) => c.parentId)
+  const batchIds = new Set(topLevel.map((c) => c.id))
+
+  const threads: CommentData[] = topLevel.map((c) => ({
+    id: cleanString(c.id, 128),
+    markedText: cleanString(c.markedText),
+    comment: cleanString(c.commentText),
+    createdAt: Date.parse(c.createdAt) || Date.now(),
+    author: 'user',
+    ...(c.authorName ? { authorName: cleanString(c.authorName, 100) } : {}),
+    ...(c.editedAt ? { editedAt: c.editedAt } : {}),
+    occurrenceIndex: typeof c.occurrenceIndex === 'number' ? c.occurrenceIndex : 0,
+    from: 0,
+    to: 0,
+    replies: replies.filter((r) => r.parentId === c.id).map(toReply),
+    // Adopt the server's resolve state at CREATION (fresh install / second
+    // machine — #909): resolution is author-only, so a pulled thread's
+    // resolvedAt came from this author's own desktop somewhere. Ongoing
+    // resolve changes are still local-truth (the merge never re-takes this
+    // field), avoiding flap when a resolve push is queued.
+    resolved: !!c.resolvedAt,
+    publishRev: c.publishRev,
+    shareId: c.id,
+    // Not yet anchored — restoreComments clears this once it finds the text.
+    // Keeps the thread safe from the markless-drop in persistence meanwhile.
+    anchorLost: true,
+  }))
+
+  // Graft-only shells for replies to threads pulled in an earlier sync.
+  const orphans = replies.filter((r) => r.parentId && !batchIds.has(r.parentId) && knownThreadIds.has(r.parentId))
+  const byParent = new Map<string, SharePulledComment[]>()
+  for (const r of orphans) {
+    byParent.set(r.parentId as string, [...(byParent.get(r.parentId as string) ?? []), r])
+  }
+  for (const [parentId, rs] of byParent) {
+    threads.push({
+      id: parentId,
+      markedText: '',
+      comment: '',
+      createdAt: Date.now(),
+      author: 'user',
+      from: 0,
+      to: 0,
+      replies: rs.map(toReply),
+      resolved: false,
+    })
+  }
+
+  return threads
+}
+
+export type ShareSyncOutcome = { ok: true; added: number } | { ok: false; error: string }
+
+/**
+ * Pull new reviewer comments for `entry` and merge them into the OPEN
+ * document's comment store. Only valid while `documentId` is the loaded
+ * document (callers hold the ShareDialog / focus context that guarantees it).
+ */
+export async function syncShareComments(entry: ShareEntry, documentId: string): Promise<ShareSyncOutcome> {
+  const res = await getApi().sharePullComments(entry.publicationId)
+  if (!res.ok) return { ok: false, error: res.error }
+  lastSyncAt.set(entry.publicationId, Date.now())
+
+  const store = useCommentStore.getState()
+  if (store.documentId !== documentId) {
+    return { ok: false, error: 'Document changed while syncing — open it and retry.' }
+  }
+
+  // Author-deletion memory (#905 follow-up): pulls are cursor-less, so a
+  // thread or reply the author deleted locally would come back as "new" on
+  // every poll — forever. The per-publication seenRowIds ledger marks rows
+  // this desktop has merged before; a seen row that is no longer anywhere in
+  // the local store was deliberately removed here, so drop it instead of
+  // resurrecting it. Rows still present locally always pass, keeping
+  // revision adoption (edits/tombstones) fed.
+  const seenRows = new Set(entry.seenRowIds ?? [])
+  const localIds = new Set(
+    store.pendingComments.flatMap((c) => [
+      c.id,
+      ...(c.shareId ? [c.shareId] : []),
+      ...(c.replies ?? []).flatMap((r) => [r.id, ...(r.shareId ? [r.shareId] : [])]),
+    ])
+  )
+  const rows = res.comments.filter((r) => !seenRows.has(r.id) || localIds.has(r.id))
+
+  // Reviewer revisions land first: deletions remove the local copy, edits
+  // update it (viewer-sourced rows only — author rows stay local-truth).
+  const { revised: existing, changes } = applyRevisions(store.pendingComments, rows)
+  // Reply counts before the merge — whichever thread is new or grew is the
+  // one the toast click should land on.
+  const beforeCounts = new Map(existing.map((c) => [c.id, (c.replies ?? []).length]))
+  // Known ids include shareIds: a thread pushed live from this desktop is
+  // known under its server row id too, so replies to it that arrive after the
+  // cursor passed the thread row still get their graft shell.
+  const incoming = toThreads(
+    rows,
+    new Set(existing.flatMap((c) => (c.shareId ? [c.id, c.shareId] : [c.id])))
+  )
+  const { merged, added } = mergeCommentThreads(existing, incoming)
+
+  if (added > 0 || changes > 0) {
+    // Land the merge in the LIVE store synchronously, before any await: every
+    // routine save (tab-switch, the comment-transaction mirror) reads
+    // pendingComments, and the old persist-then-reload order left a window
+    // where a concurrent save wrote the PRE-merge set straight over the
+    // just-persisted one — a pulled thread vanished, and the acked cursor
+    // made the drop permanent (observed live, 2026-09-12).
+    useCommentStore.setState({ pendingComments: merged })
+    await store.saveComments(documentId, merged)
+    // Reload → sets needsRestore → the Editor restore effect re-derives marks.
+    await store.loadComments(documentId)
+    // Only NEW conversation is news — reviewer edits/deletions sync silently
+    // (they're revisions of things already seen).
+    if (added > 0) {
+      const target = merged.find(
+        (c) => !beforeCounts.has(c.id) || (c.replies?.length ?? 0) > (beforeCounts.get(c.id) ?? 0)
+      )
+      useNotificationStore.getState().notify({
+        message: `Synced ${added} reviewer comment${added === 1 ? '' : 's'} into this document.`,
+        durationMs: 5000,
+        // Clicking the toast opens the (first) new thread in Comment Review.
+        onAction: target ? () => useReviewStore.getState().enterCommentReview(target.id) : undefined,
+      })
+      // Light up the ◎ badge until the user looks (popover or Comment Review).
+      useShareStore.getState().addUnseenComments(added)
+    }
+  }
+
+  if (res.nextCursor) {
+    // Merge persisted — record the (informational) cursor AND every pulled
+    // row id into the seen ledger. Ordering is the safety property: ids
+    // land only after the merge persisted, so a crashed merge re-pulls its
+    // rows instead of marking them seen-and-gone. Ids filtered out above
+    // are already in the ledger, so passing the full pull is idempotent.
+    void getApi().shareAckCursor(entry.publicationId, res.nextCursor, res.comments.map((r) => r.id))
+  }
+  return { ok: true, added }
+}
+
+/**
+ * Desktop pull loop (#769): a background interval while the window is
+ * visible, plus a pull on window focus — so reviewer comments and replies
+ * land in Prose within ~a minute of appearing, matching the viewer's live
+ * poll instead of waiting for the next app switch.
+ */
+export function useSharePullSync(): void {
+  useEffect(() => {
+    const pullIfDue = async (flushPushes: boolean): Promise<void> => {
+      try {
+        if (!isWebPlatformEnabled()) return
+        // Retry any queued thread/reply/resolve pushes regardless of the
+        // pull debounce (focus only — the interval isn't a retry loop).
+        if (flushPushes) flushPendingShareOps()
+        const { document } = useEditorStore.getState()
+        if (!document.path || !document.documentId) return
+        const res = await getApi().shareGetForPath(document.path)
+        if (!res.ok || res.entries.length === 0) return
+        const entry = res.entries.find((e) => !e.revokedAt)
+        if (!entry) return
+        const last = lastSyncAt.get(entry.publicationId) ?? 0
+        if (Date.now() - last < PULL_MIN_MS) return
+        await syncShareComments(entry, document.documentId)
+      } catch {
+        // Background poll — never surface errors.
+      }
+    }
+    const onFocus = (): void => void pullIfDue(true)
+    const timer = setInterval(() => {
+      // A blurred-but-visible window still polls (the user may be reading
+      // the doc beside a browser); a hidden one doesn't burn requests.
+      if (window.document.visibilityState === 'visible') void pullIfDue(false)
+    }, PULL_INTERVAL_MS)
+    window.addEventListener('focus', onFocus)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [])
+}

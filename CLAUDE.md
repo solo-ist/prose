@@ -258,8 +258,8 @@ Client-side persistence uses IndexedDB (`src/renderer/lib/persistence.ts`). When
 
 **Annotation persistence invariant (comments / AI suggestions):** marks and
 decorations are NOT serialized into the `.md`; they live in IndexedDB keyed by
-`documentId` and are re-applied on load by matching the marked text. Two rules
-keep them safe (a violation of either caused real data loss):
+`documentId` and are re-applied on load by matching the marked text. Three rules
+keep them safe (a violation of each caused real data loss):
 1. **Never persist an empty/stripped set from a routine save.** A document load
    or source-mode toggle strips the marks for a moment and fires a transaction —
    saving in that window writes `[]` and wipes the store. Routine saves (the
@@ -269,6 +269,12 @@ keep them safe (a violation of either caused real data loss):
    restore is gated on `editor.state.doc.textContent` being present (with
    `document.content` in the effect deps) — restoring against an empty doc would
    find no anchor text and consume the one-shot restore flag, losing the marks.
+3. **External merges land in the store before they persist.** Any path that
+   merges outside threads in (share pull, artifact import) must
+   `setState({ pendingComments: merged })` synchronously BEFORE its first await —
+   routine saves read `pendingComments`, and a persist-then-reload order leaves a
+   window where a concurrent save writes the pre-merge set over the just-saved
+   one (a pulled thread vanished this way; the acked pull cursor made it permanent).
 
 ### LLM Integration
 
@@ -364,7 +370,7 @@ Step-by-step recipes for common extension tasks (settings tab, IPC channel, TipT
 
 ## Security Rules
 
-- **Path validation** — every filesystem IPC handler must call `validatePath()` (`src/main/ipc.ts`). Rejects paths containing `..` after normalization.
+- **Path validation** — every filesystem IPC handler must call `validatePath()` (`src/main/ipc.ts`). KNOW WHAT IT IS: a normalizer, NOT containment — `normalize()` resolves `..` before the traversal check, so `a/../../etc/x` passes clean. That is acceptable ONLY for user-chosen paths (dialogs, the file explorer). Any handler whose path can originate from DOCUMENT CONTENT or an imported artifact must additionally take a containment root and verify the resolved path stays under it (see `file:readBase64` — audit H-03). Never cite `validatePath()` as a traversal defense.
 - **API keys** — store via `credentialStore` (OS `safeStorage`), never in plaintext. If `safeStorage` is unavailable, keys are stripped, not saved.
 - **No `innerHTML` with dynamic data** — use JSX or `textContent`. LLM-generated content must never be inserted as raw HTML.
 - **Sandbox settings** — `contextIsolation: true`, `nodeIntegration: false` — never change these.

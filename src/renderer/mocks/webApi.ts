@@ -55,7 +55,15 @@ const now = () => new Date().toISOString()
 const SETTINGS_KEY = 'prose:web-mode-settings'
 
 const defaultSettings: Settings = {
-  theme: 'dark',
+  // Explicit dark (not 'system') so the mock boots deterministically dark
+  // regardless of the browser's prefers-color-scheme.
+  appearance: {
+    lightColor: 'mono',
+    darkColor: 'prose',
+    mode: 'dark',
+    icon: 'pilcrow',
+    migrationToastShown: true,
+  },
   llm: {
     provider: 'anthropic',
     model: getDefaultModel('anthropic'),
@@ -66,6 +74,8 @@ const defaultSettings: Settings = {
     lineHeight: 1.6,
     fontFamily: '"IBM Plex Mono", monospace',
   },
+  // There is no Finder in a browser — never show the default-editor prompt.
+  fileAssociation: { hasBeenPrompted: true },
 }
 
 let memorySettings: Settings = { ...defaultSettings }
@@ -549,5 +559,78 @@ export function createMockApi(): ElectronAPI {
     getRecentFiles: async (): Promise<string[]> => [],
 
     clearRecentFiles: async (): Promise<void> => {},
+
+    // ---- Interface parity stubs (#853) ------------------------------------
+    // Every remaining ElectronAPI member, stubbed to safe no-ops so the web
+    // build can never crash on a missing api method again. The return type
+    // annotation on createMockApi is the enforcement: adding a member to
+    // ElectronAPI without stubbing it here fails the typecheck.
+
+    exportTxt: async (): Promise<string | null> => null,
+    exportHtml: async (): Promise<string | null> => null,
+    readFileBase64: async (): Promise<string> => '',
+    fetchModels: async (): Promise<{ models?: Array<{ id: string; name: string; description?: string }>; error?: string }> => ({ models: [] }),
+    isSecureStorageAvailable: async (): Promise<boolean> => false,
+    onLLMStreamToolCallStart: () => () => {},
+    onLLMStreamThinkingDelta: () => () => {},
+    saveImage: async (): Promise<{ relativePath: string; localFileUrl: string }> => {
+      throw new Error('Image saving is not available in web mode.')
+    },
+    createDirectory: async (dirPath: string): Promise<string> => dirPath,
+    copyToClipboard: async (text: string): Promise<void> => {
+      try { await navigator.clipboard.writeText(text) } catch { /* clipboard blocked */ }
+    },
+    sentrySetEnabled: async (): Promise<void> => {},
+    isFullScreen: async (): Promise<boolean> => false,
+    exitFullScreen: async (): Promise<void> => {},
+    refreshRecentMenu: async (): Promise<void> => {},
+    setReopenClosedTabEnabled: async (): Promise<void> => {},
+    mcpGetStatus: async () => ({
+      installed: false,
+      version: null,
+      appVersion: '',
+      needsUpdate: false,
+      configPath: '',
+      serverPath: '',
+    }),
+    mcpInstall: async () => ({ success: false, error: 'MCP is not available in web mode.' }),
+    mcpUninstall: async () => ({ success: false, error: 'MCP is not available in web mode.' }),
+
+    // Sharing needs the desktop main process — honest unavailable results.
+    shareAuthStatus: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
+    shareRequestSignIn: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
+    shareCompleteSignIn: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
+    shareSignOut: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
+    sharePublish: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
+    shareRepublish: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
+    shareRevoke: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
+    shareList: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
+    shareGetForPath: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
+    shareComments: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
+    sharePullComments: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
+    shareAckCursor: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
+    shareUpdateLocalPath: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
+    shareSetSyncMode: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
+    shareCreateComment: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
+    shareReplyToComment: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
+    shareResolveComment: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
+
+    // Optional members, stubbed for behavioral robustness.
+    isMasBuild: false,
+    openPath: async (path: string): Promise<string> => path,
+    onOpenFromUrl: () => () => {},
+    downloadSkill: async () => ({ success: false, error: 'Not available in web mode.' }),
+    activateBookmark: async (): Promise<boolean> => false,
+    startWatchingDirectory: async (): Promise<void> => {},
+    stopWatchingDirectory: async (): Promise<void> => {},
+    setWatchedExpandedFolders: async (): Promise<void> => {},
+    onFileWatchEvent: () => () => {},
+    onUpdateAvailable: () => () => {},
+    onDownloadProgress: () => () => {},
+    onUpdateDownloaded: () => () => {},
+    updaterCheck: async () => ({ updateAvailable: false }),
+    updaterDownload: async () => ({ success: false }),
+    updaterInstall: async (): Promise<void> => {},
+    setAppIcon: async (): Promise<void> => {},
   }
 }

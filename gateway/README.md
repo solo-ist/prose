@@ -74,10 +74,31 @@ Secrets (`ANTHROPIC_API_KEY`, `BETTER_AUTH_SECRET`, `DATABASE_URL`) come from Re
 env vars, never the repo. Migrations run via `prisma migrate deploy` in the start
 command before the server serves.
 
+## Share service (#768)
+
+The embedded-artifact share layer (design: `docs/architecture/web-platform.md`
+§4.3–4.5). Author routes under `/api/share/*` (session + `share_publish`
+entitlement; grant via `npm run seed:ai-proxy -- --email you@x --feature
+share_publish`): `POST /publish`, `PUT /:pubId/publish` (re-publish, same
+token), `GET /` (list), `GET /:pubId/comments?since=ISO` (cursor pull —
+`authorEmail` is never exposed), `DELETE /:pubId` (revoke → 410 + comments
+deleted). Public surface under `/s/*` (per-IP rate-limited): `GET /s/:token`
+serves the artifact (no-store, no-referrer, strict CSP), `POST
+/s/:token/comments` + `POST /s/:token/comments/:id/replies` take anonymous
+reviewer comments (~10 writes/min/IP). The raw capability token exists only in
+the share URL; rows store its SHA-256. Artifacts go to R2 when configured,
+else the `artifactHtml` column (`storage` records which — provisioning R2
+later strands nothing).
+
+Integration test (self-contained — boots its own gateway on :4010, harvests
+the magic link from stdout): `npm run test:share` (needs `npm run dev:db`).
+
 ## Scope
 
 **In (Phase 0):** gateway scaffold, accounts (magic-link), the gated LLM proxy, the
 `entitlements` gate, R2 stub, deploy.
-**Out (later phases):** document storage (#767), share links (#768), comment sync
-(#769), web-client wiring (#766), the `llm_usage` meter + Stripe seam (#770), MAS
-seams + `webPlatform` flag (#771).
+**In (#768 share service):** publish/serve/revoke + anonymous reviewer comments
+(see above).
+**Out (later phases):** document storage (#767), bidirectional comment sync into
+the editor (#769), web-client wiring (#766), the `llm_usage` meter + Stripe seam
+(#770), MAS seams + `webPlatform` flag (#771).

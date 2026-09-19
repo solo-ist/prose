@@ -11,7 +11,8 @@ import { useChatStore, setCurrentDocumentId } from '../../../stores/chatStore'
 import { useSettingsStore } from '../../../stores/settingsStore'
 import { useFileListStore } from '../../../stores/fileListStore'
 import { useAnnotationStore } from '../../../extensions/ai-annotations'
-import { parseMarkdown, serializeMarkdown, prepareTextContent } from '../../markdown'
+import { parseMarkdown, serializeMarkdown } from '../../markdown'
+import { resolveOpenedFileContent } from '../../openDocument'
 import {
   generateId,
   generateIdFromPath,
@@ -82,9 +83,11 @@ export async function executeOpenFile(args: {
 
       // Load the document into editorStore for the active editor
       const content = await api.readFile(path)
-      const isTxt = path.endsWith('.txt')
-      const parsed = parseMarkdown(isTxt ? prepareTextContent(content) : content)
       const docId = await generateIdFromPath(path)
+      // Prose artifacts resolve to their embedded markdown + import their
+      // travelling comments (#768); non-Prose HTML falls back to raw bytes.
+      const resolved = await resolveOpenedFileContent(path, content, docId)
+      const parsed = parseMarkdown(resolved.content ?? content)
 
       useEditorStore.getState().setDocument({
         documentId: docId,
@@ -111,9 +114,10 @@ export async function executeOpenFile(args: {
 
     // Read the file
     const content = await api.readFile(path)
-    const isTxt = path.endsWith('.txt')
-    const parsed = parseMarkdown(isTxt ? prepareTextContent(content) : content)
     const newDocumentId = await generateIdFromPath(path)
+    // Same artifact resolution as the tab-already-open branch above (#768).
+    const resolved = await resolveOpenedFileContent(path, content, newDocumentId)
+    const parsed = parseMarkdown(resolved.content ?? content)
 
     // Extract title from path
     const fullFileName = path.split('/').pop() || 'Untitled'

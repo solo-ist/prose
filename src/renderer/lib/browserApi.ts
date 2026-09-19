@@ -478,6 +478,26 @@ export const browserApi: ElectronAPI = {
   googleUpdateSyncMetadataEntry: async () => {},
   googleRemoveSyncMetadataEntry: async () => {},
 
+  // Share service (#768) - not available in browser mode until the web
+  // gateway client lands (#766); the desktop main process owns publish today.
+  shareAuthStatus: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  shareRequestSignIn: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  shareCompleteSignIn: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  shareSignOut: async () => ({ ok: true as const }),
+  sharePublish: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  shareRepublish: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  shareRevoke: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  shareList: async () => ({ ok: true as const, entries: [] }),
+  shareGetForPath: async () => ({ ok: true as const, entries: [] }),
+  shareComments: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  sharePullComments: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  shareAckCursor: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  shareUpdateLocalPath: async () => ({ ok: true as const, touched: 0 }),
+  shareSetSyncMode: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  shareCreateComment: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  shareReplyToComment: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  shareResolveComment: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+
   // Emoji generation - not available in browser (CORS blocks Anthropic)
   emojiGenerate: async (_title: string, _contentPreview?: string) => ({ emoji: null, error: 'Not available in browser mode' }),
 
@@ -492,6 +512,18 @@ export const browserApi: ElectronAPI = {
 
   // Native menu state - no-op in browser (no native menu)
   setReopenClosedTabEnabled: async (): Promise<void> => {},
+
+  // MCP server install management - desktop only
+  mcpGetStatus: async () => ({
+    installed: false,
+    version: null,
+    appVersion: '',
+    needsUpdate: false,
+    configPath: '',
+    serverPath: '',
+  }),
+  mcpInstall: async () => ({ success: false, error: 'MCP is not available in the browser.' }),
+  mcpUninstall: async () => ({ success: false, error: 'MCP is not available in the browser.' }),
 
   // Clipboard - use browser API in web mode
   copyToClipboard: async (text: string): Promise<void> => { await navigator.clipboard.writeText(text) },

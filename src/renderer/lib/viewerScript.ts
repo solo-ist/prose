@@ -70,8 +70,11 @@ export const ARTIFACT_BASE_STYLES = `
     --border: 240 5.9% 90%;
     --input: 240 5.9% 90%;
     --pending: 330 81% 60%;
-    --comment-mark-bg: 45 100% 70%;
-    --comment: 45 100% 50%;
+    --comment-mark-bg: 45 100% 60%;
+    /* Dark amber: the 50%-lightness yellow was near-invisible on white for the
+       footnote superscripts and thin accent rules. This reads on white while
+       staying unmistakably the "comment" hue. */
+    --comment: 38 95% 40%;
   }
   html.dark {
     --bg: #0a0a0a;
@@ -858,7 +861,8 @@ export const VIEWER_STYLES = `
   body.prose-narrow .prose-artifact-footer { padding-bottom: 132px; }
   sup.prose-mark-index {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 11px;
+    font-weight: 600;
     line-height: 1;
     color: hsl(var(--comment));
     cursor: pointer;

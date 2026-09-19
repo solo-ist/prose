@@ -6,6 +6,14 @@ const PROSE_MARKER = 'application/x-prose-markdown'
 const PROSE_COMMENTS_MARKER = 'application/x-prose-comments'
 const PROSE_SHARE_MARKER = 'application/x-prose-share'
 
+// Self-contained favicon: the Prose "pilcrow" app icon (outlined ¶ on a
+// near-black squircle) — the same asset served at solo.ist/prose
+// (/favicon-prose.svg). Inlined as a base64 data: URI (the artifact CSP allows
+// `img-src data:`), so no external request and nothing to 404. The path is
+// font-independent, so it renders identically at every size.
+const FAVICON_DATA_URI =
+  'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSJQcm9zZSI+CiAgPCEtLSBQcm9zZSAiUGlsY3JvdyIgYXBwIGljb246IG91dGxpbmVkIMK2IChGcmF1bmNlcyBpdGFsaWMsIG9wc3ogMTQ0IC8gd2dodCA3MDApCiAgICAgICBvbiBhIG5lYXItYmxhY2sgc3F1aXJjbGUuIFBhdGggZnJvbSB0aGUgY2xlYW5lZC11cCBsb2dvIGFzc2V0cyDigJQgbm8gZm9udAogICAgICAgZGVwZW5kZW5jeSwgc28gaXQgcmVuZGVycyBpZGVudGljYWxseSBhdCBldmVyeSBzaXplLiAtLT4KICA8cmVjdCB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHJ4PSIxNC4zMiIgcnk9IjE0LjMyIiBmaWxsPSIjMGEwYTBhIi8+CiAgPHN2ZyB4PSIxNCIgeT0iMTMiIHdpZHRoPSIzNiIgaGVpZ2h0PSIzOCIgdmlld0JveD0iMTkuMiAtNjg3IDcxOS4yNyA3NTQiIHByZXNlcnZlQXNwZWN0UmF0aW89InhNaWRZTWlkIG1lZXQiPgogICAgPHBhdGggZmlsbD0iI0UyRDlDQiIgZD0iTTgyLjggLTQyMC44NlExMDAuNzQgLTQ4NS43MiAxNDEuNDUgLTUzMi42NFExODIuMTYgLTU3OS41NiAyNDIuNjUgLTYwNS43OFEzMDMuMTQgLTYzMiAzNzkuOTYgLTYzMkw2NzguOTYgLTYzMlE2ODEuMjYgLTYzMiA2ODIuNjQgLTYzMC44NVE2ODQuMDIgLTYyOS43IDY4My4xIC02MjguNzhRNjgzLjEgLTYyNi45NCA2ODEuNDkgLTYyNi4yNVE2NzkuODggLTYyNS41NiA2NzUuMjggLTYyNC42NEw2NDMuMDggLTYxOS4xMlE2MzIuNSAtNjE3Ljc0IDYyNi45OCAtNjE0Ljc1UTYyMS40NiAtNjExLjc2IDYxOS42MiAtNjA2LjI0TDQ1Ny4yNCAtMTMuNzZRNDU1LjQgLTguMjQgNDU5LjU0IC01LjI1UTQ2My42OCAtMi4yNiA0NzIuNDIgLTAuODhMNTAyLjc4IDQuNjRRNTA2IDUuMSA1MDcuMzggNS43OVE1MDguNzYgNi40OCA1MDguMyA4Ljc4UTUwNy4zOCAxMC4xNiA1MDYgMTEuMDhRNTA0LjYyIDEyIDUwMi4zMiAxMkwxNTUuMDIgMTJRMTUyLjI2IDEyIDE1MS4zNCAxMS4wOFExNTAuNDIgMTAuMTYgMTUwLjg4IDguMzJRMTUxLjggNi45NCAxNTMuMTggNi4wMlExNTQuNTYgNS4xIDE1OC43IDQuNjRMMTkxLjgyIC0wLjQyUTIwMS40OCAtMi4yNiAyMDcuMjMgLTUuMjVRMjEyLjk4IC04LjI0IDIxNC44MiAtMTMuNzZMMjc4Ljc2IC0yNDQuNjhRMjcyLjMyIC0yNDMuMyAyNjEuMDUgLTI0MC41NFEyNDkuNzggLTIzNy43OCAyMjkuMDggLTIzNy43OFExNDAuMyAtMjM3Ljc4IDk5LjgyIC0yODYuMDhRNTkuMzQgLTMzNC4zOCA4Mi44IC00MjAuODZaTTM2NS4yNCAtMTIuMzhMNTI4LjU0IC02MDYuMjRRNTI5LjkyIC02MTIuNjggNTIzLjk0IC02MTcuNTFRNTE3Ljk2IC02MjIuMzQgNTAyLjMyIC02MjIuMzRRNDg4Ljk4IC02MjIuMzQgNDc5Ljc4IC02MTcuOTdRNDcwLjU4IC02MTMuNiA0NjkuMiAtNjA2LjI0TDMwNS45IC0xMi4zOFEzMDQuMDYgLTUuNDggMzEwLjczIC0xLjhRMzE3LjQgMS44OCAzMzIuMTIgMS44OFEzNDYuODQgMS44OCAzNTUuMTIgLTIuMjZRMzYzLjQgLTYuNCAzNjUuMjQgLTEyLjM4WiI+PC9wYXRoPgogIDwvc3ZnPgo8L3N2Zz4K'
+
 const MAX_COMMENT_LENGTH = 5000
 const MAX_MARKED_TEXT_LENGTH = 5000
 const MAX_NAME_LENGTH = 100
@@ -348,7 +356,8 @@ ${inlinedHtml}
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="generator" content="Prose">${shareEndpoint !== null ? '\n  <meta name="referrer" content="no-referrer">' : ''}
-  <title>${escapeHtml(title)}</title>${
+  <title>${escapeHtml(title)}</title>
+  <link rel="icon" href="${FAVICON_DATA_URI}">${
     withViewer
       ? `
   <link rel="preconnect" href="https://fonts.googleapis.com">

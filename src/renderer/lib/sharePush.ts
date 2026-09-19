@@ -258,23 +258,28 @@ export async function backfillShareThreads(): Promise<boolean> {
 }
 
 /**
- * True when a row that SHOULD have a server id doesn't yet — i.e. a push
- * failed (or was queued/rate-limited) and its shareId hasn't been assigned.
- * The content bake must not proceed while this holds: a thread/reply baked
- * under its local id will collide with the SAME row arriving via the live poll
- * once the queued retry assigns its server id, and the viewer shows it twice.
- * (A thread has to be pushed once it has anchor text; a reply once its parent
- * thread is a server row. Resolves are idempotent state, not rows, so they
- * don't count.)
+ * True when a LOCAL row still needs a server id — baking it now would emit it
+ * under its local id, and once the pending push assigns a server id the live
+ * poll would surface the same row again (a duplicate in the viewer). Callers
+ * check this AFTER flushing the queue and draining in-flight pushes, so what
+ * remains is genuinely unresolved.
+ *
+ * Threads: a pulled/viewer thread always carries a shareId (id === shareId per
+ * shareSync), so `markedText && !shareId` reliably means "local + unpushed" —
+ * and it catches a thread a rate-limited backfill bailed on before queueing.
+ *
+ * Replies: a pulled/viewer reply carries NO shareId of its own (it lives under
+ * its server row id), so `!shareId` does NOT distinguish it from an unpushed
+ * local reply. The pending-ops QUEUE is the reliable signal instead — a pulled
+ * reply is never queued; only a local reply awaiting a (re)push is. A queued
+ * thread op counts too; resolves are idempotent state, not rows, and never
+ * dup, so they don't block.
  */
 export function hasUnsyncedRows(): boolean {
   for (const c of useCommentStore.getState().pendingComments) {
     if (c.markedText && !c.shareId) return true
-    if (c.shareId) {
-      for (const r of c.replies ?? []) if (!r.shareId) return true
-    }
   }
-  return false
+  return pendingOps.some((op) => op.kind === 'thread' || op.kind === 'reply')
 }
 
 /**

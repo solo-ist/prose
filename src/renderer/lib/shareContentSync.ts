@@ -89,17 +89,22 @@ export async function pushShareContent(reason: 'auto' | 'manual'): Promise<boole
     // baking, so the artifact bakes under server ids and viewer replies to
     // those threads have a live row to land on.
     await backfillShareThreads()
+    // Re-attempt queued pushes (a reply whose create failed/rate-limited earlier
+    // sits in the pending-op queue, not in backfill's missing-THREAD set) BEFORE
+    // the drain + readiness check — otherwise a queued reply is only ever flushed
+    // AFTER a successful republish, which the check below prevents, so it would
+    // never retry. (Security read-through, 2026-09-19.)
+    flushPendingShareOps()
     // Drain any comment/reply/resolve push still assigning its shareId before
     // baking: a reply baked under its local id while its push is in flight
     // would collide with the same reply arriving via the live poll under its
     // server id, and the viewer would show it twice. (Manual QA, 2026-09-15.)
     await awaitPendingPushes()
-    // A push may have failed or been rate-limited above, leaving a thread/reply
-    // without its server id (it's queued for retry). Baking now would emit that
-    // row under its local id, and when the retry finally assigns a server id the
-    // live poll would surface the SAME row again — a duplicate in the viewer.
-    // Defer the bake and retry shortly; the reschedule re-runs backfill, which
-    // re-pushes the queued row. (Manual QA / security read-through, 2026-09-19.)
+    // If a row-creating push still hasn't landed a server id (it re-queued on a
+    // repeat failure, or a rate-limited backfill bailed), baking now would emit
+    // that row under its local id and the eventual retry would double it via the
+    // live poll. Defer + reschedule; the retry re-runs this whole flush/drain.
+    // (Manual QA / security read-through, 2026-09-19.)
     if (hasUnsyncedRows()) {
       scheduleAutoPush(PUSH_RETRY_MS)
       return false

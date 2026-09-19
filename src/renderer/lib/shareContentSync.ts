@@ -22,7 +22,7 @@ import { useEffect } from 'react'
 import { getApi } from './browserApi'
 import { isWebPlatformEnabled } from './featureFlags'
 import { buildShareArtifact } from './shareArtifact'
-import { awaitPendingPushes, backfillShareThreads, flushPendingShareOps } from './sharePush'
+import { awaitPendingPushes, backfillShareThreads, flushPendingShareOps, hasUnsyncedRows } from './sharePush'
 import { useEditorStore } from '../stores/editorStore'
 import { useEditorInstanceStore } from '../stores/editorInstanceStore'
 import { useSettingsStore } from '../stores/settingsStore'
@@ -30,6 +30,9 @@ import { useShareStore } from '../stores/shareStore'
 
 const AUTO_PUSH_QUIET_MS = 4000
 const AUTO_PUSH_MIN_INTERVAL_MS = 15000
+// After a failed/queued row push, wait this long before re-baking so the queued
+// retry (via backfill) can assign the server id first (see hasUnsyncedRows).
+const PUSH_RETRY_MS = 5000
 const lastPushAt = new Map<string, number>()
 
 let pushTimer: ReturnType<typeof setTimeout> | null = null
@@ -91,6 +94,16 @@ export async function pushShareContent(reason: 'auto' | 'manual'): Promise<boole
     // would collide with the same reply arriving via the live poll under its
     // server id, and the viewer would show it twice. (Manual QA, 2026-09-15.)
     await awaitPendingPushes()
+    // A push may have failed or been rate-limited above, leaving a thread/reply
+    // without its server id (it's queued for retry). Baking now would emit that
+    // row under its local id, and when the retry finally assigns a server id the
+    // live poll would surface the SAME row again — a duplicate in the viewer.
+    // Defer the bake and retry shortly; the reschedule re-runs backfill, which
+    // re-pushes the queued row. (Manual QA / security read-through, 2026-09-19.)
+    if (hasUnsyncedRows()) {
+      scheduleAutoPush(PUSH_RETRY_MS)
+      return false
+    }
     const artifact = await buildShareArtifact(useEditorInstanceStore.getState().editor, {
       content: doc.content,
       path: doc.path,

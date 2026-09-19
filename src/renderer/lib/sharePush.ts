@@ -258,6 +258,26 @@ export async function backfillShareThreads(): Promise<boolean> {
 }
 
 /**
+ * True when a row that SHOULD have a server id doesn't yet — i.e. a push
+ * failed (or was queued/rate-limited) and its shareId hasn't been assigned.
+ * The content bake must not proceed while this holds: a thread/reply baked
+ * under its local id will collide with the SAME row arriving via the live poll
+ * once the queued retry assigns its server id, and the viewer shows it twice.
+ * (A thread has to be pushed once it has anchor text; a reply once its parent
+ * thread is a server row. Resolves are idempotent state, not rows, so they
+ * don't count.)
+ */
+export function hasUnsyncedRows(): boolean {
+  for (const c of useCommentStore.getState().pendingComments) {
+    if (c.markedText && !c.shareId) return true
+    if (c.shareId) {
+      for (const r of c.replies ?? []) if (!r.shareId) return true
+    }
+  }
+  return false
+}
+
+/**
  * Push a just-written reply on a share-sourced thread. No-op for local-only
  * threads (no shareId) or replies already pushed.
  */

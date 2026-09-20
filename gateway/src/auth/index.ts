@@ -22,10 +22,12 @@ export const auth = betterAuth({
       sendMagicLink: async ({ email, url }) => {
         // Phase 0: no email provider yet — the operator reads the link from logs.
         // TODO(#813): a magic link in stdout IS the credential — anyone with
-        // service-log access can take over the account. Dev-only: in production
-        // the link goes nowhere until real email delivery lands, which MUST
-        // happen before signups open (with or before Phase 1 #766).
-        if (config.NODE_ENV !== 'production') {
+        // service-log access can take over the account. Dev logs it always; in
+        // production it stays silent UNLESS AUTH_MAGIC_LINK_STDOUT is set — a
+        // TEMPORARY dogfood bridge (single trusted operator with log access)
+        // that MUST be removed when #813 real email delivery lands, before
+        // signups open.
+        if (config.NODE_ENV !== 'production' || config.AUTH_MAGIC_LINK_STDOUT) {
           console.log(`\n[auth] Magic link for ${email}:\n  ${url}\n`)
         }
       },

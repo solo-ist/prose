@@ -150,6 +150,15 @@ function loadConfig(): Env {
 
 export const config = loadConfig()
 
+// Loud, one-time startup signal when the temporary credential-logging bridge is
+// active in production (#813) — magic-link URLs are the credential, so make it
+// auditable and hard to forget the flag is on.
+if (config.AUTH_MAGIC_LINK_STDOUT && config.NODE_ENV === 'production') {
+  console.warn(
+    '[auth] AUTH_MAGIC_LINK_STDOUT is ON — magic-link URLs are logged in production. TEMPORARY dogfood bridge; remove before signups open (#813).',
+  )
+}
+
 /** Port to bind. Render injects PORT; fall back to GATEWAY_PORT (default 4000). */
 export const port = config.PORT ?? config.GATEWAY_PORT
 

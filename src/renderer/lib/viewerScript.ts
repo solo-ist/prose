@@ -277,7 +277,7 @@ export const ARTIFACT_BASE_STYLES = `
   }
   @media (max-width: 640px) {
     article { font-size: 17px; line-height: 1.6; }
-    .prose-doc-header { padding-top: 56px; }
+    .prose-doc-header { padding-top: 24px; }
     .prose-artifact-footer { padding-bottom: 48px; }
   }
 `
@@ -831,32 +831,43 @@ export const VIEWER_STYLES = `
     position: fixed;
     left: 0;
     right: 0;
-    bottom: 0;
+    bottom: var(--kb-inset, 0px);
     z-index: 15;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 18px 16px 14px;
-    background: linear-gradient(to top, var(--bg) 62%, transparent);
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    background: hsl(var(--background));
+    border-top: 1px solid hsl(var(--border));
+    box-shadow: 0 -6px 20px -12px rgba(0, 0, 0, 0.5);
     font-family: var(--font-mono);
     font-size: 11px;
     letter-spacing: 0.04em;
     color: hsl(var(--muted-foreground));
-    pointer-events: none;
   }
-  #prose-bottom-bar > * { pointer-events: auto; }
   #prose-bottom-bar button {
     border: 1px solid hsl(var(--border));
     border-radius: 6px;
     background: hsl(var(--popover));
     color: hsl(var(--foreground));
     font: 500 12px var(--font-mono);
-    height: 34px;
+    height: 38px;
     padding: 0 14px;
     display: inline-flex;
     align-items: center;
     cursor: pointer;
+  }
+  #prose-bottom-bar .prose-bottom-comment {
+    flex: 1;
+    justify-content: center;
+    min-width: 0;
+  }
+  #prose-bottom-bar .prose-bottom-comment.prose-bottom-comment-active {
+    background: hsl(var(--comment));
+    border-color: hsl(var(--comment));
+    color: hsl(var(--background));
+    font-weight: 600;
   }
   body.prose-narrow .prose-artifact-footer { padding-bottom: 132px; }
   sup.prose-mark-index {
@@ -870,7 +881,10 @@ export const VIEWER_STYLES = `
   sup.prose-mark-index::after { content: attr(data-n); }
   #prose-sheet {
     position: fixed;
-    inset: 0;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: var(--kb-inset, 0px);
     z-index: 30;
     display: flex;
     flex-direction: column;
@@ -966,7 +980,7 @@ export const VIEWER_STYLES = `
     position: fixed;
     left: 0;
     right: 0;
-    bottom: 0;
+    bottom: var(--kb-inset, 0px);
     z-index: 20;
     padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
     background: var(--bg);
@@ -2270,7 +2284,13 @@ export const VIEWER_SCRIPT = `(function () {
 
   var bottomBar = el('div', null)
   bottomBar.id = 'prose-bottom-bar'
-  bottomBar.appendChild(el('span', null, 'Select text to comment'))
+  // Left control: on touch, iOS's native selection callout covers the floating
+  // "Comment" button, so the always-visible bottom bar is the reliable path —
+  // it activates ("Comment on selection") when a selection exists and opens the
+  // compose form from the stored anchor on tap.
+  var bottomCommentBtn = el('button', 'prose-bottom-comment', 'Select text to comment')
+  bottomCommentBtn.type = 'button'
+  bottomBar.appendChild(bottomCommentBtn)
   var bottomBtn = el('button', null, 'Comments 0')
   bottomBtn.type = 'button'
   bottomBtn.addEventListener('click', function () { openFirstThreadSheet() })
@@ -2703,6 +2723,23 @@ export const VIEWER_SCRIPT = `(function () {
   // A resize can cross the narrow boundary; card layout needs no restack —
   // the panel is normal flow inside a fixed container.
   window.addEventListener('resize', syncNarrowMode)
+
+  // --- Soft-keyboard handling (mobile) -------------------------------------
+  // When the on-screen keyboard opens, the layout viewport doesn't shrink but
+  // the *visual* viewport does — a bottom-fixed composer would sit behind the
+  // keyboard. Publish the keyboard inset as --kb-inset so the fixed compose
+  // card and bottom bar lift above it. No-op where visualViewport is absent
+  // (desktop) — the var stays 0.
+  var vv = window.visualViewport
+  if (vv) {
+    var applyKb = function () {
+      var inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+      document.documentElement.style.setProperty('--kb-inset', inset + 'px')
+    }
+    vv.addEventListener('resize', applyKb)
+    vv.addEventListener('scroll', applyKb)
+    applyKb()
+  }
 
   // --- Live conversation loop (#769) ---------------------------------------
   // The page polls the publication's comment list so the conversation is
@@ -3185,6 +3222,10 @@ export const VIEWER_SCRIPT = `(function () {
 
   document.addEventListener('mouseup', function () {
     window.setTimeout(function () {
+      // The floating button is the wide/desktop affordance only. On touch,
+      // iOS's native selection callout covers it and mouseup is unreliable —
+      // the always-visible bottom bar handles narrow (see selectionchange).
+      if (isNarrow) { addBtn.remove(); return }
       if (revoked) { addBtn.remove(); return }
       var sel = window.getSelection()
       if (!sel || sel.isCollapsed || sel.rangeCount === 0) { addBtn.remove(); return }
@@ -3203,6 +3244,50 @@ export const VIEWER_SCRIPT = `(function () {
   addBtn.addEventListener('click', function () {
     addBtn.remove()
     if (pendingAnchor) showForm(pendingAnchor)
+  })
+
+  // --- Narrow/touch comment affordance -------------------------------------
+  // On touch the floating button is unusable, so the bottom bar's left control
+  // doubles as "Comment on selection". selectionchange (fires on the native
+  // handle drag, unlike the covered mouseup) captures the anchor; the tap that
+  // opens the form collapses the selection, so we keep the last anchor briefly
+  // (pendingAt) and gate the tap on recency rather than a live selection.
+  var pendingAt = 0
+  var hasSel = false
+  var selTimer = null
+  function refreshBottomComment() {
+    bottomCommentBtn.textContent = hasSel ? 'Comment on selection' : 'Select text to comment'
+    bottomCommentBtn.classList.toggle('prose-bottom-comment-active', hasSel)
+  }
+  function captureSelection() {
+    if (revoked) return
+    var sel = window.getSelection()
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) { hasSel = false; refreshBottomComment(); return }
+    var anchor = computeAnchor(sel)
+    if (!anchor) { hasSel = false; refreshBottomComment(); return }
+    pendingAnchor = anchor
+    var rect = sel.getRangeAt(0).getBoundingClientRect()
+    pendingRect = { top: rect.top, bottom: rect.bottom, left: rect.left }
+    pendingAt = Date.now()
+    hasSel = true
+    refreshBottomComment()
+  }
+  document.addEventListener('selectionchange', function () {
+    // Debounce: selectionchange fires per-pixel during a drag, and
+    // computeAnchor walks the doc. Settle first, then capture.
+    if (selTimer) window.clearTimeout(selTimer)
+    selTimer = window.setTimeout(captureSelection, 120)
+  })
+  bottomCommentBtn.addEventListener('click', function () {
+    // Reuse the last anchor only if it was captured recently (covers the
+    // selection collapsing when the tap lands on the bar).
+    if (pendingAnchor && Date.now() - pendingAt < 2500) {
+      var anchor = pendingAnchor
+      pendingAnchor = null
+      hasSel = false
+      refreshBottomComment()
+      showForm(anchor)
+    }
   })
 
   function clearForm() {

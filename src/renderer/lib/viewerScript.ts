@@ -3252,7 +3252,9 @@ export const VIEWER_SCRIPT = `(function () {
   // handle drag, unlike the covered mouseup) captures the anchor; the tap that
   // opens the form collapses the selection, so we keep the last anchor briefly
   // (pendingAt) and gate the tap on recency rather than a live selection.
-  var pendingAt = 0
+  // Narrow-only: the desktop floating button (mouseup) owns wide screens, so
+  // both the visual affordance and the anchor capture below gate on isNarrow.
+  var tapAnchor = null
   var hasSel = false
   var selTimer = null
   function refreshBottomComment() {
@@ -3260,34 +3262,54 @@ export const VIEWER_SCRIPT = `(function () {
     bottomCommentBtn.classList.toggle('prose-bottom-comment-active', hasSel)
   }
   function captureSelection() {
-    if (revoked) return
+    if (!isNarrow || revoked) return
     var sel = window.getSelection()
-    if (!sel || sel.isCollapsed || sel.rangeCount === 0) { hasSel = false; refreshBottomComment(); return }
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+      // Deselected: drop the anchor so a later tap can't reopen an abandoned
+      // range, and revert the control to its idle label.
+      hasSel = false
+      pendingAnchor = null
+      refreshBottomComment()
+      return
+    }
     var anchor = computeAnchor(sel)
-    if (!anchor) { hasSel = false; refreshBottomComment(); return }
+    if (!anchor) { hasSel = false; pendingAnchor = null; refreshBottomComment(); return }
     pendingAnchor = anchor
     var rect = sel.getRangeAt(0).getBoundingClientRect()
     pendingRect = { top: rect.top, bottom: rect.bottom, left: rect.left }
-    pendingAt = Date.now()
     hasSel = true
     refreshBottomComment()
   }
   document.addEventListener('selectionchange', function () {
     // Debounce: selectionchange fires per-pixel during a drag, and
-    // computeAnchor walks the doc. Settle first, then capture.
+    // computeAnchor walks the doc. Settle first, then update the control.
     if (selTimer) window.clearTimeout(selTimer)
     selTimer = window.setTimeout(captureSelection, 120)
   })
-  bottomCommentBtn.addEventListener('click', function () {
-    // Reuse the last anchor only if it was captured recently (covers the
-    // selection collapsing when the tap lands on the bar).
-    if (pendingAnchor && Date.now() - pendingAt < 2500) {
-      var anchor = pendingAnchor
-      pendingAnchor = null
-      hasSel = false
-      refreshBottomComment()
-      showForm(anchor)
+  // Capture from the LIVE selection at the start of the tap: the selection
+  // collapses as the tap's default action (after this handler runs), so reading
+  // it here is what separates "tap the bar to comment on the current selection"
+  // from "tap after having deselected" (nothing live → nothing to open).
+  bottomCommentBtn.addEventListener('pointerdown', function () {
+    if (!isNarrow) return
+    tapAnchor = null
+    var sel = window.getSelection()
+    if (sel && !sel.isCollapsed && sel.rangeCount > 0) {
+      var a = computeAnchor(sel)
+      if (a) tapAnchor = a
     }
+  })
+  bottomCommentBtn.addEventListener('click', function () {
+    if (!isNarrow) return
+    // Prefer the anchor captured live at pointerdown; fall back to the last
+    // active selection (hasSel gates out an abandoned one).
+    var anchor = tapAnchor || (hasSel ? pendingAnchor : null)
+    if (!anchor) return
+    tapAnchor = null
+    pendingAnchor = null
+    hasSel = false
+    refreshBottomComment()
+    showForm(anchor)
   })
 
   function clearForm() {

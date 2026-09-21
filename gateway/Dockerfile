@@ -20,6 +20,11 @@ RUN npx prisma generate
 COPY src ./src
 RUN npx tsc
 
+# Operational scripts run as one-off jobs (e.g. the manual entitlement grant,
+# scripts/seed-ai-proxy.ts). Copied AFTER `tsc` so the build never compiles them
+# — they run via `tsx` against src/ + the generated client at job time.
+COPY scripts ./scripts
+
 # Drop root: node:22-alpine ships a `node` user (uid 1000); migrate deploy and
 # the server only need read access to /app plus a DB connection.
 USER node

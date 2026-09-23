@@ -34,7 +34,7 @@
     "clean:hard": "npm run clean && rm -rf node_modules && rm -rf \"$HOME/Library/Application Support/prose\" \"$HOME/.prose\""
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.1",
+    "@ai-sdk/anthropic": "^3.0.116",
     "@anthropic-ai/sdk": "^0.39.0",
     "@codemirror/lang-markdown": "^6.5.0",
     "@codemirror/language-data": "^6.5.2",
@@ -72,7 +72,7 @@
     "@tiptap/react": "^2.11.2",
     "@tiptap/starter-kit": "^2.11.2",
     "@types/js-yaml": "^4.0.9",
-    "ai": "^6.0.3",
+    "ai": "^6.0.277",
     "chokidar": "^3.6.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

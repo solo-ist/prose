@@ -3121,7 +3121,12 @@ export const VIEWER_SCRIPT = `(function () {
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'visible') fetchLiveComments()
     })
-    window.addEventListener('pageshow', fetchLiveComments)
+    // Only a back/forward-cache restore needs this catch-up — event.persisted
+    // is true only then. Guarding it avoids a redundant second fetch on the
+    // initial load (the explicit fetchLiveComments() above already ran).
+    window.addEventListener('pageshow', function (ev) {
+      if (ev.persisted) fetchLiveComments()
+    })
   }
 
   // --- Local publish (file:// copies with a baked share URL) ----------------

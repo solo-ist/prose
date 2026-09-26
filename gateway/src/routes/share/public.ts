@@ -228,6 +228,10 @@ sharePublicRoutes.get('/:token/comments', commentReadLimit, async (c) => {
   return c.json({
     comments: rows.map(publicComment),
     nextCursor: rows.length > 0 ? rows[rows.length - 1].createdAt.toISOString() : null,
+    // Current artifact rev — the viewer compares it to the rev baked into its
+    // page and prompts a refresh when the author re-bakes the body (#769
+    // follow-up: body edits are a baked snapshot, not part of the live poll).
+    publishRev: pub.publishRev,
   })
 })
 

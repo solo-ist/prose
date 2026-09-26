@@ -831,7 +831,8 @@ export const VIEWER_STYLES = `
     position: fixed;
     left: 0;
     right: 0;
-    bottom: var(--kb-inset, 0px);
+    top: calc(var(--vv-top, 0px) + var(--vv-h, 100%));
+    transform: translateY(-100%);
     z-index: 15;
     display: flex;
     align-items: center;
@@ -881,10 +882,10 @@ export const VIEWER_STYLES = `
   sup.prose-mark-index::after { content: attr(data-n); }
   #prose-sheet {
     position: fixed;
-    top: 0;
     left: 0;
     right: 0;
-    bottom: var(--kb-inset, 0px);
+    top: var(--vv-top, 0px);
+    height: var(--vv-h, 100%);
     z-index: 30;
     display: flex;
     flex-direction: column;
@@ -896,11 +897,12 @@ export const VIEWER_STYLES = `
   }
   .prose-sheet-head {
     flex-shrink: 0;
-    height: 54px;
+    min-height: 54px;
+    box-sizing: border-box;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 16px;
+    padding: env(safe-area-inset-top, 0px) 16px 0;
     border-bottom: 1px solid hsl(var(--border));
     font-size: 12px;
     color: hsl(var(--muted-foreground));
@@ -980,7 +982,8 @@ export const VIEWER_STYLES = `
     position: fixed;
     left: 0;
     right: 0;
-    bottom: var(--kb-inset, 0px);
+    top: calc(var(--vv-top, 0px) + var(--vv-h, 100%));
+    transform: translateY(-100%);
     z-index: 20;
     padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
     background: var(--bg);
@@ -989,6 +992,20 @@ export const VIEWER_STYLES = `
     font-size: 12.5px;
     line-height: 1.5;
     color: hsl(var(--foreground));
+  }
+  /* iOS zooms the whole page when a focused field computes under 16px, which
+     also shoves the fixed composer past the viewport. Pin every mobile field
+     to 16px. Placed last so it wins over the base font: inherit rules; scoped
+     to narrow so desktop chrome keeps its compact type. */
+  @media (max-width: 999px) {
+    #prose-comment-form textarea,
+    #prose-comment-form input,
+    .prose-sheet-composer textarea,
+    .prose-sheet-composer input,
+    .prose-body-editor textarea,
+    .prose-name-input {
+      font-size: 16px;
+    }
   }
 `
 
@@ -2725,20 +2742,24 @@ export const VIEWER_SCRIPT = `(function () {
   window.addEventListener('resize', syncNarrowMode)
 
   // --- Soft-keyboard handling (mobile) -------------------------------------
-  // When the on-screen keyboard opens, the layout viewport doesn't shrink but
-  // the *visual* viewport does — a bottom-fixed composer would sit behind the
-  // keyboard. Publish the keyboard inset as --kb-inset so the fixed compose
-  // card and bottom bar lift above it. No-op where visualViewport is absent
-  // (desktop) — the var stays 0.
+  // When the on-screen keyboard opens, the layout viewport does not shrink but
+  // the visual viewport does. Rather than derive the keyboard height by
+  // subtracting from innerHeight (iOS over-counts by the retracting Safari
+  // toolbar, floating the sheet well above the keyboard), pin the mobile
+  // surfaces to the visual viewport measured from the TOP: --vv-top is the
+  // visible area's offset and --vv-h its height. The sheet spans that box
+  // exactly; the bottom bar and narrow compose form sit at its lower edge via
+  // translateY(-100%). No-op where visualViewport is absent (desktop).
   var vv = window.visualViewport
   if (vv) {
-    var applyKb = function () {
-      var inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
-      document.documentElement.style.setProperty('--kb-inset', inset + 'px')
+    var applyVv = function () {
+      var root = document.documentElement.style
+      root.setProperty('--vv-top', vv.offsetTop + 'px')
+      root.setProperty('--vv-h', vv.height + 'px')
     }
-    vv.addEventListener('resize', applyKb)
-    vv.addEventListener('scroll', applyKb)
-    applyKb()
+    vv.addEventListener('resize', applyVv)
+    vv.addEventListener('scroll', applyVv)
+    applyVv()
   }
 
   // --- Live conversation loop (#769) ---------------------------------------
@@ -2920,13 +2941,42 @@ export const VIEWER_SCRIPT = `(function () {
   // in place. Runtime DOM, stripped from annotated copies.
   var firstPullDone = false
   var liveToast = null
+  // The document body is a baked snapshot, not part of the live poll, so when
+  // the author re-bakes it (a save in auto mode, or "Share latest updates") the
+  // open viewer must reload to see the new body. lastPromptedRev de-dupes the
+  // prompt; updatePending makes the refresh prompt sticky and priority — a
+  // comment-merge toast must not clobber it (a reload surfaces those anyway).
+  var lastPromptedRev = null
+  var updatePending = false
 
   function dismissLiveToast() {
     if (liveToast) liveToast.remove()
     liveToast = null
   }
 
+  function showUpdateToast() {
+    if (liveToast) liveToast.remove()
+    updatePending = true
+    liveToast = el('div', null)
+    liveToast.id = 'prose-live-toast'
+    liveToast.appendChild(el('div', null, 'Document updated'))
+    liveToast.appendChild(el('div', 'prose-toast-hint', 'Tap to refresh'))
+    var dismissBtn = el('button', 'prose-toast-dismiss', '×')
+    dismissBtn.type = 'button'
+    dismissBtn.setAttribute('aria-label', 'Dismiss')
+    dismissBtn.addEventListener('click', function (ev) {
+      ev.stopPropagation()
+      updatePending = false
+      dismissLiveToast()
+    })
+    liveToast.appendChild(dismissBtn)
+    liveToast.addEventListener('click', function () { window.location.reload() })
+    document.body.appendChild(liveToast)
+  }
+
   function showLiveToast(targetId, newThreads, newReplies) {
+    // A pending refresh prompt outranks new-comment toasts — don't overwrite it.
+    if (updatePending) return
     dismissLiveToast()
     var parts = []
     if (newThreads > 0) parts.push(newThreads + ' new comment' + (newThreads === 1 ? '' : 's'))
@@ -2995,6 +3045,17 @@ export const VIEWER_SCRIPT = `(function () {
       return resp.json()
     }).then(function (body) {
       if (!body || !body.comments) return
+      // The author re-baked the body since this page loaded — prompt a refresh
+      // (once per new rev). Only meaningful on a served page with a baked rev;
+      // a fresh load already matches, so this never fires on the first poll.
+      if (
+        body.publishRev && shareConfig && shareConfig.publishRev &&
+        body.publishRev !== shareConfig.publishRev &&
+        body.publishRev !== lastPromptedRev
+      ) {
+        lastPromptedRev = body.publishRev
+        showUpdateToast()
+      }
       // Walk the 500-row pages to completion (audit M-05): a single capped
       // page hides every later comment — a filled first page would deny
       // visibility of the rest of the conversation. createdAt never moves
@@ -3051,6 +3112,21 @@ export const VIEWER_SCRIPT = `(function () {
     fetchLiveComments()
     pollTimer = window.setInterval(fetchLiveComments, 45000)
     window.addEventListener('focus', fetchLiveComments)
+    // iOS Safari suspends the interval in a backgrounded tab and does NOT
+    // reliably fire window 'focus' when you return to it, so switching from the
+    // desktop back to the phone would leave the viewer stale until the next
+    // 45s tick. 'visibilitychange' (to visible) is the dependable foreground
+    // signal on mobile, and 'pageshow' catches a back/forward-cache restore —
+    // both fire an immediate catch-up poll.
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') fetchLiveComments()
+    })
+    // Only a back/forward-cache restore needs this catch-up — event.persisted
+    // is true only then. Guarding it avoids a redundant second fetch on the
+    // initial load (the explicit fetchLiveComments() above already ran).
+    window.addEventListener('pageshow', function (ev) {
+      if (ev.persisted) fetchLiveComments()
+    })
   }
 
   // --- Local publish (file:// copies with a baked share URL) ----------------

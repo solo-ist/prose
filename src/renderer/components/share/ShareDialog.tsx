@@ -42,6 +42,11 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
   const { document } = useEditor()
   const [auth, setAuth] = useState<AuthState>({ phase: 'loading' })
   const [email, setEmail] = useState('')
+  // Captured from the email input at the moment a link is requested (not the
+  // live input, which the user may edit between requesting and pasting). Used
+  // by the login-CSRF guard. Cleared on each new request start, on successful
+  // sign-in, and on sign-out.
+  const [requestedEmail, setRequestedEmail] = useState('')
   const [magicLink, setMagicLink] = useState('')
   const [entry, setEntry] = useState<ShareEntry | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -80,8 +85,12 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
 
   const handleRequestLink = () =>
     run('request', async () => {
+      // Clear any previously captured email; set it only on success so the
+      // guard never checks a stale value from a failed or cancelled request.
+      setRequestedEmail('')
       const res = await getApi().shareRequestSignIn(email.trim())
       if (!res.ok) return res.error
+      setRequestedEmail(email.trim())
       setAuth({ phase: 'signed-out', linkRequested: true })
       return null
     })
@@ -93,23 +102,26 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
       setMagicLink('')
 
       // Login-CSRF guard: a crafted /auth/link URL carrying an attacker's token
-      // would sign this Prose into the attacker's account. If we know the email
-      // the user requested a link for, verify the session email matches before
-      // proceeding. Fail closed: any ambiguity (auth check failure, no email on
-      // the session) revokes and stops rather than proceeding silently. The link
-      // is already consumed at this point, so the user needs a fresh one.
-      if (email.trim()) {
+      // would sign this Prose into the attacker's account. We check against
+      // requestedEmail — captured at request time, not the live input the user
+      // may have edited since. Fail closed: any ambiguity (auth check failure,
+      // no email on the session) revokes and stops. The link is already consumed
+      // at this point, so the user needs a fresh one.
+      if (requestedEmail) {
         const status = await getApi().shareAuthStatus()
         if (!status.ok || !status.signedIn || !status.email) {
           await getApi().shareSignOut()
+          setRequestedEmail('')
           return "Couldn't verify which account that link signs in. Request a new link and try again."
         }
-        if (status.email.toLowerCase() !== email.trim().toLowerCase()) {
+        if (status.email.toLowerCase() !== requestedEmail.toLowerCase()) {
           await getApi().shareSignOut()
+          setRequestedEmail('')
           return `That link signs in a different account (${status.email}). Request a new link for your email.`
         }
       }
 
+      setRequestedEmail('')
       await refresh()
       return null
     })

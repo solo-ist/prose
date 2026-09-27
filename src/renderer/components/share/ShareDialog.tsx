@@ -160,12 +160,11 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
             {auth.linkRequested && (
               <div className="space-y-2">
                 <p className="text-xs text-muted-foreground">
-                  A magic link was issued. Until email delivery lands, it appears in the
-                  gateway&apos;s logs — paste it here to finish signing in.
+                  Check your email for a sign-in link and paste it here.
                 </p>
                 <div className="flex gap-2">
                   <Input
-                    placeholder="Paste the magic link"
+                    placeholder="Paste the link from your email"
                     value={magicLink}
                     onChange={(e) => setMagicLink(e.target.value)}
                     disabled={busy !== null}

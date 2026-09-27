@@ -93,6 +93,26 @@ later strands nothing).
 Integration test (self-contained — boots its own gateway on :4010, harvests
 the magic link from stdout): `npm run test:share` (needs `npm run dev:db`).
 
+## Magic-link email delivery (#813)
+
+Magic links are delivered by email via **Resend** in production. In
+development (no `RESEND_API_KEY`) the raw verify URL is still logged to
+stdout (test harness compatible).
+
+**How it works:** the emailed link points at a landing page
+(`GET /auth/link?token=…`) that shows the URL in a selectable field with
+a copy button. Clicking the emailed link does **not** consume the single-use
+token — only pasting the URL into Prose's Sign-in box does. The desktop
+accepts either the landing URL or the raw verify URL.
+
+**Setup:**
+1. Add `RESEND_API_KEY`, `MAIL_FROM` to the Render env (secrets).
+2. Verify the sender domain in the Resend dashboard (SPF + DKIM).
+3. Deploy; test with a real email address.
+
+Email integration test: `npm run test:mail` (boots a mock Resend server,
+needs `npm run dev:db`).
+
 ## Scope
 
 **In (Phase 0):** gateway scaffold, accounts (magic-link), the gated LLM proxy, the

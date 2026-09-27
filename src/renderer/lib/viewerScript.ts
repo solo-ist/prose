@@ -136,6 +136,10 @@ export const ARTIFACT_BASE_STYLES = `
   article a { color: var(--fg); text-decoration: none; border-bottom: 1px solid var(--rule); padding-bottom: 1px; }
   article ul, article ol { margin: 0 0 1.4em; padding-left: 1.4em; }
   article li { margin: 0.25em 0; }
+  /* Task-list boxes are a snapshot of the document, not a control. The label
+     wraps the box, so it has to go inert too or a tap on it still toggles. */
+  article input[type="checkbox"],
+  article li[data-type="taskItem"] > label { pointer-events: none; }
   article li p { margin: 0; }
   article hr { border: none; border-top: 1px solid var(--rule); margin: 2.5em 0; }
   article blockquote { border-left: 2px solid var(--rule); margin: 0 0 1.4em; padding-left: 1.25rem; color: var(--article-muted); }
@@ -880,12 +884,18 @@ export const VIEWER_STYLES = `
     cursor: pointer;
   }
   sup.prose-mark-index::after { content: attr(data-n); }
+  /* A modal sheet over the dimmed article: it stops short of the top so the
+     faded document stays visible above it, keyboard up or down. */
   #prose-sheet {
+    --sheet-gap: max(64px, calc(env(safe-area-inset-top, 0px) + 32px), calc(var(--vv-h, 100vh) * 0.14));
     position: fixed;
     left: 0;
     right: 0;
-    top: var(--vv-top, 0px);
-    height: var(--vv-h, 100%);
+    top: calc(var(--vv-top, 0px) + var(--sheet-gap));
+    height: calc(var(--vv-h, 100vh) - var(--sheet-gap));
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.25);
+    overflow: hidden;
     z-index: 30;
     display: flex;
     flex-direction: column;
@@ -902,7 +912,7 @@ export const VIEWER_STYLES = `
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: env(safe-area-inset-top, 0px) 16px 0;
+    padding: 0 16px;
     border-bottom: 1px solid hsl(var(--border));
     font-size: 12px;
     color: hsl(var(--muted-foreground));
@@ -932,7 +942,30 @@ export const VIEWER_STYLES = `
     display: inline-flex;
     align-items: center;
   }
-  .prose-sheet-scroll { flex: 1; overflow-y: auto; padding: 16px; }
+  .prose-sheet-scroll { flex: 1; overflow-y: auto; padding: 16px; touch-action: pan-y; overscroll-behavior: contain; }
+  #prose-sheet { touch-action: pan-y; overscroll-behavior: contain; }
+  /* Modal grey-out behind the thread sheet and the narrow new-comment form.
+     The page itself dims — its content and the root background — rather than
+     a fixed overlay, because iOS Safari doesn't paint fixed layers under its
+     translucent bottom toolbar and keyboard, and the page scrolling beneath
+     them would show through un-dimmed. */
+  html.prose-modal-open,
+  html.prose-modal-open body { background: color-mix(in srgb, var(--bg) 55%, #000); }
+  body > * { transition: filter 160ms ease-out; }
+  html.prose-modal-open body > :not(#prose-sheet):not(#prose-narrow-form-wrap):not(#prose-sheet-backdrop):not(#prose-form-backdrop) {
+    filter: brightness(0.55);
+  }
+  /* Transparent tap targets over the dimmed page: a tap outside the sheet
+     closes it; outside the form, cancels it when empty. The form docks at
+     z-index 20, the sheet at 30. */
+  #prose-sheet-backdrop,
+  #prose-form-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 29;
+  }
+  #prose-form-backdrop { z-index: 19; }
+  body.prose-sheet-open { overflow: hidden; }
   .prose-sheet-quote {
     display: block;
     font-family: var(--font-serif);
@@ -985,9 +1018,10 @@ export const VIEWER_STYLES = `
     top: calc(var(--vv-top, 0px) + var(--vv-h, 100%));
     transform: translateY(-100%);
     z-index: 20;
-    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    padding: 16px 16px calc(12px + env(safe-area-inset-bottom));
     background: var(--bg);
-    border-top: 1px solid hsl(var(--border));
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.25);
     font-family: var(--font-mono);
     font-size: 12.5px;
     line-height: 1.5;
@@ -1016,6 +1050,14 @@ export const VIEWER_SCRIPT = `(function () {
   var commentsEl = document.querySelector('script[type="application/x-prose-comments"]')
   var shareEl = document.querySelector('script[type="application/x-prose-share"]')
   var article = document.querySelector('article')
+  // Read-only task lists: CSS blocks pointer toggles; this catches the rest
+  // (Space on a focused box dispatches a click).
+  if (article) {
+    article.addEventListener('click', function (ev) {
+      var t = ev.target
+      if (t && t.matches && t.matches('input[type="checkbox"]')) ev.preventDefault()
+    }, true)
+  }
   // Baked chrome (top bar, footer) ships in the same artifact as this script;
   // missing nodes mean a malformed artifact — stand down instead of crashing.
   var toggle = document.getElementById('prose-rail-toggle')
@@ -1352,6 +1394,11 @@ export const VIEWER_SCRIPT = `(function () {
   var replyFor = null
   // Row id whose body is being edited inline / whose delete confirm shows.
   var editingRow = null
+  // Row whose author name is being renamed inline, and the typed value — kept
+  // outside the DOM so a re-render (poll, sheet refresh) rebuilds the field
+  // with what the reader typed.
+  var renamingRow = null
+  var renameDraft = ''
   var deleteArmed = null
 
   // Shared by the offline path and the failed-POST fallback: the comment
@@ -1567,11 +1614,24 @@ export const VIEWER_SCRIPT = `(function () {
     editLink.addEventListener('click', function (ev) {
       ev.stopPropagation()
       editingRow = rowId
+      renamingRow = null
       deleteArmed = null
       replyFor = null
       renderRail()
+      focusOpenField(false)
     })
     row.appendChild(editLink)
+    // Touch has no hover to reveal that the name is editable, so the narrow
+    // layout spells it out; wide keeps click-the-name.
+    if (isNarrow && renameHandlerFor(obj, rowId)) {
+      var renameLink = el('button', 'prose-reply-link prose-inline-action', 'Rename')
+      renameLink.type = 'button'
+      renameLink.addEventListener('click', function (ev) {
+        ev.stopPropagation()
+        startRename(rowId, obj.authorName || '')
+      })
+      row.appendChild(renameLink)
+    }
     if (canDelete) {
       if (deleteArmed === rowId) {
         row.appendChild(el('span', 'prose-delete-confirm', 'Delete?'))
@@ -1815,43 +1875,73 @@ export const VIEWER_SCRIPT = `(function () {
   // tag replacing the date when the row never reached the server.
   // textContent only. When onRename is given (a row this reader owns), the
   // name is click-to-edit inline: Enter/blur commits, Esc cancels.
-  function headerRow(name, tagText, ts, notSent, onRename) {
+  function headerRow(name, tagText, ts, notSent, onRename, rowId) {
     var row = el('div', 'prose-card-head')
-    var nameEl = el('span', 'prose-card-name', name)
-    if (tagText) nameEl.appendChild(el('span', 'prose-author-tag', tagText))
-    if (onRename) {
-      nameEl.classList.add('prose-name-editable')
-      nameEl.title = 'Click to edit your name'
-      nameEl.addEventListener('click', function (ev) {
-        ev.stopPropagation()
-        if (row.querySelector('input')) return
-        var input = el('input', 'prose-name-input')
-        input.value = name
-        input.maxLength = 100
-        var settled = false
-        var commit = function () {
-          if (settled) return
-          settled = true
-          var next = input.value.trim()
-          if (!next || next === name) { renderRail(); return }
-          onRename(next)
-        }
-        input.addEventListener('keydown', function (e) {
-          if (e.key === 'Enter') { e.preventDefault(); commit() }
-          if (e.key === 'Escape') { settled = true; renderRail() }
-        })
-        input.addEventListener('blur', commit)
-        input.addEventListener('click', function (e) { e.stopPropagation() })
-        row.replaceChild(input, nameEl)
-        input.focus()
-        input.select()
+    if (onRename && renamingRow === rowId) {
+      var input = el('input', 'prose-name-input')
+      input.value = renameDraft
+      input.maxLength = 100
+      input.setAttribute('aria-label', 'Your name')
+      input.enterKeyHint = 'done'
+      var settled = false
+      var commit = function () {
+        if (settled) return
+        settled = true
+        if (renamingRow === rowId) renamingRow = null
+        var next = input.value.trim()
+        if (!next || next === name) { renderRail(); return }
+        onRename(next)
+      }
+      input.addEventListener('input', function () { renameDraft = input.value })
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); commit() }
+        if (e.key === 'Escape') { settled = true; renamingRow = null; renderRail() }
       })
+      // Deferred: a re-render can detach the focused field, and committing
+      // synchronously from inside that render would re-enter it.
+      input.addEventListener('blur', function () { window.setTimeout(commit, 0) })
+      input.addEventListener('click', function (e) { e.stopPropagation() })
+      row.appendChild(input)
+    } else {
+      var nameEl = el('span', 'prose-card-name', name)
+      if (tagText) nameEl.appendChild(el('span', 'prose-author-tag', tagText))
+      if (onRename) {
+        nameEl.classList.add('prose-name-editable')
+        nameEl.title = 'Click to edit your name'
+        nameEl.addEventListener('click', function (ev) {
+          ev.stopPropagation()
+          startRename(rowId, name)
+        })
+      }
+      row.appendChild(nameEl)
     }
-    row.appendChild(nameEl)
     row.appendChild(notSent
       ? el('span', 'prose-card-date prose-not-sent', 'not sent')
       : el('span', 'prose-card-date', formatDate(ts)))
     return row
+  }
+
+  function startRename(rowId, name) {
+    renamingRow = rowId
+    renameDraft = name
+    editingRow = null
+    deleteArmed = null
+    renderRail()
+    focusOpenField(true)
+  }
+
+  // Focus the inline field a tap just opened. Synchronous, still inside the
+  // tap, because iOS only raises the keyboard for a focus() made during a
+  // user gesture. Once the keyboard settles, bring the field into view.
+  function focusOpenField(selectAll) {
+    var root = sheetOpenId ? sheetScroll : rail
+    var f = root.querySelector('.prose-name-input, .prose-body-editor textarea')
+    if (!f) return
+    f.focus()
+    if (selectAll && f.select) f.select()
+    window.setTimeout(function () {
+      if (f.isConnected) f.scrollIntoView({ block: 'nearest' })
+    }, 350)
   }
 
   // Build the rename handler for a row this reader owns, or null. Drafts
@@ -1894,7 +1984,7 @@ export const VIEWER_SCRIPT = `(function () {
     var replyEl = el('div', isAuthor ? 'prose-thread-reply prose-reply-author' : 'prose-thread-reply')
     var label = r.authorName || (r.author === 'ai' ? 'AI' : 'Author')
     var tag = isAuthor ? ' · author' : mineTag(r.id, r.authorName)
-    var head = headerRow(label, tag, r.createdAt, notSentIds[r.id] === true, renameHandlerFor(r, r.id))
+    var head = headerRow(label, tag, r.createdAt, notSentIds[r.id] === true, renameHandlerFor(r, r.id), r.id)
     if (r.editedAt) head.insertBefore(el('span', 'prose-edited-tag', 'edited'), head.lastChild)
     replyEl.appendChild(head)
     if (editingRow === r.id) {
@@ -2000,6 +2090,42 @@ export const VIEWER_SCRIPT = `(function () {
     }
   }
 
+  // The root comment's rows: header (rename for owners), the body or its
+  // inline editor, and Edit / Delete right under the body they act on.
+  // Shared by the rail card and the narrow sheet so both offer the same
+  // affordances.
+  function appendRootRows(container, c) {
+    var head = headerRow(authorLabel(c), mineTag(c.id, c.authorName), c.createdAt, notSentIds[c.id] === true, renameHandlerFor(c, c.id), c.id)
+    if (c.editedAt) head.insertBefore(el('span', 'prose-edited-tag', 'edited'), head.lastChild)
+    container.appendChild(head)
+    if (editingRow === c.id) {
+      container.appendChild(renderBodyEditor(c, 'comment', c.id))
+      return
+    }
+    container.appendChild(el('div', 'prose-thread-body', c.comment))
+    // Owned rows: Edit always; Delete only while nothing hangs off the
+    // thread (drafts are all this reader's, so they delete whole).
+    if (!revoked && ownershipOf(c.id)) {
+      var canDeleteThread = ownershipOf(c.id) === 'draft' || (c.replies || []).length === 0
+      container.appendChild(ownActionsRow(c, 'comment', c.id, canDeleteThread, function () {
+        deleteThread(c)
+      }))
+    }
+  }
+
+  // True while any row of the thread has an inline body editor or rename
+  // field open — the Reply affordances step aside so that field stands alone
+  // (and, in the sheet, gets the room the keyboard leaves).
+  function threadIsEditing(c) {
+    if (editingRow === null && renamingRow === null) return false
+    if (editingRow === c.id || renamingRow === c.id) return true
+    var rs = c.replies || []
+    for (var i = 0; i < rs.length; i++) {
+      if (rs[i].id === editingRow || rs[i].id === renamingRow) return true
+    }
+    return false
+  }
+
   function renderThread(c, lost) {
     var card = el('div', lost ? 'prose-thread prose-thread-lost' : 'prose-thread')
     card.setAttribute('data-thread-id', c.id)
@@ -2007,19 +2133,12 @@ export const VIEWER_SCRIPT = `(function () {
     // from the marks, so the quote is what anchors a card to its passage.
     if (c.markedText) card.appendChild(el('span', 'prose-thread-quote', '“' + c.markedText + '”'))
     if (lost) card.appendChild(el('div', 'prose-lost-note', 'This passage is no longer in the document.'))
-    var head = headerRow(authorLabel(c), mineTag(c.id, c.authorName), c.createdAt, notSentIds[c.id] === true, renameHandlerFor(c, c.id))
-    if (c.editedAt) head.insertBefore(el('span', 'prose-edited-tag', 'edited'), head.lastChild)
-    card.appendChild(head)
-    if (editingRow === c.id) {
-      card.appendChild(renderBodyEditor(c, 'comment', c.id))
-    } else {
-      card.appendChild(el('div', 'prose-thread-body', c.comment))
-    }
+    appendRootRows(card, c)
     var replies = c.replies || []
     for (var i = 0; i < replies.length; i++) {
       card.appendChild(renderReplyRow(replies[i], c))
     }
-    if (!lost && !c.resolved && !revoked) {
+    if (!lost && !c.resolved && !revoked && !threadIsEditing(c)) {
       if (replyFor === c.id) {
         card.appendChild(renderReplyComposer(c))
       } else {
@@ -2035,14 +2154,6 @@ export const VIEWER_SCRIPT = `(function () {
         })
         card.appendChild(replyLink)
       }
-    }
-    // Owned rows: Edit always; Delete only while nothing hangs off the
-    // thread (drafts are all this reader's, so they delete whole).
-    if (!revoked && ownershipOf(c.id) && editingRow !== c.id) {
-      var canDeleteThread = ownershipOf(c.id) === 'draft' || replies.length === 0
-      card.appendChild(ownActionsRow(c, 'comment', c.id, canDeleteThread, function () {
-        deleteThread(c)
-      }))
     }
     if (c.id === nudgeThreadId) {
       var nudge = el('div', 'prose-nudge')
@@ -2316,6 +2427,31 @@ export const VIEWER_SCRIPT = `(function () {
   // Fixed-bottom home for #prose-comment-form when there is no rail.
   var narrowFormWrap = el('div', null)
   narrowFormWrap.id = 'prose-narrow-form-wrap'
+  // Greys the article out behind the docked form, like the thread sheet.
+  // A tap outside cancels only an empty form, so a half-written comment is
+  // never lost to a stray tap.
+  var formBackdrop = el('div', null)
+  formBackdrop.id = 'prose-form-backdrop'
+  formBackdrop.addEventListener('click', function () {
+    var ta = narrowFormWrap.querySelector('textarea')
+    if (!ta || !ta.value.trim()) clearForm()
+  })
+  function dockNarrowForm(form) {
+    narrowFormWrap.appendChild(form)
+    document.body.appendChild(formBackdrop)
+    document.body.appendChild(narrowFormWrap)
+    syncModalDim()
+  }
+  function undockNarrowForm() {
+    formBackdrop.remove()
+    narrowFormWrap.remove()
+    syncModalDim()
+  }
+
+  // Grey the page out while the sheet or the docked form is up.
+  function syncModalDim() {
+    document.documentElement.classList.toggle('prose-modal-open', !!sheet.parentNode || !!narrowFormWrap.parentNode)
+  }
 
   // Thread ids in document order of their first mark — the sup numbering and
   // the sheet's "K of N".
@@ -2348,6 +2484,9 @@ export const VIEWER_SCRIPT = `(function () {
 
   // --- Full-screen thread sheet ---------------------------------------------
   var sheetOpenId = null
+  var sheetBackdrop = el('div', null)
+  sheetBackdrop.id = 'prose-sheet-backdrop'
+  sheetBackdrop.addEventListener('click', function () { closeSheet() })
   var sheet = el('div', null)
   sheet.id = 'prose-sheet'
   var sheetHead = el('div', 'prose-sheet-head')
@@ -2386,6 +2525,30 @@ export const VIEWER_SCRIPT = `(function () {
   sheet.appendChild(sheetScroll)
   sheet.appendChild(sheetComposer)
 
+  // Horizontal swipe on the thread steps to the next / previous comment,
+  // like the ‹ › in the head. touch-action: pan-y (CSS) stops the browser
+  // panning the page sideways; vertical scroll stays native. Gestures that
+  // start in a text field, or end with a text selection, are left alone.
+  var swipeStart = null
+  sheetScroll.addEventListener('touchstart', function (ev) {
+    var t = ev.target
+    if (ev.touches.length !== 1 || (t && t.closest && t.closest('textarea, input'))) { swipeStart = null; return }
+    swipeStart = { x: ev.touches[0].clientX, y: ev.touches[0].clientY }
+  }, { passive: true })
+  sheetScroll.addEventListener('touchend', function (ev) {
+    if (!swipeStart) return
+    var end = ev.changedTouches[0]
+    var dx = end.clientX - swipeStart.x
+    var dy = end.clientY - swipeStart.y
+    swipeStart = null
+    if (narrowOrder.length < 2) return
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return
+    var sel = window.getSelection()
+    if (sel && !sel.isCollapsed) return
+    stepSheet(dx < 0 ? 1 : -1)
+  })
+  sheetScroll.addEventListener('touchcancel', function () { swipeStart = null })
+
   function threadById(id) {
     for (var i = 0; i < comments.length; i++) {
       if (comments[i].id === id) return comments[i]
@@ -2393,9 +2556,17 @@ export const VIEWER_SCRIPT = `(function () {
     return null
   }
 
-  function renderSheetContent() {
+  // What the sheet last rendered, so a re-render (every renderRail — polls,
+  // edits, renames) keeps the reader's scroll position and reply draft and
+  // only rebuilds the composer when its shape actually changes.
+  var sheetRenderedId = null
+  var sheetComposerKey = null
+
+  function renderSheetContent(resetComposer) {
     var c = sheetOpenId ? threadById(sheetOpenId) : null
     if (!c) { closeSheet(); return }
+    var sameThread = sheetRenderedId === c.id
+    var keepScroll = sameThread ? sheetScroll.scrollTop : 0
     var pos = -1
     for (var i = 0; i < narrowOrder.length; i++) {
       if (narrowOrder[i] === c.id) pos = i
@@ -2404,16 +2575,24 @@ export const VIEWER_SCRIPT = `(function () {
     var canCycle = narrowOrder.length > 1
     sheetPrev.style.display = canCycle ? '' : 'none'
     sheetNext.style.display = canCycle ? '' : 'none'
-    sheetScroll.scrollTop = 0
     sheetScroll.textContent = ''
     if (c.markedText) sheetScroll.appendChild(el('span', 'prose-sheet-quote', '"' + c.markedText + '"'))
     var thread = el('div', 'prose-sheet-thread')
-    thread.appendChild(headerRow(authorLabel(c), mineTag(c.id, c.authorName), c.createdAt, notSentIds[c.id] === true))
-    thread.appendChild(el('div', 'prose-thread-body', c.comment))
+    appendRootRows(thread, c)
     var replies = c.replies || []
-    for (var ri = 0; ri < replies.length; ri++) thread.appendChild(renderReplyRow(replies[ri]))
+    for (var ri = 0; ri < replies.length; ri++) thread.appendChild(renderReplyRow(replies[ri], c))
     sheetScroll.appendChild(thread)
-    renderSheetComposer(c)
+    sheetScroll.scrollTop = keepScroll
+    var key = c.id + '|' + (c.resolved || revoked ? 'closed' : 'open')
+    if (resetComposer || key !== sheetComposerKey) {
+      sheetComposerKey = key
+      renderSheetComposer(c)
+    }
+    // An open inline editor owns the keyboard; a second textarea below it
+    // would crowd the visible viewport. Hidden, not rebuilt, so a half-typed
+    // reply is still there after Save / Cancel.
+    sheetComposer.style.display = sheetComposer.firstChild && !threadIsEditing(c) ? '' : 'none'
+    sheetRenderedId = c.id
   }
 
   function renderSheetComposer(c) {
@@ -2448,7 +2627,7 @@ export const VIEWER_SCRIPT = `(function () {
       }
       sendBtn.disabled = true
       sendReply(c, who, text, function () {
-        renderSheetContent()
+        renderSheetContent(true)
       }, function (message) {
         sendBtn.disabled = false
         errorEl.textContent = message
@@ -2466,14 +2645,30 @@ export const VIEWER_SCRIPT = `(function () {
   }
 
   function openSheet(id) {
+    if (id !== sheetOpenId) {
+      // An inline edit, rename, or armed delete belongs to the thread being left.
+      editingRow = null
+      renamingRow = null
+      deleteArmed = null
+    }
     sheetOpenId = id
     renderSheetContent()
-    if (sheetOpenId && !document.body.contains(sheet)) document.body.appendChild(sheet)
+    if (sheetOpenId && !document.body.contains(sheet)) {
+      document.body.appendChild(sheetBackdrop)
+      document.body.appendChild(sheet)
+      document.body.classList.add('prose-sheet-open')
+      syncModalDim()
+    }
   }
 
   function closeSheet() {
     sheetOpenId = null
+    sheetRenderedId = null
+    sheetComposerKey = null
+    document.body.classList.remove('prose-sheet-open')
+    if (sheetBackdrop.parentNode) sheetBackdrop.parentNode.removeChild(sheetBackdrop)
     if (sheet.parentNode) sheet.parentNode.removeChild(sheet)
+    syncModalDim()
   }
 
   function openFirstThreadSheet() {
@@ -2497,14 +2692,11 @@ export const VIEWER_SCRIPT = `(function () {
       document.body.classList.remove('prose-rail-open')
       document.body.classList.add('prose-narrow')
       document.body.appendChild(bottomBar)
-      if (form) {
-        narrowFormWrap.appendChild(form)
-        document.body.appendChild(narrowFormWrap)
-      }
+      if (form) dockNarrowForm(form)
     } else {
       closeSheet()
       bottomBar.remove()
-      narrowFormWrap.remove()
+      undockNarrowForm()
       document.body.classList.remove('prose-narrow')
       if (form) {
         // The float wrapper keeps its last placement — good enough across a
@@ -2543,6 +2735,7 @@ export const VIEWER_SCRIPT = `(function () {
     // The theme class is this viewer's preference, not the document's — the
     // reopened copy re-derives it from its reader's storage/OS scheme.
     clone.classList.remove('dark')
+    clone.classList.remove('prose-modal-open')
     // Strip the viewer's runtime DOM — the reopened copy rebuilds it fresh.
     // Baked chrome (top bar, footer) intentionally survives the copy.
     var strip = [
@@ -2553,6 +2746,8 @@ export const VIEWER_SCRIPT = `(function () {
       '#prose-publish-comments',
       '#prose-bottom-bar',
       '#prose-sheet',
+      '#prose-sheet-backdrop',
+      '#prose-form-backdrop',
       '#prose-narrow-form-wrap',
       '#prose-live-toast',
       '#prose-download-clean',
@@ -2568,6 +2763,7 @@ export const VIEWER_SCRIPT = `(function () {
     if (body) {
       body.classList.remove('prose-rail-open')
       body.classList.remove('prose-narrow')
+      body.classList.remove('prose-sheet-open')
     }
     // Reset chrome state that belongs to THIS session, not the copy.
     var dl = clone.querySelector('#prose-download-copy')
@@ -3392,7 +3588,7 @@ export const VIEWER_SCRIPT = `(function () {
     floatWrap.textContent = ''
     floatWrap.remove()
     narrowFormWrap.textContent = ''
-    narrowFormWrap.remove()
+    undockNarrowForm()
     railHint.textContent = ''
   }
 
@@ -3524,8 +3720,7 @@ export const VIEWER_SCRIPT = `(function () {
     if (isNarrow) {
       // No floating card narrow — the form docks as a fixed bottom card.
       narrowFormWrap.textContent = ''
-      narrowFormWrap.appendChild(form)
-      document.body.appendChild(narrowFormWrap)
+      dockNarrowForm(form)
     } else {
       floatWrap.appendChild(form)
       placeFloatForm(pendingRect || { top: 120, bottom: 120, left: 24 })

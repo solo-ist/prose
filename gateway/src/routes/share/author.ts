@@ -18,17 +18,12 @@ import {
   MAX_MARKED_TEXT_CHARS,
   MAX_NAME_CHARS,
   MAX_TITLE_CHARS,
+  buildShareUrl,
+  newHostLabel,
   newShareToken,
   publicComment,
   sanitizeField,
 } from './common.js'
-import { config } from '../../config.js'
-
-/** Public origin the share URL should use (the gateway serves /s/*). */
-function shareBase(): string {
-  // Share links live on the isolated share origin when configured (#902).
-  return (config.SHARE_BASE_URL ?? config.BETTER_AUTH_URL).replace(/\/$/, '')
-}
 
 /** The artifact must be a Prose export — a cheap structural check, not a parse. */
 // Structural sniff, not a sanitizer: an authorized author can bake any
@@ -75,9 +70,11 @@ shareAuthorRoutes.post('/publish', async (c) => {
   }
 
   const { token, tokenHash } = newShareToken()
+  const hostLabel = newHostLabel()
   const pub = await prisma.publication.create({
     data: {
       tokenHash,
+      hostLabel,
       authorId: user.id,
       title,
       publishRev: extractPublishRev(body.html) ?? 'unknown',
@@ -91,7 +88,7 @@ shareAuthorRoutes.post('/publish', async (c) => {
   return c.json(
     {
       publicationId: pub.id,
-      shareUrl: `${shareBase()}/s/${token}`,
+      shareUrl: buildShareUrl(token, hostLabel),
       publishRev: pub.publishRev,
       revCount: 1,
     },
@@ -105,7 +102,7 @@ shareAuthorRoutes.put('/:pubId/publish', async (c) => {
   if (!pub || pub.authorId !== user.id) return c.json({ error: 'not_found' }, 404)
   if (pub.revokedAt) return c.json({ error: 'revoked' }, 409)
 
-  let body: { title?: unknown; html?: unknown }
+  let body: { title?: unknown; html?: unknown; token?: unknown }
   try {
     body = await c.req.json()
   } catch {
@@ -115,6 +112,15 @@ shareAuthorRoutes.put('/:pubId/publish', async (c) => {
     return c.json({ error: 'invalid_artifact' }, 400)
   }
   const title = sanitizeField(body.title, MAX_TITLE_CHARS) || pub.title
+
+  // Assign a hostLabel to legacy publications that predate #917 (e.g. baked
+  // before the migration ran, or before SHARE_SUBDOMAINS was enabled). This
+  // makes their first re-publish under the new regime give them a proper label.
+  let hostLabel = pub.hostLabel
+  if (!hostLabel) {
+    hostLabel = newHostLabel()
+    await prisma.publication.update({ where: { id: pub.id }, data: { hostLabel } })
+  }
 
   const stored = await putArtifact(pub.id, body.html)
   const updated = await prisma.publication.update({
@@ -127,10 +133,18 @@ shareAuthorRoutes.put('/:pubId/publish', async (c) => {
     },
   })
 
+  // Return the canonical shareUrl so the desktop can update its stored entry
+  // to the label-host form after SHARE_SUBDOMAINS is enabled (#917).
+  // The raw token is included by the desktop in the body for URL construction
+  // only — it provides no additional authorization (session is the auth).
+  const rawToken = typeof body.token === 'string' ? sanitizeField(body.token, 64) : null
+  const shareUrl = rawToken ? buildShareUrl(rawToken, hostLabel) : undefined
+
   return c.json({
     publicationId: updated.id,
     publishRev: updated.publishRev,
     revCount: updated.revCount,
+    ...(shareUrl ? { shareUrl } : {}),
   })
 })
 

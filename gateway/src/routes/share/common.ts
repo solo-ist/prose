@@ -8,6 +8,7 @@
  */
 import { createHash, randomBytes } from 'node:crypto'
 import { prisma } from '../../db/index.js'
+import { config } from '../../config.js'
 
 export const MAX_COMMENT_CHARS = 5000
 export const MAX_MARKED_TEXT_CHARS = 5000
@@ -41,6 +42,34 @@ export function sanitizeField(value: unknown, maxLength: number): string {
   // sanitizes to empty and fails the caller's required-field validation.
   if (typeof value !== 'string') return ''
   return value.replace(CONTROL_CHARS, '').substring(0, maxLength).trim()
+}
+
+/** Generate a random 16-char lowercase hex label for a new publication (#917). */
+export function newHostLabel(): string {
+  return randomBytes(8).toString('hex')
+}
+
+/**
+ * Build the public share URL for a publication (#917).
+ *
+ * - SHARE_SUBDOMAINS off (or no hostLabel): bare share host, e.g.
+ *   `https://share.prose.solo.ist/s/<token>`
+ * - SHARE_SUBDOMAINS on + hostLabel present: label subdomain, e.g.
+ *   `https://a1b2c3d4e5f6a1b2.share.prose.solo.ist/s/<token>`
+ *
+ * The fallback (bare gateway base) covers dev mode (no SHARE_BASE_URL).
+ */
+export function buildShareUrl(token: string, hostLabel: string | null | undefined): string {
+  const base = (config.SHARE_BASE_URL ?? config.BETTER_AUTH_URL).replace(/\/$/, '')
+  if (config.SHARE_SUBDOMAINS && hostLabel && config.SHARE_BASE_URL) {
+    // Insert the label as a subdomain of the share host.
+    // e.g. http://share.localhost:4030 → http://a1b2c3d4.share.localhost:4030
+    // Use .host (hostname:port) not .hostname to preserve the port when set.
+    const shareUrl = new URL(config.SHARE_BASE_URL)
+    shareUrl.host = `${hostLabel}.${shareUrl.host}`
+    return `${shareUrl.origin}/s/${token}`
+  }
+  return `${base}/s/${token}`
 }
 
 /** Resolve a live (or revoked) publication from a raw URL token. */

@@ -63,6 +63,11 @@ model Publication {
   title              String
   publishRev         String
   revCount           Int       @default(1)
+  /// Non-secret random DNS-safe label, 16 lowercase hex chars, assigned at
+  /// publish time (#917). Serves as the subdomain when SHARE_SUBDOMAINS is on
+  /// so the capability token never appears in DNS/SNI logs. NULL on legacy rows
+  /// until the 20260927000001 migration backfill runs.
+  hostLabel          String?   @unique
   storage            String    @default("db") // 'r2' | 'db'
   r2Key              String?
   artifactHtml       String?

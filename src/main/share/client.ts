@@ -205,15 +205,20 @@ export async function republishArtifact(
   config: ShareClientConfig,
   publicationId: string,
   title: string,
-  html: string
-): Promise<{ publishRev: string; revCount: number }> {
+  html: string,
+  /** Raw capability token — sent back to the server so it can build the
+   * canonical shareUrl in label-subdomain form (#917). This is NOT used for
+   * authorization (the session cookie does that); it is used only for URL
+   * construction and provides no capability the server doesn't already hold. */
+  token?: string
+): Promise<{ publishRev: string; revCount: number; shareUrl?: string }> {
   const res = await fetch(`${base(config)}/api/share/${encodeURIComponent(publicationId)}/publish`, {
     method: 'PUT',
     headers: await authedHeaders(config),
-    body: JSON.stringify({ title, html }),
+    body: JSON.stringify({ title, html, ...(token ? { token } : {}) }),
   })
   if (!res.ok) throw await toError(res)
-  return (await res.json()) as { publishRev: string; revCount: number }
+  return (await res.json()) as { publishRev: string; revCount: number; shareUrl?: string }
 }
 
 export async function revokePublication(

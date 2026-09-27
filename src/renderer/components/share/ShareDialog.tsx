@@ -95,14 +95,18 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
       // Login-CSRF guard: a crafted /auth/link URL carrying an attacker's token
       // would sign this Prose into the attacker's account. If we know the email
       // the user requested a link for, verify the session email matches before
-      // proceeding. On a mismatch, revoke the session (server + local) and stop.
+      // proceeding. Fail closed: any ambiguity (auth check failure, no email on
+      // the session) revokes and stops rather than proceeding silently. The link
+      // is already consumed at this point, so the user needs a fresh one.
       if (email.trim()) {
         const status = await getApi().shareAuthStatus()
-        if (status.ok && status.signedIn && status.email) {
-          if (status.email.toLowerCase() !== email.trim().toLowerCase()) {
-            await getApi().shareSignOut()
-            return `That link signs in a different account (${status.email}). Request a new link for your email.`
-          }
+        if (!status.ok || !status.signedIn || !status.email) {
+          await getApi().shareSignOut()
+          return "Couldn't verify which account that link signs in. Request a new link and try again."
+        }
+        if (status.email.toLowerCase() !== email.trim().toLowerCase()) {
+          await getApi().shareSignOut()
+          return `That link signs in a different account (${status.email}). Request a new link for your email.`
         }
       }
 

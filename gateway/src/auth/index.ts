@@ -35,21 +35,6 @@ export function buildLandingUrl(verifyUrl: string): string {
   return landing.toString()
 }
 
-/**
- * Build the raw Better Auth verify URL from a landing URL. The desktop calls
- * this when the user pastes a landing URL instead of the raw verify URL, so
- * sign-in remains a single paste-and-click regardless of which link the user
- * copied from their email.
- */
-export function buildVerifyUrl(landingUrl: string): string {
-  const u = new URL(landingUrl)
-  const verify = new URL('/api/auth/magic-link/verify', u.origin)
-  const token = u.searchParams.get('token')
-  const callbackURL = u.searchParams.get('callbackURL')
-  if (token) verify.searchParams.set('token', token)
-  if (callbackURL) verify.searchParams.set('callbackURL', callbackURL)
-  return verify.toString()
-}
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, { provider: 'postgresql' }),

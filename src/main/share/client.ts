@@ -141,6 +141,7 @@ export async function completeSignIn(config: ShareClientConfig, magicUrl: string
 
   // If the user pasted the email landing URL, rebuild the real verify URL so
   // we only ever fetch the consuming endpoint once.
+  // Keep this path in step with gateway/src/auth/index.ts MAGIC_LINK_LANDING_PATH.
   if (parsed.pathname === '/auth/link') {
     const verify = new URL('/api/auth/magic-link/verify', parsed.origin)
     const token = parsed.searchParams.get('token')

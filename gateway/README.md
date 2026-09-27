@@ -92,6 +92,8 @@ later strands nothing).
 
 Integration test (self-contained — boots its own gateway on :4010, harvests
 the magic link from stdout): `npm run test:share` (needs `npm run dev:db`).
+CI runs it on every PR touching `gateway/**` (`.github/workflows/gateway.yml`,
+against a Postgres service), after a typecheck and `prisma migrate deploy`.
 
 ## Scope
 

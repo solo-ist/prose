@@ -314,7 +314,7 @@ export function CommentReviewPanel({ onExit, initialThreadId, focusSeq }: Commen
                     <span className="text-xs font-semibold text-foreground">
                       {current.author === 'ai'
                         ? 'Prose'
-                        : current.authorName || (current.shareId ? 'Reviewer' : 'You')}
+                        : current.authorName || 'You'}
                     </span>
                     <span className="text-[11px] text-muted-foreground">{formatAge(current.createdAt)}</span>
                   </div>

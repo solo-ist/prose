@@ -2,7 +2,7 @@ import { ipcMain, dialog, app, shell, BrowserWindow, clipboard, nativeImage } fr
 import { IS_MAS_BUILD } from './env'
 import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat, copyFile, realpath } from 'fs/promises'
 import { join, dirname, normalize, isAbsolute, resolve, sep } from 'path'
-import { randomUUID, createHash } from 'crypto'
+import { randomUUID } from 'crypto'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
 import { withRetry, getNetworkErrorMessage } from '../shared/utils/retry'
@@ -498,9 +498,8 @@ export function setupIpcHandlers(): void {
     // generateIdFromPath (persistence.ts). Directory moves are handled by
     // updateShareLocalPath scanning for prefix matches and recomputing per-entry.
     if (!IS_MAS_BUILD) {
-      const newDocumentId = createHash('sha256').update(safeNewPath).digest('hex').substring(0, 36)
       void import('./share/index').then((share) =>
-        share.renamedLocalPath(safeOldPath, safeNewPath, newDocumentId)
+        share.renamedLocalPath(safeOldPath, safeNewPath, share.documentIdFromPath(safeNewPath))
       ).catch(() => {})
     }
   })

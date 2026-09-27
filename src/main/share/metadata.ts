@@ -11,7 +11,7 @@
  */
 import { app } from 'electron'
 import { chmod, readFile, writeFile } from 'fs/promises'
-import { join } from 'path'
+import { join, sep } from 'path'
 import { createHash } from 'crypto'
 
 /**
@@ -19,7 +19,7 @@ import { createHash } from 'crypto'
  * Matches renderer's generateIdFromPath (persistence.ts) so documentId
  * values are consistent whether computed here or in the renderer.
  */
-function documentIdFromPath(path: string): string {
+export function documentIdFromPath(path: string): string {
   return createHash('sha256').update(path).digest('hex').substring(0, 36)
 }
 
@@ -219,7 +219,7 @@ export function updateShareLocalPath(
   return serialized(async () => {
     const meta = await load()
     let touched = 0
-    const dirPrefix = oldPath + '/'
+    const dirPrefix = oldPath + sep
     for (const entry of Object.values(meta.shares)) {
       if (entry.localPath === oldPath) {
         // Exact file match — use the caller-supplied documentId.
@@ -228,7 +228,7 @@ export function updateShareLocalPath(
         touched++
       } else if (entry.localPath.startsWith(dirPrefix)) {
         // Directory move — recompute each nested file's new path and documentId.
-        const relative = entry.localPath.slice(oldPath.length) // retains leading '/'
+        const relative = entry.localPath.slice(oldPath.length) // retains leading sep
         entry.localPath = newPath + relative
         entry.documentId = documentIdFromPath(entry.localPath)
         touched++

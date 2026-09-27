@@ -13,6 +13,7 @@ import { getSettingsDir } from '../paths'
 import * as client from './client'
 import {
   type ShareSyncEntry,
+  documentIdFromPath,
   getShareEntriesByPath,
   getShareEntry,
   listShareEntries,
@@ -21,6 +22,8 @@ import {
   upsertShareEntry,
   updateShareLocalPath,
 } from './metadata'
+
+export { documentIdFromPath }
 
 export const DEFAULT_GATEWAY_URL = 'https://prose-gateway.onrender.com'
 

@@ -163,7 +163,8 @@ export function recordShareAck(
     for (const id of rowIds) seen.add(id)
     const updated: ShareSyncEntry = {
       ...existing,
-      lastCommentCursor: cursor,
+      // An empty cursor (rejected by the IPC guard) keeps the previous one.
+      lastCommentCursor: cursor || existing.lastCommentCursor,
       lastPulledAt: new Date().toISOString(),
       seenRowIds: [...seen],
     }

@@ -7,11 +7,14 @@
 
 import { Mark, mergeAttributes } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
+import type { EditorState } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
+import type { EditorView } from '@tiptap/pm/view'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import type { MarkSerializerSpec } from 'prosemirror-markdown'
 import type { CommentOptions, CommentData } from './types'
 import { useCommentStore } from './store'
+import { pushResolveToShare } from '../../lib/sharePush'
 
 const commentStatePluginKey = new PluginKey('commentState')
 
@@ -438,7 +441,7 @@ export const Comment = Mark.create<CommentOptions>({
               view.dispatch(view.state.tr.setMeta(commentStatePluginKey, true))
             })
           })
-          return { destroy: unsubscribe }
+          return { update: autoResolveDeletedComments, destroy: unsubscribe }
         },
         props: {
           decorations: (state) => {
@@ -465,6 +468,58 @@ export const Comment = Mark.create<CommentOptions>({
     ]
   },
 })
+
+/** Comment-mark ids currently present in a document. */
+function commentMarkIds(doc: ProseMirrorNode): Set<string> {
+  const ids = new Set<string>()
+  doc.descendants((node) => {
+    node.marks.forEach((m) => {
+      if (m.type.name === 'comment' && m.attrs.id) ids.add(m.attrs.id as string)
+    })
+  })
+  return ids
+}
+
+/**
+ * Plugin view.update hook: when a genuine edit removes a comment's mark — the
+ * anchoring text was deleted — auto-resolve that thread in the store so it
+ * leaves the open-thread count immediately and files under resolved, matching
+ * the expectation that deleting the text "handles" the comment (#928). Without
+ * this the store keeps the thread as open until the next reload (saveComments
+ * writes IndexedDB only, never the live store), so the local count drifts above
+ * the web's (which drops the row as lost). Resolution is local-truth on the
+ * share side (shareSync never re-takes it), so no push is needed.
+ *
+ * Guards mirror the persistence "never lose a thread to a transient strip"
+ * invariant: skip while a restore is pending, and skip when EVERY mark vanished
+ * at once — a document load or source-mode toggle strips them all before the
+ * restore re-applies them. Only a partial removal (some marks gone, others
+ * still live) is a real mid-session delete.
+ */
+function autoResolveDeletedComments(view: EditorView, prevState: EditorState): void {
+  if (view.state.doc === prevState.doc) return
+  const store = useCommentStore.getState()
+  if (store.needsRestore) return
+  const prevIds = commentMarkIds(prevState.doc)
+  if (prevIds.size === 0) return
+  const currIds = commentMarkIds(view.state.doc)
+  // All marks gone at once → transient strip (load / source-mode toggle), not a
+  // delete; a genuine delete leaves the doc's other comment marks intact.
+  if (currIds.size === 0) return
+  const removedOpen = store.pendingComments.filter(
+    (c) => !c.resolved && prevIds.has(c.id) && !currIds.has(c.id)
+  )
+  if (removedOpen.length === 0) return
+  const removedIds = new Set(removedOpen.map((c) => c.id))
+  const updated = store.pendingComments.map((c) =>
+    removedIds.has(c.id) ? { ...c, resolved: true } : c
+  )
+  useCommentStore.setState({ pendingComments: updated })
+  if (store.documentId) void store.saveComments(store.documentId, updated)
+  // Resolve on the share too, so the web viewer files the thread under
+  // Resolved rather than as an unanchored open thread.
+  removedOpen.forEach((c) => pushResolveToShare(c.id))
+}
 
 /**
  * Ids of comment threads whose marks would be entirely consumed by applying a

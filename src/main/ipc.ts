@@ -500,7 +500,7 @@ export function setupIpcHandlers(): void {
     if (!IS_MAS_BUILD) {
       void import('./share/index').then((share) =>
         share.renamedLocalPath(safeOldPath, safeNewPath, share.documentIdFromPath(safeNewPath))
-      ).catch(() => {})
+      ).catch((err) => console.error('[share] renamedLocalPath failed:', err))
     }
   })
 

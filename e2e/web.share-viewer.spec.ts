@@ -10,7 +10,7 @@
  * can drift from the implementation.
  */
 
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -24,6 +24,21 @@ import {
   extractShareConfigFromHtml,
 } from '../src/renderer/lib/htmlExport'
 import type { CommentData } from '../src/renderer/extensions/comments/types'
+
+// Force one live poll and wait until the viewer has merged its result: the
+// focus handler fires the GET, the response body lands, and two frames let
+// the merge render. Absence-of-duplicate assertions made after this are
+// time-independent — no fixed sleep that slow CI could outrun (#920).
+async function pollAndSettle(page: Page): Promise<void> {
+  const polled = page.waitForResponse(
+    (r) => r.url().includes('/comments') && r.request().method() === 'GET'
+  )
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await (await polled).finished()
+  await page.evaluate(
+    () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
+  )
+}
 
 const XSS_TEXT = '<script>alert(1)</script><img src=x onerror=alert(2)>'
 
@@ -990,10 +1005,9 @@ test.describe('live conversation loop (online viewer)', () => {
     await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
     await expect(page.getByText('Posted live.')).toBeVisible()
 
-    // Force the next poll (instead of waiting out the 2s refetch) and give the
-    // merge a beat — the posted row comes back from the server by its id.
-    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
-    await page.waitForTimeout(300)
+    // Force the next poll (instead of waiting out the 2s refetch) and wait for
+    // its merge — the posted row comes back from the server by its id.
+    await pollAndSettle(page)
     await expect(page.getByText('Posted live.')).toHaveCount(1)
   })
 
@@ -1012,8 +1026,7 @@ test.describe('live conversation loop (online viewer)', () => {
 
     // The optimistic reply carries the server id — the next poll returns the
     // same row and the merge must not double it.
-    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
-    await page.waitForTimeout(300)
+    await pollAndSettle(page)
     await expect(thread.getByText('From the rail.')).toHaveCount(1)
   })
 
@@ -1119,7 +1132,10 @@ test.describe('live conversation loop (online viewer)', () => {
     // …commenting entry points close…
     await expect(page.locator('.prose-reply-link')).toHaveCount(0)
     await page.locator('article p').first().click({ clickCount: 3 })
-    await page.waitForTimeout(150)
+    // The add button is placed from a setTimeout(0) scheduled by mouseup; a
+    // zero-delay timer queued after it runs strictly later, so the absence
+    // check below sees the handler's result, not a race.
+    await page.evaluate(() => new Promise<void>((r) => setTimeout(r, 0)))
     await expect(page.locator('#prose-add-comment-btn')).toHaveCount(0)
     // …but the document and existing conversation stay readable.
     await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()
@@ -1341,9 +1357,10 @@ test.describe('live conversation loop (online viewer)', () => {
     await edited.locator('.prose-reply-composer textarea').fill('Follow-up.')
     await edited.locator('.prose-reply-actions button', { hasText: 'Reply' }).first().click()
     await expect(edited.getByText('Follow-up.')).toBeVisible()
-    await expect(edited.locator('.prose-own-actions').last().locator('button', { hasText: 'Edit' }).first()).toBeVisible()
-    // The thread-level actions row (the card's last own-actions) has no Delete.
-    const threadActions = edited.locator('.prose-own-actions').last()
+    // The root comment's actions row sits directly under its body — a direct
+    // child of the card; each reply's row lives inside its .prose-thread-reply.
+    const threadActions = edited.locator(':scope > .prose-own-actions')
+    await expect(threadActions.locator('button', { hasText: 'Edit' })).toBeVisible()
     await expect(threadActions.locator('button', { hasText: 'Delete' })).toHaveCount(0)
   })
 
@@ -1479,7 +1496,8 @@ test.describe('narrow mode (< 1000px)', () => {
 
   test('no rail; bottom bar and text-free sup indices render instead', async ({ page }) => {
     await expect(page.locator('#prose-bottom-bar')).toBeVisible()
-    await expect(page.locator('#prose-bottom-bar button')).toHaveText('Comments 2')
+    // Two buttons since #926: "Select text to comment" and the count.
+    await expect(page.locator('#prose-bottom-bar button:not(.prose-bottom-comment)')).toHaveText('Comments 2')
     expect(await page.locator('#prose-comment-rail').count()).toBe(0)
     // The top-bar count drops the word on narrow.
     await expect(page.locator('#prose-rail-toggle')).toHaveText('2')
@@ -1530,7 +1548,7 @@ test.describe('narrow mode (< 1000px)', () => {
   })
 
   test('the bottom-bar button opens the first thread; a sheet reply lands and arms the download', async ({ page }) => {
-    await page.locator('#prose-bottom-bar button').click()
+    await page.locator('#prose-bottom-bar button:not(.prose-bottom-comment)').click()
     const sheet = page.locator('#prose-sheet')
     await expect(sheet.locator('.prose-sheet-count')).toHaveText('1 of 2')
     await sheet.locator('.prose-sheet-composer textarea').fill('From the sheet.')

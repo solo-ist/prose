@@ -33,11 +33,13 @@ export function ShareStatusPopover() {
   const pendingComments = useCommentStore((s) => s.pendingComments)
   const openCount = countOpenThreads(pendingComments)
   // The most recent reviewer threads — the popover's jump list into the
-  // commenting layer. Share-sourced (shareId) and still open, newest first.
+  // commenting layer. Share-sourced and still open, newest first. The
+  // author's own pushed threads carry a shareId too — a viewer's always carry
+  // the name the gateway requires, so that's the reviewer marker.
   const recentReviewerThreads = useMemo(
     () =>
       pendingComments
-        .filter((c) => c.shareId && !c.resolved)
+        .filter((c) => c.shareId && c.authorName && !c.resolved)
         .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
         .slice(0, 3),
     [pendingComments]

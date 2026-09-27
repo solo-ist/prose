@@ -444,7 +444,7 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
                 <span className="text-xs font-semibold text-foreground">
                   {commentIsAI
                     ? 'Prose'
-                    : currentComment?.authorName || (currentComment?.shareId ? 'Reviewer' : 'You')}
+                    : currentComment?.authorName || 'You'}
                 </span>
                 {commentAge && <span className="text-[11px] text-muted-foreground">{commentAge}</span>}
               </div>

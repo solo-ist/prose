@@ -1,0 +1,67 @@
+name: Gateway Tests
+
+# The gateway's share integration suite (gateway/scripts/test-share.mjs):
+# publish → serve → comment/reply → author pull → revoke, the #902 origin
+# partition, CORS, and the artifact security headers. It spawns its own
+# gateway (dev mode, magic links on stdout) against a real Postgres.
+on:
+  pull_request:
+    paths:
+      - 'gateway/**'
+      - '.github/workflows/gateway.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gateway-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  share-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: prose
+          POSTGRES_PASSWORD: prose
+          POSTGRES_DB: prose_gateway
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U prose -d prose_gateway"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://prose:prose@localhost:5432/prose_gateway?schema=public
+      # Test-only secret for the throwaway CI database; never a real credential.
+      BETTER_AUTH_SECRET: ci-only-secret-not-for-production-0123456789
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: gateway/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Share integration suite
+        run: npm run test:share

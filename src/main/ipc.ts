@@ -2,7 +2,7 @@ import { ipcMain, dialog, app, shell, BrowserWindow, clipboard, nativeImage } fr
 import { IS_MAS_BUILD } from './env'
 import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat, copyFile, realpath } from 'fs/promises'
 import { join, dirname, normalize, isAbsolute, resolve, sep } from 'path'
-import { randomUUID } from 'crypto'
+import { randomUUID, createHash } from 'crypto'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
 import { withRetry, getNetworkErrorMessage } from '../shared/utils/retry'
@@ -489,6 +489,20 @@ export function setupIpcHandlers(): void {
     const safeOldPath = validatePath(oldPath)
     const safeNewPath = validatePath(newPath)
     await rename(safeOldPath, safeNewPath)
+    // Keep share-sync metadata pointing at the renamed/moved file or directory.
+    // This is the main-process choke point for all rename/move paths (explorer
+    // rename, drag-drop, cut-paste, .txt↔.md conversion) that don't go through
+    // the tab rename in useTabs.ts. The tab rename ALSO calls share:updateLocalPath
+    // — the double-update is harmless since both sides compute the same new values.
+    // documentId is SHA-256(path).hex().substring(0, 36) — matches renderer's
+    // generateIdFromPath (persistence.ts). Directory moves are handled by
+    // updateShareLocalPath scanning for prefix matches and recomputing per-entry.
+    if (!IS_MAS_BUILD) {
+      const newDocumentId = createHash('sha256').update(safeNewPath).digest('hex').substring(0, 36)
+      void import('./share/index').then((share) =>
+        share.renamedLocalPath(safeOldPath, safeNewPath, newDocumentId)
+      ).catch(() => {})
+    }
   })
 
   // File: Delete file

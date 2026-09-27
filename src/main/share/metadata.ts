@@ -12,6 +12,19 @@
 import { app } from 'electron'
 import { chmod, readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
+import { createHash } from 'crypto'
+
+/**
+ * Stable document id from a file path — SHA-256 hex, first 36 chars.
+ * Matches renderer's generateIdFromPath (persistence.ts) so documentId
+ * values are consistent whether computed here or in the renderer.
+ */
+function documentIdFromPath(path: string): string {
+  return createHash('sha256').update(path).digest('hex').substring(0, 36)
+}
+
+/** Entries with revokedAt older than this are pruned on load. */
+const REVOKE_PRUNE_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
 
 export interface ShareSyncEntry {
   publicationId: string
@@ -76,6 +89,15 @@ async function load(): Promise<ShareSyncMetadata> {
       for (const entry of Object.values(parsed.shares)) {
         if (entry.syncMode !== 'auto' && entry.syncMode !== 'publish') entry.syncMode = 'auto'
       }
+      // Prune revoked entries older than 30 days from in-memory state. The
+      // pruned state is persisted the next time any serialized write runs — we
+      // do NOT save here to avoid a write inside a possibly nested read path.
+      const cutoff = new Date(Date.now() - REVOKE_PRUNE_MS).toISOString()
+      for (const [id, entry] of Object.entries(parsed.shares)) {
+        if (entry.revokedAt && entry.revokedAt < cutoff) {
+          delete parsed.shares[id]
+        }
+      }
       return parsed
     }
   } catch {
@@ -119,7 +141,10 @@ export async function getShareEntry(publicationId: string): Promise<ShareSyncEnt
 
 export async function getShareEntriesByPath(localPath: string): Promise<ShareSyncEntry[]> {
   const meta = await load()
-  return Object.values(meta.shares).filter((s) => s.localPath === localPath && !s.revokedAt)
+  // Sorted newest-first so callers that take entries[0] get the most recent one.
+  return Object.values(meta.shares)
+    .filter((s) => s.localPath === localPath && !s.revokedAt)
+    .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
 }
 
 export function upsertShareEntry(entry: ShareSyncEntry): Promise<void> {
@@ -173,7 +198,19 @@ export function recordShareAck(
   })
 }
 
-/** Rename/move hook: keep share entries pointing at the document's new path. */
+/**
+ * Rename/move hook: keep share entries pointing at the document's new path.
+ *
+ * Handles two cases:
+ * - Exact file rename: updates the entry's localPath and documentId (caller
+ *   supplies newDocumentId = SHA-256(newPath).hex().substring(0,36)).
+ * - Directory move: any entry whose localPath starts with oldPath+'/' gets its
+ *   path rewritten and its documentId recomputed from the new path using the
+ *   same SHA-256 formula as generateIdFromPath in the renderer.
+ *
+ * Idempotent: a double-call (tab rename + file:rename hook) produces the same
+ * final state since both sides compute the same new values.
+ */
 export function updateShareLocalPath(
   oldPath: string,
   newPath: string,
@@ -182,10 +219,18 @@ export function updateShareLocalPath(
   return serialized(async () => {
     const meta = await load()
     let touched = 0
+    const dirPrefix = oldPath + '/'
     for (const entry of Object.values(meta.shares)) {
       if (entry.localPath === oldPath) {
+        // Exact file match — use the caller-supplied documentId.
         entry.localPath = newPath
         entry.documentId = newDocumentId
+        touched++
+      } else if (entry.localPath.startsWith(dirPrefix)) {
+        // Directory move — recompute each nested file's new path and documentId.
+        const relative = entry.localPath.slice(oldPath.length) // retains leading '/'
+        entry.localPath = newPath + relative
+        entry.documentId = documentIdFromPath(entry.localPath)
         touched++
       }
     }

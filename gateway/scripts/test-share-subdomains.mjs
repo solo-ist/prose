@@ -10,7 +10,7 @@
  *   - GET /s/:token on the API host → 308 to the label URL
  *   - GET /s/:token on a WRONG label host → 308 to the correct label URL
  *   - JSON comment routes work on the label host AND the bare share host
- *   - republish returns shareUrl in the label form
+ *   - republish returns shareOrigin in the label form (token never echoed)
  *   - revoke → 410 on the label host (no redirect)
  *
  * Node's fetch doesn't resolve *.localhost, and you can't override the Host
@@ -252,16 +252,19 @@ async function main() {
   const labelApi = await rawRequest({ host: labelHost, path: '/api/share', headers: authedHeaders })
   expect(labelApi.status === 404, 'API routes 404 on label host (share host family)', `status ${labelApi.status}`)
 
-  // --- Republish returns shareUrl ---
+  // --- Republish returns shareOrigin (not the full shareUrl; the token does not travel) ---
   const repub = await rawRequest({
     host: API_HOST, method: 'PUT', path: `/api/share/${pub.publicationId}/publish`,
-    body: { title: 'Subdomain Test v2', html: artifact('v2'), token },
+    body: { title: 'Subdomain Test v2', html: artifact('v2') },
     headers: authedHeaders,
   })
   expect(repub.status === 200, 'republish returns 200', `status ${repub.status}`)
   expect(repub.json?.revCount === 2, 'republish bumps revCount')
-  expect(typeof repub.json?.shareUrl === 'string' && repub.json.shareUrl.includes(labelHost),
-    'republish returns shareUrl in label form', repub.json?.shareUrl)
+  // shareOrigin is the label origin without the token path (e.g. http://a1b2.share.localhost:4030).
+  expect(typeof repub.json?.shareOrigin === 'string' && repub.json.shareOrigin.includes(label),
+    'republish returns shareOrigin in label form', repub.json?.shareOrigin)
+  expect(!repub.json?.shareUrl && !repub.json?.token,
+    'republish does not echo shareUrl or token')
 
   // --- Revoke → 410 on label host (no redirect) ---
   const revoke = await rawRequest({

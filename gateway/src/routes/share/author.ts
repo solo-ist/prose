@@ -18,6 +18,7 @@ import {
   MAX_MARKED_TEXT_CHARS,
   MAX_NAME_CHARS,
   MAX_TITLE_CHARS,
+  buildShareOrigin,
   buildShareUrl,
   newHostLabel,
   newShareToken,
@@ -102,7 +103,7 @@ shareAuthorRoutes.put('/:pubId/publish', async (c) => {
   if (!pub || pub.authorId !== user.id) return c.json({ error: 'not_found' }, 404)
   if (pub.revokedAt) return c.json({ error: 'revoked' }, 409)
 
-  let body: { title?: unknown; html?: unknown; token?: unknown }
+  let body: { title?: unknown; html?: unknown }
   try {
     body = await c.req.json()
   } catch {
@@ -133,18 +134,16 @@ shareAuthorRoutes.put('/:pubId/publish', async (c) => {
     },
   })
 
-  // Return the canonical shareUrl so the desktop can update its stored entry
-  // to the label-host form after SHARE_SUBDOMAINS is enabled (#917).
-  // The raw token is included by the desktop in the body for URL construction
-  // only — it provides no additional authorization (session is the auth).
-  const rawToken = typeof body.token === 'string' ? sanitizeField(body.token, 64) : null
-  const shareUrl = rawToken ? buildShareUrl(rawToken, hostLabel) : undefined
-
+  // Return the publication's origin (#917) so the desktop can reconstruct the
+  // canonical shareUrl after SHARE_SUBDOMAINS is enabled. We do NOT echo the
+  // capability token — it never travels past the original publish response.
+  // The desktop rebuilds shareUrl = shareOrigin + '/s/' + <token from its
+  // stored entry> and updates its record only if the URL changed.
   return c.json({
     publicationId: updated.id,
     publishRev: updated.publishRev,
     revCount: updated.revCount,
-    ...(shareUrl ? { shareUrl } : {}),
+    shareOrigin: buildShareOrigin(hostLabel),
   })
 })
 

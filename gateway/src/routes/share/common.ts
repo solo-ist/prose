@@ -50,16 +50,16 @@ export function newHostLabel(): string {
 }
 
 /**
- * Build the public share URL for a publication (#917).
+ * Build the origin (scheme + host) for a publication (#917).
  *
- * - SHARE_SUBDOMAINS off (or no hostLabel): bare share host, e.g.
- *   `https://share.prose.solo.ist/s/<token>`
- * - SHARE_SUBDOMAINS on + hostLabel present: label subdomain, e.g.
- *   `https://a1b2c3d4e5f6a1b2.share.prose.solo.ist/s/<token>`
+ * - SHARE_SUBDOMAINS off (or no hostLabel): bare share host origin, e.g.
+ *   `https://share.prose.solo.ist`
+ * - SHARE_SUBDOMAINS on + hostLabel present: label subdomain origin, e.g.
+ *   `https://a1b2c3d4e5f6a1b2.share.prose.solo.ist`
  *
  * The fallback (bare gateway base) covers dev mode (no SHARE_BASE_URL).
  */
-export function buildShareUrl(token: string, hostLabel: string | null | undefined): string {
+export function buildShareOrigin(hostLabel: string | null | undefined): string {
   const base = (config.SHARE_BASE_URL ?? config.BETTER_AUTH_URL).replace(/\/$/, '')
   if (config.SHARE_SUBDOMAINS && hostLabel && config.SHARE_BASE_URL) {
     // Insert the label as a subdomain of the share host.
@@ -67,9 +67,18 @@ export function buildShareUrl(token: string, hostLabel: string | null | undefine
     // Use .host (hostname:port) not .hostname to preserve the port when set.
     const shareUrl = new URL(config.SHARE_BASE_URL)
     shareUrl.host = `${hostLabel}.${shareUrl.host}`
-    return `${shareUrl.origin}/s/${token}`
+    return shareUrl.origin
   }
-  return `${base}/s/${token}`
+  return base
+}
+
+/**
+ * Build the public share URL for a publication (#917).
+ *
+ * Composed from buildShareOrigin + the capability token path.
+ */
+export function buildShareUrl(token: string, hostLabel: string | null | undefined): string {
+  return `${buildShareOrigin(hostLabel)}/s/${token}`
 }
 
 /** Resolve a live (or revoked) publication from a raw URL token. */

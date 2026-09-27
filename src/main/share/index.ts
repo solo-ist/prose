@@ -178,21 +178,27 @@ export async function republish(args: {
     const mismatch = entryOriginError(existing, config)
     if (mismatch) return mismatch
   }
-  // Extract the raw token from the stored shareUrl so the server can build
-  // the canonical label-subdomain URL (#917). The token is the last path
-  // segment of /s/<token>; it's stored nowhere but the shareUrl itself.
+  // Extract the raw token from the stored shareUrl. The capability token is
+  // the last path segment of /s/<token>; it lives nowhere but the shareUrl
+  // itself. The server no longer accepts or echoes it — we only need it here
+  // to reconstruct the canonical URL from the shareOrigin the server returns.
   const tokenMatch = existing?.shareUrl?.match(/\/s\/([^/?#]+)/)
   const rawToken = tokenMatch ? tokenMatch[1] : undefined
   try {
-    const result = await client.republishArtifact(config, args.publicationId, args.title, args.html, rawToken)
+    const result = await client.republishArtifact(config, args.publicationId, args.title, args.html)
     const patch: Partial<ShareSyncEntry> = {
       title: args.title,
       publishRev: result.publishRev,
       revCount: result.revCount,
     }
-    // If the server returned an updated shareUrl (e.g. the first re-bake after
-    // SHARE_SUBDOMAINS is enabled), adopt it so the ◎ popover copies the new link.
-    if (result.shareUrl) patch.shareUrl = result.shareUrl
+    // If the server returned a shareOrigin (e.g. the first re-bake after
+    // SHARE_SUBDOMAINS is enabled), reconstruct the canonical shareUrl so the
+    // ◎ popover copies the new label-subdomain link. Only update if it differs
+    // from what is already stored.
+    if (result.shareOrigin && rawToken) {
+      const canonical = `${result.shareOrigin}/s/${rawToken}`
+      if (canonical !== existing?.shareUrl) patch.shareUrl = canonical
+    }
     const entry = await patchShareEntry(args.publicationId, patch)
     if (!entry) return { ok: false, error: 'No local record of this share.' }
     return { ok: true, entry }

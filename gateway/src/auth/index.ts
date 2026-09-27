@@ -10,6 +10,7 @@ import { magicLink } from 'better-auth/plugins'
 import { prisma } from '../db/index.js'
 import { config, corsOrigins } from '../config.js'
 import { sendMail } from '../mail/index.js'
+import { escapeHtml } from '../util/html.js'
 
 /**
  * The gateway landing path for magic-link emails (#813). Lives under the API
@@ -90,6 +91,7 @@ export const auth = betterAuth({
           ``,
           `If you didn't request this, you can safely ignore this email.`,
         ].join('\n')
+        const landingUrlEscaped = escapeHtml(landingUrl)
         const html = `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><title>Your Prose sign-in link</title></head>
@@ -97,7 +99,7 @@ export const auth = betterAuth({
   <h2 style="margin-bottom:0.5rem">Sign in to Prose</h2>
   <p>Copy the link below and paste it into the Prose app's <strong>Sign-in box</strong>:</p>
   <p style="background:#f4f4f5;border-radius:6px;padding:0.75rem 1rem;word-break:break-all;font-family:monospace;font-size:0.875rem">
-    <a href="${landingUrl}" style="color:#2563eb">${landingUrl}</a>
+    <a href="${landingUrlEscaped}" style="color:#2563eb">${landingUrlEscaped}</a>
   </p>
   <p style="color:#6b7280;font-size:0.875rem">
     This link expires in about 5 minutes and works once.

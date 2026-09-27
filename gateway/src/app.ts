@@ -14,6 +14,7 @@ import { requireEntitlement } from './middleware/entitlement.js'
 import { rateLimit, userRateLimit } from './middleware/rateLimit.js'
 import { ipRateLimit } from './middleware/ipRateLimit.js'
 import { auth, MAGIC_LINK_LANDING_PATH } from './auth/index.js'
+import { escapeHtml } from './util/html.js'
 import health from './routes/health.js'
 import { llmRoutes } from './routes/llm/stream.js'
 import { shareAuthorRoutes } from './routes/share/author.js'
@@ -93,9 +94,11 @@ export function createApp() {
   // The token is never touched by this handler — only the real verify endpoint
   // (/api/auth/magic-link/verify) consumes it.
   app.get(MAGIC_LINK_LANDING_PATH, (c) => {
-    const landingUrl = new URL(c.req.url)
-    // Surface only the token's presence, not its value, in the display URL.
-    const displayUrl = landingUrl.toString()
+    // Full URL shown in the copy field — the point of this page is that the
+    // user copies this URL and pastes it into Prose's Sign-in box.
+    const displayUrl = new URL(c.req.url).toString()
+    // Escape fully for both the attribute value and the text content.
+    const displayUrlEscaped = escapeHtml(displayUrl)
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -119,8 +122,8 @@ export function createApp() {
   <h1>Almost there — sign in to Prose</h1>
   <p>Copy this link and paste it into Prose&rsquo;s <strong>Sign-in box</strong>:</p>
   <div class="url-box">
-    <input class="url-input" id="link" type="text" readonly value="${displayUrl.replace(/"/g, '&quot;')}">
-    <button onclick="navigator.clipboard.writeText(document.getElementById('link').value).then(()=>{this.textContent='Copied!';setTimeout(()=>{this.textContent='Copy'},2000)})">Copy</button>
+    <input class="url-input" id="link" type="text" readonly value="${displayUrlEscaped}">
+    <button onclick="navigator.clipboard.writeText(document.getElementById('link').value).then(function(){var b=this;b.textContent='Copied!';setTimeout(function(){b.textContent='Copy'},2000)}.bind(this))">Copy</button>
   </div>
   <p class="note">This link expires in about 5 minutes and works once. If you didn&rsquo;t request it, you can safely ignore this page.</p>
 </body>
@@ -128,6 +131,8 @@ export function createApp() {
     return c.html(html, 200, {
       'Cache-Control': 'no-store',
       'Referrer-Policy': 'no-referrer',
+      'Content-Security-Policy':
+        "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
     })
   })
 

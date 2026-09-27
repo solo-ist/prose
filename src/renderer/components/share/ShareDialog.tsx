@@ -91,6 +91,21 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
       const res = await getApi().shareCompleteSignIn(magicLink.trim())
       if (!res.ok) return res.error
       setMagicLink('')
+
+      // Login-CSRF guard: a crafted /auth/link URL carrying an attacker's token
+      // would sign this Prose into the attacker's account. If we know the email
+      // the user requested a link for, verify the session email matches before
+      // proceeding. On a mismatch, revoke the session (server + local) and stop.
+      if (email.trim()) {
+        const status = await getApi().shareAuthStatus()
+        if (status.ok && status.signedIn && status.email) {
+          if (status.email.toLowerCase() !== email.trim().toLowerCase()) {
+            await getApi().shareSignOut()
+            return `That link signs in a different account (${status.email}). Request a new link for your email.`
+          }
+        }
+      }
+
       await refresh()
       return null
     })

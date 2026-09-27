@@ -155,9 +155,29 @@ async function main() {
     landingRes.headers.get('content-type'),
   )
   expect(landingRes.headers.get('cache-control') === 'no-store', 'landing page is no-store')
+  const csp = landingRes.headers.get('content-security-policy') ?? ''
+  expect(csp.includes("default-src 'none'"), "landing page CSP has default-src 'none'", csp)
+  expect(csp.includes("script-src 'unsafe-inline'"), "landing page CSP allows inline scripts", csp)
+  expect(csp.includes("frame-ancestors 'none'"), "landing page CSP denies framing", csp)
   const landingHtml = await landingRes.text()
-  expect(landingHtml.includes(landingUrl), 'landing page displays the URL', landingUrl.slice(0, 60))
+  // The URL is HTML-escaped before embedding: & between params becomes &amp;.
+  // Check that the value attribute holds the escaped form, not the raw URL.
+  const escapedLandingUrl = landingUrl.replace(/&/g, '&amp;')
+  expect(landingHtml.includes(escapedLandingUrl), 'landing page displays the HTML-escaped URL in the input value', landingUrl.slice(0, 60))
   expect(landingHtml.toLowerCase().includes('copy'), 'landing page has a copy affordance')
+
+  // --- XSS: & between query params must be &amp; in the HTML attribute ------
+  // (Token values arrive percent-encoded via URL parsing, so the key escaping
+  // concern is the & separator between params, not the token content itself.)
+  expect(landingHtml.includes('&amp;callbackURL'), 'ampersand between query params is &amp; in the HTML (not raw &)')
+  // Double-check: raw unescaped & does not appear inside an attribute value
+  // (the input value= attribute). We look for the specific pattern.
+  const inputValueMatch = landingHtml.match(/value="([^"]*)"/)
+  expect(
+    !!inputValueMatch && !inputValueMatch[1].includes('&callbackURL'),
+    'no bare & in the input value attribute',
+    inputValueMatch?.[1]?.slice(0, 80),
+  )
 
   // The token was NOT consumed: verify URL built from the landing URL must
   // still issue a session cookie.

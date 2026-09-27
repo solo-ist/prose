@@ -487,8 +487,10 @@ function commentMarkIds(doc: ProseMirrorNode): Set<string> {
  * the expectation that deleting the text "handles" the comment (#928). Without
  * this the store keeps the thread as open until the next reload (saveComments
  * writes IndexedDB only, never the live store), so the local count drifts above
- * the web's (which drops the row as lost). Resolution is local-truth on the
- * share side (shareSync never re-takes it), so no push is needed.
+ * the web's (which drops the row as lost). The resolve is also pushed to the
+ * share, so the web viewer files the thread under Resolved rather than as an
+ * unanchored "lost" thread; the pull never re-takes resolve state, so the
+ * local resolve sticks either way.
  *
  * Guards mirror the persistence "never lose a thread to a transient strip"
  * invariant: skip while a restore is pending, and skip when EVERY mark vanished

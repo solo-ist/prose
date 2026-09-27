@@ -174,6 +174,7 @@ All workflows in `.github/workflows/`:
 - `e2e.yml` - Electron Playwright tests on every PR (or `/test` comment)
 - `web-e2e.yml` - Browser Playwright tests for `accelerated`-labeled or bot PRs
 - `gateway.yml` - Gateway share integration suite (`npm run test:share` against a Postgres service) on PRs touching `gateway/**`
+- `share-viewer-e2e.yml` - Shared web viewer suite (`e2e/web.share-viewer.spec.ts`) on PRs touching the viewer, the artifact builder, or the spec
 - `ci-gate.yml` - On E2E `workflow_run` success, auto-posts `/review` (the green-CI review trigger); on failure, routes to auto-fix
 - `pipeline-triage.yml` - Scores review findings, routes to auto-fix or human review
 - `pipeline-fix.yml` - Claude agent auto-fixes simple review findings

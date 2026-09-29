@@ -150,17 +150,15 @@ test('deleting the last comment\'s text auto-resolves the thread (#933)', async 
     }
   })
 
-  // Give the plugin view update cycle one tick to fire
-  await page.waitForTimeout(50)
-
   // The mark must be gone from the DOM
-  expect(await countCommentMarks(page)).toBe(0)
+  await expect.poll(() => countCommentMarks(page)).toBe(0)
 
   // The thread must be resolved in the store
-  const comments = await getCommentStore(page)
-  const thread = comments.find((c) => c.id === commentId)
-  expect(thread, 'thread exists in store').toBeTruthy()
-  expect(thread!.resolved, 'thread is resolved').toBe(true)
+  await expect
+    .poll(async () => (await getCommentStore(page)).find((c) => c.id === commentId)?.resolved, {
+      message: 'thread is resolved',
+    })
+    .toBe(true)
 })
 
 test('toggling source mode with one open comment does NOT resolve it', async () => {

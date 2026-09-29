@@ -19,6 +19,18 @@ import { pushResolveToShare } from '../../lib/sharePush'
 const commentStatePluginKey = new PluginKey('commentState')
 
 /**
+ * Module-level flag: true when any transaction in the most recently dispatched
+ * batch had `preventUpdate:true` — TipTap's signal for programmatic content
+ * loads (setContent). ProseMirror's appendTransaction mechanism fires AFTER the
+ * original transaction (e.g. node-ids extension appends a follow-up to assign
+ * IDs) without carrying the preventUpdate meta, so the plugin STATE approach
+ * ends up with `false` by the time the plugin view's `update` runs. A module-
+ * level flag written in `state.apply` and reset in `autoResolveDeletedComments`
+ * survives the entire dispatch batch and gives the correct signal (#933).
+ */
+let _preventUpdateInCurrentBatch = false
+
+/**
  * Markdown serializer for comment marks - outputs just the text content
  * so comments don't appear as HTML in markdown output
  */
@@ -430,6 +442,26 @@ export const Comment = Mark.create<CommentOptions>({
     return [
       new Plugin({
         key: commentStatePluginKey,
+        // Track whether the most recent doc-mutating transaction was a
+        // programmatic content load (setContent). TipTap always sets
+        // preventUpdate:true on setContent transactions — user edits (keyboard
+        // input, paste, delete) never do. autoResolveDeletedComments reads this
+        // state to distinguish "transient strip" from "genuine last-comment
+        // delete" when all marks disappear at once (#933).
+        state: {
+          init: () => false as boolean,
+          apply(tr) {
+            const val = tr.getMeta('preventUpdate') === true
+            if (val) {
+              // Any transaction in the batch with preventUpdate:true arms the
+              // batch-level flag. appendTransaction follow-ups lack the meta
+              // but run before the plugin view's update, so only a module-level
+              // flag (reset by update) survives correctly — see #933.
+              _preventUpdateInCurrentBatch = true
+            }
+            return val
+          },
+        },
         view: (view) => {
           // A reply lands in the store without a ProseMirror transaction, so
           // nudge the view to recompute decorations when the store changes.
@@ -493,21 +525,39 @@ function commentMarkIds(doc: ProseMirrorNode): Set<string> {
  * local resolve sticks either way.
  *
  * Guards mirror the persistence "never lose a thread to a transient strip"
- * invariant: skip while a restore is pending, and skip when EVERY mark vanished
- * at once — a document load or source-mode toggle strips them all before the
- * restore re-applies them. Only a partial removal (some marks gone, others
- * still live) is a real mid-session delete.
+ * invariant: skip while a restore is pending, and skip when every mark
+ * vanished at once due to a programmatic content load (doc load or source-mode
+ * toggle). The guard distinguishes the two cases via a module-level batch flag:
+ * setContent transactions set preventUpdate:true, which arms _preventUpdateInCurrentBatch
+ * in state.apply. The flag survives appendTransaction follow-ups (e.g. node-ids)
+ * that lack preventUpdate and run before the plugin view's update hook (#933).
+ * User edits — including deleting the last comment's text — never set preventUpdate.
  */
 function autoResolveDeletedComments(view: EditorView, prevState: EditorState): void {
+  // Consume the batch-level flag unconditionally so every dispatch starts clean.
+  // Must happen before any early return to prevent stale flag leaking into the
+  // next dispatch (e.g. a no-op nudge dispatch that precedes a real user edit).
+  const isTransientBatch = _preventUpdateInCurrentBatch
+  _preventUpdateInCurrentBatch = false
+
   if (view.state.doc === prevState.doc) return
   const store = useCommentStore.getState()
   if (store.needsRestore) return
   const prevIds = commentMarkIds(prevState.doc)
   if (prevIds.size === 0) return
   const currIds = commentMarkIds(view.state.doc)
-  // All marks gone at once → transient strip (load / source-mode toggle), not a
-  // delete; a genuine delete leaves the doc's other comment marks intact.
-  if (currIds.size === 0) return
+  if (currIds.size === 0) {
+    // All marks gone in one transaction batch. Two possible causes:
+    //   1. Transient strip — setContent fired for a doc load or source-mode
+    //      toggle. TipTap always tags these with preventUpdate:true. The
+    //      _preventUpdateInCurrentBatch flag captures this even when an
+    //      appendTransaction follow-up (e.g. node-ids) runs afterwards without
+    //      the meta and would otherwise reset the plugin state to false (#933).
+    //   2. Genuine user delete — the user deleted the text of the only remaining
+    //      comment. These transactions never set preventUpdate, so the flag stays false.
+    // Only skip (return) for case 1; let case 2 fall through to auto-resolve.
+    if (isTransientBatch) return
+  }
   const removedOpen = store.pendingComments.filter(
     (c) => !c.resolved && prevIds.has(c.id) && !currIds.has(c.id)
   )

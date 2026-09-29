@@ -46,6 +46,8 @@ import './index.css'
   // Comment store access for e2e verification of threading (#699).
   getCommentStore: () => useCommentStore.getState().pendingComments,
   getCommentDocId: () => useCommentStore.getState().documentId,
+  // Expose needsRestore for #933 regression test — checks the transient-strip guard.
+  getCommentStoreNeedsRestore: () => useCommentStore.getState().needsRestore,
 }
 // Share-sync seam for e2e (#915) — same always-on tier as __prose_tools.
 // `sync` drives the REAL pull-merge (the exact path the ShareStatusPopover's

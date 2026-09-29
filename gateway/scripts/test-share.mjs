@@ -568,6 +568,27 @@ async function main() {
   })
   expect(aThreadGone.status === 409, 'author thread on a revoked share 409s', `status ${aThreadGone.status}`)
 
+  // --- R2 unavailable → 503 not 404 (config-drift path) --------------------
+  // Publish a fresh artifact (lands in Postgres since this test env has no R2
+  // credentials), then rewrite its storage field to 'r2' via the test helper.
+  // The serve route must return 503 — content exists but is unreachable —
+  // rather than the misleading 404 it would give if getArtifact silently
+  // fell back to null (#911 hardening).
+  const r2TestPubRes = await fetch(`${BASE}/api/share/publish`, {
+    method: 'POST', headers: authed, body: JSON.stringify({ title: 'R2 test', html: artifact('r2test') }),
+  })
+  const r2TestPub = await r2TestPubRes.json()
+  expect(r2TestPubRes.status === 201, 'r2 test artifact published', `status ${r2TestPubRes.status}`)
+
+  execFileSync('npx', ['tsx', 'scripts/force-r2-storage.ts', r2TestPub.publicationId], {
+    cwd: ROOT, env: process.env, stdio: 'pipe',
+  })
+  ok('r2 storage field forced via test helper')
+
+  const r2TestServe = await fetch(r2TestPub.shareUrl)
+  expect(r2TestServe.status === 503, 'r2-storage row with no R2 client → 503 not 404', `status ${r2TestServe.status}`)
+  expect(r2TestServe.headers.get('cache-control') === 'no-store', 'r2 503 is no-store')
+
   // --- Rate limit (last: it poisons this IP's write budget) -----------------
   const pub2Res = await fetch(`${BASE}/api/share/publish`, {
     method: 'POST', headers: authed, body: JSON.stringify({ title: 'RL', html: artifact('rl') }),

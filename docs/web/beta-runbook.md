@@ -55,11 +55,14 @@ The gateway validates all required vars at boot and exits non-zero with a clear 
 
 ### What the invitee does
 
-1. **Enable the feature flag.** Open `~/Library/Application Support/Prose/settings.json` in a text editor and add (or merge into an existing `featureFlags` block):
+1. **Enable the feature flag and point at the prod gateway.** Quit Prose, open `~/Library/Application Support/Prose/settings.json` in a text editor, and add (or merge into the existing top-level keys):
    ```json
-   "featureFlags": { "webPlatform": true }
+   "featureFlags": { "webPlatform": true },
+   "webPlatform": { "gatewayUrl": "https://api.prose.solo.ist" }
    ```
    Save the file, then relaunch Prose.
+
+   **Both keys are required.** The built-in default gateway (`DEFAULT_GATEWAY_URL` in `src/main/share/index.ts`) is still the raw `prose-gateway.onrender.com` host. Magic links are minted on `BETTER_AUTH_URL` (`api.prose.solo.ist`), and the desktop's same-gateway check rejects a link from a different origin, so sign-in fails without the override. #943 fixes the default before GA.
 
 2. **Sign in.** Open any document. A share icon (◎) appears in the top-right corner. Click it and enter the email address you agreed on. Prose sends a magic-link request to the gateway, which emails the link via Resend.
 
@@ -90,19 +93,14 @@ The invitee can now click **Publish** without a 403. Their first publish produce
 
 **There is no `--revoke` flag in the seed script.** This is a gap. Until a revoke command exists, remove the entitlement directly via the Render Shell:
 
-```sql
--- Run in the Render Shell via: npx prisma db execute --file /dev/stdin
-DELETE FROM entitlements
-WHERE "userId" = (SELECT id FROM "user" WHERE email = 'invitee@example.com')
-  AND feature = 'share_publish';
+```bash
+# Render Shell, from the gateway directory:
+echo "DELETE FROM entitlements
+WHERE \"userId\" = (SELECT id FROM \"user\" WHERE email = 'invitee@example.com')
+  AND feature = 'share_publish';" | npx prisma db execute --stdin
 ```
 
-Or equivalently with `psql` if you have a direct database connection:
-```sql
-DELETE FROM entitlements
-WHERE "userId" = (SELECT id FROM "user" WHERE email = 'invitee@example.com')
-  AND feature = 'share_publish';
-```
+(Or run the same SQL with `psql "$DATABASE_URL"` if you connect directly.) Tracked in #942.
 
 After removal the invitee's next publish attempt returns 403. Existing published links remain live — revoke individual publications separately (below).
 
@@ -112,26 +110,21 @@ The invitee can revoke any of their own publications from the Prose desktop app:
 
 ### Operator-side publication takedown
 
-**There is no operator takedown endpoint.** This is a gap. Until one exists, the safest manual procedure from the Render Shell:
+**There is no operator takedown endpoint** (a gap, tracked in #942). Until one exists, mirror what the author revoke does (`DELETE /api/share/:pubId` in `gateway/src/routes/share/author.ts`): tombstone the publication and delete its comments in one transaction, then drop the artifact.
 
-```sql
--- Set revokedAt to now — the gateway serves 410 for this tokenHash going forward.
-UPDATE publications
-SET "revokedAt" = NOW()
-WHERE id = '<publication-uuid>';
-```
-
-Then, if the artifact is in R2, delete the object manually from the Cloudflare R2 dashboard or via the AWS CLI:
-```bash
-aws s3 rm s3://<R2_BUCKET>/shares/<publication-uuid>/artifact.html \
-  --endpoint-url https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com
-```
-
-To find a publication by the share URL token, you need the SHA-256 of the token — the database stores `tokenHash`, not the raw token. If you have the full URL (`/s/<token>`), compute the hash:
-```bash
-echo -n "<token>" | openssl dgst -sha256 -hex
-# then: SELECT id, title, "revokedAt" FROM publications WHERE "tokenHash" = '<hash>';
-```
+1. **Find the publication.** The database stores `tokenHash`, not the raw token, so hash the `<token>` from the `/s/<token>` URL:
+   ```bash
+   echo -n "<token>" | openssl dgst -sha256 -hex
+   ```
+   Look it up with `SELECT id, title, storage, "r2Key", "revokedAt" FROM publications WHERE "tokenHash" = '<hash>';`. `prisma db execute` only reports success or failure and never prints rows, so run SELECTs in `psql`. Use the PSQL command from the Render dashboard's Postgres **Connect** menu.
+2. **Tombstone it and delete its comments** (from the gateway directory in the Render Shell). Every `/s/` route returns 410 once `revokedAt` is set:
+   ```bash
+   echo "BEGIN;
+   DELETE FROM share_comments WHERE \"publicationId\" = '<publication-uuid>';
+   UPDATE publications SET \"revokedAt\" = NOW(), \"artifactHtml\" = NULL WHERE id = '<publication-uuid>';
+   COMMIT;" | npx prisma db execute --stdin
+   ```
+3. **If `storage` was `r2`,** delete the object `shares/<publication-uuid>/artifact.html` from the bucket in the Cloudflare R2 dashboard.
 
 ---
 
@@ -201,9 +194,9 @@ This must return an empty array. B's origin cannot read A's localStorage.
 
 ### Storage field
 
-After publishing, confirm the publication row has `storage = 'r2'` (not `'db'`) by checking Render logs or querying:
+After publishing, confirm the publication row has `storage = 'r2'` (not `'db'`) by querying in `psql` (see §4 for how to connect):
 ```sql
-SELECT storage, r2Key FROM publications ORDER BY "publishedAt" DESC LIMIT 5;
+SELECT storage, "r2Key" FROM publications ORDER BY "publishedAt" DESC LIMIT 5;
 ```
 
 If R2 env vars are set correctly, all new rows should show `storage = 'r2'`.
@@ -225,22 +218,24 @@ Hi — you're one of the first people to try Prose's new sharing feature. Here's
 **What it is:** You can publish any document in Prose as a shareable link. Recipients open it in a browser — no install, no account. They can read and leave comments, which sync back to your Prose app.
 
 **Setup (one time):**
-1. Open `~/Library/Application Support/Prose/settings.json` and add `"featureFlags": { "webPlatform": true }`. Relaunch Prose.
+1. Quit Prose, open `~/Library/Application Support/Prose/settings.json`, and add these two top-level entries (keep the commas valid):
+   `"featureFlags": { "webPlatform": true },`
+   `"webPlatform": { "gatewayUrl": "https://api.prose.solo.ist" }`
+   Then relaunch Prose.
 2. Click the ◎ icon in the top-right corner of any document, enter your email, and follow the sign-in link. Once signed in, you'll see a **Publish** button.
 
 **What works:**
 - Publish and share a link to any document.
 - Reviewers can comment on highlighted text. Comments sync to your app.
 - Re-publishing updates the link in place — the URL stays the same.
-- Revoking a link takes it down immediately (410 page for anyone who opens it; downloaded copies remain readable).
-- The link works offline once loaded (though commenting requires network access).
+- Revoking a link takes it down immediately and deletes its comments on the server (anyone who opens it sees a "taken down" page; copies people already downloaded stay readable).
 
 **Known limits:**
 - Desktop only — the feature isn't available in the App Store version.
 - Publishing requires you to be signed in; reviewers need no account.
 - This is an early beta: expect rough edges. Some things (like conflict resolution for simultaneous edits) aren't built yet.
 
-**Reporting issues:** reply to this email or open an issue at github.com/solo-ist/prose with the label `web-share`.
+**Reporting issues:** just reply to this email, or open an issue at github.com/solo-ist/prose.
 
 ---
 
@@ -264,9 +259,9 @@ Hi — you're one of the first people to try Prose's new sharing feature. Here's
 
 The invitee signed in but the `share_publish` entitlement hasn't been seeded yet. Run the seed command from §3 in the Render Shell and ask the invitee to retry.
 
-### 403 after re-deploy
+### Everyone signed out after a deploy
 
-Session cookies are bound to `BETTER_AUTH_SECRET`. If the secret rotated (or was re-set in Render), all sessions are invalidated and everyone must sign in again.
+Sessions are signed with `BETTER_AUTH_SECRET`. If the secret rotated (or was re-set in Render), every session is invalid and everyone must sign in again.
 
 ### Stale viewer — comments not showing
 
@@ -279,15 +274,11 @@ If the author re-published after the reviewer loaded the page, the viewer adopts
 
 ### 410 served to a reviewer
 
-The author revoked the publication, or an operator set `revokedAt` directly. The page stays readable (the styled takedown page is intentional). If this is in error, clear `revokedAt` in the database:
-```sql
-UPDATE publications SET "revokedAt" = NULL WHERE id = '<publication-uuid>';
-```
-Then ask the author to re-publish to restore the R2 artifact.
+The author revoked the publication, or an operator took it down (§4). **Revocation is final:** the comments were deleted and the artifact removed, and the gateway refuses to republish a revoked publication (409). Don't clear `revokedAt` by hand; that would bring back an empty link. If the takedown was a mistake, the author publishes the document again, which mints a new link, and shares that one.
 
 ### `wrong_gateway` error in Prose
 
-A local share entry records the gateway origin it was published against. If the entry was published to a different gateway URL than the one currently configured, Prose shows this error rather than silently mis-routing the revoke or republish. To fix: check `webPlatform.gatewayUrl` in `settings.json` and ensure it matches the entry's gateway. For beta, the default is `https://prose-gateway.onrender.com` — no override is needed unless you're testing against a local gateway.
+A local share entry records the gateway origin it was published against. If the entry was published to a different gateway URL than the one currently configured, Prose shows this error rather than silently mis-routing the revoke or republish. To fix: check `webPlatform.gatewayUrl` in `settings.json` and ensure it matches the entry's gateway. For the beta it must be `https://api.prose.solo.ist` (see §3). Entries published while pointed at another gateway, such as a local dev one, can only be managed with that gateway configured.
 
 ### Share URL didn't update after rename
 

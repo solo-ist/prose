@@ -442,24 +442,17 @@ export const Comment = Mark.create<CommentOptions>({
     return [
       new Plugin({
         key: commentStatePluginKey,
-        // Track whether the most recent doc-mutating transaction was a
-        // programmatic content load (setContent). TipTap always sets
-        // preventUpdate:true on setContent transactions — user edits (keyboard
-        // input, paste, delete) never do. autoResolveDeletedComments reads this
-        // state to distinguish "transient strip" from "genuine last-comment
-        // delete" when all marks disappear at once (#933).
+        // `apply` is used only as a per-transaction hook: it arms
+        // _preventUpdateInCurrentBatch when a transaction in the batch is a
+        // programmatic content load (TipTap tags setContent with
+        // preventUpdate:true; user edits never are). The state value itself is
+        // unused — autoResolveDeletedComments reads the module flag, which
+        // survives appendTransaction follow-ups that lack the meta (#933).
         state: {
-          init: () => false as boolean,
+          init: () => null,
           apply(tr) {
-            const val = tr.getMeta('preventUpdate') === true
-            if (val) {
-              // Any transaction in the batch with preventUpdate:true arms the
-              // batch-level flag. appendTransaction follow-ups lack the meta
-              // but run before the plugin view's update, so only a module-level
-              // flag (reset by update) survives correctly — see #933.
-              _preventUpdateInCurrentBatch = true
-            }
-            return val
+            if (tr.getMeta('preventUpdate') === true) _preventUpdateInCurrentBatch = true
+            return null
           },
         },
         view: (view) => {

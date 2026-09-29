@@ -10,6 +10,13 @@
  */
 import { prisma } from '../src/db/index.js'
 
+// scripts/ ships in the gateway image (for the entitlement jobs), so this
+// row-rewriting helper must refuse to run against production.
+if (process.env.NODE_ENV === 'production') {
+  console.error('force-r2-storage.ts is a test helper; refusing to run with NODE_ENV=production')
+  process.exit(1)
+}
+
 const [,, pubId] = process.argv
 if (!pubId) {
   console.error('usage: force-r2-storage.ts <publicationId>')

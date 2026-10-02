@@ -87,9 +87,11 @@ const EnvSchema = z.object({
       ctx.addIssue({ code: 'custom', path: [key], message: 'required in production' })
     }
   }
-  // MAIL_FROM must loosely look like an email address (the full "Name <addr>"
-  // form is fine; bare addresses are fine; obviously-wrong values are not).
-  if (env.MAIL_FROM && !env.MAIL_FROM.includes('@')) {
+  // MAIL_FROM is a bare address or the "Name <addr>" form; check the address
+  // part has a local part, an @, and a dotted domain so typos fail at boot
+  // rather than at the first send.
+  const mailFromAddr = env.MAIL_FROM?.trim().match(/<([^<>]+)>$/)?.[1] ?? env.MAIL_FROM?.trim()
+  if (env.MAIL_FROM && !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(mailFromAddr ?? '')) {
     ctx.addIssue({
       code: 'custom',
       path: ['MAIL_FROM'],

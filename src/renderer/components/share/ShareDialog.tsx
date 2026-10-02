@@ -108,16 +108,23 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
       // no email on the session) revokes and stops. The link is already consumed
       // at this point, so the user needs a fresh one.
       if (requestedEmail) {
+        // Drop the session the pasted link created. Main-process signOut
+        // swallows network errors and always deletes the local credential, so
+        // this only fails if the credential store itself does; then re-read
+        // the real auth state so the dialog shows who is signed in, and say so.
+        const rejectSession = async (message: string): Promise<string> => {
+          setRequestedEmail('')
+          const out = await getApi().shareSignOut().catch(() => null)
+          if (out?.ok) return message
+          await refresh().catch(() => {})
+          return `${message} Prose couldn't sign that account out; use Sign out before publishing anything.`
+        }
         const status = await getApi().shareAuthStatus()
         if (!status.ok || !status.signedIn || !status.email) {
-          await getApi().shareSignOut()
-          setRequestedEmail('')
-          return "Couldn't verify which account that link signs in. Request a new link and try again."
+          return rejectSession("Couldn't verify which account that link signs in. Request a new link and try again.")
         }
         if (status.email.toLowerCase() !== requestedEmail.toLowerCase()) {
-          await getApi().shareSignOut()
-          setRequestedEmail('')
-          return `That link signs in a different account (${status.email}). Request a new link for your email.`
+          return rejectSession(`That link signs in a different account (${status.email}). Request a new link for your email.`)
         }
       }
 

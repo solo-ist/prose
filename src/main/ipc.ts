@@ -1885,7 +1885,13 @@ export function setupIpcHandlers(): void {
       const ids = Array.isArray(seenRowIds)
         ? seenRowIds.slice(0, 2000).map(shareRowId).filter((s) => s !== '')
         : []
-      return share.ackCommentCursor(shareRowId(publicationId), String(cursor ?? ''), ids)
+      // The cursor is the gateway's `createdAt.toISOString()`; anything else
+      // is dropped (the entry keeps its previous cursor) rather than stored
+      // verbatim. The ids above still record — the ledger is the safety
+      // property, the cursor is informational.
+      const iso = String(cursor ?? '')
+      const safeCursor = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z$/.test(iso) ? iso : ''
+      return share.ackCommentCursor(shareRowId(publicationId), safeCursor, ids)
     }
   )
 

@@ -65,3 +65,6 @@ jobs:
 
       - name: Share integration suite
         run: npm run test:share
+
+      - name: Share subdomain isolation suite
+        run: npm run test:share:subdomains

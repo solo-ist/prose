@@ -786,7 +786,7 @@ test.describe('live conversation loop (online viewer)', () => {
       if (req.method === 'OPTIONS') {
         res.writeHead(204, {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET,POST,PATCH,OPTIONS',
+          'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type',
         })
         res.end()
@@ -1753,5 +1753,233 @@ test.describe('live viewer against a stubbed gateway', () => {
     expect(Object.keys(keys).some((k) => k.includes(token))).toBe(false)
     const migrated = await page.evaluate((k) => window.localStorage.getItem(k), digestedKey)
     expect(migrated).toContain('Migrated draft')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Per-publication origin isolation (#917) — proves that a publication served
+// at <label-b>.localhost can't read another publication's localStorage from
+// <label-a>.localhost, even when both publications' inline scripts run under
+// CSP `script-src 'unsafe-inline'`. Uses a real HTTP server (not page.route)
+// so the browser sees genuinely distinct Origins; Chromium resolves
+// *.localhost to loopback, giving us real per-subdomain storage isolation
+// without DNS setup.
+// ---------------------------------------------------------------------------
+test.describe('per-publication origin isolation (#917)', () => {
+  // LOCKSTEP: this CSP must match ARTIFACT_HEADERS in
+  // gateway/src/routes/share/public.ts and the assertion in
+  // gateway/scripts/test-share.mjs.
+  const CSP =
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; img-src data: blob:; font-src data: https://fonts.gstatic.com; connect-src 'self'"
+
+  let isoServer: import('node:http').Server
+  let isoPort: number
+  // Comment state for pub A.
+  let isoPostedRows: Array<Record<string, unknown>> = []
+  let isoDeletes: Array<{ id: string; editToken?: string }> = []
+  let isoRenames: Array<{ id: string; editToken?: string; authorName?: string; commentText?: string }> = []
+  // The artifact HTML for pub A (built with buildShareHtml so the real viewer runs).
+  let artifactA = ''
+
+  // Pub B: a hostile artifact whose inline script reads ALL of this page's
+  // localStorage and writes the keys+values into #exfil so the test can assert.
+  // It uses the same CSP as pub A; `script-src 'unsafe-inline'` lets the script
+  // run — the test proves origin isolation stops the theft, not CSP.
+  const HOSTILE_ARTIFACT_B = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>Pub B — Hostile</title>
+</head><body>
+<article><p>Publication B.</p></article>
+<script type="application/x-prose-markdown" data-encoding="base64">dGVzdA==</script>
+<div id="exfil">no-theft</div>
+<script>
+  // Hostile: read every localStorage key/value and report into the DOM.
+  var stolen = [];
+  for (var i = 0; i < window.localStorage.length; i++) {
+    var k = window.localStorage.key(i);
+    stolen.push(k + '::' + window.localStorage.getItem(k));
+  }
+  document.getElementById('exfil').textContent = stolen.length > 0 ? stolen.join('|||') : 'empty';
+</script>
+</body></html>`
+
+  const corsHeaders = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }
+
+  test.beforeAll(async () => {
+    const { createServer } = await import('node:http')
+
+    isoServer = createServer((req, res) => {
+      const url = req.url ?? ''
+      const reqHost = req.headers.host ?? ''
+
+      // CORS preflight.
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204, {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        })
+        res.end()
+        return
+      }
+
+      const isA = reqHost.startsWith('a.localhost')
+      const isB = reqHost.startsWith('b.localhost')
+
+      // Pub A: real viewer artifact + comment routes.
+      if (isA) {
+        if (req.method === 'GET' && url === '/s/tokA') {
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': CSP, 'Cache-Control': 'no-store' })
+          res.end(artifactA)
+          return
+        }
+        if (req.method === 'GET' && url.startsWith('/s/tokA/comments')) {
+          res.writeHead(200, corsHeaders)
+          res.end(JSON.stringify({ comments: [...isoPostedRows], nextCursor: null }))
+          return
+        }
+        if (req.method === 'POST' && url === '/s/tokA/comments') {
+          let body = ''
+          req.on('data', (c) => { body += c })
+          req.on('end', () => {
+            const parsed = JSON.parse(body)
+            const id = `iso-${isoPostedRows.length + 1}`
+            isoPostedRows.push({
+              id, parentId: null, markedText: parsed.markedText ?? '',
+              occurrenceIndex: parsed.occurrenceIndex ?? 0,
+              commentText: parsed.commentText, authorName: parsed.authorName,
+              fromAuthor: false, resolvedAt: null, publishRev: 'rev',
+              createdAt: '2026-09-27T00:00:00.000Z',
+            })
+            res.writeHead(201, corsHeaders)
+            res.end(JSON.stringify({ id, createdAt: '2026-09-27T00:00:00.000Z', editToken: `etoken-${id}` }))
+          })
+          return
+        }
+        if (req.method === 'PATCH' && /^\/s\/tokA\/comments\/[^/]+$/.test(url)) {
+          let body = ''
+          req.on('data', (c) => { body += c })
+          req.on('end', () => {
+            const id = url.split('/')[4]
+            const parsed = JSON.parse(body)
+            isoRenames.push({ id, ...parsed })
+            if (parsed.editToken !== `etoken-${id}`) {
+              res.writeHead(403, corsHeaders)
+              res.end(JSON.stringify({ error: 'forbidden' }))
+              return
+            }
+            const row = isoPostedRows.find((r) => r.id === id)
+            if (row) {
+              if (parsed.authorName) row.authorName = parsed.authorName
+              if (parsed.commentText) { row.commentText = parsed.commentText; (row as Record<string, unknown>).editedAt = '2026-09-27T01:00:00.000Z' }
+            }
+            res.writeHead(200, corsHeaders)
+            res.end(JSON.stringify({ ok: true }))
+          })
+          return
+        }
+        if (req.method === 'DELETE' && /^\/s\/tokA\/comments\/[^/]+$/.test(url)) {
+          let body = ''
+          req.on('data', (c) => { body += c })
+          req.on('end', () => {
+            const id = url.split('/')[4]
+            const parsed = JSON.parse(body)
+            isoDeletes.push({ id, ...parsed })
+            if (parsed.editToken !== `etoken-${id}`) {
+              res.writeHead(403, corsHeaders)
+              res.end(JSON.stringify({ error: 'forbidden' }))
+              return
+            }
+            const row = isoPostedRows.find((r) => r.id === id)
+            if (row) { row.deleted = true; row.commentText = ''; row.authorName = '' }
+            res.writeHead(200, corsHeaders)
+            res.end(JSON.stringify({ ok: true }))
+          })
+          return
+        }
+      }
+
+      // Pub B: the hostile artifact (no comment routes needed for the theft test).
+      if (isB && req.method === 'GET' && url === '/s/tokB') {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': CSP, 'Cache-Control': 'no-store' })
+        res.end(HOSTILE_ARTIFACT_B)
+        return
+      }
+
+      res.writeHead(404)
+      res.end()
+    })
+
+    await new Promise<void>((resolve) => isoServer.listen(0, '127.0.0.1', resolve))
+    const addr = isoServer.address()
+    if (!addr || typeof addr === 'string') throw new Error('no server address')
+    isoPort = addr.port
+
+    // Build pub A's artifact using the real buildShareHtml so the viewer runs.
+    const aOrigin = `http://a.localhost:${isoPort}`
+    artifactA = await buildShareHtml(EDITOR_HTML, MARKDOWN, {}, 'Pub A', null, [], aOrigin)
+  })
+
+  test.afterAll(async () => {
+    await new Promise<void>((resolve) => isoServer.close(() => resolve()))
+  })
+
+  test.beforeEach(async ({ page }) => {
+    await seedListMode(page)
+    isoPostedRows = []
+    isoDeletes = []
+    isoRenames = []
+  })
+
+  test('pub B cannot read pub A edit-tokens or drafts from localStorage', async ({ page }) => {
+    const aUrl = `http://a.localhost:${isoPort}/s/tokA`
+    const bUrl = `http://b.localhost:${isoPort}/s/tokB`
+
+    // 1. Load pub A and post a comment. This writes prose-edit-tokens +
+    //    prose-commenter-name to a.localhost's localStorage.
+    await page.goto(aUrl)
+    await page.locator('article p').first().click({ clickCount: 3 })
+    await page.locator('#prose-add-comment-btn').click()
+    await page.locator('#prose-comment-form input').first().fill('Alice Reviewer')
+    await page.locator('#prose-comment-form textarea').fill('A comment on pub A.')
+    await page.locator('#prose-comment-form button', { hasText: 'Post' }).first().click()
+    // Wait for the comment to post (optimistic card visible + server record).
+    await expect(page.getByText('A comment on pub A.')).toBeVisible()
+    await expect.poll(() => isoPostedRows.length).toBe(1)
+    const commentId = isoPostedRows[0].id as string
+
+    // 2. Navigate to pub B (different origin: b.localhost vs a.localhost).
+    await page.goto(bUrl)
+
+    // B's hostile inline script reads all of b.localhost's localStorage.
+    // Since this is a fresh origin, it must be empty — not carrying A's tokens.
+    const exfil = page.locator('#exfil')
+    await expect(exfil).toBeVisible()
+    const stolen = await exfil.textContent()
+    // Nothing from pub A's storage should appear.
+    expect(stolen).not.toContain(`etoken-${commentId}`)
+    expect(stolen).not.toContain('prose-edit-tokens')
+    expect(stolen).not.toContain('Alice')
+
+    // 3. Navigate back to pub A and verify A can still edit + delete the comment.
+    await page.goto(aUrl)
+    const card = page.locator('.prose-thread', { hasText: 'A comment on pub A.' })
+    await expect(card).toBeVisible()
+
+    // Edit the comment text.
+    await card.locator('.prose-own-actions button', { hasText: 'Edit' }).click()
+    await page.locator(`.prose-thread[data-thread-id="${commentId}"] .prose-body-editor textarea`).fill('Edited on pub A.')
+    await page.locator(`.prose-thread[data-thread-id="${commentId}"] .prose-body-editor button`, { hasText: 'Save' }).click()
+    await expect(page.locator('.prose-thread', { hasText: 'Edited on pub A.' })).toBeVisible()
+    expect(isoRenames.some((r) => r.id === commentId)).toBe(true)
+
+    // Delete the comment.
+    const editedCard = page.locator('.prose-thread', { hasText: 'Edited on pub A.' })
+    await editedCard.locator('.prose-own-actions button', { hasText: 'Delete' }).click()
+    await editedCard.locator('.prose-own-actions button', { hasText: 'yes' }).click()
+    await expect(page.locator('.prose-thread', { hasText: 'Edited on pub A.' })).toHaveCount(0)
+    await expect.poll(() => isoDeletes.length).toBe(1)
+    expect(isoDeletes[0]).toMatchObject({ id: commentId, editToken: `etoken-${commentId}` })
   })
 })

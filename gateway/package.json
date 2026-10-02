@@ -20,7 +20,8 @@
     "seed:ai-proxy": "tsx scripts/seed-ai-proxy.ts",
     "mock": "node scripts/mock-upstream.mjs",
     "test": "node scripts/test-gateway.mjs",
-    "test:share": "node scripts/test-share.mjs"
+    "test:share": "node scripts/test-share.mjs",
+    "test:share:subdomains": "node scripts/test-share-subdomains.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1077.0",

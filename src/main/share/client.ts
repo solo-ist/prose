@@ -223,14 +223,14 @@ export async function republishArtifact(
   publicationId: string,
   title: string,
   html: string
-): Promise<{ publishRev: string; revCount: number }> {
+): Promise<{ publishRev: string; revCount: number; shareOrigin?: string }> {
   const res = await fetch(`${base(config)}/api/share/${encodeURIComponent(publicationId)}/publish`, {
     method: 'PUT',
     headers: await authedHeaders(config),
     body: JSON.stringify({ title, html }),
   })
   if (!res.ok) throw await toError(res)
-  return (await res.json()) as { publishRev: string; revCount: number }
+  return (await res.json()) as { publishRev: string; revCount: number; shareOrigin?: string }
 }
 
 export async function revokePublication(

@@ -576,6 +576,151 @@ test('revoke treats a gateway 404 as failure, success as a local tombstone', asy
 })
 
 // ---------------------------------------------------------------------------
+// Rename/move keeps the share link (#932)
+// ---------------------------------------------------------------------------
+
+test('file rename via file:rename IPC updates share entry localPath (no new publication minted)', async () => {
+  // Arrange: create a real file and seed a share entry for it.
+  const renameSrc = join(docsDir, 'rename-me.md')
+  const renameDst = join(docsDir, 'renamed.md')
+  writeFileSync(renameSrc, '# Rename Me\n')
+
+  const seedId = 'pub-rename-test'
+  const seedEntry = {
+    publicationId: seedId,
+    shareUrl: `${gateway.origin}/s/tok-rename`,
+    localPath: renameSrc,
+    documentId: 'doc-rename-original',
+    title: 'Rename Me',
+    publishRev: 'rev1',
+    revCount: 1,
+    publishedAt: new Date().toISOString(),
+    lastPulledAt: null,
+    lastCommentCursor: null,
+    revokedAt: null,
+    syncMode: 'auto',
+    gatewayOrigin: gateway.origin,
+  }
+  // Write the extra entry into share-sync.json alongside existing entries.
+  const existing = JSON.parse(readFileSync(syncFilePath(), 'utf-8'))
+  existing.shares[seedId] = seedEntry
+  writeFileSync(syncFilePath(), JSON.stringify(existing, null, 2))
+
+  // Act: rename via the file:rename IPC (the main-process choke point).
+  await callApi('renameFile', renameSrc, renameDst)
+
+  // Assert: the entry follows the file — same publicationId, updated localPath.
+  await expect
+    .poll(() => readSyncEntry(seedId)?.localPath)
+    .toBe(renameDst)
+
+  const updated = readSyncEntry(seedId)
+  expect(updated?.publicationId).toBe(seedId)
+
+  // No second publication minted: the entry count for renameDst must be 1.
+  const result = await callApi<{ ok: boolean; entries?: Array<{ publicationId: string }> }>(
+    'shareGetForPath',
+    renameDst,
+  )
+  expect(result.ok).toBe(true)
+  expect(result.entries?.length).toBe(1)
+  expect(result.entries?.[0]?.publicationId).toBe(seedId)
+})
+
+test('directory move via file:rename IPC updates all nested share entries', async () => {
+  // Arrange: create a directory with a file and seed an entry for the file.
+  const subDir = join(docsDir, 'movedir')
+  const newDir = join(docsDir, 'movedir-new')
+  const fileSrc = join(subDir, 'nested.md')
+  mkdirSync(subDir, { recursive: true })
+  writeFileSync(fileSrc, '# Nested\n')
+
+  const seedId = 'pub-dir-move-test'
+  const existing = JSON.parse(readFileSync(syncFilePath(), 'utf-8'))
+  existing.shares[seedId] = {
+    publicationId: seedId,
+    shareUrl: `${gateway.origin}/s/tok-dir`,
+    localPath: fileSrc,
+    documentId: 'doc-dir-original',
+    title: 'Nested',
+    publishRev: 'rev1',
+    revCount: 1,
+    publishedAt: new Date().toISOString(),
+    lastPulledAt: null,
+    lastCommentCursor: null,
+    revokedAt: null,
+    syncMode: 'auto',
+    gatewayOrigin: gateway.origin,
+  }
+  writeFileSync(syncFilePath(), JSON.stringify(existing, null, 2))
+
+  // Act: rename the parent directory.
+  await callApi('renameFile', subDir, newDir)
+
+  const expectedNewPath = join(newDir, 'nested.md')
+
+  // Assert: the nested entry's localPath was updated to the new directory.
+  await expect
+    .poll(() => readSyncEntry(seedId)?.localPath)
+    .toBe(expectedNewPath)
+
+  expect(readSyncEntry(seedId)?.publicationId).toBe(seedId)
+})
+
+test('getForPath scopes lookup to active gateway origin, excluding wrong-origin entries', async () => {
+  // Arrange: seed one entry for this gateway and one for a foreign origin at
+  // the same path, so the wrong-origin one would shadow it with the old
+  // insertion-order lookup.
+  const multiPath = join(docsDir, 'multi-origin.md')
+  writeFileSync(multiPath, '# Multi\n')
+  const tNow = Date.now()
+
+  const existing = JSON.parse(readFileSync(syncFilePath(), 'utf-8'))
+  existing.shares['pub-multi-good'] = {
+    publicationId: 'pub-multi-good',
+    shareUrl: `${gateway.origin}/s/tok-good`,
+    localPath: multiPath,
+    documentId: 'doc-multi',
+    title: 'Multi',
+    publishRev: 'rev1',
+    revCount: 1,
+    // Older than the wrong-origin entry so insertion-order would surface the
+    // wrong one; the origin filter must select this one instead.
+    publishedAt: new Date(tNow - 60_000).toISOString(),
+    lastPulledAt: null,
+    lastCommentCursor: null,
+    revokedAt: null,
+    syncMode: 'auto',
+    gatewayOrigin: gateway.origin,
+  }
+  existing.shares['pub-multi-wrong'] = {
+    publicationId: 'pub-multi-wrong',
+    shareUrl: 'https://elsewhere.example/s/tok-wrong',
+    localPath: multiPath,
+    documentId: 'doc-multi',
+    title: 'Multi',
+    publishRev: 'rev1',
+    revCount: 1,
+    // Newer — would be returned first by date sort, wrong gateway.
+    publishedAt: new Date(tNow).toISOString(),
+    lastPulledAt: null,
+    lastCommentCursor: null,
+    revokedAt: null,
+    syncMode: 'auto',
+    gatewayOrigin: 'https://elsewhere.example',
+  }
+  writeFileSync(syncFilePath(), JSON.stringify(existing, null, 2))
+
+  const result = await callApi<{ ok: boolean; entries?: Array<{ publicationId: string }> }>(
+    'shareGetForPath',
+    multiPath,
+  )
+  expect(result.ok).toBe(true)
+  // Only the active-gateway entry must be returned; the elsewhere entry is excluded.
+  expect(result.entries?.map((e) => e.publicationId)).toEqual(['pub-multi-good'])
+})
+
+// ---------------------------------------------------------------------------
 // file:readBase64 containment (audit H-03)
 // ---------------------------------------------------------------------------
 

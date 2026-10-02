@@ -427,9 +427,23 @@ export const Comment = Mark.create<CommentOptions>({
   // the default amber. Resolved threads remove their mark, so only these two
   // render in the document.
   addProseMirrorPlugins() {
+    // Set when any transaction in the current dispatch is a programmatic
+    // content load: TipTap tags setContent with preventUpdate:true, and user
+    // edits never are. Kept per plugin instance so editors never share it, and
+    // outside the plugin state because appendTransaction follow-ups (node-ids)
+    // lack the meta and would overwrite a state value before the view update
+    // reads it (#933). `apply` is only the hook that arms it.
+    let contentLoadInDispatch = false
     return [
       new Plugin({
         key: commentStatePluginKey,
+        state: {
+          init: () => null,
+          apply(tr) {
+            if (tr.getMeta('preventUpdate') === true) contentLoadInDispatch = true
+            return null
+          },
+        },
         view: (view) => {
           // A reply lands in the store without a ProseMirror transaction, so
           // nudge the view to recompute decorations when the store changes.
@@ -441,7 +455,15 @@ export const Comment = Mark.create<CommentOptions>({
               view.dispatch(view.state.tr.setMeta(commentStatePluginKey, true))
             })
           })
-          return { update: autoResolveDeletedComments, destroy: unsubscribe }
+          return {
+            update: (v, prevState) => {
+              // Consume unconditionally so every dispatch starts clean.
+              const contentLoad = contentLoadInDispatch
+              contentLoadInDispatch = false
+              autoResolveDeletedComments(v, prevState, contentLoad)
+            },
+            destroy: unsubscribe,
+          }
         },
         props: {
           decorations: (state) => {
@@ -493,21 +515,26 @@ function commentMarkIds(doc: ProseMirrorNode): Set<string> {
  * local resolve sticks either way.
  *
  * Guards mirror the persistence "never lose a thread to a transient strip"
- * invariant: skip while a restore is pending, and skip when EVERY mark vanished
- * at once — a document load or source-mode toggle strips them all before the
- * restore re-applies them. Only a partial removal (some marks gone, others
- * still live) is a real mid-session delete.
+ * invariant: skip while a restore is pending, and skip when every mark
+ * vanished in a dispatch that was a programmatic content load (doc load or
+ * source-mode toggle strip them all before the restore re-applies them).
+ * `contentLoad` comes from the plugin's per-dispatch flag; user edits —
+ * including deleting the last comment's text — never set it (#933).
  */
-function autoResolveDeletedComments(view: EditorView, prevState: EditorState): void {
+function autoResolveDeletedComments(
+  view: EditorView,
+  prevState: EditorState,
+  contentLoad: boolean
+): void {
   if (view.state.doc === prevState.doc) return
   const store = useCommentStore.getState()
   if (store.needsRestore) return
   const prevIds = commentMarkIds(prevState.doc)
   if (prevIds.size === 0) return
   const currIds = commentMarkIds(view.state.doc)
-  // All marks gone at once → transient strip (load / source-mode toggle), not a
-  // delete; a genuine delete leaves the doc's other comment marks intact.
-  if (currIds.size === 0) return
+  // All marks gone at once: a content load's transient strip (skip), or the
+  // user deleting the text of the only remaining comment (resolve it).
+  if (currIds.size === 0 && contentLoad) return
   const removedOpen = store.pendingComments.filter(
     (c) => !c.resolved && prevIds.has(c.id) && !currIds.has(c.id)
   )

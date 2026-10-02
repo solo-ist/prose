@@ -16,7 +16,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { prisma } from '../../db/index.js'
 import { config } from '../../config.js'
-import { getArtifact } from '../../artifacts/index.js'
+import { getArtifact, R2UnavailableError } from '../../artifacts/index.js'
 import { ipRateLimit } from '../../middleware/ipRateLimit.js'
 import {
   MAX_COMMENT_CHARS,
@@ -187,7 +187,18 @@ sharePublicRoutes.get('/:token', async (c) => {
     return c.body(revokedPage(new URL(c.req.url).host), 410, ARTIFACT_HEADERS)
   }
 
-  const html = await getArtifact(pub)
+  let html: string | null
+  try {
+    html = await getArtifact(pub)
+  } catch (err) {
+    if (err instanceof R2UnavailableError) {
+      // The content exists in R2 but the R2 client is not configured on this
+      // instance (config drift). Return a retryable 503 — not a 404 — so the
+      // viewer knows to retry rather than concluding the content is gone.
+      return c.text('Service unavailable', 503, { 'Cache-Control': 'no-store' })
+    }
+    throw err
+  }
   if (!html) return c.text('Not found', 404)
 
   return c.body(html, 200, ARTIFACT_HEADERS)

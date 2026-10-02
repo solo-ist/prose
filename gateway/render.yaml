@@ -26,12 +26,20 @@ services:
         fromDatabase:
           name: prose-gateway-db
           property: connectionString
+      - key: SHARE_BASE_URL
+        value: https://share.prose.solo.ist
+      # Per-publication subdomain isolation (#917). Enable only AFTER the
+      # wildcard custom domain (*.share.prose.solo.ist) is live on Render and
+      # the Hover CNAMEs (*.share, _acme-challenge.share, _cf-custom-hostname.share)
+      # are propagated — enabling before the wildcard domain is live causes TLS
+      # errors on first page GET. Set via the Render dashboard, not here, so it
+      # can be toggled without a redeploy-from-repo.
+      - key: SHARE_SUBDOMAINS
+        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false # set via dashboard/secret; never in the repo
       - key: BETTER_AUTH_SECRET
         sync: false
-      - key: SHARE_BASE_URL
-        sync: false # the share-host origin, e.g. https://share.prose.solo.ist
       - key: RESEND_API_KEY
         sync: false # Resend API key for magic-link email delivery (#813)
       - key: MAIL_FROM

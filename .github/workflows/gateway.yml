@@ -73,3 +73,6 @@ jobs:
         # (spreading process.env so DATABASE_URL + BETTER_AUTH_SECRET from
         # the job level flow through). No additional secrets needed here.
         run: npm run test:mail
+
+      - name: Share subdomain isolation suite
+        run: npm run test:share:subdomains

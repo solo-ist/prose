@@ -122,5 +122,5 @@ needs `npm run dev:db`).
 **In (#768 share service):** publish/serve/revoke + anonymous reviewer comments
 (see above).
 **Out (later phases):** document storage (#767), bidirectional comment sync into
-the editor (#769), web-client wiring (#766), the `llm_usage` meter + Stripe seam
-(#770), MAS seams + `webPlatform` flag (#771).
+the editor (#769), web-client wiring (#766), the `llm_usage` meter (#954/#848) + Open Collective-backed
+entitlements (#953 under #770, replacing the Stripe seam), MAS seams + `webPlatform` flag (#771).

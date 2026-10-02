@@ -59,6 +59,17 @@ const EnvSchema = z.object({
   // debt only while share_publish stays with trusted accounts).
   SHARE_BASE_URL: z.string().url().optional(),
 
+  // Per-publication subdomain isolation (#917): when "1"/"true", each
+  // publication is served at <label>.<shareHost>/s/<token> so every
+  // publication gets its own browser origin. Requires SHARE_BASE_URL and a
+  // wildcard DNS+TLS config (*.share.prose.solo.ist). Default off.
+  // MUST be enabled only AFTER the wildcard domain is live on Render — or the
+  // first GET to a label host returns a TLS error before the service answers.
+  SHARE_SUBDOMAINS: z
+    .string()
+    .optional()
+    .transform((v) => v === '1' || v === 'true'),
+
   // Cloudflare R2 (blobs only; stub in Phase 0).
   R2_ACCOUNT_ID: z.string().optional(),
   R2_ACCESS_KEY_ID: z.string().optional(),

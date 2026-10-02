@@ -489,6 +489,19 @@ export function setupIpcHandlers(): void {
     const safeOldPath = validatePath(oldPath)
     const safeNewPath = validatePath(newPath)
     await rename(safeOldPath, safeNewPath)
+    // Keep share-sync metadata pointing at the renamed/moved file or directory.
+    // This is the main-process choke point for all rename/move paths (explorer
+    // rename, drag-drop, cut-paste, .txt↔.md conversion) that don't go through
+    // the tab rename in useTabs.ts. The tab rename ALSO calls share:updateLocalPath
+    // — the double-update is harmless since both sides compute the same new values.
+    // documentId is SHA-256(path).hex().substring(0, 36) — matches renderer's
+    // generateIdFromPath (persistence.ts). Directory moves are handled by
+    // updateShareLocalPath scanning for prefix matches and recomputing per-entry.
+    if (!IS_MAS_BUILD) {
+      void import('./share/index').then((share) =>
+        share.renamedLocalPath(safeOldPath, safeNewPath, share.documentIdFromPath(safeNewPath))
+      ).catch((err) => console.error('[share] renamedLocalPath failed:', err))
+    }
   })
 
   // File: Delete file
@@ -1872,7 +1885,13 @@ export function setupIpcHandlers(): void {
       const ids = Array.isArray(seenRowIds)
         ? seenRowIds.slice(0, 2000).map(shareRowId).filter((s) => s !== '')
         : []
-      return share.ackCommentCursor(shareRowId(publicationId), String(cursor ?? ''), ids)
+      // The cursor is the gateway's `createdAt.toISOString()`; anything else
+      // is dropped (the entry keeps its previous cursor) rather than stored
+      // verbatim. The ids above still record — the ledger is the safety
+      // property, the cursor is informational.
+      const iso = String(cursor ?? '')
+      const safeCursor = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z$/.test(iso) ? iso : ''
+      return share.ackCommentCursor(shareRowId(publicationId), safeCursor, ids)
     }
   )
 

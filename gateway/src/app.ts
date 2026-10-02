@@ -19,7 +19,8 @@ import health from './routes/health.js'
 import { llmRoutes } from './routes/llm/stream.js'
 import { shareAuthorRoutes } from './routes/share/author.js'
 import { sharePublicRoutes } from './routes/share/public.js'
-import { MAX_ARTIFACT_BYTES } from './routes/share/common.js'
+import { MAX_ARTIFACT_BYTES, buildShareUrl, hashShareToken } from './routes/share/common.js'
+import { prisma } from './db/index.js'
 
 export function createApp() {
   const app = new Hono<AppEnv>()
@@ -48,7 +49,7 @@ export function createApp() {
     })
   )
 
-  // Origin isolation (#902): served share pages are author-controlled
+  // Origin isolation (#902 + #917): served share pages are author-controlled
   // HTML+JS by design, so when SHARE_BASE_URL is set they live on a
   // dedicated cookie-less host. The share host serves ONLY /s/* (+ health) —
   // artifact JS finds no API and no session there, and the two origins'
@@ -56,6 +57,19 @@ export function createApp() {
   // the share host; the JSON comment sub-routes stay dual-host so file://
   // copies baked before the split keep publishing (they're capability-gated
   // and cookie-free — serving them on either host executes nothing).
+  //
+  // With SHARE_SUBDOMAINS=1 (#917): each publication gets its own subdomain
+  // origin (<label>.<shareHost>), so every publication's localStorage is
+  // isolated from every other's. Routing rules:
+  //   - A label host IS part of the share host family — serve /s/* there.
+  //   - GET /s/:token on the bare share host, the API host, or a WRONG label
+  //     → 308 to the publication's own label host (look up by token hash).
+  //     Unknown token → 404. Revoked → 410 (no redirect — page is gone).
+  //   - JSON sub-routes (/s/:token/comments, replies, PATCH/DELETE) work on
+  //     ANY host (bare share, API, or label) — older file:// copies bake the
+  //     bare host and CORS * applies anyway. A mismatched label host serves
+  //     them without 404'ing: the token IS the credential; the host is not
+  //     security-sensitive for JSON routes since CORS * is already open.
   const shareHost = (() => {
     if (!config.SHARE_BASE_URL) return null
     const host = new URL(config.SHARE_BASE_URL).host
@@ -66,18 +80,91 @@ export function createApp() {
     return host
   })()
   if (shareHost) {
-    const shareBase = config.SHARE_BASE_URL!.replace(/\/$/, '')
     const ARTIFACT_PAGE = /^\/s\/[^/]+$/
+
+    /** True when `host` is the bare share host OR any label subdomain of it. */
+    function isShareHostFamily(host: string | undefined): boolean {
+      if (!host) return false
+      return host === shareHost || host.endsWith(`.${shareHost}`)
+    }
+
     app.use('*', async (c, next) => {
-      const host = c.req.header('host')
+      const host = c.req.header('host') ?? ''
       const path = c.req.path
-      if (host === shareHost) {
+
+      if (isShareHostFamily(host)) {
+        // Share host family: only /s/* and /health are valid.
         if (!path.startsWith('/s/') && path !== '/health') {
           return c.text('Not found', 404)
         }
-      } else if (ARTIFACT_PAGE.test(path) && (c.req.method === 'GET' || c.req.method === 'HEAD')) {
+
+        // Per-publication subdomain mode (#917): enforce that each publication
+        // is accessed from its OWN label host for the artifact page.
+        if (config.SHARE_SUBDOMAINS && ARTIFACT_PAGE.test(path) && (c.req.method === 'GET' || c.req.method === 'HEAD')) {
+          const token = path.slice(3) // strip /s/
+          const pub = await prisma.publication.findUnique({
+            where: { tokenHash: hashShareToken(token) },
+            select: { hostLabel: true, revokedAt: true },
+          })
+          if (!pub) {
+            // Unknown token — fall through to the /s/* handler for the 404.
+            await next()
+            return
+          }
+          if (pub.revokedAt) {
+            // Revoked: fall through to the /s/* handler which serves the 410 page.
+            await next()
+            return
+          }
+          if (pub.hostLabel) {
+            const correctLabelHost = `${pub.hostLabel}.${shareHost}`
+            if (host !== correctLabelHost) {
+              // Wrong label (bare share host or a different label) → 308 to the
+              // publication's own label host, preserving the query string.
+              // Use .host (hostname:port) not .hostname to preserve the port.
+              const shareUrl = new URL(config.SHARE_BASE_URL!)
+              shareUrl.host = correctLabelHost
+              const dest = `${shareUrl.origin}${path}${c.req.url.includes('?') ? '?' + new URL(c.req.url).searchParams.toString() : ''}`
+              return c.redirect(dest, 308)
+            }
+          }
+        }
+
+        await next()
+        return
+      }
+
+      // API host: redirect artifact page loads to the share host family.
+      if (ARTIFACT_PAGE.test(path) && (c.req.method === 'GET' || c.req.method === 'HEAD')) {
+        if (config.SHARE_SUBDOMAINS) {
+          // Look up the publication to get its label host.
+          const token = path.slice(3)
+          const pub = await prisma.publication.findUnique({
+            where: { tokenHash: hashShareToken(token) },
+            select: { hostLabel: true, revokedAt: true },
+          })
+          if (!pub) {
+            // Unknown token — serve 404 directly (no useful redirect target).
+            return c.text('Not found', 404)
+          }
+          if (pub.revokedAt) {
+            // Revoked: redirect to the bare share host which will serve the 410 page.
+            const shareBase = config.SHARE_BASE_URL!.replace(/\/$/, '')
+            return c.redirect(shareBase + path, 308)
+          }
+          if (pub.hostLabel) {
+            // Use .host (hostname:port) not .hostname to preserve the port.
+            const shareUrl = new URL(config.SHARE_BASE_URL!)
+            shareUrl.host = `${pub.hostLabel}.${shareHost}`
+            const dest = `${shareUrl.origin}${path}${c.req.url.includes('?') ? '?' + new URL(c.req.url).searchParams.toString() : ''}`
+            return c.redirect(dest, 308)
+          }
+        }
+        // Subdomains off (or no label): redirect to the bare share host.
+        const shareBase = config.SHARE_BASE_URL!.replace(/\/$/, '')
         return c.redirect(shareBase + path, 308)
       }
+
       await next()
     })
   }

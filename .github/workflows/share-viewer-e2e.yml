@@ -1,0 +1,53 @@
+name: Share Viewer E2E
+
+# The shared web viewer's browser suite (e2e/web.share-viewer.spec.ts) — the
+# REAL builder + inline viewer against file://, a stub gateway, and narrow
+# (mobile) layouts. web-e2e.yml only runs for `accelerated`-labeled PRs, so
+# viewer changes used to merge without it; this runs it whenever the viewer,
+# the artifact builder, or the spec itself changes.
+on:
+  pull_request:
+    paths:
+      - 'src/renderer/lib/viewerScript.ts'
+      - 'src/renderer/lib/htmlExport.ts'
+      - 'src/renderer/lib/shareArtifact.ts'
+      - 'e2e/web.share-viewer.spec.ts'
+      - '.github/workflows/share-viewer-e2e.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: share-viewer-e2e-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  share-viewer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      # playwright.web.config.ts boots `vite preview` as its webServer, which
+      # needs the web build even though this spec doesn't use its baseURL.
+      - name: Build web app
+        run: npm run build:web
+
+      - name: Share viewer suite
+        run: npx playwright test --config playwright.web.config.ts e2e/web.share-viewer.spec.ts --retries=0
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: share-viewer-e2e-results
+          path: test-results/

@@ -13,6 +13,7 @@ import { getSettingsDir } from '../paths'
 import * as client from './client'
 import {
   type ShareSyncEntry,
+  documentIdFromPath,
   getShareEntriesByPath,
   getShareEntry,
   listShareEntries,
@@ -21,6 +22,8 @@ import {
   upsertShareEntry,
   updateShareLocalPath,
 } from './metadata'
+
+export { documentIdFromPath }
 
 export const DEFAULT_GATEWAY_URL = 'https://prose-gateway.onrender.com'
 
@@ -227,8 +230,36 @@ export async function list(): Promise<ShareResult<{ entries: ShareSyncEntry[] }>
   return { ok: true, entries: await listShareEntries() }
 }
 
+/**
+ * Look up non-revoked share entries for a local path, scoped to the active
+ * gateway origin (M-02 / deterministic lookup fix):
+ *
+ * 1. Entries are sorted newest-first (getShareEntriesByPath).
+ * 2. Entries whose gatewayOrigin matches the active gateway are returned.
+ * 3. If no origin-matching entries exist, legacy entries (no gatewayOrigin)
+ *    are returned as a fallback so pre-origin-field publications keep working.
+ *
+ * This prevents a stale localhost entry from shadowing a production entry
+ * (or vice versa) and causing every operation to fail with wrong_gateway.
+ */
 export async function getForPath(localPath: string): Promise<ShareResult<{ entries: ShareSyncEntry[] }>> {
-  return { ok: true, entries: await getShareEntriesByPath(localPath) }
+  const all = await getShareEntriesByPath(localPath)
+  const config = await getShareConfig()
+  let activeOrigin: string | null = null
+  try {
+    activeOrigin = new URL(config.baseUrl).origin
+  } catch {
+    // Malformed baseUrl — skip origin filtering
+  }
+  if (!activeOrigin) return { ok: true, entries: all }
+
+  const matching = all.filter((e) => e.gatewayOrigin === activeOrigin)
+  if (matching.length > 0) return { ok: true, entries: matching }
+
+  // Fall back to legacy entries (no gatewayOrigin recorded) when no
+  // origin-matching entries exist.
+  const legacy = all.filter((e) => !e.gatewayOrigin)
+  return { ok: true, entries: legacy }
 }
 
 /**

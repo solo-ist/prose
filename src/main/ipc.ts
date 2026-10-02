@@ -489,6 +489,19 @@ export function setupIpcHandlers(): void {
     const safeOldPath = validatePath(oldPath)
     const safeNewPath = validatePath(newPath)
     await rename(safeOldPath, safeNewPath)
+    // Keep share-sync metadata pointing at the renamed/moved file or directory.
+    // This is the main-process choke point for all rename/move paths (explorer
+    // rename, drag-drop, cut-paste, .txt↔.md conversion) that don't go through
+    // the tab rename in useTabs.ts. The tab rename ALSO calls share:updateLocalPath
+    // — the double-update is harmless since both sides compute the same new values.
+    // documentId is SHA-256(path).hex().substring(0, 36) — matches renderer's
+    // generateIdFromPath (persistence.ts). Directory moves are handled by
+    // updateShareLocalPath scanning for prefix matches and recomputing per-entry.
+    if (!IS_MAS_BUILD) {
+      void import('./share/index').then((share) =>
+        share.renamedLocalPath(safeOldPath, safeNewPath, share.documentIdFromPath(safeNewPath))
+      ).catch((err) => console.error('[share] renamedLocalPath failed:', err))
+    }
   })
 
   // File: Delete file

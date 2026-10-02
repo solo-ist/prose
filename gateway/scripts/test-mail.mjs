@@ -12,7 +12,8 @@
  * Prereqs: `npm run dev:db` (Postgres on :5433) + migrations applied.
  * Usage:   npm run test:mail
  */
-import { createServer } from 'node:http'
+import { createServer, request as httpRequest } from 'node:http'
+import { createHash } from 'node:crypto'
 import { spawn, execFileSync } from 'node:child_process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
@@ -82,6 +83,19 @@ const kill = () => {
 }
 process.on('exit', kill)
 
+/** GET with arbitrary headers (fetch forbids overriding Host). */
+function rawGet(url, headers) {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(url, { headers }, (res) => {
+      let body = ''
+      res.on('data', (d) => { body += d })
+      res.on('end', () => resolve({ status: res.statusCode, body }))
+    })
+    req.on('error', reject)
+    req.end()
+  })
+}
+
 async function waitFor(predicate, label, timeoutMs = 20000) {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
@@ -115,7 +129,7 @@ async function main() {
 
   // Wait for the mock to receive the POST (the gateway calls it async but
   // before the HTTP response returns — give it a small window anyway).
-  await waitFor(() => recordedPosts.length >= 1, 'mock Resend receives POST', 5000)
+  await waitFor(() => recordedPosts.length >= 1, 'mock Resend receives POST', 10000)
 
   // --- Assert the raw verify URL was NOT logged to stdout --------------------
   const stdoutHasRawLink = /Magic link for [^\n]*\n\s*http\S+/.test(gatewayLog)
@@ -157,9 +171,24 @@ async function main() {
   expect(landingRes.headers.get('cache-control') === 'no-store', 'landing page is no-store')
   const csp = landingRes.headers.get('content-security-policy') ?? ''
   expect(csp.includes("default-src 'none'"), "landing page CSP has default-src 'none'", csp)
-  expect(csp.includes("script-src 'unsafe-inline'"), "landing page CSP allows inline scripts", csp)
   expect(csp.includes("frame-ancestors 'none'"), "landing page CSP denies framing", csp)
   const landingHtml = await landingRes.text()
+  // The Copy script is allowed by hash, never by 'unsafe-inline', and the hash
+  // must match the script actually served.
+  const scriptSrc = (csp.match(/script-src ([^;]+)/) ?? [])[1] ?? ''
+  expect(!scriptSrc.includes('unsafe-inline'), "landing page script-src has no 'unsafe-inline'", scriptSrc)
+  const inlineScript = (landingHtml.match(/<script>([\s\S]*?)<\/script>/) ?? [])[1] ?? ''
+  const servedHash = `'sha256-${createHash('sha256').update(inlineScript).digest('base64')}'`
+  expect(inlineScript.length > 0 && scriptSrc.trim() === servedHash, 'script-src hash matches the served Copy script', scriptSrc)
+  expect(!/\son[a-z]+=/i.test(landingHtml), 'landing page has no inline event-handler attributes')
+
+  // Behind Render's TLS-terminating proxy the request arrives as plain http
+  // with the public Host. The copy field must still show BETTER_AUTH_URL's
+  // origin, or the desktop's same-gateway check refuses the pasted link.
+  const proxied = await rawGet(landingUrl, { Host: 'internal-host:10000', 'X-Forwarded-Proto': 'https' })
+  const proxiedValue = ((proxied.body.match(/value="([^"]*)"/) ?? [])[1] ?? '').replace(/&amp;/g, '&')
+  expect(proxied.status === 200, 'landing page answers a proxied request', `status ${proxied.status}`)
+  expect(proxiedValue.startsWith(`${BASE}/auth/link?`), 'copy field uses BETTER_AUTH_URL origin, not the request Host', proxiedValue.slice(0, 60))
   // The URL is HTML-escaped before embedding: & between params becomes &amp;.
   // Check that the value attribute holds the escaped form, not the raw URL.
   const escapedLandingUrl = landingUrl.replace(/&/g, '&amp;')

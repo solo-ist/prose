@@ -4,6 +4,7 @@
  *   → gated LLM proxy (/api/llm/*) → gated share management (/api/share/*)
  *   → public share surface (/s/*)
  */
+import { createHash } from 'node:crypto'
 import { Hono } from 'hono'
 import { secureHeaders } from 'hono/secure-headers'
 import { config } from './config.js'
@@ -21,6 +22,16 @@ import { shareAuthorRoutes } from './routes/share/author.js'
 import { sharePublicRoutes } from './routes/share/public.js'
 import { MAX_ARTIFACT_BYTES, buildShareUrl, hashShareToken } from './routes/share/common.js'
 import { prisma } from './db/index.js'
+
+// The magic-link landing page's Copy button. Static, so the CSP can allow it
+// by hash instead of 'unsafe-inline'; any edit changes the hash automatically.
+// Falls back to selecting the link when the Clipboard API is missing or fails.
+const LANDING_SCRIPT =
+  "document.getElementById('copy').addEventListener('click',function(){var b=this,i=document.getElementById('link');" +
+  "function done(t){b.textContent=t;setTimeout(function(){b.textContent='Copy'},2000)}" +
+  "function manual(){i.focus();i.select();done('Selected, now copy')}" +
+  "if(navigator.clipboard){navigator.clipboard.writeText(i.value).then(function(){done('Copied!')},manual)}else{manual()}})"
+const LANDING_SCRIPT_HASH = `sha256-${createHash('sha256').update(LANDING_SCRIPT).digest('base64')}`
 
 export function createApp() {
   const app = new Hono<AppEnv>()
@@ -182,8 +193,12 @@ export function createApp() {
   // (/api/auth/magic-link/verify) consumes it.
   app.get(MAGIC_LINK_LANDING_PATH, (c) => {
     // Full URL shown in the copy field — the point of this page is that the
-    // user copies this URL and pastes it into Prose's Sign-in box.
-    const displayUrl = new URL(c.req.url).toString()
+    // user copies this URL and pastes it into Prose's Sign-in box. Built on
+    // BETTER_AUTH_URL, not c.req.url: behind Render's TLS-terminating proxy
+    // the request URL is http://, and the desktop's same-gateway check
+    // (completeSignIn) would refuse every pasted link.
+    const reqUrl = new URL(c.req.url)
+    const displayUrl = new URL(reqUrl.pathname + reqUrl.search, config.BETTER_AUTH_URL).toString()
     // Escape fully for both the attribute value and the text content.
     const displayUrlEscaped = escapeHtml(displayUrl)
     const html = `<!DOCTYPE html>
@@ -210,16 +225,17 @@ export function createApp() {
   <p>Copy this link and paste it into Prose&rsquo;s <strong>Sign-in box</strong>:</p>
   <div class="url-box">
     <input class="url-input" id="link" type="text" readonly value="${displayUrlEscaped}">
-    <button onclick="var b=this,i=document.getElementById('link');function done(t){b.textContent=t;setTimeout(function(){b.textContent='Copy'},2000)}function manual(){i.focus();i.select();done('Selected, now copy')}if(navigator.clipboard){navigator.clipboard.writeText(i.value).then(function(){done('Copied!')},manual)}else{manual()}">Copy</button>
+    <button id="copy" type="button">Copy</button>
   </div>
   <p class="note">This link expires in about 5 minutes and works once. If you didn&rsquo;t request it, you can safely ignore this page.</p>
+  <script>${LANDING_SCRIPT}</script>
 </body>
 </html>`
     return c.html(html, 200, {
       'Cache-Control': 'no-store',
       'Referrer-Policy': 'no-referrer',
       'Content-Security-Policy':
-        "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+        `default-src 'none'; style-src 'unsafe-inline'; script-src '${LANDING_SCRIPT_HASH}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
     })
   })
 

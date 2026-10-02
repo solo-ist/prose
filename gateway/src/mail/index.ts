@@ -26,6 +26,12 @@ export async function sendMail(msg: MailMessage): Promise<void> {
     return
   }
 
+  // Production config requires MAIL_FROM; this catches a dev setup with a key
+  // but no sender, which Resend would reject with an opaque 422.
+  if (!config.MAIL_FROM) {
+    throw new Error('MAIL_FROM is required when RESEND_API_KEY is set')
+  }
+
   const resendBase = config.RESEND_API_URL ?? 'https://api.resend.com'
 
   let res: Response

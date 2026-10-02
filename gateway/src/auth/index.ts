@@ -16,6 +16,10 @@ import { escapeHtml } from '../util/html.js'
  * The gateway landing path for magic-link emails (#813). Lives under the API
  * host, outside the /api/auth/* namespace owned by Better Auth, so the token
  * is NEVER consumed on page load. Users copy this URL and paste it into Prose.
+ *
+ * The desktop hardcodes this path too (`completeSignIn` in
+ * src/main/share/client.ts rebuilds the verify URL when it sees it); the two
+ * builds share no code, so change both together or sign-in breaks.
  */
 export const MAGIC_LINK_LANDING_PATH = '/auth/link'
 

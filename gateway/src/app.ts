@@ -210,7 +210,7 @@ export function createApp() {
   <p>Copy this link and paste it into Prose&rsquo;s <strong>Sign-in box</strong>:</p>
   <div class="url-box">
     <input class="url-input" id="link" type="text" readonly value="${displayUrlEscaped}">
-    <button onclick="navigator.clipboard.writeText(document.getElementById('link').value).then(function(){var b=this;b.textContent='Copied!';setTimeout(function(){b.textContent='Copy'},2000)}.bind(this))">Copy</button>
+    <button onclick="var b=this,i=document.getElementById('link');function done(t){b.textContent=t;setTimeout(function(){b.textContent='Copy'},2000)}function manual(){i.focus();i.select();done('Selected, now copy')}if(navigator.clipboard){navigator.clipboard.writeText(i.value).then(function(){done('Copied!')},manual)}else{manual()}">Copy</button>
   </div>
   <p class="note">This link expires in about 5 minutes and works once. If you didn&rsquo;t request it, you can safely ignore this page.</p>
 </body>

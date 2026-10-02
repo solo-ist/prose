@@ -66,5 +66,13 @@ jobs:
       - name: Share integration suite
         run: npm run test:share
 
+      - name: Mail integration suite
+        # test-mail.mjs spawns its own gateway on :4020 with a mock Resend
+        # server. It passes RESEND_API_KEY, RESEND_API_URL, MAIL_FROM, and
+        # SHARE_BASE_URL directly to the spawned process via its env object
+        # (spreading process.env so DATABASE_URL + BETTER_AUTH_SECRET from
+        # the job level flow through). No additional secrets needed here.
+        run: npm run test:mail
+
       - name: Share subdomain isolation suite
         run: npm run test:share:subdomains

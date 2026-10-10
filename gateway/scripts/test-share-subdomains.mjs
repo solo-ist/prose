@@ -154,7 +154,7 @@ async function main() {
   const authedHeaders = { Cookie: cookie, Origin: API_BASE }
 
   // --- Seed entitlement ---
-  execFileSync('npx', ['tsx', 'scripts/seed-ai-proxy.ts', '--email', EMAIL, '--feature', 'share_publish'], {
+  execFileSync('npx', ['tsx', 'scripts/grant.ts', '--email', EMAIL, '--feature', 'share_publish', '--by', 'manual'], {
     cwd: ROOT, env: process.env, stdio: 'pipe',
   })
   ok('share_publish seeded')

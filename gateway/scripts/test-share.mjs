@@ -2,7 +2,7 @@
  * test-share.mjs — end-to-end integration test for the share service (#768).
  *
  * Self-contained: spawns its own gateway on :4010 (dev mode, so the magic
- * link prints to stdout where this script harvests it), signs in, seeds the
+ * link prints to stdout where this script harvests it), signs in, grants the
  * share_publish entitlement, then exercises the full share matrix:
  * publish → serve → comment/reply → author pull (email never exposed) →
  * author thread/reply/resolve push → public live GET → re-publish → revoke →
@@ -72,6 +72,32 @@ async function waitFor(predicate, label, timeoutMs = 20000) {
   throw new Error(`timeout waiting for ${label}`)
 }
 
+// Sign in as `email` via the magic link the dev gateway prints, returning
+// JSON request headers carrying the session cookie.
+async function signIn(email) {
+  const from = gatewayLog.length
+  const res = await fetch(`${BASE}/api/auth/sign-in/magic-link`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: BASE },
+    body: JSON.stringify({ email, callbackURL: '/health' }),
+  })
+  if (!res.ok) throw new Error(`magic-link request for ${email}: status ${res.status}`)
+  const linkMatch = await waitFor(
+    async () => gatewayLog.slice(from).match(/Magic link for [^\n]*\n\s*(http\S+)/),
+    `magic link for ${email} in gateway log`
+  )
+  const verifyRes = await fetch(linkMatch[1], { redirect: 'manual' })
+  const cookie = (verifyRes.headers.getSetCookie?.() ?? []).map((c) => c.split(';')[0]).join('; ')
+  return { Cookie: cookie, 'Content-Type': 'application/json', Origin: BASE }
+}
+
+// Run the grant CLI (#965). Returns stdout; throws on a non-zero exit.
+function grant(...args) {
+  return execFileSync('npx', ['tsx', 'scripts/grant.ts', ...args], {
+    cwd: ROOT, env: process.env, stdio: 'pipe', encoding: 'utf8',
+  })
+}
+
 async function main() {
   await waitFor(async () => {
     try {
@@ -82,22 +108,8 @@ async function main() {
   ok('gateway boots')
 
   // --- Sign in via harvested magic link ------------------------------------
-  const mlRes = await fetch(`${BASE}/api/auth/sign-in/magic-link`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Origin: BASE },
-    body: JSON.stringify({ email: EMAIL, callbackURL: '/health' }),
-  })
-  expect(mlRes.ok, 'magic-link request accepted', `status ${mlRes.status}`)
-
-  const linkMatch = await waitFor(
-    async () => gatewayLog.match(/Magic link for [^\n]*\n\s*(http\S+)/),
-    'magic link in gateway log'
-  )
-  const verifyRes = await fetch(linkMatch[1], { redirect: 'manual' })
-  const setCookies = verifyRes.headers.getSetCookie?.() ?? []
-  const cookie = setCookies.map((c) => c.split(';')[0]).join('; ')
-  expect(cookie.includes('session_token'), 'magic link yields a session cookie')
-  const authed = { Cookie: cookie, 'Content-Type': 'application/json', Origin: BASE }
+  const authed = await signIn(EMAIL)
+  expect(authed.Cookie.includes('session_token'), 'magic link yields a session cookie')
 
   // --- Entitlement gate -----------------------------------------------------
   const unentitled = await fetch(`${BASE}/api/share/publish`, {
@@ -105,10 +117,8 @@ async function main() {
   })
   expect(unentitled.status === 403, 'publish 403s before share_publish grant', `status ${unentitled.status}`)
 
-  execFileSync('npx', ['tsx', 'scripts/seed-ai-proxy.ts', '--email', EMAIL, '--feature', 'share_publish'], {
-    cwd: ROOT, env: process.env, stdio: 'pipe',
-  })
-  ok('share_publish seeded')
+  const granted = grant('--email', EMAIL, '--feature', 'share_publish', '--by', 'manual')
+  expect(/^granted\s/m.test(granted), 'grant CLI grants an existing account', granted)
 
   const anon = await fetch(`${BASE}/api/share`, { headers: { 'Content-Type': 'application/json' } })
   expect(anon.status === 401, 'author routes 401 unauthenticated', `status ${anon.status}`)
@@ -588,6 +598,65 @@ async function main() {
   const r2TestServe = await fetch(r2TestPub.shareUrl)
   expect(r2TestServe.status === 503, 'r2-storage row with no R2 client → 503 not 404', `status ${r2TestServe.status}`)
   expect(r2TestServe.headers.get('cache-control') === 'no-store', 'r2 503 is no-store')
+
+  // --- Grant by email (#965) -------------------------------------------------
+  const stamp = Date.now()
+  const invitee = `invitee-${stamp}@example.invalid`
+  const publish = (headers, label) =>
+    fetch(`${BASE}/api/share/publish`, {
+      method: 'POST', headers, body: JSON.stringify({ title: label, html: artifact(label) }),
+    })
+  const isPending = (out, email) => !!out.split('Pending invites')[1]?.includes(email)
+  const isGranted = (out, email) => out.split('Pending invites')[0].includes(email)
+
+  // Invite before the account exists; the first sign-in can publish at once.
+  const invited = grant('--email', invitee.toUpperCase(), '--feature', 'share_publish', '--by', 'beta', '--notes', 'test wave')
+  expect(/^invited\s/m.test(invited), 'grant CLI invites an unknown email', invited)
+  expect(isPending(grant('--list', '--feature', 'share_publish'), invitee), 'invite listed as pending (email lowercased)')
+  const inviteeAuth = await signIn(invitee)
+  const inviteePub = await publish(inviteeAuth, 'invitee')
+  expect(inviteePub.status === 201, 'invitee publishes on first sign-in (invite claimed)', `status ${inviteePub.status}`)
+  const afterClaim = grant('--list', '--feature', 'share_publish')
+  expect(isGranted(afterClaim, invitee) && !isPending(afterClaim, invitee), 'claimed invite becomes a grant', afterClaim)
+  const inviteeLine = afterClaim.split('\n').find((l) => l.includes(invitee)) ?? ''
+  expect(inviteeLine.includes('by=beta'), 'claimed grant keeps grantedBy=beta', inviteeLine)
+
+  // Idempotent: re-granting the now-existing account is a plain grant.
+  const regrant = grant('--email', invitee, '--feature', 'share_publish', '--by', 'beta')
+  expect(/^granted\s/m.test(regrant), 're-grant after claim is a direct grant', regrant)
+
+  // Revoke an existing account.
+  const revoked = grant('--email', invitee, '--feature', 'share_publish', '--revoke')
+  expect(/^revoked\s/m.test(revoked), 'revoke reports revoked', revoked)
+  const afterRevoke = await publish(inviteeAuth, 'invitee-revoked')
+  expect(afterRevoke.status === 403, 'publish 403s after revoke (claimed invite does not re-grant)', `status ${afterRevoke.status}`)
+  const revokeAgain = grant('--email', invitee, '--feature', 'share_publish', '--revoke')
+  expect(/^unchanged\s/m.test(revokeAgain), 'second revoke is a no-op', revokeAgain)
+
+  // An expired direct grant denies.
+  grant('--email', invitee, '--feature', 'share_publish', '--by', 'comp', '--expires', '2000-01-01')
+  const expiredPub = await publish(inviteeAuth, 'invitee-expired')
+  expect(expiredPub.status === 403, 'publish 403s on an expired grant', `status ${expiredPub.status}`)
+
+  // Revoking a pending invite means the first sign-in can't publish.
+  const withdrawn = `withdrawn-${stamp}@example.invalid`
+  grant('--email', withdrawn, '--feature', 'share_publish', '--by', 'beta')
+  const withdraw = grant('--email', withdrawn, '--feature', 'share_publish', '--revoke')
+  expect(/^revoked\s/m.test(withdraw), 'revoke withdraws a pending invite', withdraw)
+  const withdrawnPub = await publish(await signIn(withdrawn), 'withdrawn')
+  expect(withdrawnPub.status === 403, 'withdrawn invite does not grant', `status ${withdrawnPub.status}`)
+
+  // An expired invite is never claimed.
+  const lapsed = `lapsed-${stamp}@example.invalid`
+  grant('--email', lapsed, '--feature', 'share_publish', '--by', 'beta', '--expires', '2000-01-01')
+  const lapsedPub = await publish(await signIn(lapsed), 'lapsed')
+  expect(lapsedPub.status === 403, 'expired invite does not grant', `status ${lapsedPub.status}`)
+  expect(isPending(grant('--list', '--feature', 'share_publish'), lapsed), 'expired invite stays unclaimed')
+
+  // Open Collective rows belong to the #953 reconcile job.
+  let reserved = null
+  try { grant('--email', withdrawn, '--feature', 'share_publish', '--by', 'opencollective') } catch (err) { reserved = err }
+  expect(reserved?.status === 1, '--by opencollective is rejected')
 
   // --- Rate limit (last: it poisons this IP's write budget) -----------------
   const pub2Res = await fetch(`${BASE}/api/share/publish`, {

@@ -11,7 +11,7 @@ The share service lets a desktop Prose user publish a document as a self-contain
 
 Key constraints for the beta:
 
-- **Invite-only.** Publishing requires the `share_publish` entitlement, hand-granted by the operator after each invitee signs in for the first time.
+- **Invite-only.** Publishing requires the `share_publish` entitlement. The operator grants it by email **before** sending the invite; it is claimed the first time the invitee publishes (#965).
 - **Beta build only.** Sharing ships in the `v1.8.0-beta.*` pre-releases built from `web-foundations`; the public releases (from `main`) don't contain it. Invitees install the beta DMG from its GitHub pre-release. The app's updater ignores pre-releases (`allowPrerelease = false`), so nobody on a stable release is moved onto the beta.
 - **Desktop only, behind a flag.** The share surface lives behind the `webPlatform` feature flag, which is off by default. Invitees enable it by hand (see §3).
 - **MAS excluded.** `webPlatform` is force-off in Mac App Store builds regardless of settings.
@@ -52,38 +52,28 @@ The gateway validates all required vars at boot and exits non-zero with a clear 
 ### What you do (operator)
 
 1. Confirm the Render service is healthy: `curl https://api.prose.solo.ist/health` should return `{"ok":true,"service":"prose-gateway"}`.
-2. Send the invitee their invitation (see §6 for suggested copy).
+2. **Grant by email, before sending anything.** The invitee doesn't need an account yet. Run the grant as a Render one-off job (or in a Render Shell) on the `prose-gateway` service; one command covers a whole wave:
+   ```bash
+   npm run grant -- --email a@example.com,b@example.com --feature share_publish --by beta
+   ```
+   Each email prints `invited` (no account yet; claimed on their first publish) or `granted` (account exists). It's idempotent, so re-running is safe. Optional flags: `--expires YYYY-MM-DD` (access lasts through that date, UTC), `--notes "wave 1"`, `--dry-run`.
+3. Send the invitee their invitation (see §6 for suggested copy).
+
+To see who has access: `npm run grant -- --list --feature share_publish` (grants, plus invites not yet claimed).
 
 ### What the invitee does
 
 1. **Install the beta build** from the `v1.8.0-beta.*` GitHub pre-release (the DMG), replacing any existing Prose.
-
 2. **Enable the feature flag.** Quit Prose, open `~/Library/Application Support/Prose/settings.json` in a text editor, and add (or merge into the existing `featureFlags` block):
    ```json
    "featureFlags": { "webPlatform": true }
    ```
    Save the file, then relaunch Prose. The beta build already points at the production gateway (`DEFAULT_GATEWAY_URL` = `https://api.prose.solo.ist`), so no `gatewayUrl` setting is needed. A leftover `webPlatform.gatewayUrl` for any host other than `api.prose.solo.ist` or loopback is ignored.
+3. **Sign in.** Open any document. A share icon (◎) appears in the top-right corner. Click it and enter the email address you granted. Prose sends a magic-link request to the gateway, which emails the link via Resend.
+4. **Complete sign-in.** Open the email, click the link, and paste the resulting URL (from the `/auth/link` landing page) into the Prose sign-in dialog.
+5. **Publish.** Click **Publish** in the share popover. It works on the first try: the gateway claims the invite into an entitlement on that request. The URL is `https://<label>.share.prose.solo.ist/s/<token>` (or `https://share.prose.solo.ist/s/<token>` if `SHARE_SUBDOMAINS` is not yet set).
 
-2. **Sign in.** Open any document. A share icon (◎) appears in the top-right corner. Click it and enter the email address you agreed on. Prose sends a magic-link request to the gateway, which emails the link via Resend.
-
-3. **Complete sign-in.** Open the email, click the link, and paste the resulting URL (from the `/auth/link` landing page) into the Prose sign-in dialog.
-
-4. **Publish.** After sign-in succeeds, click **Publish** in the share popover. The first publish will return a 403 until you grant the entitlement (next step).
-
-### What you do (grant the entitlement)
-
-Once the invitee has signed in at least once, open a **Render Shell** on the `prose-gateway` service and run:
-
-```bash
-npm run seed:ai-proxy -- --email invitee@example.com --feature share_publish
-```
-
-The script is idempotent — safe to re-run. Confirm output:
-```
-✓ Granted "share_publish" to invitee@example.com (user <id>).
-```
-
-The invitee can now click **Publish** without a 403. Their first publish produces a URL at `https://<label>.share.prose.solo.ist/s/<token>` (or `https://share.prose.solo.ist/s/<token>` if `SHARE_SUBDOMAINS` is not yet set).
+The invite matches on the email the invitee signs in with (case-insensitive). If they sign in with a different address, grant that one too.
 
 ---
 
@@ -91,18 +81,13 @@ The invitee can now click **Publish** without a 403. Their first publish produce
 
 ### Revoking an invitee's publish entitlement
 
-**There is no `--revoke` flag in the seed script.** This is a gap. Until a revoke command exists, remove the entitlement directly via the Render Shell:
-
 ```bash
-# Render Shell, from the gateway directory:
-echo "DELETE FROM entitlements
-WHERE \"userId\" = (SELECT id FROM \"user\" WHERE email = 'invitee@example.com')
-  AND feature = 'share_publish';" | npx prisma db execute --stdin
+npm run grant -- --email invitee@example.com --feature share_publish --revoke
 ```
 
-(Or run the same SQL with `psql "$DATABASE_URL"` if you connect directly.) Tracked in #942.
+This removes the entitlement if the account exists and withdraws the invite if it hasn't been claimed yet. It prints `revoked`, or `unchanged` if there was nothing to remove. The invitee's next publish returns 403. Existing published links remain live; take those down separately (below).
 
-After removal the invitee's next publish attempt returns 403. Existing published links remain live — revoke individual publications separately (below).
+Rows with `grantedBy = 'opencollective'` belong to the Open Collective reconcile job (#953). The CLI never changes or removes them, and `--by opencollective` is rejected.
 
 ### Author-side publication takedown
 
@@ -165,7 +150,7 @@ After #934 merges, `AUTH_MAGIC_LINK_STDOUT` is gone. Magic-link URLs must travel
 
 ### Publish + subdomain URL
 
-After granting yourself `share_publish`:
+After granting yourself `share_publish` (`npm run grant -- --email <you> --feature share_publish --by manual`):
 
 1. Publish a test document from Prose.
 2. Confirm the share URL is in the form `https://<label>.share.prose.solo.ist/s/<token>` (with `SHARE_SUBDOMAINS=1`) or `https://share.prose.solo.ist/s/<token>` (without).
@@ -222,8 +207,7 @@ Hi — you're one of the first people to try Prose's new sharing feature. Here's
 2. Quit Prose, open `~/Library/Application Support/Prose/settings.json`, and add this entry (merge it into `featureFlags` if that block already exists, and keep the commas valid):
    `"featureFlags": { "webPlatform": true }`
    Then relaunch Prose.
-3. Click the ◎ icon in the top-right corner of any document and enter your email. You'll get an email with a sign-in link: click it, press **Copy** on the page it opens, and paste the link into Prose.
-4. Tell me once you've signed in. I'll switch on publishing for your account, and the **Publish** button will work.
+3. Click the ◎ icon in the top-right corner of any document and enter this email address (the one I sent the invite to). You'll get an email with a sign-in link: click it, press **Copy** on the page it opens, and paste the link into Prose. That's it: the **Publish** button works straight away.
 
 **What works:**
 - Publish and share a link to any document.
@@ -258,7 +242,11 @@ Hi — you're one of the first people to try Prose's new sharing feature. Here's
 
 ### 403 on publish — entitlement not granted
 
-The invitee signed in but the `share_publish` entitlement hasn't been seeded yet. Run the seed command from §3 in the Render Shell and ask the invitee to retry.
+Run `npm run grant -- --list --feature share_publish`. Common causes:
+
+- **No grant for that email.** Grant it (§3) and ask the invitee to retry.
+- **They signed in with a different address** than the one you granted. The pending invite stays under the granted address; grant the address they actually used.
+- **The grant or invite expired** (`until=` in the past). Re-grant with a later `--expires`, or without one.
 
 ### Everyone signed out after a deploy
 

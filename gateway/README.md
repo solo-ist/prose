@@ -45,11 +45,18 @@ With a real key, set `ANTHROPIC_API_KEY` and leave `UPSTREAM_URL` unset.
 
 `POST /api/llm/stream` is gated by `requireSession` → `requireEntitlement('ai_proxy')`,
 enforced **before** any upstream Anthropic connection opens (never an ungated proxy on
-the operator's key). Grant a user after their first sign-in:
+the operator's key). Grant by email, before or after the account exists (#965):
 
 ```bash
-npm run seed:ai-proxy -- --email you@example.com
+npm run grant -- --email you@example.com --feature ai_proxy --by manual
+npm run grant -- --email you@example.com --feature ai_proxy --revoke
+npm run grant -- --list
 ```
+
+An unknown email gets an `entitlement_invites` row that is claimed into an
+`entitlements` row the first time that person hits the gate
+(`src/entitlements/index.ts`). `--by` is `beta`, `comp` or `manual`;
+`opencollective` rows are reserved for the #953 reconcile and never touched.
 
 ## Verification (no UI)
 
@@ -60,8 +67,8 @@ curl -X POST :4000/api/llm/stream -d '{}'           # 401 (unauthenticated)
 curl -X POST :4000/api/auth/sign-in/magic-link -H 'Content-Type: application/json' \
   -H 'Origin: http://localhost:4000' -d '{"email":"you@example.com","callbackURL":"/health"}'
 #   → the link is printed to the gateway log (dev only; Phase 0 has no email provider)
-curl -b cookies.txt -X POST :4000/api/llm/stream -d '{}' # 403 forbidden/ai_proxy until seeded
-# seed → then the same request streams SSE (message_start → deltas → message_stop),
+curl -b cookies.txt -X POST :4000/api/llm/stream -d '{}' # 403 forbidden/ai_proxy until granted
+# grant → then the same request streams SSE (message_start → deltas → message_stop),
 # with `x-accel-buffering: no` on the response.
 ```
 
@@ -78,8 +85,8 @@ command before the server serves.
 
 The embedded-artifact share layer (design: `docs/architecture/web-platform.md`
 §4.3–4.5). Author routes under `/api/share/*` (session + `share_publish`
-entitlement; grant via `npm run seed:ai-proxy -- --email you@x --feature
-share_publish`): `POST /publish`, `PUT /:pubId/publish` (re-publish, same
+entitlement; grant via `npm run grant -- --email you@x --feature
+share_publish --by manual`): `POST /publish`, `PUT /:pubId/publish` (re-publish, same
 token), `GET /` (list), `GET /:pubId/comments?since=ISO` (cursor pull —
 `authorEmail` is never exposed), `DELETE /:pubId` (revoke → 410 + comments
 deleted). Public surface under `/s/*` (per-IP rate-limited): `GET /s/:token`

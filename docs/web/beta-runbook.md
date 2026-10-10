@@ -12,7 +12,8 @@ The share service lets a desktop Prose user publish a document as a self-contain
 Key constraints for the beta:
 
 - **Invite-only.** Publishing requires the `share_publish` entitlement, hand-granted by the operator after each invitee signs in for the first time.
-- **Desktop only.** The share surface lives behind the `webPlatform` feature flag, which is off by default. Invitees must enable it manually (see §3).
+- **Beta build only.** Sharing ships in the `v1.8.0-beta.*` pre-releases built from `web-foundations`; the public releases (from `main`) don't contain it. Invitees install the beta DMG from its GitHub pre-release. The app's updater ignores pre-releases (`allowPrerelease = false`), so nobody on a stable release is moved onto the beta.
+- **Desktop only, behind a flag.** The share surface lives behind the `webPlatform` feature flag, which is off by default. Invitees enable it by hand (see §3).
 - **MAS excluded.** `webPlatform` is force-off in Mac App Store builds regardless of settings.
 - **Reviewers need nothing.** Anyone with the link can read the artifact and leave comments. No account, no flag.
 
@@ -55,14 +56,13 @@ The gateway validates all required vars at boot and exits non-zero with a clear 
 
 ### What the invitee does
 
-1. **Enable the feature flag and point at the prod gateway.** Quit Prose, open `~/Library/Application Support/Prose/settings.json` in a text editor, and add (or merge into the existing top-level keys):
-   ```json
-   "featureFlags": { "webPlatform": true },
-   "webPlatform": { "gatewayUrl": "https://api.prose.solo.ist" }
-   ```
-   Save the file, then relaunch Prose.
+1. **Install the beta build** from the `v1.8.0-beta.*` GitHub pre-release (the DMG), replacing any existing Prose.
 
-   **Both keys are required.** The built-in default gateway (`DEFAULT_GATEWAY_URL` in `src/main/share/index.ts`) is still the raw `prose-gateway.onrender.com` host. Magic links are minted on `BETTER_AUTH_URL` (`api.prose.solo.ist`), and the desktop's same-gateway check rejects a link from a different origin, so sign-in fails without the override. #943 fixes the default before GA.
+2. **Enable the feature flag.** Quit Prose, open `~/Library/Application Support/Prose/settings.json` in a text editor, and add (or merge into the existing `featureFlags` block):
+   ```json
+   "featureFlags": { "webPlatform": true }
+   ```
+   Save the file, then relaunch Prose. The beta build already points at the production gateway (`DEFAULT_GATEWAY_URL` = `https://api.prose.solo.ist`), so no `gatewayUrl` setting is needed. A leftover `webPlatform.gatewayUrl` for any host other than `api.prose.solo.ist` or loopback is ignored.
 
 2. **Sign in.** Open any document. A share icon (◎) appears in the top-right corner. Click it and enter the email address you agreed on. Prose sends a magic-link request to the gateway, which emails the link via Resend.
 
@@ -218,11 +218,12 @@ Hi — you're one of the first people to try Prose's new sharing feature. Here's
 **What it is:** You can publish any document in Prose as a shareable link. Recipients open it in a browser — no install, no account. They can read and leave comments, which sync back to your Prose app.
 
 **Setup (one time):**
-1. Quit Prose, open `~/Library/Application Support/Prose/settings.json`, and add these two top-level entries (keep the commas valid):
-   `"featureFlags": { "webPlatform": true },`
-   `"webPlatform": { "gatewayUrl": "https://api.prose.solo.ist" }`
+1. Download and install the beta build: <link to the v1.8.0-beta.1 DMG>. It replaces your current Prose; your documents and settings stay where they are.
+2. Quit Prose, open `~/Library/Application Support/Prose/settings.json`, and add this entry (merge it into `featureFlags` if that block already exists, and keep the commas valid):
+   `"featureFlags": { "webPlatform": true }`
    Then relaunch Prose.
-2. Click the ◎ icon in the top-right corner of any document, enter your email, and follow the sign-in link. Once signed in, you'll see a **Publish** button.
+3. Click the ◎ icon in the top-right corner of any document and enter your email. You'll get an email with a sign-in link: click it, press **Copy** on the page it opens, and paste the link into Prose.
+4. Tell me once you've signed in. I'll switch on publishing for your account, and the **Publish** button will work.
 
 **What works:**
 - Publish and share a link to any document.
@@ -278,7 +279,7 @@ The author revoked the publication, or an operator took it down (§4). **Revocat
 
 ### `wrong_gateway` error in Prose
 
-A local share entry records the gateway origin it was published against. If the entry was published to a different gateway URL than the one currently configured, Prose shows this error rather than silently mis-routing the revoke or republish. To fix: check `webPlatform.gatewayUrl` in `settings.json` and ensure it matches the entry's gateway. For the beta it must be `https://api.prose.solo.ist` (see §3). Entries published while pointed at another gateway, such as a local dev one, can only be managed with that gateway configured.
+A local share entry records the gateway origin it was published against. If the entry was published to a different gateway URL than the one currently configured, Prose shows this error rather than silently mis-routing the revoke or republish. For the beta, remove any `webPlatform.gatewayUrl` from `settings.json`; the build's default is the production gateway. Entries published while pointed at another gateway, such as a local dev one, can only be managed with that gateway configured. The old `prose-gateway.onrender.com` host is no longer on the allowlist, so entries minted there can't be managed from the beta build; republish the document to get a fresh link.
 
 ### Share URL didn't update after rename
 

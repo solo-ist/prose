@@ -12,7 +12,7 @@ import { credentialStore } from '../credentialStore'
 const SESSION_KEY = 'gateway-session'
 
 export interface ShareClientConfig {
-  /** Gateway origin, e.g. https://prose-gateway.onrender.com or http://localhost:4000 */
+  /** Gateway origin, e.g. https://api.prose.solo.ist or http://localhost:4000 */
   baseUrl: string
 }
 

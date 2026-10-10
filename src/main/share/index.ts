@@ -25,13 +25,14 @@ import {
 
 export { documentIdFromPath }
 
-export const DEFAULT_GATEWAY_URL = 'https://prose-gateway.onrender.com'
+export const DEFAULT_GATEWAY_URL = 'https://api.prose.solo.ist'
 
 // Every request to the gateway carries the safeStorage session cookie, and
 // settings.json is renderer-writable — an arbitrary gatewayUrl would let a
 // compromised renderer point the session (and published document HTML) at
-// any host (#907). Allowlist what the dogfood flow actually uses: any
-// https:// origin under our domains, plus loopback for local gateway dev.
+// any host (#907). Only the production API host is allowed over https, plus
+// loopback for local gateway dev. The share hosts (*.share.prose.solo.ist)
+// serve published pages, never the API, so they are deliberately excluded.
 // There is deliberately no settings UI for this field; hand-edits outside
 // the allowlist fall back to the default.
 function isAllowedGatewayUrl(url: string): boolean {
@@ -41,13 +42,7 @@ function isAllowedGatewayUrl(url: string): boolean {
     const loopback = u.hostname === 'localhost' || u.hostname === '127.0.0.1'
     if (u.protocol === 'http:') return loopback
     if (u.protocol !== 'https:') return false
-    return (
-      loopback ||
-      u.hostname === 'prose-gateway.onrender.com' ||
-      u.hostname === 'prose.solo.ist' ||
-      u.hostname.endsWith('.prose.solo.ist') ||
-      u.hostname.endsWith('.solo.ist')
-    )
+    return loopback || u.hostname === 'api.prose.solo.ist'
   } catch {
     return false
   }

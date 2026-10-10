@@ -40,6 +40,18 @@ services:
         sync: false # set via dashboard/secret; never in the repo
       - key: BETTER_AUTH_SECRET
         sync: false
+      - key: RESEND_API_KEY
+        sync: false # Resend API key for magic-link email delivery (#813)
+      - key: MAIL_FROM
+        sync: false # e.g. "Prose <signin@prose.solo.ist>"; domain must have SPF/DKIM in Resend
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        sync: false
 
 databases:
   - name: prose-gateway-db

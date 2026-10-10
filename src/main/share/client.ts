@@ -120,9 +120,13 @@ export async function requestSignIn(config: ShareClientConfig, email: string): P
 }
 
 /**
- * Step 2: the user pastes the magic-link URL (from the gateway log/email).
- * Fetching it completes verification; the Set-Cookie session is captured into
- * credentialStore. The URL must belong to the configured gateway.
+ * Step 2: the user pastes the link from their email (or the gateway log in
+ * dev). Accepts EITHER the raw Better Auth verify URL or the landing page URL
+ * (/auth/link?token=…) — both belong to the same gateway origin. When given
+ * the landing URL the function rebuilds the verify URL so the landing page
+ * itself is never fetched (it doesn't consume the token either way, but we
+ * skip the extra round-trip). Fetching the verify URL completes sign-in; the
+ * Set-Cookie session is captured into credentialStore.
  */
 export async function completeSignIn(config: ShareClientConfig, magicUrl: string): Promise<void> {
   let parsed: URL
@@ -134,6 +138,19 @@ export async function completeSignIn(config: ShareClientConfig, magicUrl: string
   if (parsed.origin !== new URL(base(config)).origin) {
     throw new ShareClientError('That link belongs to a different gateway.', 400, 'wrong_origin')
   }
+
+  // If the user pasted the email landing URL, rebuild the real verify URL so
+  // we only ever fetch the consuming endpoint once.
+  // Keep this path in step with gateway/src/auth/index.ts MAGIC_LINK_LANDING_PATH.
+  if (parsed.pathname === '/auth/link') {
+    const verify = new URL('/api/auth/magic-link/verify', parsed.origin)
+    const token = parsed.searchParams.get('token')
+    const callbackURL = parsed.searchParams.get('callbackURL')
+    if (token) verify.searchParams.set('token', token)
+    if (callbackURL) verify.searchParams.set('callbackURL', callbackURL)
+    parsed = verify
+  }
+
   const res = await fetch(parsed.toString(), { redirect: 'manual' })
   const setCookies = res.headers.getSetCookie?.() ?? []
   const sessionCookie = setCookies

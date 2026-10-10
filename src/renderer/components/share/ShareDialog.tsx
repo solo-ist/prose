@@ -42,6 +42,11 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
   const { document } = useEditor()
   const [auth, setAuth] = useState<AuthState>({ phase: 'loading' })
   const [email, setEmail] = useState('')
+  // Captured from the email input at the moment a link is requested (not the
+  // live input, which the user may edit between requesting and pasting). Used
+  // by the login-CSRF guard. Cleared on each new request start, on successful
+  // sign-in, and on sign-out.
+  const [requestedEmail, setRequestedEmail] = useState('')
   const [magicLink, setMagicLink] = useState('')
   const [entry, setEntry] = useState<ShareEntry | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -80,8 +85,12 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
 
   const handleRequestLink = () =>
     run('request', async () => {
+      // Clear any previously captured email; set it only on success so the
+      // guard never checks a stale value from a failed or cancelled request.
+      setRequestedEmail('')
       const res = await getApi().shareRequestSignIn(email.trim())
       if (!res.ok) return res.error
+      setRequestedEmail(email.trim())
       setAuth({ phase: 'signed-out', linkRequested: true })
       return null
     })
@@ -91,6 +100,35 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
       const res = await getApi().shareCompleteSignIn(magicLink.trim())
       if (!res.ok) return res.error
       setMagicLink('')
+
+      // Login-CSRF guard: a crafted /auth/link URL carrying an attacker's token
+      // would sign this Prose into the attacker's account. We check against
+      // requestedEmail — captured at request time, not the live input the user
+      // may have edited since. Fail closed: any ambiguity (auth check failure,
+      // no email on the session) revokes and stops. The link is already consumed
+      // at this point, so the user needs a fresh one.
+      if (requestedEmail) {
+        // Drop the session the pasted link created. Main-process signOut
+        // swallows network errors and always deletes the local credential, so
+        // this only fails if the credential store itself does; then re-read
+        // the real auth state so the dialog shows who is signed in, and say so.
+        const rejectSession = async (message: string): Promise<string> => {
+          setRequestedEmail('')
+          const out = await getApi().shareSignOut().catch(() => null)
+          if (out?.ok) return message
+          await refresh().catch(() => {})
+          return `${message} Prose couldn't sign that account out; use Sign out before publishing anything.`
+        }
+        const status = await getApi().shareAuthStatus()
+        if (!status.ok || !status.signedIn || !status.email) {
+          return rejectSession("Couldn't verify which account that link signs in. Request a new link and try again.")
+        }
+        if (status.email.toLowerCase() !== requestedEmail.toLowerCase()) {
+          return rejectSession(`That link signs in a different account (${status.email}). Request a new link for your email.`)
+        }
+      }
+
+      setRequestedEmail('')
       await refresh()
       return null
     })
@@ -160,12 +198,11 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
             {auth.linkRequested && (
               <div className="space-y-2">
                 <p className="text-xs text-muted-foreground">
-                  A magic link was issued. Until email delivery lands, it appears in the
-                  gateway&apos;s logs — paste it here to finish signing in.
+                  Check your email for a sign-in link and paste it here.
                 </p>
                 <div className="flex gap-2">
                   <Input
-                    placeholder="Paste the magic link"
+                    placeholder="Paste the link from your email"
                     value={magicLink}
                     onChange={(e) => setMagicLink(e.target.value)}
                     disabled={busy !== null}

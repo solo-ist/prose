@@ -40,14 +40,17 @@ const EnvSchema = z.object({
   // writes without loosening the production default.
   SHARE_PUBLIC_WRITE_MAX: z.coerce.number().int().positive().default(10),
 
-  // Dogfood bridge (#813): also log the magic-link URL to stdout in PRODUCTION,
-  // so the single trusted operator can complete sign-in from server logs before
-  // real email delivery lands. Off by default; value must be exactly "1"/"true".
-  // TEMPORARY — remove when #813 (email delivery) ships, before signups open.
-  AUTH_MAGIC_LINK_STDOUT: z
-    .string()
-    .optional()
-    .transform((v) => v === '1' || v === 'true'),
+  // Email delivery (#813): Resend API key. Required in production; when unset
+  // in development the gateway logs the link to stdout (dev only).
+  RESEND_API_KEY: z.string().optional(),
+
+  // Friendly sender address, e.g. "Prose <signin@prose.solo.ist>".
+  // Required in production alongside RESEND_API_KEY.
+  MAIL_FROM: z.string().optional(),
+
+  // Test-only: point at a local mock Resend server instead of api.resend.com.
+  // Never set this in production — it is documented only for the test suite.
+  RESEND_API_URL: z.string().optional(),
 
   // Origin isolation for served share pages (#902): when set, /s/* lives on
   // THIS host (cookie-less — author-controlled artifact JS can never reach a
@@ -78,11 +81,31 @@ const EnvSchema = z.object({
   // slack: fail the boot loudly rather than crash at first use (Prisma with
   // no URL) or run auth on a weak default.
   if (env.NODE_ENV === 'development') return
-  const required = ['DATABASE_URL', 'BETTER_AUTH_SECRET'] as const
+  const required = ['DATABASE_URL', 'BETTER_AUTH_SECRET', 'RESEND_API_KEY', 'MAIL_FROM'] as const
   for (const key of required) {
     if (!env[key]) {
       ctx.addIssue({ code: 'custom', path: [key], message: 'required in production' })
     }
+  }
+  // MAIL_FROM is a bare address or the "Name <addr>" form; check the address
+  // part has a local part, an @, and a dotted domain so typos fail at boot
+  // rather than at the first send.
+  const mailFromAddr = env.MAIL_FROM?.trim().match(/<([^<>]+)>$/)?.[1] ?? env.MAIL_FROM?.trim()
+  if (env.MAIL_FROM && !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(mailFromAddr ?? '')) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['MAIL_FROM'],
+      message: 'must contain an email address (e.g. "Prose <signin@prose.solo.ist>")',
+    })
+  }
+  // RESEND_API_URL is intentionally test-only; refuse it in production so a
+  // stray env var doesn't silently reroute all mail to a dev mock.
+  if (env.RESEND_API_URL) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['RESEND_API_URL'],
+      message: 'test-only override — unset it outside development',
+    })
   }
   // Better Auth derives the cookie Secure flag from baseURL's scheme — the
   // localhost default would silently ship insecure cookies to a deploy.
@@ -160,15 +183,6 @@ function loadConfig(): Env {
 }
 
 export const config = loadConfig()
-
-// Loud, one-time startup signal when the temporary credential-logging bridge is
-// active in production (#813) — magic-link URLs are the credential, so make it
-// auditable and hard to forget the flag is on.
-if (config.AUTH_MAGIC_LINK_STDOUT && config.NODE_ENV === 'production') {
-  console.warn(
-    '[auth] AUTH_MAGIC_LINK_STDOUT is ON — magic-link URLs are logged in production. TEMPORARY dogfood bridge; remove before signups open (#813).',
-  )
-}
 
 /** Port to bind. Render injects PORT; fall back to GATEWAY_PORT (default 4000). */
 export const port = config.PORT ?? config.GATEWAY_PORT

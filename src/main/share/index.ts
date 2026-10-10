@@ -7,6 +7,7 @@
  * #769 — `fetchAllComments` here is a read-only view that deliberately does
  * NOT advance the sync cursor.
  */
+import { randomBytes, timingSafeEqual } from 'crypto'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
 import { getSettingsDir } from '../paths'
@@ -96,10 +97,13 @@ export async function authStatus(): Promise<ShareResult<{ signedIn: boolean; ema
  * social engineering) can't sign this desktop into their account. That
  * replaces the renderer-side login-CSRF guard the magic-link flow needed.
  * Bound to the gateway origin it was requested from; lives as long as a code.
+ * `state` is the nonce the email's "Open in Prose" link carries back
+ * (completeSignInFromLink).
  */
 interface PendingSignIn {
   email: string
   origin: string
+  state: string
   expiresAt: number
 }
 const PENDING_SIGN_IN_TTL_MS = 10 * 60 * 1000
@@ -108,11 +112,13 @@ let pendingSignIn: PendingSignIn | null = null
 export async function requestSignIn(email: string): Promise<ShareResult<object>> {
   const config = await getShareConfig()
   const normalized = email.trim().toLowerCase()
+  const state = randomBytes(16).toString('base64url')
   try {
-    await client.requestSignIn(config, normalized)
+    await client.requestSignIn(config, normalized, state)
     pendingSignIn = {
       email: normalized,
       origin: new URL(config.baseUrl).origin,
+      state,
       expiresAt: Date.now() + PENDING_SIGN_IN_TTL_MS,
     }
     return { ok: true }
@@ -147,6 +153,24 @@ export async function completeSignIn(code: string): Promise<ShareResult<{ email?
   } catch (err) {
     return asError(err)
   }
+}
+
+/**
+ * Complete sign-in from the email's prose://auth deep link (#964). Returns
+ * null — the link is ignored, nothing is sent — unless this desktop is
+ * waiting on a sign-in whose state matches. Without that check, any web page
+ * or message could fire a crafted link at Prose.
+ */
+export async function completeSignInFromLink(
+  code: string,
+  state: string
+): Promise<ShareResult<{ email?: string }> | null> {
+  const pending = pendingSignIn
+  if (!pending || pending.expiresAt < Date.now()) return null
+  const expected = Buffer.from(pending.state)
+  const given = Buffer.from(state)
+  if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null
+  return completeSignIn(code)
 }
 
 export async function signOut(): Promise<ShareResult<object>> {

@@ -117,12 +117,17 @@ async function toError(res: Response): Promise<ShareClientError> {
   return new ShareClientError(messages[code] ?? `Gateway error (${res.status})`, res.status, code)
 }
 
-/** Step 1 of sign-in: ask the gateway to email a 6-digit code to `email`. */
-export async function requestSignIn(config: ShareClientConfig, email: string): Promise<void> {
+/**
+ * Step 1 of sign-in: ask the gateway to email a 6-digit code to `email`.
+ * `state` is this request's nonce; the gateway puts it in the email's
+ * "Open in Prose" link so the resulting prose://auth deep link can be matched
+ * to this request (share/deepLink.ts).
+ */
+export async function requestSignIn(config: ShareClientConfig, email: string, state: string): Promise<void> {
   const res = await fetch(`${base(config)}/api/sign-in/code`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Origin: base(config) },
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({ email, state }),
   })
   if (!res.ok) throw await toError(res)
 }

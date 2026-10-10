@@ -702,6 +702,8 @@ export interface ElectronAPI {
   shareAuthStatus: () => Promise<ShareOp<{ signedIn: boolean; email?: string; gatewayUrl: string }>>
   shareRequestSignIn: (email: string) => Promise<ShareOp>
   shareCompleteSignIn: (code: string) => Promise<ShareOp<{ email?: string }>>
+  /** Desktop only: a sign-in finished from the email's prose://auth link (#964). */
+  onShareAuthChanged?: (callback: (result: ShareOp<{ email?: string }>) => void) => () => void
   shareSignOut: () => Promise<ShareOp>
   sharePublish: (args: { title: string; html: string; localPath: string; documentId: string }) => Promise<ShareOp<{ entry: ShareEntry }>>
   shareRepublish: (args: { publicationId: string; title: string; html: string }) => Promise<ShareOp<{ entry: ShareEntry }>>

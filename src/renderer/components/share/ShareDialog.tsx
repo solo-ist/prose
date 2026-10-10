@@ -26,6 +26,7 @@ import { pushShareContent } from '../../lib/shareContentSync'
 import { useEditor } from '../../hooks/useEditor'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useShareStore } from '../../stores/shareStore'
+import { useNotificationStore } from '../../stores/notificationStore'
 import type { ShareEntry } from '../../types'
 import { Loader2 } from 'lucide-react'
 
@@ -67,6 +68,26 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
 
   useEffect(() => {
     if (open) void refresh()
+  }, [open, refresh])
+
+  // The email's "Open in Prose" link signs in from the main process (#964).
+  // With the dialog open, show the outcome in place; otherwise as a toast.
+  useEffect(() => {
+    const off = getApi().onShareAuthChanged?.((result) => {
+      if (open) {
+        setCode('')
+        if (result.ok) void refresh()
+        else setError(result.error)
+        return
+      }
+      useNotificationStore.getState().notify({
+        id: 'share-sign-in',
+        message: result.ok
+          ? `Signed in to sharing${result.email ? ` as ${result.email}` : ''}.`
+          : result.error,
+      })
+    })
+    return () => off?.()
   }, [open, refresh])
 
   const run = useCallback(async (label: string, action: () => Promise<string | null>) => {

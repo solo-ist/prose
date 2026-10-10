@@ -5,6 +5,7 @@
  *   → gated LLM proxy (/api/llm/*) → gated share management (/api/share/*)
  *   → public share surface (/s/*)
  */
+import { createHash } from 'node:crypto'
 import { Hono } from 'hono'
 import { secureHeaders } from 'hono/secure-headers'
 import { config } from './config.js'
@@ -15,13 +16,29 @@ import { requireEntitlement } from './middleware/entitlement.js'
 import { rateLimit, userRateLimit } from './middleware/rateLimit.js'
 import { ipRateLimit } from './middleware/ipRateLimit.js'
 import { auth } from './auth/index.js'
-import { signInCodeRoutes } from './auth/code.js'
+import { SIGN_IN_LINK_PATH, signInCodeRoutes } from './auth/code.js'
 import health from './routes/health.js'
 import { llmRoutes } from './routes/llm/stream.js'
 import { shareAuthorRoutes } from './routes/share/author.js'
 import { sharePublicRoutes } from './routes/share/public.js'
 import { MAX_ARTIFACT_BYTES, buildShareUrl, hashShareToken } from './routes/share/common.js'
 import { prisma } from './db/index.js'
+
+// The sign-in email's "Open in Prose" page (#964). Reads code + state from
+// the URL fragment (never sent to a server), shows the code, and hands both
+// to the app via prose://auth. Strips the fragment from history afterwards.
+// Static, so the CSP allows it by hash instead of 'unsafe-inline'; any edit
+// changes the hash automatically. The patterns mirror auth/code.ts and the
+// desktop's parser (src/main/share/deepLink.ts).
+const SIGN_IN_PAGE_SCRIPT =
+  "(function(){var h=new URLSearchParams(location.hash.slice(1)),c=h.get('c')||'',s=h.get('s')||'';" +
+  "history.replaceState(null,'',location.pathname);" +
+  "if(!/^\\d{6}$/.test(c)){document.getElementById('missing').hidden=false;return}" +
+  "document.getElementById('code').textContent=c;document.getElementById('found').hidden=false;" +
+  "if(!/^[A-Za-z0-9_-]{22,64}$/.test(s))return;" +
+  "var u='prose://auth?code='+c+'&state='+s,a=document.getElementById('open');" +
+  "a.href=u;a.hidden=false;location.href=u})()"
+const SIGN_IN_PAGE_SCRIPT_HASH = `sha256-${createHash('sha256').update(SIGN_IN_PAGE_SCRIPT).digest('base64')}`
 
 export function createApp() {
   const app = new Hono<AppEnv>()
@@ -182,6 +199,47 @@ export function createApp() {
 
   // Better Auth owns all /api/auth/* routes (code sign-in, session, sign-out…).
   app.on(['GET', 'POST'], '/api/auth/*', (c) => auth.handler(c.req.raw))
+
+  // "Open in Prose" fallback page (#964). Mail clients often refuse custom
+  // schemes in links, so the email links here (https) and this page opens
+  // prose://auth, falling back to showing the code to type.
+  app.get(SIGN_IN_LINK_PATH, (c) => {
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sign in to Prose</title>
+  <style>
+    body{font-family:system-ui,sans-serif;max-width:480px;margin:3rem auto;padding:0 1.5rem;color:#111;background:#fff;text-align:center}
+    h1{font-size:1.25rem;margin-bottom:0.5rem}
+    p{color:#374151;line-height:1.6;margin:0.5rem 0}
+    #code{font-family:ui-monospace,monospace;font-size:2rem;letter-spacing:0.3em;background:#f4f4f5;border-radius:6px;padding:0.75rem 1rem;margin:1rem 0}
+    #open{display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:0.6rem 1.25rem;border-radius:6px;margin:0.5rem 0}
+    #open[hidden]{display:none}
+    .note{font-size:0.8rem;color:#6b7280;margin-top:1.5rem}
+    @media(prefers-color-scheme:dark){body{background:#0f172a;color:#f1f5f9}p{color:#cbd5e1}#code{background:#1e293b}.note{color:#94a3b8}}
+  </style>
+</head>
+<body>
+  <h1>Sign in to Prose</h1>
+  <div id="found" hidden>
+    <p>Prose should open and finish signing in. If it doesn&rsquo;t, enter this code in Prose:</p>
+    <div id="code"></div>
+    <a id="open" hidden>Open in Prose</a>
+    <p class="note">The code expires 10 minutes after it was sent. If you didn&rsquo;t request it, you can ignore this page.</p>
+  </div>
+  <p id="missing" hidden>This link is missing its sign-in code. Use the 6-digit code in the email instead.</p>
+  <script>${SIGN_IN_PAGE_SCRIPT}</script>
+</body>
+</html>`
+    return c.html(html, 200, {
+      'Cache-Control': 'no-store',
+      'Referrer-Policy': 'no-referrer',
+      'Content-Security-Policy':
+        `default-src 'none'; style-src 'unsafe-inline'; script-src '${SIGN_IN_PAGE_SCRIPT_HASH}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+    })
+  })
 
   // Public liveness/DB probe.
   app.route('/', health)

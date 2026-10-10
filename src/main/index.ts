@@ -49,6 +49,7 @@ import { getMcpHttpServer, getMcpBridge, getMcpSocketServer } from './mcp'
 import { initializeSpellcheck, setupContextMenu } from './spellcheck'
 import { initAutoUpdater } from './updater'
 import { IS_MAS_BUILD } from './env'
+import { handleAuthDeepLink, isAuthDeepLink } from './share/deepLink'
 import { isQuitting } from './quitState'
 import { setupFileWatcherHandlers, teardownFileWatcher } from './fileWatcher'
 
@@ -125,6 +126,11 @@ if (!gotTheLock) {
     const args = commandLine.slice(is.dev ? 2 : 1)
     let handledProseUrl = false
     for (const arg of args) {
+      if (isAuthDeepLink(arg)) {
+        void handleAuthDeepLink(arg)
+        handledProseUrl = true
+        continue
+      }
       if (arg.startsWith('prose://')) {
         const content = parseProseUrl(arg)
         if (content !== null) {
@@ -211,6 +217,11 @@ app.on('open-file', (event, path) => {
 // Handle prose:// URL scheme on macOS (open-url fires before or after ready)
 app.on('open-url', (event, url) => {
   event.preventDefault()
+  // Sign-in links (#964) complete in main and never queue for the renderer.
+  if (isAuthDeepLink(url)) {
+    void handleAuthDeepLink(url)
+    return
+  }
   const content = parseProseUrl(url)
   if (content === null) return
 

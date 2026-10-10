@@ -33,7 +33,7 @@ All values below must be set in the Render dashboard under **prose-gateway → E
 | `BETTER_AUTH_SECRET` | Signs session tokens; must be 32+ random bytes | Generate: `openssl rand -base64 32` |
 | `ANTHROPIC_API_KEY` | The gateway's Anthropic key for the LLM proxy | Required even if the proxy is unused during the beta |
 | `SHARE_BASE_URL` | The dedicated share origin (origin isolation, #902) | `https://share.prose.solo.ist` — **must differ from `BETTER_AUTH_URL`** |
-| `RESEND_API_KEY` | Delivers magic-link emails via Resend | Obtain from resend.com; sender domain must be verified (SPF + DKIM) |
+| `RESEND_API_KEY` | Delivers sign-in code emails via Resend | Obtain from resend.com; sender domain must be verified (SPF + DKIM) |
 | `MAIL_FROM` | The `From` address on outbound emails | Must be on a Resend-verified domain, e.g. `prose@prose.solo.ist` |
 | `R2_ACCOUNT_ID` | Cloudflare account ID for artifact storage | Required for `storage: 'r2'` |
 | `R2_ACCESS_KEY_ID` | R2 API token key ID | Required for R2 |
@@ -69,8 +69,8 @@ To see who has access: `npm run grant -- --list --feature share_publish` (grants
    "featureFlags": { "webPlatform": true }
    ```
    Save the file, then relaunch Prose. The beta build already points at the production gateway (`DEFAULT_GATEWAY_URL` = `https://api.prose.solo.ist`), so no `gatewayUrl` setting is needed. A leftover `webPlatform.gatewayUrl` for any host other than `api.prose.solo.ist` or loopback is ignored.
-3. **Sign in.** Open any document. A share icon (◎) appears in the top-right corner. Click it and enter the email address you granted. Prose sends a magic-link request to the gateway, which emails the link via Resend.
-4. **Complete sign-in.** Open the email, click the link, and paste the resulting URL (from the `/auth/link` landing page) into the Prose sign-in dialog.
+3. **Sign in.** Open any document. A share icon (◎) appears in the top-right corner. Click it, enter the email address you granted, and press **Send code**. The gateway emails a 6-digit code via Resend.
+4. **Complete sign-in.** Type the code from the email into Prose. It signs in as soon as the sixth digit is entered. Codes last 10 minutes; **Resend code** sends a fresh one.
 5. **Publish.** Click **Publish** in the share popover. It works on the first try: the gateway claims the invite into an entitlement on that request. The URL is `https://<label>.share.prose.solo.ist/s/<token>` (or `https://share.prose.solo.ist/s/<token>` if `SHARE_SUBDOMAINS` is not yet set).
 
 The invite matches on the email the invitee signs in with (case-insensitive). If they sign in with a different address, grant that one too.
@@ -140,13 +140,13 @@ curl -s -o /dev/null -w "%{http_code}" \
 
 Expect `200` for the body, but the response must **not** carry `Access-Control-Allow-Origin: http://localhost:9999`. Check with `-v`.
 
-### Email sign-in (no links in logs)
+### Email sign-in (no codes in logs)
 
-After #934 merges, `AUTH_MAGIC_LINK_STDOUT` is gone. Magic-link URLs must travel by email only — they must **not** appear in Render logs. Verify:
+Sign-in codes must travel by email only; they must **not** appear in Render logs. Verify:
 
-1. Request a magic link for your own email via Prose desktop sign-in.
-2. Open Render → Logs. Confirm no `https://api.prose.solo.ist/api/auth/verify-magic-link?...` line appears.
-3. Confirm the email arrives in your inbox.
+1. Request a code for your own email via Prose desktop sign-in.
+2. Open Render → Logs. Confirm no `[auth] Sign-in code for …` line appears. That line is printed only when `RESEND_API_KEY` is unset, which production config refuses at boot.
+3. Confirm the email arrives, and that typing the code signs you in.
 
 ### Publish + subdomain URL
 
@@ -207,7 +207,7 @@ Hi — you're one of the first people to try Prose's new sharing feature. Here's
 2. Quit Prose, open `~/Library/Application Support/Prose/settings.json`, and add this entry (merge it into `featureFlags` if that block already exists, and keep the commas valid):
    `"featureFlags": { "webPlatform": true }`
    Then relaunch Prose.
-3. Click the ◎ icon in the top-right corner of any document and enter this email address (the one I sent the invite to). You'll get an email with a sign-in link: click it, press **Copy** on the page it opens, and paste the link into Prose. That's it: the **Publish** button works straight away.
+3. Click the ◎ icon in the top-right corner of any document, enter this email address (the one I sent the invite to), and press **Send code**. Type the 6-digit code from the email into Prose. That's it: the **Publish** button works straight away.
 
 **What works:**
 - Publish and share a link to any document.
@@ -226,19 +226,23 @@ Hi — you're one of the first people to try Prose's new sharing feature. Here's
 
 ## 7. Troubleshooting
 
-### Sign-in link not arriving
+### Sign-in code not arriving
 
-- Check Render logs for any `[mail]` error lines — a non-2xx from Resend will log `sendMail failed`.
+- If Prose showed "The sign-in email couldn't be sent", Resend rejected it: check Render logs for `[auth] failed to send a sign-in code` and the `[mail]` line before it.
+- "Too many codes sent to this address" means 5 codes in the last hour; wait it out.
 - Confirm `RESEND_API_KEY` is set and the sender domain is verified in the Resend dashboard (SPF + DKIM). Unverified domains fail silently or bounce.
 - Check spam. The `From` address is whatever `MAIL_FROM` is set to.
 - In the Render Shell, you can send a test request directly:
   ```bash
-  curl -X POST https://api.prose.solo.ist/api/auth/sign-in/magic-link \
+  curl -X POST https://api.prose.solo.ist/api/sign-in/code \
     -H 'Content-Type: application/json' \
-    -H 'Origin: https://prose.solo.ist' \
-    -d '{"email":"you@example.com","callbackURL":"/health"}'
+    -d '{"email":"you@example.com"}'
   ```
-  Check Render logs for the result.
+  `{"ok":true}` means Resend accepted it; anything else names the failure.
+
+### "That code isn't right" / "Too many wrong tries"
+
+Each code allows 5 wrong tries, then it's burned (even the right code fails) and the invitee needs **Resend code**. Codes also expire after 10 minutes, and only the newest code for an address works.
 
 ### 403 on publish — entitlement not granted
 

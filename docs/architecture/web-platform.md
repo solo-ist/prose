@@ -84,7 +84,7 @@ A **portable, self-hostable Node monolith** — Hono + Postgres (**Prisma 7**) +
 ### 4.2 Identity (reframes #601)
 **Account ⟂ credential.** A stable internal **Account** owns entitlements and documents; each auth method is a linked **credential** row (`type ∈ email_magic_link | google | nostr | atproto`). Entitlements attach to the Account, never to a provider — so additional identities are additive and never cost a user their subscription.
 
-- **MVP = email magic-link only**, via **Better Auth** (self-hostable; the resolved **#601** pick, 2026-06-28) with its **Prisma adapter**. **Do not hand-roll session/token crypto.**
+- **MVP = email sign-in only** (shipped as a magic link; replaced by an emailed 6-digit code via Better Auth's emailOTP plugin in #964), via **Better Auth** (self-hostable; the resolved **#601** pick, 2026-06-28) with its **Prisma adapter**. **Do not hand-roll session/token crypto.**
 - Google / AtProto / Nostr → **Deferred** (§8); the credential row + a `verifyCredential(type, payload)` dispatch are the kept seams.
 
 ### 4.3 Share service — the self-contained artifact *(reconciled 2026-08-27, resolves #776)*

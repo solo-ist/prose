@@ -701,7 +701,7 @@ export interface ElectronAPI {
   // Share service (#768) — publish/re-publish/revoke + interim gateway sign-in
   shareAuthStatus: () => Promise<ShareOp<{ signedIn: boolean; email?: string; gatewayUrl: string }>>
   shareRequestSignIn: (email: string) => Promise<ShareOp>
-  shareCompleteSignIn: (magicUrl: string) => Promise<ShareOp<{ email?: string }>>
+  shareCompleteSignIn: (code: string) => Promise<ShareOp<{ email?: string }>>
   shareSignOut: () => Promise<ShareOp>
   sharePublish: (args: { title: string; html: string; localPath: string; documentId: string }) => Promise<ShareOp<{ entry: ShareEntry }>>
   shareRepublish: (args: { publicationId: string; title: string; html: string }) => Promise<ShareOp<{ entry: ShareEntry }>>

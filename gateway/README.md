@@ -13,7 +13,7 @@ Canonical design: [`../docs/architecture/web-platform.md`](../docs/architecture/
 - **Hono** + `@hono/node-server` — HTTP + SSE streaming
 - **Prisma 7** — Postgres via the `@prisma/adapter-pg` driver adapter (WASM query
   compiler; the connection URL lives in `prisma.config.ts`, not `schema.prisma`)
-- **Better Auth** — email magic-link + sessions, via its Prisma adapter (the
+- **Better Auth** — emailed 6-digit sign-in codes (emailOTP) + sessions, via its Prisma adapter (the
   resolved [#601](https://github.com/solo-ist/prose/issues/601) auth pick)
 - **Cloudflare R2** (`@aws-sdk/client-s3`) — binary blobs only; **stubbed** in Phase 0
 
@@ -63,10 +63,12 @@ An unknown email gets an `entitlement_invites` row that is claimed into an
 ```bash
 curl :4000/health                                   # {"ok":true,"service":"prose-gateway"}
 curl -X POST :4000/api/llm/stream -d '{}'           # 401 (unauthenticated)
-# request a magic link, then complete it to get a session cookie:
-curl -X POST :4000/api/auth/sign-in/magic-link -H 'Content-Type: application/json' \
-  -H 'Origin: http://localhost:4000' -d '{"email":"you@example.com","callbackURL":"/health"}'
-#   → the link is printed to the gateway log (dev only; Phase 0 has no email provider)
+# request a sign-in code, then exchange it for a session cookie:
+curl -X POST :4000/api/sign-in/code -H 'Content-Type: application/json' \
+  -H 'Origin: http://localhost:4000' -d '{"email":"you@example.com"}'
+#   → without RESEND_API_KEY the code is printed to the gateway log (dev only)
+curl -c cookies.txt -X POST :4000/api/auth/sign-in/email-otp -H 'Content-Type: application/json' \
+  -H 'Origin: http://localhost:4000' -d '{"email":"you@example.com","otp":"123456"}'
 curl -b cookies.txt -X POST :4000/api/llm/stream -d '{}' # 403 forbidden/ai_proxy until granted
 # grant → then the same request streams SSE (message_start → deltas → message_stop),
 # with `x-accel-buffering: no` on the response.
@@ -98,21 +100,29 @@ else the `artifactHtml` column (`storage` records which — provisioning R2
 later strands nothing).
 
 Integration test (self-contained — boots its own gateway on :4010, harvests
-the magic link from stdout): `npm run test:share` (needs `npm run dev:db`).
+the sign-in code from stdout): `npm run test:share` (needs `npm run dev:db`).
 CI runs it on every PR touching `gateway/**` (`.github/workflows/gateway.yml`,
 against a Postgres service), after a typecheck and `prisma migrate deploy`.
 
-## Magic-link email delivery (#813)
+## Sign-in codes by email (#964, #813)
 
-Magic links are delivered by email via **Resend** in production. In
-development (no `RESEND_API_KEY`) the raw verify URL is still logged to
-stdout (test harness compatible).
+Sign-in is a 6-digit code delivered by email via **Resend** in production.
+In development (no `RESEND_API_KEY`) the code is logged to stdout instead
+(the test harnesses read it from there).
 
-**How it works:** the emailed link points at a landing page
-(`GET /auth/link?token=…`) that shows the URL in a selectable field with
-a copy button. Clicking the emailed link does **not** consume the single-use
-token — only pasting the URL into Prose's Sign-in box does. The desktop
-accepts either the landing URL or the raw verify URL.
+**How it works:**
+- `POST /api/sign-in/code {email}` (`src/auth/code.ts`) mints a code with
+  Better Auth's emailOTP plugin and mails it. A mail failure returns 502
+  `mail_failed` rather than a false "check your email".
+- `POST /api/auth/sign-in/email-otp {email, otp}` (Better Auth) verifies it,
+  creates the account on first sign-in, and sets the session cookie.
+- Codes last 10 minutes, are stored hashed, work once, and burn after 5 wrong
+  tries; a newer code replaces an older one.
+- Limits: 5 codes per address per hour, plus per-IP caps on both routes
+  (`SIGN_IN_CODE_IP_MAX`, `SIGN_IN_VERIFY_IP_MAX`, per 10 minutes). Better
+  Auth's own limiter is off because it can't see client IPs behind Render.
+- Every other emailOTP route is disabled (404), including
+  `check-verification-otp`, which would reveal whether an account exists.
 
 **Setup:**
 1. Add `RESEND_API_KEY`, `MAIL_FROM` to the Render env (secrets).

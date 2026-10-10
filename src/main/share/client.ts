@@ -2,9 +2,9 @@
  * share/client.ts — the desktop's HTTP client for the gateway share service
  * (#768). Runs in the main process (Node fetch — no CORS wall).
  *
- * Auth (interim, pre-#766): a Better Auth session cookie obtained through the
- * paste-the-magic-link flow (requestSignIn → user retrieves the link →
- * completeSignIn). The cookie is stored in credentialStore under
+ * Auth (interim, pre-#766): a Better Auth session cookie obtained with an
+ * emailed 6-digit code (#964): requestSignIn → the user reads the code →
+ * completeSignIn. The cookie is stored in credentialStore under
  * 'gateway-session' — never in settings.json or share-sync.json.
  */
 import { credentialStore } from '../credentialStore'
@@ -93,8 +93,10 @@ async function authedHeaders(config: ShareClientConfig): Promise<Record<string, 
 async function toError(res: Response): Promise<ShareClientError> {
   let code = 'request_failed'
   try {
-    const body = (await res.json()) as { error?: string }
+    // Gateway routes answer {error}; Better Auth answers {code, message}.
+    const body = (await res.json()) as { error?: string; code?: string }
     if (typeof body.error === 'string') code = body.error
+    else if (typeof body.code === 'string') code = body.code
   } catch {
     // non-JSON error body
   }
@@ -105,60 +107,47 @@ async function toError(res: Response): Promise<ShareClientError> {
     rate_limited: 'Rate limited — try again in a minute.',
     revoked: 'This share has been revoked.',
     body_too_large: 'Document too large to publish (8 MB limit).',
+    invalid_email: "That doesn't look like an email address.",
+    too_many_codes: 'Too many codes sent to this address. Try again in an hour.',
+    mail_failed: "The sign-in email couldn't be sent. Try again in a moment.",
+    INVALID_OTP: "That code isn't right. Check the email and try again.",
+    OTP_EXPIRED: 'That code has expired. Send a new one.',
+    TOO_MANY_ATTEMPTS: 'Too many wrong tries. Send a new code.',
   }
   return new ShareClientError(messages[code] ?? `Gateway error (${res.status})`, res.status, code)
 }
 
-/** Step 1 of the interim sign-in: ask the gateway to issue a magic link. */
+/** Step 1 of sign-in: ask the gateway to email a 6-digit code to `email`. */
 export async function requestSignIn(config: ShareClientConfig, email: string): Promise<void> {
-  const res = await fetch(`${base(config)}/api/auth/sign-in/magic-link`, {
+  const res = await fetch(`${base(config)}/api/sign-in/code`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Origin: base(config) },
-    body: JSON.stringify({ email, callbackURL: '/health' }),
+    body: JSON.stringify({ email }),
   })
   if (!res.ok) throw await toError(res)
 }
 
 /**
- * Step 2: the user pastes the link from their email (or the gateway log in
- * dev). Accepts EITHER the raw Better Auth verify URL or the landing page URL
- * (/auth/link?token=…) — both belong to the same gateway origin. When given
- * the landing URL the function rebuilds the verify URL so the landing page
- * itself is never fetched (it doesn't consume the token either way, but we
- * skip the extra round-trip). Fetching the verify URL completes sign-in; the
+ * Step 2: exchange the emailed code for a session. `email` must be the address
+ * the code was requested for — the caller (share/index.ts) supplies the one it
+ * recorded at request time, never a renderer-chosen value, so a code from
+ * someone else's inbox can't sign this desktop into their account. The
  * Set-Cookie session is captured into credentialStore.
  */
-export async function completeSignIn(config: ShareClientConfig, magicUrl: string): Promise<void> {
-  let parsed: URL
-  try {
-    parsed = new URL(magicUrl.trim())
-  } catch {
-    throw new ShareClientError('That does not look like a URL.', 400, 'invalid_link')
-  }
-  if (parsed.origin !== new URL(base(config)).origin) {
-    throw new ShareClientError('That link belongs to a different gateway.', 400, 'wrong_origin')
-  }
-
-  // If the user pasted the email landing URL, rebuild the real verify URL so
-  // we only ever fetch the consuming endpoint once.
-  // Keep this path in step with gateway/src/auth/index.ts MAGIC_LINK_LANDING_PATH.
-  if (parsed.pathname === '/auth/link') {
-    const verify = new URL('/api/auth/magic-link/verify', parsed.origin)
-    const token = parsed.searchParams.get('token')
-    const callbackURL = parsed.searchParams.get('callbackURL')
-    if (token) verify.searchParams.set('token', token)
-    if (callbackURL) verify.searchParams.set('callbackURL', callbackURL)
-    parsed = verify
-  }
-
-  const res = await fetch(parsed.toString(), { redirect: 'manual' })
+export async function completeSignIn(config: ShareClientConfig, email: string, code: string): Promise<void> {
+  const res = await fetch(`${base(config)}/api/auth/sign-in/email-otp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: base(config) },
+    body: JSON.stringify({ email, otp: code }),
+  })
+  if (!res.ok) throw await toError(res)
   const setCookies = res.headers.getSetCookie?.() ?? []
   const sessionCookie = setCookies
     .map((c) => c.split(';')[0])
     .filter((c) => c.includes('session_token'))
     .join('; ')
   if (!sessionCookie) {
-    throw new ShareClientError('The link did not produce a session (expired?). Request a new one.', 401, 'no_cookie')
+    throw new ShareClientError('Sign-in did not produce a session. Send a new code.', 401, 'no_cookie')
   }
   await credentialStore.set(
     SESSION_KEY,

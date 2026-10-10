@@ -101,7 +101,6 @@ const gw = spawn('npx', ['tsx', 'src/index.ts'], {
     SHARE_PUBLIC_WRITE_MAX: '30',
     SHARE_BASE_URL: `http://${SHARE_HOST}`,
     SHARE_SUBDOMAINS: '1',
-    AUTH_MAGIC_LINK_STDOUT: '1',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
@@ -132,25 +131,28 @@ async function main() {
   }, 'gateway /health')
   ok('gateway boots with SHARE_SUBDOMAINS=1')
 
-  // --- Sign in ---
-  const mlRes = await rawRequest({
-    host: API_HOST, method: 'POST', path: '/api/auth/sign-in/magic-link',
-    body: { email: EMAIL, callbackURL: '/health' },
+  // --- Sign in with the code from the gateway log (#964) ---
+  const codeRes = await rawRequest({
+    host: API_HOST, method: 'POST', path: '/api/sign-in/code',
+    body: { email: EMAIL },
     headers: { Origin: API_BASE },
   })
-  expect(mlRes.status === 200 || mlRes.status === 201, 'magic-link request accepted', `status ${mlRes.status}`)
+  expect(codeRes.status === 200, 'sign-in code request accepted', `status ${codeRes.status}`)
 
-  const linkMatch = await waitFor(
-    async () => gatewayLog.match(/Magic link for [^\n]*\n\s*(http\S+)/),
-    'magic link in gateway log'
+  const codeMatch = await waitFor(
+    async () => gatewayLog.match(/Sign-in code for [^:]+: (\d{6})/),
+    'sign-in code in gateway log'
   )
-  const magicUrl = new URL(linkMatch[1])
-  const verifyRes = await rawRequest({ host: API_HOST, method: 'GET', path: magicUrl.pathname + magicUrl.search })
+  const verifyRes = await rawRequest({
+    host: API_HOST, method: 'POST', path: '/api/auth/sign-in/email-otp',
+    body: { email: EMAIL, otp: codeMatch[1] },
+    headers: { Origin: API_BASE },
+  })
   const setCookies = (verifyRes.headers['set-cookie'] ?? [])
   const cookie = (Array.isArray(setCookies) ? setCookies : [setCookies])
     .map((c) => c.split(';')[0])
     .join('; ')
-  expect(cookie.includes('session_token'), 'magic link yields a session cookie')
+  expect(cookie.includes('session_token'), 'sign-in code yields a session cookie')
   const authedHeaders = { Cookie: cookie, Origin: API_BASE }
 
   // --- Seed entitlement ---

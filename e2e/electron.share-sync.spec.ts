@@ -6,8 +6,8 @@
  * spec controls on loopback (`isAllowedGatewayUrl` admits http://127.0.0.1).
  *
  * Covered contracts, each tied to the finding that motivated it:
- * - magic-link sign-in captures an ORIGIN-BOUND session; a foreign-origin
- *   link is refused (audit M-01)
+ * - code sign-in (#964) submits the email main recorded at request time,
+ *   never a renderer value, and captures an ORIGIN-BOUND session (audit M-01)
  * - operations refuse a session minted by a different gateway origin, before
  *   any network I/O (audit M-01)
  * - share entries are bound to their minting gateway; a differently-pointed
@@ -67,6 +67,8 @@ interface StubRequest {
 }
 
 const SESSION_COOKIE = 'better-auth.session_token=e2e-session-1'
+const STUB_EMAIL = 'reviewer@e2e.test'
+const STUB_CODE = '123456'
 const PAGE_SIZE = 500
 
 function makeRow(id: string, createdAt: string, patch: Partial<StubRow> = {}): StubRow {
@@ -91,6 +93,8 @@ class StubGateway {
   comments: StubRow[] = []
   revokeStatus = 204
   requests: StubRequest[] = []
+  /** JSON bodies of sign-in calls, in arrival order. */
+  signInBodies: Array<{ path: string; body: Record<string, unknown> }> = []
 
   constructor() {
     this.server = createServer((req, res) => this.handle(req, res))
@@ -122,18 +126,30 @@ class StubGateway {
       hasCookie: authed,
     })
 
-    // Magic-link verification: 302 + the session cookie.
-    if (url.pathname.startsWith('/api/auth/magic-link/verify')) {
-      res.writeHead(302, {
-        Location: `${this.origin}/health`,
-        'Set-Cookie': `${SESSION_COOKIE}; Path=/; HttpOnly`,
+    // Code sign-in (#964): mail a code, then exchange email + code for the
+    // session cookie. Only STUB_CODE for STUB_EMAIL succeeds.
+    if (req.method === 'POST' && (url.pathname === '/api/sign-in/code' || url.pathname === '/api/auth/sign-in/email-otp')) {
+      let raw = ''
+      req.on('data', (c) => { raw += c })
+      req.on('end', () => {
+        let body: Record<string, unknown> = {}
+        try { body = JSON.parse(raw) } catch { /* empty */ }
+        this.signInBodies.push({ path: url.pathname, body })
+        if (url.pathname === '/api/sign-in/code') return this.json(res, 200, { ok: true })
+        if (body.email !== STUB_EMAIL || body.otp !== STUB_CODE) {
+          return this.json(res, 400, { code: 'INVALID_OTP', message: 'Invalid OTP' })
+        }
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Set-Cookie': `${SESSION_COOKIE}; Path=/; HttpOnly`,
+        })
+        res.end(JSON.stringify({ token: 'e2e', user: { email: STUB_EMAIL } }))
       })
-      res.end()
       return
     }
     if (url.pathname === '/api/auth/get-session') {
       if (!authed) return this.json(res, 200, {})
-      return this.json(res, 200, { user: { email: 'reviewer@e2e.test' } })
+      return this.json(res, 200, { user: { email: STUB_EMAIL } })
     }
     if (url.pathname === '/api/auth/sign-out') return this.json(res, 200, { ok: true })
 
@@ -352,29 +368,45 @@ test.afterAll(async () => {
 // Sign-in + session binding (audit M-01)
 // ---------------------------------------------------------------------------
 
-test('a magic link from a different origin is refused', async () => {
-  const res = await callApi<{ ok: boolean; code?: string }>(
-    'shareCompleteSignIn',
-    `${foreignRecorder.origin}/api/auth/magic-link/verify?token=x`,
-  )
-  expect(res.ok).toBe(false)
-  expect(res.code).toBe('wrong_origin')
-  // Refused before any network I/O touched the foreign host.
-  expect(foreignRecorder.requests).toHaveLength(0)
+test('a code with no pending sign-in is refused without network I/O', async () => {
+  const res = await callApi<{ ok: boolean; code?: string }>('shareCompleteSignIn', STUB_CODE)
+  expect(res).toMatchObject({ ok: false, code: 'no_pending' })
+  expect(gateway.signInBodies).toHaveLength(0)
 })
 
-test('magic-link sign-in captures an origin-bound session', async () => {
-  const res = await callApi<{ ok: boolean; email?: string }>(
-    'shareCompleteSignIn',
-    `${gateway.origin}/api/auth/magic-link/verify?token=e2e`,
-  )
+test('a malformed code is refused before any request', async () => {
+  const res = await callApi<{ ok: boolean; code?: string }>('shareCompleteSignIn', '12ab56')
+  expect(res).toMatchObject({ ok: false, code: 'invalid_code' })
+  expect(gateway.signInBodies).toHaveLength(0)
+})
+
+test('a wrong code surfaces the gateway error', async () => {
+  const req = await callApi<{ ok: boolean }>('shareRequestSignIn', STUB_EMAIL)
+  expect(req).toMatchObject({ ok: true })
+  const res = await callApi<{ ok: boolean; code?: string }>('shareCompleteSignIn', '000000')
+  expect(res).toMatchObject({ ok: false, code: 'INVALID_OTP' })
+})
+
+test('code sign-in submits the requested email and captures an origin-bound session', async () => {
+  const req = await callApi<{ ok: boolean }>('shareRequestSignIn', '  Reviewer@E2E.test ')
+  expect(req).toMatchObject({ ok: true })
+  // The renderer passes only digits; main pairs them with the recorded email.
+  const res = await callApi<{ ok: boolean; email?: string }>('shareCompleteSignIn', '123 456')
   // toMatchObject so a failure prints the result's error/code fields.
-  expect(res).toMatchObject({ ok: true, email: 'reviewer@e2e.test' })
+  expect(res).toMatchObject({ ok: true, email: STUB_EMAIL })
+  expect(gateway.signInBodies.at(-1)).toEqual({
+    path: '/api/auth/sign-in/email-otp',
+    body: { email: STUB_EMAIL, otp: STUB_CODE },
+  })
 
   const status = await callApi<{ ok: boolean; signedIn?: boolean; email?: string }>('shareAuthStatus')
   expect(status.ok).toBe(true)
   expect(status.signedIn).toBe(true)
-  expect(status.email).toBe('reviewer@e2e.test')
+  expect(status.email).toBe(STUB_EMAIL)
+
+  // The pending sign-in is spent: the same code can't be replayed through it.
+  const replay = await callApi<{ ok: boolean; code?: string }>('shareCompleteSignIn', STUB_CODE)
+  expect(replay).toMatchObject({ ok: false, code: 'no_pending' })
 })
 
 test('the session refuses a differently-pointed gateway without network I/O', async () => {

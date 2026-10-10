@@ -88,20 +88,61 @@ export async function authStatus(): Promise<ShareResult<{ signedIn: boolean; ema
   }
 }
 
+/**
+ * The sign-in this desktop is waiting on (#964). The email is recorded HERE,
+ * at request time, and is the only one a code is ever submitted with — the
+ * renderer supplies just the digits. A code only signs in the address it was
+ * mailed to, so a code from someone else's inbox (pasted in by mistake or by
+ * social engineering) can't sign this desktop into their account. That
+ * replaces the renderer-side login-CSRF guard the magic-link flow needed.
+ * Bound to the gateway origin it was requested from; lives as long as a code.
+ */
+interface PendingSignIn {
+  email: string
+  origin: string
+  expiresAt: number
+}
+const PENDING_SIGN_IN_TTL_MS = 10 * 60 * 1000
+let pendingSignIn: PendingSignIn | null = null
+
 export async function requestSignIn(email: string): Promise<ShareResult<object>> {
+  const config = await getShareConfig()
+  const normalized = email.trim().toLowerCase()
   try {
-    await client.requestSignIn(await getShareConfig(), email)
+    await client.requestSignIn(config, normalized)
+    pendingSignIn = {
+      email: normalized,
+      origin: new URL(config.baseUrl).origin,
+      expiresAt: Date.now() + PENDING_SIGN_IN_TTL_MS,
+    }
     return { ok: true }
   } catch (err) {
     return asError(err)
   }
 }
 
-export async function completeSignIn(magicUrl: string): Promise<ShareResult<{ email?: string }>> {
+export async function completeSignIn(code: string): Promise<ShareResult<{ email?: string }>> {
+  const digits = code.replace(/\s/g, '')
+  if (!/^\d{6}$/.test(digits)) {
+    return { ok: false, error: 'Enter the 6-digit code from the email.', code: 'invalid_code' }
+  }
   const config = await getShareConfig()
+  const pending = pendingSignIn
+  if (!pending || pending.origin !== new URL(config.baseUrl).origin) {
+    return { ok: false, error: 'Send a sign-in code first.', code: 'no_pending' }
+  }
+  if (pending.expiresAt < Date.now()) {
+    return { ok: false, error: 'That code has expired. Send a new one.', code: 'OTP_EXPIRED' }
+  }
   try {
-    await client.completeSignIn(config, magicUrl)
+    await client.completeSignIn(config, pending.email, digits)
     const status = await client.checkSession(config)
+    // Defense in depth: the session must belong to the address we asked for.
+    if (!status.signedIn || status.email?.toLowerCase() !== pending.email) {
+      await client.signOut(config)
+      return { ok: false, error: 'Sign-in returned a different account. Send a new code.', code: 'session_mismatch' }
+    }
+    pendingSignIn = null
     return { ok: true, email: status.email }
   } catch (err) {
     return asError(err)

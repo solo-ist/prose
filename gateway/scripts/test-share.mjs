@@ -1,8 +1,8 @@
 /**
  * test-share.mjs — end-to-end integration test for the share service (#768).
  *
- * Self-contained: spawns its own gateway on :4010 (dev mode, so the magic
- * link prints to stdout where this script harvests it), signs in, grants the
+ * Self-contained: spawns its own gateway on :4010 (dev mode, so the sign-in
+ * code prints to stdout where this script harvests it), signs in, grants the
  * share_publish entitlement, then exercises the full share matrix:
  * publish → serve → comment/reply → author pull (email never exposed) →
  * author thread/reply/resolve push → public live GET → re-publish → revoke →
@@ -34,7 +34,7 @@ const artifact = (body) => `<!DOCTYPE html>
 <script type="application/x-prose-share" data-version="1">{"shareEndpoint":"${BASE}","publishRev":"0123456789abcdef","publishedAt":"2026-08-31T00:00:00.000Z"}</script>
 </body></html>`
 
-// --- Spawn the gateway, capturing stdout for the magic link ----------------
+// --- Spawn the gateway, capturing stdout for sign-in codes -----------------
 let gatewayLog = ''
 const gw = spawn('npx', ['tsx', 'src/index.ts'], {
   cwd: ROOT,
@@ -72,21 +72,26 @@ async function waitFor(predicate, label, timeoutMs = 20000) {
   throw new Error(`timeout waiting for ${label}`)
 }
 
-// Sign in as `email` via the magic link the dev gateway prints, returning
-// JSON request headers carrying the session cookie.
+// Sign in as `email` with the 6-digit code the dev gateway prints (#964),
+// returning JSON request headers carrying the session cookie.
 async function signIn(email) {
   const from = gatewayLog.length
-  const res = await fetch(`${BASE}/api/auth/sign-in/magic-link`, {
+  const res = await fetch(`${BASE}/api/sign-in/code`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Origin: BASE },
-    body: JSON.stringify({ email, callbackURL: '/health' }),
+    body: JSON.stringify({ email }),
   })
-  if (!res.ok) throw new Error(`magic-link request for ${email}: status ${res.status}`)
-  const linkMatch = await waitFor(
-    async () => gatewayLog.slice(from).match(/Magic link for [^\n]*\n\s*(http\S+)/),
-    `magic link for ${email} in gateway log`
+  if (!res.ok) throw new Error(`sign-in code request for ${email}: status ${res.status}`)
+  const escaped = email.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const codeMatch = await waitFor(
+    async () => gatewayLog.slice(from).match(new RegExp(`Sign-in code for ${escaped}: (\\d{6})`)),
+    `sign-in code for ${email} in gateway log`
   )
-  const verifyRes = await fetch(linkMatch[1], { redirect: 'manual' })
+  const verifyRes = await fetch(`${BASE}/api/auth/sign-in/email-otp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: BASE },
+    body: JSON.stringify({ email, otp: codeMatch[1] }),
+  })
   const cookie = (verifyRes.headers.getSetCookie?.() ?? []).map((c) => c.split(';')[0]).join('; ')
   return { Cookie: cookie, 'Content-Type': 'application/json', Origin: BASE }
 }
@@ -107,9 +112,9 @@ async function main() {
   }, 'gateway /health')
   ok('gateway boots')
 
-  // --- Sign in via harvested magic link ------------------------------------
+  // --- Sign in with the code from the gateway log ---------------------------
   const authed = await signIn(EMAIL)
-  expect(authed.Cookie.includes('session_token'), 'magic link yields a session cookie')
+  expect(authed.Cookie.includes('session_token'), 'sign-in code yields a session cookie')
 
   // --- Entitlement gate -----------------------------------------------------
   const unentitled = await fetch(`${BASE}/api/share/publish`, {

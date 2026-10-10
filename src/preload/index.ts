@@ -298,7 +298,7 @@ export interface ElectronAPI {
   // Share service (#768) — result shapes defined in renderer types (ShareOp/ShareEntry/SharePulledComment)
   shareAuthStatus: () => Promise<unknown>
   shareRequestSignIn: (email: string) => Promise<unknown>
-  shareCompleteSignIn: (magicUrl: string) => Promise<unknown>
+  shareCompleteSignIn: (code: string) => Promise<unknown>
   shareSignOut: () => Promise<unknown>
   sharePublish: (args: { title: string; html: string; localPath: string; documentId: string }) => Promise<unknown>
   shareRepublish: (args: { publicationId: string; title: string; html: string }) => Promise<unknown>
@@ -605,7 +605,7 @@ const api: ElectronAPI = {
   // Share service (#768)
   shareAuthStatus: () => ipcRenderer.invoke('share:authStatus'),
   shareRequestSignIn: (email: string) => ipcRenderer.invoke('share:requestSignIn', email),
-  shareCompleteSignIn: (magicUrl: string) => ipcRenderer.invoke('share:completeSignIn', magicUrl),
+  shareCompleteSignIn: (code: string) => ipcRenderer.invoke('share:completeSignIn', code),
   shareSignOut: () => ipcRenderer.invoke('share:signOut'),
   sharePublish: (args: { title: string; html: string; localPath: string; documentId: string }) =>
     ipcRenderer.invoke('share:publish', args),

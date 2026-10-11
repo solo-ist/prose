@@ -19,6 +19,7 @@ import type {
   ElectronAPI
 } from '../types'
 import { getDefaultModel } from '../../shared/llm/models'
+import type { FileAccessOptions } from '../../shared/fileAccess'
 
 const SETTINGS_KEY = 'prose:settings'
 
@@ -85,7 +86,7 @@ export const browserApi: ElectronAPI = {
     })
   },
 
-  saveFile: async (_path: string, content: string): Promise<void> => {
+  saveFile: async (_path: string, content: string, _opts?: FileAccessOptions): Promise<void> => {
     // In browser mode, we can't save to a specific path
     // Fall back to download
     const blob = new Blob([content], { type: 'text/markdown' })
@@ -150,12 +151,12 @@ export const browserApi: ElectronAPI = {
     return fallbackName
   },
 
-  readFile: async (_path: string): Promise<string> => {
+  readFile: async (_path: string, _opts?: FileAccessOptions): Promise<string> => {
     // In browser mode, we can't read arbitrary paths
     throw new Error('Cannot read files by path in browser mode')
   },
 
-  readFileBase64: async (_path: string): Promise<string> => {
+  readFileBase64: async (_path: string, _allowedRoot: string): Promise<string> => {
     // In browser mode, we can't read arbitrary paths
     throw new Error('Cannot read files by path in browser mode')
   },
@@ -386,7 +387,7 @@ export const browserApi: ElectronAPI = {
     window.open(url, '_blank', 'noopener,noreferrer')
   },
 
-  listDirectory: async (_path: string): Promise<import('../types').FileItem[]> => {
+  listDirectory: async (_path: string, _maxDepth?: number, _showDotfiles?: boolean, _opts?: FileAccessOptions): Promise<import('../types').FileItem[]> => {
     // Can't list directories in browser mode
     return []
   },

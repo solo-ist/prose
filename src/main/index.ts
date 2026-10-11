@@ -1,5 +1,5 @@
 import { config } from 'dotenv'
-import { join, normalize, sep } from 'path'
+import { join } from 'path'
 import { writeFileSync, unlinkSync, existsSync, readFileSync } from 'fs'
 import { readFile as readFileAsync } from 'fs/promises'
 import { randomBytes } from 'crypto'
@@ -15,7 +15,7 @@ if (dotenvResult.error) {
 
 // Initialize Sentry early (before app.whenReady) if user has opted in
 import { initSentry, setSentryEnabled } from './sentry'
-import { getUserDataPath, LEGACY_SETTINGS_DIR, seedDevProfile, validatePathConsistency } from './paths'
+import { getUserDataPath, LEGACY_SETTINGS_DIR, seedDevProfile, validatePathConsistency, resolveWithin, IMAGE_EXTENSIONS } from './paths'
 import { migrateFromLegacyDir } from './migrate'
 seedDevProfile()
 try {
@@ -58,9 +58,11 @@ import { setupFileWatcherHandlers, teardownFileWatcher } from './fileWatcher'
 console.log('[Main] Environment loaded. OCR URL:', process.env.REMARKABLE_OCR_URL ? 'set' : 'not set')
 console.log('[Main] Google configured:', process.env.GOOGLE_CLIENT_ID ? 'ID set' : 'ID missing', process.env.GOOGLE_CLIENT_SECRET ? 'Secret set' : 'Secret missing')
 
-// Enable remote debugging in dev mode for QA automation (Circuit Electron, Playwright)
+// Enable remote debugging in dev mode for QA automation (Circuit Electron, Playwright).
+// PROSE_DEBUG_PORT overrides the default so concurrent agent sessions (other
+// worktrees) don't collide on 9222 — a bind failure here kills the app.
 if (is.dev) {
-  app.commandLine.appendSwitch('remote-debugging-port', '9222')
+  app.commandLine.appendSwitch('remote-debugging-port', process.env.PROSE_DEBUG_PORT ?? '9222')
 }
 
 // Write PID file in dev mode for safe process cleanup by Claude Code agents
@@ -396,20 +398,24 @@ app.whenReady().then(async () => {
   protocol.handle('local-file', async (request) => {
     // URL format: local-file:///absolute/path/to/image.png
     const filePath = decodeURIComponent(new URL(request.url).pathname)
-    const normalized = normalize(filePath)
 
-    // Confine to user's home directory to prevent arbitrary filesystem reads
-    const homeDir = homedir()
-    if (!normalized.startsWith(homeDir + sep) && normalized !== homeDir) {
-      return new Response('Access denied: path outside home directory', { status: 403 })
+    // Path source: B — every <img> src in document content (markdown images,
+    // raw local-file: URLs, prose:// deep-link payloads) arrives here. Confine
+    // to the home directory and image extensions on the REAL path: a symlink
+    // inside home must not reach a file outside it (#918, shared helper).
+    let normalized: string
+    try {
+      normalized = await resolveWithin(homedir(), filePath, {
+        extensions: IMAGE_EXTENSIONS,
+        kind: 'image',
+        label: 'the home directory'
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      const status = (err as { code?: string }).code === 'ENOENT' ? 404 : 403
+      return new Response(`Access denied: ${message}`, { status })
     }
-
-    // Only serve image files
     const ext = normalized.split('.').pop()?.toLowerCase() || ''
-    const allowedExts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']
-    if (!allowedExts.includes(ext)) {
-      return new Response('Only image files are allowed', { status: 403 })
-    }
 
     // Map extension to MIME type for the response Content-Type header
     const mimeTypes: Record<string, string> = {

@@ -39,6 +39,9 @@ const FILE_ERROR_MESSAGES: Record<string, string> = {
   EEXIST: 'File already exists',
   ENOTEMPTY: 'Directory is not empty',
   ENOSPC: 'No space left on device',
+  // Raised by resolveWithin() (src/main/paths.ts) for content- or tool-derived paths.
+  EOUTSIDE: 'Path is outside the allowed area (AI file tools can only access text files under your home folder, outside hidden folders)',
+  ENOTALLOWED: 'File type is not allowed here (AI file tools can only access text files)',
 }
 
 /**

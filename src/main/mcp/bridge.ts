@@ -6,6 +6,7 @@
 import type { BrowserWindow } from 'electron'
 import { ipcMain } from 'electron'
 import type { ToolResult } from '../../shared/tools/types'
+import { isMcpToolName } from '../../shared/tools/registry'
 
 interface PendingRequest {
   resolve: (result: ToolResult) => void
@@ -43,6 +44,13 @@ export class McpBridge {
    */
   executeTool(name: string, args: unknown): Promise<ToolResult> {
     return new Promise((resolve, reject) => {
+      // Enforce the MCP allowlist on tools/call, not only tools/list: the
+      // renderer's executeTool() runs any registered tool, so without this an
+      // MCP client could reach read_file / save_file / list_files by name (#918).
+      if (!isMcpToolName(name)) {
+        reject(new Error(`Tool "${name}" is not available over MCP`))
+        return
+      }
       if (!this.window) {
         reject(new Error('No renderer window available'))
         return

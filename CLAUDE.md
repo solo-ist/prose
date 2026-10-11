@@ -368,7 +368,7 @@ Step-by-step recipes for common extension tasks (settings tab, IPC channel, TipT
 
 ## Security Rules
 
-- **Path validation** — every filesystem IPC handler must call `validatePath()` (`src/main/ipc.ts`). Rejects paths containing `..` after normalization.
+- **Path handling** — every filesystem IPC handler declares its **path source** in a comment (`// Path source: A|B|C …`, see `src/main/paths.ts`) and validates accordingly. **A (user-chosen: dialogs, explorer entries, the current tab, settings roots)** → `normalizePath()`. KNOW WHAT IT IS: a normalizer, NOT containment — `normalize()` resolves `..` before the traversal check, so `a/../../etc/x` passes clean. **B (content-derived: document text, image srcs, imported artifacts, `prose://` payloads, LLM/MCP tool arguments, sync metadata)** → `resolveWithin(root, path, …)` with an explicit containment root; it realpaths both sides and applies extension / hidden-folder rules (`file:readBase64` — audit H-03; tool paths use `resolveToolPath()`: text files under home, no dot-folders). **C (a user-chosen directory + a typed name)** → sanitize the name in the renderer with `sanitizeEntryName()` before joining. Never cite `normalizePath()` as a traversal defense. (#918)
 - **API keys** — store via `credentialStore` (OS `safeStorage`), never in plaintext. If `safeStorage` is unavailable, keys are stripped, not saved.
 - **No `innerHTML` with dynamic data** — use JSX or `textContent`. LLM-generated content must never be inserted as raw HTML.
 - **Sandbox settings** — `contextIsolation: true`, `nodeIntegration: false` — never change these.

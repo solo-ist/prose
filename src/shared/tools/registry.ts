@@ -114,6 +114,15 @@ const mcpToolNames = [
 ] as const
 
 /**
+ * Is this tool part of the MCP surface? The MCP servers must check this on
+ * `tools/call`, not just filter `tools/list` — otherwise a client can invoke
+ * the unlisted file tools (`read_file`, `save_file`, `list_files`) by name.
+ */
+export function isMcpToolName(name: string): boolean {
+  return (mcpToolNames as readonly string[]).includes(name)
+}
+
+/**
  * Get tools formatted for MCP server.
  * Returns a focused subset of tools for Claude Desktop integration.
  */

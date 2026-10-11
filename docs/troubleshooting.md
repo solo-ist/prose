@@ -31,6 +31,17 @@ Chromium's embedded LevelDB locks its database files. If a dev server is still r
 
 ---
 
+## Dev Profile and Single-Instance Lock
+
+`npm run dev` uses its own profile, `~/Library/Application Support/Prose Dev` (#971); the installed app uses `Prose`. They have separate settings, tabs, single-instance locks and MCP sockets, so they run side by side, and `open -a Prose file.md` reaches the installed app while dev is running.
+
+- **First dev launch** seeds `Prose Dev` from the shared profile dev used before #971: `settings.json`, `dictionary.json`, `share-sync.json`, the custom dictionary, and `credentials/` (still decryptable, since dev's keychain item is unchanged). Tabs start empty. To re-seed, quit dev and delete `Prose Dev`.
+- **All worktrees share `Prose Dev`** and its lock. A second dev launch quits silently (exit 0, no error) while another is alive, so check for "Renderer signaled ready" after every launch. `lsof +D "$HOME/Library/Application Support/Prose Dev"` names the lock holder.
+- **`PROSE_USER_DATA_DIR`** overrides both, for e2e/QA isolation.
+- **Claude Desktop's MCP** talks to the installed app (`Prose/prose.sock`). Reach dev over CDP on port 9222.
+
+---
+
 ## API Errors
 
 | Error Pattern | Cause | Fix |

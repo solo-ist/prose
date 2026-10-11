@@ -241,7 +241,7 @@ Zustand stores in `src/renderer/stores/`:
 
 `src/renderer/lib/featureFlags.ts` gates features that aren't ready for public release. Flags are persisted in `settings.json` (in `app.getPath('userData')`) under the `featureFlags` key. Each flag has its own default — see below.
 
-To override a flag without rebuilding, add to `~/Library/Application Support/Prose/settings.json` (macOS):
+To override a flag without rebuilding, add to `~/Library/Application Support/Prose/settings.json` (macOS; `Prose Dev/settings.json` for `npm run dev`):
 ```json
 "featureFlags": { "googleDocs": true, "remarkable": false }
 ```
@@ -286,7 +286,7 @@ Tool pipeline, stream lifecycle, and tool modes: see `docs/architecture/llm-pipe
 
 ### Settings
 
-Settings stored at `app.getPath('userData')/settings.json` (`~/Library/Application Support/Prose/` on macOS). All settings path resolution is centralized in `src/main/paths.ts`. Default settings defined in `src/main/ipc.ts`. The `Settings` type in `src/renderer/types/index.ts` is the source of truth for the settings shape.
+Settings stored at `app.getPath('userData')/settings.json` (`~/Library/Application Support/Prose/` on macOS; `npm run dev` uses its own `Prose Dev/` profile, seeded once from `Prose/` — see `docs/troubleshooting.md`). All settings path resolution is centralized in `src/main/paths.ts`. Default settings defined in `src/main/ipc.ts`. The `Settings` type in `src/renderer/types/index.ts` is the source of truth for the settings shape.
 
 Legacy `~/.prose/` data is migrated automatically on first launch via `src/main/migrate.ts` (settings and dictionary only; credentials require re-entry due to safeStorage identity differences).
 

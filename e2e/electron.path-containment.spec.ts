@@ -254,6 +254,8 @@ test('local-file: serves in-home images and refuses symlink escapes and non-imag
 
 test('MCP tools/call refuses tools outside the allowlist', async () => {
   const token = readFileSync(join(userDataDir, 'mcp-auth-token'), 'utf-8').trim()
+  // PROSE_MCP_PORT mirrors the app's override (local runs beside another Prose instance).
+  const mcpPort = process.env.PROSE_MCP_PORT ?? '9877'
 
   type RpcReply =
     | { ok: true; json: Record<string, unknown> }
@@ -267,7 +269,7 @@ test('MCP tools/call refuses tools outside the allowlist', async () => {
     let lastReason = ''
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const response = await fetch('http://127.0.0.1:9877/mcp', {
+        const response = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -290,9 +292,9 @@ test('MCP tools/call refuses tools outside the allowlist', async () => {
   }
 
   const listed = await rpc('tools/list', {})
-  // Another Prose instance owning port 9877 (local dev) → 401 or unreachable: skip.
+  // Another Prose instance owning the MCP port (local dev) → 401 or unreachable: skip.
   test.skip(!listed.ok && (listed.status === 401 || listed.status === undefined),
-    `MCP port 9877 unavailable or held by another Prose instance: ${!listed.ok ? listed.reason : ''}`)
+    `MCP port ${mcpPort} unavailable or held by another Prose instance: ${!listed.ok ? listed.reason : ''}`)
   if (!listed.ok) throw new Error(`tools/list failed: ${listed.status} ${listed.reason}`)
 
   const tools = ((listed.json.result as { tools: Array<{ name: string }> }).tools).map((t) => t.name)

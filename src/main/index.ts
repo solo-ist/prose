@@ -48,7 +48,7 @@ if (process.env.PROSE_USER_DATA_DIR || is.dev) {
 }
 import { setupIpcHandlers } from './ipc'
 import { createMenu } from './menu'
-import { getMcpHttpServer, getMcpBridge, getMcpSocketServer } from './mcp'
+import { getMcpHttpServer, getMcpBridge, getMcpSocketServer, MCP_HTTP_PORT } from './mcp'
 import { initializeSpellcheck, setupContextMenu } from './spellcheck'
 import { initAutoUpdater } from './updater'
 import { IS_MAS_BUILD } from './env'
@@ -487,7 +487,7 @@ app.whenReady().then(async () => {
   // MAS builds use sandbox, which prohibits network.server — skip HTTP server
   const isMAS = IS_MAS_BUILD
   const mcpServer = isMAS ? null : getMcpHttpServer()
-  const MCP_PORT = 9877
+  const MCP_PORT = MCP_HTTP_PORT
   let mcpStarted = false
   if (mcpServer) {
     mcpServer.setAuthToken(mcpAuthToken)

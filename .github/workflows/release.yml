@@ -27,14 +27,127 @@ jobs:
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
 
+      # We build the signing keychain ourselves (#986) instead of handing
+      # electron-builder CSC_LINK. electron-builder runs
+      # `set-key-partition-list -k <CSC_KEY_PASSWORD>`, but -k takes the
+      # KEYCHAIN password; current macos-26 runner images reject that with
+      # "SecKeychainUnlock: The user name or passphrase you entered is not
+      # correct" (v1.7.1, v1.7.2, v1.8.0-beta.1). Retried because runner
+      # keychain services have also been flaky on their own.
+      - name: Import signing certificate
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/prose-signing.keychain-db"
+          CERT="$RUNNER_TEMP/prose-signing.p12"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+
+          # Same CSC_LINK forms electron-builder accepts: https URL,
+          # base64 data URI, or plain base64.
+          case "$CSC_LINK" in
+            https://*) curl -fsSL "$CSC_LINK" -o "$CERT" ;;
+            data:*) printf '%s' "${CSC_LINK#*base64,}" | base64 --decode > "$CERT" ;;
+            *) printf '%s' "$CSC_LINK" | base64 --decode > "$CERT" ;;
+          esac
+
+          import_cert() {
+            security delete-keychain "$KEYCHAIN" 2>/dev/null || true
+            security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN" &&
+            security set-keychain-settings -lut 21600 "$KEYCHAIN" &&
+            security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN" &&
+            security import "$CERT" -k "$KEYCHAIN" -P "$CSC_KEY_PASSWORD" \
+              -T /usr/bin/codesign -T /usr/bin/productbuild &&
+            security set-key-partition-list -S apple-tool:,apple: -s \
+              -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          }
+          for attempt in 1 2 3; do
+            if import_cert; then break; fi
+            if [ "$attempt" = 3 ]; then echo "::error::Keychain import failed 3 times"; exit 1; fi
+            echo "Keychain import failed (attempt $attempt); retrying in 10s"
+            sleep 10
+          done
+          rm -f "$CERT"
+
+          # codesign searches the user keychain list.
+          # (bash 3.2 on macOS runners: no mapfile.)
+          keychains=("$KEYCHAIN")
+          while IFS= read -r line; do
+            line="${line#"${line%%[![:space:]]*}"}"
+            line="${line#\"}"
+            keychains+=("${line%\"}")
+          done < <(security list-keychains -d user)
+          security list-keychains -d user -s "${keychains[@]}"
+          identities=$(security find-identity -v -p codesigning "$KEYCHAIN")
+          grep -q "Developer ID Application" <<< "$identities" ||
+            { echo "::error::No Developer ID Application identity in the imported certificate"; exit 1; }
+          echo "CSC_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
+      # Pre-create the draft so electron-builder (which reuses an existing
+      # draft with this tag) uploads every asset into ONE release. Without
+      # it, the parallel dmg/zip uploads can each create a draft and split
+      # the assets — that broke v1.7.2's updater files on a rerun. Idempotent,
+      # so reruns reuse it too.
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          existing=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            --jq "[.[] | select(.tag_name == \"$TAG\")] | length")
+          if [ "$existing" -gt 0 ]; then
+            echo "Release for $TAG already exists ($existing); reusing it"
+            exit 0
+          fi
+          flags=(--draft --verify-tag --title "Prose $TAG" --notes "")
+          # Pre-release tags (v1.8.0-beta.1, -rc.1) are never offered by the
+          # updater (allowPrerelease = false), so mark them up front.
+          case "$TAG" in *-*) flags+=(--prerelease) ;; esac
+          gh release create "$TAG" "${flags[@]}"
+
       - name: Build, sign, notarize & publish macOS
         run: npx electron-builder --mac --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Code signing
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          # Code signing comes from CSC_KEYCHAIN (set by "Import signing
+          # certificate"); CSC_LINK is deliberately not passed here.
           # Notarization
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      # The updater needs latest-mac.yml and the zip in the SAME release.
+      - name: Verify the draft has every asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          releases=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            --jq "[.[] | select(.tag_name == \"$TAG\")]")
+          count=$(jq length <<< "$releases")
+          if [ "$count" != 1 ]; then
+            echo "::error::Expected exactly one release for $TAG, found $count"
+            exit 1
+          fi
+          assets=$(jq -r '.[0].assets[].name' <<< "$releases")
+          missing=0
+          for name in latest-mac.yml \
+            "Prose-$version-arm64.dmg" "Prose-$version-arm64.dmg.blockmap" \
+            "Prose-$version-arm64-mac.zip" "Prose-$version-arm64-mac.zip.blockmap"; do
+            if ! grep -qxF "$name" <<< "$assets"; then
+              echo "::error::$TAG release is missing $name"
+              missing=1
+            fi
+          done
+          [ "$missing" = 0 ]
+          echo "One release for $TAG with all assets:"
+          echo "$assets"
+
+      - name: Remove signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/prose-signing.keychain-db" 2>/dev/null || true

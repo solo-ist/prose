@@ -7,6 +7,8 @@
  *     prints it to stdout when RESEND_API_KEY is set
  *   - the code signs in once (session cookie), and only for its own email
  *   - wrong guesses burn the code; a newer code replaces an older one
+ *   - with a desktop state nonce, the email carries an "Open in Prose" link
+ *     (code + state in the URL fragment) to a CSP-locked /auth/code page
  *   - unused emailOTP routes and the old magic-link route are gone (404)
  *   - input validation, the per-email cap, and a Resend 500 → 502 mail_failed
  *
@@ -14,6 +16,7 @@
  * Usage:   npm run test:mail
  */
 import { createServer } from 'node:http'
+import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
@@ -183,6 +186,44 @@ async function main() {
   }
   const fresh = await verify(rotated, secondCode)
   expect(fresh.ok && cookieOf(fresh).includes('session_token'), 'the newest code signs in')
+
+  // --- "Open in Prose" link + fallback page ----------------------------------
+  const STATE = 'Zm9vYmFyYmF6cXV4cXV1eDEy'
+  recordedPosts = []
+  const linked = `linked-${stamp}@example.invalid`
+  const linkRes = await fetch(`${BASE}/api/sign-in/code`, {
+    method: 'POST', headers: json, body: JSON.stringify({ email: linked, state: STATE }),
+  })
+  expect(linkRes.status === 200, 'code request with a state accepted', `status ${linkRes.status}`)
+  await waitFor(() => recordedPosts.length >= 1, 'mock Resend receives the linked email', 10000)
+  const linkedText = recordedPosts[0].body.text ?? ''
+  const linkedCode = linkedText.match(/\b(\d{6})\b/)?.[1]
+  const expectedLink = `${BASE}/auth/code#c=${linkedCode}&s=${STATE}`
+  expect(linkedText.includes(expectedLink), 'text body carries the Open in Prose link (code + state in the fragment)', linkedText)
+  expect((recordedPosts[0].body.html ?? '').includes(expectedLink.replace(/&/g, '&amp;')), 'HTML body carries the escaped link')
+
+  recordedPosts = []
+  await fetch(`${BASE}/api/sign-in/code`, {
+    method: 'POST', headers: json, body: JSON.stringify({ email: `nolink-${stamp}@example.invalid`, state: 'bad state!' }),
+  })
+  await waitFor(() => recordedPosts.length >= 1, 'mock Resend receives the unlinked email', 10000)
+  expect(!/\/auth\/code/.test(recordedPosts[0].body.text ?? ''), 'a malformed state gets no link')
+  expect(!/\/auth\/code/.test(post.body.text ?? ''), 'a request without a state gets no link')
+
+  const page = await fetch(`${BASE}/auth/code`)
+  expect(page.status === 200, 'GET /auth/code returns 200', `status ${page.status}`)
+  expect(page.headers.get('cache-control') === 'no-store', 'fallback page is no-store')
+  expect(page.headers.get('referrer-policy') === 'no-referrer', 'fallback page is no-referrer')
+  const pageCsp = page.headers.get('content-security-policy') ?? ''
+  expect(pageCsp.includes("default-src 'none'") && pageCsp.includes("frame-ancestors 'none'"), 'fallback page CSP is locked down', pageCsp)
+  const pageHtml = await page.text()
+  const pageScriptSrc = (pageCsp.match(/script-src ([^;]+)/) ?? [])[1] ?? ''
+  const pageScript = (pageHtml.match(/<script>([\s\S]*?)<\/script>/) ?? [])[1] ?? ''
+  const pageHash = `'sha256-${createHash('sha256').update(pageScript).digest('base64')}'`
+  expect(!pageScriptSrc.includes('unsafe-inline'), "fallback page script-src has no 'unsafe-inline'", pageScriptSrc)
+  expect(pageScript.length > 0 && pageScriptSrc.trim() === pageHash, 'script-src hash matches the served script', pageScriptSrc)
+  expect(!/\son[a-z]+=/i.test(pageHtml), 'fallback page has no inline event-handler attributes')
+  expect(pageScript.includes('prose://auth?code='), 'fallback page hands off to prose://auth')
 
   // --- Closed routes ---------------------------------------------------------
   for (const path of [

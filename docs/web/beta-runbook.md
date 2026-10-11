@@ -70,7 +70,7 @@ To see who has access: `npm run grant -- --list --feature share_publish` (grants
    ```
    Save the file, then relaunch Prose. The beta build already points at the production gateway (`DEFAULT_GATEWAY_URL` = `https://api.prose.solo.ist`), so no `gatewayUrl` setting is needed. A leftover `webPlatform.gatewayUrl` for any host other than `api.prose.solo.ist` or loopback is ignored.
 3. **Sign in.** Open any document. A share icon (◎) appears in the top-right corner. Click it, enter the email address you granted, and press **Send code**. The gateway emails a 6-digit code via Resend.
-4. **Complete sign-in.** Type the code from the email into Prose. It signs in as soon as the sixth digit is entered. Codes last 10 minutes; **Resend code** sends a fresh one.
+4. **Complete sign-in.** Click **Open in Prose** in the email, or type the code into Prose (it signs in as soon as the sixth digit is entered). Codes last 10 minutes; **Resend code** sends a fresh one.
 5. **Publish.** Click **Publish** in the share popover. It works on the first try: the gateway claims the invite into an entitlement on that request. The URL is `https://<label>.share.prose.solo.ist/s/<token>` (or `https://share.prose.solo.ist/s/<token>` if `SHARE_SUBDOMAINS` is not yet set).
 
 The invite matches on the email the invitee signs in with (case-insensitive). If they sign in with a different address, grant that one too.
@@ -207,7 +207,7 @@ Hi — you're one of the first people to try Prose's new sharing feature. Here's
 2. Quit Prose, open `~/Library/Application Support/Prose/settings.json`, and add this entry (merge it into `featureFlags` if that block already exists, and keep the commas valid):
    `"featureFlags": { "webPlatform": true }`
    Then relaunch Prose.
-3. Click the ◎ icon in the top-right corner of any document, enter this email address (the one I sent the invite to), and press **Send code**. Type the 6-digit code from the email into Prose. That's it: the **Publish** button works straight away.
+3. Click the ◎ icon in the top-right corner of any document, enter this email address (the one I sent the invite to), and press **Send code**. Click **Open in Prose** in the email, or type its 6-digit code into Prose. That's it: the **Publish** button works straight away.
 
 **What works:**
 - Publish and share a link to any document.
@@ -239,6 +239,10 @@ Hi — you're one of the first people to try Prose's new sharing feature. Here's
     -d '{"email":"you@example.com"}'
   ```
   `{"ok":true}` means Resend accepted it; anything else names the failure.
+
+### "Open in Prose" does nothing
+
+The button goes to `https://api.prose.solo.ist/auth/code`, which shows the code and asks the browser to open `prose://auth`. Prose accepts that link only from the window that is still waiting for this code. It ignores the link if Prose was quit and reopened, if a newer code was requested, or after 10 minutes. In all those cases, type the code the page shows (or request a new one). Some browsers ask "Open Prose?" first, and dev builds (`npm run dev`) don't register `prose://` at all.
 
 ### "That code isn't right" / "Too many wrong tries"
 

@@ -121,6 +121,12 @@ In development (no `RESEND_API_KEY`) the code is logged to stdout instead
 - Limits: 5 codes per address per hour, plus per-IP caps on both routes
   (`SIGN_IN_CODE_IP_MAX`, `SIGN_IN_VERIFY_IP_MAX`, per 10 minutes). Better
   Auth's own limiter is off because it can't see client IPs behind Render.
+- With the desktop's per-request `state` nonce, the email also has an
+  **Open in Prose** link to `GET /auth/code#c=<code>&s=<state>`. The page
+  (hashed-script CSP) shows the code and opens `prose://auth?code=…&state=…`;
+  the desktop accepts it only while a sign-in with that state is pending
+  (`src/main/share/deepLink.ts`). The fragment keeps both values out of
+  server logs and link-scanner fetches.
 - Every other emailOTP route is disabled (404), including
   `check-verification-otp`, which would reveal whether an account exists.
 

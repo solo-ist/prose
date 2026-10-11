@@ -51,6 +51,13 @@ mac:
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
+  # Sign-in deep link (#970): its own scheme so the App Store build, which
+  # shares the bundle ID, never receives it. electron-builder applies `mac`
+  # protocols to the mas target too; build/afterPack.cjs strips this one there.
+  protocols:
+    - name: Prose Sign-in
+      schemes:
+        - prose-signin
   target:
     - dmg
     - zip

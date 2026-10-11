@@ -6,7 +6,7 @@
  *
  * `state` is a random nonce the desktop generates per request. When present,
  * the email also carries an "Open in Prose" link to GET /auth/code (app.ts),
- * which hands code + state to the app as prose://auth?code=…&state=…. The
+ * which hands code + state to the app as prose-signin://auth?code=…&state=…. The
  * desktop accepts that link only while it is waiting on a sign-in with the
  * same state, so a crafted link can't push a code into a desktop that never
  * asked for one. Both values ride in the URL FRAGMENT, which browsers never

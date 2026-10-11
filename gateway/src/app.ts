@@ -26,7 +26,8 @@ import { prisma } from './db/index.js'
 
 // The sign-in email's "Open in Prose" page (#964). Reads code + state from
 // the URL fragment (never sent to a server), shows the code, and hands both
-// to the app via prose://auth. Strips the fragment from history afterwards.
+// to the app via prose-signin://auth, a scheme only the GitHub desktop build
+// claims (#970). Strips the fragment from history afterwards.
 // Static, so the CSP allows it by hash instead of 'unsafe-inline'; any edit
 // changes the hash automatically. The patterns mirror auth/code.ts and the
 // desktop's parser (src/main/share/deepLink.ts).
@@ -36,7 +37,7 @@ const SIGN_IN_PAGE_SCRIPT =
   "if(!/^\\d{6}$/.test(c)){document.getElementById('missing').hidden=false;return}" +
   "document.getElementById('code').textContent=c;document.getElementById('found').hidden=false;" +
   "if(!/^[A-Za-z0-9_-]{22,64}$/.test(s))return;" +
-  "var u='prose://auth?code='+c+'&state='+s,a=document.getElementById('open');" +
+  "var u='prose-signin://auth?code='+c+'&state='+s,a=document.getElementById('open');" +
   "a.href=u;a.hidden=false;location.href=u})()"
 const SIGN_IN_PAGE_SCRIPT_HASH = `sha256-${createHash('sha256').update(SIGN_IN_PAGE_SCRIPT).digest('base64')}`
 
@@ -202,7 +203,7 @@ export function createApp() {
 
   // "Open in Prose" fallback page (#964). Mail clients often refuse custom
   // schemes in links, so the email links here (https) and this page opens
-  // prose://auth, falling back to showing the code to type.
+  // prose-signin://auth, falling back to showing the code to type.
   app.get(SIGN_IN_LINK_PATH, (c) => {
     const html = `<!DOCTYPE html>
 <html lang="en">

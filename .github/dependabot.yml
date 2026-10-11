@@ -1,0 +1,30 @@
+# Dependabot version updates. Security *alerts* only ever fire on the default
+# branch (main); this file adds scheduled version-update PRs so gateway/ (which
+# lives on web-foundations until the web GA merge, #944/#945) is no longer blind.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      npm_and_yarn:
+        applies-to: security-updates
+        patterns: ["*"]
+    ignore:
+      # TipTap 2→3 is its own migration project (#866) — never a dependency-pass rider.
+      - dependency-name: "@tiptap/*"
+        update-types: ["version-update:semver-major"]
+      # markdown-it 15 requires linkify-it 6 (our override pins <6) and
+      # prosemirror-markdown / tiptap-markdown declare ^14 — PR #961 broke the build on it.
+      - dependency-name: markdown-it
+        versions: [">=15"]
+  - package-ecosystem: npm
+    directory: /gateway
+    target-branch: web-foundations
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

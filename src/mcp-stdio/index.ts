@@ -29,7 +29,9 @@ import * as os from 'os'
 import { spawn } from 'child_process'
 import { getToolsForMCP } from '../shared/tools/registry'
 
-// Platform-aware userData path (must match Electron's app.getPath('userData'))
+// Platform-aware userData path (must match Electron's app.getPath('userData')).
+// Always the installed app's profile: `npm run dev` uses "Prose Dev" (#971),
+// so Claude Desktop keeps talking to the installed app while dev runs.
 function getUserDataPath(): string {
   switch (process.platform) {
     case 'darwin':

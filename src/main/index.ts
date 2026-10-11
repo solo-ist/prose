@@ -15,8 +15,9 @@ if (dotenvResult.error) {
 
 // Initialize Sentry early (before app.whenReady) if user has opted in
 import { initSentry, setSentryEnabled } from './sentry'
-import { getUserDataPath, LEGACY_SETTINGS_DIR, validatePathConsistency } from './paths'
+import { getUserDataPath, LEGACY_SETTINGS_DIR, seedDevProfile, validatePathConsistency } from './paths'
 import { migrateFromLegacyDir } from './migrate'
+seedDevProfile()
 try {
   // Check new path first; fall back to legacy for first post-upgrade launch
   // (migration hasn't run yet — it requires app.whenReady())
@@ -33,15 +34,17 @@ try {
 import { app, shell, BrowserWindow, session, protocol, globalShortcut } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 
-// Test seam: redirect userData (settings, IndexedDB, caches) to an isolated
-// directory so e2e/QA harnesses never touch the real profile. Mirrors the
-// PROSE_USER_DATA_DIR override in paths.ts (which covers the pre-ready Sentry
-// read above). No-op unless the harness sets the env var.
+// Redirect userData (settings, IndexedDB, caches, the single-instance lock)
+// to getUserDataPath() in two cases, mirroring paths.ts (which covers the
+// pre-ready Sentry read above):
+// - PROSE_USER_DATA_DIR: the e2e/QA test seam, an isolated profile.
+// - dev: the "Prose Dev" profile (#971), so dev never shares a profile or a
+//   lock with the installed app.
 // Ordering invariant: hoisted imports (ipc.ts, menu.ts, ...) load before this
 // statement runs, so none of them may call app.getPath('userData') at module
 // top level — only inside handlers/functions that run after this override.
-if (process.env.PROSE_USER_DATA_DIR) {
-  app.setPath('userData', process.env.PROSE_USER_DATA_DIR)
+if (process.env.PROSE_USER_DATA_DIR || is.dev) {
+  app.setPath('userData', getUserDataPath())
 }
 import { setupIpcHandlers } from './ipc'
 import { createMenu } from './menu'

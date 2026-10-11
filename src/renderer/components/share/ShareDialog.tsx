@@ -137,6 +137,19 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
     setAuth({ phase: 'signed-out', codeSentTo: null })
   }
 
+  // Main revokes the session on the gateway (best effort) and always drops
+  // the stored cookie. Existing share links keep working; managing them
+  // needs a sign-in again.
+  const handleSignOut = () =>
+    run('signout', async () => {
+      const res = await getApi().shareSignOut()
+      if (!res.ok) return res.error
+      setEmail('')
+      setCode('')
+      setAuth({ phase: 'signed-out', codeSentTo: null })
+      return null
+    })
+
   const openShareControls = useCallback(() => {
     onOpenChange(false)
     useShareStore.getState().setPopoverOpen(true)
@@ -253,9 +266,17 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
 
         {auth.phase === 'signed-in' && (
           <div className="space-y-3 py-2">
-            <p className="text-xs text-muted-foreground">
-              Signed in{auth.email ? ` as ${auth.email}` : ''}.
-            </p>
+            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+              <p>Signed in{auth.email ? ` as ${auth.email}` : ''}.</p>
+              <button
+                type="button"
+                className="shrink-0 underline-offset-2 hover:underline disabled:opacity-50"
+                onClick={handleSignOut}
+                disabled={busy !== null}
+              >
+                {busy === 'signout' ? 'Signing out…' : 'Sign out'}
+              </button>
+            </div>
 
             {!document.path && (
               <p className="text-sm text-muted-foreground">

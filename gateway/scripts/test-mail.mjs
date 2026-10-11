@@ -223,7 +223,7 @@ async function main() {
   expect(!pageScriptSrc.includes('unsafe-inline'), "fallback page script-src has no 'unsafe-inline'", pageScriptSrc)
   expect(pageScript.length > 0 && pageScriptSrc.trim() === pageHash, 'script-src hash matches the served script', pageScriptSrc)
   expect(!/\son[a-z]+=/i.test(pageHtml), 'fallback page has no inline event-handler attributes')
-  expect(pageScript.includes('prose://auth?code='), 'fallback page hands off to prose://auth')
+  expect(pageScript.includes("'prose-signin://auth?code='") && !pageScript.includes('prose://'), 'fallback page hands off to prose-signin://auth, never prose://')
 
   // --- Closed routes ---------------------------------------------------------
   for (const path of [

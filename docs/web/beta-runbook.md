@@ -242,7 +242,7 @@ Hi — you're one of the first people to try Prose's new sharing feature. Here's
 
 ### "Open in Prose" does nothing
 
-The button goes to `https://api.prose.solo.ist/auth/code`, which shows the code and asks the browser to open `prose://auth`. Prose accepts that link only from the window that is still waiting for this code. It ignores the link if Prose was quit and reopened, if a newer code was requested, or after 10 minutes. In all those cases, type the code the page shows (or request a new one). Some browsers ask "Open Prose?" first, and dev builds (`npm run dev`) don't register `prose://` at all.
+The button goes to `https://api.prose.solo.ist/auth/code`, which shows the code and asks the browser to open `prose-signin://auth`. Only the GitHub (DMG) build registers `prose-signin://`; the App Store build doesn't, so an App Store copy installed alongside the beta never receives the link. Prose accepts that link only from the window that is still waiting for this code. It ignores the link if Prose was quit and reopened, if a newer code was requested, or after 10 minutes. In all those cases, type the code the page shows (or request a new one). Some browsers ask "Open Prose?" first, and dev builds (`npm run dev`) don't register `prose-signin://` at all. If the wrong copy of Prose opens, an old build may still be registered; `lsregister -dump | grep -B30 "prose-signin"` lists the claimants (`lsregister` is in `/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/`), and `lsregister -u <path>` drops one.
 
 ### "That code isn't right" / "Too many wrong tries"
 

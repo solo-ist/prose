@@ -8,8 +8,8 @@
  * Covered contracts, each tied to the finding that motivated it:
  * - code sign-in (#964) submits the email main recorded at request time,
  *   never a renderer value, and captures an ORIGIN-BOUND session (audit M-01)
- * - a prose://auth deep link signs in only while a sign-in with the same
- *   state is pending; otherwise it is dropped with no network I/O (#964)
+ * - a prose-signin://auth deep link signs in only while a sign-in with the same
+ *   state is pending; otherwise it is dropped with no network I/O (#964, #970)
  * - operations refuse a session minted by a different gateway origin, before
  *   any network I/O (audit M-01)
  * - share entries are bound to their minting gateway; a differently-pointed
@@ -412,10 +412,10 @@ test('code sign-in submits the requested email and captures an origin-bound sess
 })
 
 // ---------------------------------------------------------------------------
-// "Open in Prose" deep link (#964): prose://auth?code=…&state=…
+// "Open in Prose" deep link (#964, #970): prose-signin://auth?code=…&state=…
 // ---------------------------------------------------------------------------
 
-/** Deliver a URL the way macOS does when the OS hands Prose a prose:// link. */
+/** Deliver a URL the way macOS does when the OS hands Prose a link for one of its schemes. */
 async function openUrl(url: string): Promise<void> {
   await app.evaluate(({ app: electronApp }, u) => {
     electronApp.emit('open-url', { preventDefault: () => {} }, u)
@@ -433,7 +433,7 @@ const lastState = (): string => {
 
 test('an auth link with no pending sign-in is ignored without network I/O', async () => {
   const before = verifyCalls()
-  await openUrl(`prose://auth?code=${STUB_CODE}&state=${'a'.repeat(22)}`)
+  await openUrl(`prose-signin://auth?code=${STUB_CODE}&state=${'a'.repeat(22)}`)
   await new Promise((r) => setTimeout(r, 500))
   expect(verifyCalls()).toBe(before)
 })
@@ -447,8 +447,10 @@ test('an auth link whose state does not match is ignored', async () => {
 
   const before = verifyCalls()
   const forged = state.slice(0, -1) + (state.endsWith('A') ? 'B' : 'A')
-  await openUrl(`prose://auth?code=${STUB_CODE}&state=${forged}`)
-  await openUrl(`prose://auth?code=12345&state=${state}`) // malformed code
+  await openUrl(`prose-signin://auth?code=${STUB_CODE}&state=${forged}`)
+  await openUrl(`prose-signin://auth?code=12345&state=${state}`) // malformed code
+  // The #964 scheme, which every build (App Store included) claims (#970).
+  await openUrl(`prose://auth?code=${STUB_CODE}&state=${state}`)
   await new Promise((r) => setTimeout(r, 500))
   expect(verifyCalls()).toBe(before)
   const status = await callApi<{ signedIn?: boolean }>('shareAuthStatus')
@@ -458,7 +460,7 @@ test('an auth link whose state does not match is ignored', async () => {
 test('the matching auth link signs in from the main process', async () => {
   // The previous test left this request pending.
   const state = lastState()
-  await openUrl(`prose://auth?code=${STUB_CODE}&state=${state}`)
+  await openUrl(`prose-signin://auth?code=${STUB_CODE}&state=${state}`)
   await expect
     .poll(async () => (await callApi<{ signedIn?: boolean }>('shareAuthStatus')).signedIn)
     .toBe(true)
@@ -469,7 +471,7 @@ test('the matching auth link signs in from the main process', async () => {
 
   // Spent: replaying the same link does nothing.
   const before = verifyCalls()
-  await openUrl(`prose://auth?code=${STUB_CODE}&state=${state}`)
+  await openUrl(`prose-signin://auth?code=${STUB_CODE}&state=${state}`)
   await new Promise((r) => setTimeout(r, 500))
   expect(verifyCalls()).toBe(before)
 })

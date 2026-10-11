@@ -49,7 +49,7 @@ import { getMcpHttpServer, getMcpBridge, getMcpSocketServer } from './mcp'
 import { initializeSpellcheck, setupContextMenu } from './spellcheck'
 import { initAutoUpdater } from './updater'
 import { IS_MAS_BUILD } from './env'
-import { handleAuthDeepLink, isAuthDeepLink } from './share/deepLink'
+import { SIGN_IN_SCHEME, handleAuthDeepLink, isAuthDeepLink } from './share/deepLink'
 import { isQuitting } from './quitState'
 import { setupFileWatcherHandlers, teardownFileWatcher } from './fileWatcher'
 
@@ -383,6 +383,8 @@ app.whenReady().then(async () => {
   // picked up by macOS LaunchServices on first launch.
   if (!is.dev) {
     app.setAsDefaultProtocolClient('prose')
+    // Sign-in links (#970): GitHub builds only, matching electron-builder.yml.
+    if (!IS_MAS_BUILD) app.setAsDefaultProtocolClient(SIGN_IN_SCHEME)
   } else {
     console.log('[main] Skipping prose:// registration in dev mode')
   }

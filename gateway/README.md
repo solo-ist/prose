@@ -123,7 +123,8 @@ In development (no `RESEND_API_KEY`) the code is logged to stdout instead
   Auth's own limiter is off because it can't see client IPs behind Render.
 - With the desktop's per-request `state` nonce, the email also has an
   **Open in Prose** link to `GET /auth/code#c=<code>&s=<state>`. The page
-  (hashed-script CSP) shows the code and opens `prose://auth?code=…&state=…`;
+  (hashed-script CSP) shows the code and opens `prose-signin://auth?code=…&state=…`
+  (a scheme only the GitHub desktop build claims, #970);
   the desktop accepts it only while a sign-in with that state is pending
   (`src/main/share/deepLink.ts`). The fragment keeps both values out of
   server logs and link-scanner fetches.

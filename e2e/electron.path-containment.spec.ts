@@ -255,33 +255,47 @@ test('local-file: serves in-home images and refuses symlink escapes and non-imag
 test('MCP tools/call refuses tools outside the allowlist', async () => {
   const token = readFileSync(join(userDataDir, 'mcp-auth-token'), 'utf-8').trim()
 
+  type RpcReply =
+    | { ok: true; json: Record<string, unknown> }
+    | { ok: false; reason: string; status?: number }
+
   // Stateless Streamable HTTP: one JSON-RPC request per POST; the reply comes
-  // back as an SSE `data:` line (or plain JSON).
-  const rpc = async (method: string, params: unknown): Promise<Record<string, unknown> | null> => {
-    let response: Response
-    try {
-      response = await fetch('http://127.0.0.1:9877/mcp', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json, text/event-stream',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-      })
-    } catch {
-      return null // nothing listening
+  // back as an SSE `data:` line (or plain JSON). `Connection: close` avoids
+  // undici reusing a keep-alive socket the stateless server has already shut,
+  // and a single retry covers the residual race.
+  const rpc = async (method: string, params: unknown): Promise<RpcReply> => {
+    let lastReason = ''
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await fetch('http://127.0.0.1:9877/mcp', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json, text/event-stream',
+            Authorization: `Bearer ${token}`,
+            Connection: 'close',
+          },
+          body: JSON.stringify({ jsonrpc: '2.0', id: attempt + 1, method, params }),
+        })
+        const text = await response.text()
+        if (!response.ok) return { ok: false, reason: text.slice(0, 300), status: response.status }
+        const dataLine = text.split('\n').find((line) => line.startsWith('data:'))
+        return { ok: true, json: JSON.parse(dataLine ? dataLine.slice(5).trim() : text) as Record<string, unknown> }
+      } catch (err) {
+        lastReason = err instanceof Error ? `${err.message}${err.cause ? ` (${String(err.cause)})` : ''}` : String(err)
+        await new Promise((r) => setTimeout(r, 500))
+      }
     }
-    if (response.status === 401) return null // another Prose instance owns the port
-    const text = await response.text()
-    const dataLine = text.split('\n').find((line) => line.startsWith('data:'))
-    return JSON.parse(dataLine ? dataLine.slice(5).trim() : text) as Record<string, unknown>
+    return { ok: false, reason: lastReason }
   }
 
   const listed = await rpc('tools/list', {})
-  test.skip(listed === null, 'MCP port 9877 is held by another Prose instance (or unavailable)')
+  // Another Prose instance owning port 9877 (local dev) → 401 or unreachable: skip.
+  test.skip(!listed.ok && (listed.status === 401 || listed.status === undefined),
+    `MCP port 9877 unavailable or held by another Prose instance: ${!listed.ok ? listed.reason : ''}`)
+  if (!listed.ok) throw new Error(`tools/list failed: ${listed.status} ${listed.reason}`)
 
-  const tools = ((listed!.result as { tools: Array<{ name: string }> }).tools).map((t) => t.name)
+  const tools = ((listed.json.result as { tools: Array<{ name: string }> }).tools).map((t) => t.name)
   expect(tools).toContain('open_file')
   expect(tools).not.toContain('read_file')
   expect(tools).not.toContain('save_file')
@@ -291,7 +305,8 @@ test('MCP tools/call refuses tools outside the allowlist', async () => {
     name: 'read_file',
     arguments: { path: join(homeDir, 'notes', 'a.md') },
   })
-  const result = call!.result as { isError?: boolean; content: unknown }
+  if (!call.ok) throw new Error(`tools/call failed to return: ${call.status ?? 'network'} ${call.reason}`)
+  const result = call.json.result as { isError?: boolean; content: unknown }
   expect(result.isError).toBe(true)
   const body = JSON.stringify(result.content)
   expect(body).toContain('not available over MCP')

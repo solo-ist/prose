@@ -32,6 +32,13 @@ let qaDocsDir: string
 test.beforeAll(async () => {
   qaUserDataDir = mkdtempSync(join(tmpdir(), 'prose-933-'))
   qaDocsDir = mkdtempSync(join(tmpdir(), 'prose-933-docs-'))
+  // The open_file tool is contained to the home folder + user-chosen workspace
+  // roots (#918); name the fixture dir as the default save directory so the
+  // harness can open fixtures from tmpdir.
+  writeFileSync(
+    join(qaUserDataDir, 'settings.json'),
+    JSON.stringify({ defaultSaveDirectory: qaDocsDir }, null, 2),
+  )
 
   const result = await launchApp({
     env: {

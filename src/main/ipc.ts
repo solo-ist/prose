@@ -1,13 +1,14 @@
 import { ipcMain, dialog, app, shell, BrowserWindow, clipboard, nativeImage } from 'electron'
 import { IS_MAS_BUILD } from './env'
 import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat, copyFile } from 'fs/promises'
-import { join, dirname, normalize, isAbsolute } from 'path'
+import { join, basename } from 'path'
 import { randomUUID } from 'crypto'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
 import { withRetry, getNetworkErrorMessage } from '../shared/utils/retry'
 import { getDefaultModel, getDefaultHaikuModel, supportsAdaptiveThinking } from '../shared/llm/models'
-import { getSettingsDir, LEGACY_SETTINGS_DIR } from './paths'
+import { getSettingsDir, LEGACY_SETTINGS_DIR, normalizePath, resolveWithin, resolveToolPath, IMAGE_EXTENSIONS } from './paths'
+import type { FileAccessOptions } from '../shared/fileAccess'
 import { clearRecentFiles } from './recentFiles'
 import { refreshMenu, setReopenClosedTabEnabled } from './menu'
 import { credentialStore } from './credentialStore'
@@ -119,34 +120,13 @@ const ANTHROPIC_KEY_PATH = join(LEGACY_SETTINGS_DIR, '.remarkable-anthropic-key'
 const REMARKABLE_CREDENTIAL_KEY = 'remarkable-anthropic-key'
 
 /**
- * Expand ~ to home directory
+ * Refuse a final path segment that is empty, `.` or `..`. Used on the C-class
+ * handlers (rename, createDirectory) whose last segment is a user-typed name.
  */
-function expandPath(path: string): string {
-  if (path.startsWith('~/')) {
-    return join(homedir(), path.slice(2))
+function assertPlainEntryName(name: string): void {
+  if (!name || name === '.' || name === '..') {
+    throw new Error('Invalid file or folder name')
   }
-  if (path === '~') {
-    return homedir()
-  }
-  return path
-}
-
-/**
- * Validate and sanitize a file path to prevent path traversal attacks.
- * Expands ~ paths and normalizes, then blocks any path containing traversal sequences.
- * Exported so other main-process modules (e.g., fileWatcher) can apply the same gate.
- */
-export function validatePath(inputPath: string): string {
-  const expanded = expandPath(inputPath)
-  const normalized = normalize(expanded)
-
-  // Block traversal sequences after normalization
-  // On Windows, normalize() resolves .. but we check anyway for safety
-  if (normalized.includes('..')) {
-    throw new Error('Path traversal not allowed')
-  }
-
-  return normalized
 }
 
 const defaultSettings: Settings = {
@@ -199,9 +179,14 @@ export function setupIpcHandlers(): void {
   })
 
   // File: Save content to path
-  ipcMain.handle('file:save', async (_event, path: string, content: string): Promise<SaveFileResult> => {
+  // Path source: A (current tab path / quick-save title) → normalizePath().
+  //              B when opts.origin === 'tool' (save_file tool argument, steerable
+  //              by document text) → contained to text files under home (#918).
+  ipcMain.handle('file:save', async (_event, path: string, content: string, opts?: FileAccessOptions): Promise<SaveFileResult> => {
     try {
-      const safePath = validatePath(path)
+      const safePath = opts?.origin === 'tool'
+        ? await resolveToolPath(path, { allowMissing: true })
+        : normalizePath(path)
       await writeFile(safePath, content, 'utf-8')
       return { ok: true }
     } catch (error) {
@@ -210,9 +195,14 @@ export function setupIpcHandlers(): void {
   })
 
   // File: Read file at path
-  ipcMain.handle('file:read', async (_event, path: string): Promise<ReadFileResult> => {
+  // Path source: A (explorer entry, dialog, recents, OS open-file) → normalizePath().
+  //              B when opts.origin === 'tool' (open_file / read_file tool argument)
+  //              → contained to text files under home, no hidden folders (#918).
+  ipcMain.handle('file:read', async (_event, path: string, opts?: FileAccessOptions): Promise<ReadFileResult> => {
     try {
-      const safePath = validatePath(path)
+      const safePath = opts?.origin === 'tool'
+        ? await resolveToolPath(path)
+        : normalizePath(path)
       const content = await readFile(safePath, 'utf-8')
       return { ok: true, content }
     } catch (error) {
@@ -220,10 +210,24 @@ export function setupIpcHandlers(): void {
     }
   })
 
-  // File: Read binary file as base64
-  ipcMain.handle('file:readBase64', async (_event, path: string) => {
-    const safePath = validatePath(path)
-    const buffer = await readFile(safePath)
+  // File: Read an image as base64 for HTML export.
+  // Path source: B — the path is an image src taken from DOCUMENT CONTENT
+  // (`![](../x.png)`, a raw `local-file:` URL, or a prose:// deep-link payload),
+  // so an imported artifact could point it at any readable file and exfiltrate
+  // the bytes through the export (audit H-03). The caller must name the
+  // directory the read is allowed under (the document's folder); the resolved
+  // REAL path must stay inside it and look like an image. Refused reads leave
+  // the original URL in place.
+  ipcMain.handle('file:readBase64', async (_event, path: string, allowedRoot: string) => {
+    if (typeof allowedRoot !== 'string' || !allowedRoot) {
+      throw new Error('readBase64 requires a containment root')
+    }
+    const realPath = await resolveWithin(allowedRoot, path, {
+      extensions: IMAGE_EXTENSIONS,
+      kind: 'image',
+      label: 'the document directory'
+    })
+    const buffer = await readFile(realPath)
     return Buffer.from(buffer).toString('base64')
   })
 
@@ -346,10 +350,13 @@ export function setupIpcHandlers(): void {
   )
 
   // File: Save to folder with filename
+  // Path source: folder A (root / defaultSaveDirectory); filename C (typed) or
+  // B (create_and_open_file tool). Separators are stripped from the filename
+  // below, so the write cannot leave `folder`.
   ipcMain.handle(
     'file:saveToFolder',
     async (_event, folder: string, filename: string, content: string) => {
-      const safeFolder = validatePath(folder)
+      const safeFolder = normalizePath(folder)
       // Preserve known extensions (.md, .markdown, .txt), default to .md
       const hasKnownExt = /\.(md|markdown|txt)$/.test(filename)
       const finalFilename = hasKnownExt ? filename : `${filename}.md`
@@ -365,10 +372,12 @@ export function setupIpcHandlers(): void {
   // Returns { relativePath, localFileUrl } so the editor can display
   // via the local-file:// protocol while markdown uses relative paths.
   // Preserves original filename when available, adding a numeric suffix on conflict.
+  // Path source: documentDir A (dirname of the open document); originalName B
+  // (paste/drop File.name) — sanitized of separators below, so contained.
   ipcMain.handle(
     'file:saveImage',
     async (_event, documentDir: string, base64Data: string, mimeType: string, originalName?: string) => {
-      const safeDir = validatePath(documentDir)
+      const safeDir = normalizePath(documentDir)
       const extMap: Record<string, string> = {
         'image/png': '.png',
         'image/jpeg': '.jpg',
@@ -422,9 +431,11 @@ export function setupIpcHandlers(): void {
   })
 
   // File: Check if file exists
+  // Path source: A/C (the same path a following save/rename will use) — a probe
+  // that only returns a boolean; normalizePath() suffices.
   ipcMain.handle('file:exists', async (_event, path: string) => {
     try {
-      const safePath = validatePath(path)
+      const safePath = normalizePath(path)
       await access(safePath)
       return true
     } catch {
@@ -433,8 +444,9 @@ export function setupIpcHandlers(): void {
   })
 
   // File: Get file stats (timestamps, size)
+  // Path source: A (tab / document path) → normalizePath().
   ipcMain.handle('file:stat', async (_event, path: string) => {
-    const safePath = validatePath(path)
+    const safePath = normalizePath(path)
     const stats = await stat(safePath)
     return {
       createdAt: stats.birthtime.toISOString(),
@@ -444,33 +456,42 @@ export function setupIpcHandlers(): void {
   })
 
   // File: Show in folder (Finder on macOS)
+  // Path source: A (explorer entry / tab) → normalizePath().
   ipcMain.handle('file:showInFolder', async (_event, path: string) => {
-    const safePath = validatePath(path)
+    const safePath = normalizePath(path)
     shell.showItemInFolder(safePath)
   })
 
-  // File: Rename file
+  // File: Rename / move file
+  // Path source: oldPath A (explorer entry); newPath C — `${dir}/${typedName}`
+  // or a drag-move destination. The renderer sanitizes typed names
+  // (sanitizeEntryName), and a drag-move legitimately targets another folder,
+  // so main only refuses a degenerate final segment here.
   ipcMain.handle('file:rename', async (_event, oldPath: string, newPath: string) => {
-    const safeOldPath = validatePath(oldPath)
-    const safeNewPath = validatePath(newPath)
+    const safeOldPath = normalizePath(oldPath)
+    const safeNewPath = normalizePath(newPath)
+    assertPlainEntryName(basename(safeNewPath))
     await rename(safeOldPath, safeNewPath)
   })
 
   // File: Delete file
+  // Path source: A (old path during a quick-save rename) → normalizePath().
   ipcMain.handle('file:delete', async (_event, path: string) => {
-    const safePath = validatePath(path)
+    const safePath = normalizePath(path)
     await unlink(safePath)
   })
 
   // File: Move to trash (recoverable delete)
+  // Path source: A (explorer entry) → normalizePath().
   ipcMain.handle('file:trash', async (_event, path: string) => {
-    const safePath = validatePath(path)
+    const safePath = normalizePath(path)
     await shell.trashItem(safePath)
   })
 
   // File: Duplicate file (returns new path)
+  // Path source: A (explorer entry); the copy name is built here, same directory.
   ipcMain.handle('file:duplicate', async (_event, path: string): Promise<string> => {
-    const safePath = validatePath(path)
+    const safePath = normalizePath(path)
     const dir = safePath.substring(0, safePath.lastIndexOf('/'))
     const ext = safePath.match(/\.[^.]+$/)?.[0] || ''
     const baseName = safePath.substring(safePath.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '')
@@ -504,7 +525,10 @@ export function setupIpcHandlers(): void {
   })
 
   // File: List directory contents (with lazy loading support)
-  ipcMain.handle('file:listDirectory', async (_event, dirPath: string, maxDepth: number = 1, showDotfiles: boolean = false) => {
+  // Path source: A (root / project / expanded folder) → normalizePath().
+  //              B when opts.origin === 'tool' (list_files tool argument) →
+  //              contained to a directory under home, no hidden folders (#918).
+  ipcMain.handle('file:listDirectory', async (_event, dirPath: string, maxDepth: number = 1, showDotfiles: boolean = false, opts?: FileAccessOptions) => {
     interface FileItem {
       name: string
       path: string
@@ -597,14 +621,18 @@ export function setupIpcHandlers(): void {
       }
     }
 
-    // Validate and expand path
-    const safePath = validatePath(dirPath)
+    const safePath = opts?.origin === 'tool'
+      ? await resolveToolPath(dirPath, { allowDirectory: true })
+      : normalizePath(dirPath)
     return listDir(safePath, 0)
   })
 
   // File: Create a new directory (MAS-sandbox-safe via the user-granted parent)
+  // Path source: C — `${targetDir}/${typedName}`; the renderer sanitizes the
+  // typed name (sanitizeEntryName) and main refuses a degenerate final segment.
   ipcMain.handle('file:createDirectory', async (_event, dirPath: string) => {
-    const safePath = validatePath(dirPath)
+    const safePath = normalizePath(dirPath)
+    assertPlainEntryName(basename(safePath))
     await mkdir(safePath, { recursive: true })
     return safePath
   })
@@ -1235,7 +1263,7 @@ export function setupIpcHandlers(): void {
   ipcMain.handle(
     'remarkable:sync',
     async (event, deviceToken: string, syncDirectory: string) => {
-      const safeDir = validatePath(syncDirectory)
+      const safeDir = normalizePath(syncDirectory)
       const { syncAll } = await import('./remarkable/sync')
 
       // Get Anthropic API key - first from credentialStore (LLM key if provider is Anthropic),
@@ -1305,7 +1333,7 @@ export function setupIpcHandlers(): void {
     disconnect()
 
     if (syncDirectory) {
-      const safeDir = validatePath(syncDirectory)
+      const safeDir = normalizePath(syncDirectory)
       const { purgeSync } = await import('./remarkable/sync')
       await purgeSync(safeDir)
     }
@@ -1323,7 +1351,7 @@ export function setupIpcHandlers(): void {
 
   // reMarkable: Get sync metadata (notebook list with status)
   ipcMain.handle('remarkable:getMetadata', async (_event, syncDirectory: string) => {
-    const safeDir = validatePath(syncDirectory)
+    const safeDir = normalizePath(syncDirectory)
     const { getSyncStatus } = await import('./remarkable/sync')
     return await getSyncStatus(safeDir)
   })
@@ -1336,7 +1364,7 @@ export function setupIpcHandlers(): void {
 
   // reMarkable: Get sync state (which notebooks are selected)
   ipcMain.handle('remarkable:getSyncState', async (_event, syncDirectory: string) => {
-    const safeDir = validatePath(syncDirectory)
+    const safeDir = normalizePath(syncDirectory)
     const { getSyncState } = await import('./remarkable/sync')
     return await getSyncState(safeDir)
   })
@@ -1345,7 +1373,7 @@ export function setupIpcHandlers(): void {
   ipcMain.handle(
     'remarkable:updateSyncSelection',
     async (_event, syncDirectory: string, selectedNotebooks: string[]) => {
-      const safeDir = validatePath(syncDirectory)
+      const safeDir = normalizePath(syncDirectory)
       const { updateSyncSelection } = await import('./remarkable/sync')
       await updateSyncSelection(safeDir, selectedNotebooks)
     }
@@ -1371,7 +1399,7 @@ export function setupIpcHandlers(): void {
   ipcMain.handle(
     'remarkable:getOCRPath',
     async (_event, notebookId: string, syncDirectory: string) => {
-      const safeDir = validatePath(syncDirectory)
+      const safeDir = normalizePath(syncDirectory)
       const { getOCRPath } = await import('./remarkable/sync')
       return await getOCRPath(notebookId, safeDir)
     }
@@ -1381,7 +1409,7 @@ export function setupIpcHandlers(): void {
   ipcMain.handle(
     'remarkable:getEditablePath',
     async (_event, notebookId: string, syncDirectory: string) => {
-      const safeDir = validatePath(syncDirectory)
+      const safeDir = normalizePath(syncDirectory)
       const { getEditablePath } = await import('./remarkable/sync')
       return await getEditablePath(notebookId, safeDir)
     }
@@ -1391,7 +1419,7 @@ export function setupIpcHandlers(): void {
   ipcMain.handle(
     'remarkable:createEditableVersion',
     async (_event, notebookId: string, syncDirectory: string) => {
-      const safeDir = validatePath(syncDirectory)
+      const safeDir = normalizePath(syncDirectory)
       const { createEditableVersion } = await import('./remarkable/sync')
       return await createEditableVersion(notebookId, safeDir)
     }
@@ -1401,8 +1429,8 @@ export function setupIpcHandlers(): void {
   ipcMain.handle(
     'remarkable:findNotebookByFilePath',
     async (_event, filePath: string, syncDirectory: string) => {
-      const safePath = validatePath(filePath)
-      const safeDir = validatePath(syncDirectory)
+      const safePath = normalizePath(filePath)
+      const safeDir = normalizePath(syncDirectory)
       const { findNotebookByFilePath } = await import('./remarkable/sync')
       return await findNotebookByFilePath(safePath, safeDir)
     }
@@ -1412,7 +1440,7 @@ export function setupIpcHandlers(): void {
   ipcMain.handle(
     'remarkable:clearNotebookMarkdownPath',
     async (_event, notebookId: string, syncDirectory: string) => {
-      const safeDir = validatePath(syncDirectory)
+      const safeDir = normalizePath(syncDirectory)
       const { clearNotebookMarkdownPath } = await import('./remarkable/sync')
       return await clearNotebookMarkdownPath(notebookId, safeDir)
     }
@@ -1427,7 +1455,7 @@ export function setupIpcHandlers(): void {
         throw new Error('notebookId is required')
       }
       if (notebookId.length > 128) throw new Error('notebookId is too long')
-      const safeDir = validatePath(syncDirectory)
+      const safeDir = normalizePath(syncDirectory)
       const { clearOcrSentinel } = await import('./remarkable/sync')
       return await clearOcrSentinel(notebookId, safeDir)
     }
@@ -1463,7 +1491,7 @@ export function setupIpcHandlers(): void {
     async (_event, notebookId: string, newParentId: string, syncDirectory: string, newHash?: string) => {
       // Match the bounds on the sibling cloud-move handler. These values
       // are metadata keys, not filesystem paths (syncDirectory is what goes
-      // through validatePath), but guarding them here keeps the behavior
+      // through normalizePath), but guarding them here keeps the behavior
       // consistent with remarkable:moveNotebook.
       if (typeof notebookId !== 'string' || !notebookId) {
         throw new Error('notebookId is required')
@@ -1476,7 +1504,7 @@ export function setupIpcHandlers(): void {
         if (typeof newHash !== 'string') throw new Error('newHash must be a string')
         if (newHash.length > 128) throw new Error('newHash is too long')
       }
-      const safeDir = validatePath(syncDirectory)
+      const safeDir = normalizePath(syncDirectory)
       const { updateNotebookParent } = await import('./remarkable/sync')
       return await updateNotebookParent(notebookId, newParentId, safeDir, newHash)
     }
@@ -1574,7 +1602,7 @@ export function setupIpcHandlers(): void {
 
   // Shell: Open a local file in its default app (for non-markdown "Open Externally")
   ipcMain.handle('shell:openPath', async (_event, path: string) => {
-    const safe = validatePath(path)
+    const safe = normalizePath(path)
     return shell.openPath(safe)
   })
 

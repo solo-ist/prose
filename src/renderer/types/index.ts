@@ -1,4 +1,5 @@
 import type { ToolResult } from '../../shared/tools/types'
+import type { FileAccessOptions } from '../../shared/fileAccess'
 
 /**
  * A named project — a root-folder workspace. Think Obsidian vaults or
@@ -520,12 +521,12 @@ export interface TestApiKeyResult {
 
 export interface ElectronAPI {
   openFile: () => Promise<FileResult | null>
-  saveFile: (path: string, content: string) => Promise<void>
+  saveFile: (path: string, content: string, opts?: FileAccessOptions) => Promise<void>
   saveFileAs: (content: string) => Promise<string | null>
   exportTxt: (content: string, defaultFilename?: string) => Promise<string | null>
   exportHtml: (content: string, defaultFilename?: string) => Promise<string | null>
-  readFile: (path: string) => Promise<string>
-  readFileBase64: (path: string) => Promise<string>
+  readFile: (path: string, opts?: FileAccessOptions) => Promise<string>
+  readFileBase64: (path: string, allowedRoot: string) => Promise<string>
   loadSettings: () => Promise<SettingsOnDisk>
   saveSettings: (settings: Settings) => Promise<void>
   testApiKey: (request: TestApiKeyRequest) => Promise<TestApiKeyResult>
@@ -575,7 +576,7 @@ export interface ElectronAPI {
   // External URL opening (for CMD+Click on links)
   openExternal?: (url: string) => Promise<void>
   // Directory listing (with lazy loading support via maxDepth parameter)
-  listDirectory: (path: string, maxDepth?: number, showDotfiles?: boolean) => Promise<FileItem[]>
+  listDirectory: (path: string, maxDepth?: number, showDotfiles?: boolean, opts?: FileAccessOptions) => Promise<FileItem[]>
   // reMarkable sync
   remarkableRegister: (code: string) => Promise<RemarkableRegisterResponse>
   remarkableValidate: (deviceToken: string) => Promise<boolean>

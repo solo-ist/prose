@@ -5,6 +5,8 @@
 
 import type { ToolResult, FileItem } from '../../../../shared/tools/types'
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
+import { TOOL_FILE_ACCESS, type FileAccessOptions } from '../../../../shared/fileAccess'
+import { isFileOperationFailure } from '../../../../shared/fileOperationResult'
 import { useEditorStore } from '../../../stores/editorStore'
 import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
 import { useChatStore, setCurrentDocumentId } from '../../../stores/chatStore'
@@ -22,6 +24,13 @@ import {
 import { useTabStore, generateUntitledTitle } from '../../../stores/tabStore'
 import { useSuggestionStore } from '../../../extensions/ai-suggestions/store'
 import type { ToolProvenance } from '../provenanceTypes'
+
+/** Human-readable text for a thrown value, including structured file-operation failures. */
+function describeError(e: unknown): string {
+  if (isFileOperationFailure(e)) return e.message
+  if (e instanceof Error) return e.message
+  return String(e)
+}
 
 /**
  * Get the Electron API.
@@ -57,9 +66,14 @@ async function waitForEditorDocumentContent(documentId: string, markdown: string
  * Opens in a new tab unless the current tab is an empty untitled document.
  * If the file is already open in a tab, switches to that tab.
  */
-export async function executeOpenFile(args: {
-  path: string
-}): Promise<ToolResult<{ opened: boolean; path: string }>> {
+export async function executeOpenFile(
+  args: { path: string },
+  // Default: the path is a model argument (class B) and main contains it.
+  // create_and_open_file passes `{}` because its path is app-derived from the
+  // user-chosen save folder + a sanitized filename (class C), which may live
+  // outside the home folder (external volume) and must still open.
+  access: FileAccessOptions = TOOL_FILE_ACCESS
+): Promise<ToolResult<{ opened: boolean; path: string }>> {
   const api = getApi()
 
   if (!api) {
@@ -81,7 +95,7 @@ export async function executeOpenFile(args: {
       tabStore.setActiveTab(existingTab.id)
 
       // Load the document into editorStore for the active editor
-      const content = await api.readFile(path)
+      const content = await api.readFile(path, access)
       const isTxt = path.endsWith('.txt')
       const parsed = parseMarkdown(isTxt ? prepareTextContent(content) : content)
       const docId = await generateIdFromPath(path)
@@ -109,8 +123,9 @@ export async function executeOpenFile(args: {
     // Pause annotation position updates during document loading
     useAnnotationStore.getState().setLoadingDocument(true)
 
-    // Read the file
-    const content = await api.readFile(path)
+    // Read the file. TOOL_FILE_ACCESS: the path came from the model, so main
+    // contains it to text files under home, outside hidden folders (#918).
+    const content = await api.readFile(path, access)
     const isTxt = path.endsWith('.txt')
     const parsed = parseMarkdown(isTxt ? prepareTextContent(content) : content)
     const newDocumentId = await generateIdFromPath(path)
@@ -185,7 +200,7 @@ export async function executeOpenFile(args: {
 
     return toolSuccess({ opened: true, path })
   } catch (e) {
-    return toolError(`Failed to open file: ${e}`, 'OPEN_FAILED')
+    return toolError(`Failed to open file: ${describeError(e)}`, 'OPEN_FAILED')
   }
 }
 
@@ -258,7 +273,7 @@ export async function executeNewFile(args: {
       documentId: newDocumentId
     })
   } catch (e) {
-    return toolError(`Failed to create new file: ${e}`, 'CREATE_FAILED')
+    return toolError(`Failed to create new file: ${describeError(e)}`, 'CREATE_FAILED')
   }
 }
 
@@ -281,8 +296,8 @@ export async function executeSaveFile(args: {
     let finalPath: string
 
     if (args.path) {
-      // Save to specified path
-      await api.saveFile(args.path, content)
+      // Save to the model-specified path — contained by main (#918).
+      await api.saveFile(args.path, content, TOOL_FILE_ACCESS)
       finalPath = args.path
     } else if (document.path) {
       // Save to existing path
@@ -336,7 +351,7 @@ export async function executeSaveFile(args: {
 
     return toolSuccess({ saved: true, path: finalPath })
   } catch (e) {
-    return toolError(`Failed to save file: ${e}`, 'SAVE_FAILED')
+    return toolError(`Failed to save file: ${describeError(e)}`, 'SAVE_FAILED')
   }
 }
 
@@ -390,7 +405,7 @@ export async function executeListFiles(args: {
   }
 
   try {
-    const files = await api.listDirectory(path, maxDepth)
+    const files = await api.listDirectory(path, maxDepth, false, TOOL_FILE_ACCESS)
     const flat = flattenFiles(files)
 
     if (flat.length > maxFiles) {
@@ -405,7 +420,7 @@ export async function executeListFiles(args: {
 
     return toolSuccess({ files })
   } catch (e) {
-    return toolError(`Failed to list directory: ${e}`, 'LIST_FAILED')
+    return toolError(`Failed to list directory: ${describeError(e)}`, 'LIST_FAILED')
   }
 }
 
@@ -428,10 +443,10 @@ export async function executeReadFile(args: {
   }
 
   try {
-    const content = await api.readFile(path)
+    const content = await api.readFile(path, TOOL_FILE_ACCESS)
     return toolSuccess({ content, path })
   } catch (e) {
-    return toolError(`Failed to read file: ${e}`, 'READ_FAILED')
+    return toolError(`Failed to read file: ${describeError(e)}`, 'READ_FAILED')
   }
 }
 
@@ -481,8 +496,8 @@ export async function executeCreateAndOpenFile(args: {
     // Create the file
     const fullPath = await api.saveToFolder(targetFolder, attemptFilename, content)
 
-    // Open the newly created file
-    const openResult = await executeOpenFile({ path: fullPath })
+    // Open the newly created file (user-chosen folder, not a model path — see executeOpenFile).
+    const openResult = await executeOpenFile({ path: fullPath }, {})
 
     if (!openResult.success) {
       return toolError(
@@ -518,6 +533,6 @@ export async function executeCreateAndOpenFile(args: {
 
     return toolSuccess({ path: fullPath, opened: true })
   } catch (e) {
-    return toolError(`Failed to create and open file: ${e}`, 'CREATE_FAILED')
+    return toolError(`Failed to create and open file: ${describeError(e)}`, 'CREATE_FAILED')
   }
 }

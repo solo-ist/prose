@@ -21,15 +21,16 @@ import {
 import { getToolsForMCP } from '../../shared/tools/registry'
 import type { ToolResult } from '../../shared/tools/types'
 
-const HTTP_PORT = 9877
+// PROSE_MCP_PORT overrides the default so concurrent agent/QA sessions on one
+// machine don't collide (mirrors PROSE_DEBUG_PORT).
+const HTTP_PORT = Number(process.env.PROSE_MCP_PORT) || 9877
+export const MCP_HTTP_PORT = HTTP_PORT
 
 /**
  * HTTP MCP Server for direct Claude Desktop connection.
  */
 export class McpHttpServer {
   private httpServer: ReturnType<typeof createServer> | null = null
-  private mcpServer: Server | null = null
-  private transport: StreamableHTTPServerTransport | null = null
   private onToolInvoke: ((name: string, args: unknown) => Promise<ToolResult>) | null = null
   private authToken: string | null = null
 
@@ -49,15 +50,18 @@ export class McpHttpServer {
   }
 
   /**
-   * Start the HTTP server.
-   * Requires setAuthToken() to be called first.
+   * Build a fresh MCP Server for ONE request.
+   *
+   * The endpoint runs the Streamable HTTP transport in stateless mode (a new
+   * transport per POST). The SDK's Protocol.connect() throws "Already connected"
+   * when a Server still holds a transport, so a single shared Server only ever
+   * answered the FIRST request — every later tools/list or tools/call threw
+   * inside the request handler and the response was never ended (the client
+   * hung or saw a reset). One Server per request is the documented stateless
+   * pattern and also makes concurrent requests safe.
    */
-  async start(): Promise<void> {
-    if (!this.authToken) {
-      throw new Error('Auth token must be set before starting HTTP server')
-    }
-    // Create MCP server
-    this.mcpServer = new Server(
+  private buildMcpServer(): Server {
+    const server = new Server(
       {
         name: 'Prose',
         version: '1.0.0'
@@ -69,8 +73,7 @@ export class McpHttpServer {
       }
     )
 
-    // Register tool list handler
-    this.mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
+    server.setRequestHandler(ListToolsRequestSchema, async () => {
       const tools = getToolsForMCP()
       return {
         tools: tools.map((tool) => ({
@@ -81,8 +84,7 @@ export class McpHttpServer {
       }
     })
 
-    // Register tool call handler
-    this.mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params
 
       if (!this.onToolInvoke) {
@@ -128,6 +130,17 @@ export class McpHttpServer {
       }
     })
 
+    return server
+  }
+
+  /**
+   * Start the HTTP server.
+   * Requires setAuthToken() to be called first.
+   */
+  async start(): Promise<void> {
+    if (!this.authToken) {
+      throw new Error('Auth token must be set before starting HTTP server')
+    }
     // Create HTTP server
     this.httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
       // Restrict CORS to localhost origins only
@@ -169,17 +182,27 @@ export class McpHttpServer {
 
       // MCP endpoint
       if (url.pathname === '/mcp') {
-        // Create a new transport for each connection
-        // Using stateless mode (no session ID) for simplicity
+        // Stateless mode: a fresh Server + transport per request (see buildMcpServer).
+        const server = this.buildMcpServer()
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: undefined
         })
-
-        // Connect MCP server to transport
-        await this.mcpServer!.connect(transport)
-
-        // Handle the request
-        await transport.handleRequest(req, res)
+        res.on('close', () => {
+          transport.close().catch(() => {})
+          server.close().catch(() => {})
+        })
+        try {
+          await server.connect(transport)
+          await transport.handleRequest(req, res)
+        } catch (err) {
+          console.error('[MCP HTTP] Request failed:', err)
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'MCP request failed' }))
+          } else {
+            res.end()
+          }
+        }
         return
       }
 
@@ -190,7 +213,7 @@ export class McpHttpServer {
           name: 'Prose MCP Server',
           version: '1.0.0',
           endpoint: '/mcp',
-          instructions: 'Add http://localhost:9877/mcp as a Remote MCP server URL in Claude Desktop'
+          instructions: `Add http://localhost:${HTTP_PORT}/mcp as a Remote MCP server URL in Claude Desktop`
         }))
         return
       }
@@ -221,16 +244,6 @@ export class McpHttpServer {
    * Stop the HTTP server.
    */
   async stop(): Promise<void> {
-    if (this.transport) {
-      await this.transport.close()
-      this.transport = null
-    }
-
-    if (this.mcpServer) {
-      await this.mcpServer.close()
-      this.mcpServer = null
-    }
-
     if (this.httpServer) {
       await new Promise<void>((resolve) => {
         this.httpServer!.close(() => resolve())

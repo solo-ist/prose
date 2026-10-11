@@ -16,7 +16,7 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import chokidar from 'chokidar'
 import { basename, isAbsolute, relative } from 'path'
-import { validatePath } from './ipc'
+import { normalizePath } from './paths'
 
 export interface FileWatchEvent {
   // chokidar emits 'unlink' + 'add' for renames rather than a 'rename' event,
@@ -187,7 +187,7 @@ async function stopWatcher(): Promise<void> {
 /**
  * Start watching a new directory. Disposes any existing watcher first.
  * Caller is responsible for path validation; this function takes an already-
- * normalized absolute path (the IPC handler runs validatePath upstream).
+ * normalized absolute path (the IPC handler runs normalizePath upstream).
  */
 async function startWatcher(normalized: string): Promise<void> {
   // No-op if we're already watching this exact directory
@@ -213,11 +213,11 @@ async function startWatcher(normalized: string): Promise<void> {
 export function setupFileWatcherHandlers(): void {
   ipcMain.handle('file:watch:start', async (_event, dirPath: string) => {
     if (!dirPath || typeof dirPath !== 'string') return
-    // Project security rule: every filesystem IPC handler must validatePath().
-    // Expands ~ and blocks traversal sequences in one shared helper.
+    // Path source: A (the explorer root the user picked) → normalizePath(),
+    // which expands ~ and normalizes; it is not containment (see paths.ts).
     let normalized: string
     try {
-      normalized = validatePath(dirPath)
+      normalized = normalizePath(dirPath)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       console.warn('[FileWatcher] Rejected path:', dirPath, '—', message)
@@ -236,7 +236,7 @@ export function setupFileWatcherHandlers(): void {
     for (const folderPath of folderPaths) {
       if (!folderPath || typeof folderPath !== 'string') continue
       try {
-        normalizedPaths.push(validatePath(folderPath))
+        normalizedPaths.push(normalizePath(folderPath))
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         console.warn('[FileWatcher] Rejected expanded folder path:', folderPath, '—', message)

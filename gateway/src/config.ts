@@ -40,8 +40,13 @@ const EnvSchema = z.object({
   // writes without loosening the production default.
   SHARE_PUBLIC_WRITE_MAX: z.coerce.number().int().positive().default(10),
 
+  // Sign-in (#964): code emails per IP per 10 minutes, and code checks per IP
+  // per 10 minutes. Env-configurable for the same reason as above.
+  SIGN_IN_CODE_IP_MAX: z.coerce.number().int().positive().default(10),
+  SIGN_IN_VERIFY_IP_MAX: z.coerce.number().int().positive().default(30),
+
   // Email delivery (#813): Resend API key. Required in production; when unset
-  // in development the gateway logs the link to stdout (dev only).
+  // in development the gateway logs the sign-in code to stdout (dev only).
   RESEND_API_KEY: z.string().optional(),
 
   // Friendly sender address, e.g. "Prose <signin@prose.solo.ist>".

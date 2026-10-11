@@ -1775,12 +1775,12 @@ export function setupIpcHandlers(): void {
     return share.requestSignIn(String(email ?? ''))
   })
 
-  ipcMain.handle('share:completeSignIn', async (_event, magicUrl: string) => {
+  ipcMain.handle('share:completeSignIn', async (_event, code: string) => {
     if (IS_MAS_BUILD) {
       return { ok: false, error: 'Sharing is not available in the Mac App Store version.' }
     }
     const share = await import('./share/index')
-    return share.completeSignIn(String(magicUrl ?? ''))
+    return share.completeSignIn(String(code ?? ''))
   })
 
   ipcMain.handle('share:signOut', async () => {

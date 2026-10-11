@@ -1,20 +1,23 @@
 /**
- * test-mail.mjs — integration test for magic-link email delivery (#813).
+ * test-mail.mjs — integration test for sign-in code delivery (#964, #813).
  *
  * Spins up a tiny mock Resend HTTP server and a gateway instance configured
- * to hit it, then exercises the full magic-link sign-in flow:
- *   - mock Resend receives exactly one POST /emails with the right fields
- *   - the landing page (GET /auth/link) returns 200 HTML without consuming the token
- *   - the verify URL rebuilt from the landing URL issues a session cookie
- *   - the raw verify URL is NOT printed to stdout when RESEND_API_KEY is set
- *   - a mock 500 from Resend makes the sign-in request fail (not silently succeed)
+ * to hit it, then exercises the code sign-in flow:
+ *   - POST /api/sign-in/code mails exactly one code via Resend, and never
+ *     prints it to stdout when RESEND_API_KEY is set
+ *   - the code signs in once (session cookie), and only for its own email
+ *   - wrong guesses burn the code; a newer code replaces an older one
+ *   - with a desktop state nonce, the email carries an "Open in Prose" link
+ *     (code + state in the URL fragment) to a CSP-locked /auth/code page
+ *   - unused emailOTP routes and the old magic-link route are gone (404)
+ *   - input validation, the per-email cap, and a Resend 500 → 502 mail_failed
  *
  * Prereqs: `npm run dev:db` (Postgres on :5433) + migrations applied.
  * Usage:   npm run test:mail
  */
-import { createServer, request as httpRequest } from 'node:http'
+import { createServer } from 'node:http'
 import { createHash } from 'node:crypto'
-import { spawn, execFileSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -72,6 +75,9 @@ const gw = spawn('npx', ['tsx', 'src/index.ts'], {
     RESEND_API_KEY: 'test-key',
     RESEND_API_URL: `http://127.0.0.1:${mockPort}`,
     MAIL_FROM,
+    // One IP makes every request here; the per-email cap is what's under test.
+    SIGN_IN_CODE_IP_MAX: '100',
+    SIGN_IN_VERIFY_IP_MAX: '100',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
@@ -82,19 +88,6 @@ const kill = () => {
   mockServer.close()
 }
 process.on('exit', kill)
-
-/** GET with arbitrary headers (fetch forbids overriding Host). */
-function rawGet(url, headers) {
-  return new Promise((resolve, reject) => {
-    const req = httpRequest(url, { headers }, (res) => {
-      let body = ''
-      res.on('data', (d) => { body += d })
-      res.on('end', () => resolve({ status: res.statusCode, body }))
-    })
-    req.on('error', reject)
-    req.end()
-  })
-}
 
 async function waitFor(predicate, label, timeoutMs = 20000) {
   const start = Date.now()
@@ -115,125 +108,163 @@ async function main() {
   }, 'gateway /health')
   ok('gateway boots with RESEND_API_KEY set')
 
-  // Seed the database and share_publish entitlement so the test can exercise
-  // the full sign-in flow without replicating every step of test-share.
-  // First: request a magic link with RESEND_API_KEY active — it must NOT print
-  // the raw verify URL to stdout, and must POST to the mock Resend server.
+  const json = { 'Content-Type': 'application/json', Origin: BASE }
+  const stamp = Date.now()
+
+  // Request a code and return the 6 digits from the mocked email.
+  async function requestCode(email) {
+    const before = recordedPosts.length
+    const res = await fetch(`${BASE}/api/sign-in/code`, {
+      method: 'POST', headers: json, body: JSON.stringify({ email }),
+    })
+    if (res.status !== 200) throw new Error(`code request for ${email}: status ${res.status}`)
+    await waitFor(() => recordedPosts.length > before, `mock Resend receives the code for ${email}`, 10000)
+    const code = (recordedPosts.at(-1).body.text ?? '').match(/\b(\d{6})\b/)?.[1]
+    if (!code) throw new Error(`no code in the email to ${email}`)
+    return code
+  }
+  const verify = (email, otp) =>
+    fetch(`${BASE}/api/auth/sign-in/email-otp`, {
+      method: 'POST', headers: json, body: JSON.stringify({ email, otp }),
+    })
+  const cookieOf = (res) => (res.headers.getSetCookie?.() ?? []).map((c) => c.split(';')[0]).join('; ')
+  const errCode = async (res) => { try { return (await res.json()).code } catch { return undefined } }
+  const wrong = (code) => String((Number(code) + 1) % 1_000_000).padStart(6, '0')
+
+  // --- Delivery ------------------------------------------------------------
   recordedPosts = []
-  const mlRes = await fetch(`${BASE}/api/auth/sign-in/magic-link`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Origin: BASE },
-    body: JSON.stringify({ email: EMAIL, callbackURL: '/health' }),
-  })
-  expect(mlRes.ok, 'magic-link request accepted', `status ${mlRes.status}`)
-
-  // Wait for the mock to receive the POST (the gateway calls it async but
-  // before the HTTP response returns — give it a small window anyway).
-  await waitFor(() => recordedPosts.length >= 1, 'mock Resend receives POST', 10000)
-
-  // --- Assert the raw verify URL was NOT logged to stdout --------------------
-  const stdoutHasRawLink = /Magic link for [^\n]*\n\s*http\S+/.test(gatewayLog)
-  expect(!stdoutHasRawLink, 'raw verify URL NOT printed to stdout when RESEND_API_KEY is set')
-
-  // --- Assert mock received exactly one POST with the right fields -----------
+  const code = await requestCode(EMAIL)
+  ok('code request accepted and mailed')
+  expect(!/Sign-in code for/.test(gatewayLog), 'code NOT printed to stdout when RESEND_API_KEY is set')
   expect(recordedPosts.length === 1, 'exactly one POST to Resend', `got ${recordedPosts.length}`)
   const post = recordedPosts[0]
   expect(post.auth === 'Bearer test-key', 'Authorization header is Bearer test-key', post.auth)
   expect(post.body.from === MAIL_FROM, 'from matches MAIL_FROM', post.body.from)
   expect(Array.isArray(post.body.to) && post.body.to[0] === EMAIL, 'to matches the email', JSON.stringify(post.body.to))
-  expect(
-    typeof post.body.subject === 'string' && post.body.subject.toLowerCase().includes('sign'),
-    'subject is sign-in-related',
-    post.body.subject,
-  )
-  const bodyHtml = post.body.html ?? ''
-  const bodyText = post.body.text ?? ''
-  const landingPathRe = /\/auth\/link\?/
-  expect(landingPathRe.test(bodyHtml) || landingPathRe.test(bodyText), 'email body contains the landing URL')
+  expect(post.body.subject?.includes(code), 'subject carries the code', post.body.subject)
+  expect(post.body.html?.includes(code), 'HTML body carries the code')
+  expect(/expires in 10 minutes/.test(post.body.text ?? ''), 'text body states the expiry')
 
-  // Extract the landing URL from the email body text for the next assertions.
-  const urlMatch = bodyText.match(/(http\S+\/auth\/link\S+)/)
-  if (!urlMatch) {
-    fail('landing URL extractable from email body text', 'no match')
-    throw new Error('Cannot continue without landing URL')
+  // --- Sign-in -------------------------------------------------------------
+  const signedIn = await verify(EMAIL, code)
+  const cookie = cookieOf(signedIn)
+  expect(signedIn.ok && cookie.includes('session_token'), 'code signs in with a session cookie', `status ${signedIn.status}`)
+  const session = await (await fetch(`${BASE}/api/auth/get-session`, { headers: { Cookie: cookie } })).json()
+  expect(session?.user?.email === EMAIL, 'session belongs to the requested email', session?.user?.email)
+  const reused = await verify(EMAIL, code)
+  expect(!reused.ok && !cookieOf(reused).includes('session_token'), 'a code works only once', `status ${reused.status}`)
+
+  // Login-CSRF property: a code is bound to the address it was sent to, so an
+  // attacker's code can't sign a victim's desktop into the attacker's account.
+  const attacker = `attacker-${stamp}@example.invalid`
+  const victim = `victim-${stamp}@example.invalid`
+  const attackerCode = await requestCode(attacker)
+  const crossed = await verify(victim, attackerCode)
+  expect(!crossed.ok && !cookieOf(crossed).includes('session_token'), "another address's code is rejected", `status ${crossed.status}`)
+
+  // --- Guessing --------------------------------------------------------------
+  const guessed = `guessed-${stamp}@example.invalid`
+  const guessedCode = await requestCode(guessed)
+  let wrongAll400 = true
+  for (let i = 0; i < 5; i++) {
+    const r = await verify(guessed, wrong(guessedCode))
+    if (r.status !== 400 || (await errCode(r)) !== 'INVALID_OTP') wrongAll400 = false
   }
-  const landingUrl = urlMatch[1].trim()
-  ok(`landing URL extracted: ${landingUrl}`)
+  expect(wrongAll400, 'wrong codes are rejected with INVALID_OTP')
+  const afterLockout = await verify(guessed, guessedCode)
+  expect(!afterLockout.ok, 'after 5 wrong tries even the right code fails', `status ${afterLockout.status}`)
+  expect(['TOO_MANY_ATTEMPTS', 'INVALID_OTP'].includes(await errCode(afterLockout)), 'lockout reports a code error')
 
-  // --- GET the landing page: must return 200 HTML, token NOT consumed --------
-  const landingRes = await fetch(landingUrl)
-  expect(landingRes.status === 200, 'GET /auth/link returns 200', `status ${landingRes.status}`)
-  expect(
-    (landingRes.headers.get('content-type') ?? '').includes('text/html'),
-    'landing page is HTML',
-    landingRes.headers.get('content-type'),
-  )
-  expect(landingRes.headers.get('cache-control') === 'no-store', 'landing page is no-store')
-  const csp = landingRes.headers.get('content-security-policy') ?? ''
-  expect(csp.includes("default-src 'none'"), "landing page CSP has default-src 'none'", csp)
-  expect(csp.includes("frame-ancestors 'none'"), "landing page CSP denies framing", csp)
-  const landingHtml = await landingRes.text()
-  // The Copy script is allowed by hash, never by 'unsafe-inline', and the hash
-  // must match the script actually served.
-  const scriptSrc = (csp.match(/script-src ([^;]+)/) ?? [])[1] ?? ''
-  expect(!scriptSrc.includes('unsafe-inline'), "landing page script-src has no 'unsafe-inline'", scriptSrc)
-  const inlineScript = (landingHtml.match(/<script>([\s\S]*?)<\/script>/) ?? [])[1] ?? ''
-  const servedHash = `'sha256-${createHash('sha256').update(inlineScript).digest('base64')}'`
-  expect(inlineScript.length > 0 && scriptSrc.trim() === servedHash, 'script-src hash matches the served Copy script', scriptSrc)
-  expect(!/\son[a-z]+=/i.test(landingHtml), 'landing page has no inline event-handler attributes')
+  const rotated = `rotated-${stamp}@example.invalid`
+  const firstCode = await requestCode(rotated)
+  const secondCode = await requestCode(rotated)
+  if (firstCode !== secondCode) {
+    const stale = await verify(rotated, firstCode)
+    expect(!stale.ok, 'a newer code replaces the older one', `status ${stale.status}`)
+  } else {
+    ok('a newer code replaces the older one (codes collided; skipped)')
+  }
+  const fresh = await verify(rotated, secondCode)
+  expect(fresh.ok && cookieOf(fresh).includes('session_token'), 'the newest code signs in')
 
-  // Behind Render's TLS-terminating proxy the request arrives as plain http
-  // with the public Host. The copy field must still show BETTER_AUTH_URL's
-  // origin, or the desktop's same-gateway check refuses the pasted link.
-  const proxied = await rawGet(landingUrl, { Host: 'internal-host:10000', 'X-Forwarded-Proto': 'https' })
-  const proxiedValue = ((proxied.body.match(/value="([^"]*)"/) ?? [])[1] ?? '').replace(/&amp;/g, '&')
-  expect(proxied.status === 200, 'landing page answers a proxied request', `status ${proxied.status}`)
-  expect(proxiedValue.startsWith(`${BASE}/auth/link?`), 'copy field uses BETTER_AUTH_URL origin, not the request Host', proxiedValue.slice(0, 60))
-  // The URL is HTML-escaped before embedding: & between params becomes &amp;.
-  // Check that the value attribute holds the escaped form, not the raw URL.
-  const escapedLandingUrl = landingUrl.replace(/&/g, '&amp;')
-  expect(landingHtml.includes(escapedLandingUrl), 'landing page displays the HTML-escaped URL in the input value', landingUrl.slice(0, 60))
-  expect(landingHtml.toLowerCase().includes('copy'), 'landing page has a copy affordance')
-
-  // --- XSS: & between query params must be &amp; in the HTML attribute ------
-  // (Token values arrive percent-encoded via URL parsing, so the key escaping
-  // concern is the & separator between params, not the token content itself.)
-  expect(landingHtml.includes('&amp;callbackURL'), 'ampersand between query params is &amp; in the HTML (not raw &)')
-  // Double-check: raw unescaped & does not appear inside an attribute value
-  // (the input value= attribute). We look for the specific pattern.
-  const inputValueMatch = landingHtml.match(/value="([^"]*)"/)
-  expect(
-    !!inputValueMatch && !inputValueMatch[1].includes('&callbackURL'),
-    'no bare & in the input value attribute',
-    inputValueMatch?.[1]?.slice(0, 80),
-  )
-
-  // The token was NOT consumed: verify URL built from the landing URL must
-  // still issue a session cookie.
-  const u = new URL(landingUrl)
-  const verifyUrl = new URL('/api/auth/magic-link/verify', u.origin)
-  const token = u.searchParams.get('token')
-  const callbackURL = u.searchParams.get('callbackURL')
-  if (token) verifyUrl.searchParams.set('token', token)
-  if (callbackURL) verifyUrl.searchParams.set('callbackURL', callbackURL)
-
-  const verifyRes = await fetch(verifyUrl.toString(), { redirect: 'manual' })
-  const setCookies = verifyRes.headers.getSetCookie?.() ?? []
-  const cookie = setCookies.map((c) => c.split(';')[0]).join('; ')
-  expect(cookie.includes('session_token'), 'verify URL rebuilt from landing URL issues a session cookie')
-  ok('token NOT consumed by landing page GET (verify succeeded after the GET)')
-
-  // --- Mock 500 → sign-in request must fail (not silently succeed) -----------
-  forceStatus = 500
+  // --- "Open in Prose" link + fallback page ----------------------------------
+  const STATE = 'Zm9vYmFyYmF6cXV4cXV1eDEy'
   recordedPosts = []
-  const fail500Res = await fetch(`${BASE}/api/auth/sign-in/magic-link`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Origin: BASE },
-    body: JSON.stringify({ email: `fail500-${Date.now()}@example.invalid`, callbackURL: '/health' }),
+  const linked = `linked-${stamp}@example.invalid`
+  const linkRes = await fetch(`${BASE}/api/sign-in/code`, {
+    method: 'POST', headers: json, body: JSON.stringify({ email: linked, state: STATE }),
   })
-  expect(!fail500Res.ok, 'sign-in request fails when Resend returns 500', `status ${fail500Res.status}`)
-  ok('mock 500 causes non-2xx sign-in response (not silent success)')
-  forceStatus = 200  // reset
+  expect(linkRes.status === 200, 'code request with a state accepted', `status ${linkRes.status}`)
+  await waitFor(() => recordedPosts.length >= 1, 'mock Resend receives the linked email', 10000)
+  const linkedText = recordedPosts[0].body.text ?? ''
+  const linkedCode = linkedText.match(/\b(\d{6})\b/)?.[1]
+  const expectedLink = `${BASE}/auth/code#c=${linkedCode}&s=${STATE}`
+  expect(linkedText.includes(expectedLink), 'text body carries the Open in Prose link (code + state in the fragment)', linkedText)
+  expect((recordedPosts[0].body.html ?? '').includes(expectedLink.replace(/&/g, '&amp;')), 'HTML body carries the escaped link')
+
+  recordedPosts = []
+  await fetch(`${BASE}/api/sign-in/code`, {
+    method: 'POST', headers: json, body: JSON.stringify({ email: `nolink-${stamp}@example.invalid`, state: 'bad state!' }),
+  })
+  await waitFor(() => recordedPosts.length >= 1, 'mock Resend receives the unlinked email', 10000)
+  expect(!/\/auth\/code/.test(recordedPosts[0].body.text ?? ''), 'a malformed state gets no link')
+  expect(!/\/auth\/code/.test(post.body.text ?? ''), 'a request without a state gets no link')
+
+  const page = await fetch(`${BASE}/auth/code`)
+  expect(page.status === 200, 'GET /auth/code returns 200', `status ${page.status}`)
+  expect(page.headers.get('cache-control') === 'no-store', 'fallback page is no-store')
+  expect(page.headers.get('referrer-policy') === 'no-referrer', 'fallback page is no-referrer')
+  const pageCsp = page.headers.get('content-security-policy') ?? ''
+  expect(pageCsp.includes("default-src 'none'") && pageCsp.includes("frame-ancestors 'none'"), 'fallback page CSP is locked down', pageCsp)
+  const pageHtml = await page.text()
+  const pageScriptSrc = (pageCsp.match(/script-src ([^;]+)/) ?? [])[1] ?? ''
+  const pageScript = (pageHtml.match(/<script>([\s\S]*?)<\/script>/) ?? [])[1] ?? ''
+  const pageHash = `'sha256-${createHash('sha256').update(pageScript).digest('base64')}'`
+  expect(!pageScriptSrc.includes('unsafe-inline'), "fallback page script-src has no 'unsafe-inline'", pageScriptSrc)
+  expect(pageScript.length > 0 && pageScriptSrc.trim() === pageHash, 'script-src hash matches the served script', pageScriptSrc)
+  expect(!/\son[a-z]+=/i.test(pageHtml), 'fallback page has no inline event-handler attributes')
+  expect(pageScript.includes('prose://auth?code='), 'fallback page hands off to prose://auth')
+
+  // --- Closed routes ---------------------------------------------------------
+  for (const path of [
+    '/api/auth/email-otp/send-verification-otp',
+    '/api/auth/email-otp/check-verification-otp',
+    '/api/auth/email-otp/verify-email',
+    '/api/auth/sign-in/magic-link',
+  ]) {
+    const r = await fetch(`${BASE}${path}`, {
+      method: 'POST', headers: json, body: JSON.stringify({ email: EMAIL, type: 'sign-in', otp: '000000' }),
+    })
+    expect(r.status === 404, `${path} is closed (404)`, `status ${r.status}`)
+  }
+  expect((await fetch(`${BASE}/auth/link?token=x`)).status === 404, 'old magic-link landing page is gone (404)')
+
+  // --- Validation and limits -------------------------------------------------
+  const badEmail = await fetch(`${BASE}/api/sign-in/code`, {
+    method: 'POST', headers: json, body: JSON.stringify({ email: 'not-an-email' }),
+  })
+  expect(badEmail.status === 400, 'malformed email → 400', `status ${badEmail.status}`)
+  const formPost = await fetch(`${BASE}/api/sign-in/code`, {
+    method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ email: EMAIL }),
+  })
+  expect(formPost.status === 415, 'non-JSON body → 415 (forces a CORS preflight)', `status ${formPost.status}`)
+
+  const capped = `capped-${stamp}@example.invalid`
+  for (let i = 0; i < 5; i++) await requestCode(capped)
+  const sixth = await fetch(`${BASE}/api/sign-in/code`, {
+    method: 'POST', headers: json, body: JSON.stringify({ email: capped.toUpperCase() }),
+  })
+  expect(sixth.status === 429, 'sixth code for one address within the hour → 429', `status ${sixth.status}`)
+  expect((await sixth.json()).error === 'too_many_codes', '429 body is too_many_codes')
+
+  // --- Mock 500 → the request fails visibly -----------------------------------
+  forceStatus = 500
+  const fail500 = await fetch(`${BASE}/api/sign-in/code`, {
+    method: 'POST', headers: json, body: JSON.stringify({ email: `fail500-${stamp}@example.invalid` }),
+  })
+  expect(fail500.status === 502, 'Resend 500 → 502', `status ${fail500.status}`)
+  expect((await fail500.json()).error === 'mail_failed', '502 body is mail_failed (not silent success)')
+  forceStatus = 200
 
   // --- Report -----------------------------------------------------------------
   console.log(`\n${passed} passed, ${failed} failed`)

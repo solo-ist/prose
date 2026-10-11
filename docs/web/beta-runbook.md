@@ -11,8 +11,9 @@ The share service lets a desktop Prose user publish a document as a self-contain
 
 Key constraints for the beta:
 
-- **Invite-only.** Publishing requires the `share_publish` entitlement, hand-granted by the operator after each invitee signs in for the first time.
-- **Desktop only.** The share surface lives behind the `webPlatform` feature flag, which is off by default. Invitees must enable it manually (see §3).
+- **Invite-only.** Publishing requires the `share_publish` entitlement. The operator grants it by email **before** sending the invite; it is claimed the first time the invitee publishes (#965).
+- **Beta build only.** Sharing ships in the `v1.8.0-beta.*` pre-releases built from `web-foundations`; the public releases (from `main`) don't contain it. Invitees install the beta DMG from its GitHub pre-release. The app's updater ignores pre-releases (`allowPrerelease = false`), so nobody on a stable release is moved onto the beta.
+- **Desktop only, behind a flag.** The share surface lives behind the `webPlatform` feature flag, which is off by default. Invitees enable it by hand (see §3).
 - **MAS excluded.** `webPlatform` is force-off in Mac App Store builds regardless of settings.
 - **Reviewers need nothing.** Anyone with the link can read the artifact and leave comments. No account, no flag.
 
@@ -32,7 +33,7 @@ All values below must be set in the Render dashboard under **prose-gateway → E
 | `BETTER_AUTH_SECRET` | Signs session tokens; must be 32+ random bytes | Generate: `openssl rand -base64 32` |
 | `ANTHROPIC_API_KEY` | The gateway's Anthropic key for the LLM proxy | Required even if the proxy is unused during the beta |
 | `SHARE_BASE_URL` | The dedicated share origin (origin isolation, #902) | `https://share.prose.solo.ist` — **must differ from `BETTER_AUTH_URL`** |
-| `RESEND_API_KEY` | Delivers magic-link emails via Resend | Obtain from resend.com; sender domain must be verified (SPF + DKIM) |
+| `RESEND_API_KEY` | Delivers sign-in code emails via Resend | Obtain from resend.com; sender domain must be verified (SPF + DKIM) |
 | `MAIL_FROM` | The `From` address on outbound emails | Must be on a Resend-verified domain, e.g. `prose@prose.solo.ist` |
 | `R2_ACCOUNT_ID` | Cloudflare account ID for artifact storage | Required for `storage: 'r2'` |
 | `R2_ACCESS_KEY_ID` | R2 API token key ID | Required for R2 |
@@ -51,39 +52,28 @@ The gateway validates all required vars at boot and exits non-zero with a clear 
 ### What you do (operator)
 
 1. Confirm the Render service is healthy: `curl https://api.prose.solo.ist/health` should return `{"ok":true,"service":"prose-gateway"}`.
-2. Send the invitee their invitation (see §6 for suggested copy).
+2. **Grant by email, before sending anything.** The invitee doesn't need an account yet. Run the grant as a Render one-off job (or in a Render Shell) on the `prose-gateway` service; one command covers a whole wave:
+   ```bash
+   npm run grant -- --email a@example.com,b@example.com --feature share_publish --by beta
+   ```
+   Each email prints `invited` (no account yet; claimed on their first publish) or `granted` (account exists). It's idempotent, so re-running is safe. Optional flags: `--expires YYYY-MM-DD` (access lasts through that date, UTC), `--notes "wave 1"`, `--dry-run`.
+3. Send the invitee their invitation (see §6 for suggested copy).
+
+To see who has access: `npm run grant -- --list --feature share_publish` (grants, plus invites not yet claimed).
 
 ### What the invitee does
 
-1. **Enable the feature flag and point at the prod gateway.** Quit Prose, open `~/Library/Application Support/Prose/settings.json` in a text editor, and add (or merge into the existing top-level keys):
+1. **Install the beta build** from the `v1.8.0-beta.*` GitHub pre-release (the DMG), replacing any existing Prose.
+2. **Enable the feature flag.** Quit Prose, open `~/Library/Application Support/Prose/settings.json` in a text editor, and add (or merge into the existing `featureFlags` block):
    ```json
-   "featureFlags": { "webPlatform": true },
-   "webPlatform": { "gatewayUrl": "https://api.prose.solo.ist" }
+   "featureFlags": { "webPlatform": true }
    ```
-   Save the file, then relaunch Prose.
+   Save the file, then relaunch Prose. The beta build already points at the production gateway (`DEFAULT_GATEWAY_URL` = `https://api.prose.solo.ist`), so no `gatewayUrl` setting is needed. A leftover `webPlatform.gatewayUrl` for any host other than `api.prose.solo.ist` or loopback is ignored.
+3. **Sign in.** Open any document. A share icon (◎) appears in the top-right corner. Click it, enter the email address you granted, and press **Send code**. The gateway emails a 6-digit code via Resend.
+4. **Complete sign-in.** Click **Open in Prose** in the email, or type the code into Prose (it signs in as soon as the sixth digit is entered). Codes last 10 minutes; **Resend code** sends a fresh one.
+5. **Publish.** Click **Publish** in the share popover. It works on the first try: the gateway claims the invite into an entitlement on that request. The URL is `https://<label>.share.prose.solo.ist/s/<token>` (or `https://share.prose.solo.ist/s/<token>` if `SHARE_SUBDOMAINS` is not yet set).
 
-   **Both keys are required.** The built-in default gateway (`DEFAULT_GATEWAY_URL` in `src/main/share/index.ts`) is still the raw `prose-gateway.onrender.com` host. Magic links are minted on `BETTER_AUTH_URL` (`api.prose.solo.ist`), and the desktop's same-gateway check rejects a link from a different origin, so sign-in fails without the override. #943 fixes the default before GA.
-
-2. **Sign in.** Open any document. A share icon (◎) appears in the top-right corner. Click it and enter the email address you agreed on. Prose sends a magic-link request to the gateway, which emails the link via Resend.
-
-3. **Complete sign-in.** Open the email, click the link, and paste the resulting URL (from the `/auth/link` landing page) into the Prose sign-in dialog.
-
-4. **Publish.** After sign-in succeeds, click **Publish** in the share popover. The first publish will return a 403 until you grant the entitlement (next step).
-
-### What you do (grant the entitlement)
-
-Once the invitee has signed in at least once, open a **Render Shell** on the `prose-gateway` service and run:
-
-```bash
-npm run seed:ai-proxy -- --email invitee@example.com --feature share_publish
-```
-
-The script is idempotent — safe to re-run. Confirm output:
-```
-✓ Granted "share_publish" to invitee@example.com (user <id>).
-```
-
-The invitee can now click **Publish** without a 403. Their first publish produces a URL at `https://<label>.share.prose.solo.ist/s/<token>` (or `https://share.prose.solo.ist/s/<token>` if `SHARE_SUBDOMAINS` is not yet set).
+The invite matches on the email the invitee signs in with (case-insensitive). If they sign in with a different address, grant that one too.
 
 ---
 
@@ -91,18 +81,13 @@ The invitee can now click **Publish** without a 403. Their first publish produce
 
 ### Revoking an invitee's publish entitlement
 
-**There is no `--revoke` flag in the seed script.** This is a gap. Until a revoke command exists, remove the entitlement directly via the Render Shell:
-
 ```bash
-# Render Shell, from the gateway directory:
-echo "DELETE FROM entitlements
-WHERE \"userId\" = (SELECT id FROM \"user\" WHERE email = 'invitee@example.com')
-  AND feature = 'share_publish';" | npx prisma db execute --stdin
+npm run grant -- --email invitee@example.com --feature share_publish --revoke
 ```
 
-(Or run the same SQL with `psql "$DATABASE_URL"` if you connect directly.) Tracked in #942.
+This removes the entitlement if the account exists and withdraws the invite if it hasn't been claimed yet. It prints `revoked`, or `unchanged` if there was nothing to remove. The invitee's next publish returns 403. Existing published links remain live; take those down separately (below).
 
-After removal the invitee's next publish attempt returns 403. Existing published links remain live — revoke individual publications separately (below).
+Rows with `grantedBy = 'opencollective'` belong to the Open Collective reconcile job (#953). The CLI never changes or removes them, and `--by opencollective` is rejected.
 
 ### Author-side publication takedown
 
@@ -155,17 +140,17 @@ curl -s -o /dev/null -w "%{http_code}" \
 
 Expect `200` for the body, but the response must **not** carry `Access-Control-Allow-Origin: http://localhost:9999`. Check with `-v`.
 
-### Email sign-in (no links in logs)
+### Email sign-in (no codes in logs)
 
-After #934 merges, `AUTH_MAGIC_LINK_STDOUT` is gone. Magic-link URLs must travel by email only — they must **not** appear in Render logs. Verify:
+Sign-in codes must travel by email only; they must **not** appear in Render logs. Verify:
 
-1. Request a magic link for your own email via Prose desktop sign-in.
-2. Open Render → Logs. Confirm no `https://api.prose.solo.ist/api/auth/verify-magic-link?...` line appears.
-3. Confirm the email arrives in your inbox.
+1. Request a code for your own email via Prose desktop sign-in.
+2. Open Render → Logs. Confirm no `[auth] Sign-in code for …` line appears. That line is printed only when `RESEND_API_KEY` is unset, which production config refuses at boot.
+3. Confirm the email arrives, and that typing the code signs you in.
 
 ### Publish + subdomain URL
 
-After granting yourself `share_publish`:
+After granting yourself `share_publish` (`npm run grant -- --email <you> --feature share_publish --by manual`):
 
 1. Publish a test document from Prose.
 2. Confirm the share URL is in the form `https://<label>.share.prose.solo.ist/s/<token>` (with `SHARE_SUBDOMAINS=1`) or `https://share.prose.solo.ist/s/<token>` (without).
@@ -218,11 +203,11 @@ Hi — you're one of the first people to try Prose's new sharing feature. Here's
 **What it is:** You can publish any document in Prose as a shareable link. Recipients open it in a browser — no install, no account. They can read and leave comments, which sync back to your Prose app.
 
 **Setup (one time):**
-1. Quit Prose, open `~/Library/Application Support/Prose/settings.json`, and add these two top-level entries (keep the commas valid):
-   `"featureFlags": { "webPlatform": true },`
-   `"webPlatform": { "gatewayUrl": "https://api.prose.solo.ist" }`
+1. Download and install the beta build: <link to the v1.8.0-beta.1 DMG>. It replaces your current Prose; your documents and settings stay where they are.
+2. Quit Prose, open `~/Library/Application Support/Prose/settings.json`, and add this entry (merge it into `featureFlags` if that block already exists, and keep the commas valid):
+   `"featureFlags": { "webPlatform": true }`
    Then relaunch Prose.
-2. Click the ◎ icon in the top-right corner of any document, enter your email, and follow the sign-in link. Once signed in, you'll see a **Publish** button.
+3. Click the ◎ icon in the top-right corner of any document, enter this email address (the one I sent the invite to), and press **Send code**. Click **Open in Prose** in the email, or type its 6-digit code into Prose. That's it: the **Publish** button works straight away.
 
 **What works:**
 - Publish and share a link to any document.
@@ -241,23 +226,35 @@ Hi — you're one of the first people to try Prose's new sharing feature. Here's
 
 ## 7. Troubleshooting
 
-### Sign-in link not arriving
+### Sign-in code not arriving
 
-- Check Render logs for any `[mail]` error lines — a non-2xx from Resend will log `sendMail failed`.
+- If Prose showed "The sign-in email couldn't be sent", Resend rejected it: check Render logs for `[auth] failed to send a sign-in code` and the `[mail]` line before it.
+- "Too many codes sent to this address" means 5 codes in the last hour; wait it out.
 - Confirm `RESEND_API_KEY` is set and the sender domain is verified in the Resend dashboard (SPF + DKIM). Unverified domains fail silently or bounce.
 - Check spam. The `From` address is whatever `MAIL_FROM` is set to.
 - In the Render Shell, you can send a test request directly:
   ```bash
-  curl -X POST https://api.prose.solo.ist/api/auth/sign-in/magic-link \
+  curl -X POST https://api.prose.solo.ist/api/sign-in/code \
     -H 'Content-Type: application/json' \
-    -H 'Origin: https://prose.solo.ist' \
-    -d '{"email":"you@example.com","callbackURL":"/health"}'
+    -d '{"email":"you@example.com"}'
   ```
-  Check Render logs for the result.
+  `{"ok":true}` means Resend accepted it; anything else names the failure.
+
+### "Open in Prose" does nothing
+
+The button goes to `https://api.prose.solo.ist/auth/code`, which shows the code and asks the browser to open `prose://auth`. Prose accepts that link only from the window that is still waiting for this code. It ignores the link if Prose was quit and reopened, if a newer code was requested, or after 10 minutes. In all those cases, type the code the page shows (or request a new one). Some browsers ask "Open Prose?" first, and dev builds (`npm run dev`) don't register `prose://` at all.
+
+### "That code isn't right" / "Too many wrong tries"
+
+Each code allows 5 wrong tries, then it's burned (even the right code fails) and the invitee needs **Resend code**. Codes also expire after 10 minutes, and only the newest code for an address works.
 
 ### 403 on publish — entitlement not granted
 
-The invitee signed in but the `share_publish` entitlement hasn't been seeded yet. Run the seed command from §3 in the Render Shell and ask the invitee to retry.
+Run `npm run grant -- --list --feature share_publish`. Common causes:
+
+- **No grant for that email.** Grant it (§3) and ask the invitee to retry.
+- **They signed in with a different address** than the one you granted. The pending invite stays under the granted address; grant the address they actually used.
+- **The grant or invite expired** (`until=` in the past). Re-grant with a later `--expires`, or without one.
 
 ### Everyone signed out after a deploy
 
@@ -278,7 +275,7 @@ The author revoked the publication, or an operator took it down (§4). **Revocat
 
 ### `wrong_gateway` error in Prose
 
-A local share entry records the gateway origin it was published against. If the entry was published to a different gateway URL than the one currently configured, Prose shows this error rather than silently mis-routing the revoke or republish. To fix: check `webPlatform.gatewayUrl` in `settings.json` and ensure it matches the entry's gateway. For the beta it must be `https://api.prose.solo.ist` (see §3). Entries published while pointed at another gateway, such as a local dev one, can only be managed with that gateway configured.
+A local share entry records the gateway origin it was published against. If the entry was published to a different gateway URL than the one currently configured, Prose shows this error rather than silently mis-routing the revoke or republish. For the beta, remove any `webPlatform.gatewayUrl` from `settings.json`; the build's default is the production gateway. Entries published while pointed at another gateway, such as a local dev one, can only be managed with that gateway configured. The old `prose-gateway.onrender.com` host is no longer on the allowlist, so entries minted there can't be managed from the beta build; republish the document to get a fresh link.
 
 ### Share URL didn't update after rename
 

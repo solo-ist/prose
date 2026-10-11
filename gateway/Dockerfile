@@ -21,7 +21,7 @@ COPY src ./src
 RUN npx tsc
 
 # Operational scripts run as one-off jobs (e.g. the manual entitlement grant,
-# scripts/seed-ai-proxy.ts). Copied AFTER `tsc` so the build never compiles them
+# scripts/grant.ts). Copied AFTER `tsc` so the build never compiles them
 # — they run via `tsx` against src/ + the generated client at job time.
 COPY scripts ./scripts
 

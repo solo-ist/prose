@@ -33,6 +33,26 @@ model Entitlement {
   @@map("entitlements")
 }
 
+/// A grant written by email before (or regardless of whether) the account
+/// exists (#965). Claimed into an `Entitlement` the first time the signed-in
+/// user with that email hits the gate (entitlements/index.ts). `email` is
+/// stored lowercased. Claimed rows are kept as an audit trail;
+/// `claimedByUserId` is deliberately not a FK so deleting a user keeps it.
+model EntitlementInvite {
+  id              String    @id @default(uuid())
+  email           String
+  feature         String
+  grantedBy       String
+  expiresAt       DateTime?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  claimedAt       DateTime?
+  claimedByUserId String?
+
+  @@unique([email, feature])
+  @@map("entitlement_invites")
+}
+
 model User {
   id            String    @id
   name          String

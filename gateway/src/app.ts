@@ -1,6 +1,7 @@
 /**
  * app.ts — the Hono application factory. Wiring order:
- *   secure headers → cors → Better Auth (/api/auth/*) → health
+ *   secure headers → cors → sign-in code (/api/sign-in/*)
+ *   → Better Auth (/api/auth/*) → health
  *   → gated LLM proxy (/api/llm/*) → gated share management (/api/share/*)
  *   → public share surface (/s/*)
  */
@@ -14,8 +15,8 @@ import { requireSession, type AppEnv } from './middleware/session.js'
 import { requireEntitlement } from './middleware/entitlement.js'
 import { rateLimit, userRateLimit } from './middleware/rateLimit.js'
 import { ipRateLimit } from './middleware/ipRateLimit.js'
-import { auth, MAGIC_LINK_LANDING_PATH } from './auth/index.js'
-import { escapeHtml } from './util/html.js'
+import { auth } from './auth/index.js'
+import { SIGN_IN_LINK_PATH, signInCodeRoutes } from './auth/code.js'
 import health from './routes/health.js'
 import { llmRoutes } from './routes/llm/stream.js'
 import { shareAuthorRoutes } from './routes/share/author.js'
@@ -23,15 +24,21 @@ import { sharePublicRoutes } from './routes/share/public.js'
 import { MAX_ARTIFACT_BYTES, buildShareUrl, hashShareToken } from './routes/share/common.js'
 import { prisma } from './db/index.js'
 
-// The magic-link landing page's Copy button. Static, so the CSP can allow it
-// by hash instead of 'unsafe-inline'; any edit changes the hash automatically.
-// Falls back to selecting the link when the Clipboard API is missing or fails.
-const LANDING_SCRIPT =
-  "document.getElementById('copy').addEventListener('click',function(){var b=this,i=document.getElementById('link');" +
-  "function done(t){b.textContent=t;setTimeout(function(){b.textContent='Copy'},2000)}" +
-  "function manual(){i.focus();i.select();done('Selected, now copy')}" +
-  "if(navigator.clipboard){navigator.clipboard.writeText(i.value).then(function(){done('Copied!')},manual)}else{manual()}})"
-const LANDING_SCRIPT_HASH = `sha256-${createHash('sha256').update(LANDING_SCRIPT).digest('base64')}`
+// The sign-in email's "Open in Prose" page (#964). Reads code + state from
+// the URL fragment (never sent to a server), shows the code, and hands both
+// to the app via prose://auth. Strips the fragment from history afterwards.
+// Static, so the CSP allows it by hash instead of 'unsafe-inline'; any edit
+// changes the hash automatically. The patterns mirror auth/code.ts and the
+// desktop's parser (src/main/share/deepLink.ts).
+const SIGN_IN_PAGE_SCRIPT =
+  "(function(){var h=new URLSearchParams(location.hash.slice(1)),c=h.get('c')||'',s=h.get('s')||'';" +
+  "history.replaceState(null,'',location.pathname);" +
+  "if(!/^\\d{6}$/.test(c)){document.getElementById('missing').hidden=false;return}" +
+  "document.getElementById('code').textContent=c;document.getElementById('found').hidden=false;" +
+  "if(!/^[A-Za-z0-9_-]{22,64}$/.test(s))return;" +
+  "var u='prose://auth?code='+c+'&state='+s,a=document.getElementById('open');" +
+  "a.href=u;a.hidden=false;location.href=u})()"
+const SIGN_IN_PAGE_SCRIPT_HASH = `sha256-${createHash('sha256').update(SIGN_IN_PAGE_SCRIPT).digest('base64')}`
 
 export function createApp() {
   const app = new Hono<AppEnv>()
@@ -182,25 +189,21 @@ export function createApp() {
 
   app.use('/api/*', corsMiddleware)
 
-  // Better Auth owns all /api/auth/* routes (magic-link, session, sign-out…).
+  // Sign-in (#964): the gateway emails the code (auth/code.ts); Better Auth
+  // verifies it at /api/auth/sign-in/email-otp. Better Auth's own limiter is
+  // off (it can't see client IPs behind Render), so cap code checks per IP
+  // here. Each code also burns after 5 wrong tries (auth/index.ts).
+  app.use('/api/sign-in/*', bodyLimit({ maxSize: 4 * 1024, onError: (c) => c.json({ error: 'body_too_large' }, 413) }))
+  app.route('/api/sign-in', signInCodeRoutes)
+  app.use('/api/auth/sign-in/*', ipRateLimit(config.SIGN_IN_VERIFY_IP_MAX, 600))
+
+  // Better Auth owns all /api/auth/* routes (code sign-in, session, sign-out…).
   app.on(['GET', 'POST'], '/api/auth/*', (c) => auth.handler(c.req.raw))
 
-  // Magic-link landing page (#813): the emailed link points here so that
-  // clicking it in a mail app does NOT consume the single-use token. The page
-  // shows the URL (the visitor's current URL) in a selectable field with a
-  // copy button; the user copies it and pastes it into Prose's Sign-in box.
-  // The token is never touched by this handler — only the real verify endpoint
-  // (/api/auth/magic-link/verify) consumes it.
-  app.get(MAGIC_LINK_LANDING_PATH, (c) => {
-    // Full URL shown in the copy field — the point of this page is that the
-    // user copies this URL and pastes it into Prose's Sign-in box. Built on
-    // BETTER_AUTH_URL, not c.req.url: behind Render's TLS-terminating proxy
-    // the request URL is http://, and the desktop's same-gateway check
-    // (completeSignIn) would refuse every pasted link.
-    const reqUrl = new URL(c.req.url)
-    const displayUrl = new URL(reqUrl.pathname + reqUrl.search, config.BETTER_AUTH_URL).toString()
-    // Escape fully for both the attribute value and the text content.
-    const displayUrlEscaped = escapeHtml(displayUrl)
+  // "Open in Prose" fallback page (#964). Mail clients often refuse custom
+  // schemes in links, so the email links here (https) and this page opens
+  // prose://auth, falling back to showing the code to type.
+  app.get(SIGN_IN_LINK_PATH, (c) => {
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -208,34 +211,33 @@ export function createApp() {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Sign in to Prose</title>
   <style>
-    *,*::before,*::after{box-sizing:border-box}
-    body{font-family:system-ui,sans-serif;max-width:480px;margin:3rem auto;padding:0 1.5rem;color:#111;background:#fff}
+    body{font-family:system-ui,sans-serif;max-width:480px;margin:3rem auto;padding:0 1.5rem;color:#111;background:#fff;text-align:center}
     h1{font-size:1.25rem;margin-bottom:0.5rem}
     p{color:#374151;line-height:1.6;margin:0.5rem 0}
-    .url-box{display:flex;gap:0.5rem;margin:1rem 0}
-    .url-input{flex:1;padding:0.5rem 0.75rem;border:1px solid #d1d5db;border-radius:6px;font-family:monospace;font-size:0.8rem;color:#111;background:#f9fafb;word-break:break-all}
-    button{padding:0.5rem 1rem;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.875rem;white-space:nowrap}
-    button:active{background:#1d4ed8}
+    #code{font-family:ui-monospace,monospace;font-size:2rem;letter-spacing:0.3em;background:#f4f4f5;border-radius:6px;padding:0.75rem 1rem;margin:1rem 0}
+    #open{display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:0.6rem 1.25rem;border-radius:6px;margin:0.5rem 0}
+    #open[hidden]{display:none}
     .note{font-size:0.8rem;color:#6b7280;margin-top:1.5rem}
-    @media(prefers-color-scheme:dark){body{background:#0f172a;color:#f1f5f9}.url-input{background:#1e293b;border-color:#334155;color:#f1f5f9}p{color:#cbd5e1}.note{color:#94a3b8}}
+    @media(prefers-color-scheme:dark){body{background:#0f172a;color:#f1f5f9}p{color:#cbd5e1}#code{background:#1e293b}.note{color:#94a3b8}}
   </style>
 </head>
 <body>
-  <h1>Almost there — sign in to Prose</h1>
-  <p>Copy this link and paste it into Prose&rsquo;s <strong>Sign-in box</strong>:</p>
-  <div class="url-box">
-    <input class="url-input" id="link" type="text" readonly value="${displayUrlEscaped}">
-    <button id="copy" type="button">Copy</button>
+  <h1>Sign in to Prose</h1>
+  <div id="found" hidden>
+    <p>Prose should open and finish signing in. If it doesn&rsquo;t, enter this code in Prose:</p>
+    <div id="code"></div>
+    <a id="open" hidden>Open in Prose</a>
+    <p class="note">The code expires 10 minutes after it was sent. If you didn&rsquo;t request it, you can ignore this page.</p>
   </div>
-  <p class="note">This link expires in about 5 minutes and works once. If you didn&rsquo;t request it, you can safely ignore this page.</p>
-  <script>${LANDING_SCRIPT}</script>
+  <p id="missing" hidden>This link is missing its sign-in code. Use the 6-digit code in the email instead.</p>
+  <script>${SIGN_IN_PAGE_SCRIPT}</script>
 </body>
 </html>`
     return c.html(html, 200, {
       'Cache-Control': 'no-store',
       'Referrer-Policy': 'no-referrer',
       'Content-Security-Policy':
-        `default-src 'none'; style-src 'unsafe-inline'; script-src '${LANDING_SCRIPT_HASH}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+        `default-src 'none'; style-src 'unsafe-inline'; script-src '${SIGN_IN_PAGE_SCRIPT_HASH}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
     })
   })
 

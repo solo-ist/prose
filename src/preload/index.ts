@@ -298,7 +298,8 @@ export interface ElectronAPI {
   // Share service (#768) — result shapes defined in renderer types (ShareOp/ShareEntry/SharePulledComment)
   shareAuthStatus: () => Promise<unknown>
   shareRequestSignIn: (email: string) => Promise<unknown>
-  shareCompleteSignIn: (magicUrl: string) => Promise<unknown>
+  shareCompleteSignIn: (code: string) => Promise<unknown>
+  onShareAuthChanged: (callback: (result: unknown) => void) => () => void
   shareSignOut: () => Promise<unknown>
   sharePublish: (args: { title: string; html: string; localPath: string; documentId: string }) => Promise<unknown>
   shareRepublish: (args: { publicationId: string; title: string; html: string }) => Promise<unknown>
@@ -605,7 +606,17 @@ const api: ElectronAPI = {
   // Share service (#768)
   shareAuthStatus: () => ipcRenderer.invoke('share:authStatus'),
   shareRequestSignIn: (email: string) => ipcRenderer.invoke('share:requestSignIn', email),
-  shareCompleteSignIn: (magicUrl: string) => ipcRenderer.invoke('share:completeSignIn', magicUrl),
+  shareCompleteSignIn: (code: string) => ipcRenderer.invoke('share:completeSignIn', code),
+  // Sign-in completed from the email's prose://auth link (#964).
+  onShareAuthChanged: (callback: (result: unknown) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, result: unknown): void => {
+      callback(result)
+    }
+    ipcRenderer.on('share:authChanged', handler)
+    return () => {
+      ipcRenderer.removeListener('share:authChanged', handler)
+    }
+  },
   shareSignOut: () => ipcRenderer.invoke('share:signOut'),
   sharePublish: (args: { title: string; html: string; localPath: string; documentId: string }) =>
     ipcRenderer.invoke('share:publish', args),

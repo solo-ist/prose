@@ -40,6 +40,7 @@ import { useSettings } from '../../hooks/useSettings'
 import { cn } from '../../lib/utils'
 import { getApi } from '../../lib/browserApi'
 import { pruneMissingRecentFiles } from '../../lib/stalePath'
+import { sanitizeEntryName } from '../../lib/fileNames'
 import { requestBugReport } from '../EnableLoggingDialog'
 import type { RemarkableNotebookMetadata, RemarkableCloudNotebook, GoogleDocEntry } from '../../types'
 import { ProjectsPanel } from './ProjectsPanel'
@@ -423,10 +424,11 @@ export function FileListPanel() {
 
   const handleCreateNewFolder = async () => {
     const targetDir = newFolderTargetDir || rootPath
-    if (!targetDir || !newFolderName.trim() || !window.api?.createDirectory) return
+    const folderName = sanitizeEntryName(newFolderName)
+    if (!targetDir || !folderName || !window.api?.createDirectory) return
 
     try {
-      const folderPath = `${targetDir}/${newFolderName.trim()}`
+      const folderPath = `${targetDir}/${folderName}`
       await window.api.createDirectory(folderPath)
       await loadFiles()
       // Expand parent so the new folder is visible
@@ -497,12 +499,15 @@ export function FileListPanel() {
 
   const handleCreateNewFile = async () => {
     const targetDir = newFileTargetDir || rootPath
-    if (!newFileName.trim() || !targetDir) return
+    const typedName = sanitizeEntryName(newFileName)
+    if (!typedName || !targetDir) return
 
     setOperationError(null)
     try {
-      const hasKnownExt = /\.(md|markdown|txt)$/.test(newFileName)
-      const fileName = hasKnownExt ? newFileName : `${newFileName}.md`
+      const hasKnownExt = /\.(md|markdown|txt)$/.test(typedName)
+      const fileName = hasKnownExt ? typedName : `${typedName}.md`
+      // Same sanitized name for the existence probe and the write (saveToFolder
+      // strips separators too), so both refer to the same file.
       const fullPath = `${targetDir}/${fileName}`
 
       // Check if file already exists
@@ -545,14 +550,18 @@ export function FileListPanel() {
       const dir = oldPath.substring(0, oldPath.lastIndexOf('/'))
       const isMarkdownFile = /\.(md|markdown|txt)$/.test(oldPath)
 
+      // Typed name → plain segment (no separators / `..`) before joining (#918).
+      const typedName = sanitizeEntryName(newName)
+      if (!typedName) return
+
       let finalName: string
       if (isMarkdownFile) {
         // File: preserve/append the extension
         const oldExt = oldPath.match(/\.(md|markdown|txt)$/)?.[0] || '.md'
-        finalName = newName.endsWith(oldExt) ? newName : `${newName}${oldExt}`
+        finalName = typedName.endsWith(oldExt) ? typedName : `${typedName}${oldExt}`
       } else {
-        // Directory (or non-markdown file): use the name as typed
-        finalName = newName.trim()
+        // Directory (or non-markdown file): use the sanitized name as typed
+        finalName = typedName
       }
 
       const newPath = `${dir}/${finalName}`
@@ -675,13 +684,14 @@ export function FileListPanel() {
   }
 
   const handleConfirmRename = async () => {
-    if (!renameFilePath || !renameFileName.trim()) return
+    const typedName = sanitizeEntryName(renameFileName)
+    if (!renameFilePath || !typedName) return
 
     setOperationError(null)
     try {
       const dir = renameFilePath.substring(0, renameFilePath.lastIndexOf('/'))
       const oldExt = renameFilePath.match(/\.(md|markdown|txt)$/)?.[0] || '.md'
-      const newName = renameFileName.endsWith(oldExt) ? renameFileName : `${renameFileName}${oldExt}`
+      const newName = typedName.endsWith(oldExt) ? typedName : `${typedName}${oldExt}`
       const newPath = `${dir}/${newName}`
 
       if (newPath !== renameFilePath) {

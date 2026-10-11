@@ -96,7 +96,7 @@ Avoid broad process kills such as `pkill -f node` or `pkill -f Electron`; they c
 - Keep platform-specific behavior behind `getApi()` from `src/renderer/lib/browserApi.ts`; do not access `window.api` directly from renderer code.
 - Store settings through the existing settings paths and types. Do not introduce new `homedir()` + `.prose` paths for app data.
 - Preserve Electron sandbox settings: `contextIsolation: true` and `nodeIntegration: false`.
-- Validate filesystem IPC paths with the existing `validatePath()` pattern.
+- Classify every filesystem IPC path by source (comment `// Path source: A|B|C`, see `src/main/paths.ts`): user-chosen → `normalizePath()` (a normalizer, not containment); content- or tool-derived → `resolveWithin()` with a containment root; typed names → `sanitizeEntryName()` in the renderer.
 - Store credentials through the OS-backed credential store; never commit plaintext secrets.
 - Do not use `innerHTML` with dynamic or LLM-provided content.
 - Gate unfinished features with `src/renderer/lib/featureFlags.ts`; do not delete dormant feature code just to hide it.

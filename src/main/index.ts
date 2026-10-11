@@ -1,5 +1,5 @@
 import { config } from 'dotenv'
-import { join, normalize, sep } from 'path'
+import { join } from 'path'
 import { writeFileSync, unlinkSync, existsSync, readFileSync } from 'fs'
 import { readFile as readFileAsync } from 'fs/promises'
 import { randomBytes } from 'crypto'
@@ -15,8 +15,9 @@ if (dotenvResult.error) {
 
 // Initialize Sentry early (before app.whenReady) if user has opted in
 import { initSentry, setSentryEnabled } from './sentry'
-import { getUserDataPath, LEGACY_SETTINGS_DIR, validatePathConsistency } from './paths'
+import { getUserDataPath, LEGACY_SETTINGS_DIR, seedDevProfile, validatePathConsistency, resolveWithin, IMAGE_EXTENSIONS } from './paths'
 import { migrateFromLegacyDir } from './migrate'
+seedDevProfile()
 try {
   // Check new path first; fall back to legacy for first post-upgrade launch
   // (migration hasn't run yet — it requires app.whenReady())
@@ -33,19 +34,21 @@ try {
 import { app, shell, BrowserWindow, session, protocol, globalShortcut } from 'electron'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 
-// Test seam: redirect userData (settings, IndexedDB, caches) to an isolated
-// directory so e2e/QA harnesses never touch the real profile. Mirrors the
-// PROSE_USER_DATA_DIR override in paths.ts (which covers the pre-ready Sentry
-// read above). No-op unless the harness sets the env var.
+// Redirect userData (settings, IndexedDB, caches, the single-instance lock)
+// to getUserDataPath() in two cases, mirroring paths.ts (which covers the
+// pre-ready Sentry read above):
+// - PROSE_USER_DATA_DIR: the e2e/QA test seam, an isolated profile.
+// - dev: the "Prose Dev" profile (#971), so dev never shares a profile or a
+//   lock with the installed app.
 // Ordering invariant: hoisted imports (ipc.ts, menu.ts, ...) load before this
 // statement runs, so none of them may call app.getPath('userData') at module
 // top level — only inside handlers/functions that run after this override.
-if (process.env.PROSE_USER_DATA_DIR) {
-  app.setPath('userData', process.env.PROSE_USER_DATA_DIR)
+if (process.env.PROSE_USER_DATA_DIR || is.dev) {
+  app.setPath('userData', getUserDataPath())
 }
 import { setupIpcHandlers } from './ipc'
 import { createMenu } from './menu'
-import { getMcpHttpServer, getMcpBridge, getMcpSocketServer } from './mcp'
+import { getMcpHttpServer, getMcpBridge, getMcpSocketServer, MCP_HTTP_PORT } from './mcp'
 import { initializeSpellcheck, setupContextMenu } from './spellcheck'
 import { initAutoUpdater } from './updater'
 import { IS_MAS_BUILD } from './env'
@@ -408,20 +411,24 @@ app.whenReady().then(async () => {
   protocol.handle('local-file', async (request) => {
     // URL format: local-file:///absolute/path/to/image.png
     const filePath = decodeURIComponent(new URL(request.url).pathname)
-    const normalized = normalize(filePath)
 
-    // Confine to user's home directory to prevent arbitrary filesystem reads
-    const homeDir = homedir()
-    if (!normalized.startsWith(homeDir + sep) && normalized !== homeDir) {
-      return new Response('Access denied: path outside home directory', { status: 403 })
+    // Path source: B — every <img> src in document content (markdown images,
+    // raw local-file: URLs, prose:// deep-link payloads) arrives here. Confine
+    // to the home directory and image extensions on the REAL path: a symlink
+    // inside home must not reach a file outside it (#918, shared helper).
+    let normalized: string
+    try {
+      normalized = await resolveWithin(homedir(), filePath, {
+        extensions: IMAGE_EXTENSIONS,
+        kind: 'image',
+        label: 'the home directory'
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      const status = (err as { code?: string }).code === 'ENOENT' ? 404 : 403
+      return new Response(`Access denied: ${message}`, { status })
     }
-
-    // Only serve image files
     const ext = normalized.split('.').pop()?.toLowerCase() || ''
-    const allowedExts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']
-    if (!allowedExts.includes(ext)) {
-      return new Response('Only image files are allowed', { status: 403 })
-    }
 
     // Map extension to MIME type for the response Content-Type header
     const mimeTypes: Record<string, string> = {
@@ -493,7 +500,7 @@ app.whenReady().then(async () => {
   // MAS builds use sandbox, which prohibits network.server — skip HTTP server
   const isMAS = IS_MAS_BUILD
   const mcpServer = isMAS ? null : getMcpHttpServer()
-  const MCP_PORT = 9877
+  const MCP_PORT = MCP_HTTP_PORT
   let mcpStarted = false
   if (mcpServer) {
     mcpServer.setAuthToken(mcpAuthToken)

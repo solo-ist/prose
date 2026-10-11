@@ -84,7 +84,7 @@ const MIME_TYPES: Record<string, string> = {
 /**
  * Read a local image file and return its data URI, or null on failure.
  * The read is CONTAINED to the document's directory by the main process
- * (audit H-03): document content controls these paths, so an imported
+ * (audit H-03, #918): document content controls these paths, so an imported
  * artifact could otherwise point one at any readable file and exfiltrate
  * it through the export/share. A refused read simply leaves the original
  * URL in place (the image shows broken outside this machine — honest).

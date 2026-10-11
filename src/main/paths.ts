@@ -7,7 +7,7 @@
 import { join, normalize, resolve, sep, dirname, basename } from 'path'
 import { homedir } from 'os'
 import { copyFileSync, cpSync, existsSync, mkdirSync, renameSync, rmSync } from 'fs'
-import { realpath, stat } from 'fs/promises'
+import { realpath, stat, readFile } from 'fs/promises'
 import { app } from 'electron'
 
 /**
@@ -307,20 +307,69 @@ export async function resolveWithin(
 }
 
 /**
- * Containment policy for LLM / MCP tool file access: text files under the
- * user's home folder, never inside a hidden folder. Chosen 2026-10-10 (#918):
- * "open ~/notes/x.md" keeps working for the chat and for Claude Desktop, while
- * a prompt-injected `read_file ~/.ssh/id_rsa` or `save_file /etc/...` is refused.
+ * Try `candidate` against several roots; the first root that contains it wins.
+ * Throws the FIRST root's error when none does (the primary root gives the
+ * most useful message).
  */
-export function resolveToolPath(
+export async function resolveWithinAny(
+  roots: readonly string[],
+  candidate: string,
+  options: ContainmentOptions = {}
+): Promise<string> {
+  let firstError: unknown = null
+  for (const root of roots) {
+    try {
+      return await resolveWithin(root, candidate, options)
+    } catch (err) {
+      firstError = firstError ?? err
+    }
+  }
+  throw firstError ?? new PathContainmentError('A containment root is required', 'EOUTSIDE')
+}
+
+/**
+ * Roots the LLM / MCP file tools may work under: the home folder plus every
+ * folder the user explicitly chose as a workspace (default save directory,
+ * projects, favorites — these may live on an external volume). Read from
+ * settings.json on each call: cheap, and always current.
+ */
+export async function getToolRoots(): Promise<string[]> {
+  const roots = [homedir()]
+  try {
+    const raw = await readFile(join(getSettingsDir(), 'settings.json'), 'utf-8')
+    const settings = JSON.parse(raw) as {
+      defaultSaveDirectory?: unknown
+      projects?: Array<{ path?: unknown }>
+      favorites?: Array<{ path?: unknown }>
+    }
+    const add = (value: unknown): void => {
+      if (typeof value === 'string' && value && !roots.includes(value)) roots.push(value)
+    }
+    add(settings.defaultSaveDirectory)
+    for (const project of settings.projects ?? []) add(project?.path)
+    for (const favorite of settings.favorites ?? []) add(favorite?.path)
+  } catch {
+    // No settings yet, or unreadable — home alone.
+  }
+  return roots
+}
+
+/**
+ * Containment policy for LLM / MCP tool file access: text files under the
+ * home folder or a user-chosen workspace root (see getToolRoots), never inside
+ * a hidden folder below that root. Chosen 2026-10-10 (#918): "open ~/notes/x.md"
+ * keeps working for the chat and for Claude Desktop, while a prompt-injected
+ * `read_file ~/.ssh/id_rsa` or `save_file /etc/...` is refused.
+ */
+export async function resolveToolPath(
   candidate: string,
   options: Pick<ContainmentOptions, 'allowDirectory' | 'allowMissing'> = {}
 ): Promise<string> {
-  return resolveWithin(homedir(), candidate, {
+  return resolveWithinAny(await getToolRoots(), candidate, {
     extensions: options.allowDirectory ? undefined : TOOL_TEXT_EXTENSIONS,
     kind: 'text',
     allowDotSegments: false,
-    label: 'your home folder',
+    label: 'your home folder or a chosen workspace folder',
     ...options
   })
 }

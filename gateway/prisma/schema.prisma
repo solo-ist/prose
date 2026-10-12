@@ -53,6 +53,22 @@ model EntitlementInvite {
   @@map("entitlement_invites")
 }
 
+/// A signed-in user asking for a feature they don't hold (#1018): the
+/// waitlist. One row per email + feature; the operator approves by granting
+/// (npm run grant), which stamps `grantedAt`. `userId` is deliberately not a
+/// FK, so the request survives as a record if the account is deleted.
+model AccessRequest {
+  id        String    @id @default(uuid())
+  email     String
+  feature   String
+  userId    String
+  createdAt DateTime  @default(now())
+  grantedAt DateTime?
+
+  @@unique([email, feature])
+  @@map("access_requests")
+}
+
 model User {
   id            String    @id
   name          String

@@ -23,6 +23,12 @@ const MONO = "'IBM Plex Mono', Menlo, Consolas, 'Courier New', monospace"
 const SERIF = "Fraunces, Georgia, 'Times New Roman', serif"
 const HOME_URL = 'https://prose.solo.ist'
 
+export interface RenderedEmail {
+  subject: string
+  html: string
+  text: string
+}
+
 export interface EmailLayout {
   /** <title> and the card's <h1>. */
   title: string
@@ -141,6 +147,17 @@ ${rows.join('\n')}
 </body>
 </html>
 `
+}
+
+/**
+ * A grey monospace box for the central `block`, like the sign-in code box but
+ * sized for a line of text (e.g. a command). `escapedText` must already be
+ * escaped.
+ */
+export function monoBox(escapedText: string): string {
+  return `          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width: 100%; border-collapse: separate;">
+            <tr><td bgcolor="#f4f4f5" class="codebox ink" style="background: #f4f4f5; border-radius: 6px; padding: 16px; font-family: ${MONO}; font-size: 13px; line-height: 20px; mso-line-height-rule: exactly; color: #09090b; overflow-wrap: break-word;">${escapedText}</td></tr>
+          </table>`
 }
 
 /** The plain-text alternative's shared header and footer around a body. */

@@ -3,13 +3,7 @@
  * Design: `emails/sign-in-code.html` in the Prose design system.
  */
 import { escapeHtml } from '../../util/html.js'
-import { MONO, renderEmail, renderText } from './layout.js'
-
-export interface RenderedEmail {
-  subject: string
-  html: string
-  text: string
-}
+import { MONO, renderEmail, renderText, type RenderedEmail } from './layout.js'
 
 /**
  * `link` is the "Open in Prose" URL, or null when the request carried no

@@ -19,6 +19,7 @@ import { auth } from './auth/index.js'
 import { SIGN_IN_LINK_PATH, signInCodeRoutes } from './auth/code.js'
 import health from './routes/health.js'
 import { llmRoutes } from './routes/llm/stream.js'
+import { accessRoutes } from './routes/access.js'
 import { shareAuthorRoutes } from './routes/share/author.js'
 import { sharePublicRoutes } from './routes/share/public.js'
 import { MAX_ARTIFACT_BYTES, buildShareUrl, hashShareToken } from './routes/share/common.js'
@@ -261,6 +262,17 @@ export function createApp() {
     rateLimit
   )
   app.route('/api/llm', llmRoutes)
+
+  // The sharing waitlist (#1018): session only, NOT entitlement-gated — how a
+  // signed-in user without the grant learns where they stand and asks in.
+  // Tight per-user bucket: a request sends mail.
+  app.use(
+    '/api/access/*',
+    bodyLimit({ maxSize: 4 * 1024, onError: (c) => c.json({ error: 'body_too_large' }, 413) }),
+    requireSession,
+    userRateLimit(10, 600)
+  )
+  app.route('/api/access', accessRoutes)
 
   // Gated share management (#768): publish/re-publish/list/comments/revoke.
   // The artifact ceiling covers image-fattened exports; the JSON envelope

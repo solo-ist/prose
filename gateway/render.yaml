@@ -44,6 +44,8 @@ services:
         sync: false # Resend API key for magic-link email delivery (#813)
       - key: MAIL_FROM
         sync: false # e.g. "Prose <signin@prose.solo.ist>"; domain must have SPF/DKIM in Resend
+      - key: OPERATOR_EMAIL
+        sync: false # where sharing access requests go (#1018); never in the repo
       - key: R2_ACCOUNT_ID
         sync: false
       - key: R2_ACCESS_KEY_ID

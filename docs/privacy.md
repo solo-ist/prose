@@ -34,7 +34,7 @@ Sharing is off unless you turn it on, and is invite-only for now. It isn't avail
 
 When you sign in to share, we store:
 
-- Your email address, which we use to send you sign-in codes
+- Your email address, which we use to send you sign-in codes and, if you request sharing access, to tell you when it's on
 - Your sign-in sessions, including the IP address and browser or app identifier that started each one
 
 When you publish a document, we store:

@@ -54,6 +54,8 @@ const gw = spawn('npx', ['tsx', 'src/index.ts'], {
     // Every share/comment call below rides pub.shareUrl and so exercises
     // the partition for real.
     SHARE_BASE_URL: `http://127.0.0.1:${PORT}`,
+    // Request access (#1018) mails the operator; dev mode logs the send.
+    OPERATOR_EMAIL: 'operator@example.invalid',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
@@ -700,6 +702,46 @@ async function main() {
   let reserved = null
   try { grant('--email', withdrawn, '--feature', 'share_publish', '--by', 'opencollective') } catch (err) { reserved = err }
   expect(reserved?.status === 1, '--by opencollective is rejected')
+
+  // --- Request access: the sharing waitlist (#1018) -------------------------
+  const sentTo = (to, subject) =>
+    gatewayLog.split('[mail] dev: would send to ').slice(1).filter((m) => m.startsWith(`${to}\n`) && m.includes(`Subject: ${subject}`)).length
+  const anonAccess = await fetch(`${BASE}/api/access/share`)
+  expect(anonAccess.status === 401, 'access check needs a session', `status ${anonAccess.status}`)
+
+  const asker = `asker-${stamp}@example.invalid`
+  const askerAuth = await signIn(asker)
+  const before = await (await fetch(`${BASE}/api/access/share`, { headers: askerAuth })).json()
+  expect(before.canPublish === false && before.requested === false, 'un-invited user: cannot publish, not requested', JSON.stringify(before))
+  const req1 = await fetch(`${BASE}/api/access/share/request`, { method: 'POST', headers: askerAuth, body: '{}' })
+  const req1Body = await req1.json()
+  expect(req1.status === 200 && req1Body.requested === true, 'request access records the request', JSON.stringify(req1Body))
+  const req2 = await (await fetch(`${BASE}/api/access/share/request`, { method: 'POST', headers: askerAuth, body: '{}' })).json()
+  expect(req2.requested === true, 'a repeat request is idempotent')
+  await waitFor(() => sentTo('operator@example.invalid', `Sharing access request: ${asker}`) >= 1, 'operator notice sent', 5000)
+  expect(sentTo(asker, 'Your Prose sharing request') === 1, 'requester gets exactly one confirmation')
+  expect(sentTo('operator@example.invalid', `Sharing access request: ${asker}`) === 1, 'operator gets exactly one notice')
+  const after = await (await fetch(`${BASE}/api/access/share`, { headers: askerAuth })).json()
+  expect(after.canPublish === false && after.requested === true, 'access check reports the pending request')
+  const waiting = grant('--list', '--feature', 'share_publish')
+  expect(!!waiting.split('Access requests waiting')[1]?.includes(asker), 'grant --list shows the waitlist', waiting)
+
+  const approved = grant('--email', asker, '--feature', 'share_publish', '--by', 'beta', '--notify')
+  expect(/^granted\s.*notified/m.test(approved), 'grant --notify approves and emails', approved)
+  const nowIn = await (await fetch(`${BASE}/api/access/share`, { headers: askerAuth })).json()
+  expect(nowIn.canPublish === true && nowIn.requested === false, 'approved user can publish')
+  expect(!grant('--list', '--feature', 'share_publish').split('Access requests waiting')[1]?.includes(asker), 'granting clears the waitlist entry')
+  const askerPub = await publish(askerAuth, 'asker')
+  expect(askerPub.status === 201, 'approved user publishes', `status ${askerPub.status}`)
+  let badNotify = null
+  try { grant('--email', asker, '--feature', 'ai_proxy', '--by', 'beta', '--notify') } catch (err) { badNotify = err }
+  expect(badNotify?.status === 1, '--notify is share_publish only')
+
+  // An invited user is told they can publish (the check claims the invite).
+  const preInvited = `preinvited-${stamp}@example.invalid`
+  grant('--email', preInvited, '--feature', 'share_publish', '--by', 'beta')
+  const preInvitedAccess = await (await fetch(`${BASE}/api/access/share`, { headers: await signIn(preInvited) })).json()
+  expect(preInvitedAccess.canPublish === true, 'access check claims a pending invite')
 
   // --- Rate limit (last: it poisons this IP's write budget) -----------------
   const pub2Res = await fetch(`${BASE}/api/share/publish`, {

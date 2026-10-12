@@ -15,6 +15,8 @@ export interface MailMessage {
   subject: string
   text: string
   html: string
+  /** Where replies go, when not the sender (e.g. the requester, #1018). */
+  replyTo?: string
 }
 
 export async function sendMail(msg: MailMessage): Promise<void> {
@@ -48,6 +50,7 @@ export async function sendMail(msg: MailMessage): Promise<void> {
         subject: msg.subject,
         text: msg.text,
         html: msg.html,
+        ...(msg.replyTo ? { reply_to: msg.replyTo } : {}),
       }),
       signal: AbortSignal.timeout(10_000),
     })

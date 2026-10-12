@@ -81,7 +81,7 @@ function createShallowWatcher(normalized: string): ChokidarWatcher {
     ignoreInitial: true,
     // Don't wait for write-finish; the renderer-side debounce coalesces bursts.
     awaitWriteFinish: false,
-    // Use native OS events where available (FSEvents on macOS)
+    // Use native fs.watch events, not polling (chokidar 4+ dropped FSEvents)
     usePolling: false,
     // Persist the watcher even when the watched directory is temporarily
     // inaccessible (e.g., network drive goes offline)

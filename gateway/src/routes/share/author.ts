@@ -355,6 +355,36 @@ shareAuthorRoutes.patch('/:pubId/comments/:commentId', async (c) => {
   return c.json({ id: row.id, resolvedAt: row.resolvedAt ? row.resolvedAt.toISOString() : null })
 })
 
+// Author removal (#903): the author takes a comment off their own page —
+// moderation, and the only way to remove a row re-seeded across a revoke
+// (its writer's edit token didn't survive the republish). Same soft delete
+// as the viewer's, so polls and pulls convey it. Unlike the viewer delete, a
+// thread goes with its replies: this is the page owner removing the
+// conversation, not one writer retracting their own words. Idempotent — an
+// already-removed row answers ok so a retried push converges.
+shareAuthorRoutes.delete('/:pubId/comments/:commentId', async (c) => {
+  const user = c.get('user')
+  const pub = await prisma.publication.findUnique({ where: { id: c.req.param('pubId') } })
+  if (!pub || pub.authorId !== user.id) return c.json({ error: 'not_found' }, 404)
+  if (pub.revokedAt) return c.json({ error: 'revoked' }, 409)
+
+  const target = await prisma.shareComment.findUnique({
+    where: { id: c.req.param('commentId') },
+  })
+  if (!target || target.publicationId !== pub.id) return c.json({ error: 'not_found' }, 404)
+
+  const scrub = { deletedAt: new Date(), commentText: '', authorName: '', authorEmail: null, editToken: null }
+  await prisma.shareComment.updateMany({
+    where: {
+      publicationId: pub.id,
+      deletedAt: null,
+      OR: [{ id: target.id }, ...(target.parentId ? [] : [{ parentId: target.id }])],
+    },
+    data: scrub,
+  })
+  return c.json({ ok: true })
+})
+
 shareAuthorRoutes.delete('/:pubId', async (c) => {
   const user = c.get('user')
   const pub = await prisma.publication.findUnique({ where: { id: c.req.param('pubId') } })

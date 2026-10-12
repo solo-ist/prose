@@ -548,6 +548,40 @@ async function main() {
   })
   expect(seededNameless.status === 400, 'migration without the original name rejected', `status ${seededNameless.status}`)
 
+  // #903: re-seeded rows are flagged carriedOver (read-only history on the
+  // page); the reader's own rows and the author's rows are not.
+  const isMigrated = (cm) => cm.id === seededBody.id || cm.parentId === seededBody.id
+  const ownViewerRows = liveMigrated.filter((cm) => !cm.fromAuthor && !cm.deleted && !isMigrated(cm))
+  expect(
+    migThread?.carriedOver === true && migReply?.carriedOver === true,
+    're-seeded thread and reply are flagged carriedOver'
+  )
+  expect(
+    ownViewerRows.length > 0 && ownViewerRows.every((cm) => cm.carriedOver === false) &&
+      liveMigrated.filter((cm) => cm.fromAuthor).every((cm) => cm.carriedOver === false),
+    'reader-written and author rows are not carriedOver'
+  )
+
+  // #903: the author can take a comment off the page — the thread with its
+  // replies — as tombstones the poll conveys. Idempotent; author-only.
+  const removeUrl = `${BASE}/api/share/${pub.publicationId}/comments/${seededBody.id}`
+  const removeAnon = await fetch(removeUrl, { method: 'DELETE' })
+  expect(removeAnon.status === 401, 'author removal requires a session', `status ${removeAnon.status}`)
+  const removed = await fetch(removeUrl, { method: 'DELETE', headers: authed })
+  expect(removed.status === 200, 'author removes a carried-over thread', `status ${removed.status}`)
+  const afterRemove = (await (await fetch(commentUrl)).json()).comments
+  const removedRows = afterRemove.filter(isMigrated)
+  expect(
+    removedRows.length === 2 && removedRows.every((cm) => cm.deleted && cm.commentText === '' && cm.authorName === ''),
+    'removal tombstones the thread and its reply, scrubbed'
+  )
+  const removedAgain = await fetch(removeUrl, { method: 'DELETE', headers: authed })
+  expect(removedAgain.status === 200, 'author removal is idempotent', `status ${removedAgain.status}`)
+  const removeMissing = await fetch(`${BASE}/api/share/${pub.publicationId}/comments/00000000-0000-0000-0000-000000000000`, {
+    method: 'DELETE', headers: authed,
+  })
+  expect(removeMissing.status === 404, 'removing an unknown comment 404s', `status ${removeMissing.status}`)
+
   // --- Re-publish -----------------------------------------------------------
   const repub = await fetch(`${BASE}/api/share/${pub.publicationId}/publish`, {
     method: 'PUT', headers: authed, body: JSON.stringify({ title: 'Test Doc v2', html: artifact('v2') }),

@@ -22,6 +22,7 @@
     "test": "node scripts/test-gateway.mjs",
     "test:share": "node scripts/test-share.mjs",
     "test:mail": "node scripts/test-mail.mjs",
+    "mail:preview": "tsx scripts/preview-mail.ts",
     "test:share:subdomains": "node scripts/test-share-subdomains.mjs"
   },
   "dependencies": {

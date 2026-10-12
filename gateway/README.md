@@ -139,6 +139,15 @@ In development (no `RESEND_API_KEY`) the code is logged to stdout instead
 Email integration test: `npm run test:mail` (boots a mock Resend server,
 needs `npm run dev:db`).
 
+**Templates (#966).** Every email renders through one branded card in
+`src/mail/templates/layout.ts`: table layout, inline styles, light with a
+`prefers-color-scheme` dark block, and a plain-text alternative. It's ported
+from the Prose design system's `emails/sign-in-code.html`. Each email is a
+small function returning `{ subject, html, text }`, e.g.
+`templates/signInCode.ts`. `npm run mail:preview` renders them with sample
+data to `.mail-preview/` (gitignored) for a browser check. Send a live test
+to Gmail, Apple Mail and Outlook before switching a new template on.
+
 ## Scope
 
 **In (Phase 0):** gateway scaffold, accounts (magic-link), the gated LLM proxy, the

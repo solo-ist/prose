@@ -144,6 +144,14 @@ async function main() {
   expect(post.body.subject?.includes(code), 'subject carries the code', post.body.subject)
   expect(post.body.html?.includes(code), 'HTML body carries the code')
   expect(/expires in 10 minutes/.test(post.body.text ?? ''), 'text body states the expiry')
+  // #966: the design-system template (emails/sign-in-code.html).
+  const html = post.body.html ?? ''
+  expect(html.includes('¶ Prose.') && html.includes('<h1') && html.includes('Sign in to Prose'), 'HTML uses the branded card (wordmark + heading)')
+  expect(html.includes('prefers-color-scheme: dark') && html.includes('role="presentation"'), 'HTML has the dark-mode block and presentation tables')
+  expect(html.includes(`aria-label="Sign-in code ${code.split('').join(' ')}"`), 'code box reads the digits one by one to screen readers')
+  expect(html.includes(`Your Prose sign-in code is ${code}.`), 'preheader carries the code')
+  expect(!html.includes('Open in Prose'), 'no button without a desktop state')
+  expect((post.body.text ?? '').startsWith('¶ Prose.') && /works once/.test(post.body.text ?? ''), 'text alternative matches the template copy')
 
   // --- Sign-in -------------------------------------------------------------
   const signedIn = await verify(EMAIL, code)
@@ -201,6 +209,7 @@ async function main() {
   const expectedLink = `${BASE}/auth/code#c=${linkedCode}&s=${STATE}`
   expect(linkedText.includes(expectedLink), 'text body carries the Open in Prose link (code + state in the fragment)', linkedText)
   expect((recordedPosts[0].body.html ?? '').includes(expectedLink.replace(/&/g, '&amp;')), 'HTML body carries the escaped link')
+  expect((recordedPosts[0].body.html ?? '').includes('>Open in Prose</a>'), 'HTML shows the Open in Prose button with a state')
 
   recordedPosts = []
   await fetch(`${BASE}/api/sign-in/code`, {

@@ -24,8 +24,8 @@ import { Hono } from 'hono'
 import { auth, SIGN_IN_CODE_TTL_S } from './index.js'
 import { config } from '../config.js'
 import { sendMail } from '../mail/index.js'
+import { signInCodeEmail } from '../mail/templates/signInCode.js'
 import { ipRateLimit } from '../middleware/ipRateLimit.js'
-import { escapeHtml } from '../util/html.js'
 
 const EMAIL_RE = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/
 /** The desktop's nonce: 16+ random bytes, base64url. Anything else is dropped. */
@@ -62,41 +62,6 @@ export function signInLink(code: string, state: string | undefined): string | nu
   const url = new URL(SIGN_IN_LINK_PATH, config.BETTER_AUTH_URL)
   url.hash = `c=${code}&s=${state}`
   return url.toString()
-}
-
-export function signInCodeEmail(code: string, link: string | null): { subject: string; text: string; html: string } {
-  const minutes = Math.round(SIGN_IN_CODE_TTL_S / 60)
-  const subject = `Your Prose sign-in code: ${code}`
-  const text = [
-    `Your Prose sign-in code is:`,
-    ``,
-    `  ${code}`,
-    ``,
-    `Enter it in Prose to finish signing in. It expires in ${minutes} minutes.`,
-    ...(link ? [``, `Or open Prose with the code filled in:`, `  ${link}`] : []),
-    ``,
-    `If you didn't request this, you can safely ignore this email.`,
-  ].join('\n')
-  const button = link
-    ? `
-  <p style="text-align:center;margin:1.5rem 0">
-    <a href="${escapeHtml(link)}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:0.6rem 1.25rem;border-radius:6px">Open in Prose</a>
-  </p>`
-    : ''
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><title>Your Prose sign-in code</title></head>
-<body style="font-family:system-ui,sans-serif;max-width:480px;margin:2rem auto;color:#111">
-  <h2 style="margin-bottom:0.5rem">Sign in to Prose</h2>
-  <p>Enter this code in Prose to finish signing in:</p>
-  <p style="background:#f4f4f5;border-radius:6px;padding:0.75rem 1rem;font-family:monospace;font-size:1.75rem;letter-spacing:0.3em;text-align:center">${escapeHtml(code)}</p>${button}
-  <p style="color:#6b7280;font-size:0.875rem">
-    It expires in ${minutes} minutes.
-    <br>If you didn't request this, you can safely ignore this email.
-  </p>
-</body>
-</html>`
-  return { subject, text, html }
 }
 
 export const signInCodeRoutes = new Hono()
@@ -142,7 +107,8 @@ signInCodeRoutes.post('/code', ipRateLimit(config.SIGN_IN_CODE_IP_MAX, 600), asy
     return c.json({ ok: true })
   }
   try {
-    await sendMail({ to: email, ...signInCodeEmail(code, signInLink(code, state)) })
+    const minutes = Math.round(SIGN_IN_CODE_TTL_S / 60)
+    await sendMail({ to: email, ...signInCodeEmail(code, signInLink(code, state), minutes) })
   } catch (err) {
     console.error(`[auth] failed to send a sign-in code to ${email}:`, err)
     return c.json({ error: 'mail_failed' }, 502)

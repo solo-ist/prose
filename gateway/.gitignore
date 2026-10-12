@@ -6,3 +6,6 @@ dist/
 
 # Prisma 7 generated client (regenerated from schema.prisma)
 src/generated/
+
+# npm run mail:preview output (#966)
+.mail-preview/

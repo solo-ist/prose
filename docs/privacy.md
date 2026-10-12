@@ -30,7 +30,7 @@ All files are stored locally on your device. Prose does not upload, sync, or bac
 
 ## Sharing (Opt-In)
 
-Sharing is off unless you turn it on, and is invite-only for now. It isn't available in the Mac App Store version.
+Sharing is in the direct-download version (not the Mac App Store version) and is invite-only for now. Nothing leaves your device for sharing until you sign in, and no document is uploaded until you publish it.
 
 When you sign in to share, we store:
 

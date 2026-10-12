@@ -298,6 +298,8 @@ export interface ElectronAPI {
   googleRemoveSyncMetadataEntry: (googleDocId: string) => Promise<void>
   // Share service (#768) — result shapes defined in renderer types (ShareOp/ShareEntry/SharePulledComment)
   shareAuthStatus: () => Promise<unknown>
+  shareAccess: () => Promise<unknown>
+  shareRequestAccess: () => Promise<unknown>
   shareRequestSignIn: (email: string) => Promise<unknown>
   shareCompleteSignIn: (code: string) => Promise<unknown>
   onShareAuthChanged: (callback: (result: unknown) => void) => () => void
@@ -607,6 +609,8 @@ const api: ElectronAPI = {
   googleRemoveSyncMetadataEntry: (googleDocId: string) => ipcRenderer.invoke('google:removeSyncMetadataEntry', googleDocId),
   // Share service (#768)
   shareAuthStatus: () => ipcRenderer.invoke('share:authStatus'),
+  shareAccess: () => ipcRenderer.invoke('share:access'),
+  shareRequestAccess: () => ipcRenderer.invoke('share:requestAccess'),
   shareRequestSignIn: (email: string) => ipcRenderer.invoke('share:requestSignIn', email),
   shareCompleteSignIn: (code: string) => ipcRenderer.invoke('share:completeSignIn', code),
   // Sign-in completed from the email's prose://auth link (#964).

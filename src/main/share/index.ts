@@ -89,6 +89,26 @@ export async function authStatus(): Promise<ShareResult<{ signedIn: boolean; ema
   }
 }
 
+/** The signed-in user's standing in the sharing beta (#1018). */
+export async function access(): Promise<ShareResult<client.ShareAccess>> {
+  const config = await getShareConfig()
+  try {
+    return { ok: true, ...(await client.fetchAccess(config)) }
+  } catch (err) {
+    return asError(err)
+  }
+}
+
+/** Ask to join the sharing beta (#1018). */
+export async function requestAccess(): Promise<ShareResult<client.ShareAccess>> {
+  const config = await getShareConfig()
+  try {
+    return { ok: true, ...(await client.requestAccess(config)) }
+  } catch (err) {
+    return asError(err)
+  }
+}
+
 /**
  * The sign-in this desktop is waiting on (#964). The email is recorded HERE,
  * at request time, and is the only one a code is ever submitted with — the

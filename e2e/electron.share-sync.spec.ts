@@ -94,6 +94,8 @@ class StubGateway {
   origin = ''
   comments: StubRow[] = []
   revokeStatus = 204
+  /** The signed-in user's standing in the sharing beta (#1018). */
+  access = { canPublish: false, requested: false }
   requests: StubRequest[] = []
   /** JSON bodies of sign-in calls, in arrival order. */
   signInBodies: Array<{ path: string; body: Record<string, unknown> }> = []
@@ -193,6 +195,14 @@ class StubGateway {
       )
       return this.json(res, 200, { ok: true })
     }
+    // The sharing waitlist (#1018): session-gated like the real routes.
+    if (url.pathname === '/api/access/share' || url.pathname === '/api/access/share/request') {
+      if (!authed) return this.json(res, 401, { error: 'Unauthorized' })
+      if (req.method === 'POST' && url.pathname.endsWith('/request') && !this.access.canPublish) {
+        this.access = { canPublish: false, requested: true }
+      }
+      return this.json(res, 200, this.access)
+    }
     this.json(res, 404, { error: 'not_found' })
   }
 }
@@ -242,7 +252,8 @@ function writeSettings(gatewayUrl: string): void {
         recovery: { mode: 'silent' },
         autosave: { mode: 'off', intervalSeconds: 30 },
         defaultSaveDirectory: docsDir,
-        featureFlags: { webPlatform: true },
+        // No featureFlags.webPlatform: sharing is on by default since 1.8.1
+        // (#943), so the whole suite runs on the default.
         webPlatform: { gatewayUrl },
       },
       null,
@@ -380,6 +391,12 @@ test.afterAll(async () => {
 // Sign-in + session binding (audit M-01)
 // ---------------------------------------------------------------------------
 
+test('sharing is on by default: the toolbar menu offers Share... (#943)', async () => {
+  await page.click('[data-testid="main-toolbar"] [aria-label="More options"]')
+  await expect(page.getByRole('menuitem', { name: 'Share...' })).toBeVisible()
+  await page.keyboard.press('Escape')
+})
+
 test('a code with no pending sign-in is refused without network I/O', async () => {
   const res = await callApi<{ ok: boolean; code?: string }>('shareCompleteSignIn', STUB_CODE)
   expect(res).toMatchObject({ ok: false, code: 'no_pending' })
@@ -512,6 +529,43 @@ test('the session refuses a differently-pointed gateway without network I/O', as
 // ---------------------------------------------------------------------------
 // Publish bookkeeping
 // ---------------------------------------------------------------------------
+
+test('access check and request access ride the session (#1018)', async () => {
+  gateway.access = { canPublish: false, requested: false }
+  const before = await callApi<{ ok: boolean; canPublish?: boolean; requested?: boolean }>('shareAccess')
+  expect(before).toMatchObject({ ok: true, canPublish: false, requested: false })
+  const asked = await callApi<{ ok: boolean; canPublish?: boolean; requested?: boolean }>('shareRequestAccess')
+  expect(asked).toMatchObject({ ok: true, canPublish: false, requested: true })
+  const hits = gateway.requests.filter((r) => r.path.startsWith('/api/access/share'))
+  expect(hits.length).toBeGreaterThanOrEqual(2)
+  expect(hits.every((r) => r.hasCookie)).toBe(true)
+})
+
+test('the share dialog offers Request access to a signed-in user without the grant (#1018)', async () => {
+  gateway.access = { canPublish: false, requested: false }
+  // A document with no share entry: Share... opens the dialog, not the ◎ popover.
+  const unsharedPath = join(docsDir, 'unshared-doc.md')
+  writeFileSync(unsharedPath, '# Unshared\n\nNot published yet.\n')
+  const opened = await executeProseTool(page, 'open_file', { path: unsharedPath })
+  expect(opened.success).toBe(true)
+  await page.click('[data-testid="main-toolbar"] [aria-label="More options"]')
+  await page.getByRole('menuitem', { name: 'Share...' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByText("isn't in the beta yet", { exact: false })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Publish share link' })).toHaveCount(0)
+  if (process.env.SHARE_DIALOG_SHOTS) await dialog.screenshot({ path: `${process.env.SHARE_DIALOG_SHOTS}/not-invited.png` })
+  await dialog.getByRole('button', { name: 'Request access' }).click()
+  await expect(dialog.getByText('Request sent.', { exact: false })).toBeVisible()
+  if (process.env.SHARE_DIALOG_SHOTS) await dialog.screenshot({ path: `${process.env.SHARE_DIALOG_SHOTS}/requested.png` })
+  await page.keyboard.press('Escape')
+
+  // Granted: the same dialog offers Publish.
+  gateway.access = { canPublish: true, requested: false }
+  await page.click('[data-testid="main-toolbar"] [aria-label="More options"]')
+  await page.getByRole('menuitem', { name: 'Share...' }).click()
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Publish share link' })).toBeVisible()
+  await page.keyboard.press('Escape')
+})
 
 test('publish records an entry with its minting origin, owner-only perms', async () => {
   const res = await callApi<{ ok: boolean; entry?: { publicationId: string; gatewayOrigin?: string } }>(

@@ -12,8 +12,8 @@ The share service lets a desktop Prose user publish a document as a self-contain
 Key constraints for the beta:
 
 - **Invite-only.** Publishing requires the `share_publish` entitlement. The operator grants it by email **before** sending the invite; it is claimed the first time the invitee publishes (#965).
-- **Ships in the regular release.** Sharing is part of every direct-download build from 1.8.0 on, switched off. Invitees don't need a separate build; they update Prose as usual and turn the flag on (see §3). The `web-foundations` umbrella branch is retired, and the gateway deploys from `main`.
-- **Desktop only, behind a flag.** The share surface lives behind the `webPlatform` feature flag, which is off by default. Invitees enable it by hand (see §3).
+- **Ships in the regular release.** Sharing is part of every direct-download build. In 1.8.0 it sat behind the `webPlatform` flag, off by default; **from 1.8.1 the flag is on by default** (#943), so everyone sees Share. Publishing is still gated by the grant: anyone without one gets **Request access**, the waitlist (§3). The `web-foundations` umbrella branch is retired, and the gateway deploys from `main`.
+- **Desktop only.** Setting `"featureFlags": { "webPlatform": false }` in `settings.json` hides sharing.
 - **MAS excluded.** `webPlatform` is force-off in Mac App Store builds regardless of settings.
 - **Reviewers need nothing.** Anyone with the link can read the artifact and leave comments. No account, no flag.
 
@@ -76,15 +76,10 @@ Granting also clears their waitlist entry. To decline, do nothing; the request s
 
 ### What the invitee does
 
-1. **Update Prose to 1.8.0 or later.** Prose checks for updates on its own shortly after launch and offers to restart. Or download the DMG from the latest GitHub release.
-2. **Enable the feature flag.** Quit Prose, open `~/Library/Application Support/Prose/settings.json` in a text editor, and add (or merge into the existing `featureFlags` block):
-   ```json
-   "featureFlags": { "webPlatform": true }
-   ```
-   Save the file, then relaunch Prose. The app already points at the production gateway (`DEFAULT_GATEWAY_URL` = `https://api.prose.solo.ist`), so no `gatewayUrl` setting is needed. A leftover `webPlatform.gatewayUrl` for any host other than `api.prose.solo.ist` or loopback is ignored.
-3. **Sign in.** Open any document. A share icon (◎) appears in the top-right corner. Click it, enter the email address you granted, and press **Send code**. The gateway emails a 6-digit code via Resend.
-4. **Complete sign-in.** Click **Open in Prose** in the email, or type the code into Prose (it signs in as soon as the sixth digit is entered). Codes last 10 minutes; **Resend code** sends a fresh one.
-5. **Publish.** Click **Publish** in the share popover. It works on the first try: the gateway claims the invite into an entitlement on that request. The URL is `https://<label>.share.prose.solo.ist/s/<token>` (or `https://share.prose.solo.ist/s/<token>` if `SHARE_SUBDOMAINS` is not yet set).
+1. **Update Prose to 1.8.1 or later.** Prose checks for updates on its own shortly after launch and offers to restart. Or download the DMG from the latest GitHub release. (On 1.8.0, sharing still needs `"featureFlags": { "webPlatform": true }` in `settings.json`.) The app already points at the production gateway (`https://api.prose.solo.ist`); a leftover `webPlatform.gatewayUrl` for any host other than that or loopback is ignored.
+2. **Sign in.** Open a saved document, open **More options (⋯) → Share...**, enter the email address you granted, and press **Send code**. The gateway emails a 6-digit code via Resend.
+3. **Complete sign-in.** Click **Open in Prose** in the email, or type the code into Prose (it signs in as soon as the sixth digit is entered). Codes last 10 minutes; **Resend code** sends a fresh one.
+4. **Publish.** The dialog checks the grant right after sign-in (claiming the invite) and shows **Publish share link**. Once published, the ◎ icon in the document's top-right corner is the share surface. The URL is `https://<label>.share.prose.solo.ist/s/<token>` (or `https://share.prose.solo.ist/s/<token>` if `SHARE_SUBDOMAINS` is not yet set).
 
 The invite matches on the email the invitee signs in with (case-insensitive). If they sign in with a different address, grant that one too.
 
@@ -218,11 +213,10 @@ Hi — you're one of the first people to try Prose's new sharing feature. Here's
 **What it is:** You can publish any document in Prose as a shareable link. Recipients open it in a browser — no install, no account. They can read and leave comments, which sync back to your Prose app.
 
 **Setup (one time):**
-1. Make sure you're on Prose 1.8.0 or later. Prose updates itself shortly after launch; if it hasn't yet, download the latest release from <link to the latest release>. Your documents and settings stay where they are.
-2. Quit Prose, open `~/Library/Application Support/Prose/settings.json`, and add this entry (merge it into `featureFlags` if that block already exists, and keep the commas valid):
-   `"featureFlags": { "webPlatform": true }`
-   Then relaunch Prose.
-3. Click the ◎ icon in the top-right corner of any document, enter this email address (the one I sent the invite to), and press **Send code**. Click **Open in Prose** in the email, or type its 6-digit code into Prose. That's it: the **Publish** button works straight away.
+1. Make sure you're on Prose 1.8.1 or later. Prose updates itself shortly after launch; if it hasn't yet, download the latest release from <link to the latest release>. Your documents and settings stay where they are.
+2. Open a saved document, choose **More options (⋯) → Share...**, enter this email address (the one I sent the invite to), and press **Send code**. Click **Open in Prose** in the email, or type its 6-digit code into Prose. That's it: the **Publish** button works straight away.
+
+(`npm run grant -- … --notify` sends a shorter version of this automatically.)
 
 **What works:**
 - Publish and share a link to any document.

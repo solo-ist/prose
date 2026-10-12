@@ -39,6 +39,7 @@ All values below must be set in the Render dashboard under **prose-gateway → E
 | `R2_ACCESS_KEY_ID` | R2 API token key ID | Required for R2 |
 | `R2_SECRET_ACCESS_KEY` | R2 API token secret | Required for R2 |
 | `R2_BUCKET` | R2 bucket name for artifacts | Required for R2 |
+| `OPERATOR_EMAIL` | Where sharing access requests go (#1018) | Your own address. Optional: without it, requests are still recorded (`grant --list`), but nobody is emailed |
 | `SHARE_SUBDOMAINS` | Enables per-publication subdomain routing (#938) | Set to `1` **only after** the wildcard `*.share.prose.solo.ist` DNS and TLS are live on Render — see the deploy order in §5 |
 
 > **Removed in #934:** `AUTH_MAGIC_LINK_STDOUT` is no longer read. Delete it from the Render env if it was set.
@@ -56,10 +57,22 @@ The gateway validates all required vars at boot and exits non-zero with a clear 
    ```bash
    npm run grant -- --email a@example.com,b@example.com --feature share_publish --by beta
    ```
-   Each email prints `invited` (no account yet; claimed on their first publish) or `granted` (account exists). It's idempotent, so re-running is safe. Optional flags: `--expires YYYY-MM-DD` (access lasts through that date, UTC), `--notes "wave 1"`, `--dry-run`.
+   Each email prints `invited` (no account yet; claimed on their first publish) or `granted` (account exists). It's idempotent, so re-running is safe. Optional flags: `--expires YYYY-MM-DD` (access lasts through that date, UTC), `--notes "wave 1"`, `--notify` (emails each address "Sharing is on" with a download link, so you don't have to write the invite yourself), `--dry-run`.
 3. Send the invitee their invitation (see §6 for suggested copy).
 
-To see who has access: `npm run grant -- --list --feature share_publish` (grants, plus invites not yet claimed).
+To see who has access: `npm run grant -- --list --feature share_publish` (grants, invites not yet claimed, and **access requests waiting**).
+
+### The waitlist (request access, #1018)
+
+A signed-in user without the grant can press **Request access** in Prose. The gateway records one request per address and emails:
+- the requester a confirmation
+- you (`OPERATOR_EMAIL`), with reply-to set to the requester, and the exact command to approve them
+
+To approve, run the command from that email as a one-off job:
+```bash
+npm run grant -- --email reader@example.com --feature share_publish --by beta --notify
+```
+Granting also clears their waitlist entry. To decline, do nothing; the request stays listed under `grant --list`.
 
 ### What the invitee does
 

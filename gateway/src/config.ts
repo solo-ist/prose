@@ -57,6 +57,15 @@ const EnvSchema = z.object({
   // Never set this in production — it is documented only for the test suite.
   RESEND_API_URL: z.string().optional(),
 
+  // Where access requests go (#1018): the operator's own address. Set in the
+  // Render dashboard, never in the repo (it is public). Optional — without it
+  // a request is still recorded (npm run grant -- --list shows the waitlist),
+  // it just doesn't email anyone.
+  OPERATOR_EMAIL: z
+    .string()
+    .regex(/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/, 'must be a bare email address')
+    .optional(),
+
   // Origin isolation for served share pages (#902): when set, /s/* lives on
   // THIS host (cookie-less — author-controlled artifact JS can never reach a
   // session or the API origin's localStorage) and the API host redirects

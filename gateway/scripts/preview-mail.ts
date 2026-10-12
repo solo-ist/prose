@@ -10,6 +10,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { signInCodeEmail } from '../src/mail/templates/signInCode.js'
+import { accessGrantedEmail, accessRequestedEmail, accessRequestOperatorEmail } from '../src/mail/templates/access.js'
 
 const OUT = join(dirname(fileURLToPath(import.meta.url)), '..', '.mail-preview')
 const SAMPLE_LINK = 'https://api.prose.solo.ist/auth/code#c=404020&s=Zm9vYmFyYmF6cXV4cXV1eDEy'
@@ -17,6 +18,9 @@ const SAMPLE_LINK = 'https://api.prose.solo.ist/auth/code#c=404020&s=Zm9vYmFyYmF
 const previews = {
   'sign-in-code': signInCodeEmail('404020', SAMPLE_LINK, 10),
   'sign-in-code-no-link': signInCodeEmail('404020', null, 10),
+  'access-requested': accessRequestedEmail(),
+  'access-request-operator': accessRequestOperatorEmail('reader@example.com'),
+  'access-granted': accessGrantedEmail(),
 }
 
 mkdirSync(OUT, { recursive: true })

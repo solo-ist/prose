@@ -7,13 +7,15 @@
  * (src/entitlements/index.ts). So grant BEFORE sending the invite.
  *
  *   npm run grant -- --email a@x.com,b@y.com --feature share_publish --by beta
- *        [--expires 2027-01-31] [--notes "beta wave 1"] [--dry-run]
+ *        [--expires 2027-01-31] [--notes "beta wave 1"] [--notify] [--dry-run]
  *   npm run grant -- --email a@x.com --feature share_publish --revoke
  *   npm run grant -- --list [--feature share_publish]
  *
  * --email is repeatable and takes comma lists (Render one-off jobs can't
  * upload a file, so a whole wave goes on one command line).
  * --expires is inclusive: access lasts through that date (UTC).
+ * --notify (share_publish only) emails each address "Sharing is on" (#1018),
+ * and granting stamps any matching access request (the waitlist) approved.
  * Rows granted by `opencollective` belong to the #953 reconcile job and are
  * never changed or removed here.
  */
@@ -28,7 +30,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 const USAGE = `Usage:
   npm run grant -- --email <a@x[,b@y]> --feature <${FEATURES.join('|')}> --by <${GRANTERS.join('|')}>
-                   [--expires YYYY-MM-DD] [--notes <text>] [--dry-run]
+                   [--expires YYYY-MM-DD] [--notes <text>] [--notify] [--dry-run]
   npm run grant -- --email <a@x[,b@y]> --feature <feature> --revoke [--dry-run]
   npm run grant -- --list [--feature <feature>]`
 
@@ -44,7 +46,7 @@ for (let i = 0; i < argv.length; i++) {
   const a = argv[i]
   if (!a.startsWith('--')) fail(`Unexpected argument: ${a}`)
   const name = a.slice(2)
-  if (['revoke', 'list', 'dry-run'].includes(name)) {
+  if (['revoke', 'list', 'dry-run', 'notify'].includes(name)) {
     flags.add(name)
     continue
   }
@@ -70,6 +72,7 @@ if (flags.has('list')) {
 
 const revoke = flags.has('revoke')
 const dryRun = flags.has('dry-run')
+const notify = flags.has('notify')
 const by = one('by')
 const notes = one('notes') ?? null
 const expiresArg = one('expires')
@@ -89,7 +92,7 @@ if (bad.length) fail(`Not an email address: ${bad.join(', ')}`)
 
 let expiresAt: Date | null = null
 if (revoke) {
-  if (by || expiresArg || values.has('notes')) fail('--revoke takes only --email and --feature')
+  if (by || expiresArg || values.has('notes') || notify) fail('--revoke takes only --email and --feature')
 } else {
   if (!by) fail('--by is required')
   if (by === RESERVED_GRANTER) fail(`--by ${RESERVED_GRANTER} is reserved for the Open Collective reconcile job (#953)`)
@@ -99,6 +102,33 @@ if (revoke) {
     expiresAt = new Date(`${expiresArg}T23:59:59.999Z`)
     if (Number.isNaN(expiresAt.getTime())) fail(`Invalid date: ${expiresArg}`)
     if (expiresAt.getTime() < Date.now()) console.warn(`! --expires ${expiresArg} is in the past; the grant is inert.`)
+  }
+  if (notify && feature !== 'share_publish') fail('--notify only has an email for share_publish')
+}
+
+// Loaded only when needed: the mail module reads the full gateway config,
+// which a plain grant or --list shouldn't depend on.
+const mailer = notify && !dryRun
+  ? {
+      send: (await import('../src/mail/index.js')).sendMail,
+      email: (await import('../src/mail/templates/access.js')).accessGrantedEmail,
+    }
+  : null
+
+/** Approve any waitlist request for `email`, then email them if --notify. */
+async function afterGrant(email: string): Promise<string> {
+  if (dryRun) return notify ? ', would notify' : ''
+  await prisma.accessRequest.updateMany({
+    where: { email, feature: feature!, grantedAt: null },
+    data: { grantedAt: new Date() },
+  })
+  if (!mailer) return ''
+  try {
+    await mailer.send({ to: email, ...mailer.email() })
+    return ', notified'
+  } catch (err) {
+    console.error(`! notify ${email} failed:`, err instanceof Error ? err.message : err)
+    return ', NOTIFY FAILED'
   }
 }
 
@@ -153,7 +183,7 @@ for (const email of emails) {
         prisma.entitlementInvite.deleteMany({ where: { email, feature, claimedAt: null } }),
       ])
     }
-    report('granted', email, describe())
+    report('granted', email, describe() + (await afterGrant(email)))
   } else {
     if (!dryRun) {
       // Resetting the claim re-arms an invite whose earlier claimant's
@@ -164,7 +194,7 @@ for (const email of emails) {
         update: { grantedBy: by!, expiresAt, notes, claimedAt: null, claimedByUserId: null },
       })
     }
-    report('invited', email, `${describe()} — claimed on first sign-in`)
+    report('invited', email, `${describe()} — claimed on first sign-in${await afterGrant(email)}`)
   }
 }
 
@@ -191,5 +221,13 @@ async function list(feature: string | undefined): Promise<void> {
   console.log(`Pending invites (${invites.length}):`)
   for (const i of invites) {
     console.log(`  ${i.email}  ${i.feature}  by=${i.grantedBy}  invited=${day(i.createdAt)}  until=${day(i.expiresAt)}`)
+  }
+  const requests = await prisma.accessRequest.findMany({
+    where: { grantedAt: null, ...(feature ? { feature } : {}) },
+    orderBy: { createdAt: 'asc' },
+  })
+  console.log(`Access requests waiting (${requests.length}):`)
+  for (const r of requests) {
+    console.log(`  ${r.email}  ${r.feature}  requested=${day(r.createdAt)}`)
   }
 }

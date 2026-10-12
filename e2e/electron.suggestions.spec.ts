@@ -34,6 +34,12 @@ test.beforeAll(async () => {
 
   qaUserDataDir = mkdtempSync(join(tmpdir(), 'prose-qa-profile-'))
   qaFixturesDir = mkdtempSync(join(tmpdir(), 'prose-qa-fixtures-'))
+  // open_file is contained to home + user-chosen workspace roots (#918); make
+  // the fixtures dir the default save directory so the harness can open them.
+  writeFileSync(
+    join(qaUserDataDir, 'settings.json'),
+    JSON.stringify({ defaultSaveDirectory: qaFixturesDir }, null, 2),
+  )
   const launched = await launchApp({ env: { PROSE_USER_DATA_DIR: qaUserDataDir } })
   app = launched.app
   page = launched.page

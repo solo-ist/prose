@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Settings, RemarkableSyncPhase, IconId } from '../renderer/types'
 import type { ToolResult } from '../shared/tools/types'
+import type { FileAccessOptions } from '../shared/fileAccess'
 import {
   unwrapReadFileResult,
   unwrapSaveFileResult,
@@ -201,11 +202,11 @@ export interface McpInstallResult {
 
 export interface ElectronAPI {
   openFile: () => Promise<FileResult | null>
-  saveFile: (path: string, content: string) => Promise<void>
+  saveFile: (path: string, content: string, opts?: FileAccessOptions) => Promise<void>
   saveFileAs: (content: string, defaultFilename?: string) => Promise<string | null>
   exportTxt: (content: string, defaultFilename?: string) => Promise<string | null>
   exportHtml: (content: string, defaultFilename?: string) => Promise<string | null>
-  readFile: (path: string) => Promise<string>
+  readFile: (path: string, opts?: FileAccessOptions) => Promise<string>
   readFileBase64: (path: string, allowedRoot: string) => Promise<string>
   loadSettings: () => Promise<Settings>
   saveSettings: (settings: Settings) => Promise<void>
@@ -246,7 +247,7 @@ export interface ElectronAPI {
   closeWindow: () => Promise<void>
   isFullScreen: () => Promise<boolean>
   exitFullScreen: () => Promise<void>
-  listDirectory: (path: string, maxDepth?: number, showDotfiles?: boolean) => Promise<FileItem[]>
+  listDirectory: (path: string, maxDepth?: number, showDotfiles?: boolean, opts?: FileAccessOptions) => Promise<FileItem[]>
   remarkableRegister: (code: string) => Promise<RemarkableRegisterResponse>
   remarkableValidate: (deviceToken: string) => Promise<boolean>
   remarkableSync: (deviceToken: string, syncDirectory: string) => Promise<RemarkableSyncResult>
@@ -397,15 +398,15 @@ export interface RemarkableSyncState {
 
 const api: ElectronAPI = {
   openFile: () => ipcRenderer.invoke('file:open'),
-  saveFile: async (path: string, content: string) => {
-    const result = await ipcRenderer.invoke('file:save', path, content) as SaveFileResult
+  saveFile: async (path: string, content: string, opts?: FileAccessOptions) => {
+    const result = await ipcRenderer.invoke('file:save', path, content, opts) as SaveFileResult
     unwrapSaveFileResult(result)
   },
   saveFileAs: (content: string, defaultFilename?: string) => ipcRenderer.invoke('file:saveAs', content, defaultFilename),
   exportTxt: (content: string, defaultFilename?: string) => ipcRenderer.invoke('file:exportTxt', content, defaultFilename),
   exportHtml: (content: string, defaultFilename?: string) => ipcRenderer.invoke('file:exportHtml', content, defaultFilename),
-  readFile: async (path: string) => {
-    const result = await ipcRenderer.invoke('file:read', path) as ReadFileResult
+  readFile: async (path: string, opts?: FileAccessOptions) => {
+    const result = await ipcRenderer.invoke('file:read', path, opts) as ReadFileResult
     return unwrapReadFileResult(result)
   },
   readFileBase64: (path: string, allowedRoot: string) => ipcRenderer.invoke('file:readBase64', path, allowedRoot),
@@ -461,7 +462,7 @@ const api: ElectronAPI = {
   exitFullScreen: () => ipcRenderer.invoke('window:exitFullScreen'),
   openPath: (path: string) => ipcRenderer.invoke('shell:openPath', path),
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
-  listDirectory: (path: string, maxDepth?: number, showDotfiles?: boolean) => ipcRenderer.invoke('file:listDirectory', path, maxDepth, showDotfiles),
+  listDirectory: (path: string, maxDepth?: number, showDotfiles?: boolean, opts?: FileAccessOptions) => ipcRenderer.invoke('file:listDirectory', path, maxDepth, showDotfiles, opts),
   remarkableRegister: (code: string) => ipcRenderer.invoke('remarkable:register', code),
   remarkableValidate: (deviceToken: string) => ipcRenderer.invoke('remarkable:validate', deviceToken),
   remarkableSync: (deviceToken: string, syncDirectory: string) =>

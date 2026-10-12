@@ -243,7 +243,7 @@ Zustand stores in `src/renderer/stores/`:
 
 `src/renderer/lib/featureFlags.ts` gates features that aren't ready for public release. Flags are persisted in `settings.json` (in `app.getPath('userData')`) under the `featureFlags` key. Each flag has its own default — see below.
 
-To override a flag without rebuilding, add to `~/Library/Application Support/Prose/settings.json` (macOS):
+To override a flag without rebuilding, add to `~/Library/Application Support/Prose/settings.json` (macOS; `Prose Dev/settings.json` for `npm run dev`):
 ```json
 "featureFlags": { "googleDocs": true, "remarkable": false }
 ```
@@ -294,7 +294,7 @@ Tool pipeline, stream lifecycle, and tool modes: see `docs/architecture/llm-pipe
 
 ### Settings
 
-Settings stored at `app.getPath('userData')/settings.json` (`~/Library/Application Support/Prose/` on macOS). All settings path resolution is centralized in `src/main/paths.ts`. Default settings defined in `src/main/ipc.ts`. The `Settings` type in `src/renderer/types/index.ts` is the source of truth for the settings shape.
+Settings stored at `app.getPath('userData')/settings.json` (`~/Library/Application Support/Prose/` on macOS; `npm run dev` uses its own `Prose Dev/` profile, seeded once from `Prose/` — see `docs/troubleshooting.md`). All settings path resolution is centralized in `src/main/paths.ts`. Default settings defined in `src/main/ipc.ts`. The `Settings` type in `src/renderer/types/index.ts` is the source of truth for the settings shape.
 
 Legacy `~/.prose/` data is migrated automatically on first launch via `src/main/migrate.ts` (settings and dictionary only; credentials require re-entry due to safeStorage identity differences).
 
@@ -376,7 +376,7 @@ Step-by-step recipes for common extension tasks (settings tab, IPC channel, TipT
 
 ## Security Rules
 
-- **Path validation** — every filesystem IPC handler must call `validatePath()` (`src/main/ipc.ts`). KNOW WHAT IT IS: a normalizer, NOT containment — `normalize()` resolves `..` before the traversal check, so `a/../../etc/x` passes clean. That is acceptable ONLY for user-chosen paths (dialogs, the file explorer). Any handler whose path can originate from DOCUMENT CONTENT or an imported artifact must additionally take a containment root and verify the resolved path stays under it (see `file:readBase64` — audit H-03). Never cite `validatePath()` as a traversal defense.
+- **Path handling** — every filesystem IPC handler declares its **path source** in a comment (`// Path source: A|B|C …`, see `src/main/paths.ts`) and validates accordingly. **A (user-chosen: dialogs, explorer entries, the current tab, settings roots)** → `normalizePath()`. KNOW WHAT IT IS: a normalizer, NOT containment — `normalize()` resolves `..` before the traversal check, so `a/../../etc/x` passes clean. **B (content-derived: document text, image srcs, imported artifacts, `prose://` payloads, LLM/MCP tool arguments, sync metadata)** → `resolveWithin(root, path, …)` with an explicit containment root; it realpaths both sides and applies extension / hidden-folder rules (`file:readBase64` — audit H-03; tool paths use `resolveToolPath()`: text files under home or a user-chosen workspace root — default save directory, projects, favorites — never inside a hidden folder). **C (a user-chosen directory + a typed name)** → sanitize the name in the renderer with `sanitizeEntryName()` before joining. Never cite `normalizePath()` as a traversal defense. (#918)
 - **API keys** — store via `credentialStore` (OS `safeStorage`), never in plaintext. If `safeStorage` is unavailable, keys are stripped, not saved.
 - **No `innerHTML` with dynamic data** — use JSX or `textContent`. LLM-generated content must never be inserted as raw HTML.
 - **Sandbox settings** — `contextIsolation: true`, `nodeIntegration: false` — never change these.

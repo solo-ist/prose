@@ -90,9 +90,12 @@ function isRateLimited(): boolean {
   return Date.now() < rateLimitedUntil
 }
 
-/** Active non-revoked entry for the current document, or null. */
-async function activeEntry(): Promise<ShareEntry | null> {
-  const path = useEditorStore.getState().document.path
+/**
+ * Active non-revoked entry for the current document, or null. Pass `path`
+ * to pin the lookup to a document read earlier (synchronously, at gesture
+ * time) rather than whatever is open when the await resolves.
+ */
+async function activeEntry(path = useEditorStore.getState().document.path): Promise<ShareEntry | null> {
   if (!path) return null
   const res = await getApi().shareGetForPath(path)
   return res.ok && res.entries.length > 0 ? res.entries[0] : null
@@ -420,8 +423,12 @@ export function pushResolveToShare(threadId: string): void {
 export function pushRemoveToShare(thread: { shareId?: string }): void {
   if (!isWebPlatformEnabled() || !thread.shareId) return
   const shareId = thread.shareId
+  // Pin the document NOW: the entry lookup awaits, and a document switch in
+  // that gap would aim the removal at another publication, whose 404 ends
+  // the retries — a removal the user saw locally that never left the page.
+  const path = useEditorStore.getState().document.path
   track((async () => {
-    const entry = await activeEntry()
+    const entry = await activeEntry(path)
     if (entry) sendRemove(entry.publicationId, shareId)
   })())
 }

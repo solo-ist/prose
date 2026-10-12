@@ -482,6 +482,8 @@ export const browserApi: ElectronAPI = {
   // Share service (#768) - not available in browser mode until the web
   // gateway client lands (#766); the desktop main process owns publish today.
   shareAuthStatus: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  shareAccess: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
+  shareRequestAccess: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
   shareRequestSignIn: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
   shareCompleteSignIn: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
   shareSignOut: async () => ({ ok: true as const }),

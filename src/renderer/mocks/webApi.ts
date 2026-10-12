@@ -598,6 +598,8 @@ export function createMockApi(): ElectronAPI {
 
     // Sharing needs the desktop main process — honest unavailable results.
     shareAuthStatus: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
+    shareAccess: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
+    shareRequestAccess: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
     shareRequestSignIn: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
     shareCompleteSignIn: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
     shareSignOut: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),

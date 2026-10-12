@@ -20,7 +20,7 @@
  */
 import { useEffect } from 'react'
 import { getApi } from './browserApi'
-import { isWebPlatformEnabled } from './featureFlags'
+import { isWebPlatformEnabled, webPlatformOn } from './featureFlags'
 import { buildShareArtifact } from './shareArtifact'
 import { awaitPendingPushes, backfillShareThreads, flushPendingShareOps, hasUnsyncedRows } from './sharePush'
 import { useEditorStore } from '../stores/editorStore'
@@ -155,7 +155,7 @@ export function useShareContentSync(): void {
     void useShareStore.getState().refreshForActiveDocument()
 
     const unsubFlag = useSettingsStore.subscribe(
-      (s) => s.isLoaded && s.settings.featureFlags?.webPlatform === true,
+      (s) => s.isLoaded && webPlatformOn(s.settings.featureFlags),
       (enabled) => {
         if (enabled) void useShareStore.getState().refreshForActiveDocument()
       }

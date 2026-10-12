@@ -180,6 +180,35 @@ export async function signOut(config: ShareClientConfig): Promise<void> {
   await credentialStore.delete(SESSION_KEY)
 }
 
+/** Where the signed-in user stands in the sharing beta (#1018). */
+export interface ShareAccess {
+  canPublish: boolean
+  requested: boolean
+}
+
+function parseAccess(body: unknown): ShareAccess {
+  const b = body as { canPublish?: unknown; requested?: unknown } | null
+  return { canPublish: b?.canPublish === true, requested: b?.requested === true }
+}
+
+/** The signed-in user's own standing (claims a pending invite gateway-side). */
+export async function fetchAccess(config: ShareClientConfig): Promise<ShareAccess> {
+  const res = await fetch(`${base(config)}/api/access/share`, { headers: await authedHeaders(config) })
+  if (!res.ok) throw await toError(res)
+  return parseAccess(await res.json())
+}
+
+/** Join the waitlist. Idempotent: the gateway mails only on the first ask. */
+export async function requestAccess(config: ShareClientConfig): Promise<ShareAccess> {
+  const res = await fetch(`${base(config)}/api/access/share/request`, {
+    method: 'POST',
+    headers: await authedHeaders(config),
+    body: '{}',
+  })
+  if (!res.ok) throw await toError(res)
+  return parseAccess(await res.json())
+}
+
 /** True when a session cookie exists for THIS gateway AND it accepts it. */
 export async function checkSession(config: ShareClientConfig): Promise<{ signedIn: boolean; email?: string }> {
   const session = await storedSession()

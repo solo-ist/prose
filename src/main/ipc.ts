@@ -1760,6 +1760,20 @@ export function setupIpcHandlers(): void {
     return share.authStatus()
   })
 
+  // The sharing waitlist (#1018): the signed-in user's own standing, and the
+  // request to join. No renderer-supplied arguments.
+  ipcMain.handle('share:access', async () => {
+    if (IS_MAS_BUILD) return MAS_SHARE_BLOCKED
+    const share = await import('./share/index')
+    return share.access()
+  })
+
+  ipcMain.handle('share:requestAccess', async () => {
+    if (IS_MAS_BUILD) return MAS_SHARE_BLOCKED
+    const share = await import('./share/index')
+    return share.requestAccess()
+  })
+
   ipcMain.handle('share:requestSignIn', async (_event, email: string) => {
     if (IS_MAS_BUILD) {
       return { ok: false, error: 'Sharing is not available in the Mac App Store version.' }

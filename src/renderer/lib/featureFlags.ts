@@ -46,19 +46,24 @@ export function useRemarkableEnabled(): boolean {
 
 /**
  * Web platform (gateway accounts + share/publish surfaces, #768/#771) —
- * opt-in via settings.featureFlags.webPlatform, force-off for MAS.
+ * default ON for direct-download builds since 1.8.1 (#943), force-off for MAS.
  *
- * Opt-in: only an explicit `true` enables it — the platform is pre-launch.
+ * On by default: anyone can sign in and see Share; publishing is gated by the
+ * gateway's share_publish grant, and users without one get Request access
+ * (the waitlist, #1018). An explicit `false` in settings.json turns it off.
  *
- * MAS-off: the share/publish surfaces belong to the self-distributed / web
- * account layer (reader-app pattern); MAS builds never see them regardless of
- * settings.json.
+ * MAS-off: the hosted surfaces belong to the self-distributed build; MAS
+ * builds never see them regardless of settings.json.
+ *
+ * Every reader goes through `webPlatformOn` so the default lives in one place.
  */
+export function webPlatformOn(flags: { webPlatform?: boolean } | undefined): boolean {
+  if (isMasBuild()) return false
+  return flags?.webPlatform !== false
+}
+
 export function useWebPlatformEnabled(): boolean {
-  return useSettingsStore((s) => {
-    if (isMasBuild()) return false
-    return s.settings.featureFlags?.webPlatform === true
-  })
+  return useSettingsStore((s) => webPlatformOn(s.settings.featureFlags))
 }
 
 // --- Non-hook accessors (for use outside React components) ---
@@ -68,8 +73,7 @@ export function isGoogleDocsEnabled(): boolean {
 }
 
 export function isWebPlatformEnabled(): boolean {
-  if (isMasBuild()) return false
-  return useSettingsStore.getState().settings.featureFlags?.webPlatform === true
+  return webPlatformOn(useSettingsStore.getState().settings.featureFlags)
 }
 
 export function isRemarkableEnabled(): boolean {

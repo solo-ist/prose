@@ -5,10 +5,16 @@
  * conversation, revoke. The Toolbar routes "Share..." there when an entry
  * exists, so this dialog normally only ever sees unshared documents.
  *
- * Gated by the webPlatform feature flag (Toolbar renders the entry point).
- * Sign-in is the interim pre-#766 flow (#964): request a 6-digit code by
- * email, type it here. The main process records the requested address and
- * submits the code with it, so this dialog only ever passes digits.
+ * Gated by the webPlatform feature flag (Toolbar renders the entry point),
+ * which is on by default since 1.8.1. Sign-in is the interim pre-#766 flow
+ * (#964): request a 6-digit code by email, type it here. The main process
+ * records the requested address and submits the code with it, so this dialog
+ * only ever passes digits.
+ *
+ * Sharing is an invite-only beta (#1018). Once signed in, the dialog asks the
+ * gateway where THIS user stands: invited users publish, everyone else can
+ * request access. The check is deliberately post-sign-in — asking before
+ * would let anyone probe which addresses are in the beta.
  */
 import { useCallback, useEffect, useState } from 'react'
 import {
@@ -41,9 +47,16 @@ type AuthState =
   | { phase: 'signed-out'; codeSentTo: string | null }
   | { phase: 'signed-in'; email?: string }
 
+/**
+ * Beta standing once signed in. 'unknown' (an older gateway, or offline)
+ * falls back to the Publish button; the gateway still enforces the grant.
+ */
+type Access = 'unknown' | 'can-publish' | 'not-invited' | 'requested'
+
 export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
   const { document } = useEditor()
   const [auth, setAuth] = useState<AuthState>({ phase: 'loading' })
+  const [access, setAccess] = useState<Access>('unknown')
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
   const [entry, setEntry] = useState<ShareEntry | null>(null)
@@ -54,8 +67,13 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
     setError(null)
     const status = await getApi().shareAuthStatus()
     if (status.ok && status.signedIn) {
+      const standing = await getApi().shareAccess()
+      setAccess(
+        !standing.ok ? 'unknown' : standing.canPublish ? 'can-publish' : standing.requested ? 'requested' : 'not-invited'
+      )
       setAuth({ phase: 'signed-in', email: status.email })
     } else {
+      setAccess('unknown')
       setAuth({ phase: 'signed-out', codeSentTo: null })
     }
     if (document.path) {
@@ -150,6 +168,14 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
       return null
     })
 
+  const handleRequestAccess = () =>
+    run('request-access', async () => {
+      const res = await getApi().shareRequestAccess()
+      if (!res.ok) return res.error
+      setAccess(res.canPublish ? 'can-publish' : 'requested')
+      return null
+    })
+
   const openShareControls = useCallback(() => {
     onOpenChange(false)
     useShareStore.getState().setPopoverOpen(true)
@@ -169,7 +195,18 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
         localPath: document.path as string,
         documentId: document.documentId,
       })
-      if (!res.ok) return res.error
+      if (!res.ok) {
+        // The grant can change under an open dialog (revoked, or never there
+        // when the access check was unavailable): show where they stand.
+        if (res.code === 'forbidden') {
+          const standing = await getApi().shareAccess()
+          if (standing.ok && !standing.canPublish) {
+            setAccess(standing.requested ? 'requested' : 'not-invited')
+            return null
+          }
+        }
+        return res.error
+      }
       // Hand off to the pinned ◎ — it appears immediately with the new entry.
       useShareStore.getState().applyEntry(res.entry)
       openShareControls()
@@ -198,7 +235,8 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
         {auth.phase === 'signed-out' && (
           <div className="space-y-3 py-2">
             <p className="text-sm text-muted-foreground">
-              Sign in to the Prose gateway to publish a share link.
+              Sharing is in invite-only beta. Sign in with your email to publish, or to
+              request access.
             </p>
             {auth.codeSentTo === null ? (
               <div className="flex gap-2">
@@ -296,7 +334,26 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
               </div>
             )}
 
-            {document.path && !entry && (
+            {document.path && !entry && access === 'not-invited' && (
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  Sharing is invite-only for now, and {auth.email ?? 'this address'} isn&apos;t in
+                  the beta yet. Request access and you&apos;ll get an email when it&apos;s on.
+                </p>
+                <Button onClick={handleRequestAccess} disabled={busy !== null} className="w-full">
+                  {busy === 'request-access' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Request access'}
+                </Button>
+              </div>
+            )}
+
+            {document.path && !entry && access === 'requested' && (
+              <p className="text-sm text-muted-foreground">
+                Request sent. You&apos;ll get an email at {auth.email ?? 'this address'} when sharing
+                is on for you.
+              </p>
+            )}
+
+            {document.path && !entry && (access === 'can-publish' || access === 'unknown') && (
               <div className="space-y-2">
                 <p className="text-sm text-muted-foreground">
                   Publish this document (comments included) to a private link. Anyone with the

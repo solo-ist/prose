@@ -701,6 +701,9 @@ export interface ElectronAPI {
   googleRemoveSyncMetadataEntry: (googleDocId: string) => Promise<void>
   // Share service (#768) — publish/re-publish/revoke + interim gateway sign-in
   shareAuthStatus: () => Promise<ShareOp<{ signedIn: boolean; email?: string; gatewayUrl: string }>>
+  /** The signed-in user's standing in the sharing beta (#1018). */
+  shareAccess: () => Promise<ShareOp<{ canPublish: boolean; requested: boolean }>>
+  shareRequestAccess: () => Promise<ShareOp<{ canPublish: boolean; requested: boolean }>>
   shareRequestSignIn: (email: string) => Promise<ShareOp>
   shareCompleteSignIn: (code: string) => Promise<ShareOp<{ email?: string }>>
   /** Desktop only: a sign-in finished from the email's prose://auth link (#964). */

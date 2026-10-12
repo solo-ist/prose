@@ -251,6 +251,7 @@ To override a flag without rebuilding, add to `~/Library/Application Support/Pro
 Current flags:
 - `googleDocs` — Google Docs bidirectional sync (v1.1). **Default: off.** Opt-in only.
 - `remarkable` — reMarkable tablet sync (v1.1). **Default: on for desktop builds; forced off for MAS builds** regardless of the user's setting, since the reMarkable Cloud auth and OCR Lambda credentials aren't ready for App Store review. Set to `false` explicitly to disable on desktop.
+- `webPlatform` — sharing via the Prose gateway (share links, live comments, sign-in). **Default: on for desktop builds since 1.8.1 (#943); forced off for MAS builds.** Publishing is still gated server-side by the `share_publish` grant; users without one get Request access (#1018). Read it through `webPlatformOn` / `useWebPlatformEnabled` / `isWebPlatformEnabled` — never `featureFlags.webPlatform` directly — so the default lives in one place.
 
 The module exports React hooks (`useGoogleDocsEnabled`, `useRemarkableEnabled`) for use in components and non-hook accessors (`isGoogleDocsEnabled`, `isRemarkableEnabled`) for use in callbacks. When gating a feature, import the appropriate function and use it to guard UI rendering, background effects, and menu handlers. Preserve all code — gate, don't delete.
 

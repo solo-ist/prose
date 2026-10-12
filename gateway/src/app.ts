@@ -213,25 +213,43 @@ export function createApp() {
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Sign in to Prose</title>
   <style>
-    body{font-family:system-ui,sans-serif;max-width:480px;margin:3rem auto;padding:0 1.5rem;color:#111;background:#fff;text-align:center}
-    h1{font-size:1.25rem;margin-bottom:0.5rem}
-    p{color:#374151;line-height:1.6;margin:0.5rem 0}
-    #code{font-family:ui-monospace,monospace;font-size:2rem;letter-spacing:0.3em;background:#f4f4f5;border-radius:6px;padding:0.75rem 1rem;margin:1rem 0}
-    #open{display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:0.6rem 1.25rem;border-radius:6px;margin:0.5rem 0}
-    #open[hidden]{display:none}
-    .note{font-size:0.8rem;color:#6b7280;margin-top:1.5rem}
-    @media(prefers-color-scheme:dark){body{background:#0f172a;color:#f1f5f9}p{color:#cbd5e1}#code{background:#1e293b}.note{color:#94a3b8}}
+    :root{--bg:#fafafa;--card:#fff;--line:#e4e4e7;--ink:#09090b;--muted:#52525b;--faint:#71717a;--box:#f4f4f5;--btn:#18181b;--btn-ink:#fafafa}
+    @media(prefers-color-scheme:dark){:root{--bg:#0f0f0f;--card:#18181b;--line:#2a2a2e;--ink:#fafafa;--muted:#a1a1aa;--faint:#a1a1aa;--box:#27272a;--btn:#e2d9cb;--btn-ink:#0f0f0f}}
+    *{box-sizing:border-box}
+    body{margin:0;padding:40px 24px;background:var(--bg);color:var(--ink);font-family:'IBM Plex Mono',Menlo,Consolas,'Courier New',monospace;-webkit-text-size-adjust:100%}
+    .wrap{max-width:552px;margin:0 auto}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:24px 40px}
+    .mark{font-family:Fraunces,Georgia,'Times New Roman',serif;font-style:italic;font-size:20px;line-height:20px}
+    .rule{height:1px;background:var(--line);margin:24px 0 32px}
+    h1{margin:0;font-size:24px;line-height:30px;font-weight:600}
+    p{margin:16px 0 0;font-size:16px;line-height:26px}
+    #code{margin-top:24px;background:var(--box);border-radius:6px;padding:28px 16px;text-align:center;font-size:40px;line-height:44px;font-weight:500;letter-spacing:12px}
+    .note{margin-top:12px;font-size:13px;line-height:20px;color:var(--muted)}
+    #open{display:inline-block;margin-top:32px;padding:12px 20px;border-radius:6px;background:var(--btn);color:var(--btn-ink);font-size:14px;line-height:20px;font-weight:500;text-decoration:none}
+    #open[hidden],[hidden]{display:none}
+    .foot{margin-top:32px;font-size:13px;line-height:20px;color:var(--muted)}
+    .site{padding:24px 40px 0;font-size:12px;line-height:18px;color:var(--faint)}
+    .site a{color:inherit}
+    @media(max-width:620px){body{padding:24px 16px}.card{padding:24px}.site{padding:24px 24px 0}#code{font-size:32px;letter-spacing:8px}}
   </style>
 </head>
 <body>
-  <h1>Sign in to Prose</h1>
-  <div id="found" hidden>
-    <p>Prose should open and finish signing in. If it doesn&rsquo;t, enter this code in Prose:</p>
-    <div id="code"></div>
-    <a id="open" hidden>Open in Prose</a>
-    <p class="note">The code expires 10 minutes after it was sent. If you didn&rsquo;t request it, you can ignore this page.</p>
+  <div class="wrap">
+    <main class="card">
+      <div class="mark">&para; Prose.</div>
+      <div class="rule"></div>
+      <h1>Sign in to Prose</h1>
+      <div id="found" hidden>
+        <p>Prose should open and finish signing in. If it doesn&rsquo;t, enter this code in Prose.</p>
+        <div id="code" aria-label="Sign-in code"></div>
+        <p class="note">Expires 10 minutes after it was sent. Works once.</p>
+        <a id="open" hidden>Open in Prose</a>
+      </div>
+      <p id="missing" hidden>This link is missing its sign-in code. Use the 6-digit code in the email instead.</p>
+      <p class="foot">Didn&rsquo;t request this? Ignore this page. Nothing happens without the code.</p>
+    </main>
+    <div class="site">Prose &middot; <a href="https://prose.solo.ist">prose.solo.ist</a></div>
   </div>
-  <p id="missing" hidden>This link is missing its sign-in code. Use the 6-digit code in the email instead.</p>
   <script>${SIGN_IN_PAGE_SCRIPT}</script>
 </body>
 </html>`

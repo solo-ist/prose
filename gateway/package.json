@@ -41,7 +41,7 @@
     "@types/pg": "^8.20.0",
     "prisma": "^7.8.0",
     "tsx": "^4.22.4",
-    "typescript": "^5.7.0"
+    "typescript": "^7.0.2"
   },
   "overrides": {
     "fast-uri": ">=3.1.8 <4",

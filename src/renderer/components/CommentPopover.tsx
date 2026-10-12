@@ -27,7 +27,7 @@ import { useCommentStore } from '../extensions/comments/store'
 import type { CommentData, CommentReply } from '../extensions/comments/types'
 import { formatAge } from '../types/annotations'
 import { generateId } from '../lib/persistence'
-import { pushReplyToShare, pushResolveToShare } from '../lib/sharePush'
+import { pushRemoveToShare, pushReplyToShare, pushResolveToShare } from '../lib/sharePush'
 import { renderMarkdown } from './chat/ChatMessage'
 import { OPEN_COMMENT_EVENT, requestCommentReview } from './editor/AIEditsHistoryPanel'
 import { PROSE_ICONS, IconThumb } from '../lib/prose-icons'
@@ -85,6 +85,9 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
   const currentComment: CommentData | undefined = popover.commentId
     ? pendingComments.find((c) => c.id === popover.commentId)
     : undefined
+  const removeLabel = currentComment?.shareId
+    ? 'Delete thread (also removes it from the shared page)'
+    : 'Delete thread'
 
   // Clear the "thinking" indicator once the AI stream finishes; the reply it
   // produced lands in the store and renders in the thread above the composer.
@@ -230,6 +233,10 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
     // Remove the editor mark and drop the persisted record entirely.
     editor.commands.unsetComment(id)
     const { pendingComments: current } = useCommentStore.getState()
+    // A shared thread comes off the shared page too (#903) — read its shareId
+    // before the record is gone.
+    const removed = current.find((c) => c.id === id)
+    if (removed) pushRemoveToShare(removed)
     const updated = current.filter((c) => c.id !== id)
     useCommentStore.setState({ pendingComments: updated })
     if (documentId) saveComments(documentId, updated)
@@ -559,8 +566,8 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
           </button>
           <button
             onClick={handleRemove}
-            title="Delete thread"
-            aria-label="Delete thread"
+            title={removeLabel}
+            aria-label={removeLabel}
             className="ml-auto flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -578,8 +585,8 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
           <span className="text-[11.5px] text-emerald-700 dark:text-emerald-400/80">Thread kept, collapsed.</span>
           <button
             onClick={handleRemove}
-            title="Delete thread"
-            aria-label="Delete thread"
+            title={removeLabel}
+            aria-label={removeLabel}
             className="ml-auto flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
           >
             <Trash2 className="h-3.5 w-3.5" />

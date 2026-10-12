@@ -1548,6 +1548,12 @@ export const VIEWER_SCRIPT = `(function () {
     var name = storedName()
     return name && authorName === name ? ' · you' : ''
   }
+  // A reader's comment the author carried over from an earlier version of
+  // this link (#903): it keeps the reader's name but can't be edited from
+  // here, so say so instead of tagging it " · you".
+  function nameTag(row) {
+    return row.carriedOver ? ' · earlier version' : mineTag(row.id, row.authorName)
+  }
 
   // Inline body editor for a row this reader owns. Drafts commit in-page;
   // posted rows PATCH optimistically (editedAt set locally, reverted on
@@ -1983,7 +1989,7 @@ export const VIEWER_SCRIPT = `(function () {
     var isAuthor = r.fromAuthor === true || (!r.authorName && r.author !== 'ai')
     var replyEl = el('div', isAuthor ? 'prose-thread-reply prose-reply-author' : 'prose-thread-reply')
     var label = r.authorName || (r.author === 'ai' ? 'AI' : 'Author')
-    var tag = isAuthor ? ' · author' : mineTag(r.id, r.authorName)
+    var tag = isAuthor ? ' · author' : nameTag(r)
     var head = headerRow(label, tag, r.createdAt, notSentIds[r.id] === true, renameHandlerFor(r, r.id), r.id)
     if (r.editedAt) head.insertBefore(el('span', 'prose-edited-tag', 'edited'), head.lastChild)
     replyEl.appendChild(head)
@@ -2095,7 +2101,7 @@ export const VIEWER_SCRIPT = `(function () {
   // Shared by the rail card and the narrow sheet so both offer the same
   // affordances.
   function appendRootRows(container, c) {
-    var head = headerRow(authorLabel(c), mineTag(c.id, c.authorName), c.createdAt, notSentIds[c.id] === true, renameHandlerFor(c, c.id), c.id)
+    var head = headerRow(authorLabel(c), nameTag(c), c.createdAt, notSentIds[c.id] === true, renameHandlerFor(c, c.id), c.id)
     if (c.editedAt) head.insertBefore(el('span', 'prose-edited-tag', 'edited'), head.lastChild)
     container.appendChild(head)
     if (editingRow === c.id) {
@@ -2987,6 +2993,7 @@ export const VIEWER_SCRIPT = `(function () {
       authorName: row.authorName,
       createdAt: Date.parse(row.createdAt) || Date.now(),
       fromAuthor: row.fromAuthor === true,
+      carriedOver: row.carriedOver === true,
       editedAt: row.editedAt || null
     }
   }
@@ -3019,6 +3026,7 @@ export const VIEWER_SCRIPT = `(function () {
           createdAt: Date.parse(row.createdAt) || Date.now(),
           resolved: resolved,
           editedAt: row.editedAt || null,
+          carriedOver: row.carriedOver === true,
           replies: []
         }
         comments.push(thread)
@@ -3074,6 +3082,10 @@ export const VIEWER_SCRIPT = `(function () {
             existing.editedAt = row.editedAt || null
             changed = true
           }
+          if (!!existing.carriedOver !== (row.carriedOver === true)) {
+            existing.carriedOver = row.carriedOver === true
+            changed = true
+          }
         }
       }
     }
@@ -3113,6 +3125,10 @@ export const VIEWER_SCRIPT = `(function () {
         }
         if ((match.editedAt || null) !== (reply.editedAt || null)) {
           match.editedAt = reply.editedAt || null
+          changed = true
+        }
+        if (!!match.carriedOver !== (reply.carriedOver === true)) {
+          match.carriedOver = reply.carriedOver === true
           changed = true
         }
       }

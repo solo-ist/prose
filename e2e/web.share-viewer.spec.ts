@@ -983,6 +983,20 @@ test.describe('live conversation loop (online viewer)', () => {
     await expect(page.locator('#prose-file-banner')).toHaveCount(0)
   })
 
+  test('a comment carried over from an earlier version is labeled, not tagged as yours (#903)', async ({ page }) => {
+    commentRows = [
+      ...commentRows,
+      row({ id: 'srv-carried', markedText: 'quick brown fox', commentText: 'From the old link.', authorName: 'Original Olive', carriedOver: true, createdAt: '2026-09-06T03:00:00.000Z' }),
+    ]
+    // Even a reader whose stored name matches sees the history label: the row
+    // can't be edited from here, so " · you" would promise too much.
+    await page.addInitScript(() => localStorage.setItem('prose-commenter-name', 'Original Olive'))
+    await page.goto(`${origin}/s/testtoken`)
+    const card = page.locator('.prose-thread', { hasText: 'From the old link.' })
+    await expect(card).toBeVisible()
+    await expect(card.locator('.prose-author-tag').first()).toHaveText('· earlier version')
+  })
+
   test('a resolve landing between polls moves the thread to Resolved on focus', async ({ page }) => {
     await page.goto(`${origin}/s/testtoken`)
     await expect(page.locator('.prose-thread', { hasText: 'Live-only thread.' })).toBeVisible()

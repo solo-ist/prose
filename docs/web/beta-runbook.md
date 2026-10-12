@@ -91,6 +91,8 @@ Rows with `grantedBy = 'opencollective'` belong to the Open Collective reconcile
 
 ### Author-side publication takedown
 
+To take down a **single comment** instead of the whole link, the invitee deletes that thread in Prose (the trash icon on the comment). For a shared thread this also removes it, with its replies, from the shared page. This is the answer when a reader asks for a comment carried over from an earlier version of the link to be removed: those comments can't be edited or deleted from the page.
+
 The invitee can revoke any of their own publications from the Prose desktop app: open the share popover (◎) and click **Revoke**. The gateway sets `revokedAt`, deletes the R2 object, and serves `410 Gone` with a styled takedown page to anyone who opens the old link.
 
 ### Operator-side publication takedown

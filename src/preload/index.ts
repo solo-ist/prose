@@ -315,6 +315,7 @@ export interface ElectronAPI {
   shareCreateComment: (publicationId: string, args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string; fromAuthor?: boolean }) => Promise<unknown>
   shareReplyToComment: (publicationId: string, commentId: string, text: string, authorName?: string, fromAuthor?: boolean) => Promise<unknown>
   shareResolveComment: (publicationId: string, commentId: string, resolved: boolean) => Promise<unknown>
+  shareRemoveComment: (publicationId: string, commentId: string) => Promise<unknown>
   // MCP Server integration
   mcpGetStatus: () => Promise<McpServerStatus>
   mcpInstall: () => Promise<McpInstallResult>
@@ -640,6 +641,8 @@ const api: ElectronAPI = {
     ipcRenderer.invoke('share:replyToComment', publicationId, commentId, text, authorName, fromAuthor),
   shareResolveComment: (publicationId: string, commentId: string, resolved: boolean) =>
     ipcRenderer.invoke('share:resolveComment', publicationId, commentId, resolved),
+  shareRemoveComment: (publicationId: string, commentId: string) =>
+    ipcRenderer.invoke('share:removeComment', publicationId, commentId),
   // MCP Server integration
   mcpGetStatus: () => ipcRenderer.invoke('mcp:getStatus'),
   mcpInstall: () => ipcRenderer.invoke('mcp:install'),

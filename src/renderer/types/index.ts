@@ -719,6 +719,7 @@ export interface ElectronAPI {
   shareCreateComment: (publicationId: string, args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string; fromAuthor?: boolean }) => Promise<ShareOp<{ id: string; createdAt: string }>>
   shareReplyToComment: (publicationId: string, commentId: string, text: string, authorName?: string, fromAuthor?: boolean) => Promise<ShareOp<{ id: string; createdAt: string }>>
   shareResolveComment: (publicationId: string, commentId: string, resolved: boolean) => Promise<ShareOp>
+  shareRemoveComment: (publicationId: string, commentId: string) => Promise<ShareOp>
   // Emoji generation (runs in main process to avoid CORS)
   emojiGenerate: (title: string, contentPreview?: string) => Promise<{ emoji: string | null; error?: string }>
   // Window fullscreen state

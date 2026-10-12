@@ -614,6 +614,7 @@ export function createMockApi(): ElectronAPI {
     shareCreateComment: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
     shareReplyToComment: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
     shareResolveComment: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
+    shareRemoveComment: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
 
     // Optional members, stubbed for behavioral robustness.
     isMasBuild: false,

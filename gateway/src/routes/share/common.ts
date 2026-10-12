@@ -93,6 +93,11 @@ export async function findPublicationByToken(token: string) {
  * `editToken` is the anonymous-ownership capability — never add it either.
  * Deleted rows appear as tombstones (deleted: true, content already
  * scrubbed) so polls and pulls can convey the deletion.
+ *
+ * `carriedOver` marks a reader's comment the author re-seeded across a
+ * revoke → republish (#903): it keeps the reader's name but no edit token
+ * (a viewer row always has one until it's deleted), so nobody can edit it
+ * from the page. The viewer shows it as read-only history.
  */
 export function publicComment(row: {
   id: string
@@ -105,6 +110,7 @@ export function publicComment(row: {
   resolvedAt: Date | null
   editedAt: Date | null
   deletedAt: Date | null
+  editToken: string | null
   publishRev: string
   createdAt: Date
 }) {
@@ -119,6 +125,7 @@ export function publicComment(row: {
     resolvedAt: row.resolvedAt ? row.resolvedAt.toISOString() : null,
     editedAt: row.editedAt ? row.editedAt.toISOString() : null,
     deleted: row.deletedAt !== null,
+    carriedOver: !row.fromAuthor && row.editToken === null && row.deletedAt === null,
     publishRev: row.publishRev,
     createdAt: row.createdAt.toISOString(),
   }

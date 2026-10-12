@@ -183,6 +183,16 @@ class StubGateway {
       const nextCursor = page.length > 0 ? page[page.length - 1].createdAt : null
       return this.json(res, 200, { comments: page, nextCursor })
     }
+    // Author removal (#903): tombstone the row and its replies, like the real route.
+    const removal = /^\/api\/share\/[^/]+\/comments\/([^/]+)$/.exec(url.pathname)
+    if (req.method === 'DELETE' && removal) {
+      const id = decodeURIComponent(removal[1])
+      if (!this.comments.some((c) => c.id === id)) return this.json(res, 404, { error: 'not_found' })
+      this.comments = this.comments.map((c) =>
+        c.id === id || c.parentId === id ? { ...c, deleted: true, commentText: '', authorName: '' } : c
+      )
+      return this.json(res, 200, { ok: true })
+    }
     this.json(res, 404, { error: 'not_found' })
   }
 }
@@ -669,6 +679,27 @@ test('the seen ledger is trimmed to rows the server still returns (#1010 review)
   expect(readSyncEntry('pub1')?.seenRowIds).toContain('row-a')
   const threads = await commentStoreThreads()
   expect(threads.some((t) => t.id === 'row-a')).toBe(false)
+})
+
+test('author removal reaches the gateway and the next sync drops the thread (#903)', async () => {
+  gateway.requests = []
+  const res = await callApi<{ ok: boolean }>('shareRemoveComment', 'pub1', 'row-c')
+  expect(res.ok).toBe(true)
+  expect(
+    gateway.requests.some(
+      (r) => r.method === 'DELETE' && r.path === '/api/share/pub1/comments/row-c' && r.hasCookie
+    )
+  ).toBe(true)
+
+  // The row is now a tombstone on the page; the pull adopts it locally.
+  const synced = await syncNow()
+  expect(synced).toMatchObject({ ok: true })
+  const threads = await commentStoreThreads()
+  expect(threads.some((t) => t.id === 'row-c')).toBe(false)
+
+  const missing = await callApi<{ ok: boolean; code?: string }>('shareRemoveComment', 'pub1', 'no-such-row')
+  expect(missing.ok).toBe(false)
+  expect(missing.code).toBe('not_found')
 })
 
 // ---------------------------------------------------------------------------

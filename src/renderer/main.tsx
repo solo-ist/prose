@@ -53,9 +53,11 @@ import './index.css'
 // `sync` drives the REAL pull-merge (the exact path the ShareStatusPopover's
 // open-pull takes: fresh entry lookup → syncShareComments) without the
 // interval/debounce, so tests control when each pull happens. `deleteThread`
-// mirrors CommentPopover's handleRemove (unset mark, drop the record,
-// persist) — the author-deletion gesture whose non-resurrection the
-// seenRowIds ledger guarantees (#905).
+// mirrors the LOCAL half of CommentPopover's handleRemove (unset mark, drop
+// the record, persist) — the author-deletion gesture whose non-resurrection
+// the seenRowIds ledger guarantees (#905). It deliberately skips the share
+// removal push (#903) so the row stays served; that push is covered through
+// the shareRemoveComment IPC directly.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ;(window as any).__prose_share = {
   sync: async () => {

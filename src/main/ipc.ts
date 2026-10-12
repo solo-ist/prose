@@ -1961,6 +1961,12 @@ export function setupIpcHandlers(): void {
     }
   )
 
+  ipcMain.handle('share:removeComment', async (_event, publicationId: string, commentId: string) => {
+    if (IS_MAS_BUILD) return MAS_SHARE_BLOCKED
+    const share = await import('./share/index')
+    return share.removeComment(shareRowId(publicationId), shareRowId(commentId))
+  })
+
   // MCP: Get installation status
   ipcMain.handle('mcp:getStatus', async (): Promise<{
     installed: boolean

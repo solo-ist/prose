@@ -1,6 +1,7 @@
 /**
  * sharePush.ts — fire-and-forget pushes of author comment threads, replies,
- * and resolution state into a publication's live conversation (#769).
+ * resolution state, and removals into a publication's live conversation
+ * (#769, #903).
  *
  * "Content follows the mode; the conversation is always live": these pushes
  * run in BOTH sync modes, so a comment, reply, or resolve made in Prose
@@ -30,9 +31,12 @@ type PendingOp =
   | { kind: 'thread'; threadId: string }
   | { kind: 'reply'; threadId: string; replyId: string }
   | { kind: 'resolve'; threadId: string }
+  | { kind: 'remove'; publicationId: string; shareId: string }
 
 function opKey(op: PendingOp): string {
-  return op.kind === 'reply' ? `reply:${op.threadId}:${op.replyId}` : `${op.kind}:${op.threadId}`
+  if (op.kind === 'reply') return `reply:${op.threadId}:${op.replyId}`
+  if (op.kind === 'remove') return `remove:${op.publicationId}:${op.shareId}`
+  return `${op.kind}:${op.threadId}`
 }
 
 const inFlight = new Set<string>()
@@ -86,9 +90,12 @@ function isRateLimited(): boolean {
   return Date.now() < rateLimitedUntil
 }
 
-/** Active non-revoked entry for the current document, or null. */
-async function activeEntry(): Promise<ShareEntry | null> {
-  const path = useEditorStore.getState().document.path
+/**
+ * Active non-revoked entry for the current document, or null. Pass `path`
+ * to pin the lookup to a document read earlier (synchronously, at gesture
+ * time) rather than whatever is open when the await resolves.
+ */
+async function activeEntry(path = useEditorStore.getState().document.path): Promise<ShareEntry | null> {
   if (!path) return null
   const res = await getApi().shareGetForPath(path)
   return res.ok && res.entries.length > 0 ? res.entries[0] : null
@@ -407,6 +414,58 @@ export function pushResolveToShare(threadId: string): void {
   })())
 }
 
+/**
+ * Take a thread the author deleted in Prose off the shared page too (#903):
+ * the gateway removes it with its replies. Call it with the thread BEFORE it
+ * leaves the store, since the push needs its shareId. Local-only threads (no
+ * shareId) never reached the page and are a no-op.
+ */
+export function pushRemoveToShare(thread: { shareId?: string }): void {
+  if (!isWebPlatformEnabled() || !thread.shareId) return
+  const shareId = thread.shareId
+  // Pin the document NOW: the entry lookup awaits, and a document switch in
+  // that gap would aim the removal at another publication, whose 404 ends
+  // the retries — a removal the user saw locally that never left the page.
+  const path = useEditorStore.getState().document.path
+  track((async () => {
+    const entry = await activeEntry(path)
+    if (entry) sendRemove(entry.publicationId, shareId)
+  })())
+}
+
+// The removal's target is pinned to the publication it was made against: a
+// queued retry can fire after the user switched documents, when
+// activeEntry() would name a different publication.
+function sendRemove(publicationId: string, shareId: string): void {
+  const op: PendingOp = { kind: 'remove', publicationId, shareId }
+  if (isRateLimited()) {
+    queueOnce(op)
+    return
+  }
+  const key = opKey(op)
+  if (inFlight.has(key)) return
+  inFlight.add(key)
+
+  track((async () => {
+    try {
+      const res = await getApi().shareRemoveComment(publicationId, shareId)
+      if (!res.ok) {
+        noteRateLimit(res.code)
+        // Gone already (revoked link, or a row the gateway doesn't have):
+        // nothing left to remove, so don't retry forever.
+        if (res.code !== 'not_found' && res.code !== 'revoked') queueOnce(op)
+        reportPushError(res.error, res.code)
+        return
+      }
+      clearPushError()
+    } catch {
+      queueOnce(op)
+    } finally {
+      inFlight.delete(key)
+    }
+  })())
+}
+
 /** Retry queued pushes (window focus, or after a successful content push). */
 export function flushPendingShareOps(): void {
   if (pendingOps.length === 0 || isRateLimited()) return
@@ -415,6 +474,7 @@ export function flushPendingShareOps(): void {
   for (const op of ops) {
     if (op.kind === 'thread') pushNewThreadToShare(op.threadId)
     else if (op.kind === 'reply') pushReplyToShare(op.threadId, op.replyId)
+    else if (op.kind === 'remove') sendRemove(op.publicationId, op.shareId)
     else pushResolveToShare(op.threadId)
   }
 }

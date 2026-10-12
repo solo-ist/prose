@@ -509,6 +509,21 @@ export async function resolveComment(
   }
 }
 
+/** Author removal (#903): take a comment off the shared page. */
+export async function removeComment(publicationId: string, commentId: string): Promise<ShareResult<object>> {
+  const config = await getShareConfig()
+  const entry = await getShareEntry(publicationId)
+  if (!entry) return { ok: false, error: 'No local record of this share.' }
+  const originMismatch = entryOriginError(entry, config)
+  if (originMismatch) return originMismatch
+  try {
+    await client.removeComment(config, publicationId, commentId)
+    return { ok: true }
+  } catch (err) {
+    return asError(err)
+  }
+}
+
 export async function renamedLocalPath(
   oldPath: string,
   newPath: string,

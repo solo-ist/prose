@@ -313,6 +313,22 @@ export async function setCommentResolved(
   if (!res.ok) throw await toError(res)
 }
 
+/**
+ * Author removal (#903): take a comment (a thread with its replies) off the
+ * shared page. Idempotent DELETE — an already-removed row answers ok.
+ */
+export async function removeComment(
+  config: ShareClientConfig,
+  publicationId: string,
+  commentId: string
+): Promise<void> {
+  const res = await fetch(`${base(config)}/api/share/${encodeURIComponent(publicationId)}/comments/${encodeURIComponent(commentId)}`, {
+    method: 'DELETE',
+    headers: await authedHeaders(config),
+  })
+  if (!res.ok) throw await toError(res)
+}
+
 export async function fetchComments(
   config: ShareClientConfig,
   publicationId: string,

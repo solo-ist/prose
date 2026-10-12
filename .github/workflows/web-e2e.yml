@@ -104,7 +104,7 @@ jobs:
       - name: Run web E2E tests
         run: npx playwright test --config playwright.web.config.ts
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: web-e2e-results

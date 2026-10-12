@@ -42,7 +42,7 @@ const ARTIFACT_HEADERS: Record<string, string> = {
   'Referrer-Policy': 'no-referrer',
   'X-Frame-Options': 'DENY',
   'Content-Security-Policy':
-    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; img-src data: blob:; font-src data: https://fonts.gstatic.com; connect-src 'self'",
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; img-src data: blob:; font-src data: https://fonts.gstatic.com; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   'Cache-Control': 'no-store',
 }
 

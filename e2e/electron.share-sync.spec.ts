@@ -624,6 +624,16 @@ test('author-deleted threads stay dead across polls (#905 regression)', async ()
 // ---------------------------------------------------------------------------
 
 test('ackCursor sanitizes row ids and unions the ledger', async () => {
+  // Acks are trimmed to the last complete pull, so the gateway must serve
+  // these ids first; pulling without a sync leaves the ack to this test.
+  gateway.comments = [
+    ...gateway.comments,
+    makeRow('clean-id-1', iso(6000)),
+    makeRow('clean-id-2', iso(7000)),
+  ]
+  const pulled = await callApi<{ ok: boolean }>('sharePullComments', 'pub1')
+  expect(pulled.ok).toBe(true)
+
   const bad = await callApi<{ ok: boolean }>('shareAckCursor', 'pub1', 'cursor-x', [
     'clean-id-1',
     '../../api/auth/x',
@@ -641,6 +651,24 @@ test('ackCursor sanitizes row ids and unions the ledger', async () => {
   const after = (readSyncEntry('pub1')?.seenRowIds as string[]) ?? []
   expect(after).toEqual(expect.arrayContaining(['clean-id-1', 'clean-id-2', 'row-a']))
   expect(after.filter((s) => s === 'clean-id-1')).toHaveLength(1)
+})
+
+test('the seen ledger is trimmed to rows the server still returns (#1010 review)', async () => {
+  // Rows only leave the served set through a hard delete (revoke); a
+  // vanished id never comes back, so the ledger drops it instead of growing
+  // with every comment ever seen.
+  gateway.comments = gateway.comments.filter((r) => !r.id.startsWith('clean-id'))
+  const res = await syncNow()
+  expect(res).toMatchObject({ ok: true, added: 0 })
+
+  // row-a was deleted locally by the author but is still served: it must
+  // stay in the ledger, or the next poll would resurrect the thread.
+  await expect
+    .poll(() => (readSyncEntry('pub1')?.seenRowIds as string[] | undefined)?.slice().sort() ?? [])
+    .toEqual(gateway.comments.map((r) => r.id).sort())
+  expect(readSyncEntry('pub1')?.seenRowIds).toContain('row-a')
+  const threads = await commentStoreThreads()
+  expect(threads.some((t) => t.id === 'row-a')).toBe(false)
 })
 
 // ---------------------------------------------------------------------------

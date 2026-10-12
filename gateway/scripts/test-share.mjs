@@ -150,6 +150,10 @@ async function main() {
   const servedCsp = serveRes.headers.get('content-security-policy') ?? ''
   expect(servedCsp.includes("connect-src 'self'"), 'CSP set')
   expect(
+    servedCsp.includes("base-uri 'none'") && servedCsp.includes("form-action 'none'") && servedCsp.includes("frame-ancestors 'none'"),
+    'CSP pins base-uri, form-action and frame-ancestors'
+  )
+  expect(
     servedCsp.includes("style-src 'unsafe-inline' https://fonts.googleapis.com") &&
       servedCsp.includes('font-src data: https://fonts.gstatic.com'),
     'CSP allows Google Fonts (style + font hosts)'

@@ -9,9 +9,24 @@ import { monoBox, renderEmail, renderText, type RenderedEmail } from './layout.j
 /** Where a newly approved user gets the app (the updater handles the rest). */
 export const DOWNLOAD_URL = 'https://github.com/solo-ist/prose/releases/latest'
 
-/** The command that approves `email`; shown to the operator, copy-paste ready. */
+/**
+ * POSIX single-quote a value for a shell command line. Inside '…' nothing is
+ * special; an embedded ' becomes '\''.
+ */
+export function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+/**
+ * The command that approves `email`; shown to the operator, copy-paste ready
+ * for a Render shell. The address is REQUESTER-CONTROLLED: sign-in accepts
+ * local parts with `;`, `|`, `$`, backticks and the like, and anyone with
+ * their own mail domain can receive a code at such an address. Unquoted, a
+ * pasted command would run their shell on the gateway host, so it is always
+ * single-quoted.
+ */
 export function grantCommand(email: string): string {
-  return `npm run grant -- --email ${email} --feature share_publish --by beta --notify`
+  return `npm run grant -- --email ${shellQuote(email)} --feature share_publish --by beta --notify`
 }
 
 /** To the requester, right after they ask. */

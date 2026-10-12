@@ -7,8 +7,10 @@ untouched. **The Phase 0/1 gateway architecture is safe to build on this.**
 
 ## What was proven
 
-Run it with `bash spikes/sse-proof/run-spike.sh` (add `ANTHROPIC_API_KEY` to also hit
-the real API; without it, `mock-upstream.mjs` replays a representative token stream).
+The spike code (`spikes/sse-proof/`) was removed once the real gateway shipped (#983);
+it lives in git history. It ran with `bash spikes/sse-proof/run-spike.sh` (add
+`ANTHROPIC_API_KEY` to also hit the real API; without it, `mock-upstream.mjs` replayed
+a representative token stream).
 
 Latest run (mock upstream): **15/15 checks passed.**
 

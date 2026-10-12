@@ -1,0 +1,13 @@
+# Snyk (https://snyk.io) policy file, patches or ignores known vulnerabilities.
+version: v1.25.1
+# ignores vulnerabilities until expiry date; change duration by modifying expiry date
+ignore:
+  SNYK-JS-ZOD-20510278:
+    - '*':
+        reason: >-
+          No fixed zod version exists. Reached via @modelcontextprotocol/sdk
+          (root) and better-auth (gateway); our schemas bound their inputs (no
+          unbounded arrays). Assessed 2026-10-10, re-check on expiry.
+        expires: 2027-01-10T00:00:00.000Z
+        created: 2026-10-12T21:47:49.844Z
+patch: {}

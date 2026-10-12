@@ -174,11 +174,16 @@ export function patchShareEntry(
  * The sync ack: cursor + lastPulledAt + the seen-row ledger, merged in ONE
  * serialized read-modify-write so two racing acks can't drop each other's
  * ids (a plain patch would overwrite the array wholesale).
+ *
+ * `liveRowIds` is the row set from the last complete pull. When given, the
+ * ledger is trimmed to it, which bounds it by the publication's comment
+ * count rather than every row ever seen.
  */
 export function recordShareAck(
   publicationId: string,
   cursor: string,
-  rowIds: string[]
+  rowIds: string[],
+  liveRowIds?: ReadonlySet<string>
 ): Promise<ShareSyncEntry | null> {
   return serialized(async () => {
     const meta = await load()
@@ -186,6 +191,9 @@ export function recordShareAck(
     if (!existing) return null
     const seen = new Set(existing.seenRowIds ?? [])
     for (const id of rowIds) seen.add(id)
+    if (liveRowIds) {
+      for (const id of seen) if (!liveRowIds.has(id)) seen.delete(id)
+    }
     const updated: ShareSyncEntry = {
       ...existing,
       // An empty cursor (rejected by the IPC guard) keeps the previous one.

@@ -334,11 +334,12 @@ export async function getForPath(localPath: string): Promise<ShareResult<{ entri
 async function fetchCompleteComments(
   config: client.ShareClientConfig,
   publicationId: string
-): Promise<{ comments: client.PulledShareComment[]; nextCursor: string | null }> {
+): Promise<{ comments: client.PulledShareComment[]; nextCursor: string | null; complete: boolean }> {
   const seen = new Set<string>()
   const all: client.PulledShareComment[] = []
   let since: string | null = null
   let cursor: string | null = null
+  let complete = false
   // Hard stop at 40 pages (20k rows) — far past any Phase-0 conversation.
   for (let page = 0; page < 40; page++) {
     const { comments, nextCursor } = await client.fetchComments(config, publicationId, since)
@@ -351,7 +352,10 @@ async function fetchCompleteComments(
       }
     }
     cursor = nextCursor ?? cursor
-    if (comments.length < 500 || !nextCursor) break
+    if (comments.length < 500 || !nextCursor) {
+      complete = true
+      break
+    }
     if (nextCursor === since && added === 0) {
       // >500 rows in one millisecond — the documented KNOWN LIMIT on the
       // route. Surface it; a compound cursor is the eventual fix.
@@ -360,8 +364,19 @@ async function fetchCompleteComments(
     }
     since = nextCursor
   }
-  return { comments: all, nextCursor: cursor }
+  return { comments: all, nextCursor: cursor, complete }
 }
+
+/**
+ * Row ids from the last COMPLETE sync pull per publication, for pruning the
+ * seenRowIds ledger. The ledger only matters for ids the server still
+ * returns, and a vanished id never comes back (revoke hard-deletes, re-seeds
+ * mint fresh ids), so the ack trims it to this set instead of letting it grow
+ * with every comment ever seen. Kept in main, not taken from the renderer's
+ * ack, and only set when the pull was complete: pruning against a truncated
+ * pull would drop live ids and let author-deleted threads resurrect.
+ */
+const lastCompletePullIds = new Map<string, Set<string>>()
 
 /** Read-only comment view for the ShareDialog list. Does NOT advance the sync cursor. */
 export async function fetchAllComments(
@@ -398,7 +413,9 @@ export async function pullComments(
   const mismatch = entryOriginError(entry, config)
   if (mismatch) return mismatch
   try {
-    const { comments, nextCursor } = await fetchCompleteComments(config, publicationId)
+    const { comments, nextCursor, complete } = await fetchCompleteComments(config, publicationId)
+    if (complete) lastCompletePullIds.set(publicationId, new Set(comments.map((c) => c.id)))
+    else lastCompletePullIds.delete(publicationId)
     return { ok: true, comments, nextCursor }
   } catch (err) {
     return asError(err)
@@ -416,7 +433,7 @@ export async function ackCommentCursor(
   cursor: string,
   seenRowIds: string[] = []
 ): Promise<ShareResult<object>> {
-  const entry = await recordShareAck(publicationId, cursor, seenRowIds)
+  const entry = await recordShareAck(publicationId, cursor, seenRowIds, lastCompletePullIds.get(publicationId))
   if (!entry) return { ok: false, error: 'No local record of this share.' }
   return { ok: true }
 }

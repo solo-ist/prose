@@ -1,6 +1,5 @@
 # Dependabot version updates. Security *alerts* only ever fire on the default
-# branch (main); this file adds scheduled version-update PRs so gateway/ (which
-# lives on web-foundations until the web GA merge, #944/#945) is no longer blind.
+# branch (main); this file adds scheduled version-update PRs on top of them.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -21,7 +20,6 @@ updates:
         versions: [">=15"]
   - package-ecosystem: npm
     directory: /gateway
-    target-branch: web-foundations
     schedule:
       interval: weekly
   - package-ecosystem: github-actions

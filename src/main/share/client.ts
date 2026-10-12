@@ -103,7 +103,7 @@ async function toError(res: Response): Promise<ShareClientError> {
   const messages: Record<string, string> = {
     no_session: 'Not signed in to the gateway.',
     Unauthorized: 'Gateway session expired — sign in again.',
-    forbidden: 'This account has no share_publish access yet.',
+    forbidden: "Sharing is invite-only for now, and this email address hasn't been invited yet.",
     rate_limited: 'Rate limited — try again in a minute.',
     revoked: 'This share has been revoked.',
     body_too_large: 'Document too large to publish (8 MB limit).',

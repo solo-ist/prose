@@ -2017,3 +2017,32 @@
 .prose-editor ol.footnotes li p {
   margin: 0;
 }
+
+/* Share status icon (#769) — the pinned ◎ glyph, top-right of the document.
+   One accent, one shape: every state is a stroke/fill change on the same two
+   circles. The bounce is hover-only — the one place the system allows spring,
+   because it has to invite a click. */
+@keyframes prose-share-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes prose-share-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+@keyframes prose-share-bounce {
+  0% { transform: translateY(0); }
+  35% { transform: translateY(-4px); }
+  65% { transform: translateY(1px); }
+  100% { transform: translateY(0); }
+}
+.prose-share-icon:hover {
+  animation: prose-share-bounce 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  background: rgba(200, 164, 90, 0.07);
+}
+.prose-share-spin {
+  transform-origin: 9px 9px;
+  animation: prose-share-spin 1.6s linear infinite;
+}
+.prose-share-breathe {
+  animation: prose-share-breathe 1.6s ease-in-out infinite;
+}

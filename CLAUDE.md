@@ -177,6 +177,8 @@ All workflows in `.github/workflows/`:
 - `review-feedback.yml` - Analyzes claude[bot] review comments, posts structured triage
 - `e2e.yml` - Electron Playwright tests on every PR (or `/test` comment)
 - `web-e2e.yml` - Browser Playwright tests for `accelerated`-labeled or bot PRs
+- `gateway.yml` - Gateway share integration suite (`npm run test:share` against a Postgres service) on PRs touching `gateway/**`
+- `share-viewer-e2e.yml` - Shared web viewer suite (`e2e/web.share-viewer.spec.ts`) on PRs touching the viewer, the artifact builder, or the spec
 - `ci-gate.yml` - On E2E `workflow_run` success, auto-posts `/review` (the green-CI review trigger), gated on the PR author having repo write access; on failure, routes to auto-fix
 - `pipeline-triage.yml` - Scores review findings, routes to auto-fix or human review
 - `pipeline-fix.yml` - Claude agent auto-fixes simple review findings
@@ -262,8 +264,8 @@ Client-side persistence uses IndexedDB (`src/renderer/lib/persistence.ts`). When
 
 **Annotation persistence invariant (comments / AI suggestions):** marks and
 decorations are NOT serialized into the `.md`; they live in IndexedDB keyed by
-`documentId` and are re-applied on load by matching the marked text. Two rules
-keep them safe (a violation of either caused real data loss):
+`documentId` and are re-applied on load by matching the marked text. Three rules
+keep them safe (a violation of each caused real data loss):
 1. **Never persist an empty/stripped set from a routine save.** A document load
    or source-mode toggle strips the marks for a moment and fires a transaction —
    saving in that window writes `[]` and wipes the store. Routine saves (the
@@ -273,6 +275,12 @@ keep them safe (a violation of either caused real data loss):
    restore is gated on `editor.state.doc.textContent` being present (with
    `document.content` in the effect deps) — restoring against an empty doc would
    find no anchor text and consume the one-shot restore flag, losing the marks.
+3. **External merges land in the store before they persist.** Any path that
+   merges outside threads in (share pull, artifact import) must
+   `setState({ pendingComments: merged })` synchronously BEFORE its first await —
+   routine saves read `pendingComments`, and a persist-then-reload order leaves a
+   window where a concurrent save writes the pre-merge set over the just-saved
+   one (a pulled thread vanished this way; the acked pull cursor made it permanent).
 
 ### LLM Integration
 

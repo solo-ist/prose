@@ -1,0 +1,204 @@
+/**
+ * config.ts — single source of truth for the gateway's environment.
+ * Parsed + validated with Zod at startup; a hard failure exits non-zero.
+ */
+import { z } from 'zod'
+
+const EnvSchema = z.object({
+  // Render (and most PaaS) inject PORT; prefer it, else GATEWAY_PORT, else 4000.
+  PORT: z.coerce.number().optional(),
+  GATEWAY_PORT: z.coerce.number().default(4000),
+  NODE_ENV: z.string().default('development'),
+
+  // LLM proxy — the OPERATOR's Anthropic key (gateway-side). Optional locally
+  // when UPSTREAM_URL points at the mock; required in prod.
+  ANTHROPIC_API_KEY: z.string().optional(),
+  ANTHROPIC_BASE_URL: z.string().default('https://api.anthropic.com'),
+  UPSTREAM_URL: z.string().optional(), // local mock override, e.g. http://localhost:4001
+
+  // Auth + DB (required once Phase 0 auth lands; optional so the core boots early).
+  DATABASE_URL: z.string().optional(),
+  BETTER_AUTH_SECRET: z.string().optional(),
+  BETTER_AUTH_URL: z.string().default('http://localhost:4000'),
+
+  // CORS allowlist (comma-separated origins).
+  CORS_ORIGINS: z
+    .string()
+    .default('http://localhost:5173,http://localhost:5174,https://prose.solo.ist'),
+
+  // LLM proxy rate limit: max requests per user per sliding window.
+  RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
+  RATE_LIMIT_WINDOW_S: z.coerce.number().int().positive().default(60),
+
+  // Share author surface rate limit (its own bucket): comment rows are tiny
+  // writes, and a revoke→republish conversation migration bursts one write
+  // per thread/reply/resolve plus the re-bake PUT.
+  SHARE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
+
+  // Public (anonymous) comment writes per IP per minute. Env-configurable so
+  // the test suite — one IP making every request — can fit its legitimate
+  // writes without loosening the production default.
+  SHARE_PUBLIC_WRITE_MAX: z.coerce.number().int().positive().default(10),
+
+  // Sign-in (#964): code emails per IP per 10 minutes, and code checks per IP
+  // per 10 minutes. Env-configurable for the same reason as above.
+  SIGN_IN_CODE_IP_MAX: z.coerce.number().int().positive().default(10),
+  SIGN_IN_VERIFY_IP_MAX: z.coerce.number().int().positive().default(30),
+
+  // Email delivery (#813): Resend API key. Required in production; when unset
+  // in development the gateway logs the sign-in code to stdout (dev only).
+  RESEND_API_KEY: z.string().optional(),
+
+  // Friendly sender address, e.g. "Prose <signin@prose.solo.ist>".
+  // Required in production alongside RESEND_API_KEY.
+  MAIL_FROM: z.string().optional(),
+
+  // Test-only: point at a local mock Resend server instead of api.resend.com.
+  // Never set this in production — it is documented only for the test suite.
+  RESEND_API_URL: z.string().optional(),
+
+  // Origin isolation for served share pages (#902): when set, /s/* lives on
+  // THIS host (cookie-less — author-controlled artifact JS can never reach a
+  // session or the API origin's localStorage) and the API host redirects
+  // artifact page loads here. Unset = single-origin (dev default; accepted
+  // debt only while share_publish stays with trusted accounts).
+  SHARE_BASE_URL: z.string().url().optional(),
+
+  // Per-publication subdomain isolation (#917): when "1"/"true", each
+  // publication is served at <label>.<shareHost>/s/<token> so every
+  // publication gets its own browser origin. Requires SHARE_BASE_URL and a
+  // wildcard DNS+TLS config (*.share.prose.solo.ist). Default off.
+  // MUST be enabled only AFTER the wildcard domain is live on Render — or the
+  // first GET to a label host returns a TLS error before the service answers.
+  SHARE_SUBDOMAINS: z
+    .string()
+    .optional()
+    .transform((v) => v === '1' || v === 'true'),
+
+  // Cloudflare R2 (blobs only; stub in Phase 0).
+  R2_ACCOUNT_ID: z.string().optional(),
+  R2_ACCESS_KEY_ID: z.string().optional(),
+  R2_SECRET_ACCESS_KEY: z.string().optional(),
+  R2_BUCKET: z.string().optional(),
+}).superRefine((env, ctx) => {
+  // The .optional() markers above keep the dev bootstrap loose (mock upstream,
+  // no DB). Everything else (production, staging, previews) gets no such
+  // slack: fail the boot loudly rather than crash at first use (Prisma with
+  // no URL) or run auth on a weak default.
+  if (env.NODE_ENV === 'development') return
+  const required = ['DATABASE_URL', 'BETTER_AUTH_SECRET', 'RESEND_API_KEY', 'MAIL_FROM'] as const
+  for (const key of required) {
+    if (!env[key]) {
+      ctx.addIssue({ code: 'custom', path: [key], message: 'required in production' })
+    }
+  }
+  // MAIL_FROM is a bare address or the "Name <addr>" form; check the address
+  // part has a local part, an @, and a dotted domain so typos fail at boot
+  // rather than at the first send.
+  const mailFromAddr = env.MAIL_FROM?.trim().match(/<([^<>]+)>$/)?.[1] ?? env.MAIL_FROM?.trim()
+  if (env.MAIL_FROM && !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(mailFromAddr ?? '')) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['MAIL_FROM'],
+      message: 'must contain an email address (e.g. "Prose <signin@prose.solo.ist>")',
+    })
+  }
+  // RESEND_API_URL is intentionally test-only; refuse it in production so a
+  // stray env var doesn't silently reroute all mail to a dev mock.
+  if (env.RESEND_API_URL) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['RESEND_API_URL'],
+      message: 'test-only override — unset it outside development',
+    })
+  }
+  // Better Auth derives the cookie Secure flag from baseURL's scheme — the
+  // localhost default would silently ship insecure cookies to a deploy.
+  if (!env.BETTER_AUTH_URL.startsWith('https://')) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['BETTER_AUTH_URL'],
+      message: 'must be an explicit https:// URL outside development',
+    })
+  }
+  // UPSTREAM_URL is a dev-only mock override. Outside development it must not
+  // exist at all: a misconfigured value would silently reroute every LLM call
+  // (with no API key attached) to an arbitrary endpoint.
+  if (env.UPSTREAM_URL) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['UPSTREAM_URL'],
+      message: 'dev-only mock override — unset it outside development',
+    })
+  }
+  if (!env.ANTHROPIC_API_KEY) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['ANTHROPIC_API_KEY'],
+      message: 'required in production',
+    })
+  }
+  // #902 origin isolation must be a decision, not a default: without
+  // SHARE_BASE_URL, author-controlled artifact JS (script-src unsafe-inline)
+  // is served from the session-cookie origin. Fail the boot rather than
+  // silently ship single-origin. (Addendum review: "single-origin unless
+  // someone remembers an env var" is not a posture.)
+  if (!env.SHARE_BASE_URL) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['SHARE_BASE_URL'],
+      message: 'required outside development (#902) — the share host must be a separate origin',
+    })
+  } else {
+    if (!env.SHARE_BASE_URL.startsWith('https://')) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['SHARE_BASE_URL'],
+        message: 'must be an explicit https:// URL outside development',
+      })
+    }
+    try {
+      // Same host would make app.ts's partition guard disable itself at
+      // runtime — reject at boot instead of degrading silently.
+      if (new URL(env.SHARE_BASE_URL).host === new URL(env.BETTER_AUTH_URL).host) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['SHARE_BASE_URL'],
+          message: 'must be a different host from BETTER_AUTH_URL (#902 origin isolation)',
+        })
+      }
+    } catch {
+      // Unparseable URLs are already rejected by the field schemas above.
+    }
+  }
+})
+
+export type Env = z.infer<typeof EnvSchema>
+
+function loadConfig(): Env {
+  const parsed = EnvSchema.safeParse(process.env)
+  if (!parsed.success) {
+    console.error('[config] Invalid environment:')
+    for (const issue of parsed.error.issues) {
+      console.error(`  - ${issue.path.join('.') || '(root)'}: ${issue.message}`)
+    }
+    process.exit(1)
+  }
+  return parsed.data
+}
+
+export const config = loadConfig()
+
+/** Port to bind. Render injects PORT; fall back to GATEWAY_PORT (default 4000). */
+export const port = config.PORT ?? config.GATEWAY_PORT
+
+/** Allowlisted CORS origins, trimmed. */
+export const corsOrigins = config.CORS_ORIGINS.split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+
+/** The upstream LLM base URL — the mock override wins for local testing. */
+export const upstreamBase = config.UPSTREAM_URL ?? config.ANTHROPIC_BASE_URL
+
+/** True when we're proxying the real Anthropic API (key present, no mock override). */
+export const useRealAnthropic = !config.UPSTREAM_URL && !!config.ANTHROPIC_API_KEY

@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { useReviewStore, useReviewMode, useCommentReviewTargetId } from '../../stores/reviewStore'
+import { useReviewStore, useReviewMode, useCommentReviewTargetId, useCommentReviewTargetSeq } from '../../stores/reviewStore'
 import { QuickReviewPanel } from './QuickReviewPanel'
 import { SideBySideDiffPanel } from './SideBySideDiffPanel'
 import { CommentReviewPanel } from './CommentReviewPanel'
@@ -17,6 +17,7 @@ export function ReviewContainer() {
   const reviewMode = useReviewMode()
   const setReviewMode = useReviewStore((s) => s.setReviewMode)
   const commentReviewTargetId = useCommentReviewTargetId()
+  const commentReviewTargetSeq = useCommentReviewTargetSeq()
 
   // Escape to dismiss
   useEffect(() => {
@@ -39,6 +40,7 @@ export function ReviewContainer() {
         <CommentReviewPanel
           onExit={() => setReviewMode(null)}
           initialThreadId={commentReviewTargetId}
+          focusSeq={commentReviewTargetSeq}
         />
       ) : reviewMode === 'quick' ? (
         <QuickReviewPanel />

@@ -105,7 +105,7 @@ test.describe('Chat & LLM', () => {
 
     // With consent=false, the hook returns exactly this message
     const messageText = await chatMessage.innerText()
-    expect(messageText).toContain('AI features are not enabled')
+    expect(messageText).toContain('AI features are turned off')
   })
 
   test('chat keyboard shortcut Cmd+Shift+L', async () => {
@@ -208,7 +208,7 @@ test.describe('Chat & LLM', () => {
     await chatMessage.waitFor({ state: 'visible', timeout: 5_000 })
 
     const messageText = await chatMessage.innerText()
-    expect(messageText).toContain('AI features are not enabled')
+    expect(messageText).toContain('AI features are turned off')
     expect(messageText).toContain('Enable them in Settings')
   })
 })

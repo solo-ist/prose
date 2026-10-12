@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+
+# Prisma 7 generated client (regenerated from schema.prisma)
+src/generated/

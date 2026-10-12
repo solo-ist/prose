@@ -1,5 +1,35 @@
 const { flipFuses, FuseV1Options, FuseVersion } = require('@electron/fuses')
+const { execFileSync } = require('child_process')
 const path = require('path')
+
+// Sign-in deep link scheme (#970), declared under `mac.protocols`. The MAS
+// build has no sign-in, so it must not claim the scheme — but electron-builder
+// writes CFBundleURLTypes from the `mac` options even for the mas target
+// (`mas.protocols` is ignored), so it is stripped here, before signing.
+const SIGN_IN_SCHEME = 'prose-signin'
+
+function urlSchemes(infoPlist) {
+  const json = execFileSync('plutil', ['-convert', 'json', '-o', '-', infoPlist], { encoding: 'utf8' })
+  return (JSON.parse(json).CFBundleURLTypes || []).map((type) => type.CFBundleURLSchemes || [])
+}
+
+function enforceSignInScheme(infoPlist, isMas) {
+  if (isMas) {
+    // Delete from the end so earlier indexes stay valid.
+    const types = urlSchemes(infoPlist)
+    for (let i = types.length - 1; i >= 0; i--) {
+      if (types[i].includes(SIGN_IN_SCHEME)) {
+        execFileSync('/usr/libexec/PlistBuddy', ['-c', `Delete :CFBundleURLTypes:${i}`, infoPlist])
+      }
+    }
+  }
+  const claimed = urlSchemes(infoPlist).flat()
+  if (isMas === claimed.includes(SIGN_IN_SCHEME)) {
+    throw new Error(`[URL schemes] ${isMas ? 'MAS' : 'mac'} build claims ${JSON.stringify(claimed)}; ` +
+      `${SIGN_IN_SCHEME} must be ${isMas ? 'absent' : 'present'}`)
+  }
+  console.log(`[URL schemes] ${isMas ? 'MAS' : 'mac'} build claims ${claimed.join(', ')}`)
+}
 
 /**
  * afterPack hook for electron-builder.
@@ -7,6 +37,11 @@ const path = require('path')
  */
 module.exports = async function afterPack(context) {
   const { electronPlatformName, appOutDir } = context
+
+  if (electronPlatformName === 'mas' || electronPlatformName === 'darwin') {
+    const appName = `${context.packager.appInfo.productFilename}.app`
+    enforceSignInScheme(path.join(appOutDir, appName, 'Contents', 'Info.plist'), electronPlatformName === 'mas')
+  }
 
   // Skip fuse flipping for MAS builds — the App Sandbox already provides
   // the security that fuses enforce, and flipping fuses on the MAS Electron

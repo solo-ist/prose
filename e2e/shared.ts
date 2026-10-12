@@ -245,7 +245,22 @@ export async function switchExplorerTab(
     googledocs: selectors.googleDocsButton,
     notebooks: selectors.notebooksButton,
   }
-  await page.click(buttonMap[tab])
+  const labelMap = {
+    recent: 'Recent files',
+    files: 'Files',
+    googledocs: 'Google Docs',
+    notebooks: 'reMarkable notebooks',
+  }
+  const inline = page.locator(buttonMap[tab])
+  if (await inline.isVisible({ timeout: 1_000 }).catch(() => false)) {
+    await inline.click()
+    return
+  }
+  // The #701 customizable header spills toggles into the panel's
+  // "More options" overflow when the panel is narrow — open it and pick
+  // the toggle from the menu (rendered in a portal, so match by role).
+  await page.locator(`${selectors.fileListPanel} [aria-label="More options"]`).click()
+  await page.getByRole('menuitem', { name: labelMap[tab] }).click()
 }
 
 // ---------------------------------------------------------------------------

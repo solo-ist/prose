@@ -21,6 +21,8 @@ import { useAnnotationStore } from '../../extensions/ai-annotations/store'
 import { useCommentStore } from '../../extensions/comments/store'
 import { OPEN_COMMENT_EVENT } from '../../extensions/comments'
 import { useReviewStore } from '../../stores/reviewStore'
+import { useShareStore } from '../../stores/shareStore'
+import { pushRemoveToShare } from '../../lib/sharePush'
 import { useEditorStore } from '../../stores/editorStore'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -63,6 +65,8 @@ export { OPEN_COMMENT_EVENT }
  */
 export function requestCommentReview(id?: string): void {
   useReviewStore.getState().enterCommentReview(id)
+  // Entering Comment Review counts as "seen" for the ◎ share badge (#769).
+  useShareStore.getState().clearUnseenComments()
 }
 
 // Unified activity item for the mixed feed
@@ -152,6 +156,9 @@ export function AIEditsHistoryPanel({ filter, onShowAll, onReviewThread }: AIEdi
   const handleRemoveComment = useCallback(
     (id: string) => {
       const { pendingComments: current } = useCommentStore.getState()
+      // Shared threads come off the shared page too (#903).
+      const removed = current.find((c) => c.id === id)
+      if (removed) pushRemoveToShare(removed)
       const updated = current.filter((c) => c.id !== id)
       useCommentStore.setState({ pendingComments: updated })
       if (documentId) saveComments(documentId, updated)

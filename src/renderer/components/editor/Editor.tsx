@@ -30,6 +30,7 @@ import TaskItem from '@tiptap/extension-task-item'
 import { Markdown } from 'tiptap-markdown'
 import { FocusMode } from '../../lib/focusMode'
 import { Comment } from '../../extensions/comments'
+import { pushNewThreadToShare } from '../../lib/sharePush'
 import { useNotificationStore } from '../../stores/notificationStore'
 import { AISuggestion } from '../../extensions/ai-suggestions'
 import { useSuggestionStore } from '../../extensions/ai-suggestions/store'
@@ -53,6 +54,10 @@ import { useFileListStore } from '../../stores/fileListStore'
 import { useTabStore } from '../../stores/tabStore'
 import { promoteCurrentPreview } from '../../hooks/useTabs'
 import { FindBar } from './FindBar'
+import { ShareStatusIcon } from '../share/ShareStatusIcon'
+import { ShareStatusPopover } from '../share/ShareStatusPopover'
+import { useShareStore } from '../../stores/shareStore'
+import { useWebPlatformEnabled } from '../../lib/featureFlags'
 import { SelectionPopover } from './SelectionPopover'
 import { AddCommentDialog } from './AddCommentDialog'
 import {
@@ -176,6 +181,9 @@ export function Editor() {
   const lastDocumentIdRef = useRef<string>(document.documentId)
   const [isFindOpen, setIsFindOpen] = useState(false)
   const [isAddCommentOpen, setIsAddCommentOpen] = useState(false)
+  const webPlatformEnabled = useWebPlatformEnabled()
+  const shareEntry = useShareStore((s) => s.entry)
+  const sharePopoverOpen = useShareStore((s) => s.popoverOpen)
   const [pendingCommentSelection, setPendingCommentSelection] = useState<{
     from: number
     to: number
@@ -310,6 +318,10 @@ export function Editor() {
           ]
           useCommentStore.setState({ pendingComments: updated })
           if (store.documentId) store.saveComments(store.documentId, updated)
+          // Live new-thread push (#769): the conversation is always live — a
+          // comment created here becomes a server row on the publication
+          // immediately. No-op when the document isn't published.
+          pushNewThreadToShare(commentData.id)
         },
         // setComment refuses ranges that would swallow an existing thread's
         // mark (#830) — tell the user to reply on that thread instead.
@@ -1246,6 +1258,14 @@ export function Editor() {
           isOpen={isFindOpen}
           onClose={() => setIsFindOpen(false)}
         />
+      )}
+      {/* Share status ◎ (#769) — pinned to the document surface when the doc
+          is published. FindBar owns this corner while open (D8). */}
+      {webPlatformEnabled && shareEntry && !isFindOpen && !showEmptyState && (
+        <div className="absolute right-3 top-2 z-10 flex flex-col items-end gap-2.5">
+          <ShareStatusIcon />
+          {sharePopoverOpen && <ShareStatusPopover />}
+        </div>
       )}
       {showEmptyState ? (
         <EmptyState />

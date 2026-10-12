@@ -13,6 +13,7 @@ import type { NodeWithId } from '../../../extensions/node-ids'
 import { getComments, useCommentStore, findFullyCoveredCommentIds } from '../../../extensions/comments'
 import type { CommentReply } from '../../../extensions/comments/types'
 import { getAISuggestions } from '../../../extensions/ai-suggestions'
+import { pushReplyToShare, pushResolveToShare } from '../../sharePush'
 import { isEditorReadOnly } from './editor'
 import { getApi } from '../../browserApi'
 import { generateId } from '../../persistence'
@@ -609,6 +610,9 @@ export function executeResolveComment(args: {
   // Remove the editor mark so the highlight disappears.
   editor.commands.unsetComment(id)
 
+  // Share-sourced threads push resolution into the live conversation (#769).
+  pushResolveToShare(id)
+
   return toolSuccess({ resolved: true })
 }
 
@@ -660,6 +664,9 @@ export function executeReplyToComment(args: {
   if (documentId) {
     useCommentStore.getState().saveComments(documentId, updated)
   }
+
+  // Share-sourced threads push the reply into the live conversation (#769).
+  pushReplyToShare(id, reply.id)
 
   return toolSuccess({ replyId: reply.id })
 }

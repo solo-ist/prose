@@ -27,6 +27,7 @@ import { useCommentStore } from '../extensions/comments/store'
 import type { CommentData, CommentReply } from '../extensions/comments/types'
 import { formatAge } from '../types/annotations'
 import { generateId } from '../lib/persistence'
+import { pushRemoveToShare, pushReplyToShare, pushResolveToShare } from '../lib/sharePush'
 import { renderMarkdown } from './chat/ChatMessage'
 import { OPEN_COMMENT_EVENT, requestCommentReview } from './editor/AIEditsHistoryPanel'
 import { PROSE_ICONS, IconThumb } from '../lib/prose-icons'
@@ -84,6 +85,9 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
   const currentComment: CommentData | undefined = popover.commentId
     ? pendingComments.find((c) => c.id === popover.commentId)
     : undefined
+  const removeLabel = currentComment?.shareId
+    ? 'Delete thread (also removes it from the shared page)'
+    : 'Delete thread'
 
   // Clear the "thinking" indicator once the AI stream finishes; the reply it
   // produced lands in the store and renders in the thread above the composer.
@@ -229,6 +233,10 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
     // Remove the editor mark and drop the persisted record entirely.
     editor.commands.unsetComment(id)
     const { pendingComments: current } = useCommentStore.getState()
+    // A shared thread comes off the shared page too (#903) — read its shareId
+    // before the record is gone.
+    const removed = current.find((c) => c.id === id)
+    if (removed) pushRemoveToShare(removed)
     const updated = current.filter((c) => c.id !== id)
     useCommentStore.setState({ pendingComments: updated })
     if (documentId) saveComments(documentId, updated)
@@ -246,6 +254,7 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
     if (documentId) saveComments(documentId, updated)
     editor.commands.unsetComment(id)
     setShowResolvedThread(false)
+    pushResolveToShare(id)
   }, [editor, popover.commentId, documentId, saveComments])
 
   const handleReopen = useCallback(() => {
@@ -258,6 +267,7 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
     // Re-anchor the editor mark that resolving removed, so the highlight returns.
     const thread = updated.find((c) => c.id === id)
     if (thread) editor.commands.restoreComments([thread])
+    pushResolveToShare(id)
   }, [editor, popover.commentId, documentId, saveComments])
 
   const handleProcess = useCallback(() => {
@@ -298,6 +308,7 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
     if (documentId) saveComments(documentId, updated)
     setReplyText('')
     replyInputRef.current?.focus()
+    pushReplyToShare(id, reply.id)
   }, [replyText, popover.commentId, documentId, saveComments])
 
   const handleReplyKeyDown = useCallback(
@@ -399,10 +410,9 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
           {!isResolved && (
             <button
               onClick={handleReview}
-              disabled={inCommentReview}
-              aria-label="Open in Review"
-              title={inCommentReview ? 'Already in Review' : 'Open in Review'}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-violet-600 disabled:pointer-events-none disabled:opacity-40 dark:hover:text-violet-400"
+              aria-label={inCommentReview ? 'Show in Review' : 'Open in Review'}
+              title={inCommentReview ? 'Show in Review' : 'Open in Review'}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-violet-600 dark:hover:text-violet-400"
             >
               <Maximize2 className="h-3.5 w-3.5" />
             </button>
@@ -438,7 +448,11 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
             <Avatar kind={commentIsAI ? 'ai' : 'user'} />
             <div className="min-w-0 flex-1">
               <div className="mb-0.5 flex items-baseline gap-2">
-                <span className="text-xs font-semibold text-foreground">{commentIsAI ? 'Prose' : 'You'}</span>
+                <span className="text-xs font-semibold text-foreground">
+                  {commentIsAI
+                    ? 'Prose'
+                    : currentComment?.authorName || 'You'}
+                </span>
                 {commentAge && <span className="text-[11px] text-muted-foreground">{commentAge}</span>}
               </div>
               {commentIsAI ? (
@@ -552,8 +566,8 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
           </button>
           <button
             onClick={handleRemove}
-            title="Delete thread"
-            aria-label="Delete thread"
+            title={removeLabel}
+            aria-label={removeLabel}
             className="ml-auto flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -571,8 +585,8 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
           <span className="text-[11.5px] text-emerald-700 dark:text-emerald-400/80">Thread kept, collapsed.</span>
           <button
             onClick={handleRemove}
-            title="Delete thread"
-            aria-label="Delete thread"
+            title={removeLabel}
+            aria-label={removeLabel}
             className="ml-auto flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -622,7 +636,7 @@ function ReplyRow({ reply, editor }: { reply: CommentReply; editor: Editor }) {
       <Avatar kind={isAI ? 'ai' : 'user'} />
       <div className="min-w-0 flex-1">
         <div className="mb-0.5 flex items-baseline gap-2">
-          <span className="text-xs font-semibold text-foreground">{isAI ? 'Prose' : 'You'}</span>
+          <span className="text-xs font-semibold text-foreground">{isAI ? 'Prose' : reply.authorName || 'You'}</span>
           <span className="text-[11px] text-muted-foreground">{formatAge(reply.createdAt)}</span>
         </div>
         {/* AI replies are markdown (rendered like chat); user replies stay literal. */}

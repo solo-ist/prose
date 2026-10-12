@@ -127,6 +127,8 @@ interface SettingsBase {
     remarkable?: boolean
     /** AI edit pipeline debug logging (#672) — see lib/aiPipelineLog.ts. Default: off. */
     aiPipelineDebug?: boolean
+    /** Web platform (gateway accounts, share/publish surfaces) (#768/#771). Default: off; forced off on MAS. */
+    webPlatform?: boolean
   }
   /**
    * Persisted tool mode for the AI assistant (global, shared across all tabs/conversations).
@@ -154,6 +156,15 @@ interface SettingsBase {
    * Unknown/new item IDs append visible so upgrades never hide new menu items.
    */
   menuCustomization?: Record<string, { order: string[]; hidden: string[]; barCount?: number }>
+  /**
+   * Web platform (#768/#771): gateway connection settings. Only meaningful
+   * when featureFlags.webPlatform is on. The session credential lives in
+   * credentialStore, never here.
+   */
+  webPlatform?: {
+    /** Gateway origin; defaults to the hosted gateway when unset. */
+    gatewayUrl?: string
+  }
 }
 
 /**
@@ -519,6 +530,56 @@ export interface TestApiKeyResult {
   message: string
 }
 
+// --- Share service (#768) ---
+
+/** Uniform result envelope for share:* IPC — errors are strings, not throws. */
+export type ShareOp<T = object> = ({ ok: true } & T) | { ok: false; error: string; code?: string }
+
+/** A published share, as tracked in the local sync metadata. */
+export interface ShareEntry {
+  publicationId: string
+  shareUrl: string
+  localPath: string
+  documentId: string
+  title: string
+  publishRev: string
+  revCount: number
+  publishedAt: string
+  lastPulledAt: string | null
+  lastCommentCursor: string | null
+  /**
+   * Server row ids this desktop has merged at least once (#905 follow-up):
+   * a seen row absent from the local store was author-deleted — the pull
+   * filter drops it instead of resurrecting it.
+   */
+  seenRowIds?: string[]
+  /** Origin of the minting gateway (audit M-02) — ops elsewhere are refused. */
+  gatewayOrigin?: string
+  revokedAt: string | null
+  /** Content sync mode (#769): auto = background push on save; publish = explicit. */
+  syncMode: 'auto' | 'publish'
+}
+
+/** A reviewer comment pulled from the gateway (authorEmail never included). */
+export interface SharePulledComment {
+  id: string
+  parentId: string | null
+  markedText: string
+  occurrenceIndex: number
+  commentText: string
+  authorName: string
+  /** Row was pushed by the author from Prose (reply/live conversation). */
+  fromAuthor: boolean
+  /** Author-controlled resolution; the desktop pull ignores it (local wins). */
+  resolvedAt: string | null
+  /** Owner edited the text (via their anonymous edit token). */
+  editedAt?: string | null
+  /** Soft-deleted tombstone: content scrubbed, conveys the deletion. */
+  deleted?: boolean
+  publishRev: string
+  createdAt: string
+}
+
 export interface ElectronAPI {
   openFile: () => Promise<FileResult | null>
   saveFile: (path: string, content: string, opts?: FileAccessOptions) => Promise<void>
@@ -610,6 +671,17 @@ export interface ElectronAPI {
   sendMcpToolResult: (requestId: string, result: ToolResult) => void
   // MCP server status
   onMcpStatus: (callback: (status: McpStatus) => void) => () => void
+  // MCP server install management (Settings → Integrations)
+  mcpGetStatus: () => Promise<{
+    installed: boolean
+    version: string | null
+    appVersion: string
+    needsUpdate: boolean
+    configPath: string
+    serverPath: string
+  }>
+  mcpInstall: () => Promise<{ success: boolean; error?: string }>
+  mcpUninstall: () => Promise<{ success: boolean; error?: string }>
   // File association (default markdown editor)
   // Returns: true (is default), false (not default), null (can't detect)
   fileAssociationIsDefault: () => Promise<boolean | null>
@@ -627,13 +699,39 @@ export interface ElectronAPI {
   googleGetSyncMetadata: () => Promise<GoogleSyncMetadata | null>
   googleUpdateSyncMetadataEntry: (entry: GoogleDocEntry) => Promise<void>
   googleRemoveSyncMetadataEntry: (googleDocId: string) => Promise<void>
+  // Share service (#768) — publish/re-publish/revoke + interim gateway sign-in
+  shareAuthStatus: () => Promise<ShareOp<{ signedIn: boolean; email?: string; gatewayUrl: string }>>
+  shareRequestSignIn: (email: string) => Promise<ShareOp>
+  shareCompleteSignIn: (code: string) => Promise<ShareOp<{ email?: string }>>
+  /** Desktop only: a sign-in finished from the email's prose://auth link (#964). */
+  onShareAuthChanged?: (callback: (result: ShareOp<{ email?: string }>) => void) => () => void
+  shareSignOut: () => Promise<ShareOp>
+  sharePublish: (args: { title: string; html: string; localPath: string; documentId: string }) => Promise<ShareOp<{ entry: ShareEntry }>>
+  shareRepublish: (args: { publicationId: string; title: string; html: string }) => Promise<ShareOp<{ entry: ShareEntry }>>
+  shareRevoke: (publicationId: string) => Promise<ShareOp>
+  shareList: () => Promise<ShareOp<{ entries: ShareEntry[] }>>
+  shareGetForPath: (localPath: string) => Promise<ShareOp<{ entries: ShareEntry[] }>>
+  shareComments: (publicationId: string) => Promise<ShareOp<{ comments: SharePulledComment[] }>>
+  sharePullComments: (publicationId: string) => Promise<ShareOp<{ comments: SharePulledComment[]; nextCursor: string | null }>>
+  shareAckCursor: (publicationId: string, cursor: string, seenRowIds?: string[]) => Promise<ShareOp<object>>
+  shareUpdateLocalPath: (oldPath: string, newPath: string, newDocumentId: string) => Promise<ShareOp<{ touched: number }>>
+  shareSetSyncMode: (publicationId: string, mode: 'auto' | 'publish') => Promise<ShareOp<{ entry: ShareEntry }>>
+  shareCreateComment: (publicationId: string, args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string; fromAuthor?: boolean }) => Promise<ShareOp<{ id: string; createdAt: string }>>
+  shareReplyToComment: (publicationId: string, commentId: string, text: string, authorName?: string, fromAuthor?: boolean) => Promise<ShareOp<{ id: string; createdAt: string }>>
+  shareResolveComment: (publicationId: string, commentId: string, resolved: boolean) => Promise<ShareOp>
+  shareRemoveComment: (publicationId: string, commentId: string) => Promise<ShareOp>
   // Emoji generation (runs in main process to avoid CORS)
   emojiGenerate: (title: string, contentPreview?: string) => Promise<{ emoji: string | null; error?: string }>
   // Window fullscreen state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => () => void
+  isFullScreen: () => Promise<boolean>
+  exitFullScreen: () => Promise<void>
   // Recent files
   getRecentFiles: () => Promise<string[]>
   clearRecentFiles: () => Promise<void>
+  refreshRecentMenu: () => Promise<void>
+  // Native menu: enable/disable "Reopen Closed Tab" based on closed-tab stack
+  setReopenClosedTabEnabled: (enabled: boolean) => Promise<void>
   // Clipboard
   copyToClipboard: (text: string) => Promise<void>
   // Sentry error tracking

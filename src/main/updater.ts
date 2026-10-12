@@ -88,7 +88,11 @@ export async function initAutoUpdater(mainWindow: BrowserWindow): Promise<void> 
     // and the re-entrancy guard. Disabling it makes our before-quit handler the
     // single source of truth.
     autoUpdater.autoInstallOnAppQuit = false
-    autoUpdater.allowPrerelease = false
+    // Stable builds never see pre-releases. A pre-release build (e.g.
+    // 1.8.0-beta.1, the share beta) follows later pre-releases so testers get
+    // beta.2 automatically, and moves to the stable release once it ships
+    // (1.8.0 sorts above every 1.8.0-beta.N).
+    autoUpdater.allowPrerelease = app.getVersion().includes('-')
 
     let updateDownloaded = false
     let installInvoked = false

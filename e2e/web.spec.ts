@@ -275,27 +275,21 @@ test.describe('Editor Features', () => {
 
 test.describe('Toolbar Actions', () => {
   test('toggle theme', async () => {
-    // Get initial theme state
-    const initialIsDark = await page.evaluate(() =>
-      document.documentElement.classList.contains('dark')
-    )
+    // The toolbar toggle is the v1.2 3-state cycle, not a 2-state flip.
+    // Pin the OS half of the cycle so the sequence is deterministic:
+    // with a light OS preference and the mock's dark boot, three clicks
+    // walk dark → light → system (renders light) → dark.
+    await page.emulateMedia({ colorScheme: 'light' })
+    await expect(page.locator('html')).toHaveClass(/\bdark\b/, { timeout: 2_000 })
 
-    // Click theme toggle
-    await page.click(selectors.toggleTheme)
+    await page.click(selectors.toggleTheme) // dark → light
+    await expect(page.locator('html')).toHaveClass(/^(?!.*\bdark\b)/, { timeout: 2_000 })
 
-    // Verify theme changed
-    await expect(page.locator('html')).toHaveClass(
-      initialIsDark ? /^(?!.*\bdark\b)/ : /\bdark\b/,
-      { timeout: 2_000 },
-    )
+    await page.click(selectors.toggleTheme) // light → system (OS is light)
+    await expect(page.locator('html')).toHaveClass(/^(?!.*\bdark\b)/, { timeout: 2_000 })
 
-    // Toggle back to restore original state
-    await page.click(selectors.toggleTheme)
-
-    await expect(page.locator('html')).toHaveClass(
-      initialIsDark ? /\bdark\b/ : /^(?!.*\bdark\b)/,
-      { timeout: 2_000 },
-    )
+    await page.click(selectors.toggleTheme) // system → dark (the visible flip)
+    await expect(page.locator('html')).toHaveClass(/\bdark\b/, { timeout: 2_000 })
   })
 
   test('toggle AI annotations button', async () => {

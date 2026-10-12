@@ -1,0 +1,191 @@
+// Prose Gateway schema — Phase 0 (#765).
+// Better Auth's models (user/session/account/verification) are emitted here by
+// `npx @better-auth/cli generate`. The custom `entitlements` model backs the
+// `ai_proxy` gate. Prisma 7 `prisma-client` generator (WASM query compiler).
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  // Force .js import extensions so the compiled `dist` (node) resolves them —
+  // the default varies with the build environment (tsconfig presence).
+  importFileExtension = "js"
+  moduleFormat        = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Phase 0 gate: which users may use which gated features (e.g. `ai_proxy`).
+/// `userId` is a FK to Better Auth's `user`. The full entitlements table
+/// (with a Stripe `granted_by` seam) is generalized in Phase 4 (#770).
+model Entitlement {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feature   String
+  grantedBy String    @default("manual")
+  grantedAt DateTime  @default(now())
+  expiresAt DateTime?
+  notes     String?
+
+  @@unique([userId, feature])
+  @@map("entitlements")
+}
+
+/// A grant written by email before (or regardless of whether) the account
+/// exists (#965). Claimed into an `Entitlement` the first time the signed-in
+/// user with that email hits the gate (entitlements/index.ts). `email` is
+/// stored lowercased. Claimed rows are kept as an audit trail;
+/// `claimedByUserId` is deliberately not a FK so deleting a user keeps it.
+model EntitlementInvite {
+  id              String    @id @default(uuid())
+  email           String
+  feature         String
+  grantedBy       String
+  expiresAt       DateTime?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  claimedAt       DateTime?
+  claimedByUserId String?
+
+  @@unique([email, feature])
+  @@map("entitlement_invites")
+}
+
+model User {
+  id            String    @id
+  name          String
+  email         String
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  entitlements  Entitlement[]
+  publications  Publication[]
+
+  @@unique([email])
+  @@map("user")
+}
+
+/// A published share artifact (#768). The raw capability token lives ONLY in
+/// the share URL — the row stores its SHA-256, so a DB dump never exposes a
+/// live link. Artifact HTML goes to R2 when configured (`r2Key`), else to the
+/// `artifactHtml` fallback column (single-instance beta / local dev).
+/// `atproto*` columns are the §8 ATProto seam (docs/architecture/atproto-publishing.md).
+model Publication {
+  id                 String    @id @default(uuid())
+  tokenHash          String    @unique
+  authorId           String
+  author             User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  title              String
+  publishRev         String
+  revCount           Int       @default(1)
+  /// Non-secret random DNS-safe label, 16 lowercase hex chars, assigned at
+  /// publish time (#917). Serves as the subdomain when SHARE_SUBDOMAINS is on
+  /// so the capability token never appears in DNS/SNI logs. NULL on legacy rows
+  /// until the 20260927000001 migration backfill runs.
+  hostLabel          String?   @unique
+  storage            String    @default("db") // 'r2' | 'db'
+  r2Key              String?
+  artifactHtml       String?
+  publishedAt        DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  revokedAt          DateTime?
+  atprotoAtUri       String?
+  atprotoBskyPostUri String?
+  comments           ShareComment[]
+
+  @@index([authorId])
+  @@map("publications")
+}
+
+/// An anonymous reviewer comment or reply on a publication (#768).
+/// `authorEmail` is notification-only and MUST NEVER be exposed through any
+/// read endpoint or embedded artifact. Replies self-join one level deep
+/// (parent must be top-level), matching the desktop CommentReply model.
+/// `fromAuthor` marks rows pushed by the publication's author from Prose
+/// (replies/live conversation, #769); `resolvedAt` is author-controlled
+/// resolution state, meaningful on top-level rows only.
+model ShareComment {
+  id              String        @id @default(uuid())
+  publicationId   String
+  publication     Publication   @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+  markedText      String
+  occurrenceIndex Int           @default(0)
+  commentText     String
+  authorName      String
+  authorEmail     String?
+  // Anonymous-ownership capability: returned ONLY in the creating POST's
+  // response, never on any read. Whoever holds it may edit or delete the
+  // row (viewers are anonymous — this is the proof of authorship).
+  // Stored as a SHA-256 hex hash — a DB dump must not hand out the
+  // capability. (Legacy rows held the raw token; the PATCH handler
+  // upgrades them in place on a successful match.)
+  editToken       String?
+  // Set when the owner edited the text (viewers see an "edited" marker).
+  editedAt        DateTime?
+  // Soft delete: content scrubbed, row kept as a tombstone so polls/pulls
+  // convey the deletion and the migration backfill can't resurrect it.
+  deletedAt       DateTime?
+  fromAuthor      Boolean       @default(false)
+  resolvedAt      DateTime?
+  parentId        String?
+  parent          ShareComment?  @relation("thread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies         ShareComment[] @relation("thread")
+  publishRev      String
+  createdAt       DateTime      @default(now())
+
+  @@index([publicationId, createdAt])
+  @@map("share_comments")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}

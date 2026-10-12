@@ -351,7 +351,7 @@ export function Editor() {
     content: initialContent,
     editorProps: {
       attributes: {
-        class: 'outline-none min-h-full'
+        class: 'outline-hidden min-h-full'
       },
       handlePaste: (view, event) => {
         const pastedText = event.clipboardData?.getData('text/plain') ?? ''

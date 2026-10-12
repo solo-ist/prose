@@ -437,7 +437,7 @@ const FileTreeItem = memo(function FileTreeItem({
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         className={cn(
-          'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm text-left transition-colors outline-none',
+          'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm text-left transition-colors outline-hidden',
           // Non-markdown files are visible but greyed — not openable in the editor
           item.isNonMarkdown
             ? 'text-muted-foreground/50 hover:bg-accent/50 cursor-default'
@@ -492,7 +492,7 @@ const FileTreeItem = memo(function FileTreeItem({
             onKeyDown={handleRenameKeyDown}
             onBlur={handleRenameSubmit}
             onClick={(e) => e.stopPropagation()}
-            className="flex-1 min-w-0 bg-transparent text-sm leading-5 outline-none border-none p-0 m-0 h-5 text-foreground selection:bg-accent-foreground/20"
+            className="flex-1 min-w-0 bg-transparent text-sm leading-5 outline-hidden border-none p-0 m-0 h-5 text-foreground selection:bg-accent-foreground/20"
           />
         ) : (
           <span className="truncate flex-1 min-w-0">{displayName}</span>

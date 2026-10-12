@@ -211,7 +211,7 @@ export function ProjectsPanel({ mode }: ProjectsPanelProps) {
   if (mode === 'projects') {
     return (
       <div className="flex h-full flex-col">
-        <ScrollArea className="flex-1 [&>[data-radix-scroll-area-viewport]>div]:!block">
+        <ScrollArea className="flex-1 [&>[data-radix-scroll-area-viewport]>div]:block!">
           {projects.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-6 text-center">
               <FolderOpen className="h-8 w-8 text-muted-foreground/50 mb-3" />
@@ -337,7 +337,7 @@ export function ProjectsPanel({ mode }: ProjectsPanelProps) {
   // Favorites mode
   return (
     <div className="flex h-full flex-col">
-      <ScrollArea className="flex-1 [&>[data-radix-scroll-area-viewport]>div]:!block">
+      <ScrollArea className="flex-1 [&>[data-radix-scroll-area-viewport]>div]:block!">
         {favorites.length === 0 ? (
           <div className="flex flex-col items-center justify-center p-6 text-center">
             <Star className="h-8 w-8 text-muted-foreground/50 mb-3" />

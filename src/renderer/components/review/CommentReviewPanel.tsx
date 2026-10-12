@@ -319,11 +319,11 @@ export function CommentReviewPanel({ onExit, initialThreadId, focusSeq }: Commen
                     <span className="text-[11px] text-muted-foreground">{formatAge(current.createdAt)}</span>
                   </div>
                   {current.author === 'ai' ? (
-                    <div className="prose-chat break-words text-[13px] leading-relaxed text-foreground/90">
+                    <div className="prose-chat wrap-break-word text-[13px] leading-relaxed text-foreground/90">
                       {renderMarkdown(current.comment, editor)}
                     </div>
                   ) : (
-                    <div className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-foreground/90">
+                    <div className="whitespace-pre-wrap wrap-break-word text-[13px] leading-relaxed text-foreground/90">
                       {current.comment}
                     </div>
                   )}
@@ -366,7 +366,7 @@ export function CommentReviewPanel({ onExit, initialThreadId, focusSeq }: Commen
                 onChange={(e) => setDraft(e.target.value)}
                 rows={1}
                 placeholder="Reply to the thread…"
-                className="max-h-[120px] flex-1 resize-none bg-transparent py-1 text-[13px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
+                className="max-h-[120px] flex-1 resize-none bg-transparent py-1 text-[13px] leading-relaxed text-foreground outline-hidden placeholder:text-muted-foreground"
               />
               <button
                 onClick={sendReply}
@@ -461,11 +461,11 @@ function ReviewReplyRow({ reply, editor }: { reply: CommentReply; editor: Return
           <span className="text-[11px] text-muted-foreground">{formatAge(reply.createdAt)}</span>
         </div>
         {isAI ? (
-          <div className="prose-chat break-words text-[13px] leading-relaxed text-foreground/85">
+          <div className="prose-chat wrap-break-word text-[13px] leading-relaxed text-foreground/85">
             {renderMarkdown(reply.text, editor)}
           </div>
         ) : (
-          <div className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-foreground/85">{reply.text}</div>
+          <div className="whitespace-pre-wrap wrap-break-word text-[13px] leading-relaxed text-foreground/85">{reply.text}</div>
         )}
       </div>
     </div>

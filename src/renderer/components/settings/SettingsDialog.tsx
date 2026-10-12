@@ -244,12 +244,12 @@ export function SettingsDialog() {
   return (
     <Dialog open={isDialogOpen} onOpenChange={setDialogOpen}>
       <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
-        <DialogHeader className="flex-shrink-0">
+        <DialogHeader className="shrink-0">
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
 
         <Tabs value={dialogTab} onValueChange={handleTabChange} className="mt-4 flex-1 min-h-0 flex flex-col">
-          <TabsList className="grid w-full grid-cols-6 flex-shrink-0">
+          <TabsList className="grid w-full grid-cols-6 shrink-0">
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="appearance">Appearance</TabsTrigger>
             <TabsTrigger value="editor">Editor</TabsTrigger>
@@ -734,9 +734,9 @@ export function SettingsDialog() {
           </TabsContent>
         </Tabs>
 
-        <Separator className="my-4 flex-shrink-0" />
+        <Separator className="my-4 shrink-0" />
 
-        <div className="flex justify-end gap-2 flex-shrink-0">
+        <div className="flex justify-end gap-2 shrink-0">
           <Button variant="outline" onClick={() => setDialogOpen(false)}>
             Cancel
           </Button>

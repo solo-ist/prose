@@ -371,6 +371,6 @@ export const SourceEditor = forwardRef<SourceEditorHandle, SourceEditorProps>(fu
   }, [allFolded])
 
   return (
-    <div ref={containerRef} className="source-editor h-full [&_.cm-editor]:h-full [&_.cm-editor]:outline-none" />
+    <div ref={containerRef} className="source-editor h-full [&_.cm-editor]:h-full [&_.cm-editor]:outline-hidden" />
   )
 })

@@ -54,9 +54,9 @@ export const ThemeCard = forwardRef<HTMLButtonElement, ThemeCardProps>(function 
       onKeyDown={onKeyDown}
       className={[
         'relative text-left rounded-[10px] p-3 cursor-pointer transition-all duration-150',
-        'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+        'focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
         selected
-          ? 'bg-accent/10 border border-primary shadow-sm'
+          ? 'bg-accent/10 border border-primary shadow-xs'
           : 'bg-transparent border border-border hover:-translate-y-0.5',
       ].join(' ')}
       style={{ fontFamily: '"IBM Plex Mono", monospace' }}

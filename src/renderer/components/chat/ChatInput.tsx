@@ -825,7 +825,7 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={isInitializing ? "Loading..." : "/CMD"}
-            className="flex-1 max-h-[96px] resize-none bg-transparent font-mono text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none disabled:opacity-50"
+            className="flex-1 max-h-[96px] resize-none bg-transparent font-mono text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-hidden disabled:opacity-50"
             disabled={isDisabled}
             rows={1}
           />

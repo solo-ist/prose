@@ -162,7 +162,7 @@ export function CustomizableMenu({ menuId, items, align = 'end', className }: Pr
               <div className="flex flex-col shrink-0 gap-0">
                 <button
                   type="button"
-                  className="h-3.5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-25 focus:outline-none"
+                  className="h-3.5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-25 focus:outline-hidden"
                   onClick={(e) => { e.stopPropagation(); moveUp(id) }}
                   disabled={idx === 0}
                   aria-label={`Move ${item.label} up`}
@@ -172,7 +172,7 @@ export function CustomizableMenu({ menuId, items, align = 'end', className }: Pr
                 </button>
                 <button
                   type="button"
-                  className="h-3.5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-25 focus:outline-none"
+                  className="h-3.5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-25 focus:outline-hidden"
                   onClick={(e) => { e.stopPropagation(); moveDown(id) }}
                   disabled={idx === orderedAllIds.length - 1}
                   aria-label={`Move ${item.label} down`}
@@ -195,7 +195,7 @@ export function CustomizableMenu({ menuId, items, align = 'end', className }: Pr
               {/* Eye toggle */}
               <button
                 type="button"
-                className="shrink-0 h-6 w-6 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent focus:outline-none"
+                className="shrink-0 h-6 w-6 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent focus:outline-hidden"
                 onClick={(e) => { e.stopPropagation(); toggleHidden(id) }}
                 aria-label={isHidden ? `Show ${item.label}` : `Hide ${item.label}`}
                 aria-pressed={isHidden}

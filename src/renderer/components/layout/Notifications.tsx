@@ -48,7 +48,7 @@ function Toast({ notification }: { notification: AppNotification }) {
           dismiss(id)
         }}
         aria-label="Dismiss"
-        className="absolute top-2 right-2 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:text-foreground"
+        className="absolute top-2 right-2 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-hidden focus-visible:text-foreground"
       >
         <X className="h-4 w-4" />
       </button>

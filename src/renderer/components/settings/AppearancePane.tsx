@@ -181,7 +181,7 @@ export function AppearancePane({ appearance, effectiveMode, onAppearanceChange }
                 onKeyDown={modeKeyHandler as React.KeyboardEventHandler<HTMLButtonElement>}
                 className={[
                   'inline-flex items-center gap-1.5 px-3 py-[5px] rounded-md text-[11.5px] border-none cursor-pointer',
-                  'transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+                  'transition-colors duration-150 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
                   selected
                     ? 'bg-primary text-primary-foreground'
                     : 'bg-transparent text-muted-foreground hover:text-foreground',
@@ -191,7 +191,7 @@ export function AppearancePane({ appearance, effectiveMode, onAppearanceChange }
                 <m.Icon className="w-3 h-3" strokeWidth={1.7} />
                 {m.label}
                 {m.id === 'system' && mode === 'system' && (
-                  <span className="text-[9px] opacity-70 ml-0.5 tracking-[0.05em]">
+                  <span className="text-[9px] opacity-70 ml-0.5 tracking-wider">
                     · {effectiveModeLabel}
                   </span>
                 )}

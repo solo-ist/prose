@@ -291,7 +291,7 @@ export function CustomizableToolbar({ menuId, actions, defaultBarCount, maxBarCa
                     <span className="flex-1 truncate text-sm animate-wiggle select-none">{a.label}</span>
                     <button
                       type="button"
-                      className="shrink-0 h-6 w-6 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent focus:outline-none"
+                      className="shrink-0 h-6 w-6 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent focus:outline-hidden"
                       onClick={(e) => { e.stopPropagation(); toggleHidden(key) }}
                       aria-label={hidden ? `Show ${a.label}` : `Hide ${a.label}`}
                       aria-pressed={hidden}

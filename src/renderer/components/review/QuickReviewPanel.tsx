@@ -375,7 +375,7 @@ export function QuickReviewPanel() {
               <div className="text-xs font-medium text-muted-foreground">Your feedback</div>
               <textarea
                 ref={feedbackInputRef}
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs leading-relaxed placeholder:text-muted-foreground/50 focus:outline-hidden focus:ring-1 focus:ring-ring resize-none"
                 value={feedbackInput}
                 onChange={(e) => setFeedbackInput(e.target.value)}
                 onKeyDown={handleFeedbackKeyDown}

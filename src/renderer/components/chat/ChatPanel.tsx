@@ -421,7 +421,7 @@ export function ChatPanel() {
                           <div className="flex flex-col shrink-0">
                             <button
                               type="button"
-                              className="h-3.5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-25 focus:outline-none"
+                              className="h-3.5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-25 focus:outline-hidden"
                               onClick={(e) => { e.stopPropagation(); moveChatHistoryUp(id) }}
                               disabled={idx === 0}
                               aria-label={`Move ${label} up`}
@@ -431,7 +431,7 @@ export function ChatPanel() {
                             </button>
                             <button
                               type="button"
-                              className="h-3.5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-25 focus:outline-none"
+                              className="h-3.5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-25 focus:outline-hidden"
                               onClick={(e) => { e.stopPropagation(); moveChatHistoryDown(id) }}
                               disabled={idx === chatHistoryOrderedIds.length - 1}
                               aria-label={`Move ${label} down`}
@@ -446,7 +446,7 @@ export function ChatPanel() {
                           </div>
                           <button
                             type="button"
-                            className="shrink-0 h-6 w-6 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent focus:outline-none"
+                            className="shrink-0 h-6 w-6 flex items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent focus:outline-hidden"
                             onClick={(e) => { e.stopPropagation(); toggleChatHistoryHidden(id) }}
                             aria-label={isHidden ? `Show ${label}` : `Hide ${label}`}
                             aria-pressed={isHidden}

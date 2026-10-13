@@ -308,6 +308,7 @@ export interface ElectronAPI {
   shareRepublish: (args: { publicationId: string; title: string; html: string }) => Promise<unknown>
   shareRevoke: (publicationId: string) => Promise<unknown>
   shareList: () => Promise<unknown>
+  shareListRemote: () => Promise<unknown>
   shareGetForPath: (localPath: string) => Promise<unknown>
   shareComments: (publicationId: string) => Promise<unknown>
   sharePullComments: (publicationId: string) => Promise<unknown>
@@ -630,6 +631,7 @@ const api: ElectronAPI = {
     ipcRenderer.invoke('share:republish', args),
   shareRevoke: (publicationId: string) => ipcRenderer.invoke('share:revoke', publicationId),
   shareList: () => ipcRenderer.invoke('share:list'),
+  shareListRemote: () => ipcRenderer.invoke('share:listRemote'),
   shareGetForPath: (localPath: string) => ipcRenderer.invoke('share:getForPath', localPath),
   shareComments: (publicationId: string) => ipcRenderer.invoke('share:comments', publicationId),
   sharePullComments: (publicationId: string) => ipcRenderer.invoke('share:pullComments', publicationId),

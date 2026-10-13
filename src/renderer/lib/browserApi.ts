@@ -491,6 +491,7 @@ export const browserApi: ElectronAPI = {
   shareRepublish: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
   shareRevoke: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
   shareList: async () => ({ ok: true as const, entries: [], activeOrigin: null }),
+  shareListRemote: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.', code: 'no_session' }),
   shareGetForPath: async () => ({ ok: true as const, entries: [] }),
   shareComments: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
   sharePullComments: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),

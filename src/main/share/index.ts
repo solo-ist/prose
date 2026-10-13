@@ -325,6 +325,45 @@ export async function list(): Promise<
 }
 
 /**
+ * Reconcile with the gateway's own list (#1037). Two outcomes:
+ *
+ * 1. A local LIVE entry on the active origin that the server says is revoked
+ *    becomes a local tombstone — server truth for revocation, persisted so
+ *    the next offline launch is right too (the dev/installed profile split
+ *    and "revoked from another machine" both land here).
+ * 2. The full server list goes back so the renderer can show publications
+ *    this device has no entry for ("not on this device").
+ *
+ * Deliberately NOT adopted: a local live entry the server doesn't list. That
+ * means hard-deleted — or signed in as a different account on the same
+ * gateway — and tombstoning on either guess would be wrong. The renderer
+ * flags it; nothing is written.
+ */
+export async function listRemote(): Promise<
+  ShareResult<{ publications: client.PublicationSummary[]; origin: string; adoptedRevocations: number }>
+> {
+  const config = await getShareConfig()
+  try {
+    const publications = await client.listPublications(config)
+    const origin = new URL(config.baseUrl).origin
+    const byId = new Map(publications.map((p) => [p.publicationId, p]))
+    let adoptedRevocations = 0
+    for (const entry of await listShareEntries()) {
+      if (entry.revokedAt) continue
+      if (entry.gatewayOrigin && entry.gatewayOrigin !== origin) continue
+      const remote = byId.get(entry.publicationId)
+      if (remote?.revokedAt) {
+        await patchShareEntry(entry.publicationId, { revokedAt: remote.revokedAt })
+        adoptedRevocations++
+      }
+    }
+    return { ok: true, publications, origin, adoptedRevocations }
+  } catch (err) {
+    return asError(err)
+  }
+}
+
+/**
  * Look up non-revoked share entries for a local path, scoped to the active
  * gateway origin (M-02 / deterministic lookup fix):
  *

@@ -1,8 +1,13 @@
 /**
- * SharedPanel (#1036) — the explorer's "Shared" view: every document shared
- * through the gateway, live shares first and revoked ones dimmed below under
- * "Previously shared". One row per publication (a doc that was shared,
+ * SharedPanel (#1036, #1037) — the explorer's "Shared" view: every document
+ * shared through the gateway, live shares first and revoked ones dimmed below
+ * under "Previously shared". One row per publication (a doc that was shared,
  * revoked and re-shared appears in both sections — that IS the history).
+ *
+ * Rows come from two sources: this device's share-sync.json entries, and the
+ * gateway's list for the signed-in account. Gateway rows with no local entry
+ * ("not on this device") can't open or copy — the server never has the URL
+ * or the path — but a live one can still be revoked from here.
  *
  * Reads sharedListStore; FileListPanel owns the refresh wiring. Rows never
  * render `shareUrl` — it embeds the capability token (share/metadata.ts).
@@ -23,7 +28,7 @@ import { useSharedListStore } from '../../stores/sharedListStore'
 import { useShareStore } from '../../stores/shareStore'
 import { useNotificationStore } from '../../stores/notificationStore'
 import { SHARE_GOLD } from '../share/ShareStatusIcon'
-import type { ShareEntry } from '../../types'
+import type { ShareEntry, SharePublicationSummary } from '../../types'
 
 const SECTION_LABEL =
   'px-2 pb-1 pt-2 text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70'
@@ -33,6 +38,24 @@ interface SharedPanelProps {
   onFileClick: (path: string) => void
   onFileDoubleClick: (path: string) => void
   onShowInFolder: (path: string) => void
+}
+
+/** One list row, from a local entry, a gateway row, or both. */
+interface SharedRowModel {
+  publicationId: string
+  title: string
+  publishedAt: string
+  revokedAt: string | null
+  revCount: number
+  syncMode: ShareEntry['syncMode'] | null
+  /** Live comment rows on the gateway, when the gateway list is in. */
+  commentCount: number | null
+  /** This device's entry — absent for a gateway-only row. */
+  local: ShareEntry | null
+  isMissing: boolean
+  isOtherGateway: boolean
+  /** Live local entry on the active origin that the signed-in account's gateway list doesn't contain. */
+  isOrphan: boolean
 }
 
 function fileNameOf(path: string): string {
@@ -60,28 +83,61 @@ export function SharedPanel({ selectedPath, onFileClick, onFileDoubleClick, onSh
   const activeOrigin = useSharedListStore((s) => s.activeOrigin)
   const missingPaths = useSharedListStore((s) => s.missingPaths)
   const loadedOnce = useSharedListStore((s) => s.loadedOnce)
+  const remoteById = useSharedListStore((s) => s.remoteById)
+  const remoteOnly = useSharedListStore((s) => s.remoteOnly)
+  const remoteStatus = useSharedListStore((s) => s.remoteStatus)
 
-  const active = entries
-    .filter((e) => !e.revokedAt)
+  const rows: SharedRowModel[] = [
+    ...entries.map((e): SharedRowModel => {
+      const other = isOtherGateway(e, activeOrigin)
+      const remote = remoteById[e.publicationId]
+      return {
+        publicationId: e.publicationId,
+        title: e.title || fileNameOf(e.localPath),
+        publishedAt: e.publishedAt,
+        revokedAt: e.revokedAt,
+        revCount: e.revCount,
+        syncMode: e.syncMode,
+        commentCount: remote ? remote.commentCount : null,
+        local: e,
+        isMissing: missingPaths.has(e.localPath),
+        isOtherGateway: other,
+        isOrphan: remoteStatus === 'ok' && !e.revokedAt && !other && !remote,
+      }
+    }),
+    ...remoteOnly.map((p): SharedRowModel => ({
+      publicationId: p.publicationId,
+      title: p.title,
+      publishedAt: p.publishedAt,
+      revokedAt: p.revokedAt,
+      revCount: p.revCount,
+      syncMode: null,
+      commentCount: p.commentCount,
+      local: null,
+      isMissing: false,
+      isOtherGateway: false,
+      isOrphan: false,
+    })),
+  ]
+  const active = rows
+    .filter((r) => !r.revokedAt)
     .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
-  const revoked = entries
-    .filter((e) => !!e.revokedAt)
+  const revoked = rows
+    .filter((r) => !!r.revokedAt)
     .sort((a, b) => (b.revokedAt ?? '').localeCompare(a.revokedAt ?? ''))
 
   if (!loadedOnce) {
     return <div className="p-4 text-sm text-muted-foreground">Loading shares…</div>
   }
-  if (entries.length === 0) {
+  if (rows.length === 0) {
     return <div className="p-4 text-sm text-muted-foreground">Nothing shared yet.</div>
   }
 
-  const renderRow = (entry: ShareEntry) => (
+  const renderRow = (row: SharedRowModel) => (
     <SharedRow
-      key={entry.publicationId}
-      entry={entry}
-      isMissing={missingPaths.has(entry.localPath)}
-      isOtherGateway={isOtherGateway(entry, activeOrigin)}
-      isSelected={selectedPath === entry.localPath}
+      key={row.publicationId}
+      row={row}
+      isSelected={!!row.local && selectedPath === row.local.localPath}
       onFileClick={onFileClick}
       onFileDoubleClick={onFileDoubleClick}
       onShowInFolder={onShowInFolder}
@@ -102,6 +158,11 @@ export function SharedPanel({ selectedPath, onFileClick, onFileDoubleClick, onSh
           {revoked.map(renderRow)}
         </div>
       )}
+      {remoteStatus === 'error' && (
+        <div className="px-2 pt-3 text-xs text-muted-foreground" data-testid="shared-remote-error">
+          Couldn't reach the gateway — showing this device's list.
+        </div>
+      )}
     </div>
   )
 }
@@ -109,49 +170,51 @@ export function SharedPanel({ selectedPath, onFileClick, onFileDoubleClick, onSh
 // ---- row ----------------------------------------------------------------
 
 interface SharedRowProps {
-  entry: ShareEntry
-  isMissing: boolean
-  isOtherGateway: boolean
+  row: SharedRowModel
   isSelected: boolean
   onFileClick: (path: string) => void
   onFileDoubleClick: (path: string) => void
   onShowInFolder: (path: string) => void
 }
 
-function SharedRow({
-  entry,
-  isMissing,
-  isOtherGateway,
-  isSelected,
-  onFileClick,
-  onFileDoubleClick,
-  onShowInFolder,
-}: SharedRowProps) {
+function SharedRow({ row, isSelected, onFileClick, onFileDoubleClick, onShowInFolder }: SharedRowProps) {
   const [revokeArmed, setRevokeArmed] = useState(false)
-  const isRevoked = !!entry.revokedAt
-  const title = entry.title || fileNameOf(entry.localPath)
+  const { local, title } = row
+  const isRevoked = !!row.revokedAt
+  const isRemoteOnly = !local
+  // Nothing to open: no local file, or the local file is gone.
+  const cannotOpen = isRemoteOnly || row.isMissing
 
   const detail: string[] = []
   if (isRevoked) {
-    detail.push(`revoked ${formatAge(Date.parse(entry.revokedAt!))}`)
+    detail.push(`revoked ${formatAge(Date.parse(row.revokedAt!))}`)
   } else {
-    detail.push(`shared ${formatAge(Date.parse(entry.publishedAt))}`)
-    if (isOtherGateway && entry.gatewayOrigin) detail.push(`on ${hostnameOf(entry.gatewayOrigin)}`)
+    detail.push(`shared ${formatAge(Date.parse(row.publishedAt))}`)
+    if (row.isOtherGateway && local?.gatewayOrigin) detail.push(`on ${hostnameOf(local.gatewayOrigin)}`)
     else {
-      detail.push(`rev ${entry.revCount}`)
-      if (entry.syncMode === 'publish') detail.push('publish')
+      detail.push(`rev ${row.revCount}`)
+      if (row.syncMode === 'publish') detail.push('publish')
     }
   }
-  if (isMissing) detail.push('file missing')
+  if (!isRevoked && row.commentCount) {
+    detail.push(`${row.commentCount} ${row.commentCount === 1 ? 'comment' : 'comments'}`)
+  }
+  if (isRemoteOnly) detail.push('not on this device')
+  else if (row.isMissing) detail.push('file missing')
+  else if (row.isOrphan) detail.push('not on gateway')
 
-  const tooltip = isMissing
-    ? `${entry.localPath} (file missing)`
-    : isOtherGateway && entry.gatewayOrigin
-      ? `Shared via ${entry.gatewayOrigin} — switch gateway to manage`
-      : entry.localPath
+  const tooltip = isRemoteOnly
+    ? 'Shared from another device or profile — this one has no copy of the file or the link'
+    : row.isMissing
+      ? `${local!.localPath} (file missing)`
+      : row.isOtherGateway && local?.gatewayOrigin
+        ? `Shared via ${local.gatewayOrigin} — switch gateway to manage`
+        : row.isOrphan
+          ? `${local!.localPath} — the signed-in account's gateway list has no record of this share`
+          : local!.localPath
 
-  const handleCopy = () => void getApi().copyToClipboard(entry.shareUrl)
-  const handleOpenInBrowser = () => void getApi().openExternal?.(entry.shareUrl)
+  const handleCopy = () => local && void getApi().copyToClipboard(local.shareUrl)
+  const handleOpenInBrowser = () => local && void getApi().openExternal?.(local.shareUrl)
 
   // Two-step arm inside the menu (mirrors ShareStatusPopover): the first
   // select keeps the menu open and relabels; the second revokes.
@@ -161,10 +224,10 @@ function SharedRow({
       setRevokeArmed(true)
       return
     }
-    const res = await getApi().shareRevoke(entry.publicationId)
+    const res = await getApi().shareRevoke(row.publicationId)
     if (res.ok) {
       // Keep the editor's ◎ honest when the revoked share is the active doc's.
-      if (useShareStore.getState().entry?.publicationId === entry.publicationId) {
+      if (useShareStore.getState().entry?.publicationId === row.publicationId) {
         useShareStore.getState().applyEntry(null)
       }
       void useSharedListStore.getState().refresh()
@@ -175,47 +238,54 @@ function SharedRow({
   }
 
   const Icon = isRevoked ? CircleOff : CircleDot
-  const iconStyle = !isRevoked && !isOtherGateway ? { color: SHARE_GOLD } : undefined
+  const muted = isRevoked || row.isOtherGateway || row.isOrphan || isRemoteOnly
+  const iconStyle = muted ? undefined : { color: SHARE_GOLD }
+  const canRevoke = !isRevoked && !row.isOtherGateway
+
+  const button = (
+    // Rows that can't open still own a context menu (Copy link / Revoke for
+    // a live link whose file is gone; Revoke for a gateway-only row), so
+    // aria-disabled rather than disabled — a disabled button swallows the
+    // contextmenu event.
+    <button
+      type="button"
+      data-testid="shared-row"
+      data-share-state={isRevoked ? 'revoked' : 'active'}
+      data-remote={isRemoteOnly || undefined}
+      data-orphan={row.isOrphan || undefined}
+      aria-disabled={cannotOpen || undefined}
+      className={cn(
+        'flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50',
+        isSelected && 'bg-muted',
+        isRevoked && 'opacity-60',
+        cannotOpen && 'opacity-50 cursor-default hover:bg-transparent'
+      )}
+      onClick={() => { if (!cannotOpen) onFileClick(local!.localPath) }}
+      onDoubleClick={() => { if (!cannotOpen) onFileDoubleClick(local!.localPath) }}
+      title={tooltip}
+    >
+      <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', muted && 'text-muted-foreground')} style={iconStyle} />
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate">{title}</span>
+        <span className="truncate text-xs text-muted-foreground">{detail.join(' · ')}</span>
+      </span>
+    </button>
+  )
+
+  // A revoked gateway-only row has no action at all.
+  if (isRemoteOnly && !canRevoke) return button
 
   return (
     <ContextMenu onOpenChange={(open) => { if (!open) setRevokeArmed(false) }}>
-      <ContextMenuTrigger asChild>
-        {/* A missing file still has a LIVE link: the row can't open, but the
-            menu keeps Copy link / Revoke reachable (aria-disabled, not
-            disabled — a disabled button swallows the contextmenu event). */}
-        <button
-          type="button"
-          data-testid="shared-row"
-          data-share-state={isRevoked ? 'revoked' : 'active'}
-          aria-disabled={isMissing || undefined}
-          className={cn(
-            'flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50',
-            isSelected && 'bg-muted',
-            isRevoked && 'opacity-60',
-            isMissing && 'opacity-50 cursor-default hover:bg-transparent'
-          )}
-          onClick={() => { if (!isMissing) onFileClick(entry.localPath) }}
-          onDoubleClick={() => { if (!isMissing) onFileDoubleClick(entry.localPath) }}
-          title={tooltip}
-        >
-          <Icon
-            className={cn('mt-0.5 h-4 w-4 shrink-0', !iconStyle && 'text-muted-foreground')}
-            style={iconStyle}
-          />
-          <span className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate">{title}</span>
-            <span className="truncate text-xs text-muted-foreground">{detail.join(' · ')}</span>
-          </span>
-        </button>
-      </ContextMenuTrigger>
+      <ContextMenuTrigger asChild>{button}</ContextMenuTrigger>
       <ContextMenuContent>
-        {!isMissing && (
-          <ContextMenuItem onClick={() => onFileDoubleClick(entry.localPath)}>
+        {!cannotOpen && (
+          <ContextMenuItem onClick={() => onFileDoubleClick(local!.localPath)}>
             <FileText className="h-4 w-4 mr-2" />
             Open
           </ContextMenuItem>
         )}
-        {!isRevoked && (
+        {!isRevoked && local && (
           <>
             <ContextMenuItem onClick={handleCopy}>
               <Copy className="h-4 w-4 mr-2" />
@@ -227,20 +297,22 @@ function SharedRow({
             </ContextMenuItem>
           </>
         )}
-        <ContextMenuItem disabled={isMissing} onClick={() => onShowInFolder(entry.localPath)}>
-          <Folder className="h-4 w-4 mr-2" />
-          {isMissing ? 'Open in Finder (file missing)' : 'Open in Finder'}
-        </ContextMenuItem>
+        {local && (
+          <ContextMenuItem disabled={row.isMissing} onClick={() => onShowInFolder(local.localPath)}>
+            <Folder className="h-4 w-4 mr-2" />
+            {row.isMissing ? 'Open in Finder (file missing)' : 'Open in Finder'}
+          </ContextMenuItem>
+        )}
         {!isRevoked && (
           <>
-            <ContextMenuSeparator />
+            {local && <ContextMenuSeparator />}
             <ContextMenuItem
-              disabled={isOtherGateway}
+              disabled={!canRevoke}
               className={cn(revokeArmed && 'text-destructive focus:text-destructive')}
               onSelect={(e) => void handleRevokeSelect(e)}
             >
               <Trash2 className="h-4 w-4 mr-2" />
-              {isOtherGateway ? 'Revoke (switch gateway)' : revokeArmed ? 'Really revoke?' : 'Revoke'}
+              {!canRevoke ? 'Revoke (switch gateway)' : revokeArmed ? 'Really revoke?' : 'Revoke'}
             </ContextMenuItem>
           </>
         )}

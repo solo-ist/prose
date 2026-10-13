@@ -209,7 +209,7 @@ When running as Electron:
 
 ### IPC Channels
 
-Most handlers live in `src/main/ipc.ts` (75 across 14 namespaces). A few sit closer to their feature: `sentry:setEnabled` and `renderer:ready` in `src/main/index.ts`, `updater:*` (3) in `src/main/updater.ts`, `file:watch:start` and `file:watch:stop` in `src/main/fileWatcher.ts`, and `mcp:tool:result` (via `ipcMain.on`, not `handle`) in `src/main/mcp/bridge.ts`.
+Most handlers live in `src/main/ipc.ts` (99 across 15 namespaces). A few sit closer to their feature: `sentry:setEnabled` and `renderer:ready` in `src/main/index.ts`, `updater:*` (3) in `src/main/updater.ts`, `file:watch:start` and `file:watch:stop` in `src/main/fileWatcher.ts`, and `mcp:tool:result` (via `ipcMain.on`, not `handle`) in `src/main/mcp/bridge.ts`.
 
 - `file:*` (22) - File operations (open, save, read, rename, delete, trash, duplicate, watch, export HTML, MAS bookmark activation, etc.) — 20 handlers in `ipc.ts`, plus `file:watch:start` and `file:watch:stop` in `fileWatcher.ts`
 - `settings:*` (4) - Settings persistence, secure storage check, API key test
@@ -217,6 +217,7 @@ Most handlers live in `src/main/ipc.ts` (75 across 14 namespaces). A few sit clo
 - `remarkable:*` (20) - reMarkable tablet sync (register, validate, sync, sync:abort, OCR, folder move, etc.)
 - `google:*` (13) - Google Docs OAuth, sync, pull, import, metadata management
 - `mcp:*` (3) - MCP server status, install, uninstall for Claude Desktop
+- `share:*` (21) - Gateway sharing: sign-in, access, publish/republish/revoke, local list + `share:listRemote` gateway reconcile (#1037), comments pull/push, path updates. Only the two local reads (`share:list`, `share:getForPath`) are callable on MAS builds
 - `sentry:setEnabled` - Toggle Sentry error tracking from renderer
 - `updater:*` (3) - Auto-update check, download, install (Electron auto-updater)
 - `skill:download` - Download an external skill for use inside Prose

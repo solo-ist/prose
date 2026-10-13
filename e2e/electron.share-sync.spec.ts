@@ -40,6 +40,8 @@ import {
   dismissOnboarding,
   dismissOverlay,
   executeProseTool,
+  switchExplorerTab,
+  selectors,
 } from './helpers'
 
 // ---------------------------------------------------------------------------
@@ -785,6 +787,20 @@ test('revoke treats a gateway 404 as failure, success as a local tombstone', asy
   const ok = await callApi<{ ok: boolean }>('shareRevoke', 'pub-published')
   expect(ok).toMatchObject({ ok: true })
   expect(readSyncEntry('pub-published')?.revokedAt).not.toBeNull()
+})
+
+test('the explorer Shared view lists the live share and the fresh tombstone (#1036)', async () => {
+  await switchExplorerTab(page, 'shared')
+  const panel = page.locator(selectors.fileListPanel)
+  const live = panel.locator('[data-testid="shared-active"] [data-testid="shared-row"]')
+  const revoked = panel.locator('[data-testid="shared-revoked"] [data-testid="shared-row"]')
+  // pub1 + pub-foreign are live; pub-published was just revoked above.
+  await expect(live).toHaveCount(2)
+  await expect(revoked).toHaveCount(1)
+  await expect(revoked.first()).toContainText('revoked just now')
+  // The foreign-origin entry is flagged with its host, not treated as current.
+  await expect(panel.locator('[data-testid="shared-row"]', { hasText: 'on elsewhere.example' })).toHaveCount(1)
+  await switchExplorerTab(page, 'files')
 })
 
 // ---------------------------------------------------------------------------

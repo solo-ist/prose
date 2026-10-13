@@ -306,8 +306,22 @@ export async function revoke(publicationId: string): Promise<ShareResult<object>
   }
 }
 
-export async function list(): Promise<ShareResult<{ entries: ShareSyncEntry[] }>> {
-  return { ok: true, entries: await listShareEntries() }
+/**
+ * Every local share entry (revoked tombstones included, newest first) plus
+ * the active gateway origin, so the explorer's Shared view (#1036) can flag
+ * entries minted elsewhere without re-deriving the allowlist logic here.
+ */
+export async function list(): Promise<
+  ShareResult<{ entries: ShareSyncEntry[]; activeOrigin: string | null }>
+> {
+  const entries = await listShareEntries()
+  let activeOrigin: string | null = null
+  try {
+    activeOrigin = new URL((await getShareConfig()).baseUrl).origin
+  } catch {
+    // Malformed baseUrl — the renderer treats every entry as current.
+  }
+  return { ok: true, entries, activeOrigin }
 }
 
 /**

@@ -238,6 +238,7 @@ Zustand stores in `src/renderer/stores/`:
 - `commandHistoryStore` - Per-tool argument history, persisted to IndexedDB
 - `linkHoverStore` - Currently hovered link URL for tooltip
 - `notificationStore` - Bespoke in-app toasts (the app uses no toast library; rendered by `components/layout/Notifications.tsx`)
+- `sharedListStore` - Every local share entry (live + revoked) for the explorer's Shared view and the ◎ indicator on shared tree rows (#1036)
 
 ### Feature Flags
 

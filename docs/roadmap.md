@@ -184,6 +184,7 @@ Bundles with Wave 0's shipped QoL fixes so the **next MAS release** ships fixes 
 | [#1008](https://github.com/solo-ist/prose/issues/1008) | First invite wave: grant job + invites. |
 | [#900](https://github.com/solo-ist/prose/issues/900) | Reply-notification emails — right after the beta opens (builds on #813's mail seam). |
 | [#857](https://github.com/solo-ist/prose/issues/857) | Nested/overlapping comment ranges — comment-*model* work, rides this wave rather than the QoL batch. |
+| [#1036](https://github.com/solo-ist/prose/issues/1036) | Explorer **"Shared" view** — every current *and* previously shared document in one list, plus a ◎ indicator on shared tree rows; local history only (revoked tombstones no longer pruned). Gateway reconcile is the follow-up [#1037](https://github.com/solo-ist/prose/issues/1037) (Later). |
 | [#771](https://github.com/solo-ist/prose/issues/771) | MAS seams + `webPlatform` feature flag (cross-cutting; flipping the default is the desktop-GA step). Reader-app framing retired 2026-09-29; the concrete hosted gating is #955. |
 
 *Gateway build-hygiene follow-ups from the #809 review rounds sit in Later: [#814](https://github.com/solo-ist/prose/issues/814) bodyLimit + pinned models · [#816](https://github.com/solo-ist/prose/issues/816) test-gateway gated flow · [#818](https://github.com/solo-ist/prose/issues/818) Docker hardening (absorbed #815, closed as superseded).*

@@ -25,6 +25,7 @@ export const selectors = {
   filesButton: '[aria-label="Files"]',
   googleDocsButton: '[aria-label="Google Docs"]',
   notebooksButton: '[aria-label="reMarkable notebooks"]',
+  sharedButton: '[aria-label="Shared"]',
 
   // Toolbar buttons
   toggleTheme: '[aria-label="Toggle appearance mode"]',
@@ -236,7 +237,7 @@ export async function ensureFileListOpen(page: Page): Promise<void> {
 /** Switch the file explorer to a specific tab. */
 export async function switchExplorerTab(
   page: Page,
-  tab: 'recent' | 'files' | 'googledocs' | 'notebooks',
+  tab: 'recent' | 'files' | 'googledocs' | 'notebooks' | 'shared',
 ): Promise<void> {
   await ensureFileListOpen(page)
   const buttonMap = {
@@ -244,12 +245,14 @@ export async function switchExplorerTab(
     files: selectors.filesButton,
     googledocs: selectors.googleDocsButton,
     notebooks: selectors.notebooksButton,
+    shared: selectors.sharedButton,
   }
   const labelMap = {
     recent: 'Recent files',
     files: 'Files',
     googledocs: 'Google Docs',
     notebooks: 'reMarkable notebooks',
+    shared: 'Shared',
   }
   const inline = page.locator(buttonMap[tab])
   if (await inline.isVisible({ timeout: 1_000 }).catch(() => false)) {

@@ -712,7 +712,8 @@ export interface ElectronAPI {
   sharePublish: (args: { title: string; html: string; localPath: string; documentId: string }) => Promise<ShareOp<{ entry: ShareEntry }>>
   shareRepublish: (args: { publicationId: string; title: string; html: string }) => Promise<ShareOp<{ entry: ShareEntry }>>
   shareRevoke: (publicationId: string) => Promise<ShareOp>
-  shareList: () => Promise<ShareOp<{ entries: ShareEntry[] }>>
+  /** Every local share entry, revoked tombstones included, plus the active gateway origin (#1036). */
+  shareList: () => Promise<ShareOp<{ entries: ShareEntry[]; activeOrigin: string | null }>>
   shareGetForPath: (localPath: string) => Promise<ShareOp<{ entries: ShareEntry[] }>>
   shareComments: (publicationId: string) => Promise<ShareOp<{ comments: SharePulledComment[] }>>
   sharePullComments: (publicationId: string) => Promise<ShareOp<{ comments: SharePulledComment[]; nextCursor: string | null }>>

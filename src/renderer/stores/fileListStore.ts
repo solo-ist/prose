@@ -44,7 +44,7 @@ export interface SyncProgress {
   phase: RemarkableSyncPhase
 }
 
-type ViewMode = 'recent' | 'folder' | 'notebooks' | 'googledocs' | 'projects' | 'favorites'
+type ViewMode = 'recent' | 'folder' | 'notebooks' | 'googledocs' | 'projects' | 'favorites' | 'shared'
 
 export type { ViewMode }
 

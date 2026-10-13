@@ -8,6 +8,10 @@
  * raw capability token: treat this file like a password store. Do NOT
  * include it in diagnostics or bug reports without redacting the
  * /s/<token> path segment of every shareUrl.
+ *
+ * Revoked entries are kept indefinitely as tombstones (#1036): the explorer's
+ * "Shared" view lists them under "Previously shared", so a revoked share is
+ * never silently forgotten. (A 30-day prune used to run on load.)
  */
 import { app } from 'electron'
 import { chmod, readFile, writeFile } from 'fs/promises'
@@ -22,9 +26,6 @@ import { createHash } from 'crypto'
 export function documentIdFromPath(path: string): string {
   return createHash('sha256').update(path).digest('hex').substring(0, 36)
 }
-
-/** Entries with revokedAt older than this are pruned on load. */
-const REVOKE_PRUNE_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
 
 export interface ShareSyncEntry {
   publicationId: string
@@ -88,15 +89,6 @@ async function load(): Promise<ShareSyncMetadata> {
       // default to 'auto' (the contract's default for new shares too).
       for (const entry of Object.values(parsed.shares)) {
         if (entry.syncMode !== 'auto' && entry.syncMode !== 'publish') entry.syncMode = 'auto'
-      }
-      // Prune revoked entries older than 30 days from in-memory state. The
-      // pruned state is persisted the next time any serialized write runs — we
-      // do NOT save here to avoid a write inside a possibly nested read path.
-      const cutoff = new Date(Date.now() - REVOKE_PRUNE_MS).toISOString()
-      for (const [id, entry] of Object.entries(parsed.shares)) {
-        if (entry.revokedAt && entry.revokedAt < cutoff) {
-          delete parsed.shares[id]
-        }
       }
       return parsed
     }

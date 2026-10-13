@@ -32,7 +32,7 @@ jobs:
     steps:
       - name: Check commenter permissions
         if: github.event_name == 'issue_comment'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const username = context.payload.comment.user.login;
@@ -57,7 +57,7 @@ jobs:
 
       - name: Resolve PR ref and SHA
         id: pr
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             if (context.eventName === 'pull_request') {
@@ -77,12 +77,12 @@ jobs:
               core.setOutput('repo', pr.head.repo.full_name);
             }
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: ${{ steps.pr.outputs.repo }}
           ref: ${{ steps.pr.outputs.ref }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: 'npm'
@@ -104,7 +104,7 @@ jobs:
       - name: Run web E2E tests
         run: npx playwright test --config playwright.web.config.ts
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: web-e2e-results
@@ -114,7 +114,7 @@ jobs:
 
       - name: Post PR comment
         if: always()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const status = '${{ job.status }}' === 'success' ? 'passed' : 'failed';
@@ -130,7 +130,7 @@ jobs:
 
       - name: Set commit status
         if: always()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const status = '${{ job.status }}' === 'success' ? 'success' : 'failure';

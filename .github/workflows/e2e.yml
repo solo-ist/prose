@@ -27,7 +27,7 @@ jobs:
     steps:
       - name: Check commenter permissions
         if: github.event_name == 'issue_comment'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const username = context.payload.comment.user.login;
@@ -52,7 +52,7 @@ jobs:
 
       - name: Resolve PR ref
         id: pr
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             if (context.eventName === 'pull_request') {
@@ -68,12 +68,12 @@ jobs:
               core.setOutput('repo', pr.head.repo.full_name);
             }
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: ${{ steps.pr.outputs.repo }}
           ref: ${{ steps.pr.outputs.ref }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: 'npm'
@@ -95,7 +95,7 @@ jobs:
           run: npx playwright test
           options: -screen 0 1280x1024x24
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: e2e-results

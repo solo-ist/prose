@@ -598,6 +598,18 @@ async function main() {
   expect(revoke.status === 204, 'revoke returns 204', `status ${revoke.status}`)
   const gone = await fetch(pub.shareUrl)
   expect(gone.status === 410, 'revoked share 410s', `status ${gone.status}`)
+  // A second revoke (a stale desktop profile revoking an already-revoked
+  // share, PR #1038) is accepted but must not move revokedAt — it's the
+  // moment the link died, shown in the explorer's history.
+  const listAfterRevoke = await (await fetch(`${BASE}/api/share`, { headers: authed })).json()
+  const revokedAt1 = listAfterRevoke.publications.find((p) => p.publicationId === pub.publicationId)?.revokedAt
+  expect(typeof revokedAt1 === 'string', 'list reports the revocation', `revokedAt ${revokedAt1}`)
+  await new Promise((r) => setTimeout(r, 1_100))
+  const secondRevoke = await fetch(`${BASE}/api/share/${pub.publicationId}`, { method: 'DELETE', headers: authed })
+  expect(secondRevoke.status === 204, 'second revoke is accepted', `status ${secondRevoke.status}`)
+  const listAfterSecond = await (await fetch(`${BASE}/api/share`, { headers: authed })).json()
+  const revokedAt2 = listAfterSecond.publications.find((p) => p.publicationId === pub.publicationId)?.revokedAt
+  expect(revokedAt2 === revokedAt1, 'second revoke keeps the original revokedAt', `${revokedAt1} → ${revokedAt2}`)
   // The 410 is the styled takedown page on the artifact headers — not bare
   // text; the comment surfaces below keep their JSON 410s.
   expect((gone.headers.get('content-type') ?? '').includes('text/html'), 'revoked page is HTML', gone.headers.get('content-type'))

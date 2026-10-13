@@ -56,6 +56,48 @@ interface SharedRowModel {
   isOtherGateway: boolean
   /** Live local entry on the active origin that the signed-in account's gateway list doesn't contain. */
   isOrphan: boolean
+  /** Gateway-only rows collapsed into this one: earlier links of the same document (see collapseChurn). */
+  earlierLinks: number
+}
+
+/** Republishing revoked the previous link at publish time — within this of each other. */
+const CHURN_GAP_MS = 10_000
+
+/**
+ * Before #932 every republish minted a new publication and revoked the
+ * previous one, so one document can have a long chain of server rows with
+ * the same title, each revoked at the exact moment the next was published.
+ * The device has no entries for them (they're gateway-only), so they'd read
+ * as duplicates. Collapse each chain into its newest link, counting the
+ * rest. Only gateway-only rows, only the churn signature — a share revoked
+ * and re-shared days later stays two rows, because that IS the history.
+ */
+function collapseChurn(rows: SharePublicationSummary[]): Array<{ latest: SharePublicationSummary; earlier: number }> {
+  const byTitle = new Map<string, SharePublicationSummary[]>()
+  for (const p of rows) {
+    const list = byTitle.get(p.title) ?? []
+    list.push(p)
+    byTitle.set(p.title, list)
+  }
+  const out: Array<{ latest: SharePublicationSummary; earlier: number }> = []
+  for (const list of byTitle.values()) {
+    list.sort((a, b) => a.publishedAt.localeCompare(b.publishedAt))
+    let chain: SharePublicationSummary[] = []
+    const flush = () => {
+      if (chain.length > 0) out.push({ latest: chain[chain.length - 1], earlier: chain.length - 1 })
+      chain = []
+    }
+    for (const p of list) {
+      const prev = chain[chain.length - 1]
+      const continues =
+        !!prev?.revokedAt &&
+        Math.abs(Date.parse(p.publishedAt) - Date.parse(prev.revokedAt)) <= CHURN_GAP_MS
+      if (!continues) flush()
+      chain.push(p)
+    }
+    flush()
+  }
+  return out
 }
 
 function fileNameOf(path: string): string {
@@ -103,9 +145,10 @@ export function SharedPanel({ selectedPath, onFileClick, onFileDoubleClick, onSh
         isMissing: missingPaths.has(e.localPath),
         isOtherGateway: other,
         isOrphan: remoteStatus === 'ok' && !e.revokedAt && !other && !remote,
+        earlierLinks: 0,
       }
     }),
-    ...remoteOnly.map((p): SharedRowModel => ({
+    ...collapseChurn(remoteOnly).map(({ latest: p, earlier }): SharedRowModel => ({
       publicationId: p.publicationId,
       title: p.title,
       publishedAt: p.publishedAt,
@@ -117,6 +160,7 @@ export function SharedPanel({ selectedPath, onFileClick, onFileDoubleClick, onSh
       isMissing: false,
       isOtherGateway: false,
       isOrphan: false,
+      earlierLinks: earlier,
     })),
   ]
   const active = rows
@@ -202,6 +246,9 @@ function SharedRow({ row, isSelected, onFileClick, onFileDoubleClick, onShowInFo
   if (isRemoteOnly) detail.push('not on this device')
   else if (row.isMissing) detail.push('file missing')
   else if (row.isOrphan) detail.push('not on gateway')
+  if (row.earlierLinks > 0) {
+    detail.push(`${row.earlierLinks} earlier ${row.earlierLinks === 1 ? 'link' : 'links'}`)
+  }
 
   const tooltip = isRemoteOnly
     ? 'Shared from another device or profile — this one has no copy of the file or the link'
@@ -253,6 +300,7 @@ function SharedRow({ row, isSelected, onFileClick, onFileDoubleClick, onShowInFo
       data-share-state={isRevoked ? 'revoked' : 'active'}
       data-remote={isRemoteOnly || undefined}
       data-orphan={row.isOrphan || undefined}
+      data-earlier-links={row.earlierLinks > 0 ? row.earlierLinks : undefined}
       aria-disabled={cannotOpen || undefined}
       className={cn(
         'flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50',

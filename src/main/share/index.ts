@@ -352,7 +352,9 @@ export async function listRemote(): Promise<
       if (entry.revokedAt) continue
       if (entry.gatewayOrigin && entry.gatewayOrigin !== origin) continue
       const remote = byId.get(entry.publicationId)
-      if (remote?.revokedAt) {
+      // Only a well-formed ISO timestamp is ever written to disk — the list
+      // guard validates publicationId alone (review on PR #1038).
+      if (typeof remote?.revokedAt === 'string' && !Number.isNaN(Date.parse(remote.revokedAt))) {
         await patchShareEntry(entry.publicationId, { revokedAt: remote.revokedAt })
         adoptedRevocations++
       }

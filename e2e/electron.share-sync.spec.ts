@@ -830,6 +830,14 @@ test('the Shared view reconciles with the gateway list: server revocations, coun
     summary('pub-adopt', 'Adopt Me', { revokedAt: iso(0) }),
     summary('pub-elsewhere', 'Elsewhere Doc', { commentCount: 1 }),
     summary('pub-elsewhere-old', 'Old Elsewhere Doc', { revokedAt: iso(-1_000) }),
+    // Pre-#932 churn: each republish revoked the previous link at publish
+    // time. Three server rows, one document → one row, "2 earlier links".
+    summary('pub-churn-1', 'Churn Doc', { publishedAt: iso(-300_000), revokedAt: iso(-200_000) }),
+    summary('pub-churn-2', 'Churn Doc', { publishedAt: iso(-200_000), revokedAt: iso(-100_000) }),
+    summary('pub-churn-3', 'Churn Doc', { publishedAt: iso(-100_000) }),
+    // Same title, but re-shared a day after the revoke: real history, two rows.
+    summary('pub-reshare-old', 'Reshared Doc', { publishedAt: iso(-3 * 86_400_000), revokedAt: iso(-2 * 86_400_000) }),
+    summary('pub-reshare-new', 'Reshared Doc', { publishedAt: iso(-86_400_000) }),
   ]
   const panel = page.locator(selectors.fileListPanel)
   // The previous test left the Files view loading; let the tree land before
@@ -838,9 +846,16 @@ test('the Shared view reconciles with the gateway list: server revocations, coun
   await switchExplorerTab(page, 'shared')
   const rows = panel.locator('[data-testid="shared-row"]')
 
-  // Server-only publications appear, can't open, and say so.
+  // Server-only publications appear, can't open, and say so. Elsewhere ×2,
+  // the churn chain collapsed to one, Reshared ×2 = 5.
   const remoteRows = panel.locator('[data-testid="shared-row"][data-remote="true"]')
-  await expect(remoteRows).toHaveCount(2)
+  await expect(remoteRows).toHaveCount(5)
+  const churn = rows.filter({ hasText: 'Churn Doc' })
+  await expect(churn).toHaveCount(1)
+  await expect(churn.first()).toHaveAttribute('data-earlier-links', '2')
+  await expect(churn.first()).toContainText('2 earlier links')
+  await expect(churn.first()).toHaveAttribute('data-share-state', 'active')
+  await expect(rows.filter({ hasText: 'Reshared Doc' })).toHaveCount(2)
   await expect(rows.filter({ hasText: 'Elsewhere Doc' }).first()).toContainText('not on this device')
   await expect(rows.filter({ hasText: 'Elsewhere Doc' }).first()).toHaveAttribute('aria-disabled', 'true')
   await expect(panel.locator('[data-testid="shared-revoked"] [data-testid="shared-row"]', { hasText: 'Old Elsewhere Doc' })).toHaveCount(1)

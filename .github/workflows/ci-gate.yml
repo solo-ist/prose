@@ -18,7 +18,7 @@ jobs:
     steps:
       - name: Get PR number
         id: pr
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             // Same-repo PRs populate workflow_run.pull_requests directly.
@@ -79,7 +79,7 @@ jobs:
       - name: Check PR author trust
         id: trust
         if: steps.pr.outputs.number && steps.dedup.outputs.skip != 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           PR_NUMBER: ${{ steps.pr.outputs.number }}
         with:
@@ -150,7 +150,7 @@ jobs:
     steps:
       - name: Get PR info
         id: pr
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const prs = context.payload.workflow_run.pull_requests;

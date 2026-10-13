@@ -30,34 +30,36 @@ jobs:
             URGENCY="Needs review — human attention requested"
           fi
 
-          cat > /tmp/slack-payload.json << EOF
-          {
-            "blocks": [
-              {
-                "type": "header",
-                "text": {
-                  "type": "plain_text",
-                  "text": "$EMOJI PR #$PR_NUMBER needs human review"
-                }
-              },
-              {
-                "type": "section",
-                "fields": [
-                  { "type": "mrkdwn", "text": "*PR:* <$PR_URL|#$PR_NUMBER $PR_TITLE>" },
-                  { "type": "mrkdwn", "text": "*Author:* $PR_AUTHOR" },
-                  { "type": "mrkdwn", "text": "*Label:* \`$LABEL\`" },
-                  { "type": "mrkdwn", "text": "*Status:* $URGENCY" }
-                ]
-              },
-              {
-                "type": "context",
-                "elements": [
-                  { "type": "mrkdwn", "text": "Pipeline triage routed this PR for human review. Check the PR comments for scorer + PE analysis." }
-                ]
-              }
-            ]
-          }
-          EOF
+          # Build the JSON with jq, never by pasting values into a heredoc: a PR
+          # title with a double quote (#1036's `"Shared"`) produced invalid JSON
+          # and failed the Slack step. Slack mrkdwn also needs &, < and >
+          # escaped in the link text, or a title like "a <b>" breaks the link.
+          jq -n \
+            --arg emoji "$EMOJI" \
+            --arg number "$PR_NUMBER" \
+            --arg title "$PR_TITLE" \
+            --arg url "$PR_URL" \
+            --arg author "$PR_AUTHOR" \
+            --arg label "$LABEL" \
+            --arg urgency "$URGENCY" \
+            'def mrkdwn: gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;");
+            {
+              blocks: [
+                { type: "header",
+                  text: { type: "plain_text", text: "\($emoji) PR #\($number) needs human review" } },
+                { type: "section",
+                  fields: [
+                    { type: "mrkdwn", text: "*PR:* <\($url)|#\($number) \($title | mrkdwn)>" },
+                    { type: "mrkdwn", text: "*Author:* \($author | mrkdwn)" },
+                    { type: "mrkdwn", text: "*Label:* `\($label | mrkdwn)`" },
+                    { type: "mrkdwn", text: "*Status:* \($urgency)" }
+                  ] },
+                { type: "context",
+                  elements: [
+                    { type: "mrkdwn", text: "Pipeline triage routed this PR for human review. Check the PR comments for scorer + PE analysis." }
+                  ] }
+              ]
+            }' > /tmp/slack-payload.json
 
       - name: Send Slack notification
         uses: slackapi/slack-github-action@v4

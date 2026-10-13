@@ -33,7 +33,7 @@ export const IconCell = forwardRef<HTMLButtonElement, IconCellProps>(function Ic
       onKeyDown={onKeyDown}
       className={[
         'flex flex-col items-center gap-2 p-1 bg-transparent border-none cursor-pointer',
-        'focus:outline-none transition-transform duration-150',
+        'focus:outline-hidden transition-transform duration-150',
         selected ? '' : 'hover:-translate-y-0.5',
       ].join(' ')}
       style={{ fontFamily: '"IBM Plex Mono", monospace' }}

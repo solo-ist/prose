@@ -95,7 +95,7 @@ const shortcutSections: ShortcutSection[] = [
 
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="inline-flex items-center justify-center min-w-[1.5rem] h-6 px-1.5 text-xs font-medium bg-muted border border-border rounded">
+    <kbd className="inline-flex items-center justify-center min-w-6 h-6 px-1.5 text-xs font-medium bg-muted border border-border rounded">
       {children}
     </kbd>
   )

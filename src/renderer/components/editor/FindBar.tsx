@@ -167,7 +167,7 @@ export function FindBar({ editor, isOpen, onClose }: FindBarProps) {
         onKeyDown={handleKeyDown}
         className="w-48 h-8 text-sm"
       />
-      <span className="text-xs text-muted-foreground min-w-[4rem] text-center">
+      <span className="text-xs text-muted-foreground min-w-16 text-center">
         {results.length > 0 ? `${currentIndex + 1}/${results.length}` : 'No results'}
       </span>
       <div className="flex items-center">

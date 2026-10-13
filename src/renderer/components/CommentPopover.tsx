@@ -456,11 +456,11 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
                 {commentAge && <span className="text-[11px] text-muted-foreground">{commentAge}</span>}
               </div>
               {commentIsAI ? (
-                <div className="prose-chat break-words text-[13px] leading-relaxed text-foreground/90">
+                <div className="prose-chat wrap-break-word text-[13px] leading-relaxed text-foreground/90">
                   {renderMarkdown(commentText, editor)}
                 </div>
               ) : (
-                <div className="text-[13px] leading-relaxed text-foreground/90 break-words whitespace-pre-wrap">{commentText}</div>
+                <div className="text-[13px] leading-relaxed text-foreground/90 wrap-break-word whitespace-pre-wrap">{commentText}</div>
               )}
             </div>
           </div>
@@ -523,7 +523,7 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
               onKeyDown={handleReplyKeyDown}
               rows={1}
               placeholder="Reply to the thread…"
-              className="max-h-[120px] flex-1 resize-none bg-transparent py-1 text-[13px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
+              className="max-h-[120px] flex-1 resize-none bg-transparent py-1 text-[13px] leading-relaxed text-foreground outline-hidden placeholder:text-muted-foreground"
             />
             <button
               onClick={handleAddReply}
@@ -574,7 +574,7 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
           </button>
         </div>
       ) : (
-        <div className="flex shrink-0 items-center gap-2 border-t border-border bg-emerald-500/[0.06] px-4 py-2.5">
+        <div className="flex shrink-0 items-center gap-2 border-t border-border bg-emerald-500/6 px-4 py-2.5">
           <button
             onClick={handleReopen}
             className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-[12.5px] font-medium text-foreground transition-colors hover:bg-accent"
@@ -641,11 +641,11 @@ function ReplyRow({ reply, editor }: { reply: CommentReply; editor: Editor }) {
         </div>
         {/* AI replies are markdown (rendered like chat); user replies stay literal. */}
         {isAI ? (
-          <div className="prose-chat break-words text-[13px] leading-relaxed text-foreground/85">
+          <div className="prose-chat wrap-break-word text-[13px] leading-relaxed text-foreground/85">
             {renderMarkdown(reply.text, editor)}
           </div>
         ) : (
-          <div className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-foreground/85">
+          <div className="whitespace-pre-wrap wrap-break-word text-[13px] leading-relaxed text-foreground/85">
             {reply.text}
           </div>
         )}

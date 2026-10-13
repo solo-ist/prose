@@ -177,7 +177,7 @@ export function StatusBar() {
       <div className="flex items-center gap-1">
         <button
           onClick={toggleSourceMode}
-          className="hover:text-foreground focus-visible:text-foreground focus-visible:outline-none transition-colors cursor-pointer"
+          className="hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden transition-colors cursor-pointer"
         >
           {sourceMode ? 'Source' : 'WYSIWYG'}
         </button>
@@ -202,7 +202,7 @@ export function StatusBar() {
               <TooltipTrigger asChild>
                 <button
                   onClick={() => useReviewStore.getState().setReviewMode('quick')}
-                  className="text-violet-600 dark:text-violet-400 hover:text-violet-500 focus-visible:text-violet-500 focus-visible:outline-none transition-colors cursor-pointer"
+                  className="text-violet-600 dark:text-violet-400 hover:text-violet-500 focus-visible:text-violet-500 focus-visible:outline-hidden transition-colors cursor-pointer"
                 >
                   {suggestionCount} suggestion{suggestionCount !== 1 ? 's' : ''}
                 </button>
@@ -222,7 +222,7 @@ export function StatusBar() {
               <TooltipTrigger asChild>
                 <button
                   onClick={reviewComments}
-                  className="text-amber-600 dark:text-amber-400 hover:text-amber-500 focus-visible:text-amber-500 focus-visible:outline-none transition-colors cursor-pointer"
+                  className="text-amber-600 dark:text-amber-400 hover:text-amber-500 focus-visible:text-amber-500 focus-visible:outline-hidden transition-colors cursor-pointer"
                 >
                   {commentCount} comment{commentCount !== 1 ? 's' : ''}
                 </button>
@@ -242,7 +242,7 @@ export function StatusBar() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <DropdownMenuTrigger asChild>
-                    <button className="hover:text-foreground focus-visible:text-foreground focus-visible:outline-none transition-colors cursor-pointer max-w-[120px] truncate">
+                    <button className="hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden transition-colors cursor-pointer max-w-[120px] truncate">
                       {modelDisplayName}
                     </button>
                   </DropdownMenuTrigger>
@@ -286,7 +286,7 @@ export function StatusBar() {
                     aria-pressed={thinkingEnabled}
                     aria-label={thinkingEnabled ? 'Extended thinking on' : 'Extended thinking off'}
                     className={cn(
-                      'ml-1 flex items-center transition-colors cursor-pointer focus-visible:outline-none',
+                      'ml-1 flex items-center transition-colors cursor-pointer focus-visible:outline-hidden',
                       thinkingEnabled ? 'text-primary' : 'hover:text-foreground'
                     )}
                   >
@@ -308,7 +308,7 @@ export function StatusBar() {
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <button className={`hover:text-foreground focus-visible:text-foreground focus-visible:outline-none transition-colors cursor-pointer${modeChipPulse ? ' animate-pulse text-primary' : ''}`}>
+                <button className={`hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden transition-colors cursor-pointer${modeChipPulse ? ' animate-pulse text-primary' : ''}`}>
                   {currentMode.label}
                 </button>
               </DropdownMenuTrigger>

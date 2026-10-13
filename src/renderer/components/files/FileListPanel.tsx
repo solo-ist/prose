@@ -1381,7 +1381,7 @@ export function FileListPanel() {
       {/* Loading bar */}
       {(isLoading || isSyncing || isGoogleSyncing) && (
         <div className="h-0.5 w-full overflow-hidden bg-muted/50">
-          <div className="h-full w-1/3 animate-loading-bar bg-gradient-to-r from-violet-500 via-fuchsia-500 to-violet-500" />
+          <div className="h-full w-1/3 animate-loading-bar bg-linear-to-r from-violet-500 via-fuchsia-500 to-violet-500" />
         </div>
       )}
 
@@ -1416,7 +1416,7 @@ export function FileListPanel() {
           the rows — right-click in the blank area still offers New File / New Folder
           / Paste (#703). Scoped to this ScrollArea; the panel truncates, so dropping
           the table layout costs no horizontal-scroll behavior. */}
-      <ScrollArea className="flex-1 [&_[data-radix-scroll-area-viewport]>div]:!flex [&_[data-radix-scroll-area-viewport]>div]:!flex-col [&_[data-radix-scroll-area-viewport]>div]:h-full">
+      <ScrollArea className="flex-1 [&_[data-radix-scroll-area-viewport]>div]:flex! [&_[data-radix-scroll-area-viewport]>div]:flex-col! [&_[data-radix-scroll-area-viewport]>div]:h-full">
         {viewMode === 'projects' && !currentProject ? (
           <ProjectsPanel mode="projects" />
         ) : viewMode === 'favorites' ? (

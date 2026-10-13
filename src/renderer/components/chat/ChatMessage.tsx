@@ -35,7 +35,7 @@ function ThinkingBlock({ text, isStreaming }: { text: string; isStreaming: boole
         />
       </button>
       {open && text && (
-        <div className="px-3 pb-3 pt-1 text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap break-words border-t border-border/30">
+        <div className="px-3 pb-3 pt-1 text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap wrap-break-word border-t border-border/30">
           {text}
         </div>
       )}
@@ -116,7 +116,7 @@ function ToolCallIndicator({ name, status, onClick, children, actions, defaultEx
             type="button"
             onClick={toggleExpanded}
             aria-label={expanded ? 'Collapse details' : 'Expand details'}
-            className="ml-auto inline-flex h-5 w-5 items-center justify-center rounded text-current/70 hover:bg-current/10 hover:text-current focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-current/40"
+            className="ml-auto inline-flex h-5 w-5 items-center justify-center rounded text-current/70 hover:bg-current/10 hover:text-current focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-current/40"
           >
             <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", !expanded && "-rotate-90")} />
           </button>
@@ -506,7 +506,7 @@ export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps)
         {message.context && (
           <div className="rounded-md bg-muted/50 p-2 text-xs text-muted-foreground">
             <span className="font-medium">Context:</span>
-            <p className="mt-1 line-clamp-3 whitespace-pre-wrap break-words">{message.context}</p>
+            <p className="mt-1 line-clamp-3 whitespace-pre-wrap wrap-break-word">{message.context}</p>
           </div>
         )}
         <div className="text-sm leading-relaxed">
@@ -516,12 +516,12 @@ export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps)
             <ThinkingBlock text={message.thinkingText} isStreaming={!!isStreaming} />
           )}
           {isUser ? (
-            <p className="whitespace-pre-wrap break-words font-mono">{message.content}</p>
+            <p className="whitespace-pre-wrap wrap-break-word font-mono">{message.content}</p>
           ) : message.isError ? (
             <div className="space-y-2">
               <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive dark:text-red-400">
                 <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                <span className="break-words">{message.content}</span>
+                <span className="wrap-break-word">{message.content}</span>
               </div>
               {onRetry && (
                 <button
@@ -540,7 +540,7 @@ export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps)
 
             if (hasToolParts) {
               return (
-                <div className="prose-chat space-y-2 break-words">
+                <div className="prose-chat space-y-2 wrap-break-word">
                   {toolParts.map((part, idx) => {
                     if (part.type === 'tool-drafting') {
                       return (
@@ -619,7 +619,7 @@ export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps)
             // No tool parts - render normally
             if (message.content.trim()) {
               return (
-                <div className="prose-chat break-words">
+                <div className="prose-chat wrap-break-word">
                   {renderMarkdown(message.content, editor)}
                   {isStreaming && (
                     <span className="inline-block w-2 h-4 bg-primary/50 animate-pulse ml-0.5 align-middle" />
@@ -632,7 +632,7 @@ export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps)
               return <span className="inline-block w-2 h-4 bg-primary/50 animate-pulse" />
             }
 
-            return <div className="prose-chat break-words">{renderMarkdown(message.content, editor)}</div>
+            return <div className="prose-chat wrap-break-word">{renderMarkdown(message.content, editor)}</div>
           })()}
         </div>
         <p

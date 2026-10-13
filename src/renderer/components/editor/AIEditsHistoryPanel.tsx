@@ -299,7 +299,7 @@ function HistoryEntryRow({ annotation, onJump, onRemove }: HistoryEntryRowProps)
       }}
       title={detached ? 'This edit was later replaced — history record only' : 'Jump to in document'}
       className={cn(
-        'group rounded-[10px] border border-border bg-muted/50 px-3 py-3 transition-colors hover:border-muted-foreground/30 hover:bg-muted/[0.85] focus:border-muted-foreground/40 focus:outline-none',
+        'group rounded-[10px] border border-border bg-muted/50 px-3 py-3 transition-colors hover:border-muted-foreground/30 hover:bg-muted/85 focus:border-muted-foreground/40 focus:outline-hidden',
         detached ? 'cursor-default opacity-60 hover:opacity-100' : 'cursor-pointer'
       )}
     >
@@ -336,7 +336,7 @@ function HistoryEntryRow({ annotation, onJump, onRemove }: HistoryEntryRowProps)
           <TooltipContent side="left">Remove AI marking (keeps the text)</TooltipContent>
         </Tooltip>
       </div>
-      <p className="line-clamp-2 break-words text-[15px] leading-snug text-foreground">
+      <p className="line-clamp-2 wrap-break-word text-[15px] leading-snug text-foreground">
         {snippet}
         {isLong && <span className="text-muted-foreground/50">…</span>}
       </p>
@@ -394,7 +394,7 @@ function CommentActivityRow({ comment, onRemove, onReview }: CommentActivityRowP
     <div
       onClick={() => setExpanded((v) => !v)}
       className={cn(
-        'group cursor-pointer rounded-[10px] border border-border bg-muted/50 px-3 py-3 transition-all hover:border-muted-foreground/30 hover:bg-muted/[0.85]',
+        'group cursor-pointer rounded-[10px] border border-border bg-muted/50 px-3 py-3 transition-all hover:border-muted-foreground/30 hover:bg-muted/85',
         // Resolved threads read quiet until clicked open (then full brightness).
         isResolved && !expanded && 'opacity-60 hover:opacity-100'
       )}
@@ -562,7 +562,7 @@ function PreviewRow({
           clamp === 1 ? 'line-clamp-1' : 'line-clamp-2'
         )}
       >
-        {markdown ? <span className="[&_*]:inline">{renderMarkdown(text, editor)}</span> : text}
+        {markdown ? <span className="**:inline">{renderMarkdown(text, editor)}</span> : text}
       </div>
     </div>
   )
@@ -590,11 +590,11 @@ function FullRow({
           {name} · {time}
         </div>
         {markdown ? (
-          <div className="prose-chat break-words text-[12.5px] leading-relaxed text-foreground/85">
+          <div className="prose-chat wrap-break-word text-[12.5px] leading-relaxed text-foreground/85">
             {renderMarkdown(text, editor)}
           </div>
         ) : (
-          <div className="whitespace-pre-wrap break-words text-[12.5px] leading-relaxed text-foreground/85">{text}</div>
+          <div className="whitespace-pre-wrap wrap-break-word text-[12.5px] leading-relaxed text-foreground/85">{text}</div>
         )}
       </div>
     </div>

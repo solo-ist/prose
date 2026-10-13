@@ -408,6 +408,10 @@ export const useFileListStore = create<FileListState>()(
           const documentsPath = await window.api.getDocumentsPath()
           // Verify the directory is actually readable (may fail in MAS sandbox)
           const files = await window.api.listDirectory(documentsPath)
+          // The guard above ran before two awaits. A root chosen meanwhile
+          // (settings loaded a base root, or the user opened a project) must
+          // win — the Documents fallback is only for a still-empty explorer.
+          if (get().rootPath || get().isInitialized) return
           if (files && files.length > 0) {
             // Route through setRootPath so the watcher wiring stays in one
             // place. Setting rootPath inline (the old pattern) duplicated
@@ -473,6 +477,10 @@ export const useFileListStore = create<FileListState>()(
       try {
         // Use depth 1 for fast initial load - children loaded on demand
         const fresh = await window.api.listDirectory(rootPath, 1, showDotfiles)
+        // The root may have changed while the listing was in flight (a slow
+        // Documents fallback resolving after the user opened a project):
+        // a stale listing must never land under the new root.
+        if (get().rootPath !== rootPath) return
         // The fresh listing only includes direct children. If the user had
         // any subfolders expanded (and their children fetched via
         // loadFolderChildren), those `children` arrays would be wiped on

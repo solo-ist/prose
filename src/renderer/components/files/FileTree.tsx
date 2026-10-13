@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useCallback, memo } from 'react'
 import type { FileItem } from '../../types'
-import { ChevronRight, ChevronDown, FileText, FileType, Folder, FolderOpen, FolderPlus, Loader2, Trash2, Edit3, ExternalLink, Copy, Scissors, ClipboardPaste, FilePlus, Boxes, Star } from 'lucide-react'
+import { ChevronRight, ChevronDown, FileText, FileType, Folder, FolderOpen, FolderPlus, Loader2, Trash2, Edit3, ExternalLink, Copy, Scissors, ClipboardPaste, FilePlus, Boxes, Star, CircleDot } from 'lucide-react'
 import { cn } from '../../lib/utils'
+import { SHARE_GOLD } from '../share/ShareStatusIcon'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -19,6 +20,8 @@ interface FileTreeProps {
   favoritePaths?: ReadonlySet<string>
   /** Set of project folder paths, subscribed once at the root and threaded down. */
   projectPaths?: ReadonlySet<string>
+  /** Paths with a live share (#1036), subscribed once at the root and threaded down. */
+  sharedPaths?: ReadonlySet<string>
   expandedFolders: Set<string>
   selectedPath: string | null
   /** All currently selected paths for multi-select. */
@@ -62,6 +65,7 @@ export function FileTree({
   items,
   favoritePaths = EMPTY_PATH_SET,
   projectPaths = EMPTY_PATH_SET,
+  sharedPaths = EMPTY_PATH_SET,
   expandedFolders,
   selectedPath,
   selectedPaths = EMPTY_PATH_SET,
@@ -105,6 +109,7 @@ export function FileTree({
           item={item}
           favoritePaths={favoritePaths}
           projectPaths={projectPaths}
+          sharedPaths={sharedPaths}
           expandedFolders={expandedFolders}
           selectedPath={selectedPath}
           selectedPaths={selectedPaths}
@@ -149,6 +154,7 @@ interface FileTreeItemProps {
   item: FileItem
   favoritePaths: ReadonlySet<string>
   projectPaths: ReadonlySet<string>
+  sharedPaths: ReadonlySet<string>
   expandedFolders: Set<string>
   selectedPath: string | null
   selectedPaths: ReadonlySet<string>
@@ -189,6 +195,7 @@ const FileTreeItem = memo(function FileTreeItem({
   item,
   favoritePaths,
   projectPaths,
+  sharedPaths,
   expandedFolders,
   selectedPath,
   selectedPaths,
@@ -233,6 +240,9 @@ const FileTreeItem = memo(function FileTreeItem({
   // Denote favorite files in the tree (folders keep their folder icon).
   // favoritePaths is subscribed once at the root and threaded down (no per-item subscription).
   const isFavorite = !item.isDirectory && favoritePaths.has(item.path)
+  // Files with a live share get the ◎ (#1036); a favorite keeps its Star and
+  // shows a gold dot after the name instead, so neither signal is lost.
+  const isShared = !item.isDirectory && sharedPaths.has(item.path)
   // For the right-click menu, favorite/project membership applies to folders too
   // (a folder can be a favorite or a project), unlike the file-only icon above.
   // These drive the "Add … / Remove …" toggle so the menu reflects current state.
@@ -477,6 +487,13 @@ const FileTreeItem = memo(function FileTreeItem({
             <span className="w-3.5" />
             {isFavorite ? (
               <Star className="h-4 w-4 shrink-0 fill-current text-muted-foreground" />
+            ) : isShared ? (
+              <CircleDot
+                className="h-4 w-4 shrink-0"
+                style={{ color: SHARE_GOLD }}
+                aria-label="Shared document"
+                data-testid="shared-indicator"
+              />
             ) : item.name.endsWith('.txt') ? (
               <FileType className="h-4 w-4 shrink-0 text-muted-foreground" />
             ) : (
@@ -496,6 +513,14 @@ const FileTreeItem = memo(function FileTreeItem({
           />
         ) : (
           <span className="truncate flex-1 min-w-0">{displayName}</span>
+        )}
+        {isFavorite && isShared && !isRenaming && (
+          <span
+            className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ background: SHARE_GOLD }}
+            aria-label="Shared document"
+            data-testid="shared-indicator"
+          />
         )}
       </button>
       {!item.isDirectory && onFileLinkClick && !isRenaming && (
@@ -705,6 +730,7 @@ const FileTreeItem = memo(function FileTreeItem({
           items={item.children}
           favoritePaths={favoritePaths}
           projectPaths={projectPaths}
+          sharedPaths={sharedPaths}
           expandedFolders={expandedFolders}
           selectedPath={selectedPath}
           selectedPaths={selectedPaths}

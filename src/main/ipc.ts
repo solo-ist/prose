@@ -1857,6 +1857,15 @@ export function setupIpcHandlers(): void {
     return share.list()
   })
 
+  // Reconcile with the gateway's own list (#1037): adopts server-side
+  // revocations into share-sync.json and returns publications this device
+  // has no entry for. Session + network → MAS-gated like the other ops.
+  ipcMain.handle('share:listRemote', async () => {
+    if (IS_MAS_BUILD) return MAS_SHARE_BLOCKED
+    const share = await import('./share/index')
+    return share.listRemote()
+  })
+
   // MAS policy for share:* handlers — deliberate split, matched to the
   // implementation (#908): ONLY `share:list` and `share:getForPath` — pure
   // local-metadata reads — stay callable, so a user migrating from a

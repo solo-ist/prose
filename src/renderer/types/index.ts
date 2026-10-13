@@ -560,6 +560,18 @@ export interface ShareEntry {
   syncMode: 'auto' | 'publish'
 }
 
+/** One row of the signed-in author's gateway publication list (#1037). */
+export interface SharePublicationSummary {
+  publicationId: string
+  title: string
+  publishRev: string
+  revCount: number
+  publishedAt: string
+  updatedAt: string
+  revokedAt: string | null
+  commentCount: number
+}
+
 /** A reviewer comment pulled from the gateway (authorEmail never included). */
 export interface SharePulledComment {
   id: string
@@ -712,7 +724,10 @@ export interface ElectronAPI {
   sharePublish: (args: { title: string; html: string; localPath: string; documentId: string }) => Promise<ShareOp<{ entry: ShareEntry }>>
   shareRepublish: (args: { publicationId: string; title: string; html: string }) => Promise<ShareOp<{ entry: ShareEntry }>>
   shareRevoke: (publicationId: string) => Promise<ShareOp>
-  shareList: () => Promise<ShareOp<{ entries: ShareEntry[] }>>
+  /** Every local share entry, revoked tombstones included, plus the active gateway origin (#1036). */
+  shareList: () => Promise<ShareOp<{ entries: ShareEntry[]; activeOrigin: string | null }>>
+  /** The gateway's list for the signed-in account; adopts server-side revocations locally first (#1037). */
+  shareListRemote: () => Promise<ShareOp<{ publications: SharePublicationSummary[]; origin: string; adoptedRevocations: number }>>
   shareGetForPath: (localPath: string) => Promise<ShareOp<{ entries: ShareEntry[] }>>
   shareComments: (publicationId: string) => Promise<ShareOp<{ comments: SharePulledComment[] }>>
   sharePullComments: (publicationId: string) => Promise<ShareOp<{ comments: SharePulledComment[]; nextCursor: string | null }>>

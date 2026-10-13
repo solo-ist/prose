@@ -6,12 +6,14 @@ import { useTabs } from '../../hooks/useTabs'
 import { useSummaryStore } from '../../stores/summaryStore'
 import { useRemarkableSync } from '../../hooks/useRemarkableSync'
 import { useGoogleDocsSync } from '../../hooks/useGoogleDocsSync'
-import { useGoogleDocsEnabled, useRemarkableEnabled } from '../../lib/featureFlags'
+import { useGoogleDocsEnabled, useRemarkableEnabled, useWebPlatformEnabled } from '../../lib/featureFlags'
 import { useExplorerActions } from '../../hooks/useExplorerActions'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useFileListStore } from '../../stores/fileListStore'
 import { useNotificationStore } from '../../stores/notificationStore'
+import { useSharedListStore } from '../../stores/sharedListStore'
+import { useShareStore } from '../../stores/shareStore'
 import { useTabStore } from '../../stores/tabStore'
 import { FileTree } from './FileTree'
 import { ScrollArea } from '../ui/scroll-area'
@@ -35,7 +37,7 @@ import {
 } from '../ui/dialog'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
-import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, ChevronLeft, ChevronRight, ChevronDown, Folder, FolderOpen, FolderInput, FolderPlus, Download, Trash2, FilePlus, ClipboardPaste, ExternalLink, X, Globe, Edit3, RefreshCw, Loader2, AlertTriangle, Bug, Boxes, Star, Check } from 'lucide-react'
+import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, ChevronLeft, ChevronRight, ChevronDown, Folder, FolderOpen, FolderInput, FolderPlus, Download, Trash2, FilePlus, ClipboardPaste, ExternalLink, X, Globe, Edit3, RefreshCw, Loader2, AlertTriangle, Bug, Boxes, Star, Check, CircleDot } from 'lucide-react'
 import { useSettings } from '../../hooks/useSettings'
 import { cn } from '../../lib/utils'
 import { getApi } from '../../lib/browserApi'
@@ -44,6 +46,7 @@ import { sanitizeEntryName } from '../../lib/fileNames'
 import { requestBugReport } from '../EnableLoggingDialog'
 import type { RemarkableNotebookMetadata, RemarkableCloudNotebook, GoogleDocEntry } from '../../types'
 import { ProjectsPanel } from './ProjectsPanel'
+import { SharedPanel } from './SharedPanel'
 import { useProjects, useFavorites, useProjectsStore } from '../../stores/projectsStore'
 import { CustomizableToolbar } from '../ui/CustomizableToolbar'
 import type { ToolbarAction } from '../ui/CustomizableToolbar'
@@ -88,6 +91,10 @@ export function FileListPanel() {
   const remarkableEnabled = useSettingsStore((state) => remarkableFlag && state.settings.remarkable?.enabled && !!state.settings.remarkable?.deviceToken)
   const googleConnected = useSettingsStore((state) => googleDocsFlag && !!state.settings.google)
   const googleSyncDirectory = useSettingsStore((state) => state.settings.google?.syncDirectory)
+  // Sharing (#1036): the Shared view + the ◎ tree indicator read one list store.
+  const webPlatform = useWebPlatformEnabled()
+  const refreshSharedList = useSharedListStore((s) => s.refresh)
+  const sharedPaths = useSharedListStore((s) => s.sharedPaths)
   const projects = useProjects()
   const favorites = useFavorites()
   // Subscribe to favorites once here and pass a path Set down the tree, so each
@@ -142,6 +149,11 @@ export function FileListPanel() {
     { key: 'projects', Icon: Boxes, label: 'Projects', active: viewMode === 'projects', onClick: () => setViewMode('projects') },
     { key: 'favorites', Icon: Star, label: 'Favorites', active: viewMode === 'favorites', onClick: () => setViewMode('favorites') },
     { key: 'recent', Icon: History, label: 'Recent files', active: viewMode === 'recent', onClick: () => setViewMode('recent') },
+    ...(webPlatform ? [{
+      key: 'shared', Icon: CircleDot, label: 'Shared', active: viewMode === 'shared',
+      // Clicking while already in this view reloads the list (parity with the sync toggles).
+      onClick: () => viewMode === 'shared' ? void refreshSharedList() : setViewMode('shared'),
+    }] : []),
     ...(googleConnected ? [{
       key: 'googledocs', Icon: Globe, label: 'Google Docs', active: viewMode === 'googledocs',
       // Clicking while already in this view triggers a manual sync (parity with the folder/notebook toggles).
@@ -192,6 +204,13 @@ export function FileListPanel() {
       setViewMode('folder')
     }
   }, [googleConnected, viewMode, setViewMode])
+
+  // Switch away from the Shared view if sharing is turned off (#1036)
+  useEffect(() => {
+    if (!webPlatform && viewMode === 'shared') {
+      setViewMode('folder')
+    }
+  }, [webPlatform, viewMode, setViewMode])
 
   // Explorer panel ref for scoped keyboard shortcuts
   const containerRef = useRef<HTMLDivElement>(null)
@@ -830,6 +849,42 @@ export function FileListPanel() {
     })
   }, [viewMode, recentFiles])
 
+  // Shared list (#1036): load once sharing is on (feeds the ◎ tree indicator)
+  // and reload on every entry into the Shared view (renames already moved the
+  // entries in main; deletes surface as "file missing").
+  const inSharedView = viewMode === 'shared'
+  useEffect(() => {
+    if (webPlatform) void refreshSharedList()
+  }, [webPlatform, inSharedView, refreshSharedList])
+
+  // Publish / republish / revoke / sync-mode changes from any surface land in
+  // the active-document shareStore — key on the fields that matter so a tab
+  // switch between two unshared docs doesn't refetch.
+  useEffect(() => {
+    if (!webPlatform) return
+    return useShareStore.subscribe(
+      (s) => (s.entry
+        ? `${s.entry.publicationId}|${s.entry.revokedAt ?? ''}|${s.entry.revCount}|${s.entry.title}|${s.entry.syncMode}`
+        : null),
+      () => { void refreshSharedList() }
+    )
+  }, [webPlatform, refreshSharedList])
+
+  // Files trashed or deleted outside the app while it was in the background.
+  useEffect(() => {
+    if (!webPlatform || !inSharedView) return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const onFocus = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => void refreshSharedList(), 300)
+    }
+    window.addEventListener('focus', onFocus)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      if (timer) clearTimeout(timer)
+    }
+  }, [webPlatform, inSharedView, refreshSharedList])
+
   const handleFileClick = async (path: string) => {
     selectFile(path)
     const shouldDescribe = await openFileInPreviewTab(path)
@@ -1311,6 +1366,7 @@ export function FileListPanel() {
                 : viewMode === 'googledocs' ? 'Google Docs'
                 : viewMode === 'projects' ? 'Projects'
                 : viewMode === 'favorites' ? 'Favorites'
+                : viewMode === 'shared' ? 'Shared'
                 : folderName}
             </h2>
           ))}
@@ -1421,6 +1477,13 @@ export function FileListPanel() {
           <ProjectsPanel mode="projects" />
         ) : viewMode === 'favorites' ? (
           <ProjectsPanel mode="favorites" />
+        ) : viewMode === 'shared' ? (
+          <SharedPanel
+            selectedPath={selectedPath}
+            onFileClick={handleFileClick}
+            onFileDoubleClick={handleFileDoubleClick}
+            onShowInFolder={handleFileShowInFolder}
+          />
         ) : viewMode === 'recent' ? (
           // Recent files view
           recentFiles.length === 0 ? (
@@ -1684,6 +1747,7 @@ export function FileListPanel() {
                       items={files}
                       favoritePaths={favoritePaths}
                       projectPaths={projectPaths}
+                      sharedPaths={sharedPaths}
                       expandedFolders={expandedFolders}
                       selectedPath={selectedPath}
                       selectedPaths={selectedPaths}

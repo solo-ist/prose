@@ -399,11 +399,15 @@ shareAuthorRoutes.delete('/:pubId', async (c) => {
   // dies first, and a failed cleanup leaves bytes that are revoked-dark,
   // findable via the retained r2Key, and re-deletable (R2 DeleteObject is
   // idempotent) on the author's next revoke retry or a later sweep.
+  // Idempotent on the timestamp: a second revoke (a stale desktop profile
+  // revoking a share another one already revoked, PR #1038) must not move
+  // revokedAt — it is the moment the link died, and the explorer's history
+  // view shows it.
   await prisma.$transaction([
     prisma.shareComment.deleteMany({ where: { publicationId: pub.id } }),
     prisma.publication.update({
       where: { id: pub.id },
-      data: { revokedAt: new Date() },
+      data: { revokedAt: pub.revokedAt ?? new Date() },
     }),
   ])
   try {

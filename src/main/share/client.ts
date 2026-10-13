@@ -358,6 +358,35 @@ export async function removeComment(
   if (!res.ok) throw await toError(res)
 }
 
+/** One row of the author's publication list (GET /api/share). */
+export interface PublicationSummary {
+  publicationId: string
+  title: string
+  publishRev: string
+  revCount: number
+  publishedAt: string
+  updatedAt: string
+  revokedAt: string | null
+  /** Live comment rows only (tombstones excluded server-side). */
+  commentCount: number
+}
+
+/**
+ * The signed-in author's publications, revoked ones included (#1037). The
+ * server stores only the token hash, so rows carry no share URL and no
+ * local path — matching to this device's entries is by publicationId.
+ */
+export async function listPublications(config: ShareClientConfig): Promise<PublicationSummary[]> {
+  const res = await fetch(`${base(config)}/api/share`, { headers: await authedHeaders(config) })
+  if (!res.ok) throw await toError(res)
+  const body = (await res.json()) as { publications?: unknown }
+  if (!Array.isArray(body.publications)) return []
+  return body.publications.filter(
+    (p): p is PublicationSummary =>
+      !!p && typeof p === 'object' && typeof (p as PublicationSummary).publicationId === 'string'
+  )
+}
+
 export async function fetchComments(
   config: ShareClientConfig,
   publicationId: string,

@@ -306,8 +306,63 @@ export async function revoke(publicationId: string): Promise<ShareResult<object>
   }
 }
 
-export async function list(): Promise<ShareResult<{ entries: ShareSyncEntry[] }>> {
-  return { ok: true, entries: await listShareEntries() }
+/**
+ * Every local share entry (revoked tombstones included, newest first) plus
+ * the active gateway origin, so the explorer's Shared view (#1036) can flag
+ * entries minted elsewhere without re-deriving the allowlist logic here.
+ */
+export async function list(): Promise<
+  ShareResult<{ entries: ShareSyncEntry[]; activeOrigin: string | null }>
+> {
+  const entries = await listShareEntries()
+  let activeOrigin: string | null = null
+  try {
+    activeOrigin = new URL((await getShareConfig()).baseUrl).origin
+  } catch {
+    // Malformed baseUrl — the renderer treats every entry as current.
+  }
+  return { ok: true, entries, activeOrigin }
+}
+
+/**
+ * Reconcile with the gateway's own list (#1037). Two outcomes:
+ *
+ * 1. A local LIVE entry on the active origin that the server says is revoked
+ *    becomes a local tombstone — server truth for revocation, persisted so
+ *    the next offline launch is right too (the dev/installed profile split
+ *    and "revoked from another machine" both land here).
+ * 2. The full server list goes back so the renderer can show publications
+ *    this device has no entry for ("not on this device").
+ *
+ * Deliberately NOT adopted: a local live entry the server doesn't list. That
+ * means hard-deleted — or signed in as a different account on the same
+ * gateway — and tombstoning on either guess would be wrong. The renderer
+ * flags it; nothing is written.
+ */
+export async function listRemote(): Promise<
+  ShareResult<{ publications: client.PublicationSummary[]; origin: string; adoptedRevocations: number }>
+> {
+  const config = await getShareConfig()
+  try {
+    const publications = await client.listPublications(config)
+    const origin = new URL(config.baseUrl).origin
+    const byId = new Map(publications.map((p) => [p.publicationId, p]))
+    let adoptedRevocations = 0
+    for (const entry of await listShareEntries()) {
+      if (entry.revokedAt) continue
+      if (entry.gatewayOrigin && entry.gatewayOrigin !== origin) continue
+      const remote = byId.get(entry.publicationId)
+      // Only a well-formed ISO timestamp is ever written to disk — the list
+      // guard validates publicationId alone (review on PR #1038).
+      if (typeof remote?.revokedAt === 'string' && !Number.isNaN(Date.parse(remote.revokedAt))) {
+        await patchShareEntry(entry.publicationId, { revokedAt: remote.revokedAt })
+        adoptedRevocations++
+      }
+    }
+    return { ok: true, publications, origin, adoptedRevocations }
+  } catch (err) {
+    return asError(err)
+  }
 }
 
 /**

@@ -40,6 +40,8 @@ import {
   dismissOnboarding,
   dismissOverlay,
   executeProseTool,
+  switchExplorerTab,
+  selectors,
 } from './helpers'
 
 // ---------------------------------------------------------------------------
@@ -96,6 +98,8 @@ class StubGateway {
   revokeStatus = 204
   /** The signed-in user's standing in the sharing beta (#1018). */
   access = { canPublish: false, requested: false }
+  /** The author's publication list served by GET /api/share (#1037). */
+  publications: Array<Record<string, unknown>> = []
   requests: StubRequest[] = []
   /** JSON bodies of sign-in calls, in arrival order. */
   signInBodies: Array<{ path: string; body: Record<string, unknown> }> = []
@@ -160,6 +164,9 @@ class StubGateway {
     // Everything under /api/share requires the session.
     if (!authed) return this.json(res, 401, { error: 'Unauthorized' })
 
+    if (req.method === 'GET' && url.pathname === '/api/share') {
+      return this.json(res, 200, { publications: this.publications })
+    }
     if (req.method === 'POST' && url.pathname === '/api/share/publish') {
       return this.json(res, 200, {
         publicationId: 'pub-published',
@@ -352,6 +359,15 @@ test.beforeAll(async () => {
             shareUrl: 'https://elsewhere.example/s/tok-foreign',
             gatewayOrigin: 'https://elsewhere.example',
             localPath: join(docsDir, 'other.md'),
+          },
+          // Live here, revoked on the server — the reconcile test (#1037)
+          // expects the Shared view to adopt the tombstone.
+          'pub-adopt': {
+            ...baseEntry,
+            publicationId: 'pub-adopt',
+            title: 'Adopt Me',
+            shareUrl: `${gateway.origin}/s/tok-adopt`,
+            gatewayOrigin: gateway.origin,
           },
         },
       },
@@ -785,6 +801,86 @@ test('revoke treats a gateway 404 as failure, success as a local tombstone', asy
   const ok = await callApi<{ ok: boolean }>('shareRevoke', 'pub-published')
   expect(ok).toMatchObject({ ok: true })
   expect(readSyncEntry('pub-published')?.revokedAt).not.toBeNull()
+})
+
+test('the explorer Shared view lists the live share and the fresh tombstone (#1036)', async () => {
+  await switchExplorerTab(page, 'shared')
+  const panel = page.locator(selectors.fileListPanel)
+  const live = panel.locator('[data-testid="shared-active"] [data-testid="shared-row"]')
+  const revoked = panel.locator('[data-testid="shared-revoked"] [data-testid="shared-row"]')
+  // pub1 + pub-foreign + pub-adopt are live; pub-published was just revoked above.
+  await expect(live).toHaveCount(3)
+  await expect(revoked).toHaveCount(1)
+  await expect(revoked.first()).toContainText('revoked just now')
+  // The foreign-origin entry is flagged with its host, not treated as current.
+  await expect(panel.locator('[data-testid="shared-row"]', { hasText: 'on elsewhere.example' })).toHaveCount(1)
+  // The stub's list is empty so far: every live entry on THIS gateway reads
+  // as unknown to the signed-in account; the foreign one is never judged.
+  await expect(panel.locator('[data-testid="shared-row"][data-orphan="true"]')).toHaveCount(2)
+  await switchExplorerTab(page, 'files')
+})
+
+test('the Shared view reconciles with the gateway list: server revocations, counts, other-device rows (#1037)', async () => {
+  const summary = (publicationId: string, title: string, extra: Record<string, unknown>) => ({
+    publicationId, title, publishRev: 'rev1', revCount: 1,
+    publishedAt: iso(-60_000), updatedAt: iso(0), revokedAt: null, commentCount: 0, ...extra,
+  })
+  gateway.publications = [
+    summary('pub1', 'Shared Doc', { commentCount: 2 }),
+    summary('pub-adopt', 'Adopt Me', { revokedAt: iso(0) }),
+    summary('pub-elsewhere', 'Elsewhere Doc', { commentCount: 1 }),
+    summary('pub-elsewhere-old', 'Old Elsewhere Doc', { revokedAt: iso(-1_000) }),
+    // Pre-#932 churn: each republish revoked the previous link at publish
+    // time. Three server rows, one document → one row, "2 earlier links".
+    summary('pub-churn-1', 'Churn Doc', { publishedAt: iso(-300_000), revokedAt: iso(-200_000) }),
+    summary('pub-churn-2', 'Churn Doc', { publishedAt: iso(-200_000), revokedAt: iso(-100_000) }),
+    summary('pub-churn-3', 'Churn Doc', { publishedAt: iso(-100_000) }),
+    // Same title, but re-shared a day after the revoke: real history, two rows.
+    summary('pub-reshare-old', 'Reshared Doc', { publishedAt: iso(-3 * 86_400_000), revokedAt: iso(-2 * 86_400_000) }),
+    summary('pub-reshare-new', 'Reshared Doc', { publishedAt: iso(-86_400_000) }),
+  ]
+  const panel = page.locator(selectors.fileListPanel)
+  // The previous test left the Files view loading; let the tree land before
+  // opening the header overflow (its re-render would close the menu).
+  await expect(panel.getByText('shared-doc', { exact: true })).toBeVisible({ timeout: 10_000 })
+  await switchExplorerTab(page, 'shared')
+  const rows = panel.locator('[data-testid="shared-row"]')
+
+  // Server-only publications appear, can't open, and say so. Elsewhere ×2,
+  // the churn chain collapsed to one, Reshared ×2 = 5.
+  const remoteRows = panel.locator('[data-testid="shared-row"][data-remote="true"]')
+  await expect(remoteRows).toHaveCount(5)
+  const churn = rows.filter({ hasText: 'Churn Doc' })
+  await expect(churn).toHaveCount(1)
+  await expect(churn.first()).toHaveAttribute('data-earlier-links', '2')
+  await expect(churn.first()).toContainText('2 earlier links')
+  await expect(churn.first()).toHaveAttribute('data-share-state', 'active')
+  await expect(rows.filter({ hasText: 'Reshared Doc' })).toHaveCount(2)
+  await expect(rows.filter({ hasText: 'Elsewhere Doc' }).first()).toContainText('not on this device')
+  await expect(rows.filter({ hasText: 'Elsewhere Doc' }).first()).toHaveAttribute('aria-disabled', 'true')
+  await expect(panel.locator('[data-testid="shared-revoked"] [data-testid="shared-row"]', { hasText: 'Old Elsewhere Doc' })).toHaveCount(1)
+
+  // The server's revocation of pub-adopt became a local tombstone, persisted.
+  await expect(panel.locator('[data-testid="shared-revoked"] [data-testid="shared-row"]', { hasText: 'Adopt Me' })).toHaveCount(1)
+  await expect.poll(() => readSyncEntry('pub-adopt')?.revokedAt ?? null).not.toBeNull()
+
+  // Live comment counts ride the gateway list.
+  await expect(rows.filter({ hasText: 'Shared Doc' }).first()).toContainText('2 comments')
+
+  // Everything live on this gateway is accounted for; the foreign entry is
+  // never judged against this account's list.
+  await expect(panel.locator('[data-testid="shared-row"][data-orphan="true"]')).toHaveCount(0)
+
+  // A live server-only row offers Revoke and nothing else.
+  await rows.filter({ hasText: 'Elsewhere Doc' }).first().click({ button: 'right', force: true })
+  await expect(page.getByRole('menuitem', { name: 'Revoke', exact: true })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: 'Copy link' })).toHaveCount(0)
+  await expect(page.getByRole('menuitem', { name: 'Open', exact: true })).toHaveCount(0)
+  await page.locator('.prose-editor').click({ position: { x: 20, y: 20 }, force: true })
+  await expect(page.getByRole('menu')).toHaveCount(0)
+
+  gateway.publications = []
+  await switchExplorerTab(page, 'files')
 })
 
 // ---------------------------------------------------------------------------

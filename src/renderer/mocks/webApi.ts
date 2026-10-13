@@ -607,6 +607,7 @@ export function createMockApi(): ElectronAPI {
     shareRepublish: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
     shareRevoke: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
     shareList: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
+    shareListRemote: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.', code: 'no_session' }),
     shareGetForPath: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
     shareComments: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
     sharePullComments: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),

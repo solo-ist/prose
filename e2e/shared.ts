@@ -25,6 +25,7 @@ export const selectors = {
   filesButton: '[aria-label="Files"]',
   googleDocsButton: '[aria-label="Google Docs"]',
   notebooksButton: '[aria-label="reMarkable notebooks"]',
+  sharedButton: '[aria-label="Shared"]',
 
   // Toolbar buttons
   toggleTheme: '[aria-label="Toggle appearance mode"]',
@@ -236,7 +237,7 @@ export async function ensureFileListOpen(page: Page): Promise<void> {
 /** Switch the file explorer to a specific tab. */
 export async function switchExplorerTab(
   page: Page,
-  tab: 'recent' | 'files' | 'googledocs' | 'notebooks',
+  tab: 'recent' | 'files' | 'googledocs' | 'notebooks' | 'shared',
 ): Promise<void> {
   await ensureFileListOpen(page)
   const buttonMap = {
@@ -244,12 +245,14 @@ export async function switchExplorerTab(
     files: selectors.filesButton,
     googledocs: selectors.googleDocsButton,
     notebooks: selectors.notebooksButton,
+    shared: selectors.sharedButton,
   }
   const labelMap = {
     recent: 'Recent files',
     files: 'Files',
     googledocs: 'Google Docs',
     notebooks: 'reMarkable notebooks',
+    shared: 'Shared',
   }
   const inline = page.locator(buttonMap[tab])
   if (await inline.isVisible({ timeout: 1_000 }).catch(() => false)) {
@@ -259,8 +262,22 @@ export async function switchExplorerTab(
   // The #701 customizable header spills toggles into the panel's
   // "More options" overflow when the panel is narrow — open it and pick
   // the toggle from the menu (rendered in a portal, so match by role).
-  await page.locator(`${selectors.fileListPanel} [aria-label="More options"]`).click()
-  await page.getByRole('menuitem', { name: labelMap[tab] }).click()
+  // A header re-render while the menu animates in (a folder load landing,
+  // a width re-measure) remounts the overflow and detaches the item under
+  // the click — reopen and retry rather than fail on that race.
+  let lastError: unknown
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await page.locator(`${selectors.fileListPanel} [aria-label="More options"]`).click()
+      await page.getByRole('menuitem', { name: labelMap[tab] }).click({ timeout: 4_000 })
+      return
+    } catch (err) {
+      lastError = err
+      // A half-open menu would swallow the next trigger click; let it settle.
+      await page.getByRole('menu').waitFor({ state: 'hidden', timeout: 2_000 }).catch(() => {})
+    }
+  }
+  throw lastError
 }
 
 // ---------------------------------------------------------------------------

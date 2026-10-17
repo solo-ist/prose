@@ -5,8 +5,8 @@ import { useNotificationStore, type AppNotification } from '../../stores/notific
 
 /**
  * Renders the bespoke toast stack (see notificationStore). Mounted once near
- * the app root. Matches MigrationToast's visual language; auto-dismiss timers
- * live here so they tie to the mounted toast and clean up on unmount.
+ * the app root; auto-dismiss timers live here so they tie to the mounted
+ * toast and clean up on unmount.
  */
 function Toast({ notification }: { notification: AppNotification }) {
   const dismiss = useNotificationStore((s) => s.dismiss)

@@ -62,7 +62,6 @@ const defaultSettings: Settings = {
     darkColor: 'prose',
     mode: 'dark',
     icon: 'pilcrow',
-    migrationToastShown: true,
   },
   llm: {
     provider: 'anthropic',

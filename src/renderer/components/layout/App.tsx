@@ -18,7 +18,6 @@ import { AboutDialog } from '../settings/AboutDialog'
 import { ModelPickerDialog } from '../ModelPickerDialog'
 import { AIConsentDialog } from '../AIConsentDialog'
 import { EnableLoggingDialog } from '../EnableLoggingDialog'
-import { MigrationToast } from './MigrationToast'
 import { Notifications } from './Notifications'
 import {
   ResizablePanelGroup,
@@ -1182,7 +1181,6 @@ export function App() {
         <DefaultHandlerPrompt />
         <AIConsentDialog />
         <EnableLoggingDialog />
-        <MigrationToast />
         <Notifications />
 
         {/* External-edit save conflict (#843): a manual save landed on a file

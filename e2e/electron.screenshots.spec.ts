@@ -173,7 +173,7 @@ test.beforeAll(async () => {
   writeFileSync(
     join(profile, 'settings.json'),
     JSON.stringify({
-      appearance: { color: 'prose', mode: 'light', icon: 'pilcrow', migrationToastShown: true },
+      appearance: { color: 'prose', mode: 'light', icon: 'pilcrow' },
       aiConsent: { consented: true, consentedAt: '2025-01-01T00:00:00.000Z' },
       llm: { provider: 'anthropic', apiKey: 'sk-ant-demo-screenshot-key', model: 'claude-sonnet-4-6' },
       defaultSaveDirectory: essays,

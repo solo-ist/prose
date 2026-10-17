@@ -121,10 +121,12 @@ llmRoutes.post('/stream', async (c) => {
     // so without this the MAX_TOKENS_CAP ceiling gets spent reasoning instead
     // of answering, and replies truncate. This route is a cheap hosted taste
     // of the feature, not the desktop experience, so thinking is off at the
-    // lowest setting Sonnet 5.5 accepts: { type: 'disabled' } is a 400 there,
-    // and 'between_tools' is only valid at effort 'high' or below (we send no
-    // output_config, and the default is 'high').
-    ...(model.startsWith('claude-sonnet-5-5') ? { thinking: { type: 'between_tools' } } : {}),
+    // lowest setting Sonnet 5.5 accepts: { type: 'disabled' } is a 400 there.
+    // 'between_tools' is accepted only at effort 'high' or below, so effort is
+    // pinned rather than left to the model's default.
+    ...(model.startsWith('claude-sonnet-5-5')
+      ? { thinking: { type: 'between_tools' }, output_config: { effort: 'high' } }
+      : {}),
   })
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',

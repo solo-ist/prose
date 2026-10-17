@@ -90,21 +90,39 @@ export function supportsAdaptiveThinking(modelId: string): boolean {
 export type ThinkingOffMode = 'omit' | 'disabled' | 'between_tools'
 
 /**
- * Prefix → off-mode overrides. Longest match wins, so a point release can
- * differ from its base (`claude-opus-5-5` vs `claude-opus-5`). Anything not
- * listed falls through to `'disabled'`, the 4.x behavior.
+ * Model id → off-mode. Matched **exactly**, not by prefix, because the off-
+ * switch changes between point releases of the same family: `claude-sonnet-5`
+ * takes `disabled` while `claude-sonnet-5-5` rejects it, and `claude-opus-5`
+ * takes `disabled` while `claude-opus-5-5` rejects every explicit off-switch.
+ * A prefix rule would silently hand the wrong form to the next point release.
+ *
+ * `'disabled'` is therefore an allowlist, and anything unlisted — a model that
+ * shipped after this build, or an id typed into the custom-model field —
+ * resolves to `'omit'`, the only form valid on every model. The cost of that
+ * default is that thinking may stay on when the user asked for it off; the
+ * cost of guessing wrong in either other direction is a hard 400 on every
+ * request.
  */
-const THINKING_OFF_MODE_OVERRIDES: Array<[prefix: string, mode: ThinkingOffMode]> = [
-  ['claude-sonnet-5-5', 'between_tools'],
-  ['claude-opus-5-5', 'omit'],
-  ['claude-fable-5', 'omit'],
-]
+const THINKING_OFF_MODES: Record<string, ThinkingOffMode> = {
+  // 5.x — reject `{type: 'disabled'}`
+  'claude-sonnet-5-5': 'between_tools',
+  'claude-opus-5-5': 'omit',
+  'claude-fable-5': 'omit',
+  'claude-fable-5-1': 'omit',
+  // Still accept `{type: 'disabled'}` (Opus 5 at effort 'high' or below,
+  // which is what we send).
+  'claude-sonnet-4-6': 'disabled',
+  'claude-sonnet-5': 'disabled',
+  'claude-opus-4-6': 'disabled',
+  'claude-opus-4-7': 'disabled',
+  'claude-opus-4-8': 'disabled',
+  'claude-opus-5': 'disabled',
+}
 
 export function getThinkingOffMode(modelId: string): ThinkingOffMode {
-  const match = THINKING_OFF_MODE_OVERRIDES
-    .filter(([prefix]) => modelId.startsWith(prefix))
-    .sort((a, b) => b[0].length - a[0].length)[0]
-  return match ? match[1] : 'disabled'
+  // A dated alias (claude-haiku-4-5-20251001) resolves like its base id.
+  const base = modelId.replace(/-\d{8}$/, '')
+  return THINKING_OFF_MODES[base] ?? 'omit'
 }
 
 /**

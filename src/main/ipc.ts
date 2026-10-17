@@ -1072,6 +1072,10 @@ export function setupIpcHandlers(): void {
             ? { type: 'adaptive' as const, display: 'summarized' as const }
             : thinkingOffParam
 
+        // `between_tools` is accepted only at effort 'high' or below, so pin
+        // it rather than relying on the model's default staying there.
+        const sendEffort = thinkingEnabled || thinkingParam?.type === 'between_tools'
+
         const maxTokens = request.maxTokens || 16000
 
         const streamParams: Parameters<typeof client.messages.stream>[0] = {
@@ -1081,7 +1085,7 @@ export function setupIpcHandlers(): void {
           messages: anthropicMessages,
           tools: anthropicTools,
           ...(thinkingParam ? { thinking: thinkingParam } : {}),
-          ...(thinkingEnabled ? { output_config: { effort: 'high' as const } } : {})
+          ...(sendEffort ? { output_config: { effort: 'high' as const } } : {})
         }
 
         const stream = client.messages.stream(streamParams)

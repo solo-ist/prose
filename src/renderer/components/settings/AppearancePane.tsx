@@ -1,14 +1,13 @@
 // AppearancePane.tsx — Settings → Appearance pane (#504, #499 PR 2).
-// Three sections: Mode (segmented), Theme (Light/Dark ThemeCards), App Icon (11 IconCells).
-// All three sections implement ARIA radio group semantics with full keyboard nav.
+// Two sections: Mode (segmented) and Theme (Light/Dark ThemeCards). Both
+// implement ARIA radio group semantics with full keyboard nav. The App Icon
+// picker was removed in 1.9.0 (#1052) — Pilcrow is the only icon.
 
 import { useRef, useCallback } from 'react'
 import { Sun, Moon, Monitor, Info } from 'lucide-react'
 import { Button } from '../ui/button'
 import { ThemeCard, THEMES } from './ThemeCard'
-import { IconCell } from './IconCell'
-import { PROSE_ICONS } from '../../lib/prose-icons'
-import type { ColorTheme, ThemeMode, IconId } from '../../types'
+import type { ColorTheme, ThemeMode } from '../../types'
 import type { Appearance } from '../../types'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -19,12 +18,11 @@ const MODES: { id: ThemeMode; label: string; Icon: typeof Sun }[] = [
   { id: 'system', label: 'System', Icon: Monitor },
 ]
 
-// Must match FRESH_INSTALL_APPEARANCE in settingsStore (mono/prose / system / pilcrow)
+// Must match FRESH_INSTALL_APPEARANCE in settingsStore (mono/prose / system)
 // so "Reset all to default" and the at-defaults check agree with fresh installs.
 const DEFAULT_LIGHT_COLOR: ColorTheme = 'mono'
 const DEFAULT_DARK_COLOR: ColorTheme = 'prose'
 const DEFAULT_MODE: ThemeMode = 'system'
-const DEFAULT_ICON: IconId = 'pilcrow'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -81,7 +79,7 @@ interface AppearancePaneProps {
 // ── Pane ──────────────────────────────────────────────────────────────────────
 
 export function AppearancePane({ appearance, effectiveMode, onAppearanceChange }: AppearancePaneProps) {
-  const { lightColor, darkColor, mode, icon } = appearance
+  const { lightColor, darkColor, mode } = appearance
   // Capitalized for display (e.g. "System · Light", matching the mode labels).
   const effectiveModeLabel = effectiveMode === 'dark' ? 'Dark' : 'Light'
   const effectiveColor = effectiveMode === 'dark' ? darkColor : lightColor
@@ -89,19 +87,16 @@ export function AppearancePane({ appearance, effectiveMode, onAppearanceChange }
   const isAllDefault =
     lightColor === DEFAULT_LIGHT_COLOR &&
     darkColor === DEFAULT_DARK_COLOR &&
-    mode === DEFAULT_MODE &&
-    icon === DEFAULT_ICON
+    mode === DEFAULT_MODE
 
   const currentTheme = THEMES.find((t) => t.id === effectiveColor) ?? THEMES[0]
   const lightTheme = THEMES.find((t) => t.id === lightColor) ?? THEMES[0]
   const darkTheme = THEMES.find((t) => t.id === darkColor) ?? THEMES[0]
-  const currentIcon = PROSE_ICONS.find((i) => i.id === icon) ?? PROSE_ICONS[0]
 
   // ── Refs for focus management after arrow-key selection ──────────────────
   const modeButtonRefs = useRef<Map<ThemeMode, HTMLButtonElement | null>>(new Map())
   const lightThemeButtonRefs = useRef<Map<ColorTheme, HTMLButtonElement | null>>(new Map())
   const darkThemeButtonRefs = useRef<Map<ColorTheme, HTMLButtonElement | null>>(new Map())
-  const iconButtonRefs = useRef<Map<IconId, HTMLButtonElement | null>>(new Map())
 
   // ── Selection handlers with focus follow ──────────────────────────────────
   const handleModeSelect = useCallback((id: ThemeMode) => {
@@ -120,20 +115,13 @@ export function AppearancePane({ appearance, effectiveMode, onAppearanceChange }
     requestAnimationFrame(() => darkThemeButtonRefs.current.get(id)?.focus())
   }, [onAppearanceChange])
 
-  const handleIconSelect = useCallback((id: IconId) => {
-    onAppearanceChange({ icon: id })
-    requestAnimationFrame(() => iconButtonRefs.current.get(id)?.focus())
-  }, [onAppearanceChange])
-
   // ── Arrow-key handlers per group ──────────────────────────────────────────
   const modeIds = MODES.map((m) => m.id)
   const colorIds = THEMES.map((t) => t.id)
-  const iconIds = PROSE_ICONS.map((i) => i.id)
 
   const modeKeyHandler = makeRadioKeyHandler(modeIds, mode, handleModeSelect)
   const lightColorKeyHandler = makeRadioKeyHandler(colorIds, lightColor, handleLightColorSelect)
   const darkColorKeyHandler = makeRadioKeyHandler(colorIds, darkColor, handleDarkColorSelect)
-  const iconKeyHandler = makeRadioKeyHandler(iconIds, icon, handleIconSelect)
 
   return (
     <div
@@ -154,8 +142,6 @@ export function AppearancePane({ appearance, effectiveMode, onAppearanceChange }
           <span>
             {mode === 'system' ? `System · ${effectiveModeLabel}` : effectiveModeLabel}
           </span>
-          <span className="mx-1.5">·</span>
-          <span className="text-foreground">{currentIcon.name}</span>
         </div>
       </div>
 
@@ -254,37 +240,6 @@ export function AppearancePane({ appearance, effectiveMode, onAppearanceChange }
         </div>
       </div>
 
-      {/* ── APP ICON ── */}
-      <SectionLabel>App icon</SectionLabel>
-      <p
-        className="text-[11.5px] font-light text-muted-foreground leading-relaxed mb-4 max-w-[560px]"
-        style={{ fontFamily: '"IBM Plex Mono", monospace' }}
-      >
-        Default is{' '}
-        <em style={{ fontFamily: '"Fraunces", serif', fontStyle: 'italic', color: 'hsl(var(--foreground))' }}>
-          Pilcrow
-        </em>{' '}
-        — the paragraph mark used by prose typographers since the 12th century.{' '}
-        <span className="text-muted-foreground/60">Changes apply immediately.</span>
-      </p>
-      <div
-        role="radiogroup"
-        aria-label="App icon"
-        className="grid grid-cols-6 gap-3.5 mb-5"
-      >
-        {PROSE_ICONS.map((item) => (
-          <IconCell
-            key={item.id}
-            item={item}
-            selected={item.id === icon}
-            onSelect={handleIconSelect}
-            onKeyDown={iconKeyHandler as React.KeyboardEventHandler<HTMLButtonElement>}
-            tabIndex={item.id === icon ? 0 : -1}
-            ref={(el: HTMLButtonElement | null) => iconButtonRefs.current.set(item.id, el)}
-          />
-        ))}
-      </div>
-
       {/* ── Reset row ── */}
       <div className="flex items-center justify-between pt-3.5 border-t border-border text-[11px] text-muted-foreground">
         <div className="flex items-center gap-2">
@@ -296,8 +251,6 @@ export function AppearancePane({ appearance, effectiveMode, onAppearanceChange }
             <span className="text-foreground">
               {mode === 'system' ? `System · ${effectiveModeLabel}` : effectiveModeLabel}
             </span>
-            <span className="text-muted-foreground"> · </span>
-            <span className="text-foreground">{currentIcon.name}</span>
           </span>
         </div>
         <Button
@@ -308,8 +261,7 @@ export function AppearancePane({ appearance, effectiveMode, onAppearanceChange }
             onAppearanceChange({
               lightColor: DEFAULT_LIGHT_COLOR,
               darkColor: DEFAULT_DARK_COLOR,
-              mode: DEFAULT_MODE,
-              icon: DEFAULT_ICON
+              mode: DEFAULT_MODE
             })
           }}
           className="text-[11px] h-7 px-3"

@@ -2180,24 +2180,24 @@ export function setupIpcHandlers(): void {
     clipboard.writeText(text)
   })
 
-  // Appearance: live dock icon swap (macOS only)
-  // VALID_ICON_IDS is an allowlist — iconId arrives from the untrusted renderer
-  // and must not be used in path construction without validation (path traversal).
-  const VALID_ICON_IDS = [
-    'pilcrow', 'fraunces-p', 'asterisk', 'hash', 'period', 'prompt', 'legacy',
-  ] as const
-  ipcMain.handle('appearance:set-icon', (_event, iconId: string) => {
+  // Appearance: pin the dock tile to Pilcrow (macOS only).
+  //
+  // In a packaged build this is redundant — the bundle already ships
+  // resources/icons/pilcrow/icon.icns as its icon — but in dev the dock
+  // otherwise shows Electron's own logo. Takes no argument: the icon
+  // switcher was removed in 1.9.0 (#1052), so no renderer-supplied value
+  // reaches path construction any more.
+  ipcMain.handle('appearance:apply-dock-icon', () => {
     if (process.platform !== 'darwin') return
-    if (!(VALID_ICON_IDS as readonly string[]).includes(iconId)) return
     // Use the 1024px PNG, not the .icns — nativeImage.createFromPath loads PNG
     // reliably for app.dock.setIcon, whereas .icns frequently loads empty
     // (the "doesn't actually switch" symptom).
     const iconPath = app.isPackaged
-      ? join(process.resourcesPath, 'resources', 'icons', iconId, 'icon-1024.png')
-      : join(__dirname, '../../resources/icons', iconId, 'icon-1024.png')
+      ? join(process.resourcesPath, 'resources', 'icons', 'pilcrow', 'icon-1024.png')
+      : join(__dirname, '../../resources/icons/pilcrow/icon-1024.png')
     const img = nativeImage.createFromPath(iconPath)
     if (img.isEmpty()) {
-      console.warn(`[appearance:set-icon] icon image failed to load: ${iconPath}`)
+      console.warn(`[appearance:apply-dock-icon] icon image failed to load: ${iconPath}`)
       return
     }
     app.dock.setIcon(img)

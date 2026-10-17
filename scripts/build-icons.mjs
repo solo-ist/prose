@@ -1,20 +1,20 @@
 #!/usr/bin/env node
 // build-icons.mjs — Headless icon renderer + icns bundler
 //
-// Renders each PROSE_ICONS entry at 7 sizes (16/32/64/128/256/512/1024) by
-// loading the icon components into a Playwright Chromium page, then bundles
-// each set into a .icns via iconutil (macOS built-in).
+// Renders the Prose icon at 7 sizes (16/32/64/128/256/512/1024) by loading
+// the icon component into a Playwright Chromium page, then bundles the set
+// into a .icns via iconutil (macOS built-in).
 //
 // Output layout:
-//   resources/icons/{id}/icon-{size}.png   (77 PNGs total)
-//   resources/icons/{id}/icon.icns         (11 icns files, macOS only)
+//   resources/icons/pilcrow/icon-{size}.png   (7 PNGs)
+//   resources/icons/pilcrow/icon.icns         (macOS only)
 //
 // Usage:
 //   node scripts/build-icons.mjs           (from project root)
 //   npm run icons
 
 import { chromium } from '@playwright/test'
-import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, mkdtempSync } from 'node:fs'
+import { mkdirSync, writeFileSync, existsSync, rmSync, mkdtempSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { execSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
@@ -24,21 +24,9 @@ const ICONS_DIR = join(ROOT, 'resources', 'icons')
 
 const SIZES = [16, 32, 64, 128, 256, 512, 1024]
 
-// All 11 icon IDs — must match PROSE_ICONS in prose-icons.tsx
-const ICON_IDS = [
-  'pilcrow',
-  'fraunces-p',
-  'asterisk',
-  'hash',
-  'period',
-  'prompt',
-  'legacy',
-]
-
-// Load the legacy icon as base64 so it can be inlined into the HTML page
-const legacyIconPath = join(ROOT, 'src', 'renderer', 'assets', 'icon-dark.png')
-const legacyIconB64 = readFileSync(legacyIconPath).toString('base64')
-const LEGACY_ICON_DATA_URL = `data:image/png;base64,${legacyIconB64}`
+// Must match PROSE_ICONS in prose-icons.tsx. Pilcrow is the only icon as of
+// 1.9.0 (#1052) — the switcher and its six other variants were removed.
+const ICON_IDS = ['pilcrow']
 
 // ── HTML template ──────────────────────────────────────────────────────────────
 // This is a self-contained HTML page that renders all icons.
@@ -70,15 +58,10 @@ const { createElement: h, Fragment } = React;
 // Constants
 const NOISE_URL = "url(\\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E\\")";
 const CREAM = '#e3dbd1';
-const CREAM_DIM = '#7d7770';
-const GOLD = '#c8a45a';
 const NEAR_BLACK = '#0a0a0a';
-const PAPER = '#f4eee5';
-const PAPER_DEEP = '#1a1814';
 const SQUIRCLE = 0.2237;
-const LEGACY_ICON_SRC = '${LEGACY_ICON_DATA_URL}';
 
-function IconShell({ children, size = 320, bg = NEAR_BLACK, grain = true, light = false, ringColor, innerGlow }) {
+function IconShell({ children, size = 320, bg = NEAR_BLACK, grain = true }) {
   return h('div', {
     style: {
       position: 'relative',
@@ -87,9 +70,7 @@ function IconShell({ children, size = 320, bg = NEAR_BLACK, grain = true, light 
       borderRadius: size * SQUIRCLE,
       background: bg,
       overflow: 'hidden',
-      boxShadow: light
-        ? '0 3px 10px rgba(0,0,0,0.12), inset 0 0 0 1px rgba(0,0,0,0.06)'
-        : '0 3px 10px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.06)',
+      boxShadow: '0 3px 10px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.06)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
@@ -97,108 +78,18 @@ function IconShell({ children, size = 320, bg = NEAR_BLACK, grain = true, light 
       WebkitFontSmoothing: 'antialiased',
     }
   },
-    innerGlow && h('div', { style: { position: 'absolute', inset: 0, background: innerGlow, pointerEvents: 'none' } }),
     grain && h('div', {
       style: {
         position: 'absolute',
         inset: 0,
         backgroundImage: NOISE_URL,
         backgroundSize: '200px 200px',
-        opacity: light ? 0.09 : 0.16,
-        mixBlendMode: light ? 'multiply' : 'screen',
-        pointerEvents: 'none',
-      }
-    }),
-    ringColor && h('div', {
-      style: {
-        position: 'absolute',
-        inset: 0,
-        borderRadius: 'inherit',
-        boxShadow: 'inset 0 0 0 1px ' + ringColor,
+        opacity: 0.16,
+        mixBlendMode: 'screen',
         pointerEvents: 'none',
       }
     }),
     h('div', { style: { position: 'relative', zIndex: 1, lineHeight: 1 } }, children)
-  );
-}
-
-function IconRefinedP() {
-  return h(IconShell, null,
-    h('div', {
-      style: {
-        fontWeight: 200,
-        fontSize: 240,
-        letterSpacing: '-0.06em',
-        color: CREAM,
-        display: 'flex',
-        alignItems: 'baseline',
-        transform: 'translateY(8px)',
-      }
-    },
-      h('span', null, 'P'),
-      h('span', { style: { color: GOLD, marginLeft: -4 } }, '.')
-    )
-  );
-}
-
-function IconFrauncesP() {
-  return h(IconShell, null,
-    h('div', {
-      style: {
-        fontFamily: '"Fraunces", serif',
-        fontStyle: 'italic',
-        fontWeight: 360,
-        fontVariationSettings: '"opsz" 144, "SOFT" 30',
-        fontSize: 320,
-        color: CREAM,
-        letterSpacing: '-0.02em',
-        transform: 'translateY(8px) translateX(-6px)',
-        position: 'relative',
-      }
-    },
-      'P',
-      h('span', {
-        style: {
-          fontFamily: '"IBM Plex Mono", monospace',
-          fontStyle: 'normal',
-          fontWeight: 300,
-          color: GOLD,
-          fontSize: 110,
-          position: 'absolute',
-          right: -28,
-          bottom: 36,
-        }
-      }, '.')
-    )
-  );
-}
-
-function IconPIstLockup() {
-  return h(IconShell, null,
-    h('div', {
-      style: {
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'flex-start',
-        gap: 14,
-        transform: 'translateX(-4px)',
-      }
-    },
-      h('div', { style: { fontSize: 170, fontWeight: 200, color: CREAM, letterSpacing: '-0.06em' } },
-        'p',
-        h('span', { style: { color: GOLD } }, '.')
-      ),
-      h('div', {
-        style: {
-          fontSize: 22,
-          fontWeight: 400,
-          color: CREAM_DIM,
-          letterSpacing: '0.18em',
-          textTransform: 'uppercase',
-          paddingLeft: 6,
-        }
-      }, 'prose')
-    )
   );
 }
 
@@ -218,172 +109,8 @@ function IconPilcrow() {
   );
 }
 
-function IconAsterisk() {
-  return h(IconShell, null,
-    h('div', {
-      style: {
-        position: 'relative',
-        width: 240,
-        height: 240,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }
-    },
-      h('div', { style: { fontWeight: 200, fontSize: 360, color: CREAM, lineHeight: 1, transform: 'translateY(46px)' } }, '*'),
-      h('div', {
-        style: {
-          position: 'absolute',
-          width: 18,
-          height: 18,
-          borderRadius: '50%',
-          background: GOLD,
-          left: '50%',
-          top: '50%',
-          transform: 'translate(-50%, -50%)',
-        }
-      })
-    )
-  );
-}
-
-function IconHash() {
-  return h(IconShell, null,
-    h('div', { style: { fontWeight: 200, fontSize: 260, color: CREAM, letterSpacing: '-0.04em', transform: 'translateY(2px)' } },
-      h('span', null, '#'),
-      h('span', { style: { color: GOLD, fontSize: 96 } }, '.')
-    )
-  );
-}
-
-function IconPeriod() {
-  return h(IconShell, { innerGlow: 'radial-gradient(circle at 50% 58%, rgba(200,164,90,0.18), transparent 55%)' },
-    h('div', { style: { width: 64, height: 64, borderRadius: 8, background: GOLD, boxShadow: '0 0 60px rgba(200,164,90,0.45)' } })
-  );
-}
-
-function IconPrompt() {
-  return h(IconShell, null,
-    h('div', {
-      style: {
-        fontWeight: 300,
-        fontSize: 150,
-        color: CREAM,
-        display: 'flex',
-        alignItems: 'baseline',
-        gap: 10,
-        transform: 'translateY(4px)',
-      }
-    },
-      h('span', null, '>'),
-      h('span', { style: { display: 'inline-block', width: 56, height: 14, background: GOLD, marginBottom: 4 } })
-    )
-  );
-}
-
-function IconEmDash() {
-  return h(IconShell, null,
-    h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 0, fontWeight: 200, fontSize: 240, color: CREAM, letterSpacing: '-0.06em' } },
-      h('span', null, '\\u2014'),
-      h('span', { style: { color: GOLD } }, '.')
-    )
-  );
-}
-
-function IconCaret() {
-  return h(IconShell, null,
-    h('div', { style: { display: 'flex', alignItems: 'center', gap: 18, transform: 'translateY(-2px)' } },
-      h('div', { style: { fontWeight: 300, fontSize: 170, color: CREAM_DIM, letterSpacing: '-0.04em', lineHeight: 1 } }, 'a'),
-      h('div', { style: { width: 18, height: 140, background: GOLD } })
-    )
-  );
-}
-
-function IconRefinedPLight() {
-  return h(IconShell, { bg: PAPER, light: true, ringColor: 'rgba(0,0,0,0.06)' },
-    h('div', {
-      style: {
-        fontWeight: 200,
-        fontSize: 240,
-        letterSpacing: '-0.06em',
-        color: PAPER_DEEP,
-        display: 'flex',
-        alignItems: 'baseline',
-        transform: 'translateY(8px)',
-      }
-    },
-      h('span', null, 'P'),
-      h('span', { style: { color: GOLD, marginLeft: -4 } }, '.')
-    )
-  );
-}
-
-function IconFrauncesPLight() {
-  return h(IconShell, { bg: PAPER, light: true, ringColor: 'rgba(0,0,0,0.06)' },
-    h('div', {
-      style: {
-        fontFamily: '"Fraunces", serif',
-        fontStyle: 'italic',
-        fontWeight: 360,
-        fontVariationSettings: '"opsz" 144, "SOFT" 30',
-        fontSize: 320,
-        color: PAPER_DEEP,
-        letterSpacing: '-0.02em',
-        transform: 'translateY(8px) translateX(-6px)',
-        position: 'relative',
-      }
-    },
-      'P',
-      h('span', {
-        style: {
-          fontFamily: '"IBM Plex Mono", monospace',
-          fontStyle: 'normal',
-          fontWeight: 400,
-          color: GOLD,
-          fontSize: 110,
-          position: 'absolute',
-          right: -28,
-          bottom: 36,
-        }
-      }, '.')
-    )
-  );
-}
-
-function IconPilcrowLight() {
-  return h(IconShell, { bg: PAPER, light: true, ringColor: 'rgba(0,0,0,0.06)' },
-    h('div', {
-      style: {
-        fontFamily: '"Fraunces", serif',
-        fontStyle: 'italic',
-        fontWeight: 340,
-        fontVariationSettings: '"opsz" 144',
-        fontSize: 280,
-        color: PAPER_DEEP,
-        transform: 'translateY(6px)',
-      }
-    }, '\\u00B6')
-  );
-}
-
-function IconLegacy() {
-  return h(IconShell, { bg: '#000', grain: false },
-    h('img', { src: LEGACY_ICON_SRC, alt: '', style: { width: 320, height: 320, borderRadius: 320 * SQUIRCLE } })
-  );
-}
-
 const ICON_MAP = {
   'pilcrow': IconPilcrow,
-  'refined-p': IconRefinedP,
-  'fraunces-p': IconFrauncesP,
-  'p-ist': IconPIstLockup,
-  'asterisk': IconAsterisk,
-  'hash': IconHash,
-  'em-dash': IconEmDash,
-  'caret': IconCaret,
-  'period': IconPeriod,
-  'prompt': IconPrompt,
-  'legacy': IconLegacy,
 };
 
 // Render ONE icon at a time into a fixed transparent canvas. Rendering all 11

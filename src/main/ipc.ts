@@ -2,7 +2,7 @@ import { ipcMain, dialog, app, shell, BrowserWindow, clipboard, nativeImage } fr
 import { IS_MAS_BUILD } from './env'
 import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat, copyFile } from 'fs/promises'
 import { join, dirname, isAbsolute, basename } from 'path'
-import { randomUUID } from 'crypto'
+import { randomUUID, createHash } from 'crypto'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
 import { withRetry, getNetworkErrorMessage } from '../shared/utils/retry'
@@ -123,6 +123,80 @@ const REMARKABLE_CREDENTIAL_KEY = 'remarkable-anthropic-key'
  * Refuse a final path segment that is empty, `.` or `..`. Used on the C-class
  * handlers (rename, createDirectory) whose last segment is a user-typed name.
  */
+/**
+ * The key Prose writes into Claude Desktop's `claude_desktop_config.json`.
+ * Capitalized; the lowercase `prose` key is from an older install, which
+ * mcp:install deletes on sight.
+ */
+const MCP_CONFIG_KEY = 'Prose'
+
+/**
+ * Claude Desktop's config file, and the directory holding it.
+ *
+ * PROSE_CLAUDE_CONFIG_PATH redirects both — the same test seam as
+ * PROSE_USER_DATA_DIR (src/main/index.ts), so e2e can exercise install and
+ * status against a scratch config instead of the user's real one.
+ */
+function claudeDesktopConfigPath(): string {
+  return (
+    process.env.PROSE_CLAUDE_CONFIG_PATH ||
+    join(homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+  )
+}
+
+/** The mcp-stdio bundle this build would install. */
+function bundledMcpServerPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'mcp-stdio.cjs')
+    : join(__dirname, '../../out/mcp-stdio.cjs')
+}
+
+function sha256(content: string): string {
+  return createHash('sha256').update(content).digest('hex')
+}
+
+/**
+ * Does the installed MCP integration differ from what mcp:install would write?
+ *
+ * Two things are compared, and they are the two things install actually
+ * writes: the server bytes — the whole tool surface (registry, schemas,
+ * src/mcp-stdio) compiles into them via build:mcp-stdio — and the config entry
+ * pointing at the installed server.
+ *
+ * The entry's `command` is deliberately NOT compared. It is a `which node`
+ * result, so it reflects the PATH of whichever process last ran the install —
+ * a packaged app launched from Finder resolves it differently from a dev run.
+ * Comparing it would nag about how the app was started rather than about
+ * anything to do with MCP.
+ */
+async function mcpNeedsUpdate(serverPath: string, configPath: string): Promise<boolean> {
+  let bundled: string
+  try {
+    bundled = await readFile(bundledMcpServerPath(), 'utf-8')
+  } catch {
+    // We can't read what we'd install, so we can't claim it differs. Staying
+    // quiet beats a prompt that would reinstall the same unreadable thing.
+    return false
+  }
+
+  try {
+    if (sha256(bundled) !== sha256(await readFile(serverPath, 'utf-8'))) return true
+  } catch {
+    return true
+  }
+
+  // The entry must exist and point at the installed server — if Claude
+  // Desktop's config lost it, or still points somewhere else, reinstalling is
+  // exactly the fix the prompt offers.
+  try {
+    const config = JSON.parse(await readFile(configPath, 'utf-8'))
+    const args = config?.mcpServers?.[MCP_CONFIG_KEY]?.args
+    return !Array.isArray(args) || args[0] !== serverPath
+  } catch {
+    return true
+  }
+}
+
 function assertPlainEntryName(name: string): void {
   if (!name || name === '.' || name === '..') {
     throw new Error('Invalid file or folder name')
@@ -1991,6 +2065,20 @@ export function setupIpcHandlers(): void {
   })
 
   // MCP: Get installation status
+  //
+  // `needsUpdate` compares what is installed against what mcp:install would
+  // write, rather than comparing version markers. The old marker stored the
+  // *app* version, so every release flipped the flag and offered a reinstall
+  // that changed nothing. There is no MCP version to lean on either —
+  // serverInfo.version is a frozen '1.0.0' literal — so the honest signal is
+  // the content itself: the bundled mcp-stdio.cjs bytes (into which the whole
+  // tool surface compiles) and the config entry pointing at the installed
+  // server.
+  //
+  // Comparing directly also means no marker to migrate: an install carrying
+  // the legacy { version } shape is judged on its contents like any other, so
+  // it never shows one last spurious prompt. version.json survives as a
+  // display-only record of which release performed the install.
   ipcMain.handle('mcp:getStatus', async (): Promise<{
     installed: boolean
     version: string | null
@@ -2005,7 +2093,7 @@ export function setupIpcHandlers(): void {
     const MCP_SERVER_DIR = join(app.getPath('userData'), 'mcp-server')
     const MCP_SERVER_PATH = join(MCP_SERVER_DIR, 'mcp-stdio.cjs')
     const VERSION_PATH = join(MCP_SERVER_DIR, 'version.json')
-    const CONFIG_PATH = join(homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+    const CONFIG_PATH = claudeDesktopConfigPath()
     const appVersion = app.getVersion()
 
     let installed = false
@@ -2016,15 +2104,15 @@ export function setupIpcHandlers(): void {
       await access(MCP_SERVER_PATH)
       installed = true
 
-      // Check version
+      // Display only — which Prose release performed the install.
       try {
         const versionData = JSON.parse(await readFile(VERSION_PATH, 'utf-8'))
-        version = versionData.version
-        needsUpdate = version !== appVersion
+        version = typeof versionData.version === 'string' ? versionData.version : null
       } catch {
-        // No version file, needs update
-        needsUpdate = true
+        // No marker, or an unreadable one. Not an update signal by itself.
       }
+
+      needsUpdate = await mcpNeedsUpdate(MCP_SERVER_PATH, CONFIG_PATH)
     } catch {
       // Server not installed
     }
@@ -2047,7 +2135,7 @@ export function setupIpcHandlers(): void {
     const MCP_SERVER_DIR = join(app.getPath('userData'), 'mcp-server')
     const MCP_SERVER_PATH = join(MCP_SERVER_DIR, 'mcp-stdio.cjs')
     const VERSION_PATH = join(MCP_SERVER_DIR, 'version.json')
-    const CONFIG_PATH = join(homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+    const CONFIG_PATH = claudeDesktopConfigPath()
     const appVersion = app.getVersion()
 
     try {
@@ -2055,11 +2143,7 @@ export function setupIpcHandlers(): void {
       await mkdir(MCP_SERVER_DIR, { recursive: true })
 
       // Copy the mcp-stdio.cjs from app resources
-      const resourcePath = app.isPackaged
-        ? join(process.resourcesPath, 'mcp-stdio.cjs')
-        : join(__dirname, '../../out/mcp-stdio.cjs')
-
-      const serverCode = await readFile(resourcePath, 'utf-8')
+      const serverCode = await readFile(bundledMcpServerPath(), 'utf-8')
       await writeFile(MCP_SERVER_PATH, serverCode, 'utf-8')
 
       // Write version file
@@ -2109,13 +2193,13 @@ export function setupIpcHandlers(): void {
       }
 
       // Add Prose entry (capitalized key)
-      config.mcpServers.Prose = {
+      config.mcpServers[MCP_CONFIG_KEY] = {
         command: nodePath,
         args: [MCP_SERVER_PATH]
       }
 
       // Ensure Claude config directory exists
-      await mkdir(join(homedir(), 'Library', 'Application Support', 'Claude'), { recursive: true })
+      await mkdir(dirname(CONFIG_PATH), { recursive: true })
       await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8')
 
       return { success: true }
@@ -2134,7 +2218,7 @@ export function setupIpcHandlers(): void {
       return { success: false, error: 'MCP server uninstall is not available in the Mac App Store version.' }
     }
     const MCP_SERVER_DIR = join(app.getPath('userData'), 'mcp-server')
-    const CONFIG_PATH = join(homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+    const CONFIG_PATH = claudeDesktopConfigPath()
 
     try {
       // Remove from Claude Desktop config

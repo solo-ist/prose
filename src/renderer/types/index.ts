@@ -79,12 +79,6 @@ interface SettingsBase {
     lineHeight: number
     fontFamily: string
     /**
-     * Cosmetic chunked streaming for agent-driven insertions/edits — text
-     * arrives word-by-word over ~200–500ms instead of appearing instantly.
-     * Falls back to instant apply when the user prefers reduced motion.
-     */
-    streamingEdits?: boolean
-    /**
      * Character used to prefix unordered list items when serializing to Markdown.
      * Defaults to '*' (asterisk); set to '-' (dash) if preferred. The default
      * applies to users who never chose — their bullets serialize as '*' from

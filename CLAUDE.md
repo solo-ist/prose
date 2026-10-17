@@ -222,7 +222,7 @@ Most handlers live in `src/main/ipc.ts` (99 across 15 namespaces). A few sit clo
 - `updater:*` (3) - Auto-update check, download, install (Electron auto-updater)
 - `skill:download` - Download an external skill for use inside Prose
 - `clipboard:*` (1) - Write text to system clipboard
-- `appearance:*` (1) - Set app icon
+- `appearance:*` (1) - Pin the macOS dock tile to the Prose icon
 - `window:*`, `shell:*`, `recentFiles:*`, `emoji:*`, `fileAssociation:*` - Utility handlers
 
 ### State Management

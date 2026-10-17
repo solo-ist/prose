@@ -33,14 +33,12 @@ export interface Favorite {
 // the legacy `theme` field; the renderer's loadSettings migrates it.
 export type ColorTheme = 'prose' | 'mono' | 'termy'
 export type ThemeMode = 'light' | 'dark' | 'system'
-export type IconId =
-  | 'pilcrow'
-  | 'fraunces-p'
-  | 'asterisk'
-  | 'hash'
-  | 'period'
-  | 'prompt'
-  | 'legacy'
+/**
+ * The app icon. Pilcrow is the only one — the switcher was removed in 1.9.0
+ * (#1052). Kept as a named type (rather than inlined) because the stored
+ * `appearance.icon` field still exists and normalizes to this value.
+ */
+export type IconId = 'pilcrow'
 
 export interface Appearance {
   lightColor: ColorTheme
@@ -773,7 +771,7 @@ export interface ElectronAPI {
   updaterInstall?: () => Promise<void>
   updaterCheck?: () => Promise<{ updateAvailable: boolean }>
   // Appearance: live dock icon swap (macOS only; no-op on other platforms)
-  setAppIcon?: (iconId: IconId) => Promise<void>
+  applyDockIcon?: () => Promise<void>
 }
 
 declare global {

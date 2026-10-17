@@ -68,7 +68,7 @@ test.beforeAll(async () => {
   qaDocsDir = mkdtempSync(join(tmpdir(), 'prose-qa-docs-'))
   writeFileSync(
     join(qaUserDataDir, 'settings.json'),
-    JSON.stringify({ appearance: { mode: 'dark', icon: 'default' }, defaultSaveDirectory: qaDocsDir }),
+    JSON.stringify({ appearance: { mode: 'dark', icon: 'pilcrow' }, defaultSaveDirectory: qaDocsDir }),
   )
 
   const launched = await launchApp({ env: { PROSE_USER_DATA_DIR: qaUserDataDir } })

@@ -15,7 +15,7 @@ import { useCommentStore } from '../../extensions/comments/store'
 import { mergeCommentsForPersistence } from '../../extensions/comments/extension'
 import { extractFirstH1 } from '../../lib/markdown'
 import { useTabTier } from '../../hooks/useTabTier'
-import { useGoogleDocsEnabled, useWebPlatformEnabled } from '../../lib/featureFlags'
+import { useWebPlatformEnabled } from '../../lib/featureFlags'
 import { ShareDialog } from '../share/ShareDialog'
 import { useShareStore } from '../../stores/shareStore'
 import { Button } from '../ui/button'
@@ -51,7 +51,6 @@ import {
   Copy,
   Check,
   Timer,
-  CircleUserRound,
   Bug,
   LifeBuoy,
   MessageSquarePlus,
@@ -102,13 +101,10 @@ export function Toolbar() {
   const toggleSourceMode = useEditorStore((state) => state.toggleSourceMode)
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
   const isPreviewTab = useEditorStore((state) => state.isPreviewTab)
-  const isGoogleSyncing = useFileListStore((state) => state.isGoogleSyncing)
-  const googleDocsEnabled = useGoogleDocsEnabled()
   const webPlatformEnabled = useWebPlatformEnabled()
 
   const [hasCopied, setHasCopied] = useState(false)
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
-  const [googlePicture, setGooglePicture] = useState<string | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const tabBarContainerRef = useRef<HTMLDivElement>(null)
   const { tier, containerWidth } = useTabTier(tabBarContainerRef, { tabCount: tabs.length })
@@ -133,30 +129,6 @@ export function Toolbar() {
     const cleanup = api.onFullscreenChange((fs) => setIsFullscreen(fs))
     return cleanup
   }, [])
-
-  // Check Google connection status on mount and when settings change
-  useEffect(() => {
-    if (!googleDocsEnabled) return
-    // First check settings for cached picture
-    if (settings.google?.picture) {
-      setGooglePicture(settings.google.picture)
-    }
-
-    async function checkGoogleConnection() {
-      if (!window.api?.googleGetConnectionStatus) return
-      try {
-        const status = await window.api.googleGetConnectionStatus()
-        if (status.connected && status.picture) {
-          setGooglePicture(status.picture)
-        } else if (!status.connected) {
-          setGooglePicture(null)
-        }
-      } catch {
-        // Keep cached picture from settings if check fails
-      }
-    }
-    checkGoogleConnection()
-  }, [settings.google, googleDocsEnabled])
 
   // Tab close confirmation state
   const [pendingCloseTabId, setPendingCloseTabId] = useState<string | null>(null)
@@ -493,126 +465,6 @@ export function Toolbar() {
       ),
     },
     {
-      id: 'google',
-      label: googlePicture ? 'Open Google Docs' : 'Connect Google account',
-      icon: <CircleUserRound />,
-      available: googleDocsEnabled,
-      onSelect: () => {
-        if (googlePicture) {
-          const authParam = settings.google?.email ? `?authuser=${encodeURIComponent(settings.google.email)}` : ''
-          window.open(`https://docs.google.com${authParam}`, '_blank')
-        } else {
-          setDialogOpen(true, 'account')
-        }
-      },
-      renderBar: (key) => (
-        <Tooltip key={key}>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => {
-                if (googlePicture) {
-                  const authParam = settings.google?.email ? `?authuser=${encodeURIComponent(settings.google.email)}` : ''
-                  window.open(`https://docs.google.com${authParam}`, '_blank')
-                } else {
-                  setDialogOpen(true, 'account')
-                }
-              }}
-              aria-label={googlePicture ? 'Open Google Docs' : 'Connect Google account'}
-              className="relative"
-            >
-              {googlePicture ? (
-                <>
-                  <img
-                    src={googlePicture}
-                    alt="Google account"
-                    className="h-5 w-5 rounded-full"
-                    referrerPolicy="no-referrer"
-                  />
-                  {isGoogleSyncing && (
-                    <svg
-                      className="absolute inset-0 pointer-events-none"
-                      style={{ width: '100%', height: '100%' }}
-                      viewBox="0 0 40 40"
-                      fill="none"
-                    >
-                      <defs>
-                        <linearGradient id="sync-ring-a" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stopColor="#8b5cf6" />
-                          <stop offset="50%" stopColor="#d946ef" />
-                          <stop offset="100%" stopColor="#8b5cf6" />
-                        </linearGradient>
-                        <linearGradient id="sync-ring-b" x1="100%" y1="0%" x2="0%" y2="100%">
-                          <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.7" />
-                          <stop offset="100%" stopColor="#a78bfa" stopOpacity="0.7" />
-                        </linearGradient>
-                      </defs>
-                      <circle
-                        className="animate-spin"
-                        cx="20" cy="20" r="18"
-                        stroke="url(#sync-ring-a)"
-                        strokeWidth="2"
-                        strokeDasharray="28 85"
-                        strokeLinecap="round"
-                        style={{ animationDuration: '2s', transformOrigin: '50% 50%' }}
-                      />
-                      <circle
-                        className="animate-spin"
-                        cx="20" cy="20" r="14"
-                        stroke="url(#sync-ring-b)"
-                        strokeWidth="1.5"
-                        strokeDasharray="18 70"
-                        strokeLinecap="round"
-                        style={{ animationDuration: '1.5s', animationDirection: 'reverse', transformOrigin: '50% 50%' }}
-                      />
-                    </svg>
-                  )}
-                </>
-              ) : isGoogleSyncing ? (
-                <svg
-                  viewBox="0 0 40 40"
-                  fill="none"
-                  style={{ width: '1.25rem', height: '1.25rem' }}
-                >
-                  <defs>
-                    <linearGradient id="sync-ring-solo" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#8b5cf6" />
-                      <stop offset="50%" stopColor="#d946ef" />
-                      <stop offset="100%" stopColor="#8b5cf6" />
-                    </linearGradient>
-                  </defs>
-                  <circle
-                    className="animate-spin"
-                    cx="20" cy="20" r="18"
-                    stroke="url(#sync-ring-solo)"
-                    strokeWidth="2"
-                    strokeDasharray="28 85"
-                    strokeLinecap="round"
-                    style={{ animationDuration: '2s', transformOrigin: '50% 50%' }}
-                  />
-                  <circle
-                    className="animate-spin"
-                    cx="20" cy="20" r="12"
-                    stroke="url(#sync-ring-solo)"
-                    strokeWidth="1.5"
-                    strokeDasharray="15 60"
-                    strokeLinecap="round"
-                    style={{ animationDuration: '1.5s', animationDirection: 'reverse', transformOrigin: '50% 50%' }}
-                  />
-                </svg>
-              ) : (
-                <CircleUserRound className="h-5 w-5 text-muted-foreground" />
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            {googlePicture ? 'Open Google Docs' : 'Connect Google account'}
-          </TooltipContent>
-        </Tooltip>
-      ),
-    },
-    {
       id: 'chat',
       label: isChatOpen ? 'Hide chat' : 'Show chat',
       icon: <PanelRight />,
@@ -648,7 +500,7 @@ export function Toolbar() {
   // Default bar/menu boundary (until the user drags it): the toggle actions sit
   // on the bar, document actions in the ⋯ menu. "chat" is pinned to the bar
   // separately and excluded from this count.
-  const TOGGLE_IDS = ['copy', 'autosave', 'source-mode', 'annotations', 'theme', 'google']
+  const TOGGLE_IDS = ['copy', 'autosave', 'source-mode', 'annotations', 'theme']
   const defaultBarCount = toolbarActions.filter(
     (a) => TOGGLE_IDS.includes(a.id) && a.available !== false && !a.pinnedBar
   ).length

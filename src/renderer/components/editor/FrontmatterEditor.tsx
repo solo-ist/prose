@@ -4,8 +4,6 @@ import { Lock, Plus, X, ChevronDown, ChevronUp, Check } from 'lucide-react'
 import { Input } from '../ui/input'
 import { useEditorStore } from '../../stores/editorStore'
 
-const PROTECTED_FIELDS = new Set(['google_doc_id', 'google_synced_at'])
-
 interface Field {
   key: string
   value: string
@@ -236,29 +234,13 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
       >
         <div className="flex items-start justify-between gap-2">
           <div className="space-y-1.5 flex-1 min-w-0">
-            {displayFields.map(({ key, value }) => {
-              const isDocId = key === 'google_doc_id'
-              const displayValue = isDocId ? value.replace(/^['"]|['"]$/g, '') : value
-              return (
-                <div key={key} className="flex items-center gap-1.5">
-                  <span className="text-muted-foreground/70 shrink-0 w-32 truncate">{key}</span>
-                  <span className="text-muted-foreground/40 shrink-0">:</span>
-                  {isDocId ? (
-                    <a
-                      href={`https://docs.google.com/document/d/${displayValue}/edit`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-foreground/80 flex-1 truncate underline decoration-muted-foreground/40 hover:decoration-foreground/60"
-                      onClick={e => e.stopPropagation()}
-                    >
-                      {displayValue}
-                    </a>
-                  ) : (
-                    <span className="text-foreground/80 flex-1 truncate">{displayValue}</span>
-                  )}
-                </div>
-              )
-            })}
+            {displayFields.map(({ key, value }) => (
+              <div key={key} className="flex items-center gap-1.5">
+                <span className="text-muted-foreground/70 shrink-0 w-32 truncate">{key}</span>
+                <span className="text-muted-foreground/40 shrink-0">:</span>
+                <span className="text-foreground/80 flex-1 truncate">{value}</span>
+              </div>
+            ))}
           </div>
           <ChevronDown className="w-3 h-3 shrink-0 mt-0.5 opacity-0 group-hover:opacity-60 transition-opacity" />
         </div>
@@ -281,8 +263,7 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
       </div>
       <div className="space-y-1.5">
         {fields.map((field, index) => {
-          const isProtected = PROTECTED_FIELDS.has(field.key)
-          const isDisabled = isProtected || field.readonly
+          const isDisabled = field.readonly
           return (
             <div key={index} className="flex items-center gap-1.5">
               <Input
@@ -304,7 +285,7 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
                 disabled={isDisabled}
                 className="h-6 px-2 py-0 text-xs font-mono flex-1 bg-background/50 border-border/50 disabled:opacity-60 disabled:cursor-default"
               />
-              {isProtected || field.readonly ? (
+              {field.readonly ? (
                 <Lock className="w-3 h-3 text-muted-foreground/40 shrink-0" aria-label="Protected field" />
               ) : (
                 <button

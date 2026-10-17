@@ -140,7 +140,7 @@ tags: [planning, roadmap, q1-2026]
 
 1. **Core editor stability** — Fix known bugs, improve performance
 2. **Cloud QA infrastructure** — Web mode build for Playwright testing
-3. **Integration expansion** — Google Docs sync, reMarkable improvements
+3. **Integration expansion** — Sharing, reMarkable improvements
 4. **User onboarding** — Better first-run experience
 
 ## Key Results
@@ -154,7 +154,7 @@ tags: [planning, roadmap, q1-2026]
 ## Timeline
 
 - **Week 1-2**: Web mode build + fixture system
-- **Week 3-4**: Google Docs sync v2
+- **Week 3-4**: Share links v2
 - **Week 5-6**: reMarkable UX improvements
 - **Week 7-8**: Performance pass + polish
 

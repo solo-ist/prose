@@ -43,7 +43,6 @@ function sendMenuAction(action: string): void {
 export function createMenu(mainWindow: BrowserWindow): void {
   _menuWindow = mainWindow
   const isMac = process.platform === 'darwin'
-  const isGoogleConfigured = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
 
   // Build "Open Recent" submenu from persisted recent files
   const recentFiles = loadRecentFiles().slice(0, 10)
@@ -190,25 +189,6 @@ export function createMenu(mainWindow: BrowserWindow): void {
             sendMenuAction('convertToMarkdown')
           }
         },
-        ...(!IS_MAS_BUILD && isGoogleConfigured
-          ? [
-              { type: 'separator' as const },
-              {
-                label: 'Sync with Google Docs',
-                accelerator: 'CmdOrCtrl+Shift+G',
-                click: (): void => {
-                  sendMenuAction('googleSync')
-                }
-              },
-              {
-                label: 'Import from Google Docs...',
-                accelerator: 'CmdOrCtrl+Shift+I',
-                click: (): void => {
-                  sendMenuAction('googleImport')
-                }
-              }
-            ]
-          : []),
         ...(isMac
           ? []
           : [{ type: 'separator' as const }, { role: 'quit' as const }])

@@ -23,7 +23,6 @@ export const selectors = {
   // File explorer tabs
   recentFilesButton: '[aria-label="Recent files"]',
   filesButton: '[aria-label="Files"]',
-  googleDocsButton: '[aria-label="Google Docs"]',
   notebooksButton: '[aria-label="reMarkable notebooks"]',
   sharedButton: '[aria-label="Shared"]',
 
@@ -237,20 +236,18 @@ export async function ensureFileListOpen(page: Page): Promise<void> {
 /** Switch the file explorer to a specific tab. */
 export async function switchExplorerTab(
   page: Page,
-  tab: 'recent' | 'files' | 'googledocs' | 'notebooks' | 'shared',
+  tab: 'recent' | 'files' | 'notebooks' | 'shared',
 ): Promise<void> {
   await ensureFileListOpen(page)
   const buttonMap = {
     recent: selectors.recentFilesButton,
     files: selectors.filesButton,
-    googledocs: selectors.googleDocsButton,
     notebooks: selectors.notebooksButton,
     shared: selectors.sharedButton,
   }
   const labelMap = {
     recent: 'Recent files',
     files: 'Files',
-    googledocs: 'Google Docs',
     notebooks: 'reMarkable notebooks',
     shared: 'Shared',
   }

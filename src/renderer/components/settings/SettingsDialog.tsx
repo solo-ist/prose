@@ -23,7 +23,6 @@ import { Slider } from '../ui/slider'
 import { Switch } from '../ui/switch'
 import { AppearancePane } from './AppearancePane'
 import { RemarkableIntegration } from './RemarkableIntegration'
-import { GoogleDocsIntegration } from './GoogleDocsIntegration'
 import { McpIntegration } from './McpIntegration'
 import { ProseSkillIntegration } from './ProseSkillIntegration'
 import { isWebMode } from '../../lib/browserApi'
@@ -69,7 +68,6 @@ export function SettingsDialog() {
     setRecoveryConfig,
     setDefaultSaveDirectory,
     setRemarkableConfig,
-    setGoogleConfig,
     setAutosaveConfig,
     saveSettings
   } = useSettings()
@@ -727,10 +725,9 @@ export function SettingsDialog() {
           </TabsContent>
 
           <TabsContent value="account" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={accountTabRef}>
-            <GoogleDocsIntegration
-              settings={settings}
-              setGoogleConfig={setGoogleConfig}
-            />
+            <p className="text-sm text-muted-foreground">
+              No account settings in this build yet.
+            </p>
           </TabsContent>
         </Tabs>
 

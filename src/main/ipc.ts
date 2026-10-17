@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
 import { withRetry, getNetworkErrorMessage } from '../shared/utils/retry'
-import { getDefaultModel, getDefaultHaikuModel, supportsAdaptiveThinking } from '../shared/llm/models'
+import { getDefaultModel, getDefaultHaikuModel, supportsAdaptiveThinking, getThinkingOffMode } from '../shared/llm/models'
 import { getSettingsDir, LEGACY_SETTINGS_DIR, normalizePath, resolveWithin, resolveToolPath, IMAGE_EXTENSIONS } from './paths'
 import type { FileAccessOptions } from '../shared/fileAccess'
 import { clearRecentFiles } from './recentFiles'
@@ -1042,24 +1042,39 @@ export function setupIpcHandlers(): void {
 
         // Extended thinking — adaptive mode, capability-gated by
         // supportsAdaptiveThinking() (THINKING_CAPABLE_PREFIXES in models.ts:
-        // Sonnet 4.6, Opus 4.6+, and Fable 5). Models outside that list (e.g.
-        // Haiku) return HTTP 400 if *any* thinking param is sent. `display:
-        // "summarized"` is mandatory — the default "omitted" yields an empty
-        // thinking string. Depth is controlled by output_config.effort, not a
-        // token budget.
+        // Sonnet 4.6+, Opus 4.6+, and Fable 5+). Models outside that list
+        // (e.g. Haiku) return HTTP 400 if *any* thinking param is sent.
+        // `display: "summarized"` is mandatory — the default "omitted" yields
+        // an empty thinking string. Depth is controlled by
+        // output_config.effort, not a token budget.
         //
-        // Disabling must be EXPLICIT: on adaptive-thinking models the param
-        // defaults to on, so simply omitting `thinking` leaves the model
-        // thinking anyway (the user toggling it off had no effect). We send
-        // { type: 'disabled' } to actually suppress it — but only for models
-        // that accept the param at all; non-capable models must omit it.
+        // Turning thinking OFF is model-specific — see getThinkingOffMode():
+        // Sonnet 5.5 takes { type: 'between_tools' }, Opus 5.5 and Fable 5.x
+        // reject every explicit off-switch and must omit the param entirely
+        // (thinking is on by default there, so effort is the only lever), and
+        // the 4.x generation still takes { type: 'disabled' }. Sending the
+        // wrong one is a hard 400 at request time.
         const modelSupportsThinking = supportsAdaptiveThinking(request.model)
         const thinkingEnabled = request.thinking !== false && modelSupportsThinking
+        const thinkingOffParam = (() => {
+          switch (getThinkingOffMode(request.model)) {
+            case 'disabled':
+              return { type: 'disabled' as const }
+            case 'between_tools':
+              return { type: 'between_tools' as const }
+            case 'omit':
+              return undefined
+          }
+        })()
         const thinkingParam = !modelSupportsThinking
           ? undefined
           : thinkingEnabled
             ? { type: 'adaptive' as const, display: 'summarized' as const }
-            : { type: 'disabled' as const }
+            : thinkingOffParam
+
+        // `between_tools` is accepted only at effort 'high' or below, so pin
+        // it rather than relying on the model's default staying there.
+        const sendEffort = thinkingEnabled || thinkingParam?.type === 'between_tools'
 
         const maxTokens = request.maxTokens || 16000
 
@@ -1070,7 +1085,7 @@ export function setupIpcHandlers(): void {
           messages: anthropicMessages,
           tools: anthropicTools,
           ...(thinkingParam ? { thinking: thinkingParam } : {}),
-          ...(thinkingEnabled ? { output_config: { effort: 'high' as const } } : {})
+          ...(sendEffort ? { output_config: { effort: 'high' as const } } : {})
         }
 
         const stream = client.messages.stream(streamParams)

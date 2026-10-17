@@ -23,8 +23,8 @@ interface StreamRequestBody {
 
 // Cost ceilings: the proxy spends the OPERATOR's key, so callers pick only
 // from this menu. Widening it is a deliberate config change, not a client one.
-const ALLOWED_MODELS = new Set(['claude-sonnet-4-5', 'claude-haiku-4-5-20251001'])
-const DEFAULT_MODEL = 'claude-sonnet-4-5'
+const ALLOWED_MODELS = new Set(['claude-sonnet-5-5', 'claude-haiku-4-5'])
+const DEFAULT_MODEL = 'claude-sonnet-5-5'
 const MAX_TOKENS_CAP = 4096
 const VALID_ROLES = new Set(['user', 'assistant'])
 // Input-side ceilings — output caps alone don't bound spend; input tokens bill too.
@@ -117,6 +117,14 @@ llmRoutes.post('/stream', async (c) => {
     stream: true,
     system: body.system ?? '',
     messages,
+    // Sonnet 5.5 thinks by default, and thinking bills against max_tokens —
+    // so without this the MAX_TOKENS_CAP ceiling gets spent reasoning instead
+    // of answering, and replies truncate. This route is a cheap hosted taste
+    // of the feature, not the desktop experience, so thinking is off at the
+    // lowest setting Sonnet 5.5 accepts: { type: 'disabled' } is a 400 there,
+    // and 'between_tools' is only valid at effort 'high' or below (we send no
+    // output_config, and the default is 'high').
+    ...(model.startsWith('claude-sonnet-5-5') ? { thinking: { type: 'between_tools' } } : {}),
   })
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',

@@ -44,6 +44,8 @@ Prose talks to Anthropic directly with your key. No middleman, no markup, no sub
 - Code-block syntax highlighting, live word / character count, light + dark mode, multiple themes
 - Multi-tab editing with session restore and single-click preview
 - Autosave with debounce; standard markdown keyboard shortcuts
+- Tables you can actually edit — insert one from Edit → Insert Table, then add or
+  remove rows and columns from the hover rails; always saved back as a GFM pipe table
 
 **AI Three Ways** — All optional, all BYOK
 

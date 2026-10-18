@@ -261,6 +261,19 @@ export function createMenu(mainWindow: BrowserWindow): void {
             sendMenuAction('addComment')
           }
         },
+        {
+          // Tables render and round-trip, but until #1060 there was no way to
+          // create one except typing the pipe syntax by hand.
+          //
+          // Deliberately no accelerator: every obvious binding is taken —
+          // CmdOrCtrl+Shift+T is Reopen Closed Tab (above), CmdOrCtrl+Alt+T is
+          // Convert to Plain Text — and a duplicate accelerator silently
+          // shadows one of the two commands rather than failing loudly.
+          label: 'Insert Table',
+          click: (): void => {
+            sendMenuAction('insertTable')
+          }
+        },
         { type: 'separator' },
         {
           label: 'Find',

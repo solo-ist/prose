@@ -968,6 +968,9 @@ export function App() {
         case 'addComment':
           window.dispatchEvent(new CustomEvent('menu:addComment'))
           break
+        case 'insertTable':
+          window.dispatchEvent(new CustomEvent('menu:insertTable'))
+          break
         case 'toggleSourceView':
           useEditorStore.getState().toggleSourceMode()
           break

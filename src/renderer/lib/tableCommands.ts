@@ -106,10 +106,6 @@ export function getTableInfo(editor: Editor | null): TableInfo | null {
   }
 }
 
-export function isInTable(editor: Editor | null): boolean {
-  return getTableInfo(editor) !== null
-}
-
 /**
  * Inserts a table with a header row — the only shape that round-trips through
  * markdown. Three columns and two body rows is the smallest table that shows
@@ -213,10 +209,6 @@ export function deleteColumn(editor: Editor, col: number): boolean {
   if (info.colCount === 1) return editor.chain().focus().deleteTable().run()
 
   return withColumnSelected(editor, info, col, (chain) => chain.deleteColumn())
-}
-
-export function deleteTable(editor: Editor): boolean {
-  return editor.chain().focus().deleteTable().run()
 }
 
 /**

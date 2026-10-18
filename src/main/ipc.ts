@@ -680,6 +680,24 @@ export function setupIpcHandlers(): void {
         }
       }
 
+      // Cleanup: drop the Google Docs account block (#1057). The integration
+      // was removed in 1.9.0, but the stored object carries the connected
+      // account's email and profile-picture URL — personal data for a feature
+      // that no longer exists. `Settings` no longer declares `google`, so
+      // nothing reads it; without this it would persist indefinitely, and the
+      // spread above would keep round-tripping it back to disk on every save.
+      if (rawSettings.google !== undefined) {
+        delete rawSettings.google
+        try {
+          await writeFile(getSettingsPath(), JSON.stringify(stripSecretsForDisk(rawSettings), null, 2), 'utf-8')
+          console.log('[settings:load] Removed the obsolete Google Docs account block')
+        } catch (err) {
+          // Non-fatal: the key is already stripped from what the renderer
+          // receives, so the only cost is retrying the write next launch.
+          console.error('[settings:load] Could not remove the Google Docs account block:', err)
+        }
+      }
+
       // Inject secrets from secure storage
       if (credentialStore.isAvailable()) {
         const storedKey = await credentialStore.get(LLM_API_KEY)

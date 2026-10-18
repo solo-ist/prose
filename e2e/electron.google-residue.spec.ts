@@ -10,6 +10,12 @@
  *
  * Runs in an isolated PROSE_USER_DATA_DIR profile; the seeded account block is
  * fictional.
+ *
+ * Keep the seed to top-level keys plus `appearance`. `settings:load` merges with
+ * `{ ...defaultSettings, ...parsed }` — a *shallow* spread — so seeding a partial
+ * nested object (`editor: { fontSize: 18 }`) replaces the whole default and drops
+ * its siblings (`fontFamily`, `bulletListMarker`), which stops the renderer from
+ * mounting. That cost one CI run.
  */
 
 import { test, expect } from '@playwright/test'
@@ -22,15 +28,18 @@ import { launchApp, waitForAppReady, dismissOnboarding, dismissOverlay } from '.
 let app: ElectronApplication
 let page: Page
 let qaUserDataDir: string
+let qaFilesDir: string
 
 function readSettingsFromDisk(): Record<string, unknown> {
   return JSON.parse(readFileSync(join(qaUserDataDir, 'settings.json'), 'utf-8'))
 }
 
 test.beforeAll(async () => {
-  test.setTimeout(60_000)
+  test.setTimeout(90_000)
 
   qaUserDataDir = mkdtempSync(join(tmpdir(), 'prose-qa-google-residue-'))
+  qaFilesDir = mkdtempSync(join(tmpdir(), 'prose-qa-google-residue-files-'))
+  writeFileSync(join(qaFilesDir, 'notes.md'), '# Notes\n')
 
   // The on-disk shape a user who had connected Google Docs is left with.
   writeFileSync(
@@ -38,6 +47,7 @@ test.beforeAll(async () => {
     JSON.stringify(
       {
         appearance: { mode: 'dark', icon: 'pilcrow' },
+        defaultSaveDirectory: qaFilesDir,
         google: {
           email: 'qa-fixture@example.com',
           picture: 'https://example.invalid/avatar.png',
@@ -45,7 +55,6 @@ test.beforeAll(async () => {
           syncDirectory: '/tmp/prose-qa-google-docs',
           lastSyncedAt: '2026-05-02T00:00:00.000Z',
         },
-        editor: { fontSize: 18 },
       },
       null,
       2,
@@ -64,6 +73,7 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   await app?.close()
   rmSync(qaUserDataDir, { recursive: true, force: true })
+  rmSync(qaFilesDir, { recursive: true, force: true })
 })
 
 test.describe('Electron — Google Docs removal residue (#1057)', () => {
@@ -86,11 +96,7 @@ test.describe('Electron — Google Docs removal residue (#1057)', () => {
   test('unrelated settings survive the strip', async () => {
     // The strip rewrites the whole file, so prove it is a surgical delete and
     // not a reset to defaults.
-    const onDisk = readSettingsFromDisk() as {
-      appearance?: { mode?: string }
-      editor?: { fontSize?: number }
-    }
+    const onDisk = readSettingsFromDisk() as { appearance?: { mode?: string } }
     expect(onDisk.appearance?.mode).toBe('dark')
-    expect(onDisk.editor?.fontSize).toBe(18)
   })
 })

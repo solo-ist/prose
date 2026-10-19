@@ -1,7 +1,7 @@
 # Hosted-Tier Batch Plan — Open Collective + Inference Cooperative
 
 **Epic:** [#598](https://github.com/solo-ist/prose/issues/598) Prose Web · **Decided:** 2026-10-19 · **Owner:** Angel
-**Decision record:** [`../../architecture/adr-hosted-tier-funding-and-inference.md`](../../architecture/adr-hosted-tier-funding-and-inference.md) (Amendments, 2026-10-19) · **Mechanics:** [`../../architecture/operating-model.md`](../../architecture/operating-model.md)
+**Decision record:** [`../../architecture/adr-hosted-tier-funding-and-inference.md`](../../architecture/adr-hosted-tier-funding-and-inference.md) (Amendments, 2026-10-19 a + b) · **Mechanics:** [`../../architecture/operating-model.md`](../../architecture/operating-model.md) · **Pressure test against the co-op's code + live probes:** [`inference-coop-findings.md`](inference-coop-findings.md)
 
 > The ADR decided *what*: an Open Collective recurring contribution funds the hosted tier, Inference Cooperative is the pooled upstream, the Anthropic operator key is the fallback, MAS keeps zero hosted surface. This document decides *in what order*, so the batch never idles on a human step. The project board is the live queue; this is the resumable narrative.
 
@@ -18,6 +18,21 @@ Implications: Angel is already an individual member, so the #952 spike can start
 
 The values-aligned-hosting research (2026-10-17) that prompted this also recommended moving the personal and marketing static sites to May First. That is outside this roadmap; the gateway stays on Render, and Render stays a public expense on the ledger wherever the static sites live.
 
+## Verified against the co-op code (2026-10-19)
+
+The co-op's repos were cloned to `~/Code/inference.coop/` and read end to end, and the gateway was probed live on Angel's member key. Full record and evidence: [`inference-coop-findings.md`](inference-coop-findings.md).
+
+| ADR assumption | Verdict | Consequence |
+|---|---|---|
+| OC funding + hint → verify → reconcile → grace | Feasible as designed | `member-portal` is an anti-reference; #951/#953 change the identity lookup, the predicate, and replay idempotency |
+| Pooled inference via Prose's gateway | Feasible with changes | per-user metering is entirely Prose's; pool-level budget state in #848; budget-exceeded is a pre-stream 400 to intercept |
+| `/v1/messages` base-URL swap | Feasible with caveats | works with tools (verified), but the end state is a normalized stream + chat-completions mapper (#1075 grows to M–L, #954 shrinks to M) |
+| Anthropic key as pre-agreement fallback | Feasible with changes | becomes a **runtime** failover with disclosure — [#1080](https://github.com/solo-ist/prose/issues/1080) (new) |
+| TEE privacy | Not as stated | Tinfoil only; plaintext at the co-op gateway; API-prompt storage unverified → #940/#957 |
+| Org arrangement is a courtesy | Not as stated | Terms §4 forbids redistribution; the institutional-members policy is a gate |
+
+Probe results that change sizing: 3 of 4 candidate models make valid streaming tool calls (`greenpt/glm-5.3` fails 3/3); no request-size cap below Prose's own 1 MiB; thinking is on by default on Tinfoil models and can eat the whole output budget (`reasoning_effort: "none"` fixes it per request); `/team/info` exposes the pool's spend and reset to Prose's own key; `/health/readiness` is public.
+
 ## Three lanes, two gates
 
 Nothing in the gateway depends on a human step until the Open Collective sync and the upstream flip. So the batch splits into lanes that run concurrently.
@@ -33,15 +48,15 @@ Nothing in the gateway depends on a human step until the Open Collective sync an
 | Spike | Can start | Waits on |
 |---|---|---|
 | [#951](https://github.com/solo-ist/prose/issues/951) Open Collective → entitlement check | now, against a scratch collective (admin-only GraphQL works before a host approves; webhook capture needs the test endpoint) | — |
-| [#952](https://github.com/solo-ist/prose/issues/952) (a) `/v1/messages` passthrough, (b) tool loop on 2–3 co-op models, (d) usage shape | now, on Angel's existing member key | — |
+| [#952](https://github.com/solo-ist/prose/issues/952) technical scope — **mostly done 2026-10-19** (passthrough, tool calls, usage, body cap, health, pool state, thinking control, throughput; fixtures in `gateway/scripts/fixtures/coop/`). Remaining: item 11, the full 5-turn `suggest_edit` loop scored on `tinfoil/glm-5.3` and `tinfoil/deepseek-v4-1-flash` | now, through a dev gateway | — |
 | [#952](https://github.com/solo-ist/prose/issues/952) (c) organizational terms | — | Lane H step 3 |
 
 ### Lane B — ungated build (agent), in order
 
 1. [#1059](https://github.com/solo-ist/prose/issues/1059) Settings → Account sign-in state. Lifts the auth state machine out of `ShareDialog` into a shared store; the membership layer builds on that store. Rides the 1.9.0 train.
 2. [#1074](https://github.com/solo-ist/prose/issues/1074) `GET /api/account/entitlements` + revoke CLI + session revocation. Fixes the response shape #955 builds against; `membership` is filled in later by #953.
-3. [#1075](https://github.com/solo-ist/prose/issues/1075) relay generalization on the Anthropic key: tools through the proxy, system cap, configurable model list, `LLM_UPSTREAM_*` config, `llm_usage` write-only meter. Also unblocks real chat through today's proxy (#766's noted blocker).
-4. [#848](https://github.com/solo-ist/prose/issues/848) soft monthly quota on a static per-grant `monthlyTokenLimit` (nullable = unlimited), reading `llm_usage` from step 3. Memberships refine the limit later.
+3. [#1075](https://github.com/solo-ist/prose/issues/1075) relay generalization on the Anthropic key — **now M–L, the long pole:** the normalized stream protocol v1 (`meta`, `chunk`, `thinking`, `tool-call:start`, `tool-call`, `complete`, `error`) with the Anthropic→normalized mapper, web and desktop consumers, fetch-before-stream so quota/pool errors carry real HTTP status, a model alias/capability table instead of a list, per-upstream output cap + timeout + system cap + per-user concurrency, `LLM_UPSTREAM_*` config, and the `llm_usage` meter with `upstream`/`servedModel`/`costMicros`/`upstreamRequestId`. Also unblocks real chat through today's proxy (#766's noted blocker).
+4. [#848](https://github.com/solo-ist/prose/issues/848) soft monthly quota on a static per-grant `monthlyTokenLimit` (nullable = unlimited), reading `llm_usage` from step 3, **plus the pool-level state** (`pool_exhausted`, cap and reset from the co-op's `/team/info`, 429 with the co-op reset as `Retry-After`). Memberships refine the member limit later.
 5. [#955](https://github.com/solo-ist/prose/issues/955) hosted gating + membership UI: `hostedInference` flag, `account:*` IPC, entitlement status + `graceUntil`, lapsed states, consent copy. The "Manage membership" link reads one constant that stays empty until Lane H step 2.
 
 Gateway changes deploy to Render independently of app releases. App-side pieces (#1059, #955) ride release trains; #1059 is on 1.9.0, #955 targets the release after.
@@ -51,7 +66,8 @@ Gateway changes deploy to Render independently of app releases. App-side pieces 
 | Build | Gate |
 |---|---|
 | [#953](https://github.com/solo-ist/prose/issues/953) Open Collective sync (webhook hint → GraphQL verify → reconcile cron → `Membership` → `membership` on the endpoint) | #951 done · collective + token exist |
-| [#954](https://github.com/solo-ist/prose/issues/954) upstream flip to the co-op (config values + model list; OpenAI translation only if #952 says passthrough fails) | #952 (a)(b)(c) go · organizational agreement |
+| [#954](https://github.com/solo-ist/prose/issues/954) upstream flip to the co-op: the chat-completions mapper (default, M), the budget-exceeded matcher, the `hosted-chat` alias flip; `hosted-editor` stays on Anthropic until #952 item 11 | #952 (b)(c) go · organizational agreement · Terms §4 carve-out |
+| [#1080](https://github.com/solo-ist/prose/issues/1080) upstream health routing + pool-exhausted failover (two upstreams, circuit breaker, `meta`-frame disclosure, per-user failover setting via #955) | #1075 only — ships against Anthropic + the mock as the second upstream |
 | [#849](https://github.com/solo-ist/prose/issues/849) pricing-formula copy + first monthly ledger post | collective exists |
 | [#956](https://github.com/solo-ist/prose/issues/956) desktop BYOK co-op key | #952 (a)(b); Later |
 
@@ -64,10 +80,14 @@ Alongside, not part of this batch: [#766](https://github.com/solo-ist/prose/issu
 - #853 (closed) archived off the board.
 - #957 checklist updated: ask both hosts in parallel; OSC's exact exclusion wording; individual co-op membership already held (ticked).
 - ADR + operating model carry dated amendments rather than silent rewrites.
+- **2026-10-19 (b):** findings doc written from the co-op clones + live probes; #1080 filed (failover, split from #954); #951/#953/#848/#957/#940/#941/#766/#956/#952/#954/#955/#1075 carry dated notes; `member-portal` is no longer cited as the reference implementation.
 
 ## Open until Lane H answers
 
 - Which fiscal host, and is a contribution tier that grants hosted access acceptable to it.
 - Whether the co-op will sell an organizational allowance, at what rate, and whether LiteLLM teams can scope a Prose key.
-- Whether `/v1/messages` on the co-op gateway passes `tools` / `tool_use` / `tool_result` (decides #954's size).
+- ~~Whether `/v1/messages` on the co-op gateway passes `tools` / `tool_use` / `tool_result`~~ — verified yes (2026-10-19); #954's size is set by the mapper, not the adapter.
+- Who provisions the LiteLLM team for Prose's Organization account (invisible to the co-op's portal), and how top-ups reach it.
+- Whether the co-op stores API prompts in `LiteLLM_SpendLogs` (#940 needs the answer).
+- A deprecation-notice period and either a fallback opt-out or served-model visibility for the Prose team.
 - [#939](https://github.com/solo-ist/prose/issues/939): whether `share_publish` becomes membership-gated at Share GA.

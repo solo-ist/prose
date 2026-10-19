@@ -1,0 +1,188 @@
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"role":"assistant","content":""}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":"L"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":"ighthouses have"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" stood as"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" solitary"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" sent"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":"inels along coast"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":"lines for centuries"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":", guiding"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" sailors"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" through"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" dangerous"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" waters"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" and fog"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":"gy nights"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":". These"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" tall"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" towers,"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" often"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" painted"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" in"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" striking patterns"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":","}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" house"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" powerful"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" lights that beam"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" across the sea"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" to"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" warn ships"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" of rocky"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" shores and"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" hidden reefs"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":". Keep"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":"ers once"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" lived on"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":"-site"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":", tending the"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" flame and"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" winding"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" the clock"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":"work mechanisms"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" through"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" long"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":", isolated"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" nights. Though"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" modern"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" technology"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" like"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" GPS has"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" reduced their"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" importance"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":", l"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":"ighthouses remain beloved"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" symbols of safety"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" and"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" resilience. Many"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" are now"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" preserved as"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" historical landmarks"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":", museums"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":", or"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" even"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" vacation"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" rentals,"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" drawing"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" visitors who"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" admire"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" their"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" sturdy"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" architecture and dramatic"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" ocean"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" views"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":". Their"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" steady"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":","}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" sweeping"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" beams still"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" evoke"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" a sense of comfort"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" and guidance"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":", reminding"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" us"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" of humanity"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":"'s enduring"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" relationship"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" with the sea and the quiet"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" vigilance"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" required"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" to keep"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" travelers"}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","object":"chat.completion.chunk","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"content":" safe."}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","object":"chat.completion.chunk","system_fingerprint":"vllm-0.1.dev20904+g179dd0fa9-tp8-76e0d53d","choices":[{"finish_reason":"stop","index":0,"delta":{}}]}
+
+data: {"id":"chatcmpl-a3d50f405c6d61de","created":1792389849,"model":"tinfoil/deepseek-v4-1-flash","object":"chat.completion.chunk","system_fingerprint":"vllm-0.1.dev20904+g179dd0fa9-tp8-76e0d53d","choices":[{"index":0,"delta":{}}],"usage":{"completion_tokens":159,"prompt_tokens":18,"total_tokens":177,"completion_tokens_details":{"reasoning_tokens":0},"prompt_tokens_details":{"cached_tokens":0,"created_cache_tokens":0},"cost":0.00024225}}
+
+data: [DONE]
+

@@ -1,6 +1,7 @@
-import { FileText, FolderOpen, PenLine } from 'lucide-react'
+import { FileText, FolderOpen } from 'lucide-react'
 import { Button } from '../ui/button'
 import { useEditor } from '../../hooks/useEditor'
+import { ProseMark } from '../ProseMark'
 
 export function EmptyState() {
   const { openFile, newFile } = useEditor()
@@ -8,8 +9,8 @@ export function EmptyState() {
   return (
     <div className="flex h-full items-center justify-center p-8">
       <div className="flex max-w-md flex-col items-center text-center">
-        <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
-          <PenLine className="h-8 w-8 text-primary" />
+        <div className="mb-6 flex h-16 w-16 items-center justify-center">
+          <ProseMark className="h-12 w-12 text-muted-foreground/40" />
         </div>
 
         <h2 className="mb-2 text-xl font-semibold">Start Writing</h2>

@@ -5,8 +5,7 @@ import {
   DialogTitle
 } from '../ui/dialog'
 import { Separator } from '../ui/separator'
-import iconDark from '../../assets/icon-dark.png'
-import iconLight from '../../assets/icon-light.png'
+import { ProseMark } from '../ProseMark'
 
 import { APP_VERSION, GIT_HASH } from '../../buildInfo.generated'
 
@@ -24,16 +23,7 @@ export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
         </DialogHeader>
 
         <div className="flex flex-col items-center gap-4 py-4">
-          <img
-            src={iconDark}
-            alt="Prose"
-            className="h-16 w-16 hidden dark:block"
-          />
-          <img
-            src={iconLight}
-            alt="Prose"
-            className="h-16 w-16 block dark:hidden"
-          />
+          <ProseMark tile title="Prose" className="h-16 w-16 rounded-[22%]" />
 
           <div className="text-center space-y-1">
             <p className="text-sm text-muted-foreground">

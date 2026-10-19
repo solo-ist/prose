@@ -55,28 +55,13 @@ export function FrontmatterDisplay({ content, frontmatter: frontmatterObj }: Fro
   return (
     <div className="mb-6 rounded-md bg-muted/50 border border-border/50 px-4 py-3 font-mono text-xs text-muted-foreground">
       <div className="space-y-1.5">
-        {Object.entries(data).map(([key, value]) => {
-          const isDocId = key === 'google_doc_id'
-          const displayValue = isDocId ? value.replace(/^['"]|['"]$/g, '') : value
-          return (
-            <div key={key} className="flex items-center gap-1.5">
-              <span className="text-muted-foreground/70 shrink-0 w-32 truncate">{key}</span>
-              <span className="text-muted-foreground/40 shrink-0">:</span>
-              {isDocId ? (
-                <a
-                  href={`https://docs.google.com/document/d/${displayValue}/edit`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-foreground/80 flex-1 truncate underline decoration-muted-foreground/40 hover:decoration-foreground/60"
-                >
-                  {displayValue}
-                </a>
-              ) : (
-                <span className="text-foreground/80 flex-1 truncate">{displayValue}</span>
-              )}
-            </div>
-          )
-        })}
+        {Object.entries(data).map(([key, value]) => (
+          <div key={key} className="flex items-center gap-1.5">
+            <span className="text-muted-foreground/70 shrink-0 w-32 truncate">{key}</span>
+            <span className="text-muted-foreground/40 shrink-0">:</span>
+            <span className="text-foreground/80 flex-1 truncate">{value}</span>
+          </div>
+        ))}
       </div>
     </div>
   )

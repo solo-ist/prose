@@ -41,7 +41,6 @@ interface FileTreeProps {
   onFileDelete?: (path: string) => void
   onFileRename?: (path: string) => void
   onFileShowInFolder?: (path: string) => void
-  onFileLinkClick?: (path: string) => void
   onFileCopy?: (path: string) => void
   onFileCut?: (path: string) => void
   onFilePaste?: (targetDir?: string) => void
@@ -82,7 +81,6 @@ export function FileTree({
   onFileDelete,
   onFileRename,
   onFileShowInFolder,
-  onFileLinkClick,
   onFileCopy,
   onFileCut,
   onFilePaste,
@@ -126,7 +124,6 @@ export function FileTree({
           onFileDelete={onFileDelete}
           onFileRename={onFileRename}
           onFileShowInFolder={onFileShowInFolder}
-          onFileLinkClick={onFileLinkClick}
           onFileCopy={onFileCopy}
           onFileCut={onFileCut}
           onFilePaste={onFilePaste}
@@ -171,7 +168,6 @@ interface FileTreeItemProps {
   onFileDelete?: (path: string) => void
   onFileRename?: (path: string) => void
   onFileShowInFolder?: (path: string) => void
-  onFileLinkClick?: (path: string) => void
   onFileCopy?: (path: string) => void
   onFileCut?: (path: string) => void
   onFilePaste?: (targetDir?: string) => void
@@ -212,7 +208,6 @@ const FileTreeItem = memo(function FileTreeItem({
   onFileDelete,
   onFileRename,
   onFileShowInFolder,
-  onFileLinkClick,
   onFileCopy,
   onFileCut,
   onFilePaste,
@@ -436,9 +431,7 @@ const FileTreeItem = memo(function FileTreeItem({
   const showChevron = item.isDirectory && (item.children?.length || item.hasChildren)
 
   const buttonElement = (
-    <div
-      className={cn("group flex items-center", !item.isDirectory && onFileLinkClick && "relative")}
-    >
+    <div className="group flex items-center">
       <button
         ref={buttonRef}
         draggable={!item.isDirectory}
@@ -523,18 +516,6 @@ const FileTreeItem = memo(function FileTreeItem({
           />
         )}
       </button>
-      {!item.isDirectory && onFileLinkClick && !isRenaming && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            onFileLinkClick(item.path)
-          }}
-          className="absolute right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent"
-          title="Open in Google Docs"
-        >
-          <ExternalLink className="h-3 w-3 text-muted-foreground" />
-        </button>
-      )}
     </div>
   )
 
@@ -747,7 +728,6 @@ const FileTreeItem = memo(function FileTreeItem({
           onFileDelete={onFileDelete}
           onFileRename={onFileRename}
           onFileShowInFolder={onFileShowInFolder}
-          onFileLinkClick={onFileLinkClick}
           onFileCopy={onFileCopy}
           onFileCut={onFileCut}
           onFilePaste={onFilePaste}

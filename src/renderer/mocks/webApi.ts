@@ -23,15 +23,6 @@ import type {
   RemarkableSyncMetadata,
   RemarkableCloudNotebook,
   RemarkableSyncState,
-  GoogleAuthResult,
-  GoogleConnectionStatus,
-  GoogleSyncDocResult,
-  GooglePullResult,
-  GoogleImportResult,
-  GoogleSyncAllResult,
-  GoogleDocMetadata,
-  GoogleSyncMetadata,
-  GoogleDocEntry,
   McpStatus,
   TestApiKeyRequest,
   TestApiKeyResult,
@@ -490,54 +481,6 @@ export function createMockApi(): ElectronAPI {
     remarkableCancelSync: async (): Promise<void> => {},
 
     onRemarkableSyncProgress: () => () => {},
-
-    // ---- Google Docs (stubs) ----------------------------------------------
-
-    googleIsConfigured: async (): Promise<boolean> => false,
-
-    googleStartAuth: async (): Promise<GoogleAuthResult> => ({
-      success: false,
-      error: 'Google Docs is not available in web mode',
-    }),
-
-    googleDisconnect: async (): Promise<void> => {},
-
-    googleGetConnectionStatus: async (): Promise<GoogleConnectionStatus> => ({
-      connected: false,
-      error: 'Google Docs is not available in web mode',
-    }),
-
-    googleSync: async (): Promise<GoogleSyncDocResult> => ({
-      success: false,
-      direction: 'push',
-      error: 'Google Docs is not available in web mode',
-    }),
-
-    googlePull: async (_docId: string): Promise<GooglePullResult> => ({
-      success: false,
-      error: 'Google Docs is not available in web mode',
-    }),
-
-    googleImport: async (_docId: string): Promise<GoogleImportResult> => ({
-      success: false,
-      error: 'Google Docs is not available in web mode',
-    }),
-
-    googleEnsureFolder: async (): Promise<string> => DOCUMENTS_ROOT,
-
-    googleSyncAll: async (_syncDir: string): Promise<GoogleSyncAllResult> => ({
-      synced: 0,
-      skipped: 0,
-      errors: ['Google Docs is not available in web mode'],
-    }),
-
-    googleListRecentDocs: async (_maxResults?: number): Promise<GoogleDocMetadata[]> => [],
-
-    googleGetSyncMetadata: async (): Promise<GoogleSyncMetadata | null> => null,
-
-    googleUpdateSyncMetadataEntry: async (_entry: GoogleDocEntry): Promise<void> => {},
-
-    googleRemoveSyncMetadataEntry: async (_googleDocId: string): Promise<void> => {},
 
     // ---- Emoji generation (stub) -----------------------------------------
 

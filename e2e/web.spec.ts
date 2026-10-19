@@ -187,9 +187,9 @@ test.describe('File Explorer — Tabs', () => {
     await expect(panel.getByText('Welcome to Prose')).toBeVisible({ timeout: 5_000 })
   })
 
-  // Note: Google Docs and reMarkable tab buttons are conditionally rendered
-  // only when those integrations are connected. In web mode they are not
-  // available, so we skip those assertions here.
+  // Note: the reMarkable tab button is conditionally rendered only when that
+  // integration is connected. In web mode it is not available, so we skip
+  // those assertions here.
 })
 
 // ---------------------------------------------------------------------------

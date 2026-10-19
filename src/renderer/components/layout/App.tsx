@@ -1,5 +1,4 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useGoogleDocsEnabled, isGoogleDocsEnabled } from '../../lib/featureFlags'
 import { useSharePullSync } from '../../lib/shareSync'
 import { useShareContentSync } from '../../lib/shareContentSync'
 import { downloadSkillWithAlert } from '../../lib/skillDownload'
@@ -35,9 +34,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from '../ui/alert-dialog'
-import { Input } from '../ui/input'
-import { Label } from '../ui/label'
-import { Checkbox } from '../ui/checkbox'
 import { buttonVariants } from '../ui/button'
 import { cn } from '../../lib/utils'
 import { useChat } from '../../hooks/useChat'
@@ -121,7 +117,6 @@ export function App() {
   const panelLayout = usePanelLayout({ fileListPanelRef, chatPanelRef })
   const { isChatOpen, isFileListOpen, toggleChat, toggleFileList, setChatOpen, panelSizes } = panelLayout
 
-  const googleDocsEnabled = useGoogleDocsEnabled()
   // Pull reviewer comments for published docs — background poll + focus (#769)
   useSharePullSync()
   // Content push engine: auto-mode background pushes + share-dirty tracking (#769)
@@ -132,9 +127,6 @@ export function App() {
   const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false)
   const [pendingDraft, setPendingDraft] = useState<DraftState | null>(null)
   const [pendingSession, setPendingSession] = useState<SessionState | null>(null)
-  const [importDialogOpen, setImportDialogOpen] = useState(false)
-  const [importDocId, setImportDocId] = useState('')
-  const [importAsAI, setImportAsAI] = useState(false)
   const tabsInitialized = useRef(false)
 
   const hydrateFromDraft = useEditorStore((state) => state.hydrateFromDraft)
@@ -513,235 +505,6 @@ export function App() {
     }
   }, [pendingSession, pendingDraft, discardSession, discardDraft, createNewTab])
 
-  // Google Docs sync handlers
-  const handleGoogleSync = useCallback(async () => {
-    if (!window.api?.googleSync || !window.api?.googleGetConnectionStatus) {
-      console.warn('Google API not available')
-      return
-    }
-
-    // Check if connected
-    const status = await window.api.googleGetConnectionStatus()
-    if (!status.connected) {
-      alert('Please connect your Google account first.\n\nGo to Settings > Account to connect.')
-      return
-    }
-
-    const editorState = useEditorStore.getState()
-    let frontmatter = editorState.document.frontmatter
-
-    // Strip frontmatter from content before syncing
-    const { parseMarkdown, serializeMarkdown } = await import('../../lib/markdown')
-    const parsed = parseMarkdown(editorState.document.content)
-    const content = parsed.content
-    const path = editorState.document.path
-    const title = path
-      ? path.split('/').pop()?.replace(/\.[^/.]+$/, '') || 'Untitled'
-      : 'Untitled'
-
-    // Safety net: if frontmatter lost google_doc_id (e.g. after tab switch), re-read from disk
-    if (!frontmatter.google_doc_id && path && window.api?.readFile) {
-      try {
-        const raw = await window.api.readFile(path)
-        const diskParsed = parseMarkdown(raw)
-        if (diskParsed.frontmatter.google_doc_id) {
-          frontmatter = diskParsed.frontmatter
-          editorState.setFrontmatter(frontmatter)
-        }
-      } catch {
-        // File read failed, proceed with in-memory frontmatter
-      }
-    }
-
-    useFileListStore.getState().setGoogleSyncing(true)
-    try {
-      const result = await window.api.googleSync(content, frontmatter, title)
-
-      if (!result.success) {
-        alert(`Sync failed: ${result.error || 'Unknown error'}`)
-        return
-      }
-
-      if (result.direction === 'pull' && result.content !== undefined) {
-        // Pull: update editor content
-        const editor = useEditorInstanceStore.getState().editor
-        if (editor) {
-          editor.commands.setContent(result.content)
-        }
-        const updatedFrontmatter = {
-          ...frontmatter,
-          google_doc_id: result.docId || frontmatter.google_doc_id,
-          google_synced_at: result.modifiedTime || new Date().toISOString()
-        }
-        editorState.setFrontmatter(updatedFrontmatter)
-        editorState.setDirty(true)
-
-        // Update sync metadata
-        if (result.docId && path && window.api.googleUpdateSyncMetadataEntry) {
-          await window.api.googleUpdateSyncMetadataEntry({
-            title,
-            googleDocId: result.docId,
-            localPath: path,
-            webViewLink: result.webViewLink || `https://docs.google.com/document/d/${result.docId}/edit`,
-            syncedAt: new Date().toISOString(),
-            remoteModifiedTime: result.modifiedTime || new Date().toISOString()
-          })
-          useFileListStore.getState().loadGoogleDocsMetadata()
-        }
-
-        console.log('[Google Sync] Pulled changes from Google Docs')
-      } else {
-        // Push or Create: update frontmatter with docId + synced_at
-        const updatedFrontmatter = {
-          ...frontmatter,
-          google_doc_id: result.docId || frontmatter.google_doc_id,
-          google_synced_at: result.modifiedTime || new Date().toISOString()
-        }
-        editorState.setFrontmatter(updatedFrontmatter)
-
-        // Save file to persist frontmatter to disk
-        if (editorState.document.path) {
-          const serialized = serializeMarkdown(editorState.document.content, updatedFrontmatter)
-          await window.api!.saveFile(editorState.document.path, serialized)
-        }
-
-        // Update sync metadata
-        const docId = result.docId || String(frontmatter.google_doc_id)
-        if (docId && window.api.googleUpdateSyncMetadataEntry) {
-          await window.api.googleUpdateSyncMetadataEntry({
-            title,
-            googleDocId: docId,
-            localPath: editorState.document.path || '',
-            webViewLink: result.webViewLink || `https://docs.google.com/document/d/${docId}/edit`,
-            syncedAt: new Date().toISOString(),
-            remoteModifiedTime: result.modifiedTime || new Date().toISOString()
-          })
-          useFileListStore.getState().loadGoogleDocsMetadata()
-        }
-
-        if (result.direction === 'create' && result.webViewLink) {
-          if (confirm('Created new Google Doc.\n\nOpen in browser?')) {
-            window.open(result.webViewLink, '_blank')
-          }
-        }
-
-        console.log(`[Google Sync] ${result.direction === 'create' ? 'Created' : 'Pushed'} to Google Docs`)
-      }
-    } catch (error) {
-      alert(`Error syncing with Google Docs: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    } finally {
-      useFileListStore.getState().setGoogleSyncing(false)
-    }
-  }, [])
-
-  const handleGoogleImport = useCallback(async () => {
-    if (!window.api?.googleImport || !window.api?.googleGetConnectionStatus) {
-      console.warn('Google API not available')
-      return
-    }
-
-    // Check if connected
-    const status = await window.api.googleGetConnectionStatus()
-    if (!status.connected) {
-      alert('Please connect your Google account first.\n\nGo to Settings > Account to connect.')
-      return
-    }
-
-    // Open the import dialog (prompt() doesn't work in Electron)
-    setImportDocId('')
-    setImportDialogOpen(true)
-  }, [])
-
-  const handleGoogleImportConfirm = useCallback(async () => {
-    const rawDocId = importDocId.trim()
-    const markAsAI = importAsAI
-    setImportDialogOpen(false)
-    setImportDocId('')
-    setImportAsAI(false)
-
-    if (!rawDocId || !window.api?.googleImport) return
-
-    try {
-      const result = await window.api.googleImport(rawDocId)
-
-      if (result.success && result.content !== undefined) {
-        const extractedDocId = result.docId || rawDocId
-        const docTitle = result.title || 'Untitled'
-
-        // Auto-save to ~/Documents/Google Docs/
-        const { serializeMarkdown } = await import('../../lib/markdown')
-        const frontmatter = {
-          google_doc_id: extractedDocId,
-          google_synced_at: new Date().toISOString()
-        }
-        const serialized = serializeMarkdown(result.content, frontmatter)
-
-        let savedPath: string | undefined
-        if (window.api.googleEnsureFolder) {
-          try {
-            const folderPath = await window.api.googleEnsureFolder()
-            const sanitizedTitle = docTitle.replace(/[/\\:*?"<>|]/g, '-').trim() || 'Untitled'
-            savedPath = `${folderPath}/${sanitizedTitle}.md`
-            await window.api.saveFile(savedPath, serialized)
-
-            // Record in sync metadata
-            if (window.api.googleUpdateSyncMetadataEntry) {
-              await window.api.googleUpdateSyncMetadataEntry({
-                title: docTitle,
-                googleDocId: extractedDocId,
-                localPath: savedPath,
-                webViewLink: `https://docs.google.com/document/d/${extractedDocId}/edit`,
-                syncedAt: new Date().toISOString(),
-                remoteModifiedTime: new Date().toISOString()
-              })
-              useFileListStore.getState().loadGoogleDocsMetadata()
-            }
-          } catch (err) {
-            console.error('Failed to auto-save imported doc:', err)
-          }
-        }
-
-        if (savedPath) {
-          // Open the saved file in a tab
-          await openFileInTab(savedPath)
-        } else {
-          // Fallback: create a new untitled tab with the imported content baked in.
-          // Same race-free pattern as the prose:// URL handler — the new editor mounts
-          // with content already in editorStore, no setContent-after-mount needed.
-          await createNewTab({
-            content: result.content,
-            frontmatter,
-            isDirty: true
-          })
-        }
-
-        // Mark as AI-generated if checkbox was checked
-        if (markAsAI) {
-          // Wait for editor to settle with the content
-          setTimeout(() => {
-            const editor = useEditorInstanceStore.getState().editor
-            const editorState = useEditorStore.getState()
-            if (editor && result.content) {
-              const { useAnnotationStore } = require('../../extensions/ai-annotations/store')
-              useAnnotationStore.getState().addAnnotation({
-                documentId: editorState.document.documentId,
-                type: 'insertion' as const,
-                from: 0,
-                to: editor.state.doc.content.size,
-                content: result.content,
-                provenance: { model: 'external', conversationId: '', messageId: '' }
-              })
-            }
-          }, 100)
-        }
-      } else {
-        alert(`Failed to import from Google Docs: ${result.error || 'Unknown error'}`)
-      }
-    } catch (error) {
-      alert(`Error importing from Google Docs: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    }
-  }, [importDocId, importAsAI, createNewTab, openFileInTab])
-
   // Auto-show AI consent dialog on first launch or when disclosure version changes
   const setAIConsentDialogOpen = useSettingsStore((s) => s.setAIConsentDialogOpen)
   useEffect(() => {
@@ -996,12 +759,6 @@ export function App() {
         case 'reopenClosedTab':
           reopenLastClosedTab()
           break
-        case 'googleSync':
-          if (isGoogleDocsEnabled()) handleGoogleSync()
-          break
-        case 'googleImport':
-          if (isGoogleDocsEnabled()) handleGoogleImport()
-          break
         case 'showRecentFiles':
           // Open the file list panel and switch to recent view
           useFileListStore.getState().setViewMode('recent')
@@ -1029,7 +786,7 @@ export function App() {
     })
 
     return unsubscribe
-  }, [openFileInTab, saveFile, saveFileAs, createNewTab, setDialogOpen, toggleChat, toggleFileList, isFileListOpen, setShortcutsDialogOpen, setAboutDialogOpen, editor, handleGoogleSync, handleGoogleImport, reopenLastClosedTab])
+  }, [openFileInTab, saveFile, saveFileAs, createNewTab, setDialogOpen, toggleChat, toggleFileList, isFileListOpen, setShortcutsDialogOpen, setAboutDialogOpen, editor, reopenLastClosedTab])
 
   // Keep the native "Reopen Closed Tab" menu item enabled only while the
   // session-only closed-tab stack has entries. Push the current emptiness to
@@ -1209,56 +966,6 @@ export function App() {
               </AlertDialogAction>
               <AlertDialogAction onClick={() => { void handleConflictOverwrite() }}>
                 Overwrite &amp; Save
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-
-        {/* Google Docs Import Dialog */}
-        <AlertDialog open={googleDocsEnabled && importDialogOpen} onOpenChange={(open) => {
-          if (!open) {
-            setImportDialogOpen(false)
-            setImportDocId('')
-          }
-        }}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Import from Google Docs</AlertDialogTitle>
-              <AlertDialogDescription>
-                Enter the Google Doc ID or paste the full document URL.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <div className="py-2 space-y-3">
-              <div>
-                <Label htmlFor="google-doc-id" className="sr-only">Document ID</Label>
-                <Input
-                  id="google-doc-id"
-                  value={importDocId}
-                  onChange={(e) => setImportDocId(e.target.value)}
-                  placeholder="e.g. 1BxiM0C2..."
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && importDocId.trim()) {
-                      handleGoogleImportConfirm()
-                    }
-                  }}
-                  autoFocus
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="import-as-ai"
-                  checked={importAsAI}
-                  onCheckedChange={(checked) => setImportAsAI(checked === true)}
-                />
-                <Label htmlFor="import-as-ai" className="text-sm font-normal cursor-pointer">
-                  Mark as AI-generated
-                </Label>
-              </div>
-            </div>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={handleGoogleImportConfirm} disabled={!importDocId.trim()}>
-                Import
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

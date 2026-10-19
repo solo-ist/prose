@@ -248,7 +248,7 @@ export function useTabs() {
    * content from its initial state — no setContent-after-mount race.
    *
    * Used by callers that want to drop content into a fresh tab in one step
-   * (e.g., the prose:// URL handler, the Google Docs import fallback). For an
+   * (e.g., the prose:// URL handler). For an
    * empty tab, call createNewTab() with no arguments.
    */
   const createNewTab = useCallback(async (init?: {

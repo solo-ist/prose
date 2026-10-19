@@ -209,13 +209,12 @@ When running as Electron:
 
 ### IPC Channels
 
-Most handlers live in `src/main/ipc.ts` (99 across 15 namespaces). A few sit closer to their feature: `sentry:setEnabled` and `renderer:ready` in `src/main/index.ts`, `updater:*` (3) in `src/main/updater.ts`, `file:watch:start` and `file:watch:stop` in `src/main/fileWatcher.ts`, and `mcp:tool:result` (via `ipcMain.on`, not `handle`) in `src/main/mcp/bridge.ts`.
+Most handlers live in `src/main/ipc.ts` (86 across 14 namespaces). A few sit closer to their feature: `sentry:setEnabled` and `renderer:ready` in `src/main/index.ts`, `updater:*` (3) in `src/main/updater.ts`, `file:watch:start` and `file:watch:stop` in `src/main/fileWatcher.ts`, and `mcp:tool:result` (via `ipcMain.on`, not `handle`) in `src/main/mcp/bridge.ts`.
 
 - `file:*` (22) - File operations (open, save, read, rename, delete, trash, duplicate, watch, export HTML, MAS bookmark activation, etc.) — 20 handlers in `ipc.ts`, plus `file:watch:start` and `file:watch:stop` in `fileWatcher.ts`
 - `settings:*` (4) - Settings persistence, secure storage check, API key test
 - `llm:chat`, `llm:fetchModels`, `llm:stream`, `llm:stream:abort` - LLM API calls (streaming via Anthropic SDK)
 - `remarkable:*` (20) - reMarkable tablet sync (register, validate, sync, sync:abort, OCR, folder move, etc.)
-- `google:*` (13) - Google Docs OAuth, sync, pull, import, metadata management
 - `mcp:*` (3) - MCP server status, install, uninstall for Claude Desktop
 - `share:*` (21) - Gateway sharing: sign-in, access, publish/republish/revoke, local list + `share:listRemote` gateway reconcile (#1037), comments pull/push, path updates. Only the two local reads (`share:list`, `share:getForPath`) are callable on MAS builds
 - `sentry:setEnabled` - Toggle Sentry error tracking from renderer
@@ -247,15 +246,14 @@ Zustand stores in `src/renderer/stores/`:
 
 To override a flag without rebuilding, add to `~/Library/Application Support/Prose/settings.json` (macOS; `Prose Dev/settings.json` for `npm run dev`):
 ```json
-"featureFlags": { "googleDocs": true, "remarkable": false }
+"featureFlags": { "remarkable": false }
 ```
 
 Current flags:
-- `googleDocs` — Google Docs bidirectional sync (v1.1). **Default: off.** Opt-in only.
 - `remarkable` — reMarkable tablet sync (v1.1). **Default: on for desktop builds; forced off for MAS builds** regardless of the user's setting, since the reMarkable Cloud auth and OCR Lambda credentials aren't ready for App Store review. Set to `false` explicitly to disable on desktop.
 - `webPlatform` — sharing via the Prose gateway (share links, live comments, sign-in). **Default: on for desktop builds since 1.8.1 (#943); forced off for MAS builds.** Publishing is still gated server-side by the `share_publish` grant; users without one get Request access (#1018). Read it through `webPlatformOn` / `useWebPlatformEnabled` / `isWebPlatformEnabled` — never `featureFlags.webPlatform` directly — so the default lives in one place.
 
-The module exports React hooks (`useGoogleDocsEnabled`, `useRemarkableEnabled`) for use in components and non-hook accessors (`isGoogleDocsEnabled`, `isRemarkableEnabled`) for use in callbacks. When gating a feature, import the appropriate function and use it to guard UI rendering, background effects, and menu handlers. Preserve all code — gate, don't delete.
+The module exports React hooks (`useRemarkableEnabled`, `useWebPlatformEnabled`) for use in components and non-hook accessors (`isRemarkableEnabled`, `isWebPlatformEnabled`) for use in callbacks. When gating a feature, import the appropriate function and use it to guard UI rendering, background effects, and menu handlers. Preserve all code — gate, don't delete.
 
 ### IndexedDB Schema Changes
 
@@ -341,13 +339,6 @@ Syncs handwritten notebooks **and typed-text documents** (Type Folio keyboard in
 **Sync progress push:** The `remarkable:sync` IPC handler pushes `SyncProgressUpdate` events via `event.sender.send('remarkable:sync:progress', ...)`. The preload exposes `onRemarkableSyncProgress(callback)` for the renderer to subscribe.
 
 **OCR service:** Requires environment variables `REMARKABLE_OCR_URL` and `REMARKABLE_OCR_API_KEY` pointing to the Lambda endpoint. When absent, OCR silently skips — handwriting notebooks have no markdown text, but typed-text docs still sync (typed extraction is local and needs no OCR). Also requires an Anthropic API key (reused from LLM provider settings, or configured separately in Settings → Integrations).
-
-### Google Docs Integration
-
-Bidirectional sync with Google Docs. Located in `src/main/google/`:
-- `auth.ts` - OAuth2 flow with local redirect server, tokens stored via `safeStorage`
-- `client.ts` - Google Drive/Docs API client (create, update, import, markdown ↔ HTML conversion)
-- `sync.ts` - Sync logic, folder management (`~/Documents/Google Docs/`), metadata tracking (`.google/sync-metadata.json`)
 
 ### MCP Server
 

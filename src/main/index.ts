@@ -16,7 +16,7 @@ if (dotenvResult.error) {
 // Initialize Sentry early (before app.whenReady) if user has opted in
 import { initSentry, setSentryEnabled } from './sentry'
 import { getUserDataPath, LEGACY_SETTINGS_DIR, seedDevProfile, validatePathConsistency, resolveWithin, IMAGE_EXTENSIONS } from './paths'
-import { migrateFromLegacyDir } from './migrate'
+import { migrateFromLegacyDir, purgeGoogleCredentials } from './migrate'
 seedDevProfile()
 try {
   // Check new path first; fall back to legacy for first post-upgrade launch
@@ -57,7 +57,6 @@ import { isQuitting } from './quitState'
 import { setupFileWatcherHandlers, teardownFileWatcher } from './fileWatcher'
 
 console.log('[Main] Environment loaded. OCR URL:', process.env.REMARKABLE_OCR_URL ? 'set' : 'not set')
-console.log('[Main] Google configured:', process.env.GOOGLE_CLIENT_ID ? 'ID set' : 'ID missing', process.env.GOOGLE_CLIENT_SECRET ? 'Secret set' : 'Secret missing')
 
 // Enable remote debugging in dev mode for QA automation (Circuit Electron, Playwright).
 // PROSE_DEBUG_PORT overrides the default so concurrent agent sessions (other
@@ -398,6 +397,9 @@ app.whenReady().then(async () => {
   // Migrate legacy ~/.prose/ data to app.getPath('userData') on first launch
   await migrateFromLegacyDir()
 
+  // Google Docs was removed in 1.9.0 (#1057) — drop its orphaned OAuth token
+  await purgeGoogleCredentials()
+
   // Deny all permission requests and checks — the app needs no special permissions (camera, mic, geolocation, etc.)
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false)
@@ -471,7 +473,7 @@ app.whenReady().then(async () => {
     // the renderer SDK's envelope POSTs are refused by CSP (heavy console spam in MAS,
     // and crash reports never reach the main process). https://*.ingest.sentry.io is
     // the upload endpoint used by the main process itself.
-    "connect-src 'self' https://api.anthropic.com https://accounts.google.com https://www.googleapis.com https://docs.googleapis.com https://oauth2.googleapis.com https://*.ingest.sentry.io sentry-ipc:",
+    "connect-src 'self' https://api.anthropic.com https://*.ingest.sentry.io sentry-ipc:",
     // img-src https: is needed for documents with remote images (![](https://...))
     // Tightening this would require a proxy or URL allowlist
     "img-src 'self' data: https: local-file:",

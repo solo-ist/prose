@@ -13,6 +13,35 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The app icon is an Icon Composer bundle (#812). electron-builder shells
+      # out to `actool` to compile it, and THROWS rather than falling back if
+      # actool is missing or older than 26 — so a silent image bump that moved
+      # the default Xcode backwards would break the release build with a
+      # confusing error. Select the newest Xcode >= 26 explicitly and fail loudly
+      # with the versions that were available if there is none.
+      - name: Select Xcode (>= 26, required by actool)
+        run: |
+          set -euo pipefail
+          newest=""
+          for app in /Applications/Xcode*.app; do
+            [ -d "$app" ] || continue
+            v=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist" 2>/dev/null || echo 0)
+            major=${v%%.*}
+            if [ "${major:-0}" -ge 26 ]; then
+              if [ -z "$newest" ] || [ "$(printf '%s\n%s\n' "$newest_v" "$v" | sort -V | tail -1)" = "$v" ]; then
+                newest="$app"; newest_v="$v"
+              fi
+            fi
+          done
+          if [ -z "$newest" ]; then
+            echo "::error::No Xcode >= 26 on this runner; actool cannot compile the .icon bundle."
+            ls -d /Applications/Xcode*.app 2>/dev/null || echo "  (no Xcode installs found)"
+            exit 1
+          fi
+          echo "Using $newest ($newest_v)"
+          sudo xcode-select -s "$newest/Contents/Developer"
+          actool --version | head -20
+
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:

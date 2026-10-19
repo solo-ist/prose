@@ -13,6 +13,19 @@ if (dotenvResult.error) {
   config()
 }
 
+/**
+ * Test-only: create windows but never show them, and keep the app out of the dock.
+ *
+ * Playwright drives the renderer over CDP, and an unshown Electron window still
+ * loads, lays out and paints — that is exactly what `ready-to-show` waits for — so
+ * DOM-level assertions are unaffected. This is NOT Chromium's `--headless`, which
+ * Electron does not support; the window exists, it is simply never revealed.
+ *
+ * Without it a local suite run opens ~40 windows, each stealing focus. Never set in
+ * a shipped build: it is read from the environment, and nothing in the app sets it.
+ */
+const IS_HEADLESS_TEST = process.env.PROSE_HEADLESS === '1'
+
 // Initialize Sentry early (before app.whenReady) if user has opted in
 import { initSentry, setSentryEnabled } from './sentry'
 import { getUserDataPath, LEGACY_SETTINGS_DIR, seedDevProfile, validatePathConsistency, resolveWithin, IMAGE_EXTENSIONS } from './paths'
@@ -118,7 +131,7 @@ if (!gotTheLock) {
   // Handle second instance launch (another instance tried to start)
   app.on('second-instance', (event, commandLine, workingDirectory) => {
     const mainWindow = BrowserWindow.getAllWindows()[0]
-    if (mainWindow) {
+    if (mainWindow && !IS_HEADLESS_TEST) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.show()
       mainWindow.focus()
@@ -229,9 +242,11 @@ app.on('open-url', (event, url) => {
 
   const mainWindow = BrowserWindow.getAllWindows()[0]
   if (mainWindow && rendererReady) {
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.show()
-    mainWindow.focus()
+    if (!IS_HEADLESS_TEST) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+    }
     mainWindow.webContents.send('prose:openFromUrl', content)
   } else {
     pendingUrlContent.push(content)
@@ -292,6 +307,7 @@ function createWindow(): BrowserWindow {
 
   let hasBeenShown = false
   mainWindow.on('ready-to-show', () => {
+    if (IS_HEADLESS_TEST) return
     if (!hasBeenShown) {
       mainWindow.show()
       hasBeenShown = true
@@ -375,6 +391,9 @@ app.on('certificate-error', (event, _webContents, _url, _error, _certificate, ca
 })
 
 app.whenReady().then(async () => {
+  // Keep test runs out of the dock entirely — otherwise every spec bounces an icon.
+  if (IS_HEADLESS_TEST) app.dock?.hide()
+
   electronApp.setAppUserModelId('ist.solo.prose')
 
   // Register as default handler for prose:// URL scheme.
@@ -623,9 +642,11 @@ app.whenReady().then(async () => {
       createWindow()
     } else {
       const win = windows[0]
-      if (win.isMinimized()) win.restore()
-      win.show()
-      win.focus()
+      if (!IS_HEADLESS_TEST) {
+        if (win.isMinimized()) win.restore()
+        win.show()
+        win.focus()
+      }
     }
   })
 })

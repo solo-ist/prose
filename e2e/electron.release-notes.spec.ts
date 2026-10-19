@@ -77,6 +77,12 @@ async function boot(userDataDir: string): Promise<{ app: ElectronApplication; pa
 
 test.describe('Electron — post-update release notes (#1058)', () => {
   test('this version ships a bundled notes file', () => {
+    // Self-heal first: the no-notes test below hides this file and restores it in a
+    // `finally`, but a SIGKILL mid-test would skip that and leave every later run
+    // failing here for the wrong reason.
+    const stray = `${NOTES_PATH}.hidden-by-test`
+    if (existsSync(stray) && !existsSync(NOTES_PATH)) renameSync(stray, NOTES_PATH)
+
     // The modal is silent without it, so a missing file would make every other
     // assertion here vacuous. Fail loudly instead.
     expect(

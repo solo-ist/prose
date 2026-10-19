@@ -64,7 +64,10 @@ type Active = { kind: 'row' | 'col'; index: number } | null
 function measure(el: HTMLTableElement): Metrics | null {
   const table = el.getBoundingClientRect()
   if (table.width === 0 || table.height === 0) return null
-  const rowEls = Array.from(el.querySelectorAll('tr'))
+  // `el.rows`, not querySelectorAll('tr'): the HTMLTableElement collection is
+  // shallow, so a nested table (reachable by pasting HTML into a cell) cannot
+  // contribute phantom rows that would mis-position every grip below it.
+  const rowEls = Array.from(el.rows)
   const firstRowCells = rowEls[0] ? Array.from(rowEls[0].children) : []
   return {
     table,

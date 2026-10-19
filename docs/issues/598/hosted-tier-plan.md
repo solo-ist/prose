@@ -14,7 +14,7 @@
 | Organizational membership | not offered | still not mentioned publicly — remains a conversation |
 | Fiscal host guidance | Metagov first, OSC second | **ask both in parallel**; neither publishes a membership-with-benefit policy |
 
-Implications: joining the co-op for the spike is cheap; the co-op subsidizes members heavily, so the organizational rate will likely sit well above the member rate; the fiscal-host answer is the single longest pole and nothing downstream of it should wait serially.
+Implications: Angel is already an individual member, so the #952 spike can start today; the co-op subsidizes members heavily, so the organizational rate will likely sit well above the member rate; the fiscal-host answer is the single longest pole and nothing downstream of it should wait serially.
 
 The values-aligned-hosting research (2026-10-17) that prompted this also recommended moving the personal and marketing static sites to May First. That is outside this roadmap; the gateway stays on Render, and Render stays a public expense on the ledger wherever the static sites live.
 
@@ -26,16 +26,15 @@ Nothing in the gateway depends on a human step until the Open Collective sync an
 
 1. Put the membership-with-benefit question to **Open Source Collective** and **Metagov** at the same time (wording on #957).
 2. Pick the host; create the collective; set the two tiers; mint the personal token into Render env.
-3. **Join Inference Cooperative as an individual now** ($5/mo) so Lane S can run.
-4. Raise the organizational / app-partner ask with the co-op.
+3. Raise the organizational / app-partner ask with the co-op.
 
 ### Lane S — spikes (agent)
 
 | Spike | Can start | Waits on |
 |---|---|---|
 | [#951](https://github.com/solo-ist/prose/issues/951) Open Collective → entitlement check | now, against a scratch collective (admin-only GraphQL works before a host approves; webhook capture needs the test endpoint) | — |
-| [#952](https://github.com/solo-ist/prose/issues/952) (a) `/v1/messages` passthrough, (b) tool loop on 2–3 co-op models, (d) usage shape | once Angel holds an individual key | — |
-| [#952](https://github.com/solo-ist/prose/issues/952) (c) organizational terms | — | Lane H step 4 |
+| [#952](https://github.com/solo-ist/prose/issues/952) (a) `/v1/messages` passthrough, (b) tool loop on 2–3 co-op models, (d) usage shape | now, on Angel's existing member key | — |
+| [#952](https://github.com/solo-ist/prose/issues/952) (c) organizational terms | — | Lane H step 3 |
 
 ### Lane B — ungated build (agent), in order
 
@@ -63,7 +62,7 @@ Alongside, not part of this batch: [#766](https://github.com/solo-ist/prose/issu
 - #953 / #954 narrowed to their gated halves; #1074 / #1075 filed as native sub-issues of #598 and placed in **Do First**.
 - #770 closed as superseded (its last item, `sessions` revocation, moved to #1074) and archived off the board.
 - #853 (closed) archived off the board.
-- #957 checklist updated: ask both hosts in parallel; OSC's exact exclusion wording; individual co-op membership at $5/mo.
+- #957 checklist updated: ask both hosts in parallel; OSC's exact exclusion wording; individual co-op membership already held (ticked).
 - ADR + operating model carry dated amendments rather than silent rewrites.
 
 ## Open until Lane H answers

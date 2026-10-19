@@ -61,6 +61,9 @@ import { ShareStatusPopover } from '../share/ShareStatusPopover'
 import { useShareStore } from '../../stores/shareStore'
 import { useWebPlatformEnabled } from '../../lib/featureFlags'
 import { SelectionPopover } from './SelectionPopover'
+import { TableControls } from './TableControls'
+import { insertTable } from '../../lib/tableCommands'
+import { TableCellKeymap } from '../../extensions/table-cell-keymap'
 import { AddCommentDialog } from './AddCommentDialog'
 import {
   Dialog,
@@ -342,6 +345,9 @@ export function Editor() {
       TableRow,
       TableHeader,
       TableCell,
+      // Enter inside a cell must not split the block — see the extension for why
+      // a split silently turns the table into raw HTML on save (#1060).
+      TableCellKeymap,
       TaskListDashMarker,
       TaskItem.configure({
         nested: true
@@ -1195,6 +1201,17 @@ export function Editor() {
     return () => window.removeEventListener('menu:addComment', handleMenuAddComment)
   }, [openAddCommentDialog])
 
+  // Listen for menu:insertTable (#1060). Inserted with a header row, the only
+  // shape tiptap-markdown serializes as a pipe table.
+  useEffect(() => {
+    const handleMenuInsertTable = () => {
+      if (!editor || !editor.isEditable || useEditorStore.getState().sourceMode) return
+      insertTable(editor)
+    }
+    window.addEventListener('menu:insertTable', handleMenuInsertTable)
+    return () => window.removeEventListener('menu:insertTable', handleMenuInsertTable)
+  }, [editor])
+
   // Listen for search:show event from tools (e.g., search_document)
   useEffect(() => {
     const handleSearchShow = () => setIsFindOpen(true)
@@ -1479,6 +1496,10 @@ export function Editor() {
           onToggleLink={openLinkPopover}
         />
       )}
+      {/* Table rails/grips. Hidden in source mode with the rest of the rich-text
+          affordances, and the component itself bails when the editor is not
+          editable (reMarkable OCR view, preview tabs). */}
+      {!sourceMode && <TableControls editor={editor} />}
       <AddCommentDialog
         editor={editor}
         isOpen={isAddCommentOpen}

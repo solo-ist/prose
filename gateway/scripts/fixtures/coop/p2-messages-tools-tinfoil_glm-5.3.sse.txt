@@ -1,0 +1,48 @@
+event: message_start
+data: {"type":"message_start","message":{"id":"msg_2df8689b-a086-4506-a1e1-5a6540cf0d84","type":"message","role":"assistant","content":[],"model":"tinfoil/glm-5.3","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+
+event: content_block_start
+data: {"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "id": "call_9c3ba45c59b8deac", "name": "suggest_edit", "input": {}}}
+
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": "{\"comment\": \"Correct"}}
+
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": "ing"}}
+
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": " \\\"Teh\\\" to \\\""}}
+
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": "The\\\""}}
+
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": "\", \"content\": \"The"}}
+
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": " quick brown fox jumps over the"}}
+
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": " lazy dog."}}
+
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": "\", \"nodeId\": \"n1"}}
+
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": "\", \"search\": \"Teh"}}
+
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": " quick brown fox jumps over the"}}
+
+event: content_block_delta
+data: {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": " lazy dog.\"}"}}
+
+event: content_block_stop
+data: {"type": "content_block_stop", "index": 0}
+
+event: message_delta
+data: {"type": "message_delta", "delta": {"stop_reason": "tool_use", "stop_sequence": null}, "usage": {"input_tokens": 20, "output_tokens": 118, "cache_creation_input_tokens": 320}}
+
+event: message_stop
+data: {"type": "message_stop"}
+

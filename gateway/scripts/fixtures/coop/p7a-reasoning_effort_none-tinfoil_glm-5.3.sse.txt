@@ -1,0 +1,218 @@
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"role":"assistant","content":""}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":"The"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" user wants a plain"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":"-prose paragraph about lighth"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":"ouses, approximately"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" 150 words. \""}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":"Plain prose"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":"\" suggests"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" clear"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":", straightforward"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" language without excessive"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" ornamentation or purple"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" prose. Let me write something"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" informative and clean"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":".\n\n"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":"Let"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" me draft something:\n\n"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":"Lighthouses are"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" towers"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" built along"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" coastlines to warn ships of"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" dangerous waters"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" and guide"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" them safely"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" to harbor. They work"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" by projecting"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" a beam"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" of light across"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" the sea, traditionally"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" produced"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" by burning oil lamps"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" or candles focused"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" through large"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" lenses,"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" and today"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" generated"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" by electric lamps"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":"."}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" Each"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" lighthouse has a distinctive flash"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" pattern, called"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" its"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" \"characteristic"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":",\" which allows sailors to identify"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" their"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" location at"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" night by"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" consulting"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" navigation"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" charts. The earliest"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" l"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":"ighthouses date"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" back to antiqu"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":"ity;"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" the Phar"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":"os of Alexandria"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":", built around"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" 280 BCE"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":", was considered"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" one of the Seven"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" Wonders of the Ancient"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" World. Before"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" automation"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":", keep"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":"ers lived"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" in the"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" towers"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" to maintain"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" the lamps and"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" lenses"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":", climbing"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" stairs"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" many times each night"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":". Modern"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" ships"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" rely"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" largely"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" on satellite"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" navigation"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":", but"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" l"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":"ighthouses remain"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" in service as"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" backups"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":", and many"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" decom"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":"missioned towers"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" have become museums"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":", tourist"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" attractions, or symbols"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" of coastal"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" heritage"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":".\n\nLet me count the"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" words:\n"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":"Lighthouses("}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":"1) are(2)"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" towers(3) built("}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":"4) along(5)"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":" coastlines(6) to"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":"(7) warn(8"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":") ships(9) of"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":"(10) dangerous(11"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":") waters(12) and"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":"(13) guide(14"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":") them(15) safely"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","object":"chat.completion.chunk","created":1792389836,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"content":"(16)"}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","created":1792389836,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","system_fingerprint":"vllm-0.31.0-tp4-ep-c7b474f9","choices":[{"finish_reason":"length","index":0,"delta":{}}]}
+
+data: {"id":"chatcmpl-bc1f0a7845fe5c27","created":1792389836,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","system_fingerprint":"vllm-0.31.0-tp4-ep-c7b474f9","choices":[{"index":0,"delta":{}}],"usage":{"completion_tokens":300,"prompt_tokens":26,"total_tokens":326,"completion_tokens_details":{"reasoning_tokens":0},"prompt_tokens_details":{"cached_tokens":0,"created_cache_tokens":0},"cost":0.0017718}}
+
+data: [DONE]
+

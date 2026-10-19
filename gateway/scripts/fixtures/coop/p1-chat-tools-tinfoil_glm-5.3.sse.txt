@@ -1,0 +1,52 @@
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","object":"chat.completion.chunk","created":1792389688,"model":"tinfoil/glm-5.3","choices":[{"index":0,"delta":{"role":"assistant","content":""}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":"The","p":"abcdefghij"}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":" user wants me to fix a","p":"abcdefghijklmnopqrstuvwxyz0123456"}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":" typo in node n1.","p":"abcdefghijklmnopqrstuvwxyz012345678"}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":" The content is \"Teh","p":"abcdefghijklmnopqrstuvwxyz01"}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":" quick brown fox jumps over the","p":"abcde"}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":" lazy dog.\" The typo is","p":"abcdefghijklmnopqrstuvwxyz01"}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":" \"Teh\" which should","p":"abcdefghijklmnopqrstuvwx"}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":" be \"The","p":"abcdefghi"}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":"\".","p":"abcdefghijk"}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":"\n\nI need to call suggest","p":"abcdefghijklmnopqrst"}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":"_edit with nodeId","p":"abcdefghijklmnopqrstuvwxyz"}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":" \"n1\" and the","p":"abcdefghijklmn"}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":" full corrected content.","p":"abcdefghijklmnopqrstuvwxyz0123"}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"p":"abcdefghijklmnopqrstuvwxyz01234","tool_calls":[{"id":"chatcmpl-tool-b627b8c9ca3bdcdf","function":{"arguments":"{\"comment\": \"","name":"suggest_edit"},"type":"function","index":0}]}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"p":"abcdefghijklmnopqrstuvwxyz012","tool_calls":[{"function":{"arguments":"Fix typo"},"type":"function","index":0}]}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"p":"abcdefghijklmnopq","tool_calls":[{"function":{"arguments":":"},"type":"function","index":0}]}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"p":"abcdefghijklmnopq","tool_calls":[{"function":{"arguments":" \\\"Teh\\\" → \\\""},"type":"function","index":0}]}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"p":"abcdefghijklmnopqr","tool_calls":[{"function":{"arguments":"The\\\""},"type":"function","index":0}]}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"p":"abcdefghijklmnopqrstuvwxyz01234","tool_calls":[{"function":{"arguments":"\", \"content\": \"The quick brown fox jumps"},"type":"function","index":0}]}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"p":"abcdefghijklmnopqrstuv","tool_calls":[{"function":{"arguments":" over the lazy dog."},"type":"function","index":0}]}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"p":"abcdefghijklmn","tool_calls":[{"function":{"arguments":"\", \"nodeId\": \"n"},"type":"function","index":0}]}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","choices":[{"stop_reason":154829,"index":0,"delta":{"p":"abcdefghijklmnopqrstuvwx","tool_calls":[{"function":{"arguments":"1\"}"},"type":"function","index":0}]}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","system_fingerprint":"vllm-0.31.0-tp4-ep-c7b474f9","choices":[{"finish_reason":"tool_calls","index":0,"delta":{}}]}
+
+data: {"id":"chatcmpl-83b976ee9cbcd7c1","created":1792389688,"model":"tinfoil/glm-5.3","object":"chat.completion.chunk","system_fingerprint":"vllm-0.31.0-tp4-ep-c7b474f9","choices":[{"index":0,"delta":{}}],"usage":{"completion_tokens":104,"prompt_tokens":340,"total_tokens":444,"completion_tokens_details":{"reasoning_tokens":59},"prompt_tokens_details":{"cached_tokens":0,"created_cache_tokens":320},"cost":0.0012100000000000001}}
+
+data: [DONE]
+

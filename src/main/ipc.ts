@@ -130,7 +130,7 @@ function assertPlainEntryName(name: string): void {
 }
 
 const defaultSettings: Settings = {
-  appearance: { lightColor: 'mono', darkColor: 'prose', mode: 'system', icon: 'pilcrow', migrationToastShown: true },
+  appearance: { lightColor: 'mono', darkColor: 'prose', mode: 'system', icon: 'pilcrow' },
   llm: {
     provider: 'anthropic',
     model: getDefaultModel('anthropic'),

@@ -47,8 +47,6 @@ export interface Appearance {
   darkColor: ColorTheme
   mode: ThemeMode
   icon: IconId
-  /** True on fresh installs and once the one-time post-migration toast has been dismissed. */
-  migrationToastShown: boolean
 }
 
 export type AppearanceOnDisk = Partial<Appearance> & {

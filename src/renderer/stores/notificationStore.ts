@@ -25,10 +25,10 @@ interface NotificationState {
 const DEFAULT_DURATION_MS = 6000
 
 /**
- * Minimal in-app toast store. The app intentionally has no toast library
- * (see MigrationToast); this is the bespoke equivalent for recurring,
- * programmatic notifications — e.g. "AI not configured" feedback fired from
- * any entry point regardless of chat-panel visibility.
+ * Minimal in-app toast store. The app intentionally has no toast library —
+ * this is the bespoke equivalent for recurring, programmatic notifications
+ * — e.g. "AI not configured" feedback fired from any entry point regardless
+ * of chat-panel visibility.
  */
 export const useNotificationStore = create<NotificationState>((set, get) => ({
   notifications: [],

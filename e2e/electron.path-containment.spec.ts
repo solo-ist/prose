@@ -80,7 +80,7 @@ test.beforeAll(async () => {
     join(userDataDir, 'settings.json'),
     JSON.stringify(
       {
-        appearance: { mode: 'dark', color: 'mono', icon: 'pilcrow', migrationToastShown: true },
+        appearance: { mode: 'dark', color: 'mono', icon: 'pilcrow' },
         fileAssociation: { hasBeenPrompted: true },
         aiConsent: { consented: false, consentedAt: new Date().toISOString(), version: 1 },
         recovery: { mode: 'silent' },

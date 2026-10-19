@@ -44,7 +44,7 @@ test('02 ai alongside you — mode-switch (dark)', async () => {
   writeFileSync(
     join(profile, 'settings.json'),
     JSON.stringify({
-      appearance: { color: 'prose', mode: 'dark', icon: 'pilcrow', migrationToastShown: true },
+      appearance: { color: 'prose', mode: 'dark', icon: 'pilcrow' },
       // Fake key so the chat renders configured (never sent — the exchange is injected).
       aiConsent: { consented: true, consentedAt: '2025-01-01T00:00:00.000Z' },
       llm: { provider: 'anthropic', apiKey: 'sk-ant-demo-screenshot-key', model: 'claude-sonnet-5-5' },

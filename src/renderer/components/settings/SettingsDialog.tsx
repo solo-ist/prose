@@ -24,6 +24,7 @@ import { Switch } from '../ui/switch'
 import { AppearancePane } from './AppearancePane'
 import { RemarkableIntegration } from './RemarkableIntegration'
 import { McpIntegration } from './McpIntegration'
+import { AccountSection } from '../account/AccountSection'
 import { ProseSkillIntegration } from './ProseSkillIntegration'
 import { isWebMode } from '../../lib/browserApi'
 import type { Settings } from '../../types'
@@ -706,9 +707,7 @@ export function SettingsDialog() {
           </TabsContent>
 
           <TabsContent value="account" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={accountTabRef}>
-            <p className="text-sm text-muted-foreground">
-              No account settings in this build yet.
-            </p>
+            <AccountSection />
           </TabsContent>
         </Tabs>
 

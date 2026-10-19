@@ -22,7 +22,7 @@
 
 import { test, expect } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, renameSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -162,19 +162,42 @@ test.describe('Electron — post-update release notes (#1058)', () => {
   test('a build with no notes for its version stays silent and records the version', async () => {
     test.setTimeout(90_000)
     const { userDataDir, filesDir } = makeProfile('nonotes')
-    // lastSeenVersion is older AND consent is given, so the compare fires — but
-    // main finds no notes file for a version that was never released, so the
-    // modal must not open. This is the local-build / hotfix-tag path.
+    // The compare fires — consent given, older stored version — but there are no
+    // notes for this build. That is the local-build / hotfix-tag path, and it must
+    // stay silent rather than open an empty modal, while still recording the
+    // version so the next real update is not swallowed.
     seedUpgradedProfile(userDataDir, filesDir, '1.8.0')
 
-    const launched = await boot(userDataDir)
+    // Hide the bundled notes so the app genuinely finds none for its own version.
+    // The dev build reads them from the repo, and the suite runs serially
+    // (workers: 1, fullyParallel: false), so no other test can observe this.
+    const hidden = `${NOTES_PATH}.hidden-by-test`
+    renameSync(NOTES_PATH, hidden)
+
+    let launched: { app: ElectronApplication; page: Page } | undefined
     try {
+      launched = await boot(userDataDir)
+
+      // The IPC contract: a version with no file reports null rather than throwing.
       const missing = await launched.page.evaluate(
-        async () => await (window as never as { api: { getReleaseNotes: (v: string) => Promise<unknown> } }).api.getReleaseNotes('99.99.99'),
+        async () =>
+          await (
+            window as never as { api: { getReleaseNotes: (v: string) => Promise<unknown> } }
+          ).api.getReleaseNotes('99.99.99'),
       )
       expect(missing).toBeNull()
+
+      // The integration path: no modal, despite the version compare firing.
+      await launched.page.waitForTimeout(3_000)
+      await expect(launched.page.locator(DIALOG)).toHaveCount(0)
+
+      // ...and the version is still recorded, so the next update shows its notes.
+      await expect
+        .poll(() => readSettings(userDataDir).lastSeenVersion, { timeout: 10_000 })
+        .toBe(APP_VERSION)
     } finally {
-      await launched.app?.close()
+      await launched?.app?.close()
+      if (existsSync(hidden)) renameSync(hidden, NOTES_PATH)
       rmSync(userDataDir, { recursive: true, force: true })
       rmSync(filesDir, { recursive: true, force: true })
     }

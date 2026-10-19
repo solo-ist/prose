@@ -76,8 +76,11 @@ export function parseNotes(markdown: string): Block[] {
   return blocks
 }
 
-/** Inline spans. Ordered so that `**bold**` is matched before single-`*` italic. */
-const INLINE = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)\s]+\)|\*[^*]+\*|_[^_]+_)/
+/**
+ * Inline spans. Ordered so `**bold**` is matched before single-`*` italic, and the
+ * bold body is non-greedy so it survives an asterisk inside it (`**a * b**`).
+ */
+const INLINE = /(\*\*.+?\*\*|`[^`]+`|\[[^\]]+\]\([^)\s]+\)|\*[^*]+\*|_[^_]+_)/
 
 function renderInline(text: string, keyPrefix: string): ReactNode[] {
   return text.split(INLINE).filter(Boolean).map((part, i) => {

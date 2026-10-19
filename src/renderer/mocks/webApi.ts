@@ -577,6 +577,6 @@ export function createMockApi(): ElectronAPI {
     updaterCheck: async () => ({ updateAvailable: false }),
     updaterDownload: async () => ({ success: false }),
     updaterInstall: async (): Promise<void> => {},
-    setAppIcon: async (): Promise<void> => {},
+    applyDockIcon: async (): Promise<void> => {},
   }
 }

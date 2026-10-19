@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Settings, RemarkableSyncPhase, IconId } from '../renderer/types'
+import type { Settings, RemarkableSyncPhase } from '../renderer/types'
 import type { ToolResult } from '../shared/tools/types'
 import type { FileAccessOptions } from '../shared/fileAccess'
 import {
@@ -266,7 +266,7 @@ export interface ElectronAPI {
   setWatchedExpandedFolders: (folderPaths: string[]) => Promise<void>
   onFileWatchEvent: (callback: (event: { type: 'created' | 'deleted' | 'changed'; path: string }) => void) => () => void
   // Appearance: live dock icon swap (macOS only; no-op on other platforms)
-  setAppIcon: (iconId: IconId) => Promise<void>
+  applyDockIcon: () => Promise<void>
 }
 
 export interface FileItem {
@@ -636,7 +636,7 @@ const api: ElectronAPI = {
   updaterInstall: () => ipcRenderer.invoke('updater:install'),
   updaterCheck: () => ipcRenderer.invoke('updater:check'),
   // Appearance: live dock icon swap
-  setAppIcon: (iconId: IconId) => ipcRenderer.invoke('appearance:set-icon', iconId),
+  applyDockIcon: () => ipcRenderer.invoke('appearance:apply-dock-icon'),
 }
 
 contextBridge.exposeInMainWorld('api', api)

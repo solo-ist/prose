@@ -521,7 +521,7 @@ export const browserApi: ElectronAPI = {
   updaterInstall: async () => {},
   updaterCheck: async () => ({ updateAvailable: false }),
   // Appearance: no-op in browser mode (dock swap is macOS Electron only)
-  setAppIcon: async () => {},
+  applyDockIcon: async () => {},
 }
 
 /**

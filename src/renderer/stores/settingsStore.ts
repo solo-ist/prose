@@ -60,7 +60,10 @@ function normalizeAppearance(appearance: AppearanceOnDisk | undefined): Appearan
     lightColor: appearance.lightColor ?? fallbackColor,
     darkColor: appearance.darkColor ?? fallbackColor,
     mode: appearance.mode ?? FRESH_INSTALL_APPEARANCE.mode,
-    icon: appearance.icon ?? FRESH_INSTALL_APPEARANCE.icon,
+    // Pilcrow is the only icon as of 1.9.0 (#1052). Any other stored value —
+    // one of the six removed variants, or the nonexistent 'default' some test
+    // fixtures seeded — is coerced rather than carried forward.
+    icon: 'pilcrow',
   }
 }
 
@@ -297,10 +300,10 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
       applyAppearance(migrated.appearance)
       setupSystemModeListener(migrated.appearance, set)
 
-      // Re-apply the saved dock icon on launch (macOS only; no-op elsewhere) —
-      // otherwise the dock reverts to the bundle default until the user next
-      // changes the icon. This is what makes the icon choice persist visually.
-      window.api.setAppIcon?.(migrated.appearance.icon)
+      // Pin the dock tile to Pilcrow on launch (macOS only; no-op elsewhere).
+      // Redundant in a packaged build, where the bundle icon is already
+      // Pilcrow, but in dev the dock would otherwise show Electron's logo.
+      window.api.applyDockIcon?.()
 
       // If we migrated a legacy theme field or healed a project-clobbered
       // base root / bookmark slot, persist the cleaned shape so the next
@@ -386,7 +389,6 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
   },
 
   setAppearance: (patch) => {
-    const prevIcon = get().settings.appearance.icon
     const merged: Appearance = { ...get().settings.appearance, ...patch }
     const effectiveTheme = resolveEffectiveMode(merged.mode)
     const effectiveColor = resolveEffectiveColor(merged)
@@ -399,10 +401,6 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
     applyAppearance(merged)
     setupSystemModeListener(merged, set)
 
-    // Live dock icon swap when the icon preference changes (macOS only)
-    if (patch.icon !== undefined && patch.icon !== prevIcon) {
-      window.api?.setAppIcon?.(patch.icon)
-    }
 
     get().saveSettings()
   },

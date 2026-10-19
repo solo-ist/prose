@@ -17,33 +17,28 @@ const FRESH_INSTALL_APPEARANCE: Appearance = {
   darkColor: 'prose',
   mode: 'system',
   icon: 'pilcrow',
-  // Fresh installs never had a legacy theme to migrate from, so the v1.2
-  // migration toast must not fire for them.
-  migrationToastShown: true,
 }
 
 function appearanceFromSingleColor(
   color: ColorTheme,
   mode: Appearance['mode'],
-  migrationToastShown: boolean,
 ): Appearance {
   return {
     lightColor: color,
     darkColor: color,
     mode,
     icon: 'pilcrow',
-    migrationToastShown,
   }
 }
 
 // Migrated users keep their color/mode (derived from the legacy theme) but
 // adopt the new default Pilcrow icon.
 const LEGACY_THEME_TO_APPEARANCE: Record<LegacyTheme, Appearance> = {
-  light:               appearanceFromSingleColor('mono', 'light', false),
-  dark:                appearanceFromSingleColor('mono', 'dark', false),
-  system:              appearanceFromSingleColor('mono', 'system', false),
-  'termy-green-light': appearanceFromSingleColor('termy', 'light', false),
-  'termy-green-dark':  appearanceFromSingleColor('termy', 'dark', false),
+  light:               appearanceFromSingleColor('mono', 'light'),
+  dark:                appearanceFromSingleColor('mono', 'dark'),
+  system:              appearanceFromSingleColor('mono', 'system'),
+  'termy-green-light': appearanceFromSingleColor('termy', 'light'),
+  'termy-green-dark':  appearanceFromSingleColor('termy', 'dark'),
 }
 
 function resolveEffectiveMode(mode: Appearance['mode']): 'dark' | 'light' {
@@ -69,7 +64,6 @@ function normalizeAppearance(appearance: AppearanceOnDisk | undefined): Appearan
     // one of the six removed variants, or the nonexistent 'default' some test
     // fixtures seeded — is coerced rather than carried forward.
     icon: 'pilcrow',
-    migrationToastShown: appearance.migrationToastShown ?? FRESH_INSTALL_APPEARANCE.migrationToastShown,
   }
 }
 
@@ -117,7 +111,6 @@ interface SettingsState {
   setModelPickerOpen: (open: boolean) => void
   fetchModels: () => Promise<void>
   setAppearance: (patch: Partial<Appearance>) => void
-  markMigrationToastShown: () => void
   setLLMConfig: (config: Partial<Settings['llm']>) => void
   setEditorConfig: (config: Partial<Settings['editor']>) => void
   setRecoveryConfig: (config: Partial<NonNullable<Settings['recovery']>>) => void
@@ -410,19 +403,6 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
     setupSystemModeListener(merged, set)
 
 
-    get().saveSettings()
-  },
-
-  // One-time post-migration toast (#499 PR 4). Flips the persisted
-  // `migrationToastShown` sentinel so the toast never fires again.
-  markMigrationToastShown: () => {
-    if (get().settings.appearance.migrationToastShown) return
-    set((state) => ({
-      settings: {
-        ...state.settings,
-        appearance: { ...state.settings.appearance, migrationToastShown: true }
-      }
-    }))
     get().saveSettings()
   },
 

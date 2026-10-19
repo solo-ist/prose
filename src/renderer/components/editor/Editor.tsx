@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useCallback, useState, useMemo } from 'react'
 import { useEditor as useTipTapEditor, EditorContent } from '@tiptap/react'
 import { EditorState, TextSelection } from '@tiptap/pm/state'
+import type { Slice } from '@tiptap/pm/model'
+import type { EditorView } from '@tiptap/pm/view'
 import StarterKit from '@tiptap/starter-kit'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import { createLowlight } from 'lowlight'
@@ -90,6 +92,58 @@ interface PendingPasteAnnotation {
   from: number
   to: number
   text: string
+}
+
+/**
+ * Plain-text clipboard serialization (#1054).
+ *
+ * tiptap-markdown registers a `clipboardTextSerializer` that serializes
+ * `slice.content` directly, discarding the slice's open depths. Because
+ * `Selection.content()` slices with `includeParents`, a caret-level selection
+ * inside a bullet arrives as `bulletList > listItem > paragraph > "ected te"`
+ * with `openStart === openEnd === 3`, and the serializer re-emits those
+ * wrappers as whole blocks — putting `* ected te` on the clipboard. The same
+ * mechanism adds `>` for blockquotes and `#` for headings.
+ *
+ * A view-level prop takes precedence over a plugin's, so registering this in
+ * `editorProps` overrides tiptap-markdown without forking it.
+ *
+ * It must never return a falsy value: ProseMirror's `someProp` treats that as
+ * "no answer" and falls through to the next registered prop — which is
+ * tiptap-markdown's, reinstating the bug.
+ */
+function serializeSelectionAsText(slice: Slice, view: EditorView): string {
+  const plain = () => slice.content.textBetween(0, slice.content.size, '\n\n')
+
+  // A selection inside a single text block carries no block structure worth
+  // preserving, so plain text is the honest answer — and it is exactly what
+  // ProseMirror emits when no serializer is registered at all.
+  const { $from, $to } = view.state.selection
+  if ($from.sameParent($to)) return plain()
+
+  // Otherwise markdown-serialize, first peeling redundant wrappers the same
+  // way prosemirror-view does for the HTML flavor (clipboard.ts:9-16).
+  // Without this a selection spanning several bullets re-emits its enclosing
+  // list and gains a level of nesting.
+  let content = slice.content
+  let openStart = slice.openStart
+  let openEnd = slice.openEnd
+  while (
+    openStart > 1 &&
+    openEnd > 1 &&
+    content.childCount === 1 &&
+    content.firstChild?.childCount === 1
+  ) {
+    openStart--
+    openEnd--
+    content = content.firstChild.content
+  }
+
+  const markdownStorage = useEditorInstanceStore.getState().editor?.storage?.markdown as
+    | { serializer?: { serialize: (content: unknown) => string } }
+    | undefined
+  const markdown = markdownStorage?.serializer?.serialize(content)
+  return markdown || plain()
 }
 
 function shouldPromptForAIPaste(text: string): boolean {
@@ -353,6 +407,7 @@ export function Editor() {
       attributes: {
         class: 'outline-hidden min-h-full'
       },
+      clipboardTextSerializer: serializeSelectionAsText,
       handlePaste: (view, event) => {
         const pastedText = event.clipboardData?.getData('text/plain') ?? ''
         if (!shouldPromptForAIPaste(pastedText)) return false

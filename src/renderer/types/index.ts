@@ -45,8 +45,6 @@ export interface Appearance {
   darkColor: ColorTheme
   mode: ThemeMode
   icon: IconId
-  /** True on fresh installs and once the one-time post-migration toast has been dismissed. */
-  migrationToastShown: boolean
 }
 
 export type AppearanceOnDisk = Partial<Appearance> & {
@@ -76,12 +74,6 @@ interface SettingsBase {
     fontSize: number
     lineHeight: number
     fontFamily: string
-    /**
-     * Cosmetic chunked streaming for agent-driven insertions/edits — text
-     * arrives word-by-word over ~200–500ms instead of appearing instantly.
-     * Falls back to instant apply when the user prefers reduced motion.
-     */
-    streamingEdits?: boolean
     /**
      * Character used to prefix unordered list items when serializing to Markdown.
      * Defaults to '*' (asterisk); set to '-' (dash) if preferred. The default

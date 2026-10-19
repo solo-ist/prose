@@ -67,7 +67,7 @@ async function suggest(marker: string, replace: (s: string) => string, comment: 
         'suggest_edit',
         { nodeId, content, search, comment },
         'create',
-        { model: 'claude-sonnet-4-6' },
+        { model: 'claude-sonnet-5-5' },
       ),
     { nodeId: node.id, content: replace(node.content ?? ''), search: node.content, comment },
   )
@@ -173,9 +173,9 @@ test.beforeAll(async () => {
   writeFileSync(
     join(profile, 'settings.json'),
     JSON.stringify({
-      appearance: { color: 'prose', mode: 'light', icon: 'pilcrow', migrationToastShown: true },
+      appearance: { color: 'prose', mode: 'light', icon: 'pilcrow' },
       aiConsent: { consented: true, consentedAt: '2025-01-01T00:00:00.000Z' },
-      llm: { provider: 'anthropic', apiKey: 'sk-ant-demo-screenshot-key', model: 'claude-sonnet-4-6' },
+      llm: { provider: 'anthropic', apiKey: 'sk-ant-demo-screenshot-key', model: 'claude-sonnet-5-5' },
       defaultSaveDirectory: essays,
       projects: [
         { id: uuid(1), name: 'Essays', path: essays, createdAt: '2025-01-01T00:00:00.000Z', lastOpenedAt: '2025-06-01T00:00:00.000Z' },

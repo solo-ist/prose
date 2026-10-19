@@ -7,7 +7,6 @@ import type { ToolResult } from '../../../../shared/tools/types'
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useEditorStore } from '../../../stores/editorStore'
 import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
-import { useSettingsStore } from '../../../stores/settingsStore'
 import { useAnnotationStore } from '../../../extensions/ai-annotations'
 import { createWordDiffAnnotations } from '../../diffUtils'
 import { findNodeById, findNodeByContent, getNodesWithIds, flattenNodes } from '../../../extensions/node-ids'
@@ -27,12 +26,10 @@ const STREAM_TARGET_FRAME_COUNT = 24
 
 /**
  * Decide whether the next agent insertion should stream chunk-by-chunk.
- * Falls back to instant apply when the user has disabled the setting or
- * has `prefers-reduced-motion: reduce` set at the OS level.
+ * Always streams, except when the user has `prefers-reduced-motion: reduce`
+ * set at the OS level, which forces instant apply.
  */
 function shouldStreamInsertion(): boolean {
-  const enabled = useSettingsStore.getState().settings.editor.streamingEdits
-  if (enabled === false) return false
   if (
     typeof window !== 'undefined' &&
     typeof window.matchMedia === 'function' &&

@@ -25,6 +25,7 @@
 set -e
 cd "$(cd "$(dirname "$0")/.." && pwd)"
 
+mkdir -p dist
 node -e "
 const yaml=require('js-yaml'), fs=require('fs');
 const c=yaml.load(fs.readFileSync('electron-builder.yml','utf8'));
@@ -32,31 +33,17 @@ c.productName='Prose QA'; c.appId='ist.solo.prose.qa';
 delete c.fileAssociations;            // don't contest the .md default handler
 delete c.publish;                     // never publish a QA build
 c.mac.identity=null; c.mac.target=['dir'];
-// Keep the pre-26 .icns here. Once #812 points mac.icon at AppIcon.icon,
-// electron-builder shells out to actool and HARD-FAILS without Xcode 26
-// (app-builder-lib macosIconComposer.js:19-36), which this machine lacks.
-// The icon-variant work is therefore verified from a CI build, not here.
+// Pin the pre-26 .icns. Once #812 points mac.icon at AppIcon.icon,
+// electron-builder shells out to actool and HARD-FAILS — it does not fall back —
+// if actool is missing or older than 26 (app-builder-lib macosIconComposer.js:19-36).
+// Drop this pin once that is verified against the Xcode on the build machine.
 c.mac.icon='resources/icons/pilcrow/icon.icns';
 c.directories.output='dist/qa';
 // app.getName() drives userData, the single-instance lock and the MCP socket dir,
 // and it comes from the BUNDLED package.json — not CFBundleName.
 c.extraMetadata={name:'prose-qa',productName:'Prose QA'};
 fs.writeFileSync('dist/.qa-builder.json', JSON.stringify(c,null,2));
-" 2>/dev/null || { mkdir -p dist && node -e "
-const yaml=require('js-yaml'), fs=require('fs');
-const c=yaml.load(fs.readFileSync('electron-builder.yml','utf8'));
-c.productName='Prose QA'; c.appId='ist.solo.prose.qa';
-delete c.fileAssociations; delete c.publish;
-c.mac.identity=null; c.mac.target=['dir'];
-// Keep the pre-26 .icns here. Once #812 points mac.icon at AppIcon.icon,
-// electron-builder shells out to actool and HARD-FAILS without Xcode 26
-// (app-builder-lib macosIconComposer.js:19-36), which this machine lacks.
-// The icon-variant work is therefore verified from a CI build, not here.
-c.mac.icon='resources/icons/pilcrow/icon.icns';
-c.directories.output='dist/qa';
-c.extraMetadata={name:'prose-qa',productName:'Prose QA'};
-fs.writeFileSync('dist/.qa-builder.json', JSON.stringify(c,null,2));
-"; }
+"
 
 # extraMetadata makes electron-builder rewrite the SOURCE package.json (renames the
 # package, drops all scripts). Keep a byte copy to restore from: a `git checkout` alone

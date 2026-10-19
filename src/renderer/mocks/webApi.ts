@@ -537,6 +537,8 @@ export function createMockApi(): ElectronAPI {
     }),
     mcpInstall: async () => ({ success: false, error: 'MCP is not available in web mode.' }),
     mcpUninstall: async () => ({ success: false, error: 'MCP is not available in web mode.' }),
+    // No bundled resources in web mode, so there are never notes to show.
+    getReleaseNotes: async () => null,
 
     // Sharing needs the desktop main process — honest unavailable results.
     shareAuthStatus: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),

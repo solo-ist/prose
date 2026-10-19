@@ -15,7 +15,9 @@ import { DefaultHandlerPrompt } from './DefaultHandlerPrompt'
 import { KeyboardShortcutsDialog } from '../settings/KeyboardShortcutsDialog'
 import { AboutDialog } from '../settings/AboutDialog'
 import { ModelPickerDialog } from '../ModelPickerDialog'
+import { APP_VERSION } from '../../buildInfo.generated'
 import { AIConsentDialog } from '../AIConsentDialog'
+import { ReleaseNotesDialog } from '../releaseNotes/ReleaseNotesDialog'
 import { EnableLoggingDialog } from '../EnableLoggingDialog'
 import { Notifications } from './Notifications'
 import {
@@ -515,6 +517,56 @@ export function App() {
     }
   }, [settingsLoaded, settings.aiConsent, setAIConsentDialogOpen])
 
+  // Post-update release notes (#1058). Deliberately not updater-driven: the updater
+  // is disabled on MAS and in dev, and `updater:update-available` fires BEFORE
+  // restart, so it cannot show a post-update modal. Compare a stored version
+  // instead, the same shape as the aiConsent gate above.
+  const [releaseNotesMarkdown, setReleaseNotesMarkdown] = useState<string | null>(null)
+  const setReleaseNotesOpen = useSettingsStore((s) => s.setReleaseNotesOpen)
+  const setLastSeenVersion = useSettingsStore((s) => s.setLastSeenVersion)
+  // "Has this version been seen" is decided once per launch. Without this latch the
+  // effect re-runs on any settings change — including the write it makes itself —
+  // and re-opens the dialog under the user's cursor, detaching the button they are
+  // mid-click on.
+  const releaseNotesChecked = useRef(false)
+  useEffect(() => {
+    if (!settingsLoaded) return
+    if (releaseNotesChecked.current) return
+    releaseNotesChecked.current = true
+
+    const seen = settings.lastSeenVersion
+    if (seen === APP_VERSION) return
+
+    // A fresh install is mid-onboarding and has nothing to catch up on — it is
+    // identified by the consent dialog being due, which is exactly the condition
+    // the effect above tests. Record the version silently so the next real update
+    // is the first one that shows notes.
+    const consentDue = !settings.aiConsent || settings.aiConsent.version < AI_CONSENT_VERSION
+    if (consentDue) {
+      setLastSeenVersion(APP_VERSION)
+      return
+    }
+
+    let cancelled = false
+    void (async () => {
+      // No notes bundled for this build (a local build, a hotfix tag) is a normal
+      // outcome: record the version and stay quiet rather than show an empty modal.
+      const notes = await getApi().getReleaseNotes?.(APP_VERSION).catch(() => null)
+      if (cancelled) return
+      if (!notes?.markdown) {
+        setLastSeenVersion(APP_VERSION)
+        return
+      }
+      setReleaseNotesMarkdown(notes.markdown)
+      setReleaseNotesOpen(true)
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reads settings once,
+    // behind the latch above; adding them back re-opens the dialog mid-click.
+  }, [settingsLoaded, setReleaseNotesOpen, setLastSeenVersion])
+
   // Check for session/draft recovery after settings are loaded
   useEffect(() => {
     if (!settingsLoaded) return
@@ -940,6 +992,7 @@ export function App() {
         />
         <DefaultHandlerPrompt />
         <AIConsentDialog />
+        {releaseNotesMarkdown && <ReleaseNotesDialog markdown={releaseNotesMarkdown} />}
         <EnableLoggingDialog />
         <Notifications />
 

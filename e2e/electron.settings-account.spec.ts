@@ -138,9 +138,20 @@ test.beforeAll(async () => {
     ),
   )
 
-  const launched = await launchApp({ env: { PROSE_USER_DATA_DIR: userDataDir } })
+  // Linux CI has no keyring: without --password-store=basic, safeStorage reports
+  // unavailable and credentialStore.set — which is where completeSignIn puts the
+  // session cookie — throws, so the app never reaches the signed-in state. Basic
+  // obfuscation is fine for a throwaway profile; macOS/Windows ignore the switch.
+  // Same pairing as electron.share-sync.spec.ts, the only other spec that signs in.
+  const launched = await launchApp({
+    env: { PROSE_USER_DATA_DIR: userDataDir },
+    args: process.platform === 'linux' ? ['--password-store=basic'] : [],
+  })
   app = launched.app
   page = launched.page
+  // The switch only SELECTS the basic_text backend; isEncryptionAvailable() stays
+  // false until the app opts into the in-memory key. Documented no-op elsewhere.
+  await app.evaluate(({ safeStorage }) => safeStorage.setUsePlainTextEncryption(true))
   await waitForAppReady(page)
   await dismissOnboarding(page)
   await dismissOverlay(page)
@@ -172,8 +183,12 @@ test.describe('Electron — Settings → Account (#1059)', () => {
     await expect(codeField).toBeVisible()
     await codeField.fill(STUB_CODE)
 
-    await expect(page.getByText(EMAIL)).toBeVisible({ timeout: 10_000 })
-    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
+    // Assert the signed-in surface FIRST. The code step also prints the address
+    // ("We emailed a 6-digit code to …"), so `getByText(EMAIL)` on its own passes
+    // while still signed out — which is exactly how this test looked green while
+    // the sign-in underneath it was failing.
+    await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText(EMAIL)).toBeVisible()
   })
 
   test('a signed-in account without the grant can request access', async () => {

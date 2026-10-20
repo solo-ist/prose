@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Editor } from '@tiptap/react'
 import { NodeSelection } from '@tiptap/pm/state'
+import { CellSelection } from '@tiptap/pm/tables'
 import { MessageSquarePlus, Bot, Bold, Italic, Link, Code, Superscript, Subscript, Quote } from 'lucide-react'
 import { Button } from '../ui/button'
 import { useAnnotationStore } from '../../extensions/ai-annotations'
@@ -72,6 +73,18 @@ export function SelectionPopover({ editor, onAddComment, onToggleLink }: Selecti
 
     // Only show if there's a text selection (not just cursor)
     if (from === to) {
+      setIsVisible(false)
+      setSelectionRange(null)
+      return
+    }
+
+    // A CellSelection — a row, column or cell range grabbed from the table rails
+    // — is a structural selection, and bold/link/comment/AI-authorship make no
+    // sense for it. It is neither empty nor a NodeSelection, so it slipped past
+    // both guards above and opened this toolbar alongside the table one (#1087).
+    // Text selected *inside* a cell is an ordinary TextSelection and still gets
+    // the popover; only whole-cell selections are suppressed.
+    if (editor.state.selection instanceof CellSelection) {
       setIsVisible(false)
       setSelectionRange(null)
       return
@@ -164,6 +177,7 @@ export function SelectionPopover({ editor, onAddComment, onToggleLink }: Selecti
 
   return (
     <div
+      data-testid="selection-popover"
       className="fixed z-50 animate-in fade-in-0 zoom-in-95 flex gap-1 items-center"
       style={{
         top: position.top,

@@ -64,6 +64,7 @@ import { SelectionPopover } from './SelectionPopover'
 import { TableControls } from './TableControls'
 import { insertTable } from '../../lib/tableCommands'
 import { TableCellKeymap } from '../../extensions/table-cell-keymap'
+import { TableTrailingParagraph } from '../../extensions/table-trailing-paragraph'
 import { AddCommentDialog } from './AddCommentDialog'
 import {
   Dialog,
@@ -348,6 +349,9 @@ export function Editor() {
       // Enter inside a cell must not split the block — see the extension for why
       // a split silently turns the table into raw HTML on save (#1060).
       TableCellKeymap,
+      // A table may not be the last node in the document, or there is no way to
+      // click or arrow past it (#1087).
+      TableTrailingParagraph,
       TaskListDashMarker,
       TaskItem.configure({
         nested: true

@@ -13,6 +13,10 @@
  *
  * Setup mirrors electron.explorer-interactivity.spec.ts (90s budget, a seeded
  * defaultSaveDirectory) because that shape is CI-proven.
+ *
+ * The rails are **hover-revealed** since #1087, so every test that drives a grip
+ * hovers the table first — `hoverRails()`. A test that forgets fails on a missing
+ * grip rather than passing by accident.
  */
 
 import { test, expect } from '@playwright/test'
@@ -67,6 +71,27 @@ async function insertTableViaMenu(): Promise<void> {
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('menu:insertTable')))
 }
 
+/**
+ * Put the pointer over the table so the rails appear (#1087).
+ *
+ * Hover is now the only thing that reveals them — the caret sitting in a cell
+ * does not — so this is a precondition for every grip interaction below.
+ */
+async function hoverRails(): Promise<void> {
+  await page.locator('.prose-editor table').first().hover()
+  await expect(page.locator('[data-testid="table-controls"]')).toBeVisible()
+}
+
+/** The document's top-level node types, as the editor currently holds them. */
+async function topLevelNodes(): Promise<string[]> {
+  return page.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const editor = (window as any).__prose_editor
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return editor.state.doc.content.content.map((n: any) => n.type.name)
+  })
+}
+
 test.beforeAll(async () => {
   test.setTimeout(90_000)
 
@@ -114,19 +139,56 @@ test.describe('Electron — table editing (#1060)', () => {
     expect(countRows(md)).toBe(3)
   })
 
-  test('the rails appear for the inserted table', async () => {
+  test('the caret alone does not reveal the rails (#1087)', async () => {
     await insertTableViaMenu()
-    await expect(page.locator('[data-testid="table-controls"]')).toBeVisible()
+
+    // Positive control first, so the absence asserted below cannot be an overlay
+    // that was simply never able to render.
+    await hoverRails()
+
+    // Pointer clear of the table and its rail gutter: the rails go.
+    await page.mouse.move(5, 5)
+    await expect(page.locator('[data-testid="table-controls"]')).toHaveCount(0)
+
+    // And the caret sitting in a cell does not bring them back. This is the
+    // regression: before #1087 the column grips reappeared in the band directly
+    // above the header row and stayed for the whole editing session, which read
+    // as malformed table chrome rather than as controls.
+    await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(window as any).__prose_editor.commands.focus(4)
+    })
+    // The old behaviour revealed them within ~10ms of the selection update, so a
+    // settle is what makes this assertion mean something rather than win a race.
+    await page.waitForTimeout(300)
+    await expect(page.locator('[data-testid="table-controls"]')).toHaveCount(0)
+    await expect(page.locator('[data-testid="table-col-grip-0"]')).toHaveCount(0)
+  })
+
+  test('hover reveals every rail, and a selected row pins them (#1087)', async () => {
+    await insertTableViaMenu()
+    await hoverRails()
     await expect(page.locator('[data-testid="table-append-row"]')).toBeVisible()
     await expect(page.locator('[data-testid="table-append-col"]')).toBeVisible()
     await expect(page.locator('[data-testid="table-row-grip-0"]')).toBeVisible()
     await expect(page.locator('[data-testid="table-col-grip-0"]')).toBeVisible()
+
+    // A row selection is the one state that holds the rails without the pointer.
+    // It has to: the toolbar it opens sits 136px to the table's left, so the
+    // rails must survive the trip over there.
+    await page.locator('[data-testid="table-row-grip-0"]').click()
+    await expect(page.locator('[data-testid="table-active-toolbar"]')).toBeVisible()
+    await page.mouse.move(5, 5)
+    await page.waitForTimeout(300)
+    await expect(page.locator('[data-testid="table-active-toolbar"]')).toBeVisible()
+    await expect(page.locator('[data-testid="table-row-grip-0"]')).toBeVisible()
   })
 
   test('appending a row keeps it a pipe table', async () => {
     await insertTableViaMenu()
     const before = countRows(await getEditorMarkdown(page))
 
+    await hoverRails()
     await page.locator('[data-testid="table-append-row"]').click()
 
     const md = await getEditorMarkdown(page)
@@ -138,6 +200,7 @@ test.describe('Electron — table editing (#1060)', () => {
     await insertTableViaMenu()
     const before = countColumns(await getEditorMarkdown(page))
 
+    await hoverRails()
     await page.locator('[data-testid="table-append-col"]').click()
 
     const md = await getEditorMarkdown(page)
@@ -149,6 +212,7 @@ test.describe('Electron — table editing (#1060)', () => {
     await insertTableViaMenu()
     const before = countRows(await getEditorMarkdown(page))
 
+    await hoverRails()
     await page.locator('[data-testid="table-row-grip-0"]').click()
     await expect(page.locator('[data-testid="table-active-toolbar"]')).toBeVisible()
     await page.locator('[data-testid="table-delete"]').click()
@@ -162,6 +226,7 @@ test.describe('Electron — table editing (#1060)', () => {
 
   test('a body row cannot be moved above the header row', async () => {
     await insertTableViaMenu()
+    await hoverRails()
 
     await page.locator('[data-testid="table-row-grip-1"]').click()
     await expect(page.locator('[data-testid="table-active-toolbar"]')).toBeVisible()
@@ -171,6 +236,7 @@ test.describe('Electron — table editing (#1060)', () => {
 
   test('the header row itself offers no move', async () => {
     await insertTableViaMenu()
+    await hoverRails()
 
     await page.locator('[data-testid="table-row-grip-0"]').click()
     await expect(page.locator('[data-testid="table-active-toolbar"]')).toBeVisible()
@@ -180,6 +246,7 @@ test.describe('Electron — table editing (#1060)', () => {
 
   test('moving a column carries its header cell along', async () => {
     await insertTableViaMenu()
+    await hoverRails()
 
     await page.locator('[data-testid="table-col-grip-0"]').click()
     await expect(page.locator('[data-testid="table-active-toolbar"]')).toBeVisible()
@@ -193,6 +260,7 @@ test.describe('Electron — table editing (#1060)', () => {
     await insertTableViaMenu()
     const before = countColumns(await getEditorMarkdown(page))
 
+    await hoverRails()
     await page.locator('[data-testid="table-col-grip-1"]').click()
     // Wait for the toolbar to settle: it animates in, and clicking a moving
     // target is what made this test flaky.
@@ -228,6 +296,7 @@ test.describe('Electron — table editing (#1060)', () => {
 
   test('a full round trip through the markdown serializer survives every edit', async () => {
     await insertTableViaMenu()
+    await hoverRails()
     await page.locator('[data-testid="table-append-row"]').click()
     await page.locator('[data-testid="table-append-col"]').click()
 
@@ -246,5 +315,118 @@ test.describe('Electron — table editing (#1060)', () => {
     expectPipeTable(reserialized)
     expect(countColumns(reserialized)).toBe(countColumns(md))
     expect(countRows(reserialized)).toBe(countRows(md))
+  })
+
+  test('a trailing table gets a paragraph after it, and that is where a click below lands (#1087)', async () => {
+    await insertTableViaMenu()
+
+    // Without TableTrailingParagraph the table is the document's last node and
+    // the space below it holds no text position of its own: both a click there
+    // and ArrowDown resolve back into the nearest cell, and the caret cannot
+    // leave the table at all.
+    const nodes = await topLevelNodes()
+    expect(nodes).toContain('table')
+    expect(nodes[nodes.length - 1]).toBe('paragraph')
+
+    // The click is asserted through ProseMirror's own coordinate mapping rather
+    // than a synthesized mouse click: the e2e window is never shown, and a
+    // native click in it does not move the caret (measured — the same event does
+    // fire React handlers, which is why the grips above are clickable). What the
+    // user's click depends on is exactly this mapping: a point 40px below the
+    // table must resolve to a position OUTSIDE the table.
+    const box = await page.locator('.prose-editor table').first().boundingBox()
+    if (!box) throw new Error('the table has no bounding box')
+    const hit = await page.evaluate(
+      (point) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const editor = (window as any).__prose_editor
+        const found = editor.view.posAtCoords({ left: point.x, top: point.y })
+        if (!found) return null
+        return ancestorNames(editor.state.doc.resolve(found.pos))
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        function ancestorNames($pos: any): string[] {
+          const names: string[] = []
+          for (let depth = $pos.depth; depth >= 0; depth--) names.push($pos.node(depth).type.name)
+          return names
+        }
+      },
+      { x: box.x + 40, y: box.y + box.height + 40 },
+    )
+    expect(hit).toEqual(['paragraph', 'doc'])
+
+    // And the keyboard gets out too: ArrowDown walks down the rows and then
+    // leaves the table, where before it had nowhere to go.
+    await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(window as any).__prose_editor.commands.focus(4)
+    })
+    for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowDown')
+
+    const caret = await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const editor = (window as any).__prose_editor
+      const { $from } = editor.state.selection
+      const names: string[] = []
+      for (let depth = $from.depth; depth >= 0; depth--) names.push($from.node(depth).type.name)
+      return names
+    })
+    expect(caret).toEqual(['paragraph', 'doc'])
+  })
+
+  test('the trailing paragraph leaves the markdown byte-identical (#1087)', async () => {
+    // The load-bearing property. `Editor`'s onUpdate decides dirty state by
+    // comparing the serialized markdown with what the store holds, so if the
+    // appended paragraph changed a single character, every file that ends in a
+    // table would show as unsaved the moment it was opened.
+    //
+    // Asserted by serializing the real document against a copy with the trailing
+    // paragraph cut off — the same two docs the comparison sees.
+    await page.evaluate((markdown) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const editor = (window as any).__prose_editor
+      editor?.commands.setContent(markdown)
+    }, '| Name | Qty |\n| --- | --- |\n| Pens | 3 |')
+
+    const nodes = await topLevelNodes()
+    expect(nodes).toEqual(['table', 'paragraph'])
+
+    const serialized = await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const editor = (window as any).__prose_editor
+      const { doc } = editor.state
+      const trimmed = doc.copy(doc.content.cut(0, doc.content.size - doc.lastChild.nodeSize))
+      return {
+        withParagraph: editor.storage.markdown.serializer.serialize(doc),
+        without: editor.storage.markdown.serializer.serialize(trimmed),
+      }
+    })
+    expect(serialized.withParagraph).toBe(serialized.without)
+    expect(serialized.withParagraph).toContain('| Pens | 3 |')
+  })
+
+  test('a row selection suppresses the text toolbar, text in a cell keeps it (#1087)', async () => {
+    await insertTableViaMenu()
+
+    // Text selected inside a cell is an ordinary TextSelection: bold, link and
+    // comment all apply to it, so the popover must still appear. The selection is
+    // made through the editor rather than with Shift+Arrow because the unshown
+    // e2e window does not reliably update the native DOM selection.
+    await page.keyboard.type('cell')
+    await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const editor = (window as any).__prose_editor
+      const { from } = editor.state.selection
+      editor.commands.setTextSelection({ from: from - 'cell'.length, to: from })
+    })
+    await expect(page.locator('[data-testid="selection-popover"]')).toBeVisible()
+
+    // A CellSelection is structural. It is neither empty nor a NodeSelection, so
+    // it slipped past both of SelectionPopover's guards and opened the text
+    // toolbar alongside the table one.
+    await hoverRails()
+    await page.locator('[data-testid="table-row-grip-0"]').click()
+    await expect(page.locator('[data-testid="table-active-toolbar"]')).toBeVisible()
+    await expect(page.locator('[data-testid="selection-popover"]')).toHaveCount(0)
   })
 })

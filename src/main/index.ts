@@ -301,13 +301,42 @@ function createWindow(): BrowserWindow {
       preload: join(__dirname, '../preload-cjs/index.cjs'),
       sandbox: true,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // Belt and braces with the offscreen `showInactive` above: even if a
+      // platform still considers the parked window backgrounded, timers and
+      // animations must keep running or the suite reads as broken. Test-only.
+      ...(IS_HEADLESS_TEST ? { backgroundThrottling: false } : {})
     }
   })
 
   let hasBeenShown = false
   mainWindow.on('ready-to-show', () => {
-    if (IS_HEADLESS_TEST) return
+    if (IS_HEADLESS_TEST) {
+      // The two platforms need opposite things here, so this is deliberately split.
+      //
+      // macOS — the machine a developer actually watches — keeps the window
+      // unshown. Measured: an unshown BrowserWindow there still reports
+      // `visibilityState: "visible"` and keeps rAF at ~85/s, so nothing is
+      // throttled and the suite behaves exactly as it does with a visible window.
+      //
+      // Linux (CI) does not get that for free. An unmapped X11 window reports
+      // hidden, Chromium throttles rAF and timers on a hidden page, and Radix
+      // unmounts dialogs and menus on `animationend` — so a menu that should have
+      // closed stays mounted. That is how electron.editor:60 and
+      // customizable-menus:57 / :89 failed on two consecutive CI runs while
+      // passing locally in the same mode. Showing it inactive makes it an ordinary
+      // foreground page again, and no human is watching a CI runner.
+      //
+      // Note for anyone tempted by the obvious alternative: parking the window
+      // offscreen does NOT work. macOS clamps `setPosition(-20000, -20000)` back
+      // onto the display (measured: it came back at 310,30), which would put the
+      // windows right back in the developer's face.
+      if (!hasBeenShown && process.platform === 'linux') {
+        mainWindow.showInactive()
+        hasBeenShown = true
+      }
+      return
+    }
     if (!hasBeenShown) {
       mainWindow.show()
       hasBeenShown = true

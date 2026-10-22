@@ -24,15 +24,15 @@ import {
   DialogTitle
 } from '../ui/dialog'
 import { Button } from '../ui/button'
-import { Input } from '../ui/input'
 import { getApi } from '../../lib/browserApi'
 import { buildShareArtifact } from '../../lib/shareArtifact'
 import { backfillShareThreads } from '../../lib/sharePush'
 import { pushShareContent } from '../../lib/shareContentSync'
+import { useAccountStore, bindAccountDeepLink } from '../../stores/accountStore'
+import { SignInForm } from '../account/SignInForm'
 import { useEditor } from '../../hooks/useEditor'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useShareStore } from '../../stores/shareStore'
-import { useNotificationStore } from '../../stores/notificationStore'
 import type { ShareEntry } from '../../types'
 import { Loader2 } from 'lucide-react'
 
@@ -41,140 +41,43 @@ interface ShareDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
-type AuthState =
-  | { phase: 'loading' }
-  /** `codeSentTo`: the address a code was just mailed to, or null. */
-  | { phase: 'signed-out'; codeSentTo: string | null }
-  | { phase: 'signed-in'; email?: string }
-
-/**
- * Beta standing once signed in. 'unknown' (an older gateway, or offline)
- * falls back to the Publish button; the gateway still enforces the grant.
- */
-type Access = 'unknown' | 'can-publish' | 'not-invited' | 'requested'
-
 export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
   const { document } = useEditor()
-  const [auth, setAuth] = useState<AuthState>({ phase: 'loading' })
-  const [access, setAccess] = useState<Access>('unknown')
-  const [email, setEmail] = useState('')
-  const [code, setCode] = useState('')
+  // Session state is shared with Settings → Account (#1059) so the two surfaces
+  // cannot disagree about who is signed in. Only `entry` is document-specific
+  // and therefore still local.
+  const auth = useAccountStore((s) => s.auth)
+  const access = useAccountStore((s) => s.access)
+  const busy = useAccountStore((s) => s.busy)
+  const error = useAccountStore((s) => s.error)
+  const refreshAccount = useAccountStore((s) => s.refresh)
+  const signOut = useAccountStore((s) => s.signOut)
+  const requestAccess = useAccountStore((s) => s.requestAccess)
+  const setAccess = useAccountStore((s) => s.setAccess)
+  const runAction = useAccountStore((s) => s.runAction)
+  const surfaceShown = useAccountStore((s) => s.surfaceShown)
+  const surfaceHidden = useAccountStore((s) => s.surfaceHidden)
   const [entry, setEntry] = useState<ShareEntry | null>(null)
-  const [busy, setBusy] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
-    setError(null)
-    const status = await getApi().shareAuthStatus()
-    if (status.ok && status.signedIn) {
-      const standing = await getApi().shareAccess()
-      setAccess(
-        !standing.ok ? 'unknown' : standing.canPublish ? 'can-publish' : standing.requested ? 'requested' : 'not-invited'
-      )
-      setAuth({ phase: 'signed-in', email: status.email })
-    } else {
-      setAccess('unknown')
-      setAuth({ phase: 'signed-out', codeSentTo: null })
-    }
+    await refreshAccount()
     if (document.path) {
       const existing = await getApi().shareGetForPath(document.path)
       setEntry(existing.ok && existing.entries.length > 0 ? existing.entries[0] : null)
     } else {
       setEntry(null)
     }
-  }, [document.path])
+  }, [document.path, refreshAccount])
 
   useEffect(() => {
-    if (open) void refresh()
-  }, [open, refresh])
-
-  // The email's "Open in Prose" link signs in from the main process (#964).
-  // With the dialog open, show the outcome in place; otherwise as a toast.
-  useEffect(() => {
-    const off = getApi().onShareAuthChanged?.((result) => {
-      if (open) {
-        setCode('')
-        if (result.ok) void refresh()
-        else setError(result.error)
-        return
-      }
-      useNotificationStore.getState().notify({
-        id: 'share-sign-in',
-        message: result.ok
-          ? `Signed in to sharing${result.email ? ` as ${result.email}` : ''}.`
-          : result.error,
-      })
-    })
-    return () => off?.()
-  }, [open, refresh])
-
-  const run = useCallback(async (label: string, action: () => Promise<string | null>) => {
-    setBusy(label)
-    setError(null)
-    try {
-      const err = await action()
-      if (err) setError(err)
-    } finally {
-      setBusy(null)
-    }
-  }, [])
-
-  const handleRequestCode = () =>
-    run('request', async () => {
-      const address = email.trim()
-      const res = await getApi().shareRequestSignIn(address)
-      if (!res.ok) return res.error
-      setCode('')
-      setAuth({ phase: 'signed-out', codeSentTo: address })
-      return null
-    })
-
-  const handleCompleteSignIn = (digits: string) =>
-    run('complete', async () => {
-      const res = await getApi().shareCompleteSignIn(digits)
-      if (!res.ok) {
-        // Every failure leaves the typed code unusable (wrong, expired, or
-        // burned), so clear it for the next attempt.
-        setCode('')
-        return res.error
-      }
-      setCode('')
-      await refresh()
-      return null
-    })
-
-  const handleCodeChange = (value: string) => {
-    const digits = value.replace(/\D/g, '').slice(0, 6)
-    setCode(digits)
-    if (digits.length === 6 && busy === null) void handleCompleteSignIn(digits)
-  }
-
-  const handleDifferentEmail = () => {
-    setCode('')
-    setError(null)
-    setAuth({ phase: 'signed-out', codeSentTo: null })
-  }
-
-  // Main revokes the session on the gateway (best effort) and always drops
-  // the stored cookie. Existing share links keep working; managing them
-  // needs a sign-in again.
-  const handleSignOut = () =>
-    run('signout', async () => {
-      const res = await getApi().shareSignOut()
-      if (!res.ok) return res.error
-      setEmail('')
-      setCode('')
-      setAuth({ phase: 'signed-out', codeSentTo: null })
-      return null
-    })
-
-  const handleRequestAccess = () =>
-    run('request-access', async () => {
-      const res = await getApi().shareRequestAccess()
-      if (!res.ok) return res.error
-      setAccess(res.canPublish ? 'can-publish' : 'requested')
-      return null
-    })
+    if (!open) return
+    // Registering as a visible surface keeps a deep-link sign-in showing in place
+    // here rather than as a toast; the store owns the subscription itself.
+    bindAccountDeepLink()
+    surfaceShown()
+    void refresh()
+    return () => surfaceHidden()
+  }, [open, refresh, surfaceShown, surfaceHidden])
 
   const openShareControls = useCallback(() => {
     onOpenChange(false)
@@ -182,7 +85,7 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
   }, [onOpenChange])
 
   const handlePublish = () =>
-    run('publish', async () => {
+    runAction('publish', async () => {
       const artifact = await buildShareArtifact(useEditorInstanceStore.getState().editor, {
         content: document.content,
         path: document.path,
@@ -238,67 +141,7 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
               Sharing is in invite-only beta. Sign in with your email to publish, or to
               request access.
             </p>
-            {auth.codeSentTo === null ? (
-              <div className="flex gap-2">
-                <Input
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && busy === null && email.trim()) handleRequestCode()
-                  }}
-                  disabled={busy !== null}
-                />
-                <Button onClick={handleRequestCode} disabled={busy !== null || !email.trim()}>
-                  {busy === 'request' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Send code'}
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-xs text-muted-foreground">
-                  We emailed a 6-digit code to {auth.codeSentTo}. Enter it here.
-                </p>
-                <div className="flex gap-2">
-                  <Input
-                    aria-label="Sign-in code"
-                    placeholder="123456"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    maxLength={6}
-                    autoFocus
-                    className="font-mono tracking-[0.3em]"
-                    value={code}
-                    onChange={(e) => handleCodeChange(e.target.value)}
-                    disabled={busy !== null}
-                  />
-                  <Button
-                    onClick={() => handleCompleteSignIn(code)}
-                    disabled={busy !== null || code.length !== 6}
-                  >
-                    {busy === 'complete' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Sign in'}
-                  </Button>
-                </div>
-                <div className="flex gap-3 text-xs">
-                  <button
-                    type="button"
-                    className="text-muted-foreground underline-offset-2 hover:underline disabled:opacity-50"
-                    onClick={handleRequestCode}
-                    disabled={busy !== null}
-                  >
-                    {busy === 'request' ? 'Sending…' : 'Resend code'}
-                  </button>
-                  <button
-                    type="button"
-                    className="text-muted-foreground underline-offset-2 hover:underline disabled:opacity-50"
-                    onClick={handleDifferentEmail}
-                    disabled={busy !== null}
-                  >
-                    Use a different email
-                  </button>
-                </div>
-              </div>
-            )}
+            <SignInForm codeSentTo={auth.codeSentTo} />
           </div>
         )}
 
@@ -309,7 +152,7 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
               <button
                 type="button"
                 className="shrink-0 underline-offset-2 hover:underline disabled:opacity-50"
-                onClick={handleSignOut}
+                onClick={() => void signOut()}
                 disabled={busy !== null}
               >
                 {busy === 'signout' ? 'Signing out…' : 'Sign out'}
@@ -340,7 +183,7 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
                   Sharing is invite-only for now, and {auth.email ?? 'this address'} isn&apos;t in
                   the beta yet. Request access and you&apos;ll get an email when it&apos;s on.
                 </p>
-                <Button onClick={handleRequestAccess} disabled={busy !== null} className="w-full">
+                <Button onClick={() => void requestAccess()} disabled={busy !== null} className="w-full">
                   {busy === 'request-access' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Request access'}
                 </Button>
               </div>

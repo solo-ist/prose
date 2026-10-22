@@ -58,6 +58,17 @@ import './index.css'
   // Expose needsRestore for #933 regression test — checks the transient-strip guard.
   getCommentStoreNeedsRestore: () => useCommentStore.getState().needsRestore,
 }
+// Account seam for e2e (#1059) — same always-on tier as __prose_tools. Settings
+// opens from the app menu, which Playwright cannot click, so this is the
+// equivalent of choosing Settings → Account. It deliberately exposes no auth
+// actions: the tests drive the real form, because the point of the issue is that
+// both surfaces render one store.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+;(window as any).__prose_account = {
+  openSettings: () => useSettingsStore.getState().setDialogOpen(true, 'account'),
+  closeSettings: () => useSettingsStore.getState().setDialogOpen(false),
+}
+
 // Share-sync seam for e2e (#915) — same always-on tier as __prose_tools.
 // `sync` drives the REAL pull-merge (the exact path the ShareStatusPopover's
 // open-pull takes: fresh entry lookup → syncShareComments) without the

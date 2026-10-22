@@ -13,6 +13,19 @@ if (dotenvResult.error) {
   config()
 }
 
+/**
+ * Test-only: create windows but never show them, and keep the app out of the dock.
+ *
+ * Playwright drives the renderer over CDP, and an unshown Electron window still
+ * loads, lays out and paints — that is exactly what `ready-to-show` waits for — so
+ * DOM-level assertions are unaffected. This is NOT Chromium's `--headless`, which
+ * Electron does not support; the window exists, it is simply never revealed.
+ *
+ * Without it a local suite run opens ~40 windows, each stealing focus. Never set in
+ * a shipped build: it is read from the environment, and nothing in the app sets it.
+ */
+const IS_HEADLESS_TEST = process.env.PROSE_HEADLESS === '1'
+
 // Initialize Sentry early (before app.whenReady) if user has opted in
 import { initSentry, setSentryEnabled } from './sentry'
 import { getUserDataPath, LEGACY_SETTINGS_DIR, seedDevProfile, validatePathConsistency, resolveWithin, IMAGE_EXTENSIONS } from './paths'
@@ -118,7 +131,7 @@ if (!gotTheLock) {
   // Handle second instance launch (another instance tried to start)
   app.on('second-instance', (event, commandLine, workingDirectory) => {
     const mainWindow = BrowserWindow.getAllWindows()[0]
-    if (mainWindow) {
+    if (mainWindow && !IS_HEADLESS_TEST) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.show()
       mainWindow.focus()
@@ -229,9 +242,11 @@ app.on('open-url', (event, url) => {
 
   const mainWindow = BrowserWindow.getAllWindows()[0]
   if (mainWindow && rendererReady) {
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.show()
-    mainWindow.focus()
+    if (!IS_HEADLESS_TEST) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+    }
     mainWindow.webContents.send('prose:openFromUrl', content)
   } else {
     pendingUrlContent.push(content)
@@ -286,12 +301,42 @@ function createWindow(): BrowserWindow {
       preload: join(__dirname, '../preload-cjs/index.cjs'),
       sandbox: true,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // Belt and braces with the offscreen `showInactive` above: even if a
+      // platform still considers the parked window backgrounded, timers and
+      // animations must keep running or the suite reads as broken. Test-only.
+      ...(IS_HEADLESS_TEST ? { backgroundThrottling: false } : {})
     }
   })
 
   let hasBeenShown = false
   mainWindow.on('ready-to-show', () => {
+    if (IS_HEADLESS_TEST) {
+      // The two platforms need opposite things here, so this is deliberately split.
+      //
+      // macOS — the machine a developer actually watches — keeps the window
+      // unshown. Measured: an unshown BrowserWindow there still reports
+      // `visibilityState: "visible"` and keeps rAF at ~85/s, so nothing is
+      // throttled and the suite behaves exactly as it does with a visible window.
+      //
+      // Linux (CI) does not get that for free. An unmapped X11 window reports
+      // hidden, Chromium throttles rAF and timers on a hidden page, and Radix
+      // unmounts dialogs and menus on `animationend` — so a menu that should have
+      // closed stays mounted. That is how electron.editor:60 and
+      // customizable-menus:57 / :89 failed on two consecutive CI runs while
+      // passing locally in the same mode. Showing it inactive makes it an ordinary
+      // foreground page again, and no human is watching a CI runner.
+      //
+      // Note for anyone tempted by the obvious alternative: parking the window
+      // offscreen does NOT work. macOS clamps `setPosition(-20000, -20000)` back
+      // onto the display (measured: it came back at 310,30), which would put the
+      // windows right back in the developer's face.
+      if (!hasBeenShown && process.platform === 'linux') {
+        mainWindow.showInactive()
+        hasBeenShown = true
+      }
+      return
+    }
     if (!hasBeenShown) {
       mainWindow.show()
       hasBeenShown = true
@@ -375,6 +420,9 @@ app.on('certificate-error', (event, _webContents, _url, _error, _certificate, ca
 })
 
 app.whenReady().then(async () => {
+  // Keep test runs out of the dock entirely — otherwise every spec bounces an icon.
+  if (IS_HEADLESS_TEST) app.dock?.hide()
+
   electronApp.setAppUserModelId('ist.solo.prose')
 
   // Register as default handler for prose:// URL scheme.
@@ -623,9 +671,11 @@ app.whenReady().then(async () => {
       createWindow()
     } else {
       const win = windows[0]
-      if (win.isMinimized()) win.restore()
-      win.show()
-      win.focus()
+      if (!IS_HEADLESS_TEST) {
+        if (win.isMinimized()) win.restore()
+        win.show()
+        win.focus()
+      }
     }
   })
 })

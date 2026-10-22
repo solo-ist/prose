@@ -32,9 +32,17 @@ export async function launchApp(
   // Merge env overrides over the inherited environment — Playwright's `env`
   // replaces the child process environment wholesale, so the spread keeps
   // PATH etc. intact. Used by tests that need an isolated HOME (userData).
-  const env = options?.env
-    ? { ...(process.env as Record<string, string>), ...options.env }
-    : undefined
+  //
+  // PROSE_HEADLESS defaults ON (#1078): otherwise a suite run opens ~40 windows,
+  // each stealing focus, which makes the machine unusable while it runs. The
+  // window is still created and still renders — it is just never shown — so
+  // Playwright drives it over CDP exactly as before. Run with PROSE_HEADLESS=0
+  // to watch the app, which is what you want when debugging a failure.
+  const env: Record<string, string> = {
+    ...(process.env as Record<string, string>),
+    PROSE_HEADLESS: process.env.PROSE_HEADLESS ?? '1',
+    ...(options?.env ?? {}),
+  }
   // Extra Chromium/Electron switches (e.g. --password-store=basic so
   // safeStorage works on keyring-less Linux CI). Position-independent:
   // Chromium parses switches from anywhere in argv.

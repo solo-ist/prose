@@ -1,5 +1,5 @@
 /**
- * Table editing affordances (#1060).
+ * Table editing affordances (#1060), revealed on hover (#1087).
  *
  * A fixed-position overlay measured from the live DOM rather than ProseMirror
  * decorations. Two reasons: the rails sit *outside* the table (a `+` below and
@@ -15,9 +15,19 @@
  *
  * Every structural operation goes through lib/tableCommands, which is where the
  * markdown round-trip invariant is enforced.
+ *
+ * **Visibility is the pointer's business, not the caret's.** The first build
+ * showed every grip for as long as the caret sat anywhere in the table, which
+ * put a row of small bordered boxes in the band directly above the header row
+ * for the whole editing session — read in QA as a malformed table rather than as
+ * controls (#1087). Hover-reveal is what the design called for and what Notion,
+ * Confluence and Google Docs do. The one non-hover case is a live CellSelection:
+ * a selected row or column keeps its rails and toolbar up while the pointer goes
+ * to them, which is also the only way a keyboard/shift-click user reaches them.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Editor } from '@tiptap/react'
+import { CellSelection } from '@tiptap/pm/tables'
 import {
   ArrowDown,
   ArrowLeft,
@@ -52,6 +62,12 @@ const GAP = 4
 const COL_TOOLBAR_OFFSET = GRIP + GAP + 44
 /** Row toolbar sits left of the row grips, which occupy table.left - 20 .. -4. */
 const ROW_TOOLBAR_OFFSET = 136
+/**
+ * How far outside the table the pointer may stray with the rails still up. The
+ * grips live in a gutter *outside* the table box, so a bare hit test on the
+ * table's own rect would drop them the instant the pointer moved onto one.
+ */
+const HOVER_PAD = GRIP + GAP + 8
 
 interface Metrics {
   table: DOMRect
@@ -80,10 +96,29 @@ export function TableControls({ editor }: { editor: Editor | null }) {
   const [metrics, setMetrics] = useState<Metrics | null>(null)
   const [info, setInfo] = useState<TableInfo | null>(null)
   const [active, setActive] = useState<Active>(null)
+  // Whether the pointer is over the measured table (or its rail gutter).
+  const [hovering, setHovering] = useState(false)
   // The element the overlay is measured from. A ref, not state: the rAF below
   // reads it without needing a re-render to see the latest value.
   const tableEl = useRef<HTMLTableElement | null>(null)
   const frame = useRef<number | null>(null)
+  // Mirror of `metrics` for the pointer handler, which runs on every mousemove:
+  // reading the cached rect avoids forcing a layout per event, and it cannot go
+  // stale without a scroll, resize or transaction — each of which re-measures.
+  const metricsRef = useRef<Metrics | null>(null)
+  // Same reason, for the one piece of state the pointer handler reads: keeping
+  // `active` out of that effect's deps stops the document listener being torn
+  // down and re-added on every grip click and toolbar dismiss.
+  const activeRef = useRef<Active>(null)
+
+  const applyMetrics = useCallback((m: Metrics | null) => {
+    metricsRef.current = m
+    setMetrics(m)
+  }, [])
+
+  useEffect(() => {
+    activeRef.current = active
+  }, [active])
 
   /** Coalesce measurement into one rAF — scroll, resize and transactions all drive it. */
   const scheduleMeasure = useCallback(() => {
@@ -91,17 +126,17 @@ export function TableControls({ editor }: { editor: Editor | null }) {
     frame.current = requestAnimationFrame(() => {
       frame.current = null
       const el = tableEl.current
-      setMetrics(el && el.isConnected ? measure(el) : null)
+      applyMetrics(el && el.isConnected ? measure(el) : null)
     })
-  }, [])
+  }, [applyMetrics])
 
   const setTable = useCallback(
     (el: HTMLTableElement | null) => {
       if (tableEl.current === el) return
       tableEl.current = el
-      setMetrics(el ? measure(el) : null)
+      applyMetrics(el ? measure(el) : null)
     },
-    []
+    [applyMetrics]
   )
 
   /** The table element containing a document position, via the rendered DOM. */
@@ -115,9 +150,10 @@ export function TableControls({ editor }: { editor: Editor | null }) {
     [editor]
   )
 
-  // The controls follow the selection's table. The pointer can only *introduce* a
-  // table (hovering one the caret is not in yet) — it never steals the rails away
-  // from the table being edited, so they do not jump while typing.
+  // The selection only matters here for a *structural* selection: a row or column
+  // grabbed from a grip. The pointer decides what is on screen (see the hover
+  // effect below), so an ordinary caret move inside a table reveals nothing — it
+  // only dismisses the toolbar belonging to a selection that no longer exists.
   useEffect(() => {
     if (!editor) return
 
@@ -126,18 +162,19 @@ export function TableControls({ editor }: { editor: Editor | null }) {
         setTable(null)
         setInfo(null)
         setActive(null)
+        setHovering(false)
         return
       }
-      const selected = getTableInfo(editor)
-      setInfo(selected)
-      if (selected) {
-        setTable(tableAt(editor.state.selection.from))
-      } else {
-        // The caret left the table: drop the rails with it. Without this they
-        // linger over a table nobody is editing until the next scroll.
-        setTable(null)
+      setInfo(getTableInfo(editor))
+      if (!(editor.state.selection instanceof CellSelection)) {
+        // Typing in a cell, or clicking into one, ends the row/column selection
+        // the toolbar was acting on. Leave `table` alone: the pointer may still
+        // be over it, and re-measuring on every keystroke would only make the
+        // rails jitter.
         setActive(null)
+        return
       }
+      setTable(tableAt(editor.state.selection.from))
     }
 
     const onSelectionUpdate = () => setTimeout(resolve, 10)
@@ -155,22 +192,56 @@ export function TableControls({ editor }: { editor: Editor | null }) {
     }
   }, [editor, scheduleMeasure, setTable, tableAt])
 
-  // Pointer tracking: reveals the rails for a table the caret is not in yet.
+  // Pointer tracking — the thing that reveals the rails.
+  //
+  // Bound to the document, not to the editor's DOM, and the fallback is
+  // geometric rather than target-based: the controls sit in an overlay *above*
+  // the editor with `pointer-events: auto`, so the moment the pointer reaches a
+  // grip the editor stops seeing mousemove at all. A hit test against the
+  // table's rect padded by HOVER_PAD keeps the rails up across that gap.
   useEffect(() => {
     if (!editor) return
-    const dom = editor.view.dom
 
     const onMove = (event: MouseEvent) => {
-      if (!editor.isEditable) return
-      // Selection wins: if the caret is in a table, that is the one with rails.
-      if (getTableInfo(editor)) return
+      if (!editor.isEditable) {
+        setHovering(false)
+        return
+      }
       const target = event.target as HTMLElement | null
-      const el = (target?.closest?.('table') as HTMLTableElement | null) ?? null
-      if (el) setTable(el)
+      const hit = (target?.closest?.('table') as HTMLTableElement | null) ?? null
+      if (hit && editor.view.dom.contains(hit)) {
+        // A live row/column selection owns the overlay. Re-measuring onto a
+        // second table under the pointer would leave the toolbar acting on the
+        // selected table through the hovered one's geometry.
+        if (activeRef.current && hit !== tableEl.current) return
+        setTable(hit)
+        setHovering(true)
+        return
+      }
+      const el = tableEl.current
+      const r = metricsRef.current?.table
+      if (!el || !el.isConnected || !r) {
+        setHovering(false)
+        return
+      }
+      setHovering(
+        event.clientX >= r.left - HOVER_PAD &&
+          event.clientX <= r.right + HOVER_PAD &&
+          event.clientY >= r.top - HOVER_PAD &&
+          event.clientY <= r.bottom + HOVER_PAD
+      )
     }
 
-    dom.addEventListener('mousemove', onMove)
-    return () => dom.removeEventListener('mousemove', onMove)
+    // The pointer leaving the window fires no further mousemove, so without this
+    // the rails would stay up on whatever table it left over.
+    const onLeave = () => setHovering(false)
+
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseleave', onLeave)
+    return () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseleave', onLeave)
+    }
   }, [editor, setTable])
 
   useEffect(() => {
@@ -196,6 +267,9 @@ export function TableControls({ editor }: { editor: Editor | null }) {
   }, [editor, scheduleMeasure])
 
   if (!editor || !editor.isEditable || !metrics || metrics.rows.length === 0) return null
+  // Hover reveals; a live row/column selection pins. Nothing else shows a grip —
+  // in particular the caret sitting in a cell does not (#1087).
+  if (!hovering && !active) return null
 
   const { table, rows, cols } = metrics
 

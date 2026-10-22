@@ -10,6 +10,7 @@ import { executeTool } from './lib/tools'
 import { useAnnotationStore } from './extensions/ai-annotations'
 import { useCommentStore } from './extensions/comments/store'
 import { useTabStore } from './stores/tabStore'
+import { useSettingsStore } from './stores/settingsStore'
 import { useChatStore } from './stores/chatStore'
 import { useEditorStore } from './stores/editorStore'
 import { syncShareComments } from './lib/shareSync'
@@ -31,6 +32,14 @@ import './index.css'
     await getApi().copyToClipboard(dumpPipelineLog())
   },
 }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// About-dialog seam for e2e (#1063) — the dialog opens from the app menu, which
+// Playwright cannot click.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+;(window as any).__prose_setEditing = (v: boolean) => useEditorStore.setState({ isEditing: v })
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+;(window as any).__prose_about = (open = true) =>
+  useSettingsStore.getState().setAboutDialogOpen(open)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ;(window as any).__prose_tools = {
   executeTool,

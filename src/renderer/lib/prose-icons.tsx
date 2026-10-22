@@ -11,6 +11,7 @@
 
 import type { CSSProperties, ComponentType, ReactNode } from 'react'
 import type { IconId } from '../types'
+import { ProseMark } from '../components/ProseMark'
 
 const NOISE_URL =
   "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E\")"
@@ -72,19 +73,13 @@ export function IconShell({
 export function IconPilcrow() {
   return (
     <IconShell>
-      <div
-        style={{
-          fontFamily: '"Fraunces", serif',
-          fontStyle: 'italic',
-          fontWeight: 340,
-          fontVariationSettings: '"opsz" 144',
-          fontSize: 280,
-          color: CREAM,
-          transform: 'translateY(6px)',
-        }}
-      >
-        ¶
-      </div>
+      {/*
+        The delivered vector, not a ¶ set in Fraunces (#1063). The glyph used to
+        be a font character at fontSize 280, which made every avatar depend on a
+        Google Fonts fetch and rendered differently if the font had not loaded
+        yet. `ProseMark` draws the same outline the app icon is built from.
+      */}
+      <ProseMark style={{ width: 300, height: 300, color: CREAM }} />
     </IconShell>
   )
 }

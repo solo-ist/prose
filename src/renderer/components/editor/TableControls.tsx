@@ -106,11 +106,19 @@ export function TableControls({ editor }: { editor: Editor | null }) {
   // reading the cached rect avoids forcing a layout per event, and it cannot go
   // stale without a scroll, resize or transaction — each of which re-measures.
   const metricsRef = useRef<Metrics | null>(null)
+  // Same reason, for the one piece of state the pointer handler reads: keeping
+  // `active` out of that effect's deps stops the document listener being torn
+  // down and re-added on every grip click and toolbar dismiss.
+  const activeRef = useRef<Active>(null)
 
   const applyMetrics = useCallback((m: Metrics | null) => {
     metricsRef.current = m
     setMetrics(m)
   }, [])
+
+  useEffect(() => {
+    activeRef.current = active
+  }, [active])
 
   /** Coalesce measurement into one rAF — scroll, resize and transactions all drive it. */
   const scheduleMeasure = useCallback(() => {
@@ -205,7 +213,7 @@ export function TableControls({ editor }: { editor: Editor | null }) {
         // A live row/column selection owns the overlay. Re-measuring onto a
         // second table under the pointer would leave the toolbar acting on the
         // selected table through the hovered one's geometry.
-        if (active && hit !== tableEl.current) return
+        if (activeRef.current && hit !== tableEl.current) return
         setTable(hit)
         setHovering(true)
         return
@@ -234,7 +242,7 @@ export function TableControls({ editor }: { editor: Editor | null }) {
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseleave', onLeave)
     }
-  }, [editor, setTable, active])
+  }, [editor, setTable])
 
   useEffect(() => {
     const onScrollOrResize = () => scheduleMeasure()

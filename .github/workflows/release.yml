@@ -102,7 +102,21 @@ jobs:
             echo "Release for $TAG already exists ($existing); reusing it"
             exit 0
           fi
-          flags=(--draft --verify-tag --title "Prose $TAG" --notes "")
+          # The release body comes from the SAME per-version file the app bundles
+          # and shows in its post-update modal (#1058), so the two cannot drift.
+          # The install/requirements boilerplate is version-independent, so it is
+          # appended here rather than stored in the bundled notes (where the modal
+          # would render it as noise).
+          notes_file="resources/release-notes/${TAG#v}.md"
+          body=$(mktemp)
+          if [ -f "$notes_file" ]; then
+            cat "$notes_file" >> "$body"
+          else
+            echo "::warning::No release notes at $notes_file — publishing with an empty body"
+            printf '# Prose %s\n' "$TAG" >> "$body"
+          fi
+          cat .github/release-footer.md >> "$body"
+          flags=(--draft --verify-tag --title "Prose $TAG" --notes-file "$body")
           # Pre-release tags (v1.8.0-beta.1, -rc.1) are never offered by the
           # updater (allowPrerelease = false), so mark them up front.
           case "$TAG" in *-*) flags+=(--prerelease) ;; esac

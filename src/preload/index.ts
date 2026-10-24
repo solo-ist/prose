@@ -127,6 +127,11 @@ export interface McpServerStatus {
   serverPath: string
 }
 
+export interface ReleaseNotes {
+  version: string
+  markdown: string
+}
+
 export interface McpInstallResult {
   success: boolean
   error?: string
@@ -241,6 +246,8 @@ export interface ElectronAPI {
   mcpGetStatus: () => Promise<McpServerStatus>
   mcpInstall: () => Promise<McpInstallResult>
   mcpUninstall: () => Promise<McpInstallResult>
+  // Release notes for the post-update modal (bundled per version)
+  getReleaseNotes: (version: string) => Promise<ReleaseNotes | null>
   // Emoji generation (runs in main process to avoid CORS)
   emojiGenerate: (title: string, contentPreview?: string) => Promise<{ emoji: string | null; error?: string }>
   // Window fullscreen state
@@ -556,6 +563,8 @@ const api: ElectronAPI = {
   mcpGetStatus: () => ipcRenderer.invoke('mcp:getStatus'),
   mcpInstall: () => ipcRenderer.invoke('mcp:install'),
   mcpUninstall: () => ipcRenderer.invoke('mcp:uninstall'),
+  // Release notes
+  getReleaseNotes: (version: string) => ipcRenderer.invoke('releaseNotes:get', version),
   // Emoji generation
   emojiGenerate: (title: string, contentPreview?: string) => ipcRenderer.invoke('emoji:generate', title, contentPreview),
   // Recent files

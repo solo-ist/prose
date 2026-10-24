@@ -105,6 +105,12 @@ interface SettingsBase {
     enabled: boolean
     enabledAt?: string      // ISO timestamp of when user enabled
   }
+  /**
+   * The APP_VERSION this profile last saw release notes for (#1058). Absent on a
+   * fresh install and on any profile predating 1.9.0; the renderer distinguishes
+   * those two by whether `aiConsent` is already recorded.
+   */
+  lastSeenVersion?: string
   featureFlags?: {
     remarkable?: boolean
     /** AI edit pipeline debug logging (#672) — see lib/aiPipelineLog.ts. Default: off. */
@@ -599,6 +605,8 @@ export interface ElectronAPI {
   }>
   mcpInstall: () => Promise<{ success: boolean; error?: string }>
   mcpUninstall: () => Promise<{ success: boolean; error?: string }>
+  // Release notes for the post-update modal (#1058); null when this version ships none
+  getReleaseNotes: (version: string) => Promise<{ version: string; markdown: string } | null>
   // File association (default markdown editor)
   // Returns: true (is default), false (not default), null (can't detect)
   fileAssociationIsDefault: () => Promise<boolean | null>

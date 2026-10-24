@@ -13,6 +13,7 @@ import { clearRecentFiles } from './recentFiles'
 import { refreshMenu, setReopenClosedTabEnabled } from './menu'
 import { credentialStore } from './credentialStore'
 import { toFileOperationFailure, type ReadFileResult, type SaveFileResult } from '../shared/fileOperationResult'
+import { readReleaseNotes, type ReleaseNotes } from './releaseNotes'
 
 // Credential store keys
 const LLM_API_KEY = 'llm-api-key'
@@ -2237,6 +2238,13 @@ export function setupIpcHandlers(): void {
       return
     }
     app.dock.setIcon(img)
+  })
+
+  // The renderer owns the "has this version been seen" decision (it holds settings);
+  // main only answers "are there notes for this version, and what are they".
+  ipcMain.handle('releaseNotes:get', async (_e, version: string): Promise<ReleaseNotes | null> => {
+    if (typeof version !== 'string') return null
+    return readReleaseNotes(version)
   })
 
   ipcMain.handle('skill:download', async (): Promise<{ success: boolean; error?: string }> => {

@@ -8,6 +8,12 @@ import type { ToolMode } from '../../shared/tools/types'
 
 const MAX_RECENT_FILES = 15
 
+/** Shared promise for concurrent `loadSettings` callers; see `loadSettings`. */
+let loadInFlight: Promise<void> | null = null
+
+/** Tail of the settings-write chain; see `saveSettings`. */
+let saveQueue: Promise<void> = Promise.resolve()
+
 type SettingsTab = 'general' | 'appearance' | 'editor' | 'llm' | 'integrations' | 'account'
 
 export const AI_CONSENT_VERSION = 1
@@ -127,6 +133,10 @@ interface SettingsState {
   setAIConsent: (consented: boolean) => void
   isAIConsentDialogOpen: boolean
   setAIConsentDialogOpen: (open: boolean) => void
+  // Release notes modal (#1058)
+  isReleaseNotesOpen: boolean
+  setReleaseNotesOpen: (open: boolean) => void
+  setLastSeenVersion: (version: string) => void
   setPersistedToolMode: (mode: ToolMode) => void
   // Projects
   addProject: (project: Project) => void
@@ -261,96 +271,121 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
     })),
 
   loadSettings: async () => {
-    try {
-      // Guard for when running in browser without Electron
-      if (!window.api) {
-        console.warn('window.api not available - using default settings')
-        const effectiveTheme = resolveEffectiveMode(defaultSettings.appearance.mode)
-        applyAppearance(defaultSettings.appearance)
+    // Every component using `useSettings()` fires its own load while `isLoaded` is
+    // false, so a cold start issues ~7 concurrent reads. Each one ends by REPLACING
+    // `settings` with what it read, so the last to resolve wins — and silently
+    // discards anything written while it was in flight. That is how #1058's
+    // `lastSeenVersion` was lost on a fresh install: it was written, then a load
+    // that had read the file beforehand landed on top of it.
+    //
+    // Coalescing makes the concurrent callers share one read, so there is no stale
+    // snapshot to land late. A later, genuinely new load still runs normally.
+    if (loadInFlight) return loadInFlight
+    loadInFlight = (async () => {
+      try {
+        // Guard for when running in browser without Electron
+        if (!window.api) {
+          console.warn('window.api not available - using default settings')
+          const effectiveTheme = resolveEffectiveMode(defaultSettings.appearance.mode)
+          applyAppearance(defaultSettings.appearance)
+          set({
+            isLoaded: true,
+            effectiveTheme,
+            effectiveColor: resolveEffectiveColor(defaultSettings.appearance)
+          })
+          return
+        }
+        const raw = await window.api.loadSettings()
+
+        // Backwards compatibility: migrate old autosave.enabled to autosave.mode
+        if (raw.autosave && 'enabled' in raw.autosave) {
+          const oldAutosave = raw.autosave as { enabled: boolean; intervalSeconds: number }
+          raw.autosave = {
+            mode: oldAutosave.enabled ? 'custom' : 'off',
+            intervalSeconds: oldAutosave.intervalSeconds ?? 30
+          }
+        }
+
+        const migrated = migrateOnDiskSettings(raw)
+        const effectiveTheme = resolveEffectiveMode(migrated.appearance.mode)
+        const effectiveColor = resolveEffectiveColor(migrated.appearance)
+
         set({
+          settings: { ...defaultSettings, ...migrated },
           isLoaded: true,
           effectiveTheme,
-          effectiveColor: resolveEffectiveColor(defaultSettings.appearance)
+          effectiveColor
         })
-        return
-      }
-      const raw = await window.api.loadSettings()
 
-      // Backwards compatibility: migrate old autosave.enabled to autosave.mode
-      if (raw.autosave && 'enabled' in raw.autosave) {
-        const oldAutosave = raw.autosave as { enabled: boolean; intervalSeconds: number }
-        raw.autosave = {
-          mode: oldAutosave.enabled ? 'custom' : 'off',
-          intervalSeconds: oldAutosave.intervalSeconds ?? 30
+        // Apply appearance and (re)attach the system-mode listener
+        applyAppearance(migrated.appearance)
+        setupSystemModeListener(migrated.appearance, set)
+
+        // Pin the dock tile to Pilcrow on launch (macOS only; no-op elsewhere).
+        // Redundant in a packaged build, where the bundle icon is already
+        // Pilcrow, but in dev the dock would otherwise show Electron's logo.
+        window.api.applyDockIcon?.()
+
+        // If we migrated a legacy theme field or healed a project-clobbered
+        // base root / bookmark slot, persist the cleaned shape so the next
+        // launch reads the new values and the migration code path becomes a
+        // no-op for this user.
+        if (
+          raw.theme ||
+          (raw.appearance && (
+            raw.appearance.color !== undefined ||
+            raw.appearance.lightColor === undefined ||
+            raw.appearance.darkColor === undefined
+          )) ||
+          raw.defaultSaveDirectory !== migrated.defaultSaveDirectory ||
+          raw.masDirectoryBookmark !== migrated.masDirectoryBookmark
+        ) {
+          get().saveSettings().catch((err) => {
+            console.warn('[settings] failed to persist migrated appearance:', err)
+          })
         }
+
+        // Hydrate chatStore toolMode from persisted settings (global, applies to all tabs).
+        // Import lazily to avoid a static top-level import that could cause sandbox issues.
+        // The persisted value takes priority; fall back to the store's in-memory default.
+        const persistedToolMode = migrated.toolMode ?? defaultSettings.toolMode ?? 'editor'
+        const { useChatStore } = await import('./chatStore')
+        useChatStore.getState().setToolMode(persistedToolMode)
+
+        // Initialize Sentry if user has opted in
+        initRendererSentry(raw?.errorTracking?.enabled === true)
+
+        // Refresh the live model list in the background if we have an API key
+        if (raw?.llm?.apiKey) {
+          get().fetchModels().catch(() => { /* surfaced via state, not a crash */ })
+        }
+      } catch (error) {
+        console.error('Failed to load settings:', error)
+        set({ isLoaded: true })
       }
-
-      const migrated = migrateOnDiskSettings(raw)
-      const effectiveTheme = resolveEffectiveMode(migrated.appearance.mode)
-      const effectiveColor = resolveEffectiveColor(migrated.appearance)
-
-      set({
-        settings: { ...defaultSettings, ...migrated },
-        isLoaded: true,
-        effectiveTheme,
-        effectiveColor
-      })
-
-      // Apply appearance and (re)attach the system-mode listener
-      applyAppearance(migrated.appearance)
-      setupSystemModeListener(migrated.appearance, set)
-
-      // Pin the dock tile to Pilcrow on launch (macOS only; no-op elsewhere).
-      // Redundant in a packaged build, where the bundle icon is already
-      // Pilcrow, but in dev the dock would otherwise show Electron's logo.
-      window.api.applyDockIcon?.()
-
-      // If we migrated a legacy theme field or healed a project-clobbered
-      // base root / bookmark slot, persist the cleaned shape so the next
-      // launch reads the new values and the migration code path becomes a
-      // no-op for this user.
-      if (
-        raw.theme ||
-        (raw.appearance && (
-          raw.appearance.color !== undefined ||
-          raw.appearance.lightColor === undefined ||
-          raw.appearance.darkColor === undefined
-        )) ||
-        raw.defaultSaveDirectory !== migrated.defaultSaveDirectory ||
-        raw.masDirectoryBookmark !== migrated.masDirectoryBookmark
-      ) {
-        get().saveSettings().catch((err) => {
-          console.warn('[settings] failed to persist migrated appearance:', err)
-        })
-      }
-
-      // Hydrate chatStore toolMode from persisted settings (global, applies to all tabs).
-      // Import lazily to avoid a static top-level import that could cause sandbox issues.
-      // The persisted value takes priority; fall back to the store's in-memory default.
-      const persistedToolMode = migrated.toolMode ?? defaultSettings.toolMode ?? 'editor'
-      const { useChatStore } = await import('./chatStore')
-      useChatStore.getState().setToolMode(persistedToolMode)
-
-      // Initialize Sentry if user has opted in
-      initRendererSentry(raw?.errorTracking?.enabled === true)
-
-      // Refresh the live model list in the background if we have an API key
-      if (raw?.llm?.apiKey) {
-        get().fetchModels().catch(() => { /* surfaced via state, not a crash */ })
-      }
-    } catch (error) {
-      console.error('Failed to load settings:', error)
-      set({ isLoaded: true })
-    }
+    })().finally(() => {
+      loadInFlight = null
+    })
+    return loadInFlight
   },
 
   saveSettings: async () => {
-    try {
-      if (!window.api) return
-      await window.api.saveSettings(get().settings)
-    } catch (error) {
-      console.error('Failed to save settings:', error)
-    }
+    // Serialized, and the snapshot is taken when the write runs rather than when
+    // it is queued. Concurrent callers are ordinary here — `loadSettings` persists
+    // a migrated shape while a component writes its own key — and two overlapping
+    // `writeFile`s have no defined completion order, so the earlier caller could
+    // land last and silently drop the later one's change. That cost the #1058
+    // `lastSeenVersion` write on every fresh install, which races the migration
+    // save exactly.
+    saveQueue = saveQueue.then(async () => {
+      try {
+        if (!window.api) return
+        await window.api.saveSettings(get().settings)
+      } catch (error) {
+        console.error('Failed to save settings:', error)
+      }
+    })
+    return saveQueue
   },
 
   setDialogOpen: (open, tab) => set({
@@ -564,6 +599,17 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
   },
 
   setAIConsentDialogOpen: (open) => set({ isAIConsentDialogOpen: open }),
+
+  isReleaseNotesOpen: false,
+
+  setReleaseNotesOpen: (open) => set({ isReleaseNotesOpen: open }),
+
+  setLastSeenVersion: (version) => {
+    set((state) => ({
+      settings: { ...state.settings, lastSeenVersion: version }
+    }))
+    get().saveSettings()
+  },
 
   setPersistedToolMode: (mode) => {
     set((state) => ({

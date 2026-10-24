@@ -44,7 +44,16 @@ protocols:
       - prose
 
 mac:
-  icon: resources/icons/pilcrow/icon.icns
+  # Icon Composer bundle, not the .icns (#812). electron-builder 26.15.3 accepts
+  # a `.icon` here: it shells out to `actool` to compile Assets.car, sets
+  # CFBundleIconName, and still ships an .icns for pre-26 macOS. That gives the
+  # macOS 26 appearance variants (Default / Dark / Clear / Tinted) without the
+  # custom afterPack step the issue originally prescribed.
+  #
+  # It HARD-FAILS without actool 26+ — app-builder-lib's macosIconComposer.js
+  # throws rather than falling back — so a build machine needs full Xcode 26 or
+  # later, not just Command Line Tools. CI pins it explicitly below.
+  icon: resources/icons/pilcrow/AppIcon.icon
   category: public.app-category.productivity
   identity: Developer ID Application
   hardenedRuntime: true

@@ -14,8 +14,11 @@
 # installed app's profile and hands off to the running instance.
 #
 # Notes:
-#  - mac.icon is pinned to the .icns: once #812 points it at AppIcon.icon,
-#    electron-builder shells out to actool and hard-fails without Xcode 26.
+#  - mac.icon is NOT overridden: it inherits electron-builder.yml, which since
+#    #812 is the AppIcon.icon bundle. That needs actool 26+ (full Xcode, not
+#    Command Line Tools) — electron-builder hard-fails without it rather than
+#    falling back. Verified against Xcode 27.1; check `xcrun --find actool` and
+#    its version if this step ever fails on another machine.
 #  - extraMetadata rewrites the SOURCE package.json, so this restores it via a
 #    trap and asserts the restore took.
 #  - Ad-hoc signed (`codesign --sign -`): no Developer ID on this account.
@@ -33,11 +36,9 @@ c.productName='Prose QA'; c.appId='ist.solo.prose.qa';
 delete c.fileAssociations;            // don't contest the .md default handler
 delete c.publish;                     // never publish a QA build
 c.mac.identity=null; c.mac.target=['dir'];
-// Pin the pre-26 .icns. Once #812 points mac.icon at AppIcon.icon,
-// electron-builder shells out to actool and HARD-FAILS — it does not fall back —
-// if actool is missing or older than 26 (app-builder-lib macosIconComposer.js:19-36).
-// Drop this pin once that is verified against the Xcode on the build machine.
-c.mac.icon='resources/icons/pilcrow/icon.icns';
+// mac.icon is deliberately left alone so the QA build exercises the REAL icon
+// path (AppIcon.icon → actool → Assets.car), which is the thing #812 changed and
+// therefore the thing QA needs to look at.
 c.directories.output='dist/qa';
 // app.getName() drives userData, the single-instance lock and the MCP socket dir,
 // and it comes from the BUNDLED package.json — not CFBundleName.

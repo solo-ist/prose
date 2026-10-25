@@ -1,4 +1,4 @@
-export { Comment, getComments, mergeCommentsForPersistence, commentMarkdownSerializer, findFullyCoveredCommentIds } from './extension'
+export { Comment, getComments, mergeCommentsForPersistence, commentMarkdownSerializer, findFullyCoveredCommentIds, AI_REPLACEMENT_META } from './extension'
 export type { CommentMark, CommentData, CommentReply, CommentOptions } from './types'
 export { useCommentStore, countOpenThreads } from './store'
 

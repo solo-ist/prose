@@ -19,6 +19,15 @@ import { pushResolveToShare } from '../../lib/sharePush'
 const commentStatePluginKey = new PluginKey('commentState')
 
 /**
+ * Transaction meta marking a programmatic AI replacement — an accepted
+ * suggestion or an `edit`/`insert` tool write (#1099). Those build mark-free
+ * content, so any comment anchored in the replaced range vanishes without the
+ * writer having deleted anything. autoResolveDeletedComments reads the meta
+ * and keeps such threads open as anchorLost instead of resolving them.
+ */
+export const AI_REPLACEMENT_META = 'aiReplacement'
+
+/**
  * Markdown serializer for comment marks - outputs just the text content
  * so comments don't appear as HTML in markdown output
  */
@@ -434,6 +443,8 @@ export const Comment = Mark.create<CommentOptions>({
     // lack the meta and would overwrite a state value before the view update
     // reads it (#933). `apply` is only the hook that arms it.
     let contentLoadInDispatch = false
+    // Same per-dispatch shape for AI replacements (#1099).
+    let aiReplacementInDispatch = false
     return [
       new Plugin({
         key: commentStatePluginKey,
@@ -441,6 +452,7 @@ export const Comment = Mark.create<CommentOptions>({
           init: () => null,
           apply(tr) {
             if (tr.getMeta('preventUpdate') === true) contentLoadInDispatch = true
+            if (tr.getMeta(AI_REPLACEMENT_META) === true) aiReplacementInDispatch = true
             return null
           },
         },
@@ -459,8 +471,10 @@ export const Comment = Mark.create<CommentOptions>({
             update: (v, prevState) => {
               // Consume unconditionally so every dispatch starts clean.
               const contentLoad = contentLoadInDispatch
+              const aiReplacement = aiReplacementInDispatch
               contentLoadInDispatch = false
-              autoResolveDeletedComments(v, prevState, contentLoad)
+              aiReplacementInDispatch = false
+              autoResolveDeletedComments(v, prevState, contentLoad, aiReplacement)
             },
             destroy: unsubscribe,
           }
@@ -520,17 +534,26 @@ function commentMarkIds(doc: ProseMirrorNode): Set<string> {
  * source-mode toggle strip them all before the restore re-applies them).
  * `contentLoad` comes from the plugin's per-dispatch flag; user edits —
  * including deleting the last comment's text — never set it (#933).
+ *
+ * An AI replacement (`aiReplacement`, from AI_REPLACEMENT_META) is not the
+ * writer's intent: the thread stays open, flagged anchorLost so persistence
+ * keeps it, and nothing is pushed — the share has no unresolve, so a resolve
+ * pushed here could never be taken back (#1099). Restore re-anchors it on a
+ * later load if its text survived; an undo brings the mark straight back, and
+ * the flag is cleared as soon as it does.
  */
 function autoResolveDeletedComments(
   view: EditorView,
   prevState: EditorState,
-  contentLoad: boolean
+  contentLoad: boolean,
+  aiReplacement: boolean
 ): void {
   if (view.state.doc === prevState.doc) return
   const store = useCommentStore.getState()
   if (store.needsRestore) return
   const prevIds = commentMarkIds(prevState.doc)
-  if (prevIds.size === 0) return
+  const anyLost = store.pendingComments.some((c) => c.anchorLost === true)
+  if (prevIds.size === 0 && !anyLost) return
   const currIds = commentMarkIds(view.state.doc)
   // All marks gone at once: a content load's transient strip (skip), or the
   // user deleting the text of the only remaining comment (resolve it).
@@ -538,13 +561,21 @@ function autoResolveDeletedComments(
   const removedOpen = store.pendingComments.filter(
     (c) => !c.resolved && prevIds.has(c.id) && !currIds.has(c.id)
   )
-  if (removedOpen.length === 0) return
-  const removedIds = new Set(removedOpen.map((c) => c.id))
-  const updated = store.pendingComments.map((c) =>
-    removedIds.has(c.id) ? { ...c, resolved: true } : c
+  // A live mark means the anchor exists again (an undo of the replacement).
+  const reanchored = store.pendingComments.filter(
+    (c) => c.anchorLost === true && currIds.has(c.id)
   )
+  if (removedOpen.length === 0 && reanchored.length === 0) return
+  const removedIds = new Set(removedOpen.map((c) => c.id))
+  const reanchoredIds = new Set(reanchored.map((c) => c.id))
+  const updated = store.pendingComments.map((c) => {
+    if (removedIds.has(c.id)) return aiReplacement ? { ...c, anchorLost: true } : { ...c, resolved: true }
+    if (reanchoredIds.has(c.id)) return { ...c, anchorLost: false }
+    return c
+  })
   useCommentStore.setState({ pendingComments: updated })
   if (store.documentId) void store.saveComments(store.documentId, updated)
+  if (aiReplacement) return
   // Resolve on the share too, so the web viewer files the thread under
   // Resolved rather than as an unanchored open thread.
   removedOpen.forEach((c) => pushResolveToShare(c.id))

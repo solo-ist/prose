@@ -4,8 +4,10 @@
  * Tests:
  * 1. Deleting the text of the sole remaining comment resolves the thread (#933 fix).
  * 2. Toggling source mode with one open comment does NOT resolve it (invariant guard).
+ * 3-5. An AI replacement over a comment — single accept, accept-all — keeps
+ *    the thread open as anchorLost; an `edit` write keeps it anchored (#1099).
  *
- * Both tests use a fresh markdown file per case, a single comment added via the
+ * Every test uses a fresh markdown file per case, a single comment added via the
  * add_comment tool, and programmatic editor manipulation so no LLM calls are made.
  */
 
@@ -209,4 +211,116 @@ test('toggling source mode with one open comment does NOT resolve it', async () 
 
   // Mark must be visible again in the editor DOM (restoreComments re-applied it)
   expect(await countCommentMarks(page)).toBeGreaterThan(0)
+})
+
+// ─── AI replacements (#1099) ─────────────────────────────────────────────────
+//
+// Accepting a suggestion, or an `edit` tool write, replaces the node's text
+// with mark-free content, so a comment anchored there loses its mark without
+// the writer deleting anything. The thread must stay OPEN (flagged anchorLost
+// so persistence keeps it) — never resolved, and so never pushed to the share,
+// which has no unresolve.
+
+/** Id of the first node whose text contains `text`. */
+async function nodeIdByText(testPage: Page, text: string): Promise<string> {
+  const read = await executeProseTool(testPage, 'read_document', {})
+  expect(read.success, 'read_document').toBe(true)
+  interface DocNode { id: string; content?: string; children?: DocNode[] }
+  const flatten = (nodes: DocNode[]): DocNode[] =>
+    nodes.flatMap((n) => [n, ...(n.children ? flatten(n.children) : [])])
+  const node = flatten((read.data as { nodes: DocNode[] }).nodes).find(
+    (n) => (n.content ?? '').includes(text),
+  )
+  expect(node, `node containing "${text}"`).toBeTruthy()
+  return node!.id
+}
+
+/** Comment a node and wait for the restore cycle to settle. */
+async function commentOn(testPage: Page, nodeId: string, commentText: string): Promise<string> {
+  const result = await executeProseTool(testPage, 'add_comment', { nodeId, comment: commentText }, 'editor')
+  expect(result.success, `add_comment: ${JSON.stringify(result)}`).toBe(true)
+  await testPage.waitForFunction(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    () => (window as any).__prose_tools.getCommentStoreNeedsRestore() === false,
+    { timeout: 5_000 },
+  )
+  expect(await countCommentMarks(testPage)).toBeGreaterThan(0)
+  return (result.data as { id: string }).id
+}
+
+/** The thread survived the replacement: open, unanchored, still in the store. */
+async function expectKeptOpen(testPage: Page, commentId: string): Promise<void> {
+  await expect.poll(() => countCommentMarks(testPage)).toBe(0)
+  await expect
+    .poll(async () => {
+      const c = (await getCommentStore(testPage)).find((t) => t.id === commentId)
+      return c ? { resolved: c.resolved, anchorLost: c.anchorLost } : null
+    }, { message: 'thread kept open and flagged anchorLost' })
+    .toEqual({ resolved: false, anchorLost: true })
+}
+
+async function suggest(testPage: Page, nodeId: string, content: string): Promise<string> {
+  const suggested = await executeProseTool(testPage, 'suggest_edit', { nodeId, content })
+  expect(suggested.success, `suggest_edit: ${JSON.stringify(suggested)}`).toBe(true)
+  return (suggested.data as { suggestionId: string }).suggestionId
+}
+
+test('accepting a suggestion over a comment keeps the thread open (#1099)', async () => {
+  await openFreshFile(page, '1099-accept.md', 'The reviewer flagged this sentence for a rewrite.\n')
+  const nodeId = await nodeIdByText(page, 'The reviewer flagged')
+  const commentId = await commentOn(page, nodeId, 'Tighten this.')
+
+  const id = await suggest(page, nodeId, 'The AI rewrote the flagged sentence.')
+  const accepted = await executeProseTool(page, 'accept_diff', { id })
+  expect(accepted.success, `accept_diff: ${JSON.stringify(accepted)}`).toBe(true)
+
+  await expectKeptOpen(page, commentId)
+
+  // Undoing the accept brings the anchor back, and the flag goes with it.
+  await page.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(window as any).__prose_editor.commands.undo()
+  })
+  await expect.poll(() => countCommentMarks(page)).toBeGreaterThan(0)
+  await expect
+    .poll(async () => (await getCommentStore(page)).find((t) => t.id === commentId)?.anchorLost)
+    .toBe(false)
+})
+
+test('accept-all over a comment keeps the thread open (#1099)', async () => {
+  await openFreshFile(
+    page,
+    '1099-accept-all.md',
+    'First paragraph carries the comment.\n\nSecond paragraph is plain.\n',
+  )
+  const firstId = await nodeIdByText(page, 'First paragraph')
+  const commentId = await commentOn(page, firstId, 'Reword the opener.')
+
+  await suggest(page, firstId, 'The opener, reworded by the AI.')
+  await suggest(page, await nodeIdByText(page, 'Second paragraph'), 'The second, also reworded.')
+  const acceptAll = await executeProseTool(page, 'accept_diff', {})
+  expect(acceptAll.success, `accept_diff (all): ${JSON.stringify(acceptAll)}`).toBe(true)
+
+  await expectKeptOpen(page, commentId)
+})
+
+test('an edit tool write over a comment keeps the thread anchored (#1099)', async () => {
+  await openFreshFile(page, '1099-edit.md', 'This commented line gets a direct AI edit.\n')
+  const nodeId = await nodeIdByText(page, 'This commented line')
+  const commentId = await commentOn(page, nodeId, 'Check this claim.')
+
+  // `edit` inserts its payload as text, which inherits the marks at the
+  // selection — so the comment re-covers the new text rather than vanishing.
+  // Guard that: if the payload ever goes through the parser (mark-free
+  // nodes), the AI_REPLACEMENT_META tag must still keep the thread open.
+  const edited = await executeProseTool(page, 'edit', {
+    nodeId,
+    search: 'This commented line gets a direct AI edit.',
+    content: 'The line after a direct AI edit.',
+  })
+  expect(edited.success, `edit: ${JSON.stringify(edited)}`).toBe(true)
+
+  await expect.poll(() => countCommentMarks(page)).toBeGreaterThan(0)
+  const thread = (await getCommentStore(page)).find((t) => t.id === commentId)
+  expect(thread?.resolved, 'thread not resolved by an edit').toBe(false)
 })

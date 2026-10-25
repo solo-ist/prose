@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from 'react'
 import { EditorView, basicSetup } from 'codemirror'
 import { markdown } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
@@ -174,6 +174,17 @@ export const SourceEditor = forwardRef<SourceEditorHandle, SourceEditorProps>(fu
     }, 500)
   }, [])
 
+  // Deliver a pending change on unmount instead of dropping it (#1102). A
+  // layout cleanup runs before the parent's layout effects — where the
+  // source-exit writeback reads the text — and while the view is still alive.
+  useLayoutEffect(() => () => {
+    if (!debounceRef.current) return
+    clearTimeout(debounceRef.current)
+    debounceRef.current = null
+    const view = viewRef.current
+    if (view) onChangeRef.current(view.state.doc.toString())
+  }, [])
+
   // Create CodeMirror instance on mount
   useEffect(() => {
     if (!containerRef.current) return
@@ -294,12 +305,23 @@ export const SourceEditor = forwardRef<SourceEditorHandle, SourceEditorProps>(fu
 
     const currentContent = view.state.doc.toString()
     if (content !== currentContent) {
+      // Replace only the span that differs. CodeMirror maps the selection,
+      // scroll anchor and folds through a change, so a minimal one leaves the
+      // caret where it was; replacing the whole doc collapsed it (#1102).
+      const max = Math.min(content.length, currentContent.length)
+      let start = 0
+      while (start < max && content[start] === currentContent[start]) start++
+      let end = 0
+      while (
+        end < max - start &&
+        content[content.length - 1 - end] === currentContent[currentContent.length - 1 - end]
+      ) end++
       isExternalUpdate.current = true
       view.dispatch({
         changes: {
-          from: 0,
-          to: view.state.doc.length,
-          insert: content,
+          from: start,
+          to: currentContent.length - end,
+          insert: content.slice(start, content.length - end),
         },
       })
       isExternalUpdate.current = false

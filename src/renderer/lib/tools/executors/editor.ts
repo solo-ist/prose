@@ -212,6 +212,23 @@ function isPlainTextDocument(editor: Editor): boolean {
 const TABLE_NODE_TYPES = new Set(['table', 'tableRow', 'tableHeader', 'tableCell'])
 
 /**
+ * The table enclosing `pos`, if any. Tables carry no nodeId
+ * (NODE_TYPES_WITH_IDS), so the only table targets a tool can name are the
+ * paragraphs inside cells; this lifts one of those to the table it sits in
+ * (#1100).
+ */
+function enclosingTable(
+  doc: Editor['state']['doc'],
+  pos: number
+): { node: Editor['state']['doc']; pos: number } | null {
+  const $pos = doc.resolve(pos)
+  for (let d = $pos.depth; d > 0; d--) {
+    if ($pos.node(d).type.name === 'table') return { node: $pos.node(d), pos: $pos.before(d) }
+  }
+  return null
+}
+
+/**
  * Detect a block-type conversion intent (#673): the suggestion's content
  * carries leading block markup that differs from the host node's type, e.g.
  * `# Title` targeting a paragraph, or `## Sub` targeting an H1. Returns the
@@ -290,9 +307,10 @@ export function resolveToolPosition(toolName: string, args: Record<string, unkno
           found = findNodeByContent(editor.state.doc, search)
         }
         if (!found) return Infinity
+        const anchor = enclosingTable(editor.state.doc, found.pos) ?? found
         return position === 'after_node'
-          ? found.pos + found.node.nodeSize
-          : found.pos
+          ? anchor.pos + anchor.node.nodeSize
+          : anchor.pos
       }
       default: return Infinity
     }
@@ -391,6 +409,14 @@ export async function executeEdit(
   }
 
   const { node, pos } = found
+
+  // A cell paragraph is the only handle on a table (#1100). A one-line payload
+  // edits that cell; a GFM table replaces the whole table; anything else
+  // multi-line would splice block markup into a cell and break the rows.
+  const table = enclosingTable(editor.state.doc, pos)
+  if (table && content.trim().includes('\n')) {
+    return replaceTable(editor, table, nodeId, content, comment, provenance)
+  }
 
   // Replace the node's content
   // For text-containing nodes, we replace from pos+1 to pos+node.nodeSize-1 (inside the node)
@@ -547,8 +573,10 @@ export async function executeInsert(
           'NODE_NOT_FOUND'
         )
       }
+      // A cell paragraph anchors the table, not a spot inside its row (#1100).
+      const anchor = enclosingTable(editor.state.doc, found.pos) ?? found
       insertFrom =
-        position === 'after_node' ? found.pos + found.node.nodeSize : found.pos
+        position === 'after_node' ? anchor.pos + anchor.node.nodeSize : anchor.pos
       insertTo = insertFrom
 
       // Block-anchor insert: `insertFrom` is a between-block-nodes position at
@@ -660,6 +688,63 @@ export async function executeInsert(
 }
 
 /** Provenance context for AI-generated content tracking */
+/**
+ * edit's whole-table path (#1100): parse a GFM table payload and swap it in for
+ * the table the targeted cell sits in. Parsed in one shot, not streamed — the
+ * streamed path inserts later chunks as raw text, which would land the pipes
+ * literally. Parsing GFM keeps the all-header first row the pipe serializer
+ * needs, so the result still saves as a pipe table.
+ */
+function replaceTable(
+  editor: Editor,
+  table: { node: Editor['state']['doc']; pos: number },
+  nodeId: string,
+  content: string,
+  comment: string | undefined,
+  provenance: ToolProvenance | undefined
+): ToolResult<{ applied: boolean; nodeId: string }> {
+  const slice = parseMarkdownToSlice(editor, editor.schema, content.trim())
+  const parsed = slice && slice.content.childCount === 1 ? slice.content.firstChild : null
+  if (!parsed || parsed.type.name !== 'table') {
+    pipelineLog('edit:result', { nodeId, blocked: 'TABLE_CELL_MULTILINE' })
+    return toolError(
+      'This node is a paragraph inside a table cell, and a cell holds a single ' +
+        "line. To change this cell's text, pass one line. To change the table's " +
+        'structure, pass ONLY the full updated GFM table (header row, delimiter ' +
+        'row, body rows) and it replaces the whole table. Put any other content ' +
+        'in a separate insert after the table.',
+      'TABLE_CELL_MULTILINE'
+    )
+  }
+
+  const from = table.pos
+  const tr = editor.state.tr
+    .replaceWith(from, from + table.node.nodeSize, parsed)
+    .setMeta(AI_REPLACEMENT_META, true)
+  editor.view.dispatch(tr)
+  pipelineLog('edit:result', { nodeId, path: 'wholeTable' })
+
+  if (provenance && provenance.documentId) {
+    // Row/cell structure breaks word-diff offsets — one full-range
+    // annotation over the new table, as wrapper block conversions do.
+    useAnnotationStore.getState().addAnnotation({
+      documentId: provenance.documentId,
+      type: 'replacement',
+      from,
+      to: from + parsed.nodeSize,
+      content: parsed.textContent,
+      provenance: {
+        model: provenance.model,
+        conversationId: provenance.conversationId,
+        messageId: provenance.messageId,
+      },
+      explanation: comment,
+    })
+  }
+
+  return toolSuccess({ applied: true, nodeId })
+}
+
 interface ToolProvenance {
   model: string
   conversationId: string
@@ -834,11 +919,12 @@ export function executeSuggestEdit(
   if (insideTable) {
     pipelineLog('suggest_edit:result', { nodeId, blocked: 'TABLE_NODE_NOT_SUPPORTED' })
     return toolError(
-      'suggest_edit cannot target table nodes — the suggestion mark cannot ' +
-        'represent table structure, and accepting it would corrupt the table. ' +
-        'To change a table, use the edit tool to replace the entire table ' +
-        '(pass the full updated GFM table as content), or insert a new table ' +
-        'with insert(position: "after_node").',
+      'suggest_edit cannot target table cells — a suggestion cannot represent ' +
+        'table structure, and accepting it would corrupt the table. Use the edit ' +
+        "tool instead: to change one cell's text, call edit with that cell's " +
+        'nodeId and the new single-line text; to change rows, columns or several ' +
+        "cells, call edit with any of the table's cell nodeIds and the full " +
+        'updated GFM table as content, which replaces the whole table.',
       'TABLE_NODE_NOT_SUPPORTED'
     )
   }

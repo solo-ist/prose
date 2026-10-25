@@ -31,6 +31,7 @@ import {
   dismissOnboarding,
   dismissOverlay,
   getEditorMarkdown,
+  executeProseTool,
 } from './helpers'
 
 let app: ElectronApplication
@@ -453,5 +454,107 @@ test.describe('Electron — table editing (#1060)', () => {
     await page.locator('[data-testid="table-row-grip-0"]').click()
     await expect(page.locator('[data-testid="table-active-toolbar"]')).toBeVisible()
     await expect(page.locator('[data-testid="selection-popover"]')).toHaveCount(0)
+  })
+})
+
+// The registry gives tables no nodeId, so a tool's only handle on one is a
+// paragraph inside a cell. suggest_edit refuses those; its advice — use edit —
+// has to hold for both a cell's text and the whole table (#1100).
+test.describe('Electron — AI tools on tables (#1100)', () => {
+  const TABLE_DOC = '| Name | Qty |\n| --- | --- |\n| apple | 1 |\n| pear | 2 |\n\nAfter the table.\n'
+
+  async function loadTableDoc(): Promise<void> {
+    await page.evaluate((markdown) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(window as any).__prose_editor?.commands.setContent(markdown)
+    }, TABLE_DOC)
+    await waitForEditor(page)
+  }
+
+  async function nodeIdOf(text: string): Promise<string> {
+    const read = await executeProseTool(page, 'read_document', {})
+    expect(read.success, 'read_document').toBe(true)
+    const nodes = (read.data as { nodes: Array<{ id: string; content?: string }> }).nodes
+    const node = nodes.find((n) => n.content === text)
+    expect(node, `node "${text}"`).toBeTruthy()
+    return node!.id
+  }
+
+  test('suggest_edit on a cell refuses, and points at edit', async () => {
+    await loadTableDoc()
+    const result = await executeProseTool(page, 'suggest_edit', { nodeId: await nodeIdOf('apple'), content: 'banana' })
+    expect(result.success).toBe(false)
+    expect(result.code).toBe('TABLE_NODE_NOT_SUPPORTED')
+    expect(result.error).toContain('full updated GFM table')
+  })
+
+  test('edit with one line changes just that cell', async () => {
+    await loadTableDoc()
+    const result = await executeProseTool(page, 'edit', { nodeId: await nodeIdOf('apple'), content: 'banana split' })
+    expect(result.success, JSON.stringify(result)).toBe(true)
+
+    const md = await getEditorMarkdown(page)
+    expectPipeTable(md)
+    expect(md).toContain('| banana split | 1 |')
+    expect(countRows(md)).toBe(3)
+  })
+
+  test('edit with a full GFM table replaces the whole table', async () => {
+    await loadTableDoc()
+    const result = await executeProseTool(page, 'edit', {
+      nodeId: await nodeIdOf('apple'),
+      content: '| Name | Qty | Note |\n| --- | --- | --- |\n| banana | 3 | ripe |\n| pear | 2 | firm |\n| plum | 5 | soft |',
+    })
+    expect(result.success, JSON.stringify(result)).toBe(true)
+
+    const md = await getEditorMarkdown(page)
+    expectPipeTable(md)
+    // One table, not a table spliced into a cell of the old one.
+    expect(md.split('\n').filter((l) => /^\|(?:\s*:?-+:?\s*\|)+$/.test(l.trim()))).toHaveLength(1)
+    expect(countColumns(md)).toBe(3)
+    expect(countRows(md)).toBe(4)
+    expect(md).toContain('| banana | 3 | ripe |')
+    expect(md).not.toContain('apple')
+    expect(md).toContain('After the table.')
+
+    // And it survives a reparse as the same table.
+    await page.evaluate((markdown) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(window as any).__prose_editor?.commands.setContent(markdown)
+    }, md)
+    const reserialized = await getEditorMarkdown(page)
+    expectPipeTable(reserialized)
+    expect(countRows(reserialized)).toBe(4)
+    expect(countColumns(reserialized)).toBe(3)
+  })
+
+  test('edit with a table wrapped in prose is refused and changes nothing', async () => {
+    await loadTableDoc()
+    const before = await getEditorMarkdown(page)
+    const result = await executeProseTool(page, 'edit', {
+      nodeId: await nodeIdOf('apple'),
+      content: 'Here is the update:\n\n| Name | Qty |\n| --- | --- |\n| banana | 1 |',
+    })
+    expect(result.success).toBe(false)
+    expect(result.code).toBe('TABLE_CELL_MULTILINE')
+    expect(await getEditorMarkdown(page)).toBe(before)
+  })
+
+  test('insert after a cell lands after the table, not inside its row', async () => {
+    await loadTableDoc()
+    const result = await executeProseTool(page, 'insert', {
+      position: 'after_node',
+      nodeId: await nodeIdOf('pear'),
+      text: 'A note below the table.',
+    })
+    expect(result.success, JSON.stringify(result)).toBe(true)
+
+    const md = await getEditorMarkdown(page)
+    expectPipeTable(md)
+    expect(countRows(md)).toBe(3)
+    const lines = md.split('\n')
+    const lastTableLine = lines.map((l) => /^\|/.test(l.trim())).lastIndexOf(true)
+    const noteLine = lines.findIndex((l) => l.includes('A note below the table.'))
+    expect(noteLine, 'note is its own block after the table').toBeGreaterThan(lastTableLine)
   })
 })

@@ -24,6 +24,10 @@ import { launchApp, waitForAppReady, dismissOnboarding, dismissOverlay } from '.
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
 
+const APP_VERSION: string = JSON.parse(
+  readFileSync(join(ROOT, 'package.json'), 'utf-8'),
+).version
+
 let app: ElectronApplication
 let page: Page
 let userDataDir: string
@@ -46,6 +50,12 @@ test.beforeAll(async () => {
       defaultSaveDirectory: filesDir,
       aiConsent: { consented: true, consentedAt: '2026-01-01T00:00:00.000Z', version: 1 },
       fileAssociation: { hasBeenPrompted: true },
+      // Seeding consent means the release-notes modal (#1058) is NOT suppressed:
+      // it only stays silent when the consent dialog is due. It is a Dialog, not
+      // an alertdialog, so `dismissOnboarding` does not close it either — it just
+      // sits over the app for the whole run. Record the current version so this
+      // spec tests the About dialog rather than racing a second one.
+      lastSeenVersion: APP_VERSION,
     }),
   )
   const launched = await launchApp({ env: { PROSE_USER_DATA_DIR: userDataDir } })
@@ -65,7 +75,10 @@ test.afterAll(async () => {
 test.describe('Electron — the Prose mark (#1063)', () => {
   test('the About dialog shows the mark, not the stale PNG', async () => {
     await page.evaluate(() => (window as unknown as SeamWindow).__prose_about?.(true))
-    const dialog = page.locator('[role="dialog"]').filter({ hasText: 'Prose' })
+    // By testid, not by text. The release-notes modal's title also contains
+    // "Prose", so a text filter matches both the moment they coexist — which is
+    // how this spec went red on `release/v1.9.0` without either PR changing it.
+    const dialog = page.locator('[data-testid="about-dialog"]')
     await expect(dialog.locator('[data-testid="prose-mark"]')).toBeVisible({ timeout: 10_000 })
     // The old implementation was two <img> tags swapped by theme.
     await expect(dialog.locator('img')).toHaveCount(0)

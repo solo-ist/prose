@@ -197,3 +197,77 @@ test.describe('Electron - AI provenance for create, MCP, and paste', () => {
     ).toBeHidden({ timeout: 1_000 })
   })
 })
+
+// A streamed write yields a frame per chunk, so the document can change under
+// it — the writer typing below the node. The annotation must cover exactly
+// what the AI wrote, not the whole document's growth while it streamed
+// (#1101). Multi-paragraph content takes the full-range branch that uses the
+// endpoint directly.
+test.describe('Electron - streamed write annotation range (#1101)', () => {
+  const AI_TEXT = 'one two three four five six.\n\nseven eight nine ten eleven twelve.'
+
+  /** Run a tool and, two frames into its stream, type at the end of the doc. */
+  async function writeWhileTyping(
+    tool: 'edit' | 'insert',
+    args: Record<string, unknown>,
+    messageId: string,
+  ): Promise<Record<string, unknown>> {
+    const docId = await getAnnotationDocId(page)
+    expect(docId).toBeTruthy()
+    const ok = await page.evaluate(async ({ tool, args, docId, messageId }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const w = window as any
+      const editor = w.__prose_editor
+      const run = w.__prose_tools.executeTool(tool, args, 'create', {
+        model: 'Claude Test', conversationId: 'conversation-1101', messageId, documentId: docId,
+      })
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null))))
+      editor.view.dispatch(editor.state.tr.insertText(' TYPED', editor.state.doc.content.size - 1))
+      return (await run).success
+    }, { tool, args, docId: docId!, messageId })
+    expect(ok, `${tool} succeeded`).toBe(true)
+    await expect
+      .poll(async () => (await getAnnotations(page)).filter((a) => (a.provenance as { messageId?: string }).messageId === messageId).length)
+      .toBe(1)
+    return (await getAnnotations(page)).find((a) => (a.provenance as { messageId?: string }).messageId === messageId)!
+  }
+
+  async function openDoc(filename: string): Promise<void> {
+    const created = await executeProseTool(page, 'create_and_open_file', {
+      filename,
+      content: '# Range\n\nA plain paragraph to edit.\n\nThe paragraph below it.',
+    })
+    expect(created.success).toBe(true)
+    await waitForEditor(page)
+  }
+
+  test('edit: typing mid-stream does not stretch the annotation', async () => {
+    await openDoc('range-edit.md')
+    const ann = await writeWhileTyping('edit', {
+      nodeId: await nodeIdByText(page, 'A plain paragraph to edit.'),
+      search: 'A plain paragraph to edit.',
+      content: AI_TEXT,
+    }, 'msg-1101-edit')
+    expect(Number(ann.to) - Number(ann.from)).toBe(AI_TEXT.length)
+    expect(await page.evaluate(() => document.body.textContent?.includes('TYPED'))).toBe(true)
+    const painted = await page.evaluate(() => Array.from(document.querySelectorAll('.ai-annotation'), (e) => e.textContent).join(''))
+    expect(painted).not.toContain('The paragraph below')
+  })
+
+  test('insert at the cursor: typing mid-stream does not stretch the annotation', async () => {
+    await openDoc('range-insert.md')
+    // Caret at the end of the first paragraph's text.
+    await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const editor = (window as any).__prose_editor
+      let end = -1
+      editor.state.doc.descendants((node: { isTextblock: boolean; textContent: string; nodeSize: number }, pos: number) => {
+        if (end === -1 && node.isTextblock && node.textContent === 'A plain paragraph to edit.') end = pos + node.nodeSize - 1
+      })
+      editor.commands.setTextSelection(end)
+    })
+    const ann = await writeWhileTyping('insert', { position: 'cursor', text: AI_TEXT }, 'msg-1101-insert')
+    expect(Number(ann.to) - Number(ann.from)).toBe(AI_TEXT.length)
+  })
+})
+

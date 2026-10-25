@@ -97,26 +97,24 @@ async function applyInsertion(
   text: string,
   from: number,
   to?: number
-): Promise<void> {
+): Promise<number> {
   const hasRange = to !== undefined && to !== from
   const selection = hasRange ? { from, to: to! } : from
   // Tag the range replacement as an AI write so a comment it unanchors stays
   // open rather than reading as the writer's delete (#1099). Plain text
   // inherits the marks at the selection, so today the anchor survives; a
   // parsed payload would not. Only this first transaction replaces anything.
-  const insert = (content: string): void => {
+  // Returns where the inserted content ends. Measured across this one
+  // synchronous transaction, so nothing else can be in the size delta.
+  const insert = (content: string): number => {
+    const before = editor.state.doc.content.size
     editor.chain().focus().setTextSelection(selection).setMeta(AI_REPLACEMENT_META, hasRange).insertContent(content).run()
+    return from + (editor.state.doc.content.size - before) + (hasRange ? to! - from : 0)
   }
 
-  if (!shouldStreamInsertion()) {
-    insert(text)
-    return
-  }
+  if (!shouldStreamInsertion()) return insert(text)
   const chunks = buildStreamChunks(text)
-  if (chunks.length <= 1) {
-    insert(text)
-    return
-  }
+  if (chunks.length <= 1) return insert(text)
   insert(chunks[0])
   // Anchor the running endpoint at end-of-insertion using TipTap's own
   // cursor placement (`selectionToInsertionEnd` in
@@ -142,6 +140,11 @@ async function applyInsertion(
     editor.view.dispatch(editor.state.tr.insertText(chunks[i], pos))
     pos += chunks[i].length
   }
+  // The running endpoint, not a whole-document size delta: the stream yields
+  // a frame per chunk, and anything else edited meanwhile (the writer typing
+  // below the node) would land in that delta and stretch the annotation over
+  // text the AI never wrote (#1101).
+  return pos
 }
 
 /**
@@ -437,13 +440,11 @@ export async function executeEdit(
       )
     : []
 
-  const sizeBefore = editor.state.doc.content.size
   // Range-replace via applyInsertion: the selection delete + first chunk
   // insert run in the same chain (atomic transaction). Subsequent rAF chunks
   // fall inside the history plugin's newGroupDelay (500ms) and collapse into
   // a single undo step.
-  await applyInsertion(editor, content, contentStart, contentEnd)
-  const sizeAfter = editor.state.doc.content.size
+  const insertedEnd = await applyInsertion(editor, content, contentStart, contentEnd)
 
   // Create word-level AI annotations for provenance tracking
   if (provenance && provenance.documentId && content.length > 0) {
@@ -452,7 +453,7 @@ export async function executeEdit(
       originalText: node.textContent,
       newText: content,
       rangeFrom: contentStart,
-      rangeTo: contentEnd + (sizeAfter - sizeBefore),
+      rangeTo: insertedEnd,
       provenance: {
         model: provenance.model,
         conversationId: provenance.conversationId,
@@ -641,24 +642,14 @@ export async function executeInsert(
   }
 
   try {
-    const sizeBefore = editor.state.doc.content.size
     // Route through applyInsertion so the chunked-streaming path applies
     // uniformly, and so range replacement (cursor case with non-empty
-    // selection) is atomic with the first chunk's insert.
-    await applyInsertion(editor, text, insertFrom, insertTo)
-    const sizeAfter = editor.state.doc.content.size
+    // selection) is atomic with the first chunk's insert. It reports where
+    // the inserted content ends (#1101).
+    const insertedEnd = await applyInsertion(editor, text, insertFrom, insertTo)
 
-    // Create AI annotation for provenance tracking.
-    // Inserted PM range = [insertFrom, insertFrom + insertedSize], where
-    // insertedSize accounts for both the doc-size delta and the original
-    // selection that got replaced. For a collapsed selection (the common
-    // case) this reduces to `sizeAfter - sizeBefore`.
+    // Create AI annotation for provenance tracking over [insertFrom, insertedEnd].
     if (provenance && provenance.documentId && text.length > 0) {
-      // Use the actual PM size delta (plus any replaced range size) instead of
-      // string length: insertContent() may produce multi-paragraph nodes where
-      // string length != PM position delta, and the doc delta nets out any
-      // selection that was replaced.
-      const insertedSize = (sizeAfter - sizeBefore) + (insertTo - insertFrom)
       // Route through createWordDiffAnnotations for visual consistency with
       // edit/suggest_edit-accept annotations (word-level underline, explanation
       // in tooltip). originalText is empty for pure insertions; the util
@@ -668,7 +659,7 @@ export async function executeInsert(
         originalText: '',
         newText: text,
         rangeFrom: insertFrom,
-        rangeTo: insertFrom + insertedSize,
+        rangeTo: insertedEnd,
         provenance: {
           model: provenance.model,
           conversationId: provenance.conversationId,

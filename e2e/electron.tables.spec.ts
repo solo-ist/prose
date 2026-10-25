@@ -165,6 +165,31 @@ test.describe('Electron — table editing (#1060)', () => {
     await expect(page.locator('[data-testid="table-col-grip-0"]')).toHaveCount(0)
   })
 
+  test('typing hides the rails until the pointer moves again (#1097)', async () => {
+    await insertTableViaMenu()
+    await hoverRails()
+
+    // Typing with the pointer still over the table: hover alone would keep the
+    // rails up for the whole editing session, because clicking into a cell
+    // leaves the pointer on the table.
+    await page.keyboard.type('abc')
+    await expect(page.locator('[data-testid="table-controls"]')).toHaveCount(0)
+
+    // Moving the pointer brings them straight back — the suppression is a
+    // "get out of the way" gesture, not a mode.
+    await hoverRails()
+  })
+
+  test('a grip operation does not dismiss its own rails (#1097)', async () => {
+    // The regression this guards: binding the typing flag to editor.on('update')
+    // instead of keydown would hide the rails on every row/column operation,
+    // since each one changes the document.
+    await insertTableViaMenu()
+    await hoverRails()
+    await page.locator('[data-testid="table-append-row"]').click()
+    await expect(page.locator('[data-testid="table-controls"]')).toBeVisible()
+  })
+
   test('hover reveals every rail, and a selected row pins them (#1087)', async () => {
     await insertTableViaMenu()
     await hoverRails()

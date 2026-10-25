@@ -17,7 +17,10 @@ interface AboutDialogProps {
 export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
+      {/* Identified by testid, not by text: the release-notes modal (#1058) is
+          also a dialog whose title contains "Prose", so a text filter matches
+          both whenever they are open together. */}
+      <DialogContent className="max-w-sm" data-testid="about-dialog">
         <DialogHeader>
           <DialogTitle className="text-center">Prose</DialogTitle>
         </DialogHeader>

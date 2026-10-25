@@ -322,8 +322,11 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
         setupSystemModeListener(migrated.appearance, set)
 
         // Pin the dock tile to Pilcrow on launch (macOS only; no-op elsewhere).
-        // Redundant in a packaged build, where the bundle icon is already
-        // Pilcrow, but in dev the dock would otherwise show Electron's logo.
+        // Dev-only in effect: the main-side handler early-returns when packaged
+        // (#1095), because pinning a bitmap there overrides the Assets.car
+        // bundle icon and kills #812's appearance variants on the dock. Left as
+        // an unconditional call so the dev fix stays in one place — main owns
+        // the packaged/dev decision.
         window.api.applyDockIcon?.()
 
         // If we migrated a legacy theme field or healed a project-clobbered

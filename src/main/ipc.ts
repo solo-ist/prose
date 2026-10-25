@@ -2219,19 +2219,25 @@ export function setupIpcHandlers(): void {
 
   // Appearance: pin the dock tile to Pilcrow (macOS only).
   //
-  // In a packaged build this is redundant — the bundle already ships
-  // resources/icons/pilcrow/icon.icns as its icon — but in dev the dock
-  // otherwise shows Electron's own logo. Takes no argument: the icon
-  // switcher was removed in 1.9.0 (#1052), so no renderer-supplied value
-  // reaches path construction any more.
+  // Dev-only. In dev the dock otherwise shows Electron's own logo; a packaged
+  // build must be left alone. Takes no argument: the icon switcher was removed
+  // in 1.9.0 (#1052), so no renderer-supplied value reaches path construction.
   ipcMain.handle('appearance:apply-dock-icon', () => {
     if (process.platform !== 'darwin') return
+    // Packaged builds MUST NOT reach app.dock.setIcon (#1095). It pins the dock
+    // tile to a fixed bitmap, which overrides the bundle icon — and since #812
+    // the bundle icon is an Icon Composer bundle compiled to Assets.car, whose
+    // whole purpose is to re-render per macOS 26 appearance (Default, Dark,
+    // Clear, Tinted). Setting a PNG here defeats every one of those modes on
+    // the dock while Stage Manager, Finder and ⌘Tab — which read the bundle —
+    // keep switching correctly. The symptom is the correct icon flashing at
+    // launch and then reverting once the renderer loads settings and calls
+    // applyDockIcon (settingsStore.ts).
+    if (app.isPackaged) return
     // Use the 1024px PNG, not the .icns — nativeImage.createFromPath loads PNG
     // reliably for app.dock.setIcon, whereas .icns frequently loads empty
     // (the "doesn't actually switch" symptom).
-    const iconPath = app.isPackaged
-      ? join(process.resourcesPath, 'resources', 'icons', 'pilcrow', 'icon-1024.png')
-      : join(__dirname, '../../resources/icons/pilcrow/icon-1024.png')
+    const iconPath = join(__dirname, '../../resources/icons/pilcrow/icon-1024.png')
     const img = nativeImage.createFromPath(iconPath)
     if (img.isEmpty()) {
       console.warn(`[appearance:apply-dock-icon] icon image failed to load: ${iconPath}`)

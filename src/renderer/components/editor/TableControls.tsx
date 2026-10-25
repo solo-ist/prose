@@ -98,6 +98,11 @@ export function TableControls({ editor }: { editor: Editor | null }) {
   const [active, setActive] = useState<Active>(null)
   // Whether the pointer is over the measured table (or its rail gutter).
   const [hovering, setHovering] = useState(false)
+  // Set while the user is typing in the editor, cleared by the next pointer
+  // move (#1097). Hover alone would otherwise keep the rails up for the whole
+  // time the caret is in a cell, because clicking into a cell necessarily
+  // leaves the pointer over the table.
+  const [typing, setTyping] = useState(false)
   // The element the overlay is measured from. A ref, not state: the rAF below
   // reads it without needing a re-render to see the latest value.
   const tableEl = useRef<HTMLTableElement | null>(null)
@@ -203,6 +208,9 @@ export function TableControls({ editor }: { editor: Editor | null }) {
     if (!editor) return
 
     const onMove = (event: MouseEvent) => {
+      // Any pointer movement ends the typing suppression — the user has gone
+      // back to aiming at something.
+      setTyping(false)
       if (!editor.isEditable) {
         setHovering(false)
         return
@@ -236,11 +244,26 @@ export function TableControls({ editor }: { editor: Editor | null }) {
     // the rails would stay up on whatever table it left over.
     const onLeave = () => setHovering(false)
 
+    // Bound to the editor's own DOM, not the document: typing in the chat panel
+    // or a dialog should not blank the rails under the pointer. Keyed off
+    // keydown rather than editor.on('update') on purpose — every rail operation
+    // (append row, move column, delete) fires `update`, so an update-driven
+    // flag would hide the rails the instant a grip was clicked.
+    const onKeyDown = (event: KeyboardEvent) => {
+      // Holding a bare modifier is aiming, not typing — ⌘-clicking a grip must
+      // not dismiss the thing being clicked.
+      if (['Shift', 'Meta', 'Control', 'Alt'].includes(event.key)) return
+      setTyping(true)
+    }
+
+    const dom = editor.view.dom
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseleave', onLeave)
+    dom.addEventListener('keydown', onKeyDown)
     return () => {
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseleave', onLeave)
+      dom.removeEventListener('keydown', onKeyDown)
     }
   }, [editor, setTable])
 
@@ -268,8 +291,10 @@ export function TableControls({ editor }: { editor: Editor | null }) {
 
   if (!editor || !editor.isEditable || !metrics || metrics.rows.length === 0) return null
   // Hover reveals; a live row/column selection pins. Nothing else shows a grip —
-  // in particular the caret sitting in a cell does not (#1087).
-  if (!hovering && !active) return null
+  // in particular the caret sitting in a cell does not (#1087). Typing hides
+  // them again until the pointer moves (#1097), but never while a selection is
+  // pinned: that toolbar is the thing the keystroke may be acting on.
+  if ((!hovering || typing) && !active) return null
 
   const { table, rows, cols } = metrics
 

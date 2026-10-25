@@ -14,6 +14,7 @@ import { generateId } from '../../persistence'
 import { getAISuggestions, parseMarkdownToSlice, sliceVisibleText } from '../../../extensions/ai-suggestions'
 import { parseMarkdown, FRONTMATTER_REGEX } from '../../markdown'
 import { pipelineLog } from '../../aiPipelineLog'
+import { AI_REPLACEMENT_META } from '../../../extensions/comments'
 import { load as parseYaml } from 'js-yaml'
 
 /**
@@ -99,17 +100,24 @@ async function applyInsertion(
 ): Promise<void> {
   const hasRange = to !== undefined && to !== from
   const selection = hasRange ? { from, to: to! } : from
+  // Tag the range replacement as an AI write so a comment it unanchors stays
+  // open rather than reading as the writer's delete (#1099). Plain text
+  // inherits the marks at the selection, so today the anchor survives; a
+  // parsed payload would not. Only this first transaction replaces anything.
+  const insert = (content: string): void => {
+    editor.chain().focus().setTextSelection(selection).setMeta(AI_REPLACEMENT_META, hasRange).insertContent(content).run()
+  }
 
   if (!shouldStreamInsertion()) {
-    editor.chain().focus().setTextSelection(selection).insertContent(text).run()
+    insert(text)
     return
   }
   const chunks = buildStreamChunks(text)
   if (chunks.length <= 1) {
-    editor.chain().focus().setTextSelection(selection).insertContent(text).run()
+    insert(text)
     return
   }
-  editor.chain().focus().setTextSelection(selection).insertContent(chunks[0]).run()
+  insert(chunks[0])
   // Anchor the running endpoint at end-of-insertion using TipTap's own
   // cursor placement (`selectionToInsertionEnd` in
   // `node_modules/@tiptap/core/src/commands/insertContentAt.ts`), which

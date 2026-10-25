@@ -15,6 +15,7 @@ import type { AISuggestionOptions, AISuggestionData, SuggestionType } from './ty
 import { useAnnotationStore } from '../ai-annotations'
 import { createWordDiffAnnotations } from '../../lib/diffUtils'
 import { pipelineLog } from '../../lib/aiPipelineLog'
+import { AI_REPLACEMENT_META } from '../comments'
 
 /**
  * Returns true when `text` contains block-level structure that would be lost
@@ -584,6 +585,8 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
               )
             : []
 
+          // Not the writer deleting a commented passage — keep its thread open (#1099).
+          tr.setMeta(AI_REPLACEMENT_META, true)
           dispatch(tr)
 
           // Create word-level annotations in a MICROTASK (#674). TipTap
@@ -832,6 +835,8 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             }
           }
 
+          // Not the writer deleting a commented passage — keep its thread open (#1099).
+          tr.setMeta(AI_REPLACEMENT_META, true)
           dispatch(tr)
 
           // Create annotations in a MICROTASK after the transaction actually

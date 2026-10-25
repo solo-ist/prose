@@ -48,6 +48,29 @@ test.describe('macOS icon appearance variants (#812)', () => {
     expect(existsSync(join(BUNDLE, 'Assets/pilcrow.svg'))).toBe(true)
   })
 
+  test('a packaged build never pins the dock tile to a bitmap', () => {
+    // The fourth way this silently reverts to a flat icon, and the one that
+    // actually shipped (#1095): app.dock.setIcon() overrides the bundle icon,
+    // so every appearance mode renders the same PNG on the dock while Finder
+    // and ⌘Tab keep switching correctly. Source-level guard, like the rest of
+    // this file — the rendering itself is macOS's job and is checked by eye.
+    const ipc = readFileSync(join(ROOT, 'src/main/ipc.ts'), 'utf-8')
+    const handler = ipc.slice(ipc.indexOf("ipcMain.handle('appearance:apply-dock-icon'"))
+    // Strip comment lines: this assertion is about the code, and the comment
+    // above the guard necessarily names the very call it is guarding.
+    const body = handler
+      .slice(0, handler.indexOf('\n  })'))
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('//'))
+      .join('\n')
+    const guard = body.indexOf('app.isPackaged')
+    const setIcon = body.indexOf('app.dock.setIcon(')
+    expect(setIcon).toBeGreaterThan(-1)
+    expect(guard).toBeGreaterThan(-1)
+    // The guard has to come first, or it guards nothing.
+    expect(guard).toBeLessThan(setIcon)
+  })
+
   test('CI pins an Xcode new enough for actool', () => {
     // electron-builder THROWS without actool >= 26 rather than falling back, so
     // inheriting a runner image default is a silent dependency on the image.

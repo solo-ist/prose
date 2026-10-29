@@ -62,8 +62,14 @@ function toDocumentNode(n: NodeWithId, editor: Editor): DocumentNode {
 function tableMarkdown(n: NodeWithId, editor: Editor): string {
   const table = editor.state.doc.nodeAt(n.pos)
   if (!table || table.type.name !== 'table') return n.textContent
-  const doc = editor.schema.topNodeType.create(null, table)
-  return (editor.storage.markdown.serializer.serialize(doc) as string).trim()
+  // read_document is on every edit's path: a table that won't serialize
+  // degrades to its text rather than failing the whole read.
+  try {
+    const doc = editor.schema.topNodeType.create(null, table)
+    return (editor.storage.markdown.serializer.serialize(doc) as string).trim()
+  } catch {
+    return n.textContent
+  }
 }
 
 /**

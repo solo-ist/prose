@@ -192,9 +192,9 @@ test.describe('Electron — suggest_edit guards and block conversion (#673)', ()
     interface DocNode { id: string; content?: string; children?: DocNode[] }
     const flatten = (nodes: DocNode[]): DocNode[] =>
       nodes.flatMap((n) => [n, ...(n.children ? flatten(n.children) : [])])
-    const cellNode = flatten((read.data as { nodes: DocNode[] }).nodes).find((n) =>
-      (n.content ?? '').includes('Ada'),
-    )
+    // Exact match: the table's own entry also contains 'Ada' (as GFM), and it
+    // has no id to target (#1100).
+    const cellNode = flatten((read.data as { nodes: DocNode[] }).nodes).find((n) => n.content === 'Ada')
 
     // The cell paragraph may or may not surface in read_document's tree; if it
     // does, suggest_edit must refuse it. Either way a direct id-less search

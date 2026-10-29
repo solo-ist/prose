@@ -471,14 +471,53 @@ test.describe('Electron — AI tools on tables (#1100)', () => {
     await waitForEditor(page)
   }
 
-  async function nodeIdOf(text: string): Promise<string> {
+  type DocNode = { id: string; type: string; content: string; children?: DocNode[] }
+
+  async function readNodes(): Promise<DocNode[]> {
     const read = await executeProseTool(page, 'read_document', {})
     expect(read.success, 'read_document').toBe(true)
-    const nodes = (read.data as { nodes: Array<{ id: string; content?: string }> }).nodes
-    const node = nodes.find((n) => n.content === text)
+    return (read.data as { nodes: DocNode[] }).nodes
+  }
+
+  // Cells nest under their table's entry, so look through the whole tree.
+  async function nodeIdOf(text: string): Promise<string> {
+    const flatten = (nodes: DocNode[]): DocNode[] =>
+      nodes.flatMap((n) => [n, ...(n.children ? flatten(n.children) : [])])
+    const node = flatten(await readNodes()).find((n) => n.content === text)
     expect(node, `node "${text}"`).toBeTruthy()
     return node!.id
   }
+
+  // QA found the model could not tell a table was there: read_document listed
+  // each cell as a top-level paragraph, so it told the writer rows could not be
+  // added. The table has to be visible as one node, with its cells under it and
+  // its current GFM as content, and that has to be enough to add a row.
+  test('read_document shows the table as one node, and its cells are enough to add a row', async () => {
+    await loadTableDoc()
+    const nodes = await readNodes()
+
+    const tables = nodes.filter((n) => n.type === 'table')
+    expect(tables, 'one table node at the top level').toHaveLength(1)
+    const table = tables[0]
+    expect(table.content).toContain('| apple | 1 |')
+    expectPipeTable(table.content)
+    expect(table.children?.map((c) => c.content)).toEqual(['Name', 'Qty', 'apple', '1', 'pear', '2'])
+    expect(nodes.map((n) => n.content), 'no cell at the top level').not.toContain('apple')
+    expect(nodes.map((n) => n.content)).toContain('After the table.')
+
+    // The route the model takes from that: any child id, plus the table it
+    // was shown with a row appended.
+    const result = await executeProseTool(page, 'edit', {
+      nodeId: table.children![0].id,
+      content: `${table.content}\n| plum | 5 |`,
+    })
+    expect(result.success, JSON.stringify(result)).toBe(true)
+    const md = await getEditorMarkdown(page)
+    expectPipeTable(md)
+    expect(countRows(md)).toBe(4)
+    expect(md).toContain('| plum | 5 |')
+    expect(md).toContain('After the table.')
+  })
 
   test('suggest_edit on a cell refuses, and points at edit', async () => {
     await loadTableDoc()

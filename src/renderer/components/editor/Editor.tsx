@@ -37,7 +37,7 @@ import { useNotificationStore } from '../../stores/notificationStore'
 import { AISuggestion } from '../../extensions/ai-suggestions'
 import { useSuggestionStore } from '../../extensions/ai-suggestions/store'
 import { SESSION_ID } from '../../lib/persistence'
-import { AIAnnotations, useAnnotationStore } from '../../extensions/ai-annotations'
+import { AIAnnotations, useAnnotationStore, reloadKeepingAnnotations } from '../../extensions/ai-annotations'
 import { NodeIds } from '../../extensions/node-ids'
 import { SearchHighlight } from '../../extensions/search-highlight'
 import { LinkHover } from '../../extensions/link-hover'
@@ -970,7 +970,9 @@ export function Editor() {
       const liveContent = sourceEditorRef.current?.getContent() ?? latestSourceRef.current
       const { content: bodyOnly, frontmatter: parsedFm } = parseMarkdown(liveContent)
       useEditorStore.getState().setFrontmatter(parsedFm)
-      editor.commands.setContent(bodyOnly)
+      // Mapping AI annotations through a whole-document replace would detach
+      // every one of them; re-anchor them by their text instead.
+      reloadKeepingAnnotations(editor, () => editor.commands.setContent(bodyOnly))
       // The single writeback (#1102), written to the store explicitly: setContent
       // emits no update, and the source editor's debounce is cleared — not
       // flushed — on unmount, so keystrokes from its last 500ms reached TipTap

@@ -24,6 +24,8 @@ import {
   waitForEditor,
   executeProseTool,
   selectors,
+  getAnnotations,
+  getAnnotationDocId,
 } from './helpers'
 
 let app: ElectronApplication
@@ -219,4 +221,86 @@ test('switching tabs straight after typing in source mode leaves the other tab a
   expect(md).toContain('Tab B stays exactly as it was.')
   expect(md).not.toContain('Leak.')
   expect(md).not.toContain('Heading')
+})
+
+// AI provenance annotations are decorations over stored positions, not marks
+// matched by text. Leaving source mode reloads the TipTap doc, and mapping
+// positions through a whole-document replace collapses every range: the store
+// then detaches them (history-only, no highlight). QA 14.4.
+async function annotateFirstParagraph(messageId: string): Promise<Record<string, unknown>> {
+  const read = await executeProseTool(page, 'read_document', {})
+  const nodes = (read.data as { nodes: Array<{ id: string; content?: string }> }).nodes
+  const target = nodes.find((n) => (n.content ?? '').startsWith('Some '))
+  expect(target, 'paragraph to edit').toBeTruthy()
+  const docId = await getAnnotationDocId(page)
+  const edited = await executeProseTool(
+    page,
+    'edit',
+    { nodeId: target!.id, search: target!.content, content: 'Some rewritten text.' },
+    'create',
+    { model: 'Claude Test', conversationId: 'conversation-1102', messageId, documentId: docId! },
+  )
+  expect(edited.success, JSON.stringify(edited)).toBe(true)
+  await expect
+    .poll(async () => (await getAnnotations(page)).filter((a) => (a.provenance as { messageId?: string }).messageId === messageId).length)
+    .toBe(1)
+  return (await getAnnotations(page)).find((a) => (a.provenance as { messageId?: string }).messageId === messageId)!
+}
+
+async function coveredText(ann: Record<string, unknown>): Promise<string> {
+  return page.evaluate(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ({ from, to }) => (window as any).__prose_editor.state.doc.textBetween(from, to),
+    { from: Number(ann.from), to: Number(ann.to) },
+  )
+}
+
+async function liveAnnotation(messageId: string): Promise<Record<string, unknown> | undefined> {
+  return (await getAnnotations(page)).find((a) => (a.provenance as { messageId?: string }).messageId === messageId)
+}
+
+test('an AI annotation survives a source-mode edit elsewhere in the document', async () => {
+  await openFresh('1102-annotation.md')
+  const before = await coveredText(await annotateFirstParagraph('msg-1102-annotation'))
+
+  await enterSource()
+  await typeAtEndOf('Second paragraph.', ' Edited.')
+  await exitSource()
+  await page.waitForTimeout(1_500)
+
+  const ann = await liveAnnotation('msg-1102-annotation')
+  expect(ann?.detached, 'annotation still anchored').toBeFalsy()
+  expect(await coveredText(ann!)).toBe(before)
+  await expect.poll(() => page.evaluate(() => document.querySelectorAll('.ai-annotation').length)).toBeGreaterThan(0)
+})
+
+test('an AI annotation survives leaving source mode straight after typing', async () => {
+  await openFresh('1102-annotation-fast.md')
+  const before = await coveredText(await annotateFirstParagraph('msg-1102-annotation-fast'))
+
+  await enterSource()
+  await page.locator('.cm-line', { hasText: 'Second paragraph.' }).first().click()
+  await page.keyboard.press('End')
+  await page.keyboard.type(' Quick.')
+  await exitSource()
+  await page.waitForTimeout(1_500)
+
+  const ann = await liveAnnotation('msg-1102-annotation-fast')
+  expect(ann?.detached, 'annotation still anchored').toBeFalsy()
+  expect(await coveredText(ann!)).toBe(before)
+  await expect.poll(() => page.evaluate(() => document.querySelectorAll('.ai-annotation').length)).toBeGreaterThan(0)
+})
+
+test('an AI annotation whose own text is edited in source mode follows the edit or detaches, never lands on other text', async () => {
+  await openFresh('1102-annotation-own.md')
+  const before = await coveredText(await annotateFirstParagraph('msg-1102-annotation-own'))
+
+  await enterSource()
+  await typeAtEndOf('Some rewritten text.', ' More.')
+  await exitSource()
+  await page.waitForTimeout(1_500)
+
+  const ann = await liveAnnotation('msg-1102-annotation-own')
+  expect(ann, 'annotation kept in history').toBeTruthy()
+  if (!ann!.detached) expect(await coveredText(ann!)).toBe(before)
 })

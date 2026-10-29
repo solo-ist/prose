@@ -378,7 +378,10 @@ export async function executeEdit(
   }
 
   if (!nodeId) {
-    return toolError('Node ID is required', 'INVALID_INPUT')
+    return toolError(
+      'Node ID is required. A table node in read_document has no id of its own: target one of its cell paragraphs (its children).',
+      'INVALID_INPUT'
+    )
   }
 
   // Special nodeId: 'frontmatter' — direct-write the frontmatter block via
@@ -790,7 +793,10 @@ export function executeSuggestEdit(
   }
 
   if (!nodeId) {
-    return toolError('Node ID is required', 'INVALID_INPUT')
+    return toolError(
+      'Node ID is required. A table node in read_document has no id of its own: target one of its cell paragraphs (its children).',
+      'INVALID_INPUT'
+    )
   }
 
   // Special nodeId: 'frontmatter' targets the frontmatter block directly
@@ -1163,7 +1169,10 @@ export function executeDeleteNode(
   const { nodeId, search } = args
 
   if (!nodeId) {
-    return toolError('Node ID is required', 'INVALID_INPUT')
+    return toolError(
+      'Node ID is required. A table node in read_document has no id of its own: target one of its cell paragraphs (its children).',
+      'INVALID_INPUT'
+    )
   }
 
   let found = findNodeById(editor.state.doc, nodeId)
@@ -1233,7 +1242,10 @@ export function executeMoveCursor(args: {
   const position = args.position ?? 'start'
 
   if (!nodeId) {
-    return toolError('Node ID is required', 'INVALID_INPUT')
+    return toolError(
+      'Node ID is required. A table node in read_document has no id of its own: target one of its cell paragraphs (its children).',
+      'INVALID_INPUT'
+    )
   }
 
   let found = findNodeById(editor.state.doc, nodeId)

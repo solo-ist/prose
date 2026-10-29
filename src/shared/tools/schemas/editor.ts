@@ -33,7 +33,7 @@ export const editSchema = z.object({
 export const editConfig: ToolConfig<typeof editSchema> = {
   name: 'edit',
   description:
-    "Replace the content of a specific node by ID. Use read_document first to see all nodes with their IDs, then target the node you want to edit. Always include the search parameter with the original text for reliability. Special nodeId: pass 'frontmatter' with the COMPLETE new YAML (with or without --- fences) to direct-write the frontmatter block (no overlay, no search needed). Not supported on plain-text .txt documents (returns PLAIN_TEXT_DOCUMENT — markdown would be flattened; create a .md copy via create_and_open_file instead).",
+    "Replace the content of a specific node by ID. Use read_document first to see all nodes with their IDs, then target the node you want to edit. Always include the search parameter with the original text for reliability. Tables: a cell paragraph takes one line of text. To change a table's structure (add, remove or reorder rows or columns), call edit on any paragraph inside that table with ONLY the complete updated GFM table (header row, delimiter row, all body rows); it replaces the whole table. Use <br> for a line break inside a cell. Special nodeId: pass 'frontmatter' with the COMPLETE new YAML (with or without --- fences) to direct-write the frontmatter block (no overlay, no search needed). Not supported on plain-text .txt documents (returns PLAIN_TEXT_DOCUMENT — markdown would be flattened; create a .md copy via create_and_open_file instead).",
   schema: editSchema,
   category: 'editor',
   requiresMode: 'create', // Direct writes — only available in Create Mode
@@ -51,7 +51,7 @@ export const insertSchema = z.object({
     .optional()
     .default('cursor')
     .describe(
-      'Where to insert. Use after_node or before_node (paired with nodeId from read_document) when adding to a specific section — e.g., after_node with a heading nodeId to append content under that heading. Use cursor when the user said "here", OR when the user has a non-empty selection and asks to replace it: position=cursor over a selection deletes the selected range and inserts the new text in its place. start/end target the document boundaries.'
+      'Where to insert. Use after_node or before_node (paired with nodeId from read_document) when adding to a specific section — e.g., after_node with a heading nodeId to append content under that heading. Use cursor when the user said "here", OR when the user has a non-empty selection and asks to replace it: position=cursor over a selection deletes the selected range and inserts the new text in its place. start/end target the document boundaries. A nodeId inside a table anchors on the whole table: after_node lands below it, before_node above it. To add rows to a table, use edit instead.'
     ),
   nodeId: z
     .string()

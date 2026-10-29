@@ -172,8 +172,14 @@ export function findNodeByContent(
   return result
 }
 
-/** Container node types whose children should be nested, not emitted flat. */
+/**
+ * Container node types whose children should be nested, not emitted flat.
+ * `table` carries no nodeId of its own (see NODE_TYPES_WITH_IDS); it is listed
+ * so its cell paragraphs nest under one `table` entry instead of surfacing as
+ * top-level peers that read like ordinary paragraphs (#1100).
+ */
 const CONTAINER_TYPES = new Set([
+  'table',
   'blockquote',
   'bulletList',
   'orderedList',

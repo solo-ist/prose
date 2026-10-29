@@ -29,7 +29,8 @@ function getEditor(): Editor | null {
 
 /**
  * Node representation with ID for AI targeting.
- * Container nodes (blockquote, lists, listItems) include a `children` array.
+ * Container nodes (tables, blockquotes, lists, listItems) include a `children`
+ * array. A table entry has no id of its own; its children are its cells.
  * Leaf nodes omit `children`.
  */
 interface DocumentNode {
@@ -41,17 +42,34 @@ interface DocumentNode {
 
 /**
  * Convert a NodeWithId tree entry to a DocumentNode tree entry.
+ *
+ * A table's textContent runs every cell together, so its entry carries the
+ * table as GFM instead: the model needs the current table to write the updated
+ * one that `edit` takes on any of its cells (#1100).
  */
-function toDocumentNode(n: NodeWithId): DocumentNode {
+function toDocumentNode(n: NodeWithId, editor: Editor): DocumentNode {
   const node: DocumentNode = {
     id: n.nodeId,
     type: n.type,
-    content: n.textContent,
+    content: n.type === 'table' ? tableMarkdown(n, editor) : n.textContent,
   }
   if (n.children && n.children.length > 0) {
-    node.children = n.children.map(toDocumentNode)
+    node.children = n.children.map((child) => toDocumentNode(child, editor))
   }
   return node
+}
+
+function tableMarkdown(n: NodeWithId, editor: Editor): string {
+  const table = editor.state.doc.nodeAt(n.pos)
+  if (!table || table.type.name !== 'table') return n.textContent
+  // read_document is on every edit's path: a table that won't serialize
+  // degrades to its text rather than failing the whole read.
+  try {
+    const doc = editor.schema.topNodeType.create(null, table)
+    return (editor.storage.markdown.serializer.serialize(doc) as string).trim()
+  } catch {
+    return n.textContent
+  }
 }
 
 /**
@@ -79,7 +97,7 @@ export function executeReadDocument(): ToolResult<{
   const nodesWithIds = getNodesWithIds(editor.state.doc)
 
   // Map to DocumentNode tree
-  const nodes: DocumentNode[] = nodesWithIds.map(toDocumentNode)
+  const nodes: DocumentNode[] = nodesWithIds.map((n) => toDocumentNode(n, editor))
 
   return toolSuccess({
     nodes: prependFrontmatterNode(nodes, store.document.frontmatter, store.pendingFrontmatter),

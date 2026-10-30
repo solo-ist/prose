@@ -124,6 +124,53 @@ test('switching away and back keeps the caret and the scroll position', async ()
   expect(after.text).toContain('Paragraph 60 of the long document, kept short. Marker.')
 })
 
+test('returning to a document with frontmatter does not hop after the load', async () => {
+  // The frontmatter block used to mount a frame late (its rows mirrored the
+  // store in an effect), so above a restored offset the browser's scroll
+  // anchoring bumped scrollTop by the block's height and the focus pass bumped
+  // it back: a visible hop. Sample every frame across the switch back; once the
+  // document is the returning one, the offset and the content height may not
+  // change again.
+  const fmBody = longBody().replace('# Long', '# Long FM').replace(/^/, '---\ntitle: With frontmatter\ntags: [a, b]\n---\n\n')
+  await open('1103-fm.md', fmBody)
+  await page.locator('.ProseMirror p', { hasText: 'Paragraph 60 of' }).first().click()
+  await page.waitForTimeout(300)
+  await page.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any
+    w.__frames = []
+    const t0 = performance.now()
+    const tick = () => {
+      const editor = w.__prose_editor
+      const container = editor.view.dom.closest('.overflow-auto') as HTMLElement
+      w.__frames.push({
+        doc: editor.state.doc.firstChild?.textContent ?? '',
+        scrollTop: container.scrollTop,
+        scrollHeight: container.scrollHeight,
+      })
+      if (performance.now() - t0 < 1500) requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+  await clickTab('1103-other.md', 'Other')
+  await page.waitForTimeout(300)
+  await clickTab('1103-fm.md', 'Long FM')
+  await page.waitForTimeout(600)
+  const frames = await page.evaluate(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    () => (window as any).__frames as Array<{ doc: string; scrollTop: number; scrollHeight: number }>,
+  )
+  const leftAt = frames[0]
+  expect(leftAt.doc).toBe('Long FM')
+  const lastAway = frames.map((f) => f.doc).lastIndexOf('Other')
+  expect(lastAway).toBeGreaterThan(0)
+  const returned = frames.slice(lastAway + 1)
+  expect(returned.length).toBeGreaterThan(5)
+  expect(new Set(returned.map((f) => f.doc))).toEqual(new Set(['Long FM']))
+  expect([...new Set(returned.map((f) => f.scrollTop))]).toEqual([leftAt.scrollTop])
+  expect([...new Set(returned.map((f) => f.scrollHeight))]).toEqual([leftAt.scrollHeight])
+})
+
 test('a tab visited for the first time still opens at the top', async () => {
   await open('1103-fresh.md', longBody())
   const state = await viewState()

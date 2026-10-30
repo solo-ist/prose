@@ -305,15 +305,21 @@ export function Editor() {
   const [stableFrontmatter, setStableFrontmatter] = useState<Record<string, unknown>>(
     () => document.frontmatter ?? {}
   )
-  const stableFrontmatterDocIdRef = useRef<string>(document.documentId)
+  // A document change re-syncs during render, not in an effect: an effect lands
+  // one commit late, so the returning tab's first paint built the frontmatter
+  // block from the previous tab's fields and it grew a frame later. Above a
+  // restored scroll offset the browser's scroll anchoring compensated for that
+  // growth and the next re-apply undid it — a visible 48px hop (#1103). React
+  // re-renders before committing when state is set during render.
+  const [stableFrontmatterDocId, setStableFrontmatterDocId] = useState(document.documentId)
+  if (stableFrontmatterDocId !== document.documentId) {
+    setStableFrontmatterDocId(document.documentId)
+    setStableFrontmatter(document.frontmatter ?? {})
+  }
 
   useEffect(() => {
+    if (stableFrontmatterDocId !== document.documentId) return // the render-time sync owns this case
     const next = document.frontmatter ?? {}
-    if (stableFrontmatterDocIdRef.current !== document.documentId) {
-      stableFrontmatterDocIdRef.current = document.documentId
-      setStableFrontmatter(next)
-      return
-    }
     // Same doc — only re-sync if the values actually differ (not just identity)
     const nextKeys = Object.keys(next)
     const currentKeys = Object.keys(stableFrontmatter)
@@ -327,7 +333,7 @@ export function Editor() {
       }
     }
     if (differs) setStableFrontmatter(next)
-  }, [document.documentId, document.frontmatter, stableFrontmatter])
+  }, [document.documentId, document.frontmatter, stableFrontmatter, stableFrontmatterDocId])
 
   const editor = useTipTapEditor({
     extensions: [

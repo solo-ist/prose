@@ -51,6 +51,7 @@ import './index.css'
   // the window is excluded from mapping (#674 known limitation).
   isAnnotationMappingPaused: () => useAnnotationStore.getState().isLoadingDocument,
   getActiveTabId: () => useTabStore.getState().activeTabId,
+  getDocumentIsDirty: () => useEditorStore.getState().document.isDirty,
   loadAnnotationsFromDB,
   // Comment store access for e2e verification of threading (#699).
   getCommentStore: () => useCommentStore.getState().pendingComments,

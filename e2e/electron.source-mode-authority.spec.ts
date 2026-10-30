@@ -291,7 +291,7 @@ test('an AI annotation survives leaving source mode straight after typing', asyn
   await expect.poll(() => page.evaluate(() => document.querySelectorAll('.ai-annotation').length)).toBeGreaterThan(0)
 })
 
-test('an AI annotation whose own text is edited in source mode follows the edit or detaches, never lands on other text', async () => {
+test('an AI annotation stays on its words when text is typed later in its paragraph in source mode', async () => {
   await openFresh('1102-annotation-own.md')
   const before = await coveredText(await annotateFirstParagraph('msg-1102-annotation-own'))
 
@@ -301,6 +301,30 @@ test('an AI annotation whose own text is edited in source mode follows the edit 
   await page.waitForTimeout(1_500)
 
   const ann = await liveAnnotation('msg-1102-annotation-own')
-  expect(ann, 'annotation kept in history').toBeTruthy()
-  if (!ann!.detached) expect(await coveredText(ann!)).toBe(before)
+  expect(ann?.detached, 'annotation still anchored').toBeFalsy()
+  expect(await coveredText(ann!)).toBe(before)
+})
+
+// QA 14.6 (build c2ef6c7): typing inside a highlighted paragraph in source mode
+// detached the whole annotation, because it was put back by exact text only. In
+// the editor the same keystrokes keep the highlight and grow it around the new
+// words; the source exit now maps through the edit the same way.
+test('an AI annotation grows around text typed inside it in source mode', async () => {
+  await openFresh('1102-annotation-inside.md')
+  // The edit annotates only the changed word, not the whole sentence.
+  expect(await coveredText(await annotateFirstParagraph('msg-1102-annotation-inside'))).toBe('rewritten')
+
+  await enterSource()
+  await page.locator('.cm-line', { hasText: 'Some rewritten text.' }).first().click()
+  await page.keyboard.press('Home')
+  for (let i = 0; i < 'Some re'.length; i++) await page.keyboard.press('ArrowRight')
+  await page.keyboard.type('ally ')
+  await page.waitForTimeout(1_200)
+  await exitSource()
+  await page.waitForTimeout(1_500)
+
+  const ann = await liveAnnotation('msg-1102-annotation-inside')
+  expect(ann?.detached, 'annotation still anchored').toBeFalsy()
+  expect(await coveredText(ann!)).toBe('really written')
+  await expect.poll(() => page.evaluate(() => document.querySelectorAll('.ai-annotation').length)).toBeGreaterThan(0)
 })

@@ -3,7 +3,8 @@ import { subscribeWithSelector } from 'zustand/middleware'
 import { generateId, saveSession, loadSession, clearSession } from '../lib/persistence'
 import type { SessionState, TabDraft } from '../lib/persistence'
 import { useChatStore } from './chatStore'
-import type { EditorViewState } from '../lib/editorViewState'
+import { useEditorInstanceStore } from './editorInstanceStore'
+import { captureEditorViewState, type EditorViewState } from '../lib/editorViewState'
 
 export interface Tab {
   id: string              // Unique tab ID
@@ -291,6 +292,9 @@ export function createTab(overrides: Partial<Tab> = {}): Omit<Tab, 'id'> {
 export async function persistSession(): Promise<void> {
   const state = useTabStore.getState()
   const chatState = useChatStore.getState()
+  // The active tab's cached view is from the last time it was left; read the
+  // live one so a relaunch lands where the editor was (#1103).
+  const liveView = captureEditorViewState(useEditorInstanceStore.getState().editor)
 
   const tabs: TabDraft[] = state.tabs.map(tab => ({
     tabId: tab.id,
@@ -302,7 +306,7 @@ export async function persistSession(): Promise<void> {
     isDirty: tab.isDirty,
     frontmatter: tab.frontmatter,
     cursorPosition: tab.cursorPosition,
-    viewState: tab.viewState,
+    viewState: tab.id === state.activeTabId ? liveView ?? tab.viewState : tab.viewState,
     activeChatId: tab.documentId === chatState.currentDocumentId
       ? chatState.activeConversationId
       : null

@@ -53,7 +53,7 @@ import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useFileListStore } from '../../stores/fileListStore'
-import { useTabStore } from '../../stores/tabStore'
+import { useTabStore, scheduleSaveSession } from '../../stores/tabStore'
 import { restoreEditorViewState, type EditorViewState } from '../../lib/editorViewState'
 import { promoteCurrentPreview } from '../../hooks/useTabs'
 import { FindBar } from './FindBar'
@@ -701,6 +701,14 @@ export function Editor() {
   // restoreAISuggestions useEffect — without touching the autosave pipeline.
   useEffect(() => {
     setEditorInstance(editor)
+    // Moving the caret or scrolling re-arms the session save (1s debounce), so
+    // the active tab's live view reaches the saved session for a relaunch; the
+    // save only ran on tab-store changes before, which neither of these is (#1103).
+    // Scroll is listened for on the window (capture): the scroll container is
+    // re-created around a source-mode toggle, so a listener on it would be lost.
+    const rearmSessionSave = () => scheduleSaveSession()
+    editor?.on('selectionUpdate', rearmSessionSave)
+    window.addEventListener('scroll', rearmSessionSave, { capture: true, passive: true })
     useEditorInstanceStore.setState({
       flushPendingUpdate: () => {
         if (debounceRef.current) {
@@ -713,6 +721,8 @@ export function Editor() {
       },
     })
     return () => {
+      editor?.off('selectionUpdate', rearmSessionSave)
+      window.removeEventListener('scroll', rearmSessionSave, { capture: true })
       useEditorInstanceStore.setState({ flushPendingUpdate: null })
       setEditorInstance(null)
       // Snapshot live suggestions for HMR replay (option 2 from issue #531).

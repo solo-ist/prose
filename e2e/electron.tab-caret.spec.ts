@@ -177,3 +177,51 @@ test('a tab visited for the first time still opens at the top', async () => {
   expect(state.scrollTop).toBe(0)
   expect(state.from).toBeLessThanOrEqual(1)
 })
+
+test('a comment mark takes no inline space', async () => {
+  // Marks restore 100ms after a load. With horizontal padding they re-wrapped
+  // lines then, a slight shift on every tab switch (build 7 QA). The bleed is
+  // padding cancelled by a negative margin, so the mark is layout-neutral.
+  const read = await executeProseTool(page, 'read_document', {})
+  const nodes = (read.data as { nodes: Array<{ id: string; content?: string }> }).nodes
+  const node = nodes.find((n) => (n.content ?? '').startsWith('Paragraph 10 of'))
+  expect(node).toBeTruthy()
+  expect((await executeProseTool(page, 'add_comment', { nodeId: node!.id, comment: 'layout' }, 'editor')).success).toBe(true)
+  await expect.poll(() => page.locator('.ProseMirror .comment-mark').count()).toBeGreaterThan(0)
+  const box = await page.evaluate(() => {
+    const el = document.querySelector('.ProseMirror .comment-mark') as HTMLElement
+    const s = getComputedStyle(el)
+    return {
+      left: parseFloat(s.paddingLeft) + parseFloat(s.marginLeft),
+      right: parseFloat(s.paddingRight) + parseFloat(s.marginRight),
+    }
+  })
+  expect(Math.abs(box.left)).toBeLessThan(0.01)
+  expect(Math.abs(box.right)).toBeLessThan(0.01)
+})
+
+test('a relaunch brings the active tab back where it was left', async () => {
+  // The session only persisted on tab-store changes, which a caret move or a
+  // scroll is not, so the active tab's view never reached it (build 7 QA).
+  await open('1103-relaunch.md', longBody().replace('# Long', '# Relaunch'))
+  await page.locator('.ProseMirror p', { hasText: 'Paragraph 45 of' }).first().click()
+  await page.waitForTimeout(1_600) // selectionUpdate re-arms the 1s session save
+  const before = await viewState()
+  expect(before.from).toBeGreaterThan(100)
+  expect(before.scrollTop).toBeGreaterThan(0)
+
+  await app.close()
+  const result = await launchApp({
+    env: { PROSE_USER_DATA_DIR: qaUserDataDir, PROSE_DOCS_DIR: qaDocsDir, PROSE_DEBUG_PORT: '9229' },
+  })
+  app = result.app
+  page = result.page
+  await waitForAppReady(page)
+  await dismissOnboarding(page).catch(() => {})
+  await dismissOverlay(page).catch(() => {})
+  await waitForEditor(page)
+  await expect.poll(async () => (await viewState()).text).toContain('Relaunch')
+  await expect.poll(async () => (await viewState()).from).toBe(before.from)
+  const after = await viewState()
+  expect(Math.abs(after.scrollTop - before.scrollTop)).toBeLessThan(40)
+})

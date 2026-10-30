@@ -975,7 +975,11 @@
 .prose-editor .comment-mark {
   background: hsl(var(--comment-mark-bg) / 0.4);
   border-bottom: 2px solid hsl(var(--comment));
+  /* The bleed is padding cancelled by a negative margin, so a mark takes no
+     inline space: marks restore 100ms after a load, and padding alone
+     re-wrapped lines then, a visible shift on every tab switch (#1103). */
   padding: 0 0.1em;
+  margin: 0 -0.1em;
   border-radius: 0.125em;
   cursor: pointer;
   position: relative;

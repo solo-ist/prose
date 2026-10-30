@@ -3,6 +3,7 @@ import { subscribeWithSelector } from 'zustand/middleware'
 import { generateId, saveSession, loadSession, clearSession } from '../lib/persistence'
 import type { SessionState, TabDraft } from '../lib/persistence'
 import { useChatStore } from './chatStore'
+import type { EditorViewState } from '../lib/editorViewState'
 
 export interface Tab {
   id: string              // Unique tab ID
@@ -16,6 +17,8 @@ export interface Tab {
   content?: string
   frontmatter?: Record<string, unknown>
   cursorPosition?: { line: number; column: number }
+  /** Selection and scroll offset to come back to (#1103) */
+  viewState?: EditorViewState
 }
 
 /** Snapshot of a closed tab for session-only reopen history (max 10) */
@@ -27,6 +30,7 @@ export interface ClosedTabSnapshot {
   content?: string
   frontmatter?: Record<string, unknown>
   cursorPosition?: { line: number; column: number }
+  viewState?: EditorViewState
 }
 
 const CLOSED_TABS_MAX = 10
@@ -94,7 +98,8 @@ export const useTabStore = create<TabState>()(
         isDirty: snapshot.isDirty,
         content: snapshot.content,
         frontmatter: snapshot.frontmatter,
-        cursorPosition: snapshot.cursorPosition
+        cursorPosition: snapshot.cursorPosition,
+        viewState: snapshot.viewState
       }
 
       set((state) => ({
@@ -273,7 +278,8 @@ export function createTab(overrides: Partial<Tab> = {}): Omit<Tab, 'id'> {
     isDirty: overrides.isDirty ?? false,
     content: overrides.content,
     frontmatter: overrides.frontmatter,
-    cursorPosition: overrides.cursorPosition
+    cursorPosition: overrides.cursorPosition,
+    viewState: overrides.viewState
   }
 }
 
@@ -296,6 +302,7 @@ export async function persistSession(): Promise<void> {
     isDirty: tab.isDirty,
     frontmatter: tab.frontmatter,
     cursorPosition: tab.cursorPosition,
+    viewState: tab.viewState,
     activeChatId: tab.documentId === chatState.currentDocumentId
       ? chatState.activeConversationId
       : null

@@ -43,6 +43,8 @@ export interface TabDraft {
   isDirty: boolean
   frontmatter?: Record<string, unknown>
   cursorPosition?: { line: number; column: number }
+  /** Selection and scroll offset the tab comes back to (#1103). Additive; no DB_VERSION bump. */
+  viewState?: { selection: { from: number; to: number }; scrollTop: number }
   activeChatId: string | null
 }
 

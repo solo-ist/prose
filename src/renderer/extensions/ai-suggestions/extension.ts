@@ -18,6 +18,13 @@ import { pipelineLog } from '../../lib/aiPipelineLog'
 import { AI_REPLACEMENT_META } from '../comments'
 
 /**
+ * Transaction meta set by the four accept/reject commands. A writer resolving a
+ * suggestion is intent, not a transient strip, so the persist path may write the
+ * resulting set even when it is empty (#1126).
+ */
+export const AI_SUGGESTION_RESOLVED_META = 'aiSuggestionResolved'
+
+/**
  * Returns true when `text` contains block-level structure that would be lost
  * if inserted as a flat schema.text() node — specifically, when it has at
  * least one blank-line paragraph separator (the CommonMark block delimiter).
@@ -587,6 +594,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
 
           // Not the writer deleting a commented passage — keep its thread open (#1099).
           tr.setMeta(AI_REPLACEMENT_META, true)
+          tr.setMeta(AI_SUGGESTION_RESOLVED_META, true)
           dispatch(tr)
 
           // Create word-level annotations in a MICROTASK (#674). TipTap
@@ -697,6 +705,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           // Remove the mark across the entire range
           tr.removeMark(markFrom, markTo, state.schema.marks.aiSuggestion)
 
+          tr.setMeta(AI_SUGGESTION_RESOLVED_META, true)
           dispatch(tr)
 
           if (this.options.onSuggestionRejected) {
@@ -837,6 +846,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
 
           // Not the writer deleting a commented passage — keep its thread open (#1099).
           tr.setMeta(AI_REPLACEMENT_META, true)
+          tr.setMeta(AI_SUGGESTION_RESOLVED_META, true)
           dispatch(tr)
 
           // Create annotations in a MICROTASK after the transaction actually
@@ -934,6 +944,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           })
 
           if (removed) {
+            tr.setMeta(AI_SUGGESTION_RESOLVED_META, true)
             dispatch(tr)
             return true
           }

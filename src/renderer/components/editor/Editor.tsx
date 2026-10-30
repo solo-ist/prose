@@ -34,7 +34,7 @@ import { FocusMode } from '../../lib/focusMode'
 import { Comment } from '../../extensions/comments'
 import { pushNewThreadToShare } from '../../lib/sharePush'
 import { useNotificationStore } from '../../stores/notificationStore'
-import { AISuggestion } from '../../extensions/ai-suggestions'
+import { AISuggestion, AI_SUGGESTION_RESOLVED_META } from '../../extensions/ai-suggestions'
 import { useSuggestionStore } from '../../extensions/ai-suggestions/store'
 import { SESSION_ID } from '../../lib/persistence'
 import { AIAnnotations, useAnnotationStore } from '../../extensions/ai-annotations'
@@ -764,22 +764,39 @@ export function Editor() {
     if (!editor || !document.documentId) return
     const docId = document.documentId
     let timer: ReturnType<typeof setTimeout> | null = null
+    // Set when the writer accepted or rejected a suggestion since the last
+    // persist — the one case where an empty live set is intent (#1126).
+    let resolved = false
     const persist = () => {
       timer = null
       const store = useSuggestionStore.getState()
       if (store.pendingSuggestions.length > 0) return // restore pending — don't clobber
       const live = getAISuggestions(editor)
+      const userResolved = resolved
+      resolved = false
       // NEVER overwrite the stored set with an empty one from a routine
       // transaction. An empty editor here is almost always transient — a
       // document load or a source-mode toggle strips the decorations and fires a
       // transaction — NOT a real "user cleared all". Persisting that empty wiped
       // suggestions from IndexedDB (data loss). Mirrors useTabs' deliberate
-      // `length > 0 ? save : skip`; genuine empties persist via tab-switch/delete.
-      if (live.length === 0) return
+      // `length > 0 ? save : skip`; genuine empties persist via tab-close/delete —
+      // and via an accept/reject that emptied the set: without that, the stale
+      // set came back on the next tab switch (#1126).
+      if (live.length === 0) {
+        if (userResolved) store.deleteSuggestions(docId)
+        return
+      }
       store.saveSuggestions(docId, live)
     }
-    const onTx = () => {
+    const onTx = ({ transaction }: { transaction: { getMeta: (key: string) => unknown } }) => {
       if (timer) clearTimeout(timer)
+      if (transaction.getMeta(AI_SUGGESTION_RESOLVED_META)) {
+        // Persist now, not after the debounce: a tab switch inside those 500ms
+        // clears the timer, and the stale set would be what the switch back loads.
+        resolved = true
+        persist()
+        return
+      }
       timer = setTimeout(persist, 500)
     }
     editor.on('transaction', onTx)

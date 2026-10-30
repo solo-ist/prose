@@ -93,6 +93,11 @@ export function useTabs() {
   const saveCurrentTabState = useCallback(async () => {
     const activeTab = getActiveTab()
     if (!activeTab) return
+    // The editor writes to the store on a 500ms debounce, and that write
+    // discards itself once the active document changes. Flush it now, before
+    // anything below reads the store, or an edit made inside the window
+    // reaches neither the store nor the tab cache (#1127).
+    useEditorInstanceStore.getState().flushPendingUpdate?.()
 
     console.log('[useTabs] saveCurrentTabState:', {
       tabId: activeTab.id,
@@ -138,12 +143,14 @@ export function useTabs() {
       }
     }
 
-    // Update tab with current state
+    // Update tab with current state — read fresh, the flush above may have
+    // moved the store past this callback's snapshot.
+    const current = useEditorStore.getState().document
     updateTab(activeTab.id, {
-      content: document.content,
-      frontmatter: document.frontmatter,
+      content: current.content,
+      frontmatter: current.frontmatter,
       cursorPosition,
-      isDirty: document.isDirty
+      isDirty: current.isDirty
     })
   }, [getActiveTab, saveCurrentConversation, document, cursorPosition, updateTab])
 

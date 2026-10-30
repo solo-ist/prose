@@ -234,6 +234,8 @@ export function Editor() {
   const { isChatOpen, isFileListOpen, toggleChat, toggleFileList, setChatOpen, setFileListOpen } = usePanelLayoutContext()
   const setEditorInstance = useEditorInstanceStore((state) => state.setEditor)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** The store write the debounce above is holding, so a tab switch can flush it (#1127). */
+  const pendingWriteRef = useRef<(() => void) | null>(null)
   const isUpdatingFromStore = useRef(false)
   const frontmatterRef = useRef<string>('')
   const lastDocumentIdRef = useRef<string>(document.documentId)
@@ -490,7 +492,7 @@ export function Editor() {
         clearTimeout(debounceRef.current)
       }
 
-      debounceRef.current = setTimeout(() => {
+      const write = () => {
         // If the active document changed since this was scheduled (tab switch),
         // discard the update to avoid marking the wrong tab as dirty
         if (useEditorStore.getState().document.documentId !== capturedDocumentId) {
@@ -507,6 +509,14 @@ export function Editor() {
           hasTable: fullContent.includes('|')
         })
         setContent(fullContent)
+      }
+      // Kept so a tab switch can flush it before the switch: an edit inside
+      // this window otherwise reached neither the store nor the tab (#1127).
+      pendingWriteRef.current = write
+      debounceRef.current = setTimeout(() => {
+        pendingWriteRef.current = null
+        debounceRef.current = null
+        write()
       }, 500)
     }
   })
@@ -614,7 +624,19 @@ export function Editor() {
   // restoreAISuggestions useEffect — without touching the autosave pipeline.
   useEffect(() => {
     setEditorInstance(editor)
+    useEditorInstanceStore.setState({
+      flushPendingUpdate: () => {
+        if (debounceRef.current) {
+          clearTimeout(debounceRef.current)
+          debounceRef.current = null
+        }
+        const write = pendingWriteRef.current
+        pendingWriteRef.current = null
+        write?.()
+      },
+    })
     return () => {
+      useEditorInstanceStore.setState({ flushPendingUpdate: null })
       setEditorInstance(null)
       // Snapshot live suggestions for HMR replay (option 2 from issue #531).
       // Only runs when there is an editor with an active document — skips

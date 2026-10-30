@@ -37,7 +37,7 @@ import { useNotificationStore } from '../../stores/notificationStore'
 import { AISuggestion } from '../../extensions/ai-suggestions'
 import { useSuggestionStore } from '../../extensions/ai-suggestions/store'
 import { SESSION_ID } from '../../lib/persistence'
-import { AIAnnotations, useAnnotationStore } from '../../extensions/ai-annotations'
+import { AIAnnotations, useAnnotationStore, reloadKeepingAnnotations } from '../../extensions/ai-annotations'
 import { NodeIds } from '../../extensions/node-ids'
 import { SearchHighlight } from '../../extensions/search-highlight'
 import { LinkHover } from '../../extensions/link-hover'
@@ -237,6 +237,18 @@ export function Editor() {
   const isUpdatingFromStore = useRef(false)
   const frontmatterRef = useRef<string>('')
   const lastDocumentIdRef = useRef<string>(document.documentId)
+  // The body the source editor last wrote to the store, so the store→editor
+  // sync can tell its own echo from an external change (#1102).
+  const sourceWriteRef = useRef<string | null>(null)
+  // The source editor's text as of its last change, kept synchronously: on
+  // exit its ref is already detached and the sourceContent state can lag (#1102).
+  const latestSourceRef = useRef<string>('')
+  // What the document serialized to right after its last programmatic load
+  // (file load, source-mode exit), and the store content it was loaded from.
+  // Re-applying marks or decorations changes no serialized byte, so while the
+  // doc still serializes to `markdown` the store keeps `content` — the bytes as
+  // loaded — instead of a re-serialization nobody asked for (#1102).
+  const loadBaselineRef = useRef<{ documentId: string; markdown: string; content: string } | null>(null)
   const [isFindOpen, setIsFindOpen] = useState(false)
   const [isAddCommentOpen, setIsAddCommentOpen] = useState(false)
   const webPlatformEnabled = useWebPlatformEnabled()
@@ -478,6 +490,9 @@ export function Editor() {
     // so history naturally starts from that state
     onUpdate: ({ editor }) => {
       if (isUpdatingFromStore.current) return
+      // Source mode owns the document while it is open; the hidden TipTap doc
+      // is stale until the exit writeback, so it must never write the store (#1102).
+      if (useEditorStore.getState().sourceMode) return
 
       console.log('[Editor:onUpdate] Content changed, scheduling save')
 
@@ -499,8 +514,13 @@ export function Editor() {
         }
 
         const markdown = editor.storage.markdown.getMarkdown()
-        // Prepend frontmatter if present
-        const fullContent = frontmatterRef.current + markdown
+        // Prepend frontmatter if present — unless nothing serializable changed
+        // since the last load, in which case keep the bytes as loaded (#1102).
+        const baseline = loadBaselineRef.current
+        const fullContent =
+          baseline && baseline.documentId === capturedDocumentId && baseline.markdown === markdown
+            ? baseline.content
+            : frontmatterRef.current + markdown
         console.log('[Editor:onUpdate] Saving content to store:', {
           length: fullContent.length,
           preview: fullContent.substring(0, 100).replace(/\n/g, '\\n'),
@@ -551,8 +571,35 @@ export function Editor() {
       lastDocumentIdRef.current = document.documentId
     }
 
-    // Check if body content differs (comparing without frontmatter)
-    if (newBody !== currentMarkdown) {
+    // Source mode is authoritative (#1102). A store write while it is open is
+    // the source editor's own typing coming back: parsing it into the hidden
+    // TipTap doc strips the marks and, through onUpdate, re-serialized the
+    // whole document; echoing it into CodeMirror reset the caret and dropped
+    // the frontmatter block. Only a genuine external change reaches the source
+    // view, and TipTap is written once, on exit. A new document still loads —
+    // the document-switch reset turns source mode off after this effect runs.
+    if (!isNewDocument && useEditorStore.getState().sourceMode) {
+      if (document.content !== sourceWriteRef.current) {
+        latestSourceRef.current = serializeMarkdown(newBody, useEditorStore.getState().document.frontmatter ?? {})
+        setSourceContent(latestSourceRef.current)
+      }
+      return
+    }
+
+    // Check if body content differs (comparing without frontmatter). The store
+    // holding the bytes as loaded while TipTap still serializes to the load's
+    // baseline is in sync too: the difference is only serializer normalization,
+    // and re-parsing over it — on the source exit's own write — would strip the
+    // marks (until the exit's restore re-applies them), add an undo step, and
+    // scroll to the top.
+    const baseline = loadBaselineRef.current
+    const matchesBaseline =
+      !isNewDocument &&
+      !!baseline &&
+      baseline.documentId === document.documentId &&
+      baseline.content === document.content &&
+      baseline.markdown === currentMarkdown
+    if (newBody !== currentMarkdown && !matchesBaseline) {
       isUpdatingFromStore.current = true
       frontmatterRef.current = newFrontmatter
 
@@ -588,6 +635,11 @@ export function Editor() {
       }
 
       isUpdatingFromStore.current = false
+      loadBaselineRef.current = {
+        documentId: document.documentId,
+        markdown: editor.storage.markdown?.getMarkdown() || '',
+        content: document.content,
+      }
 
       // The setContent/updateState above dispatched the document-load transaction
       // which correctly skipped position updates (isLoadingDocument was true). Now
@@ -888,9 +940,19 @@ export function Editor() {
       // WYSIWYG → Source: save suggestions then serialize with frontmatter
       savedSuggestionsRef.current = getAISuggestions(editor)
       sourceDocIdRef.current = useEditorStore.getState().document.documentId
-      const md = editor.storage.markdown?.getMarkdown?.() ?? ''
+      // Open on the bytes as loaded when nothing serializable changed since the
+      // load — otherwise source mode would show TipTap's re-serialization and the
+      // first keystroke would commit it (#1102). After a WYSIWYG edit the
+      // serialization is the only source of those edits.
+      const live = editor.storage.markdown?.getMarkdown?.() ?? ''
+      const baseline = loadBaselineRef.current
+      const md =
+        baseline && baseline.documentId === sourceDocIdRef.current && baseline.markdown === live
+          ? getContentWithoutFrontmatter(baseline.content)
+          : live
       const fm = useEditorStore.getState().document.frontmatter ?? {}
-      setSourceContent(serializeMarkdown(md, fm))
+      latestSourceRef.current = serializeMarkdown(md, fm)
+      setSourceContent(latestSourceRef.current)
     } else if (!sourceMode && prev) {
       // A document switch (not a user toggle) also flips sourceMode → false. In
       // that case the new tab's content is already loaded by the content-sync
@@ -905,10 +967,25 @@ export function Editor() {
         return
       }
       // Source → WYSIWYG: parse frontmatter back out from raw source
-      const liveContent = sourceEditorRef.current?.getContent() ?? sourceContent
+      const liveContent = sourceEditorRef.current?.getContent() ?? latestSourceRef.current
       const { content: bodyOnly, frontmatter: parsedFm } = parseMarkdown(liveContent)
       useEditorStore.getState().setFrontmatter(parsedFm)
-      editor.commands.setContent(bodyOnly)
+      // Mapping AI annotations through a whole-document replace would detach
+      // every one of them; re-anchor them by their text instead.
+      reloadKeepingAnnotations(editor, () => editor.commands.setContent(bodyOnly))
+      // The single writeback (#1102), written to the store explicitly: setContent
+      // emits no update, and the source editor's debounce is cleared — not
+      // flushed — on unmount, so keystrokes from its last 500ms reached TipTap
+      // but never the store, and a save dropped them. The baseline is set
+      // first, so the store→editor sync reads this write as in sync rather
+      // than re-parsing over the mark restore below; later mark-only updates
+      // keep these bytes rather than re-serializing them.
+      loadBaselineRef.current = {
+        documentId: activeDocId,
+        markdown: editor.storage.markdown?.getMarkdown() ?? '',
+        content: frontmatterRef.current + bodyOnly,
+      }
+      useEditorStore.getState().setContent(loadBaselineRef.current.content)
       // setContent stripped both suggestion decorations AND comment marks. The
       // document didn't change, so neither the suggestion- nor comment-restore
       // effects will re-run — we must re-apply both here, or a source round-trip
@@ -1256,9 +1333,14 @@ export function Editor() {
 
   // Source mode onChange handler: update state + store
   const handleSourceChange = useCallback((newContent: string) => {
+    // A change flushed as the source editor unmounts for a document switch
+    // belongs to the previous document; the store already holds the next one.
+    if (useEditorStore.getState().document.documentId !== sourceDocIdRef.current) return
+    latestSourceRef.current = newContent
     setSourceContent(newContent)
     // Source mode includes frontmatter — parse it out before saving to store
     const { content: body, frontmatter: fm } = parseMarkdown(newContent)
+    sourceWriteRef.current = body
     setContent(body)
     useEditorStore.getState().setDocument({ frontmatter: fm })
   }, [setContent])

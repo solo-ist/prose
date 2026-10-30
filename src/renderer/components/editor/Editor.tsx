@@ -243,6 +243,8 @@ export function Editor() {
   // The source editor's text as of its last change, kept synchronously: on
   // exit its ref is already detached and the sourceContent state can lag (#1102).
   const latestSourceRef = useRef<string>('')
+  /** The source text as shown on entering source mode — unchanged on exit means nothing to write back (#1125). */
+  const sourceEntryRef = useRef<string>('')
   // What the document serialized to right after its last programmatic load
   // (file load, source-mode exit), and the store content it was loaded from.
   // Re-applying marks or decorations changes no serialized byte, so while the
@@ -952,6 +954,7 @@ export function Editor() {
           : live
       const fm = useEditorStore.getState().document.frontmatter ?? {}
       latestSourceRef.current = serializeMarkdown(md, fm)
+      sourceEntryRef.current = latestSourceRef.current
       setSourceContent(latestSourceRef.current)
     } else if (!sourceMode && prev) {
       // A document switch (not a user toggle) also flips sourceMode → false. In
@@ -966,8 +969,18 @@ export function Editor() {
         savedSuggestionsRef.current = []
         return
       }
-      // Source → WYSIWYG: parse frontmatter back out from raw source
       const liveContent = sourceEditorRef.current?.getContent() ?? latestSourceRef.current
+      // Nothing typed: the TipTap doc, the store and every mark are exactly as
+      // they were on entry, so there is nothing to write back. The unconditional
+      // writeback below re-parses the source and calls setFrontmatter, which
+      // marks the document dirty — so an untouched toggle dirtied every
+      // document, and parseMarkdown's trim dropped the body's trailing newline
+      // (#1125).
+      if (liveContent === sourceEntryRef.current) {
+        savedSuggestionsRef.current = []
+        return
+      }
+      // Source → WYSIWYG: parse frontmatter back out from raw source
       const { content: bodyOnly, frontmatter: parsedFm } = parseMarkdown(liveContent)
       useEditorStore.getState().setFrontmatter(parsedFm)
       // Mapping AI annotations through a whole-document replace would detach

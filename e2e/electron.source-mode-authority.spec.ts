@@ -328,3 +328,29 @@ test('an AI annotation grows around text typed inside it in source mode', async 
   expect(await coveredText(ann!)).toBe('really written')
   await expect.poll(() => page.evaluate(() => document.querySelectorAll('.ai-annotation').length)).toBeGreaterThan(0)
 })
+
+// QA 14.6: toggling source mode in and out, typing nothing, left the tab dirty.
+// The exit re-parsed the source and called setFrontmatter, which always marks
+// the document dirty (#1125). An untouched toggle must change nothing.
+test('toggling source mode in and out without typing leaves the document clean', async () => {
+  const path = await openFresh('1102-untouched.md')
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const isDirty = () => page.evaluate(() => (window as any).__prose_tools.getDocumentIsDirty() as boolean)
+  expect(await isDirty()).toBe(false)
+  // What a plain save writes before any toggle (the save path drops the file's
+  // trailing newline — #1105's trim finding, not the toggle's doing).
+  await page.keyboard.press('Meta+s')
+  await page.waitForTimeout(500)
+  const savedBefore = readFileSync(path, 'utf8')
+  expect(savedBefore).toContain('__bold__')
+
+  await enterSource()
+  await page.waitForTimeout(300)
+  await exitSource()
+  await page.waitForTimeout(1_500)
+
+  expect(await isDirty(), 'clean after an untouched toggle').toBe(false)
+  await page.keyboard.press('Meta+s')
+  await page.waitForTimeout(500)
+  expect(readFileSync(path, 'utf8')).toBe(savedBefore)
+})

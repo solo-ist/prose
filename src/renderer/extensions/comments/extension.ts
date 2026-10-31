@@ -285,32 +285,34 @@ export const Comment = Mark.create<CommentOptions>({
               continue
             }
 
-            // Normalise the stored markedText to the same representation as
-            // textContent (strip the space block-separators injected by
-            // textBetween). Single-block comments are unaffected.
-            const searchText = rawSearchText.replace(/ /g, '')
-
-            // Walk occurrences of searchText and stop at the Nth one, where N
-            // is comment.occurrenceIndex (default 0 for backward-compat).
-            // We also search textContent with the normalised text.
-            const docTextNorm = docText.replace(/ /g, '')
+            // Creation (setComment) and persistence (getComments) count the
+            // occurrences of markedText in the raw textContent, so the Nth
+            // occurrence has to be found in that same string. The restore used
+            // to count in space-stripped text only: there "that he" contains
+            // "the", so a short word had more matches than creation saw and
+            // occurrence N landed earlier in the document, and the next
+            // persist rewrote markedText from the wrong mark (#1137).
             const targetOccurrence = comment.occurrenceIndex ?? 0
-            let currentOccurrence = 0
-            let searchOffset = 0
-            let normIndex = -1
-            let foundTarget = false
-            while (true) {
-              const matchIdx = docTextNorm.indexOf(searchText, searchOffset)
-              if (matchIdx === -1) break
-              normIndex = matchIdx // track last found as fallback
-              if (currentOccurrence === targetOccurrence) {
-                foundTarget = true
-                break
+            let range: { from: number; to: number } | null = null
+            let usedOccurrence: number | null = null
+            const raw = findOccurrence(docText, rawSearchText, targetOccurrence)
+            if (raw) {
+              range = charRangeToPositions(doc, raw.index, raw.index + rawSearchText.length, false)
+              usedOccurrence = raw.occurrence
+            } else {
+              // A cross-block comment: textBetween stored markedText with a
+              // space block separator that textContent does not have, so the
+              // raw search cannot match. Strip spaces from both sides (#665).
+              const searchText = rawSearchText.replace(/ /g, '')
+              const docTextNorm = docText.replace(/ /g, '')
+              const norm = findOccurrence(docTextNorm, searchText, targetOccurrence)
+              if (norm) {
+                range = charRangeToPositions(doc, norm.index, norm.index + searchText.length, true)
+                usedOccurrence = norm.occurrence
               }
-              currentOccurrence++
-              searchOffset = matchIdx + searchText.length
             }
-            if (normIndex === -1) {
+
+            if (!range) {
               console.warn('[Comment] Cannot find markedText in document:', {
                 id: comment.id,
                 markedText: rawSearchText.substring(0, 50)
@@ -318,53 +320,15 @@ export const Comment = Mark.create<CommentOptions>({
               lostIds.push(comment.id)
               continue
             }
-            if (!foundTarget) {
+            if (usedOccurrence !== targetOccurrence) {
               // Fewer occurrences than expected (text changed); fell back to last found
               console.warn('[Comment] occurrenceIndex out of range, using last occurrence:', {
                 id: comment.id,
                 targetOccurrence,
-                usedOccurrence: currentOccurrence
+                usedOccurrence
               })
             }
-
-            // Map the normalised char index back to a ProseMirror position by
-            // walking text nodes and accumulating the char count without spaces
-            // (matching the normalised search above).
-            let normCount = 0
-            let foundStart = -1
-            let foundEnd = -1
-            const normEnd = normIndex + searchText.length
-
-            doc.descendants((node, nodePos) => {
-              if (foundStart !== -1 && foundEnd !== -1) return false
-
-              if (node.isText && node.text) {
-                const nodeNorm = node.text.replace(/ /g, '')
-                const nodeNormStart = normCount
-                const nodeNormEnd = normCount + nodeNorm.length
-
-                if (foundStart === -1 && normIndex >= nodeNormStart && normIndex < nodeNormEnd) {
-                  // Offset within this text node in original chars.
-                  // We need to map normIndex back to a char offset inside node.text.
-                  const charOffset = mapNormOffsetToChar(node.text, normIndex - nodeNormStart)
-                  foundStart = nodePos + charOffset
-                }
-
-                if (foundStart !== -1 && normEnd > nodeNormStart && normEnd <= nodeNormEnd) {
-                  const charOffset = mapNormOffsetToChar(node.text, normEnd - nodeNormStart)
-                  foundEnd = nodePos + charOffset
-                  return false
-                }
-
-                normCount += nodeNorm.length
-              }
-            })
-
-            if (foundStart === -1 || foundEnd === -1) {
-              console.warn('[Comment] Could not map text position for comment:', comment.id)
-              lostIds.push(comment.id)
-              continue
-            }
+            const { from: foundStart, to: foundEnd } = range
 
             const clobbered = restoredRanges.filter(
               (r) => r.from >= foundStart && r.to <= foundEnd
@@ -769,6 +733,72 @@ function mapNormOffsetToChar(original: string, normOffset: number): number {
     }
   }
   return original.length
+}
+
+/**
+ * The Nth non-overlapping occurrence of `needle` in `haystack`, walked the
+ * same way setComment and getComments count occurrenceIndex. When the text has
+ * fewer occurrences than expected (it changed since the comment was made) the
+ * last one is returned, with `occurrence` saying which one that was.
+ */
+function findOccurrence(
+  haystack: string,
+  needle: string,
+  target: number,
+): { index: number; occurrence: number } | null {
+  if (!needle) return null
+  let occurrence = 0
+  let offset = 0
+  let last: { index: number; occurrence: number } | null = null
+  while (true) {
+    const index = haystack.indexOf(needle, offset)
+    if (index === -1) break
+    last = { index, occurrence }
+    if (occurrence === target) return last
+    occurrence++
+    offset = index + needle.length
+  }
+  return last
+}
+
+/**
+ * Map a [start, end) char range to ProseMirror positions by walking the text
+ * nodes in document order. With `stripSpaces` the range is in space-stripped
+ * coordinates (the #665 cross-block search); otherwise it is an offset into
+ * `doc.textContent`.
+ */
+function charRangeToPositions(
+  doc: ProseMirrorNode,
+  start: number,
+  end: number,
+  stripSpaces: boolean,
+): { from: number; to: number } | null {
+  let count = 0
+  let from = -1
+  let to = -1
+  doc.descendants((node, nodePos) => {
+    if (from !== -1 && to !== -1) return false
+    if (node.isText && node.text) {
+      const measured = stripSpaces ? node.text.replace(/ /g, '') : node.text
+      const nodeStart = count
+      const nodeEnd = count + measured.length
+      if (from === -1 && start >= nodeStart && start < nodeEnd) {
+        const offset = start - nodeStart
+        from = nodePos + (stripSpaces ? mapNormOffsetToChar(node.text, offset) : offset)
+      }
+      if (from !== -1 && end > nodeStart && end <= nodeEnd) {
+        const offset = end - nodeStart
+        // In stripped coordinates the end is exclusive, so map the last
+        // matched char and step past it; mapping `offset` itself would land
+        // on the next non-space char and swallow any space in between.
+        to = nodePos + (stripSpaces ? mapNormOffsetToChar(node.text, offset - 1) + 1 : offset)
+        return false
+      }
+      count = nodeEnd
+    }
+    return true
+  })
+  return from === -1 || to === -1 ? null : { from, to }
 }
 
 export default Comment

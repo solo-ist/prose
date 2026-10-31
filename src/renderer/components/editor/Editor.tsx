@@ -53,7 +53,8 @@ import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useFileListStore } from '../../stores/fileListStore'
-import { useTabStore } from '../../stores/tabStore'
+import { useTabStore, scheduleSaveSession } from '../../stores/tabStore'
+import { restoreEditorViewState, type EditorViewState } from '../../lib/editorViewState'
 import { promoteCurrentPreview } from '../../hooks/useTabs'
 import { FindBar } from './FindBar'
 import { ShareStatusIcon } from '../share/ShareStatusIcon'
@@ -239,6 +240,9 @@ export function Editor() {
   const isUpdatingFromStore = useRef(false)
   const frontmatterRef = useRef<string>('')
   const lastDocumentIdRef = useRef<string>(document.documentId)
+  // Set by the document-switch effect when the loaded document is a tab coming
+  // back with a cached view; consumed by the focus pass (#1103).
+  const pendingViewRef = useRef<EditorViewState | null>(null)
   // The body the source editor last wrote to the store, so the store→editor
   // sync can tell its own echo from an external change (#1102).
   const sourceWriteRef = useRef<string | null>(null)
@@ -301,15 +305,21 @@ export function Editor() {
   const [stableFrontmatter, setStableFrontmatter] = useState<Record<string, unknown>>(
     () => document.frontmatter ?? {}
   )
-  const stableFrontmatterDocIdRef = useRef<string>(document.documentId)
+  // A document change re-syncs during render, not in an effect: an effect lands
+  // one commit late, so the returning tab's first paint built the frontmatter
+  // block from the previous tab's fields and it grew a frame later. Above a
+  // restored scroll offset the browser's scroll anchoring compensated for that
+  // growth and the next re-apply undid it — a visible 48px hop (#1103). React
+  // re-renders before committing when state is set during render.
+  const [stableFrontmatterDocId, setStableFrontmatterDocId] = useState(document.documentId)
+  if (stableFrontmatterDocId !== document.documentId) {
+    setStableFrontmatterDocId(document.documentId)
+    setStableFrontmatter(document.frontmatter ?? {})
+  }
 
   useEffect(() => {
+    if (stableFrontmatterDocId !== document.documentId) return // the render-time sync owns this case
     const next = document.frontmatter ?? {}
-    if (stableFrontmatterDocIdRef.current !== document.documentId) {
-      stableFrontmatterDocIdRef.current = document.documentId
-      setStableFrontmatter(next)
-      return
-    }
     // Same doc — only re-sync if the values actually differ (not just identity)
     const nextKeys = Object.keys(next)
     const currentKeys = Object.keys(stableFrontmatter)
@@ -323,7 +333,7 @@ export function Editor() {
       }
     }
     if (differs) setStableFrontmatter(next)
-  }, [document.documentId, document.frontmatter, stableFrontmatter])
+  }, [document.documentId, document.frontmatter, stableFrontmatter, stableFrontmatterDocId])
 
   const editor = useTipTapEditor({
     extensions: [
@@ -581,6 +591,13 @@ export function Editor() {
     const isNewDocument = lastDocumentIdRef.current !== document.documentId
     if (isNewDocument) {
       lastDocumentIdRef.current = document.documentId
+      // The view the active tab cached when it was last left, if this load is
+      // that tab coming back (#1103). Every switch path activates the tab
+      // before it writes the document, so the ids line up here. The focus
+      // pass below consumes it.
+      const activeTab = useTabStore.getState().getActiveTab()
+      pendingViewRef.current =
+        activeTab?.documentId === document.documentId ? activeTab.viewState ?? null : null
     }
 
     // Source mode is authoritative (#1102). A store write while it is open is
@@ -641,6 +658,8 @@ export function Editor() {
           schema: editor.state.schema,
         })
         editor.view.updateState(newState)
+        // A tab being returned to comes back where it was left (#1103).
+        if (pendingViewRef.current) restoreEditorViewState(editor, pendingViewRef.current)
       } else {
         // Normal content update - preserve history so user can undo their edits
         editor.commands.setContent(newBody)
@@ -661,11 +680,15 @@ export function Editor() {
       // for tab switches where content didn't change.
       useAnnotationStore.getState().setLoadingDocument(false)
 
-      // Scroll to top when new content is loaded
+      // Scroll to top when new content is loaded, unless a tab's own view was
+      // just put back above.
       const editorContainer = editor.view.dom.closest('.overflow-auto')
-      if (editorContainer) {
+      if (editorContainer && !pendingViewRef.current) {
         editorContainer.scrollTop = 0
       }
+    } else if (isNewDocument && pendingViewRef.current) {
+      // Same body as the tab we left (nothing was reloaded): restore in place.
+      restoreEditorViewState(editor, pendingViewRef.current)
     } else if (newFrontmatter !== frontmatterRef.current) {
       // Just update frontmatter ref if only frontmatter changed
       frontmatterRef.current = newFrontmatter
@@ -678,6 +701,14 @@ export function Editor() {
   // restoreAISuggestions useEffect — without touching the autosave pipeline.
   useEffect(() => {
     setEditorInstance(editor)
+    // Moving the caret or scrolling re-arms the session save (1s debounce), so
+    // the active tab's live view reaches the saved session for a relaunch; the
+    // save only ran on tab-store changes before, which neither of these is (#1103).
+    // Scroll is listened for on the window (capture): the scroll container is
+    // re-created around a source-mode toggle, so a listener on it would be lost.
+    const rearmSessionSave = () => scheduleSaveSession()
+    editor?.on('selectionUpdate', rearmSessionSave)
+    window.addEventListener('scroll', rearmSessionSave, { capture: true, passive: true })
     useEditorInstanceStore.setState({
       flushPendingUpdate: () => {
         if (debounceRef.current) {
@@ -690,6 +721,8 @@ export function Editor() {
       },
     })
     return () => {
+      editor?.off('selectionUpdate', rearmSessionSave)
+      window.removeEventListener('scroll', rearmSessionSave, { capture: true })
       useEditorInstanceStore.setState({ flushPendingUpdate: null })
       setEditorInstance(null)
       // Snapshot live suggestions for HMR replay (option 2 from issue #531).
@@ -951,14 +984,26 @@ export function Editor() {
     // re-run this effect and yank the caret/scroll back to the top (#729).
     if (useEditorStore.getState().isPreviewTab) {
       hasFocusedRef.current = true
+      // The document-switch effect already put a returning preview tab's view
+      // back; nothing to re-apply without focus (#1103).
+      pendingViewRef.current = null
       return
     }
 
     const shouldShowEmptyState = !isEditing && !document.path && !document.content && !document.isDirty
     if (editor && !shouldShowEmptyState) {
       hasFocusedRef.current = true
+      const restoredView = pendingViewRef.current
+      pendingViewRef.current = null
       // Small delay to ensure DOM is ready
       const timer = setTimeout(() => {
+        if (restoredView) {
+          // Back on a tab that was left mid-document (#1103): keep the
+          // restored selection and re-apply the offset after layout settled.
+          editor.commands.focus(undefined, { scrollIntoView: false })
+          restoreEditorViewState(editor, restoredView)
+          return
+        }
         editor.commands.focus('start')
         // Scroll editor container to top
         const editorContainer = editor.view.dom.closest('.overflow-auto')

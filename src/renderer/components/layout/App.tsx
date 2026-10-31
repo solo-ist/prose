@@ -403,7 +403,8 @@ export function App() {
           isDirty: restoredIsDirty,
           content: restoredContent,
           frontmatter: restoredFrontmatter,
-          cursorPosition: tabDraft.cursorPosition
+          cursorPosition: tabDraft.cursorPosition,
+          viewState: tabDraft.viewState
         })
 
         // If this is the active tab, hydrate the editor

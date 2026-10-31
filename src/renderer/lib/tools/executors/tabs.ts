@@ -15,6 +15,7 @@ import { useCommentStore } from '../../../extensions/comments/store'
 import { getComments } from '../../../extensions/comments'
 import { useFileListStore } from '../../../stores/fileListStore'
 import { serializeMarkdown } from '../../markdown'
+import { captureEditorViewState } from '../../editorViewState'
 import { pipelineLog } from '../../aiPipelineLog'
 
 // Tab summary shape returned to Claude
@@ -140,6 +141,7 @@ export async function executeSelectTab(args: {
         content: liveContent,
         frontmatter: document.frontmatter,
         cursorPosition,
+        viewState: captureEditorViewState(liveEditor),
         isDirty: document.isDirty || liveContent !== document.content
       })
     }

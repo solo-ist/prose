@@ -15,6 +15,7 @@ import { resolveOpenedFileContent } from '../lib/openDocument'
 import { getApi } from '../lib/browserApi'
 import { pipelineLog } from '../lib/aiPipelineLog'
 import { handleMissingPath, isMissingPathFileError } from '../lib/stalePath'
+import { captureEditorViewState } from '../lib/editorViewState'
 import {
   generateId,
   generateIdFromPath,
@@ -150,6 +151,7 @@ export function useTabs() {
       content: current.content,
       frontmatter: current.frontmatter,
       cursorPosition,
+      viewState: captureEditorViewState(editor),
       isDirty: current.isDirty
     })
   }, [getActiveTab, saveCurrentConversation, document, cursorPosition, updateTab])
@@ -700,7 +702,8 @@ export function useTabs() {
         isDirty: tab.isDirty,
         content: tab.content,
         frontmatter: tab.frontmatter,
-        cursorPosition: tab.cursorPosition
+        cursorPosition: tab.cursorPosition,
+        viewState: tab.viewState
       }
       pushClosedTab(snapshot)
     }
@@ -752,7 +755,8 @@ export function useTabs() {
         isDirty: tab.isDirty,
         content: tab.content,
         frontmatter: tab.frontmatter,
-        cursorPosition: tab.cursorPosition
+        cursorPosition: tab.cursorPosition,
+        viewState: tab.viewState
       }
       pushClosedTab(snapshot)
     }
@@ -801,7 +805,8 @@ export function useTabs() {
           isDirty: tab.isDirty,
           content: tab.content,
           frontmatter: tab.frontmatter,
-          cursorPosition: tab.cursorPosition
+          cursorPosition: tab.cursorPosition,
+          viewState: tab.viewState
         })
       }
     }
@@ -841,7 +846,8 @@ export function useTabs() {
           isDirty: tab.isDirty,
           content: tab.content,
           frontmatter: tab.frontmatter,
-          cursorPosition: tab.cursorPosition
+          cursorPosition: tab.cursorPosition,
+          viewState: tab.viewState
         })
       }
     }

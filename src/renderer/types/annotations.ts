@@ -53,6 +53,17 @@ export interface AIAnnotation {
    * not-detached.
    */
   detached?: boolean
+  /**
+   * The text under the range the last time the document changed, with '\n'
+   * between textblocks. Positions alone cannot survive a reload that
+   * re-parses the document from markdown (a tab switch, a relaunch): the
+   * serializer tidies text above the range and the saved positions then
+   * point one or two characters off (#1138). When the text at from/to no
+   * longer reads as anchorText, the plugin puts the range back on the
+   * nearest occurrence. Optional: stored annotations without it keep their
+   * positions as before.
+   */
+  anchorText?: string
 }
 
 /**
@@ -121,6 +132,16 @@ export interface AnnotationActions {
   setDocumentId: (documentId: string | null) => void
   /** Set loading document state (pauses position updates during tab switches) */
   setLoadingDocument: (loading: boolean) => void
+  /**
+   * Record the text now under each live range (#1138). In memory only; it is
+   * persisted with the next save, whichever path that is.
+   */
+  refreshAnchorText: (textAt: (from: number, to: number) => string | null, onlyMissing?: boolean) => void
+  /**
+   * Move live ranges that a reload left off their text back onto it (#1138),
+   * and persist, since the saved positions were the stale ones.
+   */
+  reanchorAnnotations: (moves: Map<string, { from: number; to: number }>) => void
 }
 
 /**

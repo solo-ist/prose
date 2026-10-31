@@ -16,31 +16,9 @@
  */
 
 import type { Editor } from '@tiptap/core'
-import type { Node as PMNode } from '@tiptap/pm/model'
 import { useAnnotationStore } from './store'
 import { aiAnnotationsPluginKey } from './plugin'
-
-/** The doc's text with one '\n' between textblocks, and each char's doc position (-1 for separators). */
-function textIndex(doc: PMNode): { text: string; pos: number[] } {
-  let text = ''
-  const pos: number[] = []
-  doc.descendants((node, nodePos) => {
-    if (node.isTextblock && text.length > 0) {
-      text += '\n'
-      pos.push(-1)
-    }
-    if (node.isText && node.text) {
-      for (let i = 0; i < node.text.length; i++) {
-        text += node.text[i]
-        pos.push(nodePos + i)
-      }
-    }
-  })
-  return { text, pos }
-}
-
-type TextIndex = ReturnType<typeof textIndex>
-type DocRange = { from: number; to: number }
+import { textIndex, nearestMatch, type TextIndex, type DocRange } from './anchors'
 
 interface AnchorSnapshot {
   from: number
@@ -97,18 +75,6 @@ function mapThroughDiff(before: string, after: string): (start: number, end: num
     if (start <= prefix && end >= changedEnd && end + delta > start) return [start, end + delta]
     return null
   }
-}
-
-/** The occurrence of `text` whose start is nearest `near`, as doc positions. */
-function nearestMatch(index: TextIndex, text: string, near: number): DocRange | null {
-  let best: DocRange | null = null
-  for (let i = index.text.indexOf(text); i !== -1; i = index.text.indexOf(text, i + 1)) {
-    const from = index.pos[i]
-    const last = index.pos[i + text.length - 1]
-    if (from === -1 || last === -1) continue
-    if (!best || Math.abs(from - near) < Math.abs(best.from - near)) best = { from, to: last + 1 }
-  }
-  return best
 }
 
 /** Run `reload` (a whole-document replace) without losing annotations whose text survives it. */

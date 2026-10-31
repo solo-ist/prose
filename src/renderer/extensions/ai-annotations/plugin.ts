@@ -13,8 +13,33 @@ import type { Transaction } from '@tiptap/pm/state'
 import type { AIAnnotation, AIAnnotationOptions } from '../../types/annotations'
 import { calculateOpacity, formatAge, ANNOTATION_CONSTANTS } from '../../types/annotations'
 import { useAnnotationStore } from './store'
+import { anchorTextAt, nearestMatch, textIndex, type DocRange, type TextIndex } from './anchors'
+import type { Node as PMNode } from '@tiptap/pm/model'
 
 export const aiAnnotationsPluginKey = new PluginKey('aiAnnotations')
+
+/**
+ * Live annotations whose text no longer sits at their positions, with the
+ * nearest place it does (#1138). A document that comes back re-parsed from
+ * markdown (tab switch, relaunch) is a character or two shorter wherever the
+ * serializer tidied text above a range, and the saved positions are applied
+ * to it unchanged. An annotation whose text cannot be found is left where it
+ * is: a wrong doc during a switch must not detach anything.
+ */
+function findMoves(doc: PMNode, annotations: AIAnnotation[]): Map<string, DocRange> {
+  const moves = new Map<string, DocRange>()
+  let index: TextIndex | null = null
+  const maxPos = doc.content.size
+  for (const a of annotations) {
+    if (a.detached || !a.anchorText || a.from < 0 || a.from >= a.to) continue
+    const inBounds = a.to <= maxPos
+    if (inBounds && anchorTextAt(doc, a.from, a.to) === a.anchorText) continue
+    index ??= textIndex(doc)
+    const match = nearestMatch(index, a.anchorText, a.from)
+    if (match && (match.from !== a.from || match.to !== a.to)) moves.set(a.id, match)
+  }
+  return moves
+}
 
 // Track tooltip element for cleanup
 let activeTooltip: HTMLElement | null = null
@@ -98,6 +123,9 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
   let currentAnnotations: AIAnnotation[] = []
   let isVisible = true
   let unsubscribe: (() => void) | null = null
+  /** The store array and the doc the anchors were last checked against (#1138). */
+  let reconciledAnnotations: AIAnnotation[] | null = null
+  let reconciledDoc: PMNode | null = null
 
   return new Plugin({
     key: aiAnnotationsPluginKey,
@@ -221,13 +249,39 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
           }
         }
 
+        // Anchor text (#1138). On a document change the mapped positions are
+        // right by construction, so the text under them is what each range
+        // means from now on. On any other transaction the positions may be
+        // the ones a reload brought back against re-parsed text, so check
+        // them against the anchors once per store array and move the ranges
+        // the text has left. Both wait out a document load: the store may
+        // hold the next tab's annotations while the editor still shows this
+        // one.
+        const loading = storeState.isLoadingDocument
+        const maxPos = doc.content.size
+        const textAt = (from: number, to: number) => (to <= maxPos ? anchorTextAt(doc, from, to) : null)
+        if (!loading) {
+          if (tr.docChanged) {
+            useAnnotationStore.getState().refreshAnchorText(textAt)
+          } else if (doc !== reconciledDoc || useAnnotationStore.getState().annotations !== reconciledAnnotations) {
+            // A new doc object without a transaction is a fresh EditorState
+            // (a tab switch, a relaunch): the case this exists for.
+            const moves = findMoves(doc, useAnnotationStore.getState().annotations)
+            if (moves.size > 0) useAnnotationStore.getState().reanchorAnnotations(moves)
+            useAnnotationStore.getState().refreshAnchorText(textAt, true)
+          }
+          reconciledAnnotations = useAnnotationStore.getState().annotations
+          reconciledDoc = doc
+        }
+        const liveAnnotations = useAnnotationStore.getState().annotations
+
         // Rebuild decorations if needed
-        if (annotationsChanged || visibilityChanged || needsRefresh || tr.docChanged || forceRebuild) {
+        if (annotationsChanged || visibilityChanged || needsRefresh || tr.docChanged || forceRebuild || liveAnnotations !== storeAnnotations) {
           const decorations: Decoration[] = []
           const createdThisSession = storeState.createdThisSession
 
           if (isVisible) {
-            for (const annotation of storeAnnotations) {
+            for (const annotation of liveAnnotations) {
               // Detached annotations are history-only (#674) — no decoration,
               // and their stale positions must not hit the bounds warning.
               if (annotation.detached) continue
@@ -264,7 +318,7 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
 
           return {
             decorationSet: DecorationSet.create(doc, decorations),
-            annotations: storeAnnotations,
+            annotations: liveAnnotations,
             lastRefresh: needsRefresh ? Date.now() : pluginState.lastRefresh,
           }
         }
@@ -343,19 +397,28 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
       // The dispatch is deferred via queueMicrotask and coalesced behind a flag:
       // store mutations can occur *inside* apply() (updatePositions on docChanged),
       // and dispatching synchronously there would nest dispatches. Deferring runs
-      // the rebuild after the current dispatch settles. The rebuild path doesn't
-      // mutate the store (no docChanged), so it can't loop.
+      // the rebuild after the current dispatch settles. The rebuild path
+      // mutates the store at most once per store array (the #1138 anchor
+      // check), and the rebuild that mutation schedules finds the array
+      // already checked, so it can't loop.
+      //
+      // The end of a document load is a trigger too: the anchor check waits
+      // it out, and the loaded set may otherwise sit unchecked until the
+      // next transaction.
       let lastAnnotations = useAnnotationStore.getState().annotations
       let lastVisible = useAnnotationStore.getState().isVisible
+      let lastLoading = useAnnotationStore.getState().isLoadingDocument
       let rebuildScheduled = false
 
       unsubscribe = useAnnotationStore.subscribe((state) => {
         currentAnnotations = state.annotations
         isVisible = state.isVisible
 
-        const changed = state.annotations !== lastAnnotations || state.isVisible !== lastVisible
+        const loadEnded = lastLoading && !state.isLoadingDocument
+        const changed = state.annotations !== lastAnnotations || state.isVisible !== lastVisible || loadEnded
         lastAnnotations = state.annotations
         lastVisible = state.isVisible
+        lastLoading = state.isLoadingDocument
         if (!changed || rebuildScheduled) return
 
         rebuildScheduled = true

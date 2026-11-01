@@ -436,3 +436,11 @@ baseline reset are folded in above.
   codec, `scrollSelectionIntoCenter` a `{ state, view }`. `read_document`'s markdown still comes from the
   store's content, which the projection keeps current (the 500 ms cache the plan names is now the projection;
   `handle.serialize()` lands it first).
+- **2026-11-01, commit 4 (tests):** vitest + jsdom (`vitest.config.ts`, `src/renderer/test/setup.ts`, `npm run
+  test:unit`, one CI step before the Playwright build in `e2e.yml`); `src/renderer/document/session.test.ts` (six
+  cases over a headless TipTap editor built from `createEditorExtensions`: normalisation and empty history, `.txt`
+  flattening, comment / suggestion mark restore with the #1137 fixture and a lost anchor, the byte-exact
+  projection, the §G pairing invariant under a store subscription, `setSessionIdentity`);
+  `e2e/electron.document-sessions.spec.ts` (§12 cases 1, 5, 7, 8, 10, each in its own profile because the tab bar
+  collapses past a handful of tabs, plus the three tripwires). Case 10's heap: 97.4 MB with twenty 100 KB tabs on
+  the first run (Electron 45, this machine), ceiling 200 MB. A settled switch spends no serialisation.

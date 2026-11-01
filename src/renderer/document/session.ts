@@ -555,6 +555,9 @@ export async function openSession(
   }
   registry.sessions.set(tab.id, session)
   stats.opens++
+  // The pipeline log's vocabulary (#672): the record sets were loaded for
+  // this document, as the stores used to report.
+  pipelineLog('annotation:load', { documentId, count: annotations.length })
   pipelineLog('session:open', {
     tabId: tab.id,
     documentId,

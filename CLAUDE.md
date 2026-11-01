@@ -33,6 +33,8 @@ npm run build:win    # Build Windows distributable
 npm run build:linux  # Build Linux distributable
 ```
 
+**Install**: `npm ci` is enough. Electron ≥ 42 downloads nothing in its own `postinstall`; ours runs `install-electron` after `electron-builder install-app-deps`, so the binary lands at install time (electron-vite needs it before `npm run dev`). If a checkout ever lacks it, run `npx install-electron`.
+
 **Note**: Always run these commands for the user rather than asking them to run manually. Start dev servers in the background so work can continue.
 
 **Testing**: No unit test suite. E2E tests via Playwright (`e2e/`, `playwright.config.ts`). Manual QA via Circuit Electron (see below).

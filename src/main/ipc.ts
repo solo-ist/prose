@@ -10,6 +10,7 @@ import { getDefaultModel, getDefaultHaikuModel, supportsAdaptiveThinking, getThi
 import { getSettingsDir, LEGACY_SETTINGS_DIR, normalizePath, resolveWithin, resolveToolPath, IMAGE_EXTENSIONS } from './paths'
 import type { FileAccessOptions } from '../shared/fileAccess'
 import { clearRecentFiles } from './recentFiles'
+import { dialogDefaultPath, rememberDialogDir } from './dialogDirs'
 import { refreshMenu, setReopenClosedTabEnabled } from './menu'
 import { credentialStore } from './credentialStore'
 import { toFileOperationFailure, type ReadFileResult, type SaveFileResult } from '../shared/fileOperationResult'
@@ -232,6 +233,7 @@ export function setupIpcHandlers(): void {
   // File: Open dialog
   ipcMain.handle('file:open', async () => {
     const result = await dialog.showOpenDialog({
+      defaultPath: await dialogDefaultPath('open'),
       properties: ['openFile'],
       filters: [
         { name: 'Documents', extensions: ['md', 'markdown', 'txt', 'html', 'htm'] },
@@ -244,6 +246,7 @@ export function setupIpcHandlers(): void {
     }
 
     const path = result.filePaths[0]
+    await rememberDialogDir('open', path, 'file')
     const content = await readFile(path, 'utf-8')
 
     // Track in macOS Dock recent items (renderer handles settingsStore tracking)
@@ -308,7 +311,7 @@ export function setupIpcHandlers(): void {
   // File: Save As dialog
   ipcMain.handle('file:saveAs', async (_event, content: string, defaultFilename?: string) => {
     const result = await dialog.showSaveDialog({
-      defaultPath: defaultFilename,
+      defaultPath: await dialogDefaultPath('save', defaultFilename),
       filters: [
         { name: 'Markdown', extensions: ['md'] },
         { name: 'All Files', extensions: ['*'] }
@@ -320,6 +323,7 @@ export function setupIpcHandlers(): void {
     }
 
     await writeFile(result.filePath, content, 'utf-8')
+    await rememberDialogDir('save', result.filePath, 'file')
 
     // Track in macOS Dock recent items (renderer handles settingsStore tracking)
     app.addRecentDocument(result.filePath)
@@ -330,7 +334,7 @@ export function setupIpcHandlers(): void {
   // File: Export as plain text
   ipcMain.handle('file:exportTxt', async (_event, content: string, defaultFilename?: string) => {
     const result = await dialog.showSaveDialog({
-      defaultPath: defaultFilename,
+      defaultPath: await dialogDefaultPath('save', defaultFilename),
       filters: [
         { name: 'Text Files', extensions: ['txt'] }
       ]
@@ -341,13 +345,14 @@ export function setupIpcHandlers(): void {
     }
 
     await writeFile(result.filePath, content, 'utf-8')
+    await rememberDialogDir('save', result.filePath, 'file')
     return result.filePath
   })
 
   // File: Export as HTML
   ipcMain.handle('file:exportHtml', async (_event, content: string, defaultFilename?: string) => {
     const result = await dialog.showSaveDialog({
-      defaultPath: defaultFilename,
+      defaultPath: await dialogDefaultPath('save', defaultFilename),
       filters: [
         { name: 'HTML Files', extensions: ['html'] }
       ]
@@ -358,6 +363,7 @@ export function setupIpcHandlers(): void {
     }
 
     await writeFile(result.filePath, content, 'utf-8')
+    await rememberDialogDir('save', result.filePath, 'file')
     return result.filePath
   })
 
@@ -365,7 +371,7 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('file:selectFolder', async (_event, defaultPath?: string, message?: string) => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory'],
-      ...(defaultPath ? { defaultPath } : {}),
+      defaultPath: defaultPath ?? await dialogDefaultPath('folder'),
       ...(message ? { message } : {}),
       ...(IS_MAS_BUILD ? { securityScopedBookmarks: true } : {})
     })
@@ -375,6 +381,7 @@ export function setupIpcHandlers(): void {
     }
 
     const path = result.filePaths[0]
+    await rememberDialogDir('folder', path, 'directory')
     const bookmark = IS_MAS_BUILD ? (result.bookmarks?.[0] ?? null) : null
 
     // Activate bookmark access immediately for this session. Deliberately does
@@ -2214,7 +2221,7 @@ export function setupIpcHandlers(): void {
   })
 
   ipcMain.handle('clipboard:writeText', async (_event, text: string) => {
-    clipboard.writeText(text)
+    await clipboard.writeText(text)
   })
 
   // Appearance: pin the dock tile to Pilcrow (macOS only).

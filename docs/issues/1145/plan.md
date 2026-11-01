@@ -428,3 +428,11 @@ baseline reset are folded in above.
   mirror key on it), and a `BUILD_META` on the scratch-normalisation and seed transactions, without which the
   annotation plugin mapped the live store's records through the scratch state's replace when a session was
   rebuilt for the same document (source-mode exit: every annotation shifted by the new body's length).
+- **2026-11-01, commit 3 (handles):** `document/handle.ts` (`DocumentHandle`, `resolveDocumentHandle({ forWrite })`;
+  every handle is the active session's, backed by the live editor, with `apply`, `chain`, `can`, `commands`,
+  `markdown`, `serialize`, `view` only for the active one). The document and editor executors and
+  `create_and_open_file`'s readiness wait read `handle.state`, write through `handle.commands` / `handle.chain()`
+  / `handle.apply()`, and never touch `useEditorInstanceStore`; `parseMarkdownToSlice` takes the markdown
+  codec, `scrollSelectionIntoCenter` a `{ state, view }`. `read_document`'s markdown still comes from the
+  store's content, which the projection keeps current (the 500 ms cache the plan names is now the projection;
+  `handle.serialize()` lands it first).

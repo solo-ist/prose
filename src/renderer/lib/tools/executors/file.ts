@@ -8,7 +8,7 @@ import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { TOOL_FILE_ACCESS, type FileAccessOptions } from '../../../../shared/fileAccess'
 import { isFileOperationFailure } from '../../../../shared/fileOperationResult'
 import { useEditorStore } from '../../../stores/editorStore'
-import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
+import { resolveDocumentHandle } from '../../../document/handle'
 import { useSettingsStore } from '../../../stores/settingsStore'
 import { useAnnotationStore } from '../../../extensions/ai-annotations'
 import { generateIdFromPath } from '../../persistence'
@@ -36,16 +36,14 @@ async function waitForEditorDocumentContent(documentId: string, markdown: string
   const expected = markdown.trim()
 
   for (let attempt = 0; attempt < 10; attempt++) {
-    const editor = useEditorInstanceStore.getState().editor
-    const activeDocumentId = useEditorStore.getState().document.documentId
-    const currentMarkdown = editor?.storage.markdown?.getMarkdown?.()
+    const handle = resolveDocumentHandle()
 
     if (
-      editor &&
-      activeDocumentId === documentId &&
-      (!expected || currentMarkdown?.trim() === expected)
+      handle &&
+      handle.documentId === documentId &&
+      (!expected || handle.serialize().trim() === expected)
     ) {
-      return editor.state.doc.content.size
+      return handle.state.doc.content.size
     }
 
     await new Promise((resolve) => setTimeout(resolve, 16))

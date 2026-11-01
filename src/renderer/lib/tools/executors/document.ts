@@ -2,11 +2,10 @@
  * Document tool executors - read-only tools for accessing document content.
  */
 
-import type { Editor } from '@tiptap/core'
 import type { ToolResult, DocumentMetadata, TextMatch, OutlineEntry } from '../../../../shared/tools/types'
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useEditorStore } from '../../../stores/editorStore'
-import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
+import { resolveDocumentHandle, type DocumentHandle } from '../../../document/handle'
 import { useAnnotationStore } from '../../../extensions/ai-annotations'
 import { getNodesWithIds, findNodeById } from '../../../extensions/node-ids'
 import type { NodeWithId } from '../../../extensions/node-ids'
@@ -18,14 +17,6 @@ import { isEditorReadOnly } from './editor'
 import { getApi } from '../../browserApi'
 import { generateId } from '../../persistence'
 import { dump as dumpYaml } from 'js-yaml'
-
-/**
- * Get the TipTap editor instance.
- * Returns null if editor is not available.
- */
-function getEditor(): Editor | null {
-  return useEditorInstanceStore.getState().editor
-}
 
 /**
  * Node representation with ID for AI targeting.
@@ -47,26 +38,26 @@ interface DocumentNode {
  * table as GFM instead: the model needs the current table to write the updated
  * one that `edit` takes on any of its cells (#1100).
  */
-function toDocumentNode(n: NodeWithId, editor: Editor): DocumentNode {
+function toDocumentNode(n: NodeWithId, handle: DocumentHandle): DocumentNode {
   const node: DocumentNode = {
     id: n.nodeId,
     type: n.type,
-    content: n.type === 'table' ? tableMarkdown(n, editor) : n.textContent,
+    content: n.type === 'table' ? tableMarkdown(n, handle) : n.textContent,
   }
   if (n.children && n.children.length > 0) {
-    node.children = n.children.map((child) => toDocumentNode(child, editor))
+    node.children = n.children.map((child) => toDocumentNode(child, handle))
   }
   return node
 }
 
-function tableMarkdown(n: NodeWithId, editor: Editor): string {
-  const table = editor.state.doc.nodeAt(n.pos)
+function tableMarkdown(n: NodeWithId, handle: DocumentHandle): string {
+  const table = handle.state.doc.nodeAt(n.pos)
   if (!table || table.type.name !== 'table') return n.textContent
   // read_document is on every edit's path: a table that won't serialize
   // degrades to its text rather than failing the whole read.
   try {
-    const doc = editor.schema.topNodeType.create(null, table)
-    return (editor.storage.markdown.serializer.serialize(doc) as string).trim()
+    const doc = handle.schema.topNodeType.create(null, table)
+    return handle.markdown.serializer.serialize(doc).trim()
   } catch {
     return n.textContent
   }
@@ -82,10 +73,10 @@ export function executeReadDocument(): ToolResult<{
   nodes: DocumentNode[]
   markdown: string
 }> {
-  const editor = getEditor()
+  const handle = resolveDocumentHandle()
   const store = useEditorStore.getState()
 
-  if (!editor) {
+  if (!handle) {
     // Fallback to raw content if editor not available
     return toolSuccess({
       nodes: prependFrontmatterNode([], store.document.frontmatter, store.pendingFrontmatter),
@@ -94,10 +85,10 @@ export function executeReadDocument(): ToolResult<{
   }
 
   // Get nodes with their IDs as a nested tree
-  const nodesWithIds = getNodesWithIds(editor.state.doc)
+  const nodesWithIds = getNodesWithIds(handle.state.doc)
 
   // Map to DocumentNode tree
-  const nodes: DocumentNode[] = nodesWithIds.map((n) => toDocumentNode(n, editor))
+  const nodes: DocumentNode[] = nodesWithIds.map((n) => toDocumentNode(n, handle))
 
   return toolSuccess({
     nodes: prependFrontmatterNode(nodes, store.document.frontmatter, store.pendingFrontmatter),
@@ -151,17 +142,17 @@ export function executeReadSelection(): ToolResult<{
   to: number
   isEmpty: boolean
 }> {
-  const editor = getEditor()
+  const handle = resolveDocumentHandle()
 
-  if (!editor) {
+  if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
-  const { from, to, empty } = editor.state.selection
+  const { from, to, empty } = handle.state.selection
 
   // Try live selection first
   if (!empty) {
-    const text = editor.state.doc.textBetween(from, to)
+    const text = handle.state.doc.textBetween(from, to)
     return toolSuccess({
       text,
       from,
@@ -194,7 +185,7 @@ export function executeReadSelection(): ToolResult<{
  * get_metadata - Get document metadata.
  */
 export async function executeGetMetadata(): Promise<ToolResult<DocumentMetadata>> {
-  const editor = getEditor()
+  const handle = resolveDocumentHandle()
   const { document } = useEditorStore.getState()
 
   const content = document.content
@@ -203,8 +194,8 @@ export async function executeGetMetadata(): Promise<ToolResult<DocumentMetadata>
   const lineCount = content.split('\n').length
 
   // Comment and suggestion counts
-  const commentCount = editor ? getComments(editor).length : 0
-  const pendingSuggestionCount = editor ? getAISuggestions(editor).length : 0
+  const commentCount = handle ? getComments(handle).length : 0
+  const pendingSuggestionCount = handle ? getAISuggestions(handle).length : 0
   const annotationCount = useAnnotationStore.getState().annotations.length
 
   // File timestamps (only available for saved files in Electron)
@@ -252,9 +243,9 @@ export function executeSearchDocument(args: {
   caseSensitive?: boolean
   maxResults?: number
 }): ToolResult<{ matches: TextMatch[]; totalCount: number }> {
-  const editor = getEditor()
+  const handle = resolveDocumentHandle()
 
-  if (!editor) {
+  if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
@@ -265,7 +256,7 @@ export function executeSearchDocument(args: {
   }
 
   const matches: TextMatch[] = []
-  const doc = editor.state.doc
+  const doc = handle.state.doc
   let totalCount = 0
 
   // Build text content with position mapping
@@ -303,8 +294,8 @@ export function executeSearchDocument(args: {
         const docTo = docFrom + match[0].length
 
         // Convert doc positions to line/column
-        const fromPos = editor.state.doc.resolve(docFrom)
-        const toPos = editor.state.doc.resolve(docTo)
+        const fromPos = handle.state.doc.resolve(docFrom)
+        const toPos = handle.state.doc.resolve(docTo)
 
         matches.push({
           text: match[0],
@@ -337,16 +328,16 @@ export function executeSearchDocument(args: {
  * When there are few headings (< 3), provides a summary instead.
  */
 export function executeGetOutline(): ToolResult<{ outline: OutlineEntry[]; summary?: string }> {
-  const editor = getEditor()
+  const handle = resolveDocumentHandle()
 
-  if (!editor) {
+  if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
   const outline: OutlineEntry[] = []
   let lineNumber = 1
 
-  editor.state.doc.descendants((node, pos) => {
+  handle.state.doc.descendants((node, pos) => {
     // Track line numbers (approximate based on block nodes)
     if (node.isBlock && pos > 0) {
       lineNumber++
@@ -407,14 +398,14 @@ interface CommentEntry {
  * full thread context.
  */
 export function executeListComments(): ToolResult<{ comments: CommentEntry[] }> {
-  const editor = getEditor()
+  const handle = resolveDocumentHandle()
 
-  if (!editor) {
+  if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
   // Live marks give us current positions.
-  const liveMarks = getComments(editor)
+  const liveMarks = getComments(handle)
 
   // Persisted store holds replies + resolved state not carried by the mark.
   const persistedComments = useCommentStore.getState().pendingComments
@@ -463,9 +454,9 @@ export function executeAddComment(args: {
   to?: number
   comment: string
 }): ToolResult<{ id: string }> {
-  const editor = getEditor()
+  const handle = resolveDocumentHandle()
 
-  if (!editor) {
+  if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
@@ -483,7 +474,7 @@ export function executeAddComment(args: {
 
   if (nodeId) {
     // Resolve range from nodeId
-    const found = findNodeById(editor.state.doc, nodeId)
+    const found = findNodeById(handle.state.doc, nodeId)
     if (!found) {
       return toolError(`Node with ID "${nodeId}" not found`, 'NODE_NOT_FOUND')
     }
@@ -503,7 +494,7 @@ export function executeAddComment(args: {
   // (e.g., a paragraph with only a hardBreak, or whitespace-only). In that case
   // setComment would apply the mark to the boundary, which can bleed into the
   // preceding node. Require at least one non-whitespace character to attach to.
-  const rangeText = editor.state.doc.textBetween(from, to, ' ')
+  const rangeText = handle.state.doc.textBetween(from, to, ' ')
   if (!rangeText.trim()) {
     return toolError('Cannot add a comment to an empty range — the targeted node has no text content', 'EMPTY_RANGE')
   }
@@ -512,7 +503,7 @@ export function executeAddComment(args: {
   // the same node produce exactly-equal ranges — which would silently replace
   // the existing thread's mark and orphan its store entry (#830). Surface the
   // existing thread so the model replies or resolves instead of duplicating.
-  const covered = findFullyCoveredCommentIds(editor.state.doc, from, to)
+  const covered = findFullyCoveredCommentIds(handle.state.doc, from, to)
   if (covered.length > 0) {
     return toolError(
       `A comment thread already covers this text (id "${covered[0]}"). Use reply_to_comment to continue that discussion, or resolve_comment to close it before adding a new comment.`,
@@ -522,7 +513,7 @@ export function executeAddComment(args: {
 
   const id = generateId()
 
-  const success = editor
+  const success = handle
     .chain()
     .focus()
     .setTextSelection({ from, to })
@@ -553,14 +544,14 @@ export function executeAddComment(args: {
 function ensureInStore(
   id: string,
   store: ReturnType<typeof useCommentStore.getState>,
-  editor: ReturnType<typeof getEditor>
+  handle: DocumentHandle | null
 ): boolean {
   const alreadyInStore = store.pendingComments.some((c) => c.id === id)
   if (alreadyInStore) return true
 
   // Fall back to live editor marks
-  if (!editor) return false
-  const liveMark = getComments(editor).find((c) => c.id === id)
+  if (!handle) return false
+  const liveMark = getComments(handle).find((c) => c.id === id)
   if (!liveMark) return false
 
   // Synthesize a minimal store entry from the live mark
@@ -590,9 +581,9 @@ function ensureInStore(
 export function executeResolveComment(args: {
   id: string
 }): ToolResult<{ resolved: boolean }> {
-  const editor = getEditor()
+  const handle = resolveDocumentHandle()
 
-  if (!editor) {
+  if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
@@ -608,7 +599,7 @@ export function executeResolveComment(args: {
 
   // Ensure the comment is in the store (synthesizes from live mark if needed).
   const store = useCommentStore.getState()
-  const found = ensureInStore(id, store, editor)
+  const found = ensureInStore(id, store, handle)
   if (!found) {
     return toolError(`Comment with ID "${id}" not found`, 'COMMENT_NOT_FOUND')
   }
@@ -626,7 +617,7 @@ export function executeResolveComment(args: {
   }
 
   // Remove the editor mark so the highlight disappears.
-  editor.commands.unsetComment(id)
+  handle.commands.unsetComment(id)
 
   // Share-sourced threads push resolution into the live conversation (#769).
   pushResolveToShare(id)
@@ -654,11 +645,11 @@ export function executeReplyToComment(args: {
     return toolError('Reply text is required', 'INVALID_INPUT')
   }
 
-  const editor = getEditor()
+  const handle = resolveDocumentHandle()
 
   // Ensure the comment is in the store (synthesizes from live mark if needed).
   const store = useCommentStore.getState()
-  const found = ensureInStore(id, store, editor)
+  const found = ensureInStore(id, store, handle)
   if (!found) {
     return toolError(`Comment with ID "${id}" not found`, 'COMMENT_NOT_FOUND')
   }

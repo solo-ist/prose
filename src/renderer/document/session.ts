@@ -831,6 +831,14 @@ export async function setSessionIdentity(tabId: string, identity: IdentityState)
   pipelineLog('session:identity', { tabId, from: previous.documentId, to: identity.documentId })
 }
 
+/** The markdown the session's document projects to (what the store holds), pending projections landed. */
+export function projectSessionContent(tabId: string): string {
+  const session = requireSession(tabId)
+  const e = requireEditor()
+  flushProjections(session)
+  return projectedContent(e, session)
+}
+
 /** The full document text as a save writes it, after pending projections land. */
 export function serializeSession(tabId: string): string {
   const session = requireSession(tabId)

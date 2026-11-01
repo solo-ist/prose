@@ -43,11 +43,16 @@ function isMultiBlock(text: string): boolean {
  * block-anchor insertions (after_node / before_node) so that content is placed
  * as a document-level sibling rather than being absorbed into the anchor node.
  *
- * Returns null if the editor doesn't have a markdown parser in storage
- * (e.g., during tests) so callers can fall back to the text path.
+ * Takes the editor's markdown storage (or a document handle's codec).
+ * Returns null when there is no markdown parser (e.g., during tests) so
+ * callers can fall back to the text path.
  */
-export function parseMarkdownToSlice(editor: Editor, schema: Schema, text: string): Slice | null {
-  const parser = editor.storage?.markdown?.parser
+export function parseMarkdownToSlice(
+  markdown: { parser?: { parse?: (content: string) => unknown } } | undefined,
+  schema: Schema,
+  text: string
+): Slice | null {
+  const parser = markdown?.parser
   if (!parser || typeof parser.parse !== 'function') return null
 
   // tiptap-markdown's storage.markdown.parser.parse() returns an HTML *string*
@@ -103,7 +108,7 @@ function parseInlineSuggestion(
   suggestedText: string
 ): { slice: Slice; text: string } | null {
   if (suggestedText.includes('\n')) return null
-  const slice = parseMarkdownToSlice(editor, schema, suggestedText)
+  const slice = parseMarkdownToSlice(editor.storage?.markdown, schema, suggestedText)
   if (!slice || slice.content.childCount !== 1) return null
   const block = slice.content.firstChild
   if (!block || !block.isTextblock) return null
@@ -168,7 +173,7 @@ function applyBlockConversion(
   })
   if (blockPos < 0) return null
 
-  const slice = parseMarkdownToSlice(editor, schema, intentMarkdown)
+  const slice = parseMarkdownToSlice(editor.storage?.markdown, schema, intentMarkdown)
   if (!slice || slice.content.childCount === 0) return null
 
   const closed = new Slice(slice.content, 0, 0)
@@ -534,7 +539,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
               acceptPath = 'blockConversion'
             } else if (isMultiBlock(suggestedText)) {
               acceptPath = 'multiBlock'
-              const slice = parseMarkdownToSlice(editor, state.schema, suggestedText)
+              const slice = parseMarkdownToSlice(editor.storage?.markdown, state.schema, suggestedText)
               if (slice) {
                 tr.replace(markFrom, markTo, slice)
               } else {
@@ -819,7 +824,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
                 pipelineLog('accept:path', { id: suggestion.id, path: 'blockConversion', batch: true })
                 annotationNewText = conversion.visibleText
               } else if (isMultiBlock(suggestion.suggestedText)) {
-                const slice = parseMarkdownToSlice(editor, state.schema, suggestion.suggestedText)
+                const slice = parseMarkdownToSlice(editor.storage?.markdown, state.schema, suggestion.suggestedText)
                 if (slice) {
                   tr.replace(suggestion.from, suggestion.to, slice)
                 } else {

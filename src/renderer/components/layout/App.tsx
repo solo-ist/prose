@@ -42,21 +42,21 @@ import { useChat } from '../../hooks/useChat'
 import { useSummaryStore } from '../../stores/summaryStore'
 import { useEditor } from '../../hooks/useEditor'
 import { useTabs } from '../../hooks/useTabs'
+import { hydrateDraft, restoreTabs, convertTab, type RestoredTab } from '../../tabs/actions'
 import { useSettings } from '../../hooks/useSettings'
 import { usePanelLayout, PanelLayoutProvider } from '../../hooks/usePanelLayout'
 import type { ImperativePanelHandle } from 'react-resizable-panels'
 import { useEditorStore } from '../../stores/editorStore'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { getApi } from '../../lib/browserApi'
-import { useChatStore, setCurrentDocumentId } from '../../stores/chatStore'
-import { useTabStore, createTab, restoreSession, clearSavedSession, hasUnsavedTabs } from '../../stores/tabStore'
+import { useChatStore } from '../../stores/chatStore'
+import { useTabStore, restoreSession, clearSavedSession, hasUnsavedTabs } from '../../stores/tabStore'
 import { useFileListStore } from '../../stores/fileListStore'
 import { useSettingsStore, AI_CONSENT_VERSION } from '../../stores/settingsStore'
 import { useAutosave } from '../../hooks/useAutosave'
 import {
   loadDraft,
   clearDraft,
-  loadConversations,
   deleteConversations
 } from '../../lib/persistence'
 import { extractFirstH1 } from '../../lib/markdown'
@@ -131,12 +131,10 @@ export function App() {
   const [pendingSession, setPendingSession] = useState<SessionState | null>(null)
   const tabsInitialized = useRef(false)
 
-  const hydrateFromDraft = useEditorStore((state) => state.hydrateFromDraft)
   const documentPath = useEditorStore((state) => state.document.path)
   const isDirty = useEditorStore((state) => state.document.isDirty)
   const editor = useEditorInstanceStore((state) => state.editor)
   const tabs = useTabStore((state) => state.tabs)
-  const addTab = useTabStore((state) => state.addTab)
   const initFileWatcher = useFileListStore((state) => state.initFileWatcher)
 
   // Initialize autosave functionality
@@ -282,60 +280,11 @@ export function App() {
     document.title = `${fileName}${dirtyIndicator} — Prose`
   }, [documentPath, documentContent, isDirty, isAutoSaving])
 
-  // Recover draft and associated conversations
-  const recoverDraft = useCallback(
-    async (draft: DraftState) => {
-      hydrateFromDraft(draft)
-      setCurrentDocumentId(draft.document.documentId)
-
-      // Create a tab for the recovered document
-      const title = draft.document.path
-        ? (() => {
-            const fullFileName = draft.document.path.split('/').pop() || 'Untitled'
-            const hasExtension = fullFileName.includes('.')
-            return hasExtension
-              ? fullFileName.substring(0, fullFileName.lastIndexOf('.'))
-              : fullFileName
-          })()
-        : 'Untitled'
-
-      addTab({
-        documentId: draft.document.documentId,
-        path: draft.document.path,
-        title,
-        isDirty: draft.document.isDirty,
-        content: draft.document.content,
-        cursorPosition: draft.cursorPosition
-      })
-      tabsInitialized.current = true
-
-      // Restore file list state if present
-      if (draft.fileList) {
-        useFileListStore.setState({
-          viewMode: draft.fileList.viewMode,
-          rootPath: draft.fileList.rootPath,
-          expandedFolders: new Set(draft.fileList.expandedFolders),
-          selectedPath: draft.fileList.selectedPath
-        })
-        // Reload files if we have a rootPath
-        if (draft.fileList.rootPath) {
-          useFileListStore.getState().loadFiles()
-        }
-      }
-
-      // Load conversations for the recovered document
-      const conversations = await loadConversations(draft.document.documentId)
-      useChatStore.setState({
-        conversations,
-        activeConversationId: draft.activeChatId ?? conversations[0]?.id ?? null,
-        messages:
-          conversations.find((c) => c.id === draft.activeChatId)?.messages ??
-          conversations[0]?.messages ??
-          []
-      })
-    },
-    [hydrateFromDraft, addTab]
-  )
+  // Recover a legacy single-document draft (pre-session builds)
+  const recoverDraft = useCallback(async (draft: DraftState) => {
+    await hydrateDraft(draft)
+    tabsInitialized.current = true
+  }, [])
 
   // Discard draft and cleanup if it was an unsaved document
   const discardDraft = useCallback(async (draft: DraftState) => {
@@ -346,118 +295,89 @@ export function App() {
     }
   }, [])
 
-  // Recover session (multiple tabs)
-  const recoverSessionState = useCallback(
-    async (session: SessionState) => {
-      // Restore each tab
-      for (let i = 0; i < session.tabs.length; i++) {
-        const tabDraft = session.tabs[i]
-        const isActiveTab = tabDraft.tabId === session.activeTabId
-        let restoredPath = tabDraft.path
-        let restoredIsDirty = tabDraft.isDirty
-        let restoredContent = tabDraft.content
-        let restoredFrontmatter = tabDraft.frontmatter
+  // Recover session (multiple tabs). Each draft is resolved against the disk
+  // here (missing, stale, conflict); the tab action adds the tabs and arrives
+  // at the active one.
+  const recoverSessionState = useCallback(async (session: SessionState) => {
+    const restored: RestoredTab[] = []
+    for (const tabDraft of session.tabs) {
+      let restoredPath = tabDraft.path
+      let restoredIsDirty = tabDraft.isDirty
+      let restoredContent = tabDraft.content
+      let restoredFrontmatter = tabDraft.frontmatter
+      let fromDisk = false
 
-        if (tabDraft.path && window.api) {
-          const exists = await window.api.fileExists(tabDraft.path).catch(() => false)
-          if (!exists) {
-            handleMissingPath(tabDraft.path, 'restore')
-            restoredPath = null
-            restoredIsDirty = true
-          } else if (await isSnapshotStale(tabDraft.path, session.savedAt)) {
-            // The file changed on disk after this session was saved — e.g. an
-            // external editor, git, or an agent wrote it while Prose was
-            // closed. Hydrating the snapshot unconditionally would resurrect
-            // stale content, and a save from that tab would clobber the
-            // external edits (#829).
-            if (!tabDraft.isDirty) {
-              // Clean tab: the snapshot has nothing the disk doesn't — load
-              // the disk version. Falls back to the snapshot on read failure.
-              const disk = await readDocumentFromDisk(tabDraft.path)
-              if (disk) {
-                restoredContent = disk.content
-                restoredFrontmatter = disk.frontmatter
-                void recordDiskBaseline(tabDraft.path)
-              }
-            } else {
-              // Dirty tab: unsaved draft AND external disk edits — a genuine
-              // conflict. Keep the draft (nothing is lost yet) and let the
-              // user choose; silently picking either side guarantees loss.
-              notifyRestoreConflict(tabDraft.tabId, tabDraft.path)
-              // Baseline = when this draft last agreed with disk, so the
-              // save guards keep protecting the disk edits (#843).
-              void recordDiskBaseline(tabDraft.path, session.savedAt)
+      if (tabDraft.path && window.api) {
+        const exists = await window.api.fileExists(tabDraft.path).catch(() => false)
+        if (!exists) {
+          handleMissingPath(tabDraft.path, 'restore')
+          restoredPath = null
+          restoredIsDirty = true
+        } else if (await isSnapshotStale(tabDraft.path, session.savedAt)) {
+          // The file changed on disk after this session was saved — e.g. an
+          // external editor, git, or an agent wrote it while Prose was
+          // closed. Hydrating the snapshot unconditionally would resurrect
+          // stale content, and a save from that tab would clobber the
+          // external edits (#829).
+          if (!tabDraft.isDirty) {
+            // Clean tab: the snapshot has nothing the disk doesn't — load
+            // the disk version. Falls back to the snapshot on read failure.
+            const disk = await readDocumentFromDisk(tabDraft.path)
+            if (disk) {
+              restoredContent = disk.content
+              restoredFrontmatter = disk.frontmatter
+              fromDisk = true
             }
           } else {
-            // Disk unchanged since the snapshot — content agrees with disk.
-            void recordDiskBaseline(tabDraft.path)
+            // Dirty tab: unsaved draft AND external disk edits — a genuine
+            // conflict. Keep the draft (nothing is lost yet) and let the
+            // user choose; silently picking either side guarantees loss.
+            notifyRestoreConflict(tabDraft.tabId, tabDraft.path)
+            // Baseline = when this draft last agreed with disk, so the
+            // save guards keep protecting the disk edits (#843).
+            void recordDiskBaseline(tabDraft.path, session.savedAt)
           }
-        }
-
-        addTab({
-          id: tabDraft.tabId,
-          documentId: tabDraft.documentId,
-          path: restoredPath,
-          title: tabDraft.title,
-          baseTitle: tabDraft.baseTitle,
-          isDirty: restoredIsDirty,
-          content: restoredContent,
-          frontmatter: restoredFrontmatter,
-          cursorPosition: tabDraft.cursorPosition,
-          viewState: tabDraft.viewState
-        })
-
-        // If this is the active tab, hydrate the editor
-        if (isActiveTab) {
-          const documentContent = restoredContent
-          // Use setDocument (not a raw setState) so reMarkable read-only state is
-          // derived from the restored path. A raw setState bypasses that derivation,
-          // which left a restored OCR tab editable — a stray save there would clobber
-          // the hidden sync-managed file.
-          useEditorStore.getState().setDocument({
-            documentId: tabDraft.documentId,
-            path: restoredPath,
-            content: documentContent,
-            frontmatter: restoredFrontmatter ?? {},
-            isDirty: restoredIsDirty
-          })
-          setCurrentDocumentId(tabDraft.documentId)
-
-          // Load conversations for the active tab
-          const conversations = await loadConversations(tabDraft.documentId)
-          useChatStore.setState({
-            conversations,
-            activeConversationId: tabDraft.activeChatId ?? conversations[0]?.id ?? null,
-            messages:
-              conversations.find((c) => c.id === tabDraft.activeChatId)?.messages ??
-              conversations[0]?.messages ??
-              []
-          })
+        } else {
+          // Disk unchanged since the snapshot — content agrees with disk.
+          fromDisk = true
         }
       }
 
-      // Set active tab
-      if (session.activeTabId) {
-        useTabStore.getState().setActiveTab(session.activeTabId)
-      }
+      restored.push({
+        draft: tabDraft,
+        path: restoredPath,
+        isDirty: restoredIsDirty,
+        content: restoredContent,
+        frontmatter: restoredFrontmatter,
+        fromDisk
+      })
+    }
 
-      // Restore file list state if present
-      if (session.fileList) {
-        useFileListStore.setState({
-          viewMode: session.fileList.viewMode,
-          rootPath: session.fileList.rootPath,
-          expandedFolders: new Set(session.fileList.expandedFolders),
-          selectedPath: session.fileList.selectedPath
-        })
-        if (session.fileList.rootPath) {
-          useFileListStore.getState().loadFiles()
-        }
+    // Baselines for the background tabs whose content agrees with disk; the
+    // active tab's is recorded when it arrives.
+    for (const entry of restored) {
+      if (entry.fromDisk && entry.path && entry.draft.tabId !== session.activeTabId) {
+        void recordDiskBaseline(entry.path)
       }
+    }
 
-      tabsInitialized.current = true
-    },
-    [addTab]
-  )
+    await restoreTabs(restored, session.activeTabId)
+
+    // Restore file list state if present
+    if (session.fileList) {
+      useFileListStore.setState({
+        viewMode: session.fileList.viewMode,
+        rootPath: session.fileList.rootPath,
+        expandedFolders: new Set(session.fileList.expandedFolders),
+        selectedPath: session.fileList.selectedPath
+      })
+      if (session.fileList.rootPath) {
+        useFileListStore.getState().loadFiles()
+      }
+    }
+
+    tabsInitialized.current = true
+  }, [])
 
   // Discard session
   const discardSession = useCallback(async (session: SessionState) => {
@@ -693,77 +613,13 @@ export function App() {
           // Delegate to Toolbar, which owns the export handler
           window.dispatchEvent(new CustomEvent('menu:exportHtml'))
           break
-        case 'convertToTxt': {
-          if (!window.api) break
-          const txtCurrentPath = useEditorStore.getState().document.path
-          if (!txtCurrentPath || !txtCurrentPath.endsWith('.md')) break
-          const txtPath = txtCurrentPath.replace(/\.md$/, '.txt')
-          ;(async () => {
-            try {
-              const editorInstance = useEditorInstanceStore.getState().editor
-              if (!editorInstance) return
-              const plainText = editorInstance.getText({ blockSeparator: '\n' })
-              await window.api!.renameFile(txtCurrentPath, txtPath)
-              await window.api!.saveFile(txtPath, plainText)
-              const { generateIdFromPath } = await import('../../lib/persistence')
-              const { prepareTextContent } = await import('../../lib/markdown')
-              const newDocId = await generateIdFromPath(txtPath)
-              // Reload plain text into the editor so the store content
-              // matches what's on disk (prevents stale markdown on next save)
-              const editorContent = prepareTextContent(plainText)
-              editorInstance.commands.setContent(editorContent)
-              useEditorStore.getState().setDocument({
-                documentId: newDocId,
-                path: txtPath,
-                content: plainText,
-                frontmatter: {},
-                isDirty: false
-              })
-              const activeTab = useTabStore.getState().activeTabId
-              if (activeTab) {
-                useTabStore.getState().updateTab(activeTab, {
-                  path: txtPath,
-                  documentId: newDocId,
-                  frontmatter: {}
-                })
-              }
-              useFileListStore.getState().loadFiles()
-            } catch (e) {
-              console.error('Failed to convert to plain text:', e)
-            }
-          })()
-          break
-        }
+        case 'convertToTxt':
         case 'convertToMarkdown': {
-          if (!window.api) break
-          const currentPath = useEditorStore.getState().document.path
-          if (!currentPath || !currentPath.endsWith('.txt')) break
-          const mdPath = currentPath.replace(/\.txt$/, '.md')
-          ;(async () => {
-            try {
-              await window.api!.renameFile(currentPath, mdPath)
-              const { serializeMarkdown } = await import('../../lib/markdown')
-              const doc = useEditorStore.getState().document
-              const mdContent = serializeMarkdown(doc.content, doc.frontmatter)
-              await window.api!.saveFile(mdPath, mdContent)
-              const { generateIdFromPath } = await import('../../lib/persistence')
-              const newDocId = await generateIdFromPath(mdPath)
-              useEditorStore.getState().setDocument({
-                documentId: newDocId,
-                path: mdPath,
-                content: doc.content,
-                frontmatter: doc.frontmatter,
-                isDirty: false
-              })
-              const activeTab = useTabStore.getState().activeTabId
-              if (activeTab) {
-                useTabStore.getState().updateTab(activeTab, { path: mdPath, documentId: newDocId })
-              }
-              useFileListStore.getState().loadFiles()
-            } catch (e) {
-              console.error('Failed to convert to markdown:', e)
-            }
-          })()
+          const tabId = useTabStore.getState().activeTabId
+          if (!tabId) break
+          convertTab(tabId, action === 'convertToTxt' ? 'txt' : 'md').catch((e) => {
+            console.error(`Failed to convert document (${action}):`, e)
+          })
           break
         }
         case 'settings':

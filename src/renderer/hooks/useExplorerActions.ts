@@ -1,6 +1,7 @@
 import { useEffect, useCallback, type RefObject } from 'react'
 import { useFileListStore } from '../stores/fileListStore'
 import { useTabStore } from '../stores/tabStore'
+import { relocateOpenTabs } from '../tabs/actions'
 import { getApi } from '../lib/browserApi'
 import type { FileItem } from '../types'
 
@@ -95,6 +96,8 @@ export function useExplorerActions({
 
     try {
       await api.renameFile(sourcePath, newPath)
+      // An open tab of the moved file follows it: path, identity and records.
+      await relocateOpenTabs(sourcePath, newPath)
       await useFileListStore.getState().loadFiles()
       useFileListStore.getState().selectFile(newPath)
     } catch (error) {
@@ -113,6 +116,7 @@ export function useExplorerActions({
         const newPath = `${destDir}/${fileName}`
         if (newPath !== clipboardPath) {
           await api.renameFile(clipboardPath, newPath)
+          await relocateOpenTabs(clipboardPath, newPath)
           await useFileListStore.getState().loadFiles()
           useFileListStore.getState().selectFile(newPath)
           onFileOpen?.(newPath)

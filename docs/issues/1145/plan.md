@@ -381,3 +381,20 @@ baseline reset are folded in above.
 - If a jsdom gap breaks an extension in the harness, the harness builds the schema from a reduced list and says
   so in the test file; the e2e spec is unaffected.
 
+
+### Execution log
+
+- **2026-11-01, step 0:** worktree `prose-1145` on `issue-1145-document-sessions` from `release/v1.9.0` =
+  `9699d4b`; this plan and `inventory.md` committed (`4491275`); #1162 (G), #1163 (H), #1164 (J) filed.
+- **2026-11-01, commit 1 (actions):** `src/renderer/tabs/actions.ts` holds every lifecycle flow; `useTabs` is a
+  binding; `select_tab` / `open_file` / `new_file` / `save_file`, `useEditor`'s open / new / Save As / quick save,
+  App's launch restore and converters, `diskSync`, `useRemarkableSync`, the explorer's rename / move / cut-paste /
+  drag-move, the tab bar's double-click promote and the reMarkable buttons all call it. The editor-store →
+  active-tab mirror (`syncActiveTabWithEditor`) is a module subscription in the actions file until the session
+  projection replaces it. Behaviour changes to state in the PR: Toolbar Open / Cmd+O / EmptyState Open open a tab
+  (finding C); explorer rename / move / cut-paste / drag-move carry the document identity and records (I);
+  Save As / quick save / `save_file` migrate suggestions and comments too (K); a closed tab is flushed and
+  persisted under its own id before it leaves (A); read-only is derived from the path on every arrival (E);
+  the chat panel hides while a preview tab exists and returns when none does (F); a clean reopened tab re-reads
+  its file and records a baseline; every open / reload records a baseline (D). `setDocument` + the four loads
+  stay inside the arriving step until commit 2.

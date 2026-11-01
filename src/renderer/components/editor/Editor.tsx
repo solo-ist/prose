@@ -56,6 +56,7 @@ import { useFileListStore } from '../../stores/fileListStore'
 import { useTabStore, scheduleSaveSession } from '../../stores/tabStore'
 import { restoreEditorViewState, type EditorViewState } from '../../lib/editorViewState'
 import { promoteCurrentPreview } from '../../hooks/useTabs'
+import { openInTab } from '../../tabs/actions'
 import { FindBar } from './FindBar'
 import { ShareStatusIcon } from '../share/ShareStatusIcon'
 import { ShareStatusPopover } from '../share/ShareStatusPopover'
@@ -1565,14 +1566,11 @@ export function Editor() {
                   startTransform()
 
                   // Transform to editable version
-                  const { remarkableNotebookId, setRemarkableReadOnly } = useEditorStore.getState()
+                  const { remarkableNotebookId } = useEditorStore.getState()
                   const syncDir = useSettingsStore.getState().settings.remarkable?.syncDirectory
                   if (remarkableNotebookId && syncDir && window.api) {
                     const editablePath = await window.api.remarkableCreateEditableVersion(remarkableNotebookId, syncDir)
                     if (editablePath) {
-                      // Clear read-only state first
-                      setRemarkableReadOnly(false, null)
-
                       // Switch to File Explorer mode - notebooks panel is for reading cloud state,
                       // File Explorer is for editing
                       const { setViewMode, setRootPath, selectFile } = useFileListStore.getState()
@@ -1580,22 +1578,11 @@ export function Editor() {
                       setRootPath(syncDir)
                       selectFile(editablePath)
 
-                      // Open the new editable file
-                      const content = await window.api.readFile(editablePath)
-                      if (content) {
-                        const { parseMarkdown } = await import('../../lib/markdown')
-                        const { generateIdFromPath } = await import('../../lib/persistence')
-                        const parsed = parseMarkdown(content)
-                        const newDocumentId = await generateIdFromPath(editablePath)
-                        useEditorStore.getState().setDocument({
-                          documentId: newDocumentId,
-                          path: editablePath,
-                          content: parsed.content,
-                          frontmatter: parsed.frontmatter,
-                          isDirty: false
-                        })
-                        useEditorStore.getState().setEditing(true)
-
+                      // Open the editable copy in this tab. Read-only state is
+                      // derived from the path, so the editable copy is editable.
+                      const activeTabId = useTabStore.getState().activeTabId
+                      if (activeTabId) {
+                        await openInTab(activeTabId, editablePath)
                         // Set linkedNotebookId immediately to prevent CLS from async lookup
                         setLinkedNotebookId(remarkableNotebookId)
                       }
@@ -1631,24 +1618,10 @@ export function Editor() {
                       setViewMode('notebooks')
                       selectFile(ocrPath)
 
-                      // Set read-only mode
-                      useEditorStore.getState().setRemarkableReadOnly(true, notebookIdToUse)
-
-                      // Open the OCR file
-                      const content = await window.api.readFile(ocrPath)
-                      if (content) {
-                        const { parseMarkdown } = await import('../../lib/markdown')
-                        const { generateIdFromPath } = await import('../../lib/persistence')
-                        const parsed = parseMarkdown(content)
-                        const newDocumentId = await generateIdFromPath(ocrPath)
-                        useEditorStore.getState().setDocument({
-                          documentId: newDocumentId,
-                          path: ocrPath,
-                          content: parsed.content,
-                          frontmatter: parsed.frontmatter,
-                          isDirty: false
-                        })
-                      }
+                      // Open the OCR file in this tab; the hidden `.remarkable/`
+                      // path makes it read-only.
+                      const activeTabId = useTabStore.getState().activeTabId
+                      if (activeTabId) await openInTab(activeTabId, ocrPath)
                     }
                   }
                 }}

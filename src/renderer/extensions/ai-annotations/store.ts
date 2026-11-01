@@ -407,6 +407,43 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
     console.log('[AnnotationStore] setLoadingDocument:', loading)
     set({ isLoadingDocument: loading })
   },
+
+  // Record the text under each live range (#1138). Runs on every document
+  // change, so it only replaces the array when some anchor actually moved;
+  // nothing is persisted here.
+  refreshAnchorText: (textAt, onlyMissing = false) => {
+    if (get().isLoadingDocument) return
+    let changed = false
+    const next = get().annotations.map((a) => {
+      if (a.detached || a.from >= a.to) return a
+      if (onlyMissing && a.anchorText !== undefined) return a
+      const text = textAt(a.from, a.to)
+      if (text === null || text === '' || text === a.anchorText) return a
+      changed = true
+      return { ...a, anchorText: text }
+    })
+    if (!changed) return
+    set({ annotations: next })
+    // A first anchor is worth a write: addAnnotation persisted the record
+    // without one, and a relaunch reads whatever was last saved. Updates on
+    // typing ride along with the next save instead.
+    if (onlyMissing) trackedSave(get, set)
+  },
+
+  // Put ranges a reload left off their text back onto it (#1138). The saved
+  // positions were the wrong ones, so this persists.
+  reanchorAnnotations: (moves) => {
+    if (moves.size === 0) return
+    set((state) => ({
+      annotations: state.annotations.map((a) => {
+        const move = moves.get(a.id)
+        if (!move) return a
+        pipelineLog('annotation:reanchor', { id: a.id, from: a.from, to: a.to, newFrom: move.from, newTo: move.to })
+        return { ...a, from: move.from, to: move.to }
+      }),
+    }))
+    trackedSave(get, set)
+  },
 }))
 
 // Selector for annotations at a specific position

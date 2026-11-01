@@ -449,3 +449,9 @@ baseline reset are folded in above.
   type entries); `restoreEditorViewState`. `tsconfig.renderer.json` + `npm run typecheck:renderer` is the real
   renderer type check (69 pre-existing errors on this branch, 125 on the release head; none new); the status line
   in `docs/architecture/editor-state.md`. The `initialized` closure in node-ids stays for PR 8, as planned.
+- **2026-11-01, PR opened:** https://github.com/solo-ist/prose/pull/1165 onto `release/v1.9.0` (six commits, head
+  `5ed59ef`). Local full suite 204 passed / 5 failed (three are #1160's default-profile launches, one was the
+  `annotation:load` log event, restored in the sixth commit, one a Share-dialog timing in `settings-account` that
+  passes alone). `qa/dev` = release + this branch (`b063809`, `--no-ff`); the dev server on PID 87172 hot-reloaded
+  it (renderer-only change, no restart). **Next: the operator's QA pass on the dev window (list in the PR body),
+  CI + claude review on #1165, merge on the operator's word, then `qa/dev` back to the release head.**

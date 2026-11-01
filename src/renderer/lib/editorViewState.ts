@@ -42,15 +42,3 @@ export function selectionFromViewState(doc: PMNode, state: EditorViewState): Sel
     return Selection.atStart(doc)
   }
 }
-
-/**
- * Put the selection back, clamped to the document that is loaded now, and
- * set the scroll offset. Selection-only: the transaction changes no content,
- * so it adds no undo step and fires no `update`.
- */
-export function restoreEditorViewState(editor: Editor, state: EditorViewState): void {
-  const selection = selectionFromViewState(editor.state.doc, state)
-  editor.view.dispatch(editor.state.tr.setSelection(selection))
-  const container = editorScrollContainer(editor)
-  if (container) container.scrollTop = state.scrollTop
-}

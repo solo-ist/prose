@@ -31,6 +31,7 @@
     "test:web": "npm run build:web && npx playwright test --config playwright.web.config.ts",
     "test:web:dev": "npx playwright test --config playwright.web.config.ts",
     "typecheck:e2e": "tsc --project tsconfig.e2e.json --noEmit",
+    "typecheck:renderer": "tsc --project tsconfig.renderer.json --noEmit",
     "clean": "rm -rf out dist node_modules/.vite .dev.pid",
     "clean:hard": "npm run clean && rm -rf node_modules && rm -rf \"$HOME/Library/Application Support/prose\" \"$HOME/.prose\""
   },

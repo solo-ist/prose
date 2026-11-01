@@ -444,3 +444,8 @@ baseline reset are folded in above.
   `e2e/electron.document-sessions.spec.ts` (§12 cases 1, 5, 7, 8, 10, each in its own profile because the tab bar
   collapses past a handful of tabs, plus the three tripwires). Case 10's heap: 97.4 MB with twenty 100 KB tabs on
   the first run (Electron 45, this machine), ceiling 200 MB. A settled switch spends no serialisation.
+- **2026-11-01, commit 5 (sweep):** `editorStore.readCache` and its accessors, `resetDocument`, `hydrateFromDraft`;
+  the annotation store's `loadAnnotations`, `clearAnnotations`, `setDocumentId`, `setLoadingDocument` (and their
+  type entries); `restoreEditorViewState`. `tsconfig.renderer.json` + `npm run typecheck:renderer` is the real
+  renderer type check (69 pre-existing errors on this branch, 125 on the release head; none new); the status line
+  in `docs/architecture/editor-state.md`. The `initialized` closure in node-ids stays for PR 8, as planned.

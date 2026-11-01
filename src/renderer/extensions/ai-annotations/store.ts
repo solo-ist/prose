@@ -6,7 +6,7 @@
 
 import { create } from 'zustand'
 import type { AIAnnotation, AnnotationState, AnnotationActions } from '../../types/annotations'
-import { generateId, loadAnnotations } from '../../lib/persistence'
+import { generateId } from '../../lib/persistence'
 import { persistRecords } from '../../document/session'
 import { pipelineLog } from '../../lib/aiPipelineLog'
 
@@ -98,7 +98,7 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
     }))
 
     // Auto-save after adding. Tracked so tab switches await it — a
-    // fire-and-forget save racing loadAnnotations(nextDoc) was one of the
+    // fire-and-forget save racing the next document's load was one of the
     // "history entries vanished" paths (#674).
     trackedSave(get, set)
 
@@ -351,36 +351,6 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
     set({ isVisible: visible })
   },
 
-  // Load annotations for a document
-  loadAnnotations: async (documentId) => {
-    console.log('[AnnotationStore] loadAnnotations called:', { documentId })
-    try {
-      const annotations = await loadAnnotations(documentId)
-      pipelineLog('annotation:load', {
-        documentId,
-        count: annotations.length,
-        replacedCount: get().annotations.length,
-        previousDocId: get().documentId,
-      })
-      console.log('[AnnotationStore] Loaded from IndexedDB:', {
-        documentId,
-        count: annotations.length,
-        annotations: annotations.map(a => ({
-          id: a.id,
-          from: a.from,
-          to: a.to,
-          type: a.type,
-          content: a.content?.substring(0, 30)
-        }))
-      })
-      // Clear the "created this session" set - loaded annotations should animate
-      set({ annotations, documentId, createdThisSession: new Set() })
-    } catch (error) {
-      console.error('Failed to load annotations:', error)
-      set({ annotations: [], documentId })
-    }
-  },
-
   // Save current annotations
   saveAnnotations: async () => {
     const { documentId, annotations } = get()
@@ -398,21 +368,6 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
     }
   },
 
-  // Clear all annotations
-  clearAnnotations: () => {
-    set({ annotations: [] })
-  },
-
-  // Set document ID
-  setDocumentId: (documentId) => {
-    set({ documentId })
-  },
-
-  // Set loading document state (pauses position updates during tab switches)
-  setLoadingDocument: (loading) => {
-    console.log('[AnnotationStore] setLoadingDocument:', loading)
-    set({ isLoadingDocument: loading })
-  },
 }))
 
 // Selector for annotations at a specific position

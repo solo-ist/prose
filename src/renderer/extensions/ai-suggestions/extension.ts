@@ -954,104 +954,14 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
 
       restoreAISuggestions:
         (suggestions) =>
-        ({ tr, state, dispatch }) => {
+        ({ tr, dispatch }) => {
           if (!dispatch || suggestions.length === 0) return false
-
-          const { doc, schema } = state
-          let restored = 0
-
-          // Process each suggestion
-          for (const suggestion of suggestions) {
-            // Find the original text in the document
-            const docText = doc.textContent
-            const searchText = suggestion.originalText
-
-            if (!searchText) {
-              console.warn('[AISuggestion] Cannot restore suggestion without originalText:', suggestion.id)
-              continue
-            }
-
-            // Find position of originalText in document
-            const textIndex = docText.indexOf(searchText)
-            if (textIndex === -1) {
-              console.warn('[AISuggestion] Cannot find originalText in document:', {
-                id: suggestion.id,
-                originalText: searchText.substring(0, 50)
-              })
-              continue
-            }
-
-            // Convert text index to document position
-            // We need to walk the document to find the correct ProseMirror position
-            let pos = 0
-            let charCount = 0
-            let foundStart = -1
-            let foundEnd = -1
-
-            doc.descendants((node, nodePos) => {
-              if (foundStart !== -1 && foundEnd !== -1) return false // Already found
-
-              if (node.isText && node.text) {
-                const nodeText = node.text
-                const nodeStart = charCount
-                const nodeEnd = charCount + nodeText.length
-
-                // Check if our target text starts in this node
-                if (foundStart === -1 && textIndex >= nodeStart && textIndex < nodeEnd) {
-                  // Target starts in this node
-                  const offsetInNode = textIndex - nodeStart
-                  foundStart = nodePos + offsetInNode
-                }
-
-                // Check if our target text ends in this node
-                const targetEnd = textIndex + searchText.length
-                if (foundStart !== -1 && targetEnd > nodeStart && targetEnd <= nodeEnd) {
-                  const offsetInNode = targetEnd - nodeStart
-                  foundEnd = nodePos + offsetInNode
-                  return false // Stop searching
-                }
-
-                charCount += nodeText.length
-              }
-            })
-
-            if (foundStart === -1 || foundEnd === -1) {
-              console.warn('[AISuggestion] Could not map text position:', suggestion.id)
-              continue
-            }
-
-            // Apply the suggestion mark
-            const mark = schema.marks.aiSuggestion.create({
-              id: suggestion.id,
-              type: suggestion.type,
-              originalText: suggestion.originalText,
-              suggestedText: suggestion.suggestedText,
-              explanation: suggestion.explanation,
-              createdAt: suggestion.createdAt,
-              userReply: suggestion.userReply || null,
-              provenanceModel: suggestion.provenanceModel || '',
-              provenanceConversationId: suggestion.provenanceConversationId || '',
-              provenanceMessageId: suggestion.provenanceMessageId || '',
-              documentId: suggestion.documentId || '',
-              blockConversionIntent: suggestion.blockConversionIntent ?? null,
-            })
-
-            tr.addMark(foundStart, foundEnd, mark)
-            restored++
-
-            console.log('[AISuggestion] Restored suggestion:', {
-              id: suggestion.id,
-              from: foundStart,
-              to: foundEnd
-            })
-          }
-
+          const restored = applySuggestionMarks(tr, suggestions)
           if (restored > 0) {
             dispatch(tr)
             console.log('[AISuggestion] Restored', restored, 'of', suggestions.length, 'suggestions')
             return true
           }
-
           return false
         },
     }
@@ -1059,40 +969,87 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
 })
 
 /**
+ * Re-apply suggestion marks for `suggestions` to the document `tr` holds, as
+ * part of `tr` (a session's seed transaction, a reload). Pure: the caller
+ * dispatches or applies the transaction. Each suggestion anchors on the first
+ * occurrence of its originalText; one whose text is gone is skipped. Returns
+ * the number of marks applied (#1145).
+ */
+export function applySuggestionMarks(tr: Transaction, suggestions: AISuggestionData[]): number {
+  const doc = tr.doc
+  const schema = doc.type.schema
+  const docText = doc.textContent
+  let restored = 0
+
+  for (const suggestion of suggestions) {
+    const searchText = suggestion.originalText
+    if (!searchText) {
+      console.warn('[AISuggestion] Cannot restore suggestion without originalText:', suggestion.id)
+      continue
+    }
+
+    const textIndex = docText.indexOf(searchText)
+    if (textIndex === -1) {
+      console.warn('[AISuggestion] Cannot find originalText in document:', {
+        id: suggestion.id,
+        originalText: searchText.substring(0, 50)
+      })
+      continue
+    }
+
+    // Walk the document to turn the text index into ProseMirror positions.
+    let charCount = 0
+    let foundStart = -1
+    let foundEnd = -1
+    doc.descendants((node, nodePos) => {
+      if (foundStart !== -1 && foundEnd !== -1) return false
+      if (node.isText && node.text) {
+        const nodeText = node.text
+        const nodeStart = charCount
+        const nodeEnd = charCount + nodeText.length
+        if (foundStart === -1 && textIndex >= nodeStart && textIndex < nodeEnd) {
+          foundStart = nodePos + (textIndex - nodeStart)
+        }
+        const targetEnd = textIndex + searchText.length
+        if (foundStart !== -1 && targetEnd > nodeStart && targetEnd <= nodeEnd) {
+          foundEnd = nodePos + (targetEnd - nodeStart)
+          return false
+        }
+        charCount += nodeText.length
+      }
+      return true
+    })
+
+    if (foundStart === -1 || foundEnd === -1) {
+      console.warn('[AISuggestion] Could not map text position:', suggestion.id)
+      continue
+    }
+
+    const mark = schema.marks.aiSuggestion.create({
+      id: suggestion.id,
+      type: suggestion.type,
+      originalText: suggestion.originalText,
+      suggestedText: suggestion.suggestedText,
+      explanation: suggestion.explanation,
+      createdAt: suggestion.createdAt,
+      userReply: suggestion.userReply || null,
+      provenanceModel: suggestion.provenanceModel || '',
+      provenanceConversationId: suggestion.provenanceConversationId || '',
+      provenanceMessageId: suggestion.provenanceMessageId || '',
+      documentId: suggestion.documentId || '',
+      blockConversionIntent: suggestion.blockConversionIntent ?? null,
+    })
+    tr.addMark(foundStart, foundEnd, mark)
+    restored++
+  }
+
+  return restored
+}
+
+/**
  * Extract all AI suggestions from the editor
  */
-export function getAISuggestions(editor: {
-  state: {
-    doc: {
-      descendants: (
-        fn: (
-          node: {
-            marks: Array<{
-              type: { name: string }
-              attrs: {
-                id: string
-                type: SuggestionType
-                originalText: string
-                suggestedText: string
-                explanation: string
-                createdAt: number
-                userReply?: string
-                provenanceModel?: string
-                provenanceConversationId?: string
-                provenanceMessageId?: string
-                documentId?: string
-                blockConversionIntent?: string | null
-              }
-            }>
-            nodeSize: number
-            textContent: string
-          },
-          pos: number
-        ) => void
-      ) => void
-    }
-  }
-}): AISuggestionData[] {
+export function getAISuggestions(editor: { state: { doc: PMNode } }): AISuggestionData[] {
   const suggestions: AISuggestionData[] = []
 
   editor.state.doc.descendants((node, pos) => {

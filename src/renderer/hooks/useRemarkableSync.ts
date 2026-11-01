@@ -76,7 +76,7 @@ async function refreshOpenOcrTab(notebookId: string): Promise<void> {
     // The tab action refreshes the cached snapshot (background tabs hydrate
     // it next time they activate) and pushes the content through the editor
     // store when the tab is the active one.
-    reloadTabFromDisk(tab.id, parsed)
+    await reloadTabFromDisk(tab.id, parsed)
   }
 }
 

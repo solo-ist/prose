@@ -1439,7 +1439,7 @@ export function FileListPanel() {
                   {/* New untitled document */}
                   <button
                     className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50 text-muted-foreground mb-1"
-                    onClick={createNewTab}
+                    onClick={() => createNewTab()}
                     title="Create new untitled document"
                   >
                     <Plus className="h-4 w-4 shrink-0" />

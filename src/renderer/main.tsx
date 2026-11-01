@@ -1,7 +1,13 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { App } from './components/layout/App'
-import { initDB, loadAnnotations as loadAnnotationsFromDB } from './lib/persistence'
+import {
+  initDB,
+  loadAnnotations as loadAnnotationsFromDB,
+  loadComments as loadCommentsFromDB,
+  loadSuggestions as loadSuggestionsFromDB
+} from './lib/persistence'
+import { getSessionTabIds, getProjectionStats } from './document/session'
 import { useCommandHistoryStore } from './stores/commandHistoryStore'
 import { seedEmojiCache } from './lib/emojiService'
 import { ErrorBoundary } from './lib/sentry'
@@ -45,19 +51,26 @@ import './index.css'
   executeTool,
   getAnnotations: () => useAnnotationStore.getState().annotations,
   getAnnotationDocId: () => useAnnotationStore.getState().documentId,
-  // True while the annotation store suppresses position mapping (the ~100ms
-  // window after tab/document switches). Tests poll this before dispatching
-  // edits whose annotation mapping they assert on — an edit landing inside
-  // the window is excluded from mapping (#674 known limitation).
+  // True only inside addAnnotation's own microtask; a switch no longer
+  // pauses mapping (#1145). Tests that polled this as a readiness gate keep
+  // working: open_file and select_tab return after the session is active.
   isAnnotationMappingPaused: () => useAnnotationStore.getState().isLoadingDocument,
   getActiveTabId: () => useTabStore.getState().activeTabId,
   getDocumentIsDirty: () => useEditorStore.getState().document.isDirty,
   loadAnnotationsFromDB,
+  loadCommentsFromDB,
+  loadSuggestionsFromDB,
   // Comment store access for e2e verification of threading (#699).
   getCommentStore: () => useCommentStore.getState().pendingComments,
   getCommentDocId: () => useCommentStore.getState().documentId,
-  // Expose needsRestore for #933 regression test — checks the transient-strip guard.
-  getCommentStoreNeedsRestore: () => useCommentStore.getState().needsRestore,
+  // Marks are restored inside the session's own seed transaction, before a
+  // state is ever shown, so there is no "not yet restored" state (#1145).
+  // Kept as a readiness gate for the specs that poll it (updated in PR 8).
+  getCommentStoreNeedsRestore: () => false,
+  // Session seams (#1145): which tabs hold a state, and how much work the
+  // sessions have done (serialisations are what a switch must not cost).
+  getSessionTabIds,
+  getProjectionStats,
 }
 // Account seam for e2e (#1059) — same always-on tier as __prose_tools. Settings
 // opens from the app menu, which Playwright cannot click, so this is the

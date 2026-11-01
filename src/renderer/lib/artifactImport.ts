@@ -10,7 +10,8 @@
  * markedText + occurrenceIndex on load, as always.
  */
 import { extractCommentsFromHtml } from './htmlExport'
-import { loadComments, saveComments } from './persistence'
+import { loadComments } from './persistence'
+import { mergeThreads } from '../document/session'
 import type { CommentData } from '../extensions/comments/types'
 import { useCommentStore } from '../extensions/comments/store'
 import { useNotificationStore } from '../stores/notificationStore'
@@ -62,13 +63,10 @@ export async function importArtifactComments(rawHtml: string, documentId: string
     // exact race caught live in shareSync; PR #901 review flagged the same
     // hole here for re-imports of an already-open document).
     const store = useCommentStore.getState()
-    const isOpenDocument = store.documentId === documentId
-    if (isOpenDocument) useCommentStore.setState({ pendingComments: merged })
-    await saveComments(documentId, merged)
-    if (isOpenDocument) {
-      // Reload → needsRestore → the Editor restore effect re-derives marks.
-      await useCommentStore.getState().loadComments(documentId)
-    }
+    if (store.documentId === documentId) useCommentStore.setState({ pendingComments: merged })
+    // An open document takes the new threads' marks in place; otherwise only
+    // IndexedDB is written and the next open restores them (#1145).
+    await mergeThreads(documentId, merged)
     useNotificationStore.getState().notify({
       message: `Imported ${added} comment${added === 1 ? '' : 's'} from the shared copy.`,
       durationMs: 5000,

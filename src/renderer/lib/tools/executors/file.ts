@@ -14,6 +14,7 @@ import { useAnnotationStore } from '../../../extensions/ai-annotations'
 import { generateIdFromPath } from '../../persistence'
 import { useTabStore } from '../../../stores/tabStore'
 import { openFile, newTab, markActiveTabSaved } from '../../../tabs/actions'
+import { flushActiveProjections } from '../../../document/session'
 import { buildSaveContent } from '../../../hooks/useEditor'
 import type { ToolProvenance } from '../provenanceTypes'
 
@@ -123,9 +124,9 @@ export async function executeSaveFile(args: {
     return toolError('File API not available', 'API_NOT_AVAILABLE')
   }
 
-  // The editor writes to the store on a 500 ms debounce; land it first so
-  // the save holds the last keystrokes.
-  useEditorInstanceStore.getState().flushPendingUpdate?.()
+  // The session projects the document to the store on a 500 ms debounce;
+  // land it first so the save holds the last keystrokes.
+  flushActiveProjections()
   const { document } = useEditorStore.getState()
   const targetPath = args.path ?? document.path
   const content = buildSaveContent(document.content, document.frontmatter, targetPath)

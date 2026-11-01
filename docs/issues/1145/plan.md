@@ -398,3 +398,33 @@ baseline reset are folded in above.
   the chat panel hides while a preview tab exists and returns when none does (F); a clean reopened tab re-reads
   its file and records a baseline; every open / reload records a baseline (D). `setDocument` + the four loads
   stay inside the arriving step until commit 2.
+- **2026-11-01, commit 2 (session layer):** `document/identity.ts` (the `Identity` extension at priority 1000,
+  `IDENTITY_META` / `ACTIVATED_META` / `RELOAD_META`, `getIdentity`), `components/editor/extensions.ts`
+  (`createEditorExtensions`, the list lifted from Editor.tsx with the lowlight setup and the task-list marker),
+  `document/session.ts` (the map, `attachEditor`, `openSession`, `activateSession`, `closeSession`,
+  `applyToSession`, `replaceSessionDocument`, `mergeThreads`, `setSessionIdentity`, `serializeSession`,
+  `persistRecords` / `deleteRecords`, the markdown and suggestion projections, source-mode entry and exit,
+  `getSessionTabIds` / `getProjectionStats`). The Editor lost the content-sync, record load / restore / persist
+  and HMR-snapshot effects, `onUpdate`'s store write, `flushPendingUpdate` and nine refs; it creates the editor
+  with empty content and `attachEditor` hands it to the session layer. `applyCommentMarks` /
+  `reconcileAnchorLost` (comments) and `applySuggestionMarks` (suggestions) are the pure bodies of the restore
+  commands; the comment store is `{ documentId, pendingComments }`, the suggestion store `{ documentId }`;
+  the three `save*` wrappers and the two `delete*` wrappers delegate to the session layer; `addAnnotation`
+  refuses a record for another document; the annotation plugin reads and moves store records only under
+  their own identity and leaves a `RELOAD` to the text re-anchoring (`reanchor.ts` exports the helpers;
+  `reloadKeepingAnnotations` is gone); `autoResolveDeletedComments` bails on an activation, a reload or an
+  identity mismatch; plain-text mode reads `identity.plain`. Share pulls and artifact imports call
+  `mergeThreads`. `isAnnotationMappingPaused` still reads the store flag (true only inside `addAnnotation`'s
+  microtask); `getCommentStoreNeedsRestore` returns false.
+  Found while landing it: `npx tsc --noEmit -p tsconfig.json` never type-checks the renderer. `tsconfig.json`
+  references `tsconfig.node.json`, which is not `composite`, so tsc stops at the 16 project-reference errors
+  (TS6305/6306/6310) and checks nothing; the "16-error baseline" was that config noise. A config that extends
+  `tsconfig.json` without the reference checks the renderer for real: 125 errors on the release head, 70 on this
+  branch after commit 2 (no new ones; 55 of the old ones go with `getComments` / `getAISuggestions` taking
+  `{ state: { doc } }` and with the deleted code). `electron-vite build` is esbuild and checks nothing either, so
+  the e2e suite was the only gate. Commit 5 adds the config as `tsconfig.renderer.json` + `npm run
+  typecheck:renderer` and the PR body lists the remaining pre-existing errors for a follow-up. Two e2e-found
+  fixes folded into commit 2: `activateSession` sets the tab store's active tab (the tab bar and the store→tab
+  mirror key on it), and a `BUILD_META` on the scratch-normalisation and seed transactions, without which the
+  annotation plugin mapped the live store's records through the scratch state's replace when a session was
+  rebuilt for the same document (source-mode exit: every annotation shifted by the new body's length).

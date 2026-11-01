@@ -3,6 +3,7 @@
  */
 
 import type { Editor } from '@tiptap/core'
+import { getIdentity } from '../../../document/identity'
 import type { ToolResult } from '../../../../shared/tools/types'
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useEditorStore } from '../../../stores/editorStore'
@@ -208,7 +209,7 @@ function stripLeadingBlockMarkup(content: string, nodeType: string, level?: numb
  * markdown formatting an AI edit produces would be silently destroyed.
  */
 function isPlainTextDocument(editor: Editor): boolean {
-  return editor.storage?.plainTextMode?.enabled === true
+  return getIdentity(editor.state).plain
 }
 
 /** Node types whose internals suggest_edit cannot mark safely. */

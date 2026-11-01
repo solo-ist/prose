@@ -116,7 +116,7 @@ export async function loadDiskVersionIntoTab(tabId: string, path: string): Promi
     return
   }
   if (!useTabStore.getState().getTabById(tabId)) return
-  reloadTabFromDisk(tabId, disk)
+  await reloadTabFromDisk(tabId, disk)
 }
 
 /**

@@ -1,6 +1,5 @@
 import { useCallback, useEffect } from 'react'
 import { useEditorStore } from '../stores/editorStore'
-import { useEditorInstanceStore } from '../stores/editorInstanceStore'
 import { useChatStore, setCurrentDocumentId } from '../stores/chatStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useNotificationStore } from '../stores/notificationStore'
@@ -9,6 +8,7 @@ import { handleMissingPath, isMissingPathFileError } from '../lib/stalePath'
 import { isDiskNewerThanBaseline, useSaveConflictStore } from '../lib/diskSync'
 import { clearDraft } from '../lib/persistence'
 import { openFile as openFileInTab, newTab, markActiveTabSaved } from '../tabs/actions'
+import { flushActiveProjections } from '../document/session'
 
 // Sanitize filename by removing invalid characters
 function sanitizeFilename(name: string): string {
@@ -31,9 +31,9 @@ function getPathFilename(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? 'document.md'
 }
 
-/** The editor store's document after the editor's pending write has landed. */
+/** The editor store's document after the session's pending projection has landed. */
 function currentDocument() {
-  useEditorInstanceStore.getState().flushPendingUpdate?.()
+  flushActiveProjections()
   return useEditorStore.getState().document
 }
 

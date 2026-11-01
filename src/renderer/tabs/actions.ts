@@ -1,5 +1,5 @@
 /**
- * Tab lifecycle actions (#1145, per-tab document sessions, part 1).
+ * Tab lifecycle actions (#1145, per-tab document sessions).
  *
  * Every way a document enters a tab, leaves it, or changes identity goes
  * through one of these functions: the tab bar, the menus, the explorer, the
@@ -8,31 +8,21 @@
  * React binding over them so components keep their names.
  *
  * Every flow has the same two halves. The *leaving* step runs for the tab the
- * editor currently holds: flush the editor's debounced store write, save the
+ * editor currently holds: land the session's pending projections, save the
  * conversation, persist the three record sets under the leaving tab's own id,
- * cache content and view into the tab record. The *arriving* step runs for the
- * tab that becomes active: activate it, load its document into the editor
- * store, load its conversation and records, derive preview and read-only
- * state from the tab, reveal it in the explorer. The leaving step always names
- * the tab it flushes, so closing the active tab can no longer write the closed
- * tab's state into its neighbour (the old `removeTab`-then-`switchToTab`
- * order did exactly that).
- *
- * Part 2 of the PR replaces the arriving step's `setDocument` + loads with
- * `openSession` / `activateSession` (document/session.ts). The flows and
- * their callers do not change again.
+ * cache the status-bar cursor into the tab record. The *arriving* step opens
+ * the tab's session if it has none (from the tab's cached text, lazily), puts
+ * its state into the view (document/session.ts activateSession: the stores
+ * become mirrors of its records, the editor store gets its document, preview
+ * and read-only state derive from the tab), then loads its conversation and
+ * reveals it in the explorer. The leaving step always names the tab it
+ * flushes, so closing the active tab can no longer write the closed tab's
+ * state into its neighbour.
  */
 
-import type { Editor } from '@tiptap/core'
 import { useTabStore, generateUntitledTitle, type Tab, type ClosedTabSnapshot } from '../stores/tabStore'
 import { useEditorStore } from '../stores/editorStore'
-import { useEditorInstanceStore } from '../stores/editorInstanceStore'
 import { useChatStore, setCurrentDocumentId } from '../stores/chatStore'
-import { useAnnotationStore } from '../extensions/ai-annotations'
-import { useSuggestionStore } from '../extensions/ai-suggestions/store'
-import { getAISuggestions } from '../extensions/ai-suggestions'
-import { useCommentStore } from '../extensions/comments/store'
-import { mergeCommentsForPersistence } from '../extensions/comments'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFileListStore } from '../stores/fileListStore'
 import { parseMarkdown, prepareTextContent, serializeMarkdown } from '../lib/markdown'
@@ -40,7 +30,6 @@ import { resolveOpenedFileContent } from '../lib/openDocument'
 import { getApi } from '../lib/browserApi'
 import { pipelineLog } from '../lib/aiPipelineLog'
 import { handleMissingPath, isMissingPathFileError } from '../lib/stalePath'
-import { captureEditorViewState } from '../lib/editorViewState'
 import {
   recordDiskBaseline,
   clearDiskBaseline,
@@ -52,19 +41,28 @@ import {
   generateIdFromPath,
   loadConversations,
   saveConversations,
-  deleteConversations,
   loadAnnotations,
-  saveAnnotations,
-  deleteAnnotations,
   loadSuggestions,
-  saveSuggestions,
-  deleteSuggestions,
-  loadComments,
-  saveComments,
-  deleteComments
+  loadComments
 } from '../lib/persistence'
 import type { DraftState, TabDraft } from '../lib/persistence'
 import type { FileAccessOptions } from '../../shared/fileAccess'
+import {
+  openSession,
+  activateSession,
+  closeSession,
+  hasSession,
+  getActiveSession,
+  flushActiveProjections,
+  persistSessionRecords,
+  persistRecords,
+  deleteDocumentRecords,
+  setSessionIdentity,
+  replaceSessionDocument,
+  setActiveFrontmatterRaw,
+  updateFromSource as updateSessionFromSource
+} from '../document/session'
+import { isPlainTextPath } from '../document/identity'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -131,15 +129,6 @@ function snapshotOf(tab: Tab): ClosedTabSnapshot {
   }
 }
 
-function liveEditor(): Editor | null {
-  return useEditorInstanceStore.getState().editor
-}
-
-/** The editor's pending debounced store write, applied now (#1127). */
-function flushEditorWrite(): void {
-  useEditorInstanceStore.getState().flushPendingUpdate?.()
-}
-
 /**
  * Read and resolve a file for a tab: artifact extraction + comment import
  * (#768), `.txt` preparation, frontmatter split. A missing path is reported
@@ -176,7 +165,7 @@ function isEmptyUntitled(tab: Tab | null): boolean {
   if (!tab || tab.path !== null) return false
   let content = tab.content ?? ''
   if (tab.id === useTabStore.getState().activeTabId) {
-    flushEditorWrite()
+    flushActiveProjections()
     const current = useEditorStore.getState().document
     if (current.documentId === tab.documentId) content = current.content
   }
@@ -186,11 +175,13 @@ function isEmptyUntitled(tab: Tab | null): boolean {
   return trimmed.replace(/<[^>]*>/g, '').trim() === ''
 }
 
-async function deleteDocumentRecords(documentId: string): Promise<void> {
-  await deleteConversations(documentId)
-  await deleteAnnotations(documentId)
-  await deleteSuggestions(documentId)
-  await deleteComments(documentId)
+/**
+ * A tab leaves the store: its session is closed (records written one last
+ * time, or every stored set deleted for a discarded untitled document).
+ */
+async function retireTab(tab: Tab, opts: { discard: boolean }): Promise<void> {
+  const hadSession = await closeSession(tab.id, { discard: opts.discard })
+  if (!hadSession && opts.discard) await deleteDocumentRecords(tab.documentId)
 }
 
 // ---------------------------------------------------------------------------
@@ -236,50 +227,6 @@ export function promotePreview(): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Persist the three record sets the editor holds for `tab`, each under the
- * tab's own id. The stores' ids are checked against the tab, never assumed:
- * a store keyed to another document is skipped with a warning rather than
- * written under the wrong key (the §G failure).
- */
-async function persistTabRecords(tab: Tab): Promise<void> {
-  const annotationStore = useAnnotationStore.getState()
-  // Await any in-flight annotation write first (#674 save race).
-  if (annotationStore.pendingSave) await annotationStore.pendingSave
-  if (useAnnotationStore.getState().documentId === tab.documentId) {
-    await useAnnotationStore.getState().saveAnnotations()
-  } else {
-    console.warn('[tabs] annotation store keyed to another document; not persisted', {
-      tabDocumentId: tab.documentId,
-      storeDocumentId: useAnnotationStore.getState().documentId
-    })
-  }
-
-  const editor = liveEditor()
-  if (!editor) return
-
-  // Never overwrite the stored set with an empty one: an empty editor here is
-  // almost always a transient strip (a load or a source-mode toggle), not a
-  // real "user cleared all". Genuine empties clear on tab close.
-  const suggestions = getAISuggestions(editor)
-  if (suggestions.length > 0) {
-    await useSuggestionStore.getState().saveSuggestions(tab.documentId, suggestions)
-  }
-
-  const commentStore = useCommentStore.getState()
-  if (commentStore.documentId === tab.documentId) {
-    // Merge live mark positions with the store's rich data (replies +
-    // resolved) so a switch doesn't clobber threads with marks-only data (#699).
-    const comments = mergeCommentsForPersistence(editor, commentStore.pendingComments)
-    await useCommentStore.getState().saveComments(tab.documentId, comments)
-  } else {
-    console.warn('[tabs] comment store keyed to another document; not persisted', {
-      tabDocumentId: tab.documentId,
-      storeDocumentId: commentStore.documentId
-    })
-  }
-}
-
-/**
  * The leaving step for the tab the editor currently holds. A no-op for any
  * other tab (a background tab has nothing to flush) and when the editor store
  * holds a different document than the tab says (never cache one document's
@@ -289,7 +236,7 @@ async function persistTabRecords(tab: Tab): Promise<void> {
 async function leaveTab(tab: Tab, opts: { persist?: boolean } = {}): Promise<void> {
   const persist = opts.persist ?? true
   if (tab.id !== useTabStore.getState().activeTabId) return
-  flushEditorWrite()
+  flushActiveProjections()
   const current = useEditorStore.getState().document
   if (current.documentId !== tab.documentId) {
     console.warn('[tabs] leaveTab: editor document does not match the tab', {
@@ -302,24 +249,23 @@ async function leaveTab(tab: Tab, opts: { persist?: boolean } = {}): Promise<voi
 
   if (persist) {
     await useChatStore.getState().saveCurrentConversation(tab.documentId)
-    await persistTabRecords(tab)
+    await persistSessionRecords(tab.id)
   }
 
   // Cache what the editor holds now; typing may have continued through the awaits.
-  flushEditorWrite()
+  flushActiveProjections()
   const fresh = useEditorStore.getState()
   if (fresh.document.documentId !== tab.documentId) return
   useTabStore.getState().updateTab(tab.id, {
     content: fresh.document.content,
     frontmatter: fresh.document.frontmatter,
     cursorPosition: fresh.cursorPosition,
-    viewState: captureEditorViewState(liveEditor()),
     isDirty: fresh.document.isDirty
   })
 }
 
 interface ArriveOptions {
-  /** A brand-new untitled document: nothing stored to load, reset the chat. */
+  /** A brand-new untitled document: reset the chat instead of loading one. */
   fresh?: boolean
   /** Launch restore: the conversation that was open in this tab. */
   activeChatId?: string | null
@@ -330,69 +276,39 @@ interface ArriveOptions {
 }
 
 /**
- * The arriving step. Activates `tab`, loads its document into the editor
- * store (the Editor's content-sync effect loads it into TipTap), then its
- * conversation and records. Read-only state is derived from the path inside
- * `setDocument`; preview state from the tab record.
+ * The arriving step. Opens the tab's session when it has none (lazily, from
+ * the tab's cached text and its saved view), puts it into the view, then
+ * loads the conversation and settles the UI around it.
  */
 async function arriveTab(tab: Tab, opts: ArriveOptions = {}): Promise<void> {
-  const annotationStore = useAnnotationStore.getState()
-  // Pause annotation position mapping while the editor swaps documents.
-  annotationStore.setLoadingDocument(true)
-  if (opts.fresh) {
-    // Id and (empty) records in one write: nothing of the previous document
-    // can be read under the new id.
-    useAnnotationStore.setState({ annotations: [], documentId: tab.documentId, createdThisSession: new Set() })
-  } else {
-    // Pre-set the id so the Editor's recovery effect does not fire a
-    // competing load while the awaited one below runs (#674).
-    annotationStore.setDocumentId(tab.documentId)
+  if (!hasSession(tab.id)) {
+    await openSession(tab, tab.content ?? '', { viewState: tab.viewState })
   }
-
-  useTabStore.getState().setActiveTab(tab.id)
-
-  const editorStore = useEditorStore.getState()
-  editorStore.setDocument({
-    documentId: tab.documentId,
-    path: tab.path,
-    content: tab.content ?? '',
-    frontmatter: tab.frontmatter ?? {},
-    isDirty: tab.isDirty
-  })
-  const cursor = tab.cursorPosition ?? { line: 1, column: 1 }
-  editorStore.setCursorPosition(cursor.line, cursor.column)
-  setCurrentDocumentId(tab.documentId)
+  const current = useTabStore.getState().getTabById(tab.id)
+  if (!current) return
+  activateSession(current.id)
+  setCurrentDocumentId(current.documentId)
 
   if (opts.fresh) {
     useChatStore.setState({ conversations: [], activeConversationId: null, messages: [], context: null })
-    useSuggestionStore.getState().setDocumentId(tab.documentId)
-    useCommentStore.getState().setDocumentId(tab.documentId)
   } else {
-    await useChatStore.getState().loadForDocument(tab.documentId)
+    await useChatStore.getState().loadForDocument(current.documentId)
     if (opts.activeChatId) {
       const conversation = useChatStore.getState().conversations.find((c) => c.id === opts.activeChatId)
       if (conversation) {
         useChatStore.setState({ activeConversationId: conversation.id, messages: conversation.messages })
       }
     }
-    await useAnnotationStore.getState().loadAnnotations(tab.documentId)
-    await useSuggestionStore.getState().loadSuggestions(tab.documentId)
-    await useCommentStore.getState().loadComments(tab.documentId)
   }
 
   syncPreviewMode()
   useEditorStore.getState().setEditing(true)
 
-  if (tab.path) {
-    useFileListStore.getState().revealAndSelectPath(tab.path)
-    if (opts.recent) useSettingsStore.getState().addRecentFile(tab.path)
-    if (opts.fromDisk) void recordDiskBaseline(tab.path)
+  if (current.path) {
+    useFileListStore.getState().revealAndSelectPath(current.path)
+    if (opts.recent) useSettingsStore.getState().addRecentFile(current.path)
+    if (opts.fromDisk) void recordDiskBaseline(current.path)
   }
-
-  // Resume position mapping once the editor has settled on the new document.
-  setTimeout(() => {
-    useAnnotationStore.getState().setLoadingDocument(false)
-  }, 100)
 }
 
 // ---------------------------------------------------------------------------
@@ -441,9 +357,11 @@ export async function openFile(path: string, opts: OpenFileOptions = {}): Promis
   let tabId: string
   if (previewTab) {
     if (activeTab) await leaveTab(activeTab)
+    await retireTab(previewTab, { discard: false })
     useTabStore.getState().updateTab(previewTab.id, placed)
     tabId = previewTab.id
   } else if (activeTab && isEmptyUntitled(activeTab)) {
+    await retireTab(activeTab, { discard: true })
     useTabStore.getState().updateTab(activeTab.id, placed)
     tabId = activeTab.id
   } else {
@@ -476,6 +394,7 @@ export async function openInTab(
   const documentId = await generateIdFromPath(path)
   const parsed = await readDocument(path, documentId, opts)
   await leaveTab(tab)
+  await retireTab(tab, { discard: tab.path === null })
   useTabStore.getState().updateTab(tabId, {
     documentId,
     path,
@@ -494,8 +413,7 @@ export async function openInTab(
 
 /**
  * A new untitled tab. `init` pre-populates it (the prose:// handler, the
- * `new_file` tool); content is in the tab and the store before the editor
- * reads it. Tolerates a click event as `init` (explorer button).
+ * `new_file` tool). Tolerates a click event as `init` (explorer button).
  */
 export async function newTab(init?: NewTabInit): Promise<string> {
   const content = typeof init?.content === 'string' ? init.content : ''
@@ -537,12 +455,7 @@ export async function switchToTab(tabId: string): Promise<void> {
   const activeTab = tabStore.getActiveTab()
   if (activeTab) await leaveTab(activeTab)
 
-  pipelineLog('tab:switch', {
-    toTabId: tabId,
-    toDocId: target.documentId,
-    fromDocId: useAnnotationStore.getState().documentId,
-    annotationCountBefore: useAnnotationStore.getState().annotations.length
-  })
+  pipelineLog('tab:switch', { toTabId: tabId, toDocId: target.documentId })
 
   const tab = useTabStore.getState().getTabById(tabId)
   if (tab) await arriveTab(tab)
@@ -550,9 +463,9 @@ export async function switchToTab(tabId: string): Promise<void> {
 
 /**
  * Close a tab. Returns false when the tab is dirty and `force` is not set
- * (the caller confirms). The closing tab is flushed and persisted under its
- * own id before it leaves the store; its neighbour then arrives with no
- * leaving step of its own.
+ * (the caller confirms). The closing tab is flushed and its session closed
+ * under its own id before it leaves the store; its neighbour then arrives
+ * with no leaving step of its own.
  */
 export async function closeTab(tabId: string, opts: { force?: boolean } = {}): Promise<boolean> {
   const tabStore = useTabStore.getState()
@@ -568,8 +481,8 @@ export async function closeTab(tabId: string, opts: { force?: boolean } = {}): P
   }
 
   if (!tab.isPreview) useTabStore.getState().pushClosedTab(snapshotOf(tab))
+  await retireTab(tab, { discard: untitled })
   useTabStore.getState().removeTab(tabId)
-  if (untitled) await deleteDocumentRecords(tab.documentId)
 
   const after = useTabStore.getState()
   if (after.tabs.length === 0) {
@@ -600,8 +513,9 @@ export async function closeOtherTabs(keepTabId: string): Promise<void> {
   for (const tab of removing) {
     if (!tab.isPreview) useTabStore.getState().pushClosedTab(snapshotOf(tab))
   }
+  // Stored data is dropped only for clean untitled documents.
   for (const tab of removing) {
-    if (!tab.isDirty && !tab.path) await deleteDocumentRecords(tab.documentId)
+    await retireTab(tab, { discard: !tab.isDirty && !tab.path })
   }
 
   useTabStore.getState().closeOtherTabs(keepTabId)
@@ -624,7 +538,7 @@ export async function closeAllTabs(): Promise<void> {
     if (!tab.isPreview) useTabStore.getState().pushClosedTab(snapshotOf(tab))
   }
   for (const tab of tabs) {
-    if (!tab.isDirty && !tab.path) await deleteDocumentRecords(tab.documentId)
+    await retireTab(tab, { discard: !tab.isDirty && !tab.path })
   }
   useTabStore.getState().closeAllTabs()
   await newTab()
@@ -688,9 +602,9 @@ export interface IdentityChange {
 /**
  * Give a tab a new path and identity: rename, move, Save As, quick save,
  * `save_file`, the converters. The tab record, the editor store, the chat
- * store and the three record stores all follow, and the stored records move
- * to the new key (old keys stay, as before). For the active tab the live
- * records are the source; for a background tab they are copied in IndexedDB.
+ * store and the session (its state's identity, the mirrors, the stored
+ * records under the new key; old keys stay, as before) all follow. A tab
+ * without a session has its stored records copied in IndexedDB.
  */
 export async function setTabIdentity(tabId: string, next: IdentityChange): Promise<string> {
   const tab = useTabStore.getState().getTabById(tabId)
@@ -710,26 +624,24 @@ export async function setTabIdentity(tabId: string, next: IdentityChange): Promi
   })
 
   if (documentId !== oldDocumentId) {
+    if (hasSession(tabId)) {
+      await setSessionIdentity(tabId, { documentId, path: next.path, plain: isPlainTextPath(next.path) })
+    } else {
+      const [annotations, suggestions, comments] = await Promise.all([
+        loadAnnotations(oldDocumentId),
+        loadSuggestions(oldDocumentId),
+        loadComments(oldDocumentId)
+      ])
+      await Promise.all([
+        annotations.length > 0
+          ? persistRecords('annotations', documentId, annotations.map((a) => ({ ...a, documentId })))
+          : Promise.resolve(),
+        suggestions.length > 0 ? persistRecords('suggestions', documentId, suggestions) : Promise.resolve(),
+        comments.length > 0 ? persistRecords('comments', documentId, comments) : Promise.resolve()
+      ])
+    }
+
     if (isActive) {
-      const editor = liveEditor()
-      const annotationStore = useAnnotationStore.getState()
-      if (annotationStore.pendingSave) await annotationStore.pendingSave
-      const annotations = useAnnotationStore
-        .getState()
-        .annotations.map((a) => ({ ...a, documentId }))
-      useAnnotationStore.setState({ annotations, documentId })
-      if (annotations.length > 0) await saveAnnotations(documentId, annotations)
-
-      useSuggestionStore.setState({ documentId })
-      const suggestions = editor ? getAISuggestions(editor) : []
-      if (suggestions.length > 0) await saveSuggestions(documentId, suggestions)
-
-      const comments = editor
-        ? mergeCommentsForPersistence(editor, useCommentStore.getState().pendingComments)
-        : useCommentStore.getState().pendingComments
-      useCommentStore.setState({ documentId })
-      if (comments.length > 0) await saveComments(documentId, comments)
-
       const conversations = useChatStore
         .getState()
         .conversations.map((c) => ({ ...c, documentId }))
@@ -737,24 +649,14 @@ export async function setTabIdentity(tabId: string, next: IdentityChange): Promi
       setCurrentDocumentId(documentId)
       if (conversations.length > 0) await saveConversations(documentId, conversations)
     } else {
-      const [annotations, conversations, suggestions, comments] = await Promise.all([
-        loadAnnotations(oldDocumentId),
-        loadConversations(oldDocumentId),
-        loadSuggestions(oldDocumentId),
-        loadComments(oldDocumentId)
-      ])
-      await Promise.all([
-        annotations.length > 0
-          ? saveAnnotations(documentId, annotations.map((a) => ({ ...a, documentId })))
-          : Promise.resolve(),
-        conversations.length > 0
-          ? saveConversations(documentId, conversations.map((c) => ({ ...c, documentId })))
-          : Promise.resolve(),
-        suggestions.length > 0 ? saveSuggestions(documentId, suggestions) : Promise.resolve(),
-        comments.length > 0 ? saveComments(documentId, comments) : Promise.resolve()
-      ])
+      const conversations = await loadConversations(oldDocumentId)
+      if (conversations.length > 0) {
+        await saveConversations(documentId, conversations.map((c) => ({ ...c, documentId })))
+      }
     }
     pipelineLog('tab:identity:migrated', { oldDocId: oldDocumentId, newDocId: documentId })
+  } else if (hasSession(tabId) && next.path !== oldPath) {
+    await setSessionIdentity(tabId, { documentId, path: next.path, plain: isPlainTextPath(next.path) })
   }
 
   useTabStore.getState().updateTab(tabId, {
@@ -854,10 +756,11 @@ export async function relocateOpenTabs(oldPath: string, newPath: string): Promis
 
 /**
  * Replace a tab's content with text read from disk (conflict dialog "load
- * disk version", a clean tab gone stale on focus, a reMarkable re-sync). The
- * active tab's editor follows through the store. Records the baseline.
+ * disk version", a clean tab gone stale on focus, a reMarkable re-sync, a
+ * conversion). A tab with a session is re-opened from the new text under the
+ * same tab; a lazy tab only has its cache replaced. Records the baseline.
  */
-export function reloadTabFromDisk(tabId: string, doc: ParsedDocument): void {
+export async function reloadTabFromDisk(tabId: string, doc: ParsedDocument): Promise<void> {
   const tab = useTabStore.getState().getTabById(tabId)
   if (!tab) return
   useTabStore.getState().updateTab(tabId, {
@@ -865,14 +768,15 @@ export function reloadTabFromDisk(tabId: string, doc: ParsedDocument): void {
     frontmatter: doc.frontmatter,
     isDirty: false
   })
+  if (hasSession(tabId)) {
+    await replaceSessionDocument(
+      tabId,
+      { content: doc.content, body: doc.content, frontmatter: doc.frontmatter },
+      { keepHistory: false }
+    )
+  }
   if (tabId === useTabStore.getState().activeTabId) {
-    useEditorStore.getState().setDocument({
-      documentId: tab.documentId,
-      path: tab.path,
-      content: doc.content,
-      frontmatter: doc.frontmatter,
-      isDirty: false
-    })
+    useEditorStore.getState().setDirty(false)
   }
   if (tab.path) void recordDiskBaseline(tab.path)
 }
@@ -889,8 +793,7 @@ export async function convertTab(tabId: string, to: 'txt' | 'md'): Promise<boole
   if (!from.test(tab.path)) return false
   const newPath = tab.path.replace(from, `.${to}`)
   const isActive = tabId === useTabStore.getState().activeTabId
-  const editor = liveEditor()
-  if (isActive) flushEditorWrite()
+  if (isActive) flushActiveProjections()
   const current =
     isActive && useEditorStore.getState().document.documentId === tab.documentId
       ? useEditorStore.getState().document
@@ -900,10 +803,14 @@ export async function convertTab(tabId: string, to: 'txt' | 'md'): Promise<boole
   let nextContent: string
   let nextFrontmatter: Record<string, unknown>
   if (to === 'txt') {
-    const plainText =
-      isActive && editor ? editor.getText({ blockSeparator: '\n' }) : current.content
+    // The document's text, one line per block, as the file; the editor shows
+    // it the way a .txt open prepares it.
+    const session = isActive ? getActiveSession() : null
+    const plainText = session
+      ? session.state.doc.textBetween(0, session.state.doc.content.size, '\n')
+      : current.content
     fileText = plainText
-    nextContent = plainText
+    nextContent = prepareTextContent(plainText)
     nextFrontmatter = {}
   } else {
     fileText = serializeMarkdown(current.content, current.frontmatter)
@@ -914,13 +821,24 @@ export async function convertTab(tabId: string, to: 'txt' | 'md'): Promise<boole
   await window.api.renameFile(tab.path, newPath)
   await window.api.saveFile(newPath, fileText)
   await setTabIdentity(tabId, { path: newPath })
-  if (to === 'txt' && isActive && editor) {
-    // The plain-text document, re-read the way a .txt open prepares it.
-    editor.commands.setContent(prepareTextContent(nextContent))
-  }
-  reloadTabFromDisk(tabId, { content: nextContent, frontmatter: nextFrontmatter })
+  await reloadTabFromDisk(tabId, { content: nextContent, frontmatter: nextFrontmatter })
   useFileListStore.getState().loadFiles()
   return true
+}
+
+// ---------------------------------------------------------------------------
+// Frontmatter and source mode (the active tab)
+// ---------------------------------------------------------------------------
+
+/** The frontmatter editor saved: the store's object is the truth from here. */
+export function setActiveFrontmatter(frontmatter: Record<string, unknown>): void {
+  useEditorStore.getState().setFrontmatter(frontmatter)
+  setActiveFrontmatterRaw('')
+}
+
+/** Typing in source mode: the store and the tab follow the text (#1102). */
+export function updateFromSource(text: string): void {
+  updateSessionFromSource(text)
 }
 
 // ---------------------------------------------------------------------------
@@ -928,8 +846,9 @@ export async function convertTab(tabId: string, to: 'txt' | 'md'): Promise<boole
 // ---------------------------------------------------------------------------
 
 /**
- * Restore a saved session: add every tab, then arrive at the active one.
- * App resolves each draft against the disk first (missing, stale, conflict).
+ * Restore a saved session: add every tab, then arrive at the active one (the
+ * only one that gets a document session before it is clicked). App resolves
+ * each draft against the disk first (missing, stale, conflict).
  */
 export async function restoreTabs(restored: RestoredTab[], activeTabId: string | null): Promise<void> {
   const tabStore = useTabStore.getState()
@@ -958,16 +877,14 @@ export async function restoreTabs(restored: RestoredTab[], activeTabId: string |
 
 /** Restore a legacy single-document draft (pre-session builds). */
 export async function hydrateDraft(draft: DraftState): Promise<void> {
-  useEditorStore.getState().hydrateFromDraft(draft)
-  setCurrentDocumentId(draft.document.documentId)
-
   const title = draft.document.path ? titleFromPath(draft.document.path) : 'Untitled'
-  useTabStore.getState().addTab({
+  const tabId = useTabStore.getState().addTab({
     documentId: draft.document.documentId,
     path: draft.document.path,
     title,
     isDirty: draft.document.isDirty,
     content: draft.document.content,
+    frontmatter: draft.document.frontmatter,
     cursorPosition: draft.cursorPosition
   })
 
@@ -981,27 +898,20 @@ export async function hydrateDraft(draft: DraftState): Promise<void> {
     if (draft.fileList.rootPath) useFileListStore.getState().loadFiles()
   }
 
-  const conversations = await loadConversations(draft.document.documentId)
-  useChatStore.setState({
-    conversations,
-    activeConversationId: draft.activeChatId ?? conversations[0]?.id ?? null,
-    messages:
-      conversations.find((c) => c.id === draft.activeChatId)?.messages ??
-      conversations[0]?.messages ??
-      []
-  })
+  const tab = useTabStore.getState().getTabById(tabId)
+  if (tab) await arriveTab(tab, { activeChatId: draft.activeChatId })
 }
 
 // ---------------------------------------------------------------------------
-// Store → tab mirror (until the session projection replaces it)
+// Store → tab mirror
 // ---------------------------------------------------------------------------
 
 /**
- * Keep the active tab's cached content, dirty flag and title in step with the
- * editor store, which the Editor writes on its 500 ms debounce. The tab bar's
- * dirty dot and the saved session (which reads tab content) depend on it.
- * Typing in a preview promotes it. Identity (path, documentId) is never
- * synced from here; the identity flows above write both sides themselves.
+ * Keep the active tab's cached content and dirty flag in step with the
+ * editor store, which the session's projection writes. The tab bar's dirty
+ * dot and the saved session (which reads tab content) depend on it. Typing
+ * in a preview promotes it. Identity (path, documentId) is never synced from
+ * here; the identity flows above write both sides themselves.
  */
 function syncActiveTabWithDocument(): void {
   const activeTab = useTabStore.getState().getActiveTab()

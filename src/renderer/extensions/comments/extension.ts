@@ -7,7 +7,7 @@
 
 import { Mark, mergeAttributes } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
-import type { EditorState } from '@tiptap/pm/state'
+import type { EditorState, Transaction } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import type { EditorView } from '@tiptap/pm/view'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
@@ -15,6 +15,7 @@ import type { MarkSerializerSpec } from 'prosemirror-markdown'
 import type { CommentOptions, CommentData } from './types'
 import { useCommentStore } from './store'
 import { pushResolveToShare } from '../../lib/sharePush'
+import { getIdentity, RELOAD_META, ACTIVATED_META } from '../../document/identity'
 
 const commentStatePluginKey = new PluginKey('commentState')
 
@@ -250,146 +251,20 @@ export const Comment = Mark.create<CommentOptions>({
 
       restoreComments:
         (comments) =>
-        ({ tr, state, dispatch }) => {
+        ({ tr, dispatch }) => {
           if (!dispatch || comments.length === 0) return false
-
-          const { doc, schema } = state
-          let restored = 0
-
-          // doc.textContent has no block separators; textBetween stored the
-          // markedText with a space separator. Normalise before searching so
-          // cross-block comments match (#665 fix).
-          const docText = doc.textContent
-
-          // Ranges already re-marked in this pass — a later addMark that fully
-          // covers an earlier one replaces it (same clobber semantics as
-          // setComment, #830). Creation is now guarded, but legacy data can
-          // still hold same-anchor threads; warn instead of losing one silently.
-          const restoredRanges: Array<{ id: string; from: number; to: number }> = []
-
-          // Anchor bookkeeping (#769): threads whose text can't be found are
-          // KEPT and flagged anchorLost in the store (persistence preserves
-          // flagged threads); a later successful anchor clears the flag.
-          const lostIds: string[] = []
-          const anchoredIds: string[] = []
-
-          for (const comment of comments) {
-            // Resolved threads are stored but must not be re-marked in the
-            // editor — they're history only.
-            if (comment.resolved) continue
-
-            const rawSearchText = comment.markedText
-            if (!rawSearchText) {
-              console.warn('[Comment] Cannot restore comment without markedText:', comment.id)
-              lostIds.push(comment.id)
-              continue
-            }
-
-            // Creation (setComment) and persistence (getComments) count the
-            // occurrences of markedText in the raw textContent, so the Nth
-            // occurrence has to be found in that same string. The restore used
-            // to count in space-stripped text only: there "that he" contains
-            // "the", so a short word had more matches than creation saw and
-            // occurrence N landed earlier in the document, and the next
-            // persist rewrote markedText from the wrong mark (#1137).
-            const targetOccurrence = comment.occurrenceIndex ?? 0
-            let range: { from: number; to: number } | null = null
-            let usedOccurrence: number | null = null
-            const raw = findOccurrence(docText, rawSearchText, targetOccurrence)
-            if (raw) {
-              range = charRangeToPositions(doc, raw.index, raw.index + rawSearchText.length, false)
-              usedOccurrence = raw.occurrence
-            } else {
-              // A cross-block comment: textBetween stored markedText with a
-              // space block separator that textContent does not have, so the
-              // raw search cannot match. Strip spaces from both sides (#665).
-              const searchText = rawSearchText.replace(/ /g, '')
-              const docTextNorm = docText.replace(/ /g, '')
-              const norm = findOccurrence(docTextNorm, searchText, targetOccurrence)
-              if (norm) {
-                range = charRangeToPositions(doc, norm.index, norm.index + searchText.length, true)
-                usedOccurrence = norm.occurrence
-              }
-            }
-
-            if (!range) {
-              console.warn('[Comment] Cannot find markedText in document:', {
-                id: comment.id,
-                markedText: rawSearchText.substring(0, 50)
-              })
-              lostIds.push(comment.id)
-              continue
-            }
-            if (usedOccurrence !== targetOccurrence) {
-              // Fewer occurrences than expected (text changed); fell back to last found
-              console.warn('[Comment] occurrenceIndex out of range, using last occurrence:', {
-                id: comment.id,
-                targetOccurrence,
-                usedOccurrence
-              })
-            }
-            const { from: foundStart, to: foundEnd } = range
-
-            const clobbered = restoredRanges.filter(
-              (r) => r.from >= foundStart && r.to <= foundEnd
-            )
-            if (clobbered.length > 0) {
-              console.warn('[Comment] Restored mark fully covers earlier restored thread(s); their marks are replaced:', {
-                id: comment.id,
-                clobberedIds: clobbered.map((r) => r.id),
-              })
-              // Their marks are gone — classify as anchor-lost so persistence
-              // keeps the threads (lost wins over anchored in reconciliation).
-              lostIds.push(...clobbered.map((r) => r.id))
-            }
-            restoredRanges.push({ id: comment.id, from: foundStart, to: foundEnd })
-
-            const mark = schema.marks.comment.create({
-              id: comment.id,
-              comment: comment.comment,
-              createdAt: comment.createdAt,
-              occurrenceIndex: comment.occurrenceIndex ?? 0,
-            })
-
-            tr.addMark(foundStart, foundEnd, mark)
-            restored++
-            anchoredIds.push(comment.id)
-
-            console.log('[Comment] Restored comment mark:', {
-              id: comment.id,
-              from: foundStart,
-              to: foundEnd
-            })
-          }
-
-          // Reconcile anchorLost flags in the store (#769) — flag misses, and
-          // clear the flag on threads that anchored (e.g. synced threads land
-          // flagged until their first successful restore).
-          const lost = new Set(lostIds)
-          const anchored = new Set(anchoredIds)
+          const outcome = applyCommentMarks(tr, comments)
+          // Reconcile anchorLost flags in the store (#769).
           const { pendingComments } = useCommentStore.getState()
-          let flagsChanged = false
-          const reconciled = pendingComments.map((c) => {
-            if (lost.has(c.id) && c.anchorLost !== true) {
-              flagsChanged = true
-              return { ...c, anchorLost: true }
-            }
-            if (anchored.has(c.id) && c.anchorLost) {
-              flagsChanged = true
-              return { ...c, anchorLost: false }
-            }
-            return c
-          })
-          if (flagsChanged) {
+          const reconciled = reconcileAnchorLost(pendingComments, outcome)
+          if (reconciled !== pendingComments) {
             useCommentStore.setState({ pendingComments: reconciled })
           }
-
-          if (restored > 0) {
+          if (outcome.anchored.length > 0) {
             dispatch(tr)
-            console.log('[Comment] Restored', restored, 'of', comments.length, 'comments')
+            console.log('[Comment] Restored', outcome.anchored.length, 'of', comments.length, 'comments')
             return true
           }
-
           return false
         },
     }
@@ -409,6 +284,9 @@ export const Comment = Mark.create<CommentOptions>({
     let contentLoadInDispatch = false
     // Same per-dispatch shape for AI replacements (#1099).
     let aiReplacementInDispatch = false
+    // And for a session activation or reload (#1145): the document in the
+    // view changed wholesale, nothing was deleted by the writer.
+    let sessionSwapInDispatch = false
     return [
       new Plugin({
         key: commentStatePluginKey,
@@ -417,6 +295,9 @@ export const Comment = Mark.create<CommentOptions>({
           apply(tr) {
             if (tr.getMeta('preventUpdate') === true) contentLoadInDispatch = true
             if (tr.getMeta(AI_REPLACEMENT_META) === true) aiReplacementInDispatch = true
+            if (tr.getMeta(RELOAD_META) === true || tr.getMeta(ACTIVATED_META) === true) {
+              sessionSwapInDispatch = true
+            }
             return null
           },
         },
@@ -436,9 +317,11 @@ export const Comment = Mark.create<CommentOptions>({
               // Consume unconditionally so every dispatch starts clean.
               const contentLoad = contentLoadInDispatch
               const aiReplacement = aiReplacementInDispatch
+              const sessionSwap = sessionSwapInDispatch
               contentLoadInDispatch = false
               aiReplacementInDispatch = false
-              autoResolveDeletedComments(v, prevState, contentLoad, aiReplacement)
+              sessionSwapInDispatch = false
+              autoResolveDeletedComments(v, prevState, contentLoad, aiReplacement, sessionSwap)
             },
             destroy: unsubscribe,
           }
@@ -469,8 +352,126 @@ export const Comment = Mark.create<CommentOptions>({
   },
 })
 
+export interface AnchorOutcome {
+  anchored: string[]
+  lost: string[]
+}
+
+/**
+ * Re-apply comment marks for `comments` to the document `tr` holds, as part
+ * of `tr`: a session's seed transaction, a reload, a thread merge (#1145).
+ * Pure: the caller dispatches or applies the transaction and reconciles the
+ * store's anchorLost flags with `reconcileAnchorLost` from the outcome.
+ *
+ * Creation (setComment) and persistence (getComments) count the occurrences
+ * of markedText in the raw textContent, so the Nth occurrence is found in
+ * that same string; the space-stripped search is the fallback for a
+ * cross-block comment, whose markedText carries block separators (#665,
+ * #1137). Resolved threads are history only and get no mark. A thread whose
+ * text is gone is reported as lost and kept by persistence (#769).
+ */
+export function applyCommentMarks(tr: Transaction, comments: CommentData[]): AnchorOutcome {
+  const doc = tr.doc
+  const schema = doc.type.schema
+  const docText = doc.textContent
+
+  // Ranges already re-marked in this pass — a later addMark that fully
+  // covers an earlier one replaces it (same clobber semantics as setComment,
+  // #830). Creation is guarded, but legacy data can still hold same-anchor
+  // threads; warn instead of losing one silently.
+  const restoredRanges: Array<{ id: string; from: number; to: number }> = []
+  const lostIds: string[] = []
+  const anchoredIds: string[] = []
+
+  for (const comment of comments) {
+    if (comment.resolved) continue
+
+    const rawSearchText = comment.markedText
+    if (!rawSearchText) {
+      console.warn('[Comment] Cannot restore comment without markedText:', comment.id)
+      lostIds.push(comment.id)
+      continue
+    }
+
+    const targetOccurrence = comment.occurrenceIndex ?? 0
+    let range: { from: number; to: number } | null = null
+    let usedOccurrence: number | null = null
+    const raw = findOccurrence(docText, rawSearchText, targetOccurrence)
+    if (raw) {
+      range = charRangeToPositions(doc, raw.index, raw.index + rawSearchText.length, false)
+      usedOccurrence = raw.occurrence
+    } else {
+      const searchText = rawSearchText.replace(/ /g, '')
+      const docTextNorm = docText.replace(/ /g, '')
+      const norm = findOccurrence(docTextNorm, searchText, targetOccurrence)
+      if (norm) {
+        range = charRangeToPositions(doc, norm.index, norm.index + searchText.length, true)
+        usedOccurrence = norm.occurrence
+      }
+    }
+
+    if (!range) {
+      console.warn('[Comment] Cannot find markedText in document:', {
+        id: comment.id,
+        markedText: rawSearchText.substring(0, 50)
+      })
+      lostIds.push(comment.id)
+      continue
+    }
+    if (usedOccurrence !== targetOccurrence) {
+      // Fewer occurrences than expected (text changed); fell back to last found
+      console.warn('[Comment] occurrenceIndex out of range, using last occurrence:', {
+        id: comment.id,
+        targetOccurrence,
+        usedOccurrence
+      })
+    }
+    const { from: foundStart, to: foundEnd } = range
+
+    const clobbered = restoredRanges.filter((r) => r.from >= foundStart && r.to <= foundEnd)
+    if (clobbered.length > 0) {
+      console.warn('[Comment] Restored mark fully covers earlier restored thread(s); their marks are replaced:', {
+        id: comment.id,
+        clobberedIds: clobbered.map((r) => r.id),
+      })
+      lostIds.push(...clobbered.map((r) => r.id))
+    }
+    restoredRanges.push({ id: comment.id, from: foundStart, to: foundEnd })
+
+    const mark = schema.marks.comment.create({
+      id: comment.id,
+      comment: comment.comment,
+      createdAt: comment.createdAt,
+      occurrenceIndex: comment.occurrenceIndex ?? 0,
+    })
+    tr.addMark(foundStart, foundEnd, mark)
+    anchoredIds.push(comment.id)
+  }
+
+  return { anchored: anchoredIds, lost: lostIds }
+}
+
+/** The thread list with anchorLost set for the lost ids and cleared for the anchored ones (#769). */
+export function reconcileAnchorLost(comments: CommentData[], outcome: AnchorOutcome): CommentData[] {
+  const lost = new Set(outcome.lost)
+  const anchored = new Set(outcome.anchored)
+  let changed = false
+  const next = comments.map((c) => {
+    if (lost.has(c.id) && c.anchorLost !== true) {
+      changed = true
+      return { ...c, anchorLost: true }
+    }
+    if (anchored.has(c.id) && c.anchorLost) {
+      changed = true
+      return { ...c, anchorLost: false }
+    }
+    return c
+  })
+  return changed ? next : comments
+}
+
 /** Comment-mark ids currently present in a document. */
-function commentMarkIds(doc: ProseMirrorNode): Set<string> {
+export function commentMarkIds(doc: ProseMirrorNode): Set<string> {
   const ids = new Set<string>()
   doc.descendants((node) => {
     node.marks.forEach((m) => {
@@ -493,7 +494,7 @@ function commentMarkIds(doc: ProseMirrorNode): Set<string> {
  * local resolve sticks either way.
  *
  * Guards mirror the persistence "never lose a thread to a transient strip"
- * invariant: skip while a restore is pending, and skip when every mark
+ * invariant: skip a session activation or reload, and skip when every mark
  * vanished in a dispatch that was a programmatic content load (doc load or
  * source-mode toggle strip them all before the restore re-applies them).
  * `contentLoad` comes from the plugin's per-dispatch flag; user edits —
@@ -510,11 +511,18 @@ function autoResolveDeletedComments(
   view: EditorView,
   prevState: EditorState,
   contentLoad: boolean,
-  aiReplacement: boolean
+  aiReplacement: boolean,
+  sessionSwap: boolean
 ): void {
   if (view.state.doc === prevState.doc) return
+  // A session activation or reload changed the whole document; nothing was
+  // deleted by the writer. And the store must mirror the document in the view
+  // before its threads can be compared with the view's marks (#1145).
+  if (sessionSwap) return
+  const identity = getIdentity(view.state)
+  if (identity.documentId !== getIdentity(prevState).documentId) return
   const store = useCommentStore.getState()
-  if (store.needsRestore) return
+  if (store.documentId !== identity.documentId) return
   const prevIds = commentMarkIds(prevState.doc)
   const anyLost = store.pendingComments.some((c) => c.anchorLost === true)
   if (prevIds.size === 0 && !anyLost) return
@@ -581,7 +589,7 @@ export function findFullyCoveredCommentIds(
 /**
  * Extract all comments from the editor
  */
-export function getComments(editor: { state: { doc: { descendants: (fn: (node: { marks: Array<{ type: { name: string }; attrs: { id: string; comment: string; createdAt: number } }>; nodeSize: number; textContent: string }, pos: number) => void) => void; textBetween: (from: number, to: number, blockSeparator?: string) => string; textContent: string } } }): CommentData[] {
+export function getComments(editor: { state: { doc: ProseMirrorNode } }): CommentData[] {
   // Map to collect all text nodes for each comment ID
   const commentMap = new Map<string, {
     texts: string[]

@@ -1,50 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useCallback, useState, useMemo } from 'react'
 import { useEditor as useTipTapEditor, EditorContent } from '@tiptap/react'
-import { EditorState, TextSelection } from '@tiptap/pm/state'
+import { TextSelection } from '@tiptap/pm/state'
 import type { Slice } from '@tiptap/pm/model'
 import type { EditorView } from '@tiptap/pm/view'
-import StarterKit from '@tiptap/starter-kit'
-import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
-import { createLowlight } from 'lowlight'
-import javascript from 'highlight.js/lib/languages/javascript'
-import typescript from 'highlight.js/lib/languages/typescript'
-import json from 'highlight.js/lib/languages/json'
-import bash from 'highlight.js/lib/languages/bash'
-import python from 'highlight.js/lib/languages/python'
-import css from 'highlight.js/lib/languages/css'
-import xml from 'highlight.js/lib/languages/xml'
-import hlMarkdown from 'highlight.js/lib/languages/markdown'
-import rust from 'highlight.js/lib/languages/rust'
-import go from 'highlight.js/lib/languages/go'
-import sql from 'highlight.js/lib/languages/sql'
-import yaml from 'highlight.js/lib/languages/yaml'
-import Placeholder from '@tiptap/extension-placeholder'
-import Link from '@tiptap/extension-link'
-import Underline from '@tiptap/extension-underline'
-import Superscript from '@tiptap/extension-superscript'
-import Subscript from '@tiptap/extension-subscript'
-import Table from '@tiptap/extension-table'
-import TableRow from '@tiptap/extension-table-row'
-import TableCell from '@tiptap/extension-table-cell'
-import TableHeader from '@tiptap/extension-table-header'
-import TaskList from '@tiptap/extension-task-list'
-import TaskItem from '@tiptap/extension-task-item'
-import { Markdown } from 'tiptap-markdown'
-import { FocusMode } from '../../lib/focusMode'
-import { Comment } from '../../extensions/comments'
 import { pushNewThreadToShare } from '../../lib/sharePush'
 import { useNotificationStore } from '../../stores/notificationStore'
-import { AISuggestion, AI_SUGGESTION_RESOLVED_META } from '../../extensions/ai-suggestions'
-import { useSuggestionStore } from '../../extensions/ai-suggestions/store'
-import { SESSION_ID } from '../../lib/persistence'
-import { AIAnnotations, useAnnotationStore, reloadKeepingAnnotations } from '../../extensions/ai-annotations'
-import { NodeIds } from '../../extensions/node-ids'
-import { SearchHighlight } from '../../extensions/search-highlight'
-import { LinkHover } from '../../extensions/link-hover'
-import { PlainTextMode } from '../../extensions/plain-text-mode'
-import { ImageWithUpload } from '../../extensions/image'
-import { DocumentWithFootnotes, Footnote, FootnoteReference, Footnotes } from '../../extensions/footnotes'
-import { PersistentSelection } from '../../extensions/persistent-selection'
+import { useAnnotationStore } from '../../extensions/ai-annotations'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
@@ -54,9 +15,10 @@ import { useEditorStore } from '../../stores/editorStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useFileListStore } from '../../stores/fileListStore'
 import { useTabStore, scheduleSaveSession } from '../../stores/tabStore'
-import { restoreEditorViewState, type EditorViewState } from '../../lib/editorViewState'
 import { promoteCurrentPreview } from '../../hooks/useTabs'
-import { openInTab } from '../../tabs/actions'
+import { openInTab, setActiveFrontmatter, updateFromSource } from '../../tabs/actions'
+import { attachEditor, enterSourceMode, exitSourceMode } from '../../document/session'
+import { createEditorExtensions } from './extensions'
 import { FindBar } from './FindBar'
 import { ShareStatusIcon } from '../share/ShareStatusIcon'
 import { ShareStatusPopover } from '../share/ShareStatusPopover'
@@ -65,8 +27,6 @@ import { useWebPlatformEnabled } from '../../lib/featureFlags'
 import { SelectionPopover } from './SelectionPopover'
 import { TableControls } from './TableControls'
 import { insertTable } from '../../lib/tableCommands'
-import { TableCellKeymap } from '../../extensions/table-cell-keymap'
-import { TableTrailingParagraph } from '../../extensions/table-trailing-paragraph'
 import { AddCommentDialog } from './AddCommentDialog'
 import {
   Dialog,
@@ -78,14 +38,11 @@ import {
 } from '../ui/dialog'
 import { Button } from '../ui/button'
 import { EmptyState } from '../layout/EmptyState'
-import { FrontmatterDisplay, hasFrontmatter, getContentWithoutFrontmatter, getFrontmatterRaw } from './FrontmatterDisplay'
+import { FrontmatterDisplay, hasFrontmatter } from './FrontmatterDisplay'
 import { FrontmatterEditor, serializeFrontmatter } from './FrontmatterEditor'
-import { serializeMarkdown, parseMarkdown } from '../../lib/markdown'
 import { TransformAnimation, useTransformAnimation } from './TransformAnimation'
 import { AISuggestionPopover } from '../AISuggestionPopover'
 import { CommentPopover } from '../CommentPopover'
-import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
-import type { AISuggestionData } from '../../extensions/ai-suggestions/types'
 import { useCommentStore } from '../../extensions/comments/store'
 import { LinkPopover } from './LinkPopover'
 import { SourceEditor, SourceEditorHandle } from './SourceEditor'
@@ -159,25 +116,6 @@ function shouldPromptForAIPaste(text: string): boolean {
 }
 
 /**
- * Task lists always serialize with a dash marker (`- [ ]`, the conventional
- * GFM form) regardless of the bulletListMarker preference — an asterisk next
- * to the checkbox brackets (`* [ ]`) reads as a doubled marker. Only
- * `serialize` is overridden: tiptap-markdown's getMarkdownSpec spreads its
- * default taskList spec under this one, so its markdown-it parse setup stays.
- */
-const TaskListDashMarker = TaskList.extend({
-  addStorage() {
-    return {
-      markdown: {
-        serialize(state, node) {
-          state.renderList(node, '  ', () => '- ')
-        }
-      }
-    }
-  }
-})
-
-/**
  * Return focus to the editor with the caret at the nearest valid text position
  * at-or-before `pos`. A paste ending on a block boundary (multi-paragraph or
  * list content) makes the raw range-end an invalid text position — a caret set
@@ -197,67 +135,21 @@ function focusEditorAtPasteEnd(pos: number): void {
 // the same in-memory, session-lifetime idiom as useAnnotationStore's createdThisSession set.
 let pasteAnnotationDismissedThisSession = false
 
-// Lowlight instance with a curated set of common languages.
-// Using individual imports (not the full `common` preset) keeps the bundle
-// smaller: ~12 grammars vs the 37-language common set.
-const lowlight = createLowlight()
-lowlight.register('javascript', javascript)
-lowlight.register('js', javascript)
-lowlight.register('typescript', typescript)
-lowlight.register('ts', typescript)
-lowlight.register('json', json)
-lowlight.register('bash', bash)
-lowlight.register('sh', bash)
-lowlight.register('shell', bash)
-lowlight.register('python', python)
-lowlight.register('py', python)
-lowlight.register('css', css)
-lowlight.register('html', xml)
-lowlight.register('xml', xml)
-lowlight.register('markdown', hlMarkdown)
-lowlight.register('md', hlMarkdown)
-lowlight.register('rust', rust)
-lowlight.register('go', go)
-lowlight.register('sql', sql)
-lowlight.register('yaml', yaml)
-lowlight.register('yml', yaml)
-
 export function Editor() {
-  const { document, setContent, openFile, saveFile } = useEditor()
+  const { document, openFile, saveFile } = useEditor()
   const isEditing = useEditorStore((state) => state.isEditing)
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
   const isPreviewTab = useEditorStore((state) => state.isPreviewTab)
   const annotationsVisible = useEditorStore((state) => state.annotationsVisible)
   const toggleAnnotationsVisible = useEditorStore((state) => state.toggleAnnotationsVisible)
   const sourceMode = useEditorStore((state) => state.sourceMode)
-  const setSourceMode = useEditorStore((state) => state.setSourceMode)
   const { settings, effectiveTheme, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen } = useSettings()
   const { setContext, cycleToolMode } = useChat()
   const { isChatOpen, isFileListOpen, toggleChat, toggleFileList, setChatOpen, setFileListOpen } = usePanelLayoutContext()
   const setEditorInstance = useEditorInstanceStore((state) => state.setEditor)
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  /** The store write the debounce above is holding, so a tab switch can flush it (#1127). */
-  const pendingWriteRef = useRef<(() => void) | null>(null)
-  const isUpdatingFromStore = useRef(false)
-  const frontmatterRef = useRef<string>('')
-  const lastDocumentIdRef = useRef<string>(document.documentId)
-  // Set by the document-switch effect when the loaded document is a tab coming
-  // back with a cached view; consumed by the focus pass (#1103).
-  const pendingViewRef = useRef<EditorViewState | null>(null)
-  // The body the source editor last wrote to the store, so the store→editor
-  // sync can tell its own echo from an external change (#1102).
-  const sourceWriteRef = useRef<string | null>(null)
   // The source editor's text as of its last change, kept synchronously: on
   // exit its ref is already detached and the sourceContent state can lag (#1102).
   const latestSourceRef = useRef<string>('')
-  /** The source text as shown on entering source mode — unchanged on exit means nothing to write back (#1125). */
-  const sourceEntryRef = useRef<string>('')
-  // What the document serialized to right after its last programmatic load
-  // (file load, source-mode exit), and the store content it was loaded from.
-  // Re-applying marks or decorations changes no serialized byte, so while the
-  // doc still serializes to `markdown` the store keeps `content` — the bytes as
-  // loaded — instead of a re-serialization nobody asked for (#1102).
-  const loadBaselineRef = useRef<{ documentId: string; markdown: string; content: string } | null>(null)
   const [isFindOpen, setIsFindOpen] = useState(false)
   const [isAddCommentOpen, setIsAddCommentOpen] = useState(false)
   const webPlatformEnabled = useWebPlatformEnabled()
@@ -273,14 +165,7 @@ export function Editor() {
 
   // Source mode: holds markdown content while CodeMirror is mounted
   const [sourceContent, setSourceContent] = useState<string>('')
-  // Preserve AI suggestions across source mode round-trips
-  const savedSuggestionsRef = useRef<AISuggestionData[]>([])
   const sourceEditorRef = useRef<SourceEditorHandle>(null)
-  // The documentId whose text is currently held in the source editor. On exit,
-  // the Source→WYSIWYG writeback only fires when this still matches the active
-  // document — otherwise a tab switch happened and the new tab's content is
-  // already loaded, so writing the (stale) source back would clobber it.
-  const sourceDocIdRef = useRef<string | null>(null)
 
   // Track if current file is linked to a reMarkable notebook (for showing "View Original" button)
   const [linkedNotebookId, setLinkedNotebookId] = useState<string | null>(null)
@@ -291,12 +176,6 @@ export function Editor() {
     position: { top: number; left: number }
     initialUrl?: string
   }>({ isOpen: false, position: { top: 0, left: 0 } })
-
-  // Extract and store frontmatter on initial load
-  const initialContent = useMemo(() => {
-    frontmatterRef.current = getFrontmatterRaw(document.content)
-    return getContentWithoutFrontmatter(document.content)
-  }, []) // Only run once on mount
 
   // Stable frontmatter for the editor UI — re-syncs on documentId change AND on
   // shallow-value changes from the store. The shallow-value check lets external
@@ -337,109 +216,39 @@ export function Editor() {
   }, [document.documentId, document.frontmatter, stableFrontmatter, stableFrontmatterDocId])
 
   const editor = useTipTapEditor({
-    extensions: [
-      StarterKit.configure({
-        heading: {
-          levels: [1, 2, 3, 4, 5, 6]
-        },
-        document: false,
-        codeBlock: false
-      }),
-      DocumentWithFootnotes,
-      CodeBlockLowlight.configure({
-        lowlight,
-      }),
-      Placeholder.configure({
-        placeholder: 'Start writing...'
-      }),
-      Link.configure({
-        openOnClick: false, // We handle CMD+Click in LinkHover extension
-        autolink: true,
-        linkOnPaste: true,
-        HTMLAttributes: {
-          target: '_blank',
-          rel: 'noopener noreferrer'
-        }
-      }),
-      Underline,
-      Superscript,
-      Subscript,
-      Table.configure({
-        resizable: false,
-        HTMLAttributes: {
-          class: 'prose-table'
-        }
-      }),
-      TableRow,
-      TableHeader,
-      TableCell,
-      // Enter inside a cell must not split the block — see the extension for why
-      // a split silently turns the table into raw HTML on save (#1060).
-      TableCellKeymap,
-      // A table may not be the last node in the document, or there is no way to
-      // click or arrow past it (#1087).
-      TableTrailingParagraph,
-      TaskListDashMarker,
-      TaskItem.configure({
-        nested: true
-      }),
-      Footnotes,
-      Footnote,
-      FootnoteReference,
-      Markdown.configure({
-        html: true,
-        tightLists: true,
-        bulletListMarker: settings.editor.bulletListMarker ?? '*',
-        transformPastedText: true,
-        transformCopiedText: true
-      }),
-      FocusMode,
-      Comment.configure({
-        // Mirror every newly-created comment mark into the persistence store so
-        // replies/resolve can find it by ID immediately — without waiting for a
-        // tab-switch save. Catches both the UI (AddCommentDialog) and tool
-        // (add_comment) paths, since both go through setComment. Restoration
-        // uses tr.addMark directly and does NOT fire this, so no double-add.
-        onCommentAdded: (commentData) => {
-          const store = useCommentStore.getState()
-          if (store.pendingComments.some((c) => c.id === commentData.id)) return
-          const updated = [
-            ...store.pendingComments,
-            { ...commentData, replies: [], resolved: false },
-          ]
-          useCommentStore.setState({ pendingComments: updated })
-          if (store.documentId) store.saveComments(store.documentId, updated)
-          // Live new-thread push (#769): the conversation is always live — a
-          // comment created here becomes a server row on the publication
-          // immediately. No-op when the document isn't published.
-          pushNewThreadToShare(commentData.id)
-        },
-        // setComment refuses ranges that would swallow an existing thread's
-        // mark (#830) — tell the user to reply on that thread instead.
-        onCommentBlocked: () => {
-          useNotificationStore.getState().notify({
-            id: 'comment-overlap-blocked',
-            message: 'This text already has a comment — reply to the existing thread instead of adding a new one.',
-          })
-        },
-      }),
-      AISuggestion,
-      AIAnnotations.configure({
-        showTooltip: true,
-      }),
-      NodeIds,
-      SearchHighlight,
-      LinkHover,
-      PlainTextMode,
-      ImageWithUpload.configure({
-        allowBase64: true,
-        HTMLAttributes: {
-          class: 'editor-image'
-        }
-      }),
-      PersistentSelection,
-    ],
-    content: initialContent,
+    extensions: createEditorExtensions({
+      bulletListMarker: settings.editor.bulletListMarker ?? '*',
+      // Mirror every newly-created comment mark into the persistence store so
+      // replies/resolve can find it by ID immediately — without waiting for a
+      // tab-switch save. Catches both the UI (AddCommentDialog) and tool
+      // (add_comment) paths, since both go through setComment. Restoration
+      // uses tr.addMark directly and does NOT fire this, so no double-add.
+      onCommentAdded: (commentData) => {
+        const store = useCommentStore.getState()
+        if (store.pendingComments.some((c) => c.id === commentData.id)) return
+        const updated = [
+          ...store.pendingComments,
+          { ...commentData, replies: [], resolved: false },
+        ]
+        useCommentStore.setState({ pendingComments: updated })
+        if (store.documentId) store.saveComments(store.documentId, updated)
+        // Live new-thread push (#769): the conversation is always live — a
+        // comment created here becomes a server row on the publication
+        // immediately. No-op when the document isn't published.
+        pushNewThreadToShare(commentData.id)
+      },
+      // setComment refuses ranges that would swallow an existing thread's
+      // mark (#830) — tell the user to reply on that thread instead.
+      onCommentBlocked: () => {
+        useNotificationStore.getState().notify({
+          id: 'comment-overlap-blocked',
+          message: 'This text already has a comment — reply to the existing thread instead of adding a new one.',
+        })
+      },
+    }),
+    // The document arrives through the session layer (document/session.ts),
+    // which swaps one EditorState per tab into this view.
+    content: '',
     editorProps: {
       attributes: {
         class: 'outline-hidden min-h-full'
@@ -501,57 +310,6 @@ export function Editor() {
         }
       }
     },
-    // Note: No onCreate needed - editor is created with initial content,
-    // so history naturally starts from that state
-    onUpdate: ({ editor }) => {
-      if (isUpdatingFromStore.current) return
-      // Source mode owns the document while it is open; the hidden TipTap doc
-      // is stale until the exit writeback, so it must never write the store (#1102).
-      if (useEditorStore.getState().sourceMode) return
-
-      console.log('[Editor:onUpdate] Content changed, scheduling save')
-
-      // Capture the current document ID so we can discard the update if the
-      // user switches tabs before the debounce fires (prevents cross-tab dirty state)
-      const capturedDocumentId = useEditorStore.getState().document.documentId
-
-      // Debounce content updates to store
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current)
-      }
-
-      const write = () => {
-        // If the active document changed since this was scheduled (tab switch),
-        // discard the update to avoid marking the wrong tab as dirty
-        if (useEditorStore.getState().document.documentId !== capturedDocumentId) {
-          console.log('[Editor:onUpdate] Document changed, discarding stale content update')
-          return
-        }
-
-        const markdown = editor.storage.markdown.getMarkdown()
-        // Prepend frontmatter if present — unless nothing serializable changed
-        // since the last load, in which case keep the bytes as loaded (#1102).
-        const baseline = loadBaselineRef.current
-        const fullContent =
-          baseline && baseline.documentId === capturedDocumentId && baseline.markdown === markdown
-            ? baseline.content
-            : frontmatterRef.current + markdown
-        console.log('[Editor:onUpdate] Saving content to store:', {
-          length: fullContent.length,
-          preview: fullContent.substring(0, 100).replace(/\n/g, '\\n'),
-          hasTable: fullContent.includes('|')
-        })
-        setContent(fullContent)
-      }
-      // Kept so a tab switch can flush it before the switch: an edit inside
-      // this window otherwise reached neither the store nor the tab (#1127).
-      pendingWriteRef.current = write
-      debounceRef.current = setTimeout(() => {
-        pendingWriteRef.current = null
-        debounceRef.current = null
-        write()
-      }, 500)
-    }
   })
 
   // Helper to open comment dialog with current selection (add-new mode)
@@ -577,131 +335,12 @@ export function Editor() {
     })
   }, [editor])
 
-  // Sync content from store to editor when document changes externally
-  useEffect(() => {
-    if (!editor) return
-
-    // Extract frontmatter and body from the new content
-    const newFrontmatter = getFrontmatterRaw(document.content)
-    const newBody = getContentWithoutFrontmatter(document.content)
-
-    // Get current editor content (without frontmatter since we strip it)
-    const currentMarkdown = editor.storage.markdown?.getMarkdown() || ''
-
-    // Check if this is a new document (different documentId)
-    const isNewDocument = lastDocumentIdRef.current !== document.documentId
-    if (isNewDocument) {
-      lastDocumentIdRef.current = document.documentId
-      // The view the active tab cached when it was last left, if this load is
-      // that tab coming back (#1103). Every switch path activates the tab
-      // before it writes the document, so the ids line up here. The focus
-      // pass below consumes it.
-      const activeTab = useTabStore.getState().getActiveTab()
-      pendingViewRef.current =
-        activeTab?.documentId === document.documentId ? activeTab.viewState ?? null : null
-    }
-
-    // Source mode is authoritative (#1102). A store write while it is open is
-    // the source editor's own typing coming back: parsing it into the hidden
-    // TipTap doc strips the marks and, through onUpdate, re-serialized the
-    // whole document; echoing it into CodeMirror reset the caret and dropped
-    // the frontmatter block. Only a genuine external change reaches the source
-    // view, and TipTap is written once, on exit. A new document still loads —
-    // the document-switch reset turns source mode off after this effect runs.
-    if (!isNewDocument && useEditorStore.getState().sourceMode) {
-      if (document.content !== sourceWriteRef.current) {
-        latestSourceRef.current = serializeMarkdown(newBody, useEditorStore.getState().document.frontmatter ?? {})
-        setSourceContent(latestSourceRef.current)
-      }
-      return
-    }
-
-    // Check if body content differs (comparing without frontmatter). The store
-    // holding the bytes as loaded while TipTap still serializes to the load's
-    // baseline is in sync too: the difference is only serializer normalization,
-    // and re-parsing over it — on the source exit's own write — would strip the
-    // marks (until the exit's restore re-applies them), add an undo step, and
-    // scroll to the top.
-    const baseline = loadBaselineRef.current
-    const matchesBaseline =
-      !isNewDocument &&
-      !!baseline &&
-      baseline.documentId === document.documentId &&
-      baseline.content === document.content &&
-      baseline.markdown === currentMarkdown
-    if (newBody !== currentMarkdown && !matchesBaseline) {
-      isUpdatingFromStore.current = true
-      frontmatterRef.current = newFrontmatter
-
-      // Sync plain text mode BEFORE setContent so appendTransaction
-      // doesn't flatten markdown content on tab switches
-      const isPlainText = !!document.path?.endsWith('.txt')
-      editor.storage.plainTextMode.enabled = isPlainText
-
-      // If source mode is active, sync content directly to the source editor
-      // (the TipTap editor is hidden, so we update sourceContent too)
-      if (useEditorStore.getState().sourceMode) {
-        setSourceContent(newBody)
-      }
-
-      if (isNewDocument) {
-        // Create a fresh EditorState when loading a new document.
-        // This resets the undo history so users can't undo past the initial document state.
-        // Note: TipTap's clearHistory() doesn't exist - ProseMirror requires recreating the state.
-
-        // First, set the content to let tiptap-markdown parse it
-        editor.commands.setContent(newBody)
-
-        // Now create a fresh state with the parsed document (this clears history)
-        const newState = EditorState.create({
-          doc: editor.state.doc,
-          plugins: editor.state.plugins,
-          schema: editor.state.schema,
-        })
-        editor.view.updateState(newState)
-        // A tab being returned to comes back where it was left (#1103).
-        if (pendingViewRef.current) restoreEditorViewState(editor, pendingViewRef.current)
-      } else {
-        // Normal content update - preserve history so user can undo their edits
-        editor.commands.setContent(newBody)
-      }
-
-      isUpdatingFromStore.current = false
-      loadBaselineRef.current = {
-        documentId: document.documentId,
-        markdown: editor.storage.markdown?.getMarkdown() || '',
-        content: document.content,
-      }
-
-      // The setContent/updateState above dispatched the document-load transaction
-      // which correctly skipped position updates (isLoadingDocument was true). Now
-      // that the load transaction has fired, clear the guard immediately so the
-      // NEXT user-initiated transaction (e.g. accept_diff) runs updatePositions.
-      // The 100ms setTimeout in select_tab / executeOpenFile remains as a fallback
-      // for tab switches where content didn't change.
-      useAnnotationStore.getState().setLoadingDocument(false)
-
-      // Scroll to top when new content is loaded, unless a tab's own view was
-      // just put back above.
-      const editorContainer = editor.view.dom.closest('.overflow-auto')
-      if (editorContainer && !pendingViewRef.current) {
-        editorContainer.scrollTop = 0
-      }
-    } else if (isNewDocument && pendingViewRef.current) {
-      // Same body as the tab we left (nothing was reloaded): restore in place.
-      restoreEditorViewState(editor, pendingViewRef.current)
-    } else if (newFrontmatter !== frontmatterRef.current) {
-      // Just update frontmatter ref if only frontmatter changed
-      frontmatterRef.current = newFrontmatter
-    }
-  }, [editor, document.content, document.documentId])
-
-  // Register editor instance in store for cross-component access.
-  // On cleanup (HMR remount or unmount), snapshot any live AI suggestions into
-  // the suggestion store so the next mount can replay them via the existing
-  // restoreAISuggestions useEffect — without touching the autosave pipeline.
+  // Register the editor instance for cross-component access and attach it to
+  // the session layer, which holds one EditorState per tab and swaps them
+  // into this view (#1145).
   useEffect(() => {
     setEditorInstance(editor)
+    attachEditor(editor)
     // Moving the caret or scrolling re-arms the session save (1s debounce), so
     // the active tab's live view reaches the saved session for a relaunch; the
     // save only ran on tab-store changes before, which neither of these is (#1103).
@@ -710,33 +349,13 @@ export function Editor() {
     const rearmSessionSave = () => scheduleSaveSession()
     editor?.on('selectionUpdate', rearmSessionSave)
     window.addEventListener('scroll', rearmSessionSave, { capture: true, passive: true })
-    useEditorInstanceStore.setState({
-      flushPendingUpdate: () => {
-        if (debounceRef.current) {
-          clearTimeout(debounceRef.current)
-          debounceRef.current = null
-        }
-        const write = pendingWriteRef.current
-        pendingWriteRef.current = null
-        write?.()
-      },
-    })
     return () => {
       editor?.off('selectionUpdate', rearmSessionSave)
       window.removeEventListener('scroll', rearmSessionSave, { capture: true })
-      useEditorInstanceStore.setState({ flushPendingUpdate: null })
+      attachEditor(null)
       setEditorInstance(null)
-      // Snapshot live suggestions for HMR replay (option 2 from issue #531).
-      // Only runs when there is an editor with an active document — skips
-      // clean unmounts where document.documentId is empty (e.g., empty state).
-      if (editor && document.documentId) {
-        const liveSuggestions = getAISuggestions(editor)
-        if (liveSuggestions.length > 0) {
-          useSuggestionStore.getState().snapshotSuggestions(document.documentId, liveSuggestions)
-        }
-      }
     }
-  }, [editor, setEditorInstance, document.documentId])
+  }, [editor, setEditorInstance])
 
   // Cache selection on selectionUpdate for read_selection fallback
   // This preserves the selection when chat input steals focus.
@@ -767,7 +386,8 @@ export function Editor() {
   // Update editor editability when read-only mode changes (reMarkable or preview tab)
   useEffect(() => {
     if (!editor) return
-    editor.setEditable(!isRemarkableReadOnly && !isPreviewTab)
+    // No `update` emitted: editability is not a content change.
+    editor.setEditable(!isRemarkableReadOnly && !isPreviewTab, false)
   }, [editor, isRemarkableReadOnly, isPreviewTab])
 
   // Sync bulletListMarker setting without requiring an editor remount.
@@ -805,171 +425,6 @@ export function Editor() {
     checkLinkedNotebook()
   }, [document.path])
 
-  // Trigger annotation load when the document changes. The ai-annotations plugin
-  // subscribes to the store and rebuilds its decorations on any store change
-  // (including after this async load and on add/remove), so no manual decoration
-  // dispatch is needed here.
-  const annotationStoreDocumentId = useAnnotationStore((state) => state.documentId)
-
-  useEffect(() => {
-    if (!editor || !document.documentId) return
-    if (annotationStoreDocumentId !== document.documentId) {
-      const annotationStore = useAnnotationStore.getState()
-      annotationStore.setDocumentId(document.documentId)
-      annotationStore.loadAnnotations(document.documentId)
-    }
-  }, [editor, document.documentId, annotationStoreDocumentId])
-
-  // Subscribe to pending suggestions reactively for restoration
-  const pendingSuggestions = useSuggestionStore((state) => state.pendingSuggestions)
-  const suggestionStoreDocumentId = useSuggestionStore((state) => state.documentId)
-
-  // Load suggestions when the document changes (mirrors the annotation + comment
-  // recovery effects). Session restore / file open hydrate the editor without
-  // going through useTabs' explicit loadSuggestions, so without this a document's
-  // AI suggestions are lost on reload. loadSuggestions populates pendingSuggestions;
-  // the restore effect below re-applies them to the editor.
-  useEffect(() => {
-    if (!editor || !document.documentId) return
-    if (suggestionStoreDocumentId !== document.documentId) {
-      useSuggestionStore.getState().loadSuggestions(document.documentId)
-    }
-  }, [editor, document.documentId, suggestionStoreDocumentId])
-
-  // Restore AI suggestions when document changes or pending suggestions are loaded
-  useEffect(() => {
-    if (!editor || !document.documentId) return
-
-    // Only restore if there are pending suggestions and they match current document
-    if (pendingSuggestions.length > 0 && suggestionStoreDocumentId === document.documentId) {
-      // Wait for the document content to be present (see the comment-restore
-      // effect): on reload the file loads asynchronously, and restoring against
-      // an empty doc would drop the suggestions, then clearSuggestions() consumes
-      // them. document.content is in the deps so this re-fires once text arrives.
-      if (!editor.state.doc.textContent.trim()) return
-
-      console.log(`[Editor:${SESSION_ID}] Restoring suggestions:`, {
-        documentId: document.documentId,
-        count: pendingSuggestions.length
-      })
-
-      // Small delay to ensure editor content is fully loaded
-      const timer = setTimeout(() => {
-        editor.commands.restoreAISuggestions(pendingSuggestions)
-        // Clear pending suggestions after restoring
-        useSuggestionStore.getState().clearSuggestions()
-      }, 100)
-
-      return () => clearTimeout(timer)
-    }
-  }, [editor, document.documentId, pendingSuggestions, suggestionStoreDocumentId, document.content])
-
-  // Persist suggestions to IndexedDB when they change, so they survive a reload.
-  // snapshotSuggestions only buffers in-memory (HMR), and tab-switch saves are
-  // too infrequent — creating a suggestion then refreshing would lose it. Saving
-  // on a debounced transaction also keeps stored positions in sync as the doc
-  // edits. Skip while a restore is pending (pendingSuggestions not yet replayed)
-  // so the document-load transaction can't clobber IndexedDB with an empty set.
-  useEffect(() => {
-    if (!editor || !document.documentId) return
-    const docId = document.documentId
-    let timer: ReturnType<typeof setTimeout> | null = null
-    // Set when the writer accepted or rejected a suggestion since the last
-    // persist — the one case where an empty live set is intent (#1126).
-    let resolved = false
-    const persist = () => {
-      timer = null
-      const store = useSuggestionStore.getState()
-      if (store.pendingSuggestions.length > 0) return // restore pending — don't clobber
-      const live = getAISuggestions(editor)
-      const userResolved = resolved
-      resolved = false
-      // NEVER overwrite the stored set with an empty one from a routine
-      // transaction. An empty editor here is almost always transient — a
-      // document load or a source-mode toggle strips the decorations and fires a
-      // transaction — NOT a real "user cleared all". Persisting that empty wiped
-      // suggestions from IndexedDB (data loss). Mirrors useTabs' deliberate
-      // `length > 0 ? save : skip`; genuine empties persist via tab-close/delete —
-      // and via an accept/reject that emptied the set: without that, the stale
-      // set came back on the next tab switch (#1126).
-      if (live.length === 0) {
-        if (userResolved) store.deleteSuggestions(docId)
-        return
-      }
-      store.saveSuggestions(docId, live)
-    }
-    const onTx = ({ transaction }: { transaction: { getMeta: (key: string) => unknown } }) => {
-      if (timer) clearTimeout(timer)
-      if (transaction.getMeta(AI_SUGGESTION_RESOLVED_META)) {
-        // Persist now, not after the debounce: a tab switch inside those 500ms
-        // clears the timer, and the stale set would be what the switch back loads.
-        resolved = true
-        persist()
-        return
-      }
-      timer = setTimeout(persist, 500)
-    }
-    editor.on('transaction', onTx)
-    return () => {
-      editor.off('transaction', onTx)
-      if (timer) clearTimeout(timer)
-    }
-  }, [editor, document.documentId])
-
-  // Subscribe to comment store state. pendingComments stays populated (it's the
-  // live source of truth for replies/resolved); needsRestore is the one-shot
-  // signal that the marks must be re-applied to the editor after a load.
-  const needsRestore = useCommentStore((state) => state.needsRestore)
-  const commentStoreDocumentId = useCommentStore((state) => state.documentId)
-
-  // Load comments when the document changes (mirrors the annotation recovery
-  // effect above). Session restore and file-open hydrate the editor without
-  // going through useTabs' explicit loadComments calls, so without this the
-  // comment store stays empty and a document's threads are lost on reload.
-  // loadComments sets needsRestore; the restore effect below re-applies marks.
-  useEffect(() => {
-    if (!editor || !document.documentId) return
-    if (commentStoreDocumentId !== document.documentId) {
-      useCommentStore.getState().loadComments(document.documentId)
-    }
-  }, [editor, document.documentId, commentStoreDocumentId])
-
-  // Re-apply comment marks once after each load. Marks aren't serialized into
-  // the document, so they must be restored when content (re)loads — but NOT on
-  // every pendingComments change (a reply/resolve must not re-mark the doc).
-  // needsRestore gates this; we consume it whether or not there are comments.
-  useEffect(() => {
-    if (!editor || !document.documentId) return
-    if (!needsRestore || commentStoreDocumentId !== document.documentId) return
-
-    // Wait for the document content to actually be present before restoring. On
-    // reload, file content loads asynchronously from disk; restoring against an
-    // empty doc finds no text to mark and would then consume the one-shot flag,
-    // losing the marks until the next load. document.content is in the deps, so
-    // this re-fires once the real text arrives. (If there are no pending comments
-    // there's nothing to lose, so don't block on content.)
-    const hasPending = useCommentStore.getState().pendingComments.length > 0
-    const contentReady = !!editor.state.doc.textContent.trim()
-    if (hasPending && !contentReady) return
-
-    // Small delay to ensure editor content is fully loaded (same pattern as suggestions)
-    const timer = setTimeout(() => {
-      const fresh = useCommentStore.getState().pendingComments
-      if (fresh.length > 0) {
-        console.log(`[Editor:${SESSION_ID}] Restoring comments:`, {
-          documentId: document.documentId,
-          count: fresh.length
-        })
-        editor.commands.restoreComments(fresh)
-      }
-      // Consume the one-shot flag — but keep pendingComments populated so the
-      // CommentPopover thread + Activity timeline keep reading replies/resolved.
-      useCommentStore.getState().markRestored()
-    }, 100)
-
-    return () => clearTimeout(timer)
-  }, [editor, document.documentId, needsRestore, commentStoreDocumentId, document.content])
-
   // Auto-focus editor once when document loads (not on every content change)
   const hasFocusedRef = useRef(false)
   useEffect(() => {
@@ -985,38 +440,30 @@ export function Editor() {
     // re-run this effect and yank the caret/scroll back to the top (#729).
     if (useEditorStore.getState().isPreviewTab) {
       hasFocusedRef.current = true
-      // The document-switch effect already put a returning preview tab's view
-      // back; nothing to re-apply without focus (#1103).
-      pendingViewRef.current = null
       return
     }
 
     const shouldShowEmptyState = !isEditing && !document.path && !document.content && !document.isDirty
     if (editor && !shouldShowEmptyState) {
       hasFocusedRef.current = true
-      const restoredView = pendingViewRef.current
-      pendingViewRef.current = null
-      // Small delay to ensure DOM is ready
+      // The session put the selection and the scroll offset back on
+      // activation (#1103, #1145): focus without moving either, then re-apply
+      // the offset once layout has settled.
       const timer = setTimeout(() => {
-        if (restoredView) {
-          // Back on a tab that was left mid-document (#1103): keep the
-          // restored selection and re-apply the offset after layout settled.
-          editor.commands.focus(undefined, { scrollIntoView: false })
-          restoreEditorViewState(editor, restoredView)
-          return
-        }
-        editor.commands.focus('start')
-        // Scroll editor container to top
-        const editorContainer = editor.view.dom.closest('.overflow-auto')
-        if (editorContainer) {
-          editorContainer.scrollTop = 0
+        editor.commands.focus(undefined, { scrollIntoView: false })
+        const container = editor.view.dom.closest('.overflow-auto')
+        if (container) {
+          container.scrollTop = useTabStore.getState().getActiveTab()?.viewState?.scrollTop ?? 0
         }
       }, 50)
       return () => clearTimeout(timer)
     }
   }, [editor, isEditing, document.path, document.content, document.isDirty])
 
-  // Sync content when toggling source mode (layout effect to avoid flash of empty content)
+  // Source mode: the session serialises the document on entry and takes the
+  // typed text back as one undo step on exit (document/session.ts). A switch
+  // away while it is open runs the exit on the leaving session first. Layout
+  // effect to avoid a flash of empty content.
   const prevSourceModeRef = useRef(sourceMode)
   useLayoutEffect(() => {
     if (!editor) return
@@ -1024,98 +471,13 @@ export function Editor() {
     prevSourceModeRef.current = sourceMode
 
     if (sourceMode && !prev) {
-      // WYSIWYG → Source: save suggestions then serialize with frontmatter
-      savedSuggestionsRef.current = getAISuggestions(editor)
-      sourceDocIdRef.current = useEditorStore.getState().document.documentId
-      // Open on the bytes as loaded when nothing serializable changed since the
-      // load — otherwise source mode would show TipTap's re-serialization and the
-      // first keystroke would commit it (#1102). After a WYSIWYG edit the
-      // serialization is the only source of those edits.
-      const live = editor.storage.markdown?.getMarkdown?.() ?? ''
-      const baseline = loadBaselineRef.current
-      const md =
-        baseline && baseline.documentId === sourceDocIdRef.current && baseline.markdown === live
-          ? getContentWithoutFrontmatter(baseline.content)
-          : live
-      const fm = useEditorStore.getState().document.frontmatter ?? {}
-      latestSourceRef.current = serializeMarkdown(md, fm)
-      sourceEntryRef.current = latestSourceRef.current
-      setSourceContent(latestSourceRef.current)
+      const text = enterSourceMode(() => sourceEditorRef.current?.getContent() ?? latestSourceRef.current)
+      latestSourceRef.current = text
+      setSourceContent(text)
     } else if (!sourceMode && prev) {
-      // A document switch (not a user toggle) also flips sourceMode → false. In
-      // that case the new tab's content is already loaded by the content-sync
-      // effect, while the source editor still holds the PREVIOUS document's text.
-      // Writing that stale source back here would clobber the new tab — so when
-      // the active document no longer matches the source's document, skip the
-      // writeback and drop the previous doc's saved suggestions.
-      // (#bug: source persists across tabs)
-      const activeDocId = useEditorStore.getState().document.documentId
-      if (sourceDocIdRef.current !== activeDocId) {
-        savedSuggestionsRef.current = []
-        return
-      }
-      const liveContent = sourceEditorRef.current?.getContent() ?? latestSourceRef.current
-      // Nothing typed: the TipTap doc, the store and every mark are exactly as
-      // they were on entry, so there is nothing to write back. The unconditional
-      // writeback below re-parses the source and calls setFrontmatter, which
-      // marks the document dirty — so an untouched toggle dirtied every
-      // document, and parseMarkdown's trim dropped the body's trailing newline
-      // (#1125).
-      if (liveContent === sourceEntryRef.current) {
-        savedSuggestionsRef.current = []
-        return
-      }
-      // Source → WYSIWYG: parse frontmatter back out from raw source
-      const { content: bodyOnly, frontmatter: parsedFm } = parseMarkdown(liveContent)
-      useEditorStore.getState().setFrontmatter(parsedFm)
-      // Mapping AI annotations through a whole-document replace would detach
-      // every one of them; re-anchor them by their text instead.
-      reloadKeepingAnnotations(editor, () => editor.commands.setContent(bodyOnly))
-      // The single writeback (#1102), written to the store explicitly: setContent
-      // emits no update, and the source editor's debounce is cleared — not
-      // flushed — on unmount, so keystrokes from its last 500ms reached TipTap
-      // but never the store, and a save dropped them. The baseline is set
-      // first, so the store→editor sync reads this write as in sync rather
-      // than re-parsing over the mark restore below; later mark-only updates
-      // keep these bytes rather than re-serializing them.
-      loadBaselineRef.current = {
-        documentId: activeDocId,
-        markdown: editor.storage.markdown?.getMarkdown() ?? '',
-        content: frontmatterRef.current + bodyOnly,
-      }
-      useEditorStore.getState().setContent(loadBaselineRef.current.content)
-      // setContent stripped both suggestion decorations AND comment marks. The
-      // document didn't change, so neither the suggestion- nor comment-restore
-      // effects will re-run — we must re-apply both here, or a source round-trip
-      // silently drops them from the body (while the stores keep the data).
-      const comments = useCommentStore.getState().pendingComments
-      setTimeout(() => {
-        if (savedSuggestionsRef.current.length > 0) {
-          editor.commands.restoreAISuggestions(savedSuggestionsRef.current)
-          savedSuggestionsRef.current = []
-        }
-        if (comments.length > 0) {
-          editor.commands.restoreComments(comments)
-        }
-      }, 50)
+      exitSourceMode()
     }
   }, [sourceMode, editor])
-
-  // Reset source mode when switching documents. The toggle effect's
-  // Source→WYSIWYG branch guards against clobbering the new tab by comparing
-  // sourceDocIdRef to the active document (see above).
-  useEffect(() => {
-    setSourceMode(false)
-  }, [document.documentId, setSourceMode])
-
-  // Cleanup debounce on unmount
-  useEffect(() => {
-    return () => {
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current)
-      }
-    }
-  }, [])
 
   // Handle keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -1429,34 +791,20 @@ export function Editor() {
     }
   }, [showEmptyState, editor, isPreviewTab])
 
-  // Source mode onChange handler: update state + store
+  // Source mode onChange handler: the store and the tab follow the text; the
+  // session's state waits for the exit (#1102).
   const handleSourceChange = useCallback((newContent: string) => {
-    // A change flushed as the source editor unmounts for a document switch
-    // belongs to the previous document; the store already holds the next one.
-    if (useEditorStore.getState().document.documentId !== sourceDocIdRef.current) return
     latestSourceRef.current = newContent
     setSourceContent(newContent)
-    // Source mode includes frontmatter — parse it out before saving to store
-    const { content: body, frontmatter: fm } = parseMarkdown(newContent)
-    sourceWriteRef.current = body
-    setContent(body)
-    useEditorStore.getState().setDocument({ frontmatter: fm })
-  }, [setContent])
+    updateFromSource(newContent)
+  }, [])
 
-  // Frontmatter editor save handler: update store and content
-  const setFrontmatter = useEditorStore((state) => state.setFrontmatter)
+  // Frontmatter editor save handler: the store's object is the truth from
+  // here; the session drops the raw block from the projected content.
   const handleFrontmatterSave = useCallback((newFrontmatter: Record<string, unknown>) => {
-    if (!editor) return
-    setFrontmatter(newFrontmatter)
+    setActiveFrontmatter(newFrontmatter)
     setStableFrontmatter(newFrontmatter)
-    // Clear frontmatterRef so onUpdate doesn't re-prepend raw frontmatter.
-    // The store's document.frontmatter is the source of truth now;
-    // buildSaveContent/serializeMarkdown adds the --- block on save.
-    frontmatterRef.current = ''
-    // Store body only
-    const currentBody = editor.storage.markdown?.getMarkdown() ?? ''
-    setContent(currentBody)
-  }, [setFrontmatter, setContent, editor])
+  }, [])
 
   const handleConfirmPasteAI = useCallback(() => {
     if (!pendingPasteAnnotation) return

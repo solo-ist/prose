@@ -116,6 +116,8 @@ interface SourceSurface {
 
 interface Registry {
   sessions: Map<string, Session>
+  /** Sessions being built, so two callers racing on one tab share the build. */
+  pending: Map<string, Promise<Session>>
   activeTabId: string | null
 }
 
@@ -126,8 +128,10 @@ interface Registry {
 const hot = import.meta.hot
 const registry: Registry = (hot?.data.sessionRegistry as Registry | undefined) ?? {
   sessions: new Map(),
+  pending: new Map(),
   activeTabId: null
 }
+registry.pending ??= new Map()
 if (hot) hot.data.sessionRegistry = registry
 
 let editor: Editor | null = null
@@ -243,9 +247,11 @@ function rebuildForSchema(session: Session, next: Editor): void {
     doc,
     selection: selectionFromViewState(doc, { selection: { from, to }, scrollTop: 0 })
   })
-  state = state.apply(
+  // applyTransaction, as openSession does: the appended normalisers (node ids,
+  // the table trailing paragraph) run on the rebuilt document too.
+  state = state.applyTransaction(
     state.tr.setMeta(IDENTITY_META, identity).setMeta(BUILD_META, true).setMeta('addToHistory', false)
-  )
+  ).state
   session.state = state
 }
 
@@ -507,13 +513,28 @@ export async function persistSessionRecords(tabId: string): Promise<void> {
  * seed transaction that stamps the identity and re-applies comment and
  * suggestion marks. Returns the existing session when there is one.
  */
-export async function openSession(
+export function openSession(
   tab: Tab,
   content: string,
   opts: { viewState?: EditorViewState } = {}
 ): Promise<Session> {
   const existing = registry.sessions.get(tab.id)
-  if (existing) return existing
+  if (existing) return Promise.resolve(existing)
+  // One build per tab at a time: two callers racing on the same tab (a switch
+  // and a reopen, say) await the same promise instead of each registering a
+  // session after its own IndexedDB reads.
+  const pending = registry.pending.get(tab.id)
+  if (pending) return pending
+  const promise = openSessionNow(tab, content, opts).finally(() => registry.pending.delete(tab.id))
+  registry.pending.set(tab.id, promise)
+  return promise
+}
+
+async function openSessionNow(
+  tab: Tab,
+  content: string,
+  opts: { viewState?: EditorViewState }
+): Promise<Session> {
   const e = await whenEditorAttached()
   const documentId = tab.documentId
   const [annotations, comments, suggestions] = await Promise.all([
@@ -908,6 +929,9 @@ export function exitSourceMode(): void {
   const live = surface.getContent()
   if (live === surface.entryText) return
   const { content: body, frontmatter } = parseMarkdown(live)
+  // `content` is what the baseline substitutes on the next projection: the body
+  // alone here, because the frontmatter editor owns the raw block after a source
+  // exit and saves add it back from the store (see replaceSessionDocument).
   void replaceSessionDocument(surface.tabId, { content: body, body, frontmatter }, { keepHistory: true })
   if (surface.tabId === registry.activeTabId) {
     const store = useEditorStore.getState()

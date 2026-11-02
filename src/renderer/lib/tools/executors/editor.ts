@@ -409,6 +409,10 @@ export async function executeEdit(
   const contentStart = pos + 1
   const contentEnd = pos + node.nodeSize - 1
 
+  // Every record below is stamped with the document the handle writes to
+  // (#1145): the provenance id is the chat's binding, which lags a rename,
+  // Save As or first save until PR 4 binds tool calls to it; the annotation
+  // store refuses a record stamped for another document.
   // Snapshot existing annotations within this node's range BEFORE the edit.
   // applyInsertion issues a range-replace transaction; ProseMirror's position
   // mapping collapses all positions inside the deleted range to the insertion
@@ -418,7 +422,7 @@ export async function executeEdit(
   // the edit (see createWordDiffAnnotations for the remap logic).
   const priorAnnotations = provenance && provenance.documentId && content.length > 0
     ? useAnnotationStore.getState().annotations.filter(
-        (a) => a.documentId === provenance.documentId && a.to > contentStart && a.from < contentEnd
+        (a) => a.documentId === handle.documentId && a.to > contentStart && a.from < contentEnd
       )
     : []
 
@@ -431,7 +435,7 @@ export async function executeEdit(
   // Create word-level AI annotations for provenance tracking
   if (provenance && provenance.documentId && content.length > 0) {
     createWordDiffAnnotations({
-      documentId: provenance.documentId,
+      documentId: handle.documentId,
       originalText: node.textContent,
       newText: content,
       rangeFrom: contentStart,
@@ -592,7 +596,7 @@ export async function executeInsert(
           if (provenance && provenance.documentId && text.length > 0) {
             const insertedSize = (sizeAfter - sizeBefore) + (insertTo - insertFrom)
             createWordDiffAnnotations({
-              documentId: provenance.documentId,
+              documentId: handle.documentId,
               originalText: '',
               newText: text,
               rangeFrom: insertFrom,
@@ -637,7 +641,7 @@ export async function executeInsert(
       // in tooltip). originalText is empty for pure insertions; the util
       // promotes the type to 'insertion' automatically.
       createWordDiffAnnotations({
-        documentId: provenance.documentId,
+        documentId: handle.documentId,
         originalText: '',
         newText: text,
         rangeFrom: insertFrom,
@@ -701,7 +705,7 @@ function replaceTable(
     // Row/cell structure breaks word-diff offsets — one full-range
     // annotation over the new table, as wrapper block conversions do.
     useAnnotationStore.getState().addAnnotation({
-      documentId: provenance.documentId,
+      documentId: handle.documentId,
       type: 'replacement',
       from,
       to: from + parsed.nodeSize,
@@ -1005,7 +1009,7 @@ export function executeSuggestEdit(
       provenanceModel: provenance?.model || '',
       provenanceConversationId: provenance?.conversationId || '',
       provenanceMessageId: provenance?.messageId || '',
-      documentId: provenance?.documentId || '',
+      documentId: handle.documentId,
       blockConversionIntent,
     })
     .run()
@@ -1181,7 +1185,7 @@ export function executeDeleteNode(
   // rather than highlighting text that no longer exists.
   if (provenance && provenance.documentId) {
     useAnnotationStore.getState().addAnnotation({
-      documentId: provenance.documentId,
+      documentId: handle.documentId,
       type: 'deletion',
       from,
       to: from,

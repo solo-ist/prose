@@ -455,3 +455,16 @@ baseline reset are folded in above.
   passes alone). `qa/dev` = release + this branch (`b063809`, `--no-ff`); the dev server on PID 87172 hot-reloaded
   it (renderer-only change, no restart). **Next: the operator's QA pass on the dev window (list in the PR body),
   CI + claude review on #1165, merge on the operator's word, then `qa/dev` back to the release head.**
+- **2026-11-02, QA and review:** operator pass on the dev window, `docs/qa/v1.9.0-editor-state.md` §1: 16 of 17
+  boxes hold (the byte-exact file was never rewritten; `git diff` empty). One regression found and fixed in the
+  PR: accepting a suggestion that predated a rename, Save As or first save painted no highlight, because its mark
+  carried the old document id and the store now refuses a foreign id where it used to re-key itself (the §G path).
+  Both accept paths and every executor stamp the live identity; case 7 of the sessions spec covers it. Found
+  pre-existing and filed: #1166 (explorer paste targets the source folder), #1167 (`..` row not a drop target),
+  #1168 (suggestion popover fixed on screen), #1169 (⌘⇧S taken by strikethrough), #1170 (caret across the source
+  toggle, enhancement); source mode per tab recorded on #1132 / #1150. Automated review: four findings, none
+  blocking; 1 (HMR rebuild via `applyTransaction`), 3 (trailing comments in the tripwire stripper) and 4
+  (`openSession` shares one in-flight build per tab) addressed; 2 (heap ceiling) passed twice on CI. Save As
+  keeps the current tab, as VS Code, Sublime, BBEdit and TextEdit do. CI: the first two runs hit Playwright's
+  5-minute global cap with no failing test (227 release tests take 4.5 min; the eight new cases 1.1 min), so the
+  cap is 10 min. **Next: merge on the operator's word, then reset `qa/dev` to the release head.**

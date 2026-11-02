@@ -159,18 +159,26 @@ async function commentOn(needle: string, id: string): Promise<void> {
   await expect.poll(liveCommentIds).toContain(id)
 }
 
-async function suggestOn(needle: string, id: string): Promise<void> {
+/** A suggestion on `needle`, stamped with `documentId` the way the executor stamps it from the chat's provenance. */
+async function suggestOn(needle: string, id: string, documentId?: string): Promise<void> {
   const from = await posOf(needle)
   await page.evaluate(
-    ({ id, from, to, original }) => {
+    ({ id, from, to, original, documentId }) => {
       const editor = (window as any).__prose_editor
       editor.commands.setTextSelection({ from, to })
-      editor.commands.setAISuggestion({ id, type: 'edit', originalText: original, suggestedText: `${original}, rewritten`, explanation: 'qa' })
+      editor.commands.setAISuggestion({ id, type: 'edit', originalText: original, suggestedText: `${original}, rewritten`, explanation: 'qa', documentId })
     },
-    { id, from, to: from + needle.length, original: needle },
+    { id, from, to: from + needle.length, original: needle, documentId },
   )
   await expect.poll(liveSuggestionIds).toContain(id)
 }
+
+async function acceptSuggestion(id: string): Promise<void> {
+  await page.evaluate((id) => (window as any).__prose_editor.commands.acceptAISuggestion(id), id)
+  await expect.poll(liveSuggestionIds).not.toContain(id)
+}
+
+const paintedAnnotations = () => page.evaluate(() => document.querySelectorAll('.ProseMirror .ai-annotation').length)
 
 async function liveSuggestionIds(): Promise<string[]> {
   return page.evaluate(() => {
@@ -183,13 +191,17 @@ async function liveSuggestionIds(): Promise<string[]> {
   })
 }
 
-/** An AI edit on the paragraph containing `needle`, annotated with provenance for `messageId`. */
-async function annotate(needle: string, replacement: string, messageId: string): Promise<void> {
+/**
+ * An AI edit on the paragraph containing `needle`, annotated with provenance
+ * for `messageId`. `provenanceDocId` is what the chat would carry; it defaults
+ * to the live id and may lag it (a rename or first save after the chat loaded).
+ */
+async function annotate(needle: string, replacement: string, messageId: string, provenanceDocId?: string): Promise<void> {
   const read = await executeProseTool(page, 'read_document', {})
   const nodes = (read.data as { nodes: Array<{ id: string; content?: string }> }).nodes
   const target = nodes.find((n) => (n.content ?? '').includes(needle))
   expect(target, `paragraph containing "${needle}"`).toBeTruthy()
-  const documentId = await getAnnotationDocId(page)
+  const documentId = provenanceDocId ?? (await getAnnotationDocId(page))
   const edited = await executeProseTool(
     page,
     'edit',
@@ -320,7 +332,7 @@ test('a relaunch restores five tabs lazily, each with its own records', async ()
 test('rename and first save carry comments, suggestions and annotations to the new id', async () => {
   const d = await openDoc('sessions-d.md', body('Delta'), 'Delta paragraph one')
   await commentOn('Delta paragraph one', 'c-d')
-  await suggestOn('Delta paragraph three', 's-d')
+  await suggestOn('Delta paragraph three', 's-d', d.documentId)
   await annotate('Delta paragraph two', 'Delta paragraph two rewritten.', 'msg-d')
   await settle()
 
@@ -334,13 +346,30 @@ test('rename and first save carry comments, suggestions and annotations to the n
   expect((await readDB('suggestions', after.documentId)).map((s) => s.id)).toEqual(['s-d'])
   expect((await readDB('annotations', after.documentId)).map((a) => a.documentId)).toEqual([after.documentId])
 
+  // Records made after the rename land under the new id even when their
+  // source still carries the old one: a suggestion stamped before the rename
+  // and accepted after it, and an AI edit whose provenance is the chat's
+  // pre-rename binding (it follows the identity only with PR 4). The store
+  // refuses a foreign id, so without the live identity neither would paint
+  // (operator QA of PR #1165: "no annotation after accepting a suggestion").
+  const paintedBeforeAccept = await paintedAnnotations()
+  await acceptSuggestion('s-d')
+  await expect.poll(paintedAnnotations).toBeGreaterThan(paintedBeforeAccept)
+  await annotate('Delta paragraph three', 'Delta paragraph three rewritten again.', 'msg-d-stale', d.documentId)
+  await settle()
+  const liveAfterRename = await getAnnotations(page)
+  expect(liveAfterRename.length).toBeGreaterThanOrEqual(3)
+  expect(liveAfterRename.every((a) => a.documentId === after.documentId)).toBe(true)
+  expect((await readDB('annotations', after.documentId)).every((a) => a.documentId === after.documentId)).toBe(true)
+  expect(await readDB('annotations', d.documentId)).toHaveLength(1)
+
   const created = await executeProseTool(page, 'new_file', { content: 'Untitled body text.\n\nUntitled second line.\n' })
   expect(created.success).toBe(true)
   await expect.poll(docText).toContain('Untitled body text')
-  await commentOn('Untitled body', 'c-u')
-  await suggestOn('Untitled second', 's-u')
-  await settle()
   const untitledId = (await tabs()).find((t) => t.isActive)!.documentId
+  await commentOn('Untitled body', 'c-u')
+  await suggestOn('Untitled second', 's-u', untitledId)
+  await settle()
 
   const savedPath = join(docsDir, 'sessions-u.md')
   const saved = await executeProseTool(page, 'save_file', { path: savedPath })
@@ -353,6 +382,16 @@ test('rename and first save carry comments, suggestions and annotations to the n
   expect((await readDB('comments', savedTab!.documentId)).map((c) => c.id)).toEqual(['c-u'])
   expect((await readDB('suggestions', savedTab!.documentId)).map((s) => s.id)).toEqual(['s-u'])
   expect(readFileSync(savedPath, 'utf8')).toContain('Untitled body text.')
+
+  // The same after a first save: the suggestion was stamped with the untitled id.
+  const paintedBeforeSavedAccept = await paintedAnnotations()
+  await acceptSuggestion('s-u')
+  await expect.poll(paintedAnnotations).toBeGreaterThan(paintedBeforeSavedAccept)
+  await settle()
+  const savedAnnotations = await readDB('annotations', savedTab!.documentId)
+  expect(savedAnnotations).toHaveLength(1)
+  expect(savedAnnotations[0].documentId).toBe(savedTab!.documentId)
+  expect(await readDB('annotations', untitledId)).toHaveLength(0)
 })
 
 /**
@@ -436,10 +475,12 @@ function rendererFiles(dir = join(ROOT, 'src/renderer')): string[] {
   return out
 }
 
+/** Comment lines dropped and trailing `// …` comments cut, so a tripwire never fires on its own explanation. */
 function stripComments(source: string): string {
   return source
     .split('\n')
     .filter((line) => !line.trimStart().startsWith('//') && !line.trimStart().startsWith('*') && !line.trimStart().startsWith('/*'))
+    .map((line) => line.replace(/\s\/\/\s.*$/, ''))
     .join('\n')
 }
 

@@ -16,6 +16,7 @@ import { useAnnotationStore } from '../ai-annotations'
 import { createWordDiffAnnotations } from '../../lib/diffUtils'
 import { pipelineLog } from '../../lib/aiPipelineLog'
 import { AI_REPLACEMENT_META } from '../comments'
+import { getIdentity } from '../../document/identity'
 
 /**
  * Transaction meta set by the four accept/reject commands. A writer resolving a
@@ -579,9 +580,12 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             explanation?: string
           }
 
-          // Use fallbacks: store's documentId, or 'unknown' for model
+          // The annotation belongs to the document this state is (#1145). The
+          // mark was stamped when the suggestion was made and lags a rename,
+          // Save As or first save; the store id is that same identity, kept as
+          // the last fallback. A record for another id is refused by the store.
           const annotationStore = useAnnotationStore.getState()
-          const docId = attrs.documentId || annotationStore.documentId
+          const docId = getIdentity(state).documentId || attrs.documentId || annotationStore.documentId
           const model = attrs.provenanceModel || 'unknown'
           const originalText = attrs.originalText || ''
           const explanation = attrs.explanation || ''
@@ -868,20 +872,12 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           queueMicrotask(() => {
             const annotationStore = useAnnotationStore.getState()
             for (const { suggestion, conversion, annotationNewText } of applied) {
-              const docId = suggestion.documentId || annotationStore.documentId
+              // The state's identity first, as in acceptAISuggestion (#1145):
+              // a mark stamped before a rename or first save carries the old id.
+              const docId = getIdentity(state).documentId || suggestion.documentId || annotationStore.documentId
               if (!docId) {
                 console.warn('[AISuggestion] acceptAll: cannot create annotation - missing docId:', suggestion.id)
                 continue
-              }
-              // Surface the fallback (#677 review): if a tab switch ever
-              // raced this microtask, the store's documentId would be the
-              // NEW tab's — make that visible rather than silently
-              // mis-keying the annotation.
-              if (!suggestion.documentId) {
-                console.warn('[AISuggestion] acceptAll: annotation documentId fell back to store documentId:', {
-                  suggestionId: suggestion.id,
-                  docId,
-                })
               }
               const provenance = {
                 model: suggestion.provenanceModel || 'unknown',

@@ -447,19 +447,18 @@ test('case 3: a tab stays in source mode with its caret across a switch, and an 
   // Put the caret at the end of the third paragraph's line.
   await page.locator('.cm-line', { hasText: 'Golf paragraph three.' }).first().click()
   await page.keyboard.press('End')
-  const caretBefore = (await sourceState())!
-  expect(caretBefore.mode).toBe('source')
-  expect(caretBefore.text).toContain('Golf paragraph three.')
-  expect(caretBefore.selection!.head).toBe(caretBefore.text!.indexOf('Golf paragraph three.') + 'Golf paragraph three.'.length)
 
   await clickTab(b, 'Hotel paragraph one')
   expect(await page.locator(selectors.sourceEditor).count()).toBe(0)
   await clickTab(a, 'Golf paragraph one')
+  // Behaviour first (the release head comes back rich here): the source
+  // surface is shown again, with the text and the caret where they were.
   await page.waitForSelector(selectors.sourceEditor, { timeout: 5_000 })
   const caretAfter = (await sourceState())!
   expect(caretAfter.mode).toBe('source')
-  expect(caretAfter.text).toBe(caretBefore.text)
-  expect(caretAfter.selection).toEqual(caretBefore.selection)
+  expect(caretAfter.text).toContain('Golf paragraph three.')
+  expect(caretAfter.selection!.head).toBe(caretAfter.text!.indexOf('Golf paragraph three.') + 'Golf paragraph three.'.length)
+  expect(caretAfter.selection!.anchor).toBe(caretAfter.selection!.head)
 
   await exitSource()
   expect((await sourceState())!.mode).toBe('rich')

@@ -294,6 +294,9 @@ export function pushReplyToShare(documentId: string, threadId: string, replyId: 
       queueOnce({ kind: 'reply', documentId, threadId, replyId })
       return
     }
+    // The key is claimed after the first read and before the next await: a
+    // concurrent caller for the same reply resumes after this one and finds
+    // it claimed, so one push goes out even though the read is asynchronous.
     if (inFlight.has(key)) return
     inFlight.add(key)
     try {
@@ -343,6 +346,8 @@ export function pushResolveToShare(documentId: string, threadId: string): void {
       queueOnce({ kind: 'resolve', documentId, threadId })
       return
     }
+    // The key is claimed after the first read, before the next await, as in
+    // pushReplyToShare: a concurrent caller resumes later and sees it.
     // Resolve is a TOGGLE, so a concurrent call can't just no-op past an
     // in-flight push: a double-click lands inside the HTTP window, the
     // early-return drops the newer state, and — resolution being author-only —

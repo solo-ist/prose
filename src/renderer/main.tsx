@@ -7,13 +7,14 @@ import {
   loadComments as loadCommentsFromDB,
   loadSuggestions as loadSuggestionsFromDB
 } from './lib/persistence'
-import { getSessionTabIds, getProjectionStats } from './document/session'
+import { getSessionTabIds, getProjectionStats, getActiveSession } from './document/session'
+import { getIdentity } from './document/identity'
 import { useCommandHistoryStore } from './stores/commandHistoryStore'
 import { seedEmojiCache } from './lib/emojiService'
 import { ErrorBoundary } from './lib/sentry'
 import { dumpPipelineLog, clearPipelineLog } from './lib/aiPipelineLog'
 import { executeTool } from './lib/tools'
-import { useAnnotationStore } from './extensions/ai-annotations'
+import { annotationsOf } from './extensions/ai-annotations'
 import { useCommentStore } from './extensions/comments/store'
 import { useTabStore } from './stores/tabStore'
 import { useSettingsStore } from './stores/settingsStore'
@@ -49,12 +50,21 @@ import './index.css'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ;(window as any).__prose_tools = {
   executeTool,
-  getAnnotations: () => useAnnotationStore.getState().annotations,
-  getAnnotationDocId: () => useAnnotationStore.getState().documentId,
-  // True only inside addAnnotation's own microtask; a switch no longer
-  // pauses mapping (#1145). Tests that polled this as a readiness gate keep
-  // working: open_file and select_tab return after the session is active.
-  isAnnotationMappingPaused: () => useAnnotationStore.getState().isLoadingDocument,
+  // The active document's records, from its own state (#1146); a copy, so a
+  // spec cannot mutate plugin state.
+  getAnnotations: () => {
+    const session = getActiveSession()
+    return session ? [...annotationsOf(session.state)] : []
+  },
+  getAnnotationDocId: () => {
+    const session = getActiveSession()
+    return session ? getIdentity(session.state).documentId : null
+  },
+  // A record is added inside the transaction that creates it; nothing ever
+  // pauses mapping (#1146). Kept as a readiness gate for the specs that poll
+  // it (updated in PR 8): open_file and select_tab return after the session
+  // is active.
+  isAnnotationMappingPaused: () => false,
   getActiveTabId: () => useTabStore.getState().activeTabId,
   getDocumentIsDirty: () => useEditorStore.getState().document.isDirty,
   loadAnnotationsFromDB,

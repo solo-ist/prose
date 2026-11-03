@@ -1,6 +1,6 @@
 # Editor state: one document per tab
 
-Status: decided 2026-11-01 with the operator; child issues filed the same day (section 11); PR 0a (#1143), 0b (#1144) and the dialog fix (#1153) landed 2026-11-01; PR 1 (#1145, the session layer, identity plugin, tab actions, handles, vitest harness) is on branch `issue-1145-document-sessions` with its plan and execution log in `docs/issues/1145/`. Follows Option 1 in `docs/issues/1094/reset-2026-11-01.md`. This file is the architecture record for the editor from here on; the "Tabs", "Editor" and "Annotation persistence invariant" sections of `CLAUDE.md` are rewritten from it in the last PR of section 11. Section 13 lists every decision taken and why, so a later reversal is a one-line change there and in the PR sequence.
+Status: decided 2026-11-01 with the operator; child issues filed the same day (section 11); PR 0a (#1143), 0b (#1144) and the dialog fix (#1153) landed 2026-11-01; PR 1 (#1145, the session layer, identity plugin, tab actions, handles, vitest harness) merged 2026-11-02 as `5b67ba9`, plan and execution log in `docs/issues/1145/`; PR 2 (#1146, AI annotation records in plugin state, `anchorText`, re-anchoring at load and across whole-document replaces) is on branch `issue-1146-annotation-plugin-state` with its plan and execution log in `docs/issues/1146/`. Follows Option 1 in `docs/issues/1094/reset-2026-11-01.md`. This file is the architecture record for the editor from here on; the "Tabs", "Editor" and "Annotation persistence invariant" sections of `CLAUDE.md` are rewritten from it in the last PR of section 11. Section 13 lists every decision taken and why, so a later reversal is a one-line change there and in the PR sequence.
 
 How to read it cold: section 1 settles the two pre-flight questions (security backlog, TipTap 3). Section 2 is the list of behaviours the change must not break, each with its owner before and after. Sections 3 and 4 are the model and the lifecycles, with the seams named by file; 4.14 is the chat binding. Sections 5 and 6 cover the three annotation kinds and the smaller plugins. Section 7 lists every consumer that changes, section 8 what gets deleted, section 11 the PR sequence, section 12 the acceptance suite, section 13 the decisions.
 
@@ -152,9 +152,12 @@ applyToSession(tabId, build: (state) => Transaction): void
   for a tab that is not active: state.applyTransaction, then projectSession;
   for the active tab: editor.view.dispatch
 
-replaceSessionDocument(tabId, source, { keepHistory, reanchor }): Promise<void>
-  disk reload (keepHistory false) and source-mode exit (keepHistory true):
-  one replace transaction carrying RELOAD meta with the previous text index
+replaceSessionDocument(tabId, next, { keepHistory }): Promise<void>
+  source-mode exit (keepHistory true): one replace transaction carrying a bare
+  RELOAD meta; each annotation plugin re-anchors by text from the old state's
+  document inside its own apply (PR 2: the annotations plugin does, for the
+  exit and for its undo). Disk reload (keepHistory false): the session is
+  re-opened and the seed re-anchors the stored rows.
 
 setSessionIdentity(tabId, { documentId, path }): Promise<void>
   IDENTITY transaction; migrate the four IndexedDB keys; update tab, chat and
@@ -237,7 +240,7 @@ Rename, Save As, quick save, and the two converters all call `setSessionIdentity
 
 ### 4.9 Source mode
 
-`tab.mode` is `'rich'` or `'source'`. Entering: serialise the state (or reuse the body as loaded when nothing changed, the #1102 baseline logic, now a comparison of the saved body against the current serialisation), build a CodeMirror state, store it on the session, show the source surface. The ProseMirror view keeps the rich state; it is simply not shown. Switching tabs while in source mode keeps the CodeMirror state in the session, so the caret and folds survive a round trip through another tab. Exiting with changes: parse frontmatter out, `replaceSessionDocument(tabId, body, { keepHistory: true, reanchor: true })`; the replace is one transaction with a `RELOAD` meta carrying the previous document's text index, every annotation plugin re-anchors against it (5.1 to 5.3), and undo after exit reverts the whole source edit in one step. Exiting without changes dispatches nothing (#1125). Source edits reach the store only on exit (#1102), through the projection.
+`tab.mode` is `'rich'` or `'source'`. Entering: serialise the state (or reuse the body as loaded when nothing changed, the #1102 baseline logic, now a comparison of the saved body against the current serialisation), build a CodeMirror state, store it on the session, show the source surface. The ProseMirror view keeps the rich state; it is simply not shown. Switching tabs while in source mode keeps the CodeMirror state in the session, so the caret and folds survive a round trip through another tab. Exiting with changes: parse frontmatter out, `replaceSessionDocument(tabId, body, { keepHistory: true, reanchor: true })`; the replace is one transaction with a bare `RELOAD` meta; every annotation plugin re-anchors by text from the old state's document inside its own `apply` (5.1 to 5.3; the meta carries nothing, since `apply` sees the old state), and undo after exit reverts the whole source edit in one step and takes the same re-anchoring path (a whole-document replace with no meta of ours). Exiting without changes dispatches nothing (#1125). Source edits reach the store only on exit (#1102), through the projection.
 
 `.txt` files behave as today; the identity plugin's `plain` flag drives flattening.
 
@@ -293,6 +296,8 @@ The `add` meta is applied after mapping within the same transaction, so a comman
 
 The history panel, the activity badge and `__prose_tools.getAnnotations` read the active session through `useActiveSession`. The detached-entry semantics (#674) are unchanged.
 
+Shipped in PR 2 (#1146): `extensions/ai-annotations/records.ts` holds the pure transitions (map with split and detach, re-anchor across a whole-document replace, load with re-anchoring by `anchorText`, refresh, remove in range, restamp); `transactions.ts` the key, the state and meta types, `addAnnotationsTo` / `removeAnnotationFrom` / `removeAnnotationsInRangeFrom` / `loadAnnotationsInto`, `annotationsOf` and `selectAnnotations`; `plugin.ts` the `apply` and the decorations; `extension.ts` the commands `addAIAnnotations`, `removeAIAnnotation`, `removeAIAnnotationsInRange`; `document/useActiveSession.ts` the React hook over `subscribeActiveSession`. `reanchor.ts` stays as the text-index helpers the plugin calls. The seed `load` re-anchors stored rows by their `anchorText` (kept when the text still sits at the stored range, moved to its nearest occurrence otherwise, detached when it is gone; rows from before the field are filled in), which is what covers a relaunch, a disk reload and a conversion. Any whole-document replace re-anchors, not only one carrying `RELOAD`, so the undo of a source exit and a select-all paste keep the records whose text survives. A zero-width AI deletion marker follows its position and never detaches (before PR 2 it detached on the first edit, by accident of `from >= to`). The session layer persists the set by watching the plugin state's revision: an add, remove, detach, split, re-anchor or restamp at once, a plain move after the projection delay, a seed never.
+
 ### 5.3 AI suggestions
 
 Marks already live in the document. The suggestion store (`pendingSuggestions`, `loadSuggestions`, `clearSuggestions`, `snapshotSuggestions`) is deleted. Restore by `originalText` happens in `openSession` and on `RELOAD`. Persistence is projected from the marks: debounced on `docChanged`, immediate on the `RESOLVED` meta, where an empty set is a real result (#1126). The accept paths are unchanged apart from emitting the annotation `add` meta instead of calling the store.
@@ -325,7 +330,7 @@ Marks already live in the document. The suggestion store (`pendingSuggestions`, 
 | `src/renderer/lib/diskSync.ts` | `loadDiskVersionIntoTab` calls `replaceSessionDocument`. |
 | `src/renderer/lib/shareSync.ts`, `sharePush.ts`, `commentMerge.ts`, `openDocument.ts` | Address the session by `documentId`; `commentMerge` is unchanged in logic. |
 | `src/renderer/lib/diffUtils.ts` | Builds `annotations:add` metas. |
-| `src/renderer/extensions/ai-annotations/*` | Store deleted except selectors; plugin owns records; `reanchor.ts` folds into the plugin's `RELOAD` handling. |
+| `src/renderer/extensions/ai-annotations/*` | Store deleted except selectors; plugin owns records; `reanchor.ts` folds into the plugin's `RELOAD` handling. (PR 2: done; `reanchor.ts` stays as the text-index helpers `records.ts` calls.) |
 | `src/renderer/extensions/comments/*` | Store deleted; plugin owns threads; `mergeCommentsForPersistence` becomes the persistence projection minus its empty-set safety net, which the design makes unnecessary. |
 | `src/renderer/extensions/ai-suggestions/store.ts` | Deleted. |
 | `src/renderer/extensions/plain-text-mode`, `search-highlight`, `node-ids` | Section 6. |

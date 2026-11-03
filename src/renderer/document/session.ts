@@ -7,13 +7,16 @@
  * the states persist, with their history, selection and marks, and the view
  * shows whichever one is active.
  *
- * The three record stores (AI annotations, comment threads, suggestions) are
- * mirrors of the active session. Their id-setting entry points are called
- * only here, inside `activateSession`, with id and records in one write, and
- * every IndexedDB write of a record set goes through `persistRecords`, which
- * takes the id and the records from one synchronous read. That is what closes
- * the cross-document contamination the old swap allowed (§G): there is no
- * moment with the next document's id and the previous document's records.
+ * The comment and suggestion stores are mirrors of the active session. Their
+ * id-setting entry points are called only here, inside `activateSession`,
+ * with id and records in one write, and every IndexedDB write of a record set
+ * goes through `persistRecords`, which takes the id and the records from one
+ * synchronous read. That is what closes the cross-document contamination the
+ * old swap allowed (§G): there is no moment with the next document's id and
+ * the previous document's records. AI annotation records live in each
+ * state's own plugin state (#1146): this file seeds them on open, watches the
+ * plugin state's revision after every transaction to persist them, and
+ * exposes the active state to React through `subscribeActiveSession`.
  *
  * This is the only file that creates an `EditorState` for a document or calls
  * `view.updateState`, and the only importer of the record writers in
@@ -29,7 +32,6 @@ import { Node as PMNode } from '@tiptap/pm/model'
 import type { Tab } from '../stores/tabStore'
 import { useTabStore } from '../stores/tabStore'
 import { useEditorStore } from '../stores/editorStore'
-import { useAnnotationStore } from '../extensions/ai-annotations/store'
 import { useCommentStore } from '../extensions/comments/store'
 import { useSuggestionStore } from '../extensions/ai-suggestions/store'
 import {
@@ -43,8 +45,7 @@ import {
   getAISuggestions,
   AI_SUGGESTION_RESOLVED_META
 } from '../extensions/ai-suggestions/extension'
-import { textIndex, snapshotAnchors, reanchorMapping } from '../extensions/ai-annotations/reanchor'
-import { aiAnnotationsPluginKey } from '../extensions/ai-annotations/plugin'
+import { annotationsOf, annotationPluginState, loadAnnotationsInto } from '../extensions/ai-annotations/transactions'
 import {
   getIdentity,
   isPlainTextPath,
@@ -87,11 +88,14 @@ export interface SessionRecords {
   suggestions: AISuggestionData[]
 }
 
+/** The record sets a session holds beside its state; annotations live in the state (#1146). */
+export type SessionRecordSets = Omit<SessionRecords, 'annotations'>
+
 export interface Session {
   tabId: string
   state: EditorState
-  /** The document's record sets. For the active session the stores mirror these. */
-  records: SessionRecords
+  /** Comment threads and suggestions. For the active session the stores mirror these. */
+  records: SessionRecordSets
   /**
    * The store content as loaded, and what the loaded document serialised to.
    * While the document still serialises to `serialized` (marks and
@@ -105,6 +109,12 @@ export interface Session {
   suggestionTimer: ReturnType<typeof setTimeout> | null
   /** An accept or reject happened since the last suggestion persist (#1126). */
   suggestionResolved: boolean
+  /** A pending annotation write scheduled by a plain position move (#1146). */
+  annotationTimer: ReturnType<typeof setTimeout> | null
+  /** The annotation plugin state's revision last written to IndexedDB. */
+  annotationsPersisted: number
+  /** The in-flight annotation write; an identity change awaits it. */
+  annotationWrite: Promise<void> | null
 }
 
 interface SourceSurface {
@@ -138,6 +148,8 @@ let editor: Editor | null = null
 let editorWaiters: Array<(editor: Editor) => void> = []
 let detachEditor: (() => void) | null = null
 let sourceSurface: SourceSurface | null = null
+/** React readers of the active state (`useActiveSession`). */
+const activeListeners = new Set<() => void>()
 
 const stats = {
   opens: 0,
@@ -176,12 +188,18 @@ export function attachEditor(next: Editor | null): void {
     detachEditor = null
   }
   editor = next
-  if (!next) return
+  if (!next) {
+    notifyActiveSession()
+    return
+  }
 
   const onTransaction = ({ transaction }: { editor: Editor; transaction: Transaction }) => {
     const session = activeSession()
     if (!session) return
+    const prev = session.state
     session.state = next.view.state
+    afterTransaction(session, prev)
+    notifyActiveSession()
     if (!transaction.docChanged) return
     if (useEditorStore.getState().sourceMode) return
     scheduleMarkdownProjection(session, transaction.getMeta(RELOAD_META) === true ? 0 : PROJECTION_DELAY_MS)
@@ -197,16 +215,10 @@ export function attachEditor(next: Editor | null): void {
   }
   next.on('transaction', onTransaction)
 
-  // The stores mirror the active session; a store change belongs to it.
-  // Activation sets `activeTabId` before it writes the stores, so these copy
-  // into the session the records belong to; the id check is the invariant
-  // made explicit.
-  const unsubscribeAnnotations = useAnnotationStore.subscribe((state) => {
-    const session = activeSession()
-    if (session && state.documentId === getIdentity(session.state).documentId) {
-      session.records.annotations = state.annotations
-    }
-  })
+  // The comment store mirrors the active session; a store change belongs to
+  // it. Activation sets `activeTabId` before it writes the store, so this
+  // copies into the session the threads belong to; the id check is the
+  // invariant made explicit.
   const unsubscribeComments = useCommentStore.subscribe((state) => {
     const session = activeSession()
     if (session && state.documentId === getIdentity(session.state).documentId) {
@@ -216,7 +228,6 @@ export function attachEditor(next: Editor | null): void {
 
   detachEditor = () => {
     next.off('transaction', onTransaction)
-    unsubscribeAnnotations()
     unsubscribeComments()
   }
 
@@ -231,6 +242,7 @@ export function attachEditor(next: Editor | null): void {
   const waiters = editorWaiters
   editorWaiters = []
   for (const resolve of waiters) resolve(next)
+  notifyActiveSession()
 }
 
 export function getAttachedEditor(): Editor | null {
@@ -248,11 +260,15 @@ function rebuildForSchema(session: Session, next: Editor): void {
     selection: selectionFromViewState(doc, { selection: { from, to }, scrollTop: 0 })
   })
   // applyTransaction, as openSession does: the appended normalisers (node ids,
-  // the table trailing paragraph) run on the rebuilt document too.
-  state = state.applyTransaction(
-    state.tr.setMeta(IDENTITY_META, identity).setMeta(BUILD_META, true).setMeta('addToHistory', false)
-  ).state
+  // the table trailing paragraph) run on the rebuilt document too. The
+  // annotation records ride over in a `load` (the old key may differ from the
+  // new plugin's; `annotationsOf` finds them either way), already anchored,
+  // and the rebuilt revision counts as persisted: a remount writes nothing.
+  const tr = state.tr.setMeta(IDENTITY_META, identity).setMeta(BUILD_META, true).setMeta('addToHistory', false)
+  loadAnnotationsInto(tr, annotationsOf(session.state))
+  state = state.applyTransaction(tr).state
   session.state = state
+  session.annotationsPersisted = annotationPluginState(state)?.revision ?? 0
 }
 
 // ---------------------------------------------------------------------------
@@ -296,6 +312,30 @@ export function getSessionTabIds(): string[] {
 /** Test seam: how much work the sessions have done since launch. */
 export function getProjectionStats(): typeof stats {
   return { ...stats }
+}
+
+// ---------------------------------------------------------------------------
+// The active state for React (document/useActiveSession.ts)
+// ---------------------------------------------------------------------------
+
+/** The active session's state, or null when no document is open. */
+export function activeSessionState(): EditorState | null {
+  return activeSession()?.state ?? null
+}
+
+/**
+ * Called after every transaction on the active session, after an activation,
+ * when the active tab closes, and when the editor attaches or detaches.
+ */
+export function subscribeActiveSession(listener: () => void): () => void {
+  activeListeners.add(listener)
+  return () => {
+    activeListeners.delete(listener)
+  }
+}
+
+function notifyActiveSession(): void {
+  for (const listener of activeListeners) listener()
 }
 
 // ---------------------------------------------------------------------------
@@ -405,6 +445,11 @@ export function flushProjections(session: Session): void {
     clearTimeout(session.suggestionTimer)
     projectSuggestions(session)
   }
+  if (session.annotationTimer) {
+    clearTimeout(session.annotationTimer)
+    session.annotationTimer = null
+    persistAnnotationsNow(session)
+  }
 }
 
 export function flushActiveProjections(): void {
@@ -432,7 +477,8 @@ export async function persistRecords<K extends RecordKind>(
     return
   }
   const session = sessionForDocument(documentId)
-  if (session) (session.records as Record<RecordKind, unknown>)[kind] = records
+  // Annotations are read from the state, never written into the session.
+  if (session && kind !== 'annotations') (session.records as Record<string, unknown>)[kind] = records
   stats.persists++
   switch (kind) {
     case 'annotations':
@@ -450,10 +496,9 @@ export async function persistRecords<K extends RecordKind>(
 
 export async function deleteRecords(kind: RecordKind, documentId: string): Promise<void> {
   const session = sessionForDocument(documentId)
-  if (session) (session.records as Record<RecordKind, unknown>)[kind] = []
-  if (session && session.tabId === registry.activeTabId) {
-    if (kind === 'comments') useCommentStore.setState({ pendingComments: [] })
-    if (kind === 'annotations') useAnnotationStore.setState({ annotations: [] })
+  if (session && kind !== 'annotations') (session.records as Record<string, unknown>)[kind] = []
+  if (session && session.tabId === registry.activeTabId && kind === 'comments') {
+    useCommentStore.setState({ pendingComments: [] })
   }
   switch (kind) {
     case 'annotations':
@@ -485,13 +530,66 @@ export async function deleteDocumentRecords(documentId: string): Promise<void> {
 async function persistSession(session: Session, opts: { allowEmptySuggestions?: boolean } = {}): Promise<void> {
   const { documentId } = getIdentity(session.state)
   const editorLike = { state: session.state }
-  await persistRecords('annotations', documentId, session.records.annotations)
+  if (session.annotationTimer) {
+    clearTimeout(session.annotationTimer)
+    session.annotationTimer = null
+  }
+  // The set as it is, when the stored rows are behind it: plugin state is
+  // never transiently stripped (the seed loads before a state is shown; a
+  // reload re-anchors in the same apply), and a revision already written
+  // (by an urgent change, a flush, or a seed that changed nothing) is not
+  // written again.
+  const pluginState = annotationPluginState(session.state)
+  if (pluginState && pluginState.revision !== session.annotationsPersisted) {
+    session.annotationsPersisted = pluginState.revision
+    await persistRecords('annotations', documentId, [...pluginState.records])
+  }
   const comments = mergeCommentsForPersistence(editorLike, session.records.comments)
   await persistRecords('comments', documentId, comments)
   const suggestions = getAISuggestions(editorLike)
   if (suggestions.length > 0 || opts.allowEmptySuggestions) {
     await persistRecords('suggestions', documentId, suggestions)
   }
+}
+
+/**
+ * After a transaction on a session (through the view or `applyToSession`):
+ * an urgent annotation change (add, remove, detach, split, re-anchor,
+ * restamp) is written now; a plain move or anchor refresh waits for the
+ * projection delay, flushed by the leaving step, a close or a save. A seed
+ * bumps the revision but is marked persisted by its caller, so it writes
+ * nothing.
+ */
+function afterTransaction(session: Session, prev: EditorState): void {
+  const next = annotationPluginState(session.state)
+  if (!next) return
+  const before = annotationPluginState(prev)?.revision ?? 0
+  if (next.revision === before) return
+  if (next.urgentRevision > session.annotationsPersisted) {
+    persistAnnotationsNow(session)
+  } else if (next.revision > session.annotationsPersisted) {
+    if (session.annotationTimer) clearTimeout(session.annotationTimer)
+    session.annotationTimer = setTimeout(() => {
+      session.annotationTimer = null
+      if (registry.sessions.has(session.tabId)) persistAnnotationsNow(session)
+    }, PROJECTION_DELAY_MS)
+  }
+}
+
+/** Write the session's annotation set under its own id, from one synchronous read of the state. */
+function persistAnnotationsNow(session: Session): void {
+  if (session.annotationTimer) {
+    clearTimeout(session.annotationTimer)
+    session.annotationTimer = null
+  }
+  const pluginState = annotationPluginState(session.state)
+  if (!pluginState) return
+  const { documentId } = getIdentity(session.state)
+  session.annotationsPersisted = pluginState.revision
+  const write = persistRecords('annotations', documentId, [...pluginState.records]).finally(() => {
+    if (session.annotationWrite === write) session.annotationWrite = null
+  })
+  session.annotationWrite = write
 }
 
 /** The leaving step's persistence for a tab, a no-op without a session. */
@@ -562,17 +660,29 @@ async function openSessionNow(
     .setMeta('addToHistory', false)
   const outcome = applyCommentMarks(seed, comments)
   applySuggestionMarks(seed, suggestions)
+  // The stored annotation rows, re-anchored onto this document by their text
+  // inside the plugin's apply (#1138); nothing is written back at load. When
+  // the seed moved, detached or filled in a row, the stored rows are behind
+  // the state and the next leave, close or save writes them (the revision
+  // counts as unpersisted); otherwise the seed's revision counts as written.
+  loadAnnotationsInto(seed, annotations)
   state = state.applyTransaction(seed).state
+  const seeded = annotationPluginState(state)
+  const loaded = seeded?.records ?? []
+  const changedAtLoad = loaded.length !== annotations.length || loaded.some((row, i) => row !== annotations[i])
 
   const session: Session = {
     tabId: tab.id,
     state,
-    records: { annotations, comments: reconcileAnchorLost(comments, outcome), suggestions },
+    records: { comments: reconcileAnchorLost(comments, outcome), suggestions },
     baseline: { content, serialized: serializeDoc(e, state.doc) },
     frontmatterRaw,
     projectionTimer: null,
     suggestionTimer: null,
-    suggestionResolved: false
+    suggestionResolved: false,
+    annotationTimer: null,
+    annotationsPersisted: (seeded?.revision ?? 0) - (changedAtLoad ? 1 : 0),
+    annotationWrite: null
   }
   registry.sessions.set(tab.id, session)
   stats.opens++
@@ -628,12 +738,6 @@ export function activateSession(tabId: string, opts: { reattach?: boolean } = {}
   const identity = getIdentity(session.state)
   e.setEditable(!tab.isPreview && !isRemarkableOcrPath(tab.path), false)
 
-  useAnnotationStore.setState({
-    documentId: identity.documentId,
-    annotations: session.records.annotations,
-    createdThisSession: new Set(),
-    isLoadingDocument: false
-  })
   useCommentStore.setState({ documentId: identity.documentId, pendingComments: session.records.comments })
   useSuggestionStore.setState({ documentId: identity.documentId })
 
@@ -659,6 +763,7 @@ export function activateSession(tabId: string, opts: { reattach?: boolean } = {}
   // An equal selection fires no selectionUpdate; the status bar and the
   // session save listen for it.
   e.emit('selectionUpdate', { editor: e, transaction: view.state.tr })
+  notifyActiveSession()
   pipelineLog('session:activate', { tabId, documentId: identity.documentId })
 }
 
@@ -670,12 +775,18 @@ export function activateSession(tabId: string, opts: { reattach?: boolean } = {}
 export async function closeSession(tabId: string, opts: { discard?: boolean } = {}): Promise<boolean> {
   const session = registry.sessions.get(tabId)
   if (!session) return false
-  if (tabId === registry.activeTabId) {
+  const wasActive = tabId === registry.activeTabId
+  if (wasActive) {
     exitSourceModeFor(session)
     registry.activeTabId = null
   }
   flushProjections(session)
   registry.sessions.delete(tabId)
+  if (session.annotationTimer) {
+    clearTimeout(session.annotationTimer)
+    session.annotationTimer = null
+  }
+  if (wasActive) notifyActiveSession()
   const { documentId } = getIdentity(session.state)
   if (opts.discard) {
     await deleteDocumentRecords(documentId)
@@ -699,17 +810,21 @@ export function applyToSession(tabId: string, build: (state: EditorState) => Tra
     session.state = view.state
     return
   }
-  const tr = build(session.state)
-  session.state = session.state.applyTransaction(tr).state
+  const prev = session.state
+  const tr = build(prev)
+  session.state = prev.applyTransaction(tr).state
+  afterTransaction(session, prev)
   if (tr.docChanged) projectMarkdown(session)
 }
 
 /**
  * Replace a session's document. `keepHistory: true` (source-mode exit) is one
  * undo step: a whole-document replace with the comment and suggestion marks
- * re-applied in the same transaction and the annotations re-anchored by their
- * text. `keepHistory: false` (disk reload, reMarkable sync, a conversion)
- * re-opens the session from the new text under the same tab.
+ * re-applied in the same transaction; the annotation plugin re-anchors its
+ * records by their text inside that same transaction (and inside the undo of
+ * it). `keepHistory: false` (disk reload, reMarkable sync, a conversion)
+ * re-opens the session from the new text under the same tab; the stored
+ * annotation rows are re-anchored by the seed.
  */
 export async function replaceSessionDocument(
   tabId: string,
@@ -723,8 +838,6 @@ export async function replaceSessionDocument(
   if (opts.keepHistory) {
     const identity = getIdentity(session.state)
     const doc = buildDocument(e, next.body, identity)
-    const before = textIndex(session.state.doc)
-    const anchors = snapshotAnchors(before, session.records.annotations)
 
     // The baseline first: the projection runs inside the dispatch and must
     // emit the typed bytes, not a re-serialisation (#1102).
@@ -743,21 +856,6 @@ export async function replaceSessionDocument(
     const comments = reconcileAnchorLost(session.records.comments, outcome)
     session.records.comments = comments
     if (isActive) useCommentStore.setState({ pendingComments: comments })
-
-    // Annotations: mapped through the one changed region, not the replace.
-    if (anchors.length > 0) {
-      const mapping = reanchorMapping(before, textIndex(session.state.doc), anchors)
-      if (isActive) {
-        useAnnotationStore.getState().updatePositions(mapping)
-      } else {
-        session.records.annotations = remapAnnotations(session.records.annotations, mapping)
-      }
-    }
-    if (isActive) {
-      const view = e.view
-      view.dispatch(view.state.tr.setMeta(aiAnnotationsPluginKey, { rebuildDecorations: true }))
-      session.state = view.state
-    }
     pipelineLog('session:reload', { tabId, keepHistory: true, lost: outcome.lost.length })
     return
   }
@@ -779,17 +877,6 @@ export async function replaceSessionDocument(
 
 function selectionOf(state: EditorState): { from: number; to: number } {
   return { from: state.selection.from, to: state.selection.to }
-}
-
-function remapAnnotations(
-  annotations: AIAnnotation[],
-  mapping: (from: number, to: number) => { from: number; to: number } | null
-): AIAnnotation[] {
-  return annotations.map((a) => {
-    if (a.detached) return a
-    const range = mapping(a.from, a.to)
-    return range ? { ...a, from: range.from, to: range.to } : { ...a, detached: true }
-  })
 }
 
 /**
@@ -823,31 +910,32 @@ export async function mergeThreads(documentId: string, merged: CommentData[]): P
 
 /**
  * Restamp a session after a rename, move, Save As or conversion: the state's
- * identity, the mirrors, and the records written under the new id (old keys
- * stay, as before).
+ * identity (the annotation plugin restamps its records in the same
+ * transition and the write under the new id starts at once), the mirrors,
+ * and the comment and suggestion sets written under the new id (old keys
+ * stay, as before). Resolves once the rows are under the new key.
  */
 export async function setSessionIdentity(tabId: string, identity: IdentityState): Promise<void> {
   const session = requireSession(tabId)
   const previous = getIdentity(session.state)
   const isActive = tabId === registry.activeTabId
-  const rekeyed = session.records.annotations.map((a) => ({ ...a, documentId: identity.documentId }))
-  session.records.annotations = rekeyed
   if (isActive) {
-    const annotationStore = useAnnotationStore.getState()
-    if (annotationStore.pendingSave) await annotationStore.pendingSave
-    useAnnotationStore.setState({ annotations: rekeyed, documentId: identity.documentId })
     useCommentStore.setState({ documentId: identity.documentId })
     useSuggestionStore.setState({ documentId: identity.documentId })
   }
   applyToSession(tabId, (state) =>
     state.tr.setMeta(IDENTITY_META, identity).setMeta('addToHistory', false)
   )
+  // `applyToSession` runs `afterTransaction` synchronously (through the view's
+  // dispatch or the inactive branch), and the restamp is urgent, so by here the
+  // annotation write under the new id has started and `annotationWrite` holds
+  // it; a pending debounced move was folded into that same write.
   if (identity.documentId !== previous.documentId) {
     const editorLike = { state: session.state }
     const comments = mergeCommentsForPersistence(editorLike, session.records.comments)
     const suggestions = getAISuggestions(editorLike)
     await Promise.all([
-      rekeyed.length > 0 ? persistRecords('annotations', identity.documentId, rekeyed) : Promise.resolve(),
+      session.annotationWrite ?? Promise.resolve(),
       comments.length > 0 ? persistRecords('comments', identity.documentId, comments) : Promise.resolve(),
       suggestions.length > 0 ? persistRecords('suggestions', identity.documentId, suggestions) : Promise.resolve()
     ])

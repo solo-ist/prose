@@ -5,7 +5,6 @@ import type { Slice } from '@tiptap/pm/model'
 import type { EditorView } from '@tiptap/pm/view'
 import { pushNewThreadToShare } from '../../lib/sharePush'
 import { useNotificationStore } from '../../stores/notificationStore'
-import { useAnnotationStore } from '../../extensions/ai-annotations'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
@@ -822,19 +821,16 @@ export function Editor() {
     )
     if (annotationTo > pendingPasteAnnotation.from) {
       const messageId = `paste-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
-      useAnnotationStore.getState().addAnnotation({
-        documentId: pendingPasteAnnotation.documentId,
-        type: 'insertion',
-        from: pendingPasteAnnotation.from,
-        to: annotationTo,
-        content: pendingPasteAnnotation.text,
-        provenance: {
-          model: 'External AI',
-          conversationId: 'paste',
-          messageId,
+      activeEditor.commands.addAIAnnotations([
+        {
+          type: 'insertion',
+          from: pendingPasteAnnotation.from,
+          to: annotationTo,
+          content: pendingPasteAnnotation.text,
+          provenance: { model: 'External AI', conversationId: 'paste', messageId },
+          explanation: 'Marked pasted text as AI-authored',
         },
-        explanation: 'Marked pasted text as AI-authored',
-      })
+      ])
     }
 
     setPendingPasteAnnotation(null)

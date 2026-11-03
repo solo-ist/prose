@@ -81,7 +81,12 @@ export function resolveDocumentHandle(opts: ResolveHandleOptions = {}): Document
     schema: editor.schema,
     isActive: true,
     view: editor.view,
-    commands: editor.commands,
+    // A getter: TipTap builds the commands' transaction from the state at
+    // access time, so a snapshot taken here would dispatch a transaction
+    // built before any earlier write through this handle (#1146).
+    get commands() {
+      return editor.commands
+    },
     chain: () => editor.chain(),
     can: () => editor.can(),
     markdown: editor.storage.markdown as MarkdownCodec,

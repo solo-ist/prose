@@ -53,6 +53,16 @@ export interface AIAnnotation {
    * not-detached.
    */
   detached?: boolean
+  /**
+   * The text the range covers, with one '\n' between textblocks (the
+   * convention of `extensions/ai-annotations/reanchor.ts`'s `textIndex`).
+   * Stamped when the record enters a document's state and refreshed on every
+   * change to that document, so it can only ever hold that document's text;
+   * read when the record is applied to a re-parsed document (a relaunch, a
+   * disk reload, a conversion) to put it back on its words (#1138, #1146).
+   * Optional: rows written before 1.9.0 are filled in on their first load.
+   */
+  anchorText?: string
 }
 
 /**
@@ -67,52 +77,6 @@ export interface AIAnnotationOptions {
   showTooltip?: boolean
   /** Callback when an annotation is clicked */
   onAnnotationClick?: (annotation: AIAnnotation) => void
-}
-
-/**
- * State for the annotations store (Zustand)
- */
-export interface AnnotationState {
-  /** All annotations for the current document */
-  annotations: AIAnnotation[]
-  /** Whether annotations are currently visible */
-  isVisible: boolean
-  /** The current document ID */
-  documentId: string | null
-  /** Whether document is being loaded (skip position updates during tab switches) */
-  isLoadingDocument: boolean
-  /**
-   * In-flight IndexedDB write from the most recent addAnnotation. Tab-switch
-   * paths await this before loading the next document's annotations so a
-   * just-created annotation can't be lost to the fire-and-forget save race
-   * (#674).
-   */
-  pendingSave: Promise<void> | null
-}
-
-/**
- * Actions for the annotations store
- */
-export interface AnnotationActions {
-  /** Add a new annotation */
-  addAnnotation: (annotation: Omit<AIAnnotation, 'id' | 'createdAt'>) => string
-  /** Remove an annotation by ID */
-  removeAnnotation: (id: string) => void
-  /** Remove all annotations overlapping a range */
-  removeAnnotationsInRange: (from: number, to: number) => void
-  /** Update annotation positions after document edits */
-  updatePositions: (mapping: (from: number, to: number) => { from: number; to: number } | null) => void
-  /** Update positions with splitting for insertions inside annotations */
-  updatePositionsWithSplitting: (
-    mapPos: (pos: number, bias: number) => number,
-    insertions: Array<{ pos: number; length: number }>
-  ) => void
-  /** Toggle visibility of annotations */
-  toggleVisibility: () => void
-  /** Set visibility of annotations */
-  setVisibility: (visible: boolean) => void
-  /** Persist the mirrored set under the store's document id (through the session layer) */
-  saveAnnotations: () => Promise<void>
 }
 
 /**

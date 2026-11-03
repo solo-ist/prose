@@ -10,7 +10,6 @@ import { isFileOperationFailure } from '../../../../shared/fileOperationResult'
 import { useEditorStore } from '../../../stores/editorStore'
 import { resolveDocumentHandle } from '../../../document/handle'
 import { useSettingsStore } from '../../../stores/settingsStore'
-import { useAnnotationStore } from '../../../extensions/ai-annotations'
 import { generateIdFromPath } from '../../persistence'
 import { useTabStore } from '../../../stores/tabStore'
 import { openFile, newTab, markActiveTabSaved } from '../../../tabs/actions'
@@ -317,21 +316,24 @@ export async function executeCreateAndOpenFile(args: {
       const annotationTo = await waitForEditorDocumentContent(newDocumentId, content)
 
       // Skip the annotation if the editor isn't ready yet — annotationTo must be a
-      // ProseMirror position (doc.content.size), not a raw character count.
-      if (annotationTo !== null) {
-        useAnnotationStore.getState().addAnnotation({
-          documentId: newDocumentId,
-          type: 'insertion',
-          from: 0,
-          to: annotationTo,
-          content,
-          provenance: {
-            model: provenance.model,
-            conversationId: provenance.conversationId,
-            messageId: provenance.messageId,
+      // ProseMirror position (doc.content.size), not a raw character count. The
+      // record goes through the new document's own handle (#1146).
+      const created = annotationTo !== null ? resolveDocumentHandle() : null
+      if (annotationTo !== null && created && created.documentId === newDocumentId) {
+        created.commands.addAIAnnotations([
+          {
+            type: 'insertion',
+            from: 0,
+            to: annotationTo,
+            content,
+            provenance: {
+              model: provenance.model,
+              conversationId: provenance.conversationId,
+              messageId: provenance.messageId,
+            },
+            explanation: `Created ${attemptFilename}`,
           },
-          explanation: `Created ${attemptFilename}`,
-        })
+        ])
       }
     }
 

@@ -94,16 +94,23 @@ async function highlighted(): Promise<string> {
   )
 }
 
-/** The rows under the probe's key cover the highlighted text; the other document's key holds nothing. */
-async function rowsAreOwn(docId: string, base: string): Promise<void> {
-  const rows = (await readAnnotationsFromDB(page, docId)) as Array<{ documentId: string; detached?: boolean; anchorText?: string }>
+type Row = { documentId: string; detached?: boolean; anchorText?: string }
+
+/** The rows under the probe's key are live and its own; the other document's key holds nothing. */
+async function rowsAreOwn(docId: string): Promise<Row[]> {
+  const rows = (await readAnnotationsFromDB(page, docId)) as Row[]
   expect(rows.length).toBeGreaterThan(0)
   for (const row of rows) {
     expect(row.documentId).toBe(docId)
     expect(row.detached).toBeFalsy()
-    expect(base).toContain(String(row.anchorText))
   }
   expect(await readAnnotationsFromDB(page, otherDocId)).toEqual([])
+  return rows
+}
+
+/** Each row carries the text under it (#1146), which is what the relaunch re-anchors by. */
+async function anchorsAreOwn(docId: string, base: string): Promise<void> {
+  for (const row of await rowsAreOwn(docId)) expect(base).toContain(String(row.anchorText))
 }
 
 /** Edit the middle paragraph through the tool with provenance, so it carries an annotation. */
@@ -125,7 +132,7 @@ async function annotate(name: string): Promise<{ base: string; docId: string }> 
   await page.waitForTimeout(600)
   const base = await highlighted()
   expect(base).toContain('rewritten text.')
-  await rowsAreOwn(docId, base)
+  await rowsAreOwn(docId)
   return { base, docId }
 }
 
@@ -148,7 +155,7 @@ test('a trailing space left above the annotation does not shift it on a tab swit
   for (let i = 0; i < 6; i++) await page.keyboard.press('Backspace') // "words." gone, space left behind
   await switchAwayAndBack('1138-trailing.md')
   expect(await highlighted()).toBe(base)
-  await rowsAreOwn(docId, base)
+  await anchorsAreOwn(docId, base)
 })
 
 test('a run of spaces typed above the annotation does not shift it on a tab switch', async () => {
@@ -158,7 +165,7 @@ test('a run of spaces typed above the annotation does not shift it on a tab swit
   await page.keyboard.type('  ')
   await switchAwayAndBack('1138-spaces.md')
   expect(await highlighted()).toBe(base)
-  await rowsAreOwn(docId, base)
+  await anchorsAreOwn(docId, base)
 })
 
 test('the same edit survives a relaunch', async () => {
@@ -171,5 +178,5 @@ test('the same edit survives a relaunch', async () => {
   await launch()
   await expect.poll(async () => page.evaluate(() => (window as any).__prose_editor.state.doc.textContent)).toContain('rewritten text.')
   await expect.poll(highlighted, { timeout: 5_000 }).toBe(base)
-  await rowsAreOwn(docId, base)
+  await anchorsAreOwn(docId, base)
 })

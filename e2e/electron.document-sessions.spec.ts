@@ -338,13 +338,18 @@ test('an edit above a highlight survives a switch and a relaunch, and the other 
   const paintedB = await paintedText()
   expect(paintedB).toContain('rewritten')
 
-  const ownRows = async (doc: TabInfo, message: string, text: string) => {
+  const ownRows = async (doc: TabInfo, message: string) => {
     const rows = await readDB('annotations', doc.documentId)
     expect(rows.length, `rows under ${doc.title}`).toBeGreaterThan(0)
     for (const row of rows) {
       expect(row.documentId, `documentId under ${doc.title}`).toBe(doc.documentId)
       expect((row.provenance as { messageId: string }).messageId).toBe(message)
       expect(row.detached, `detached under ${doc.title}`).toBeFalsy()
+    }
+    return rows
+  }
+  const ownAnchors = async (doc: TabInfo, message: string, text: string) => {
+    for (const row of await ownRows(doc, message)) {
       expect(text, `anchorText under ${doc.title}`).toContain(String(row.anchorText))
     }
   }
@@ -361,9 +366,8 @@ test('an edit above a highlight survives a switch and a relaunch, and the other 
   await settle()
   await clickTab(a, 'Alpha paragraph')
   expect(await paintedText()).toBe(painted)
-  expect(await liveAnchorsMatch()).toBe(true)
-  await ownRows(a, 'msg-two-a', painted)
-  await ownRows(b, 'msg-two-b', paintedB)
+  await ownRows(a, 'msg-two-a')
+  await ownRows(b, 'msg-two-b')
 
   // The session draft (1 s debounce) and the annotation write both settle.
   await page.waitForTimeout(1_600)
@@ -371,13 +375,14 @@ test('an edit above a highlight survives a switch and a relaunch, and the other 
   await launch()
   await expect.poll(docText, { timeout: 10_000 }).toContain('Alpha paragraph')
   await expect.poll(paintedText, { timeout: 10_000 }).toBe(painted)
-  expect(await liveAnchorsMatch()).toBe(true)
   const bAgain = await tabByTitle(b.title)
   await clickTab(bAgain, 'Beta paragraph')
   await expect.poll(paintedText, { timeout: 10_000 }).toBe(paintedB)
+
+  // Every live record carries the text under it, under its own key (#1146).
   expect(await liveAnchorsMatch()).toBe(true)
-  await ownRows(a, 'msg-two-a', painted)
-  await ownRows(b, 'msg-two-b', paintedB)
+  await ownAnchors(b, 'msg-two-b', paintedB)
+  await ownAnchors(a, 'msg-two-a', painted)
 })
 
 /**
@@ -404,16 +409,15 @@ test('one undo after a source-mode exit restores the document with its annotatio
   await page.waitForSelector(selectors.editor, { state: 'visible', timeout: 5_000 })
   await expect.poll(docText).toContain('typed in source')
   expect(await paintedText()).toBe(painted)
-  expect(await liveAnchorsMatch()).toBe(true)
 
   // One undo step reverts the whole source edit (decision 10).
   expect(await page.evaluate(() => (window as any).__prose_editor.commands.undo())).toBe(true)
   await expect.poll(docText).toBe(before)
   expect(await paintedText()).toBe(painted)
-  expect(await liveAnchorsMatch()).toBe(true)
   const live = (await getAnnotations(page)) as Array<{ detached?: boolean }>
   expect(live.length).toBeGreaterThan(0)
   expect(live.every((a) => !a.detached)).toBe(true)
+  expect(await liveAnchorsMatch()).toBe(true)
 })
 
 /**

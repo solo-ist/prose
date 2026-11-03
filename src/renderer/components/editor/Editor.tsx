@@ -12,10 +12,10 @@ import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useEditorStore } from '../../stores/editorStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useFileListStore } from '../../stores/fileListStore'
-import { useTabStore, scheduleSaveSession } from '../../stores/tabStore'
+import { useTabStore, scheduleSaveSession, useActiveTab } from '../../stores/tabStore'
 import { promoteCurrentPreview } from '../../hooks/useTabs'
-import { openInTab, setActiveFrontmatter, toggleSourceMode } from '../../tabs/actions'
-import { attachEditor, setActiveSourceScroll, setActiveSourceState } from '../../document/session'
+import { openInTab, setTabFrontmatter, toggleSourceMode } from '../../tabs/actions'
+import { attachEditor, getActiveSession, setActiveSourceScroll, setActiveSourceState } from '../../document/session'
 import { useActiveSource } from '../../document/useActiveSession'
 import { createEditorExtensions } from './extensions'
 import { FindBar } from './FindBar'
@@ -37,8 +37,8 @@ import {
 } from '../ui/dialog'
 import { Button } from '../ui/button'
 import { EmptyState } from '../layout/EmptyState'
-import { FrontmatterDisplay, hasFrontmatter } from './FrontmatterDisplay'
-import { FrontmatterEditor, serializeFrontmatter } from './FrontmatterEditor'
+import { FrontmatterDisplay } from './FrontmatterDisplay'
+import { FrontmatterEditor } from './FrontmatterEditor'
 import { TransformAnimation, useTransformAnimation } from './TransformAnimation'
 import { AISuggestionPopover } from '../AISuggestionPopover'
 import { CommentPopover } from '../CommentPopover'
@@ -146,17 +146,26 @@ function focusEditorAtPasteEnd(pos: number): void {
 // the same in-memory, session-lifetime idiom as useAnnotationStore's createdThisSession set.
 let pasteAnnotationDismissedThisSession = false
 
+const EMPTY_FRONTMATTER: Record<string, unknown> = {}
+
+/** True while the active tab is in source mode (handlers; components read `useActiveSource`). */
+const inSourceMode = () => getActiveSession()?.source != null
+/** True while the active tab is a preview (handlers; components read `useActiveTab`). */
+const inPreviewTab = () => useTabStore.getState().getActiveTab()?.isPreview === true
+
 export function Editor() {
   const { document, openFile, saveFile } = useEditor()
   const isEditing = useEditorStore((state) => state.isEditing)
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
-  const isPreviewTab = useEditorStore((state) => state.isPreviewTab)
+  // Preview, source mode and the frontmatter are the active tab's (#1151).
+  const isPreviewTab = useActiveTab((tab) => tab?.isPreview ?? false)
+  const frontmatter = useActiveTab((tab) => tab?.frontmatter ?? EMPTY_FRONTMATTER)
   const annotationsVisible = useEditorStore((state) => state.annotationsVisible)
   const toggleAnnotationsVisible = useEditorStore((state) => state.toggleAnnotationsVisible)
-  const sourceMode = useEditorStore((state) => state.sourceMode)
   // The active tab's source session (#1150): its CodeMirror state is the
   // surface's, kept by the session across switches.
   const source = useActiveSource()
+  const sourceMode = source !== null
   const activeTabId = useTabStore((state) => state.activeTabId)
   const { settings, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen } = useSettings()
   const { setContext, cycleToolMode } = useChat()
@@ -184,44 +193,6 @@ export function Editor() {
     position: { top: number; left: number }
     initialUrl?: string
   }>({ isOpen: false, position: { top: 0, left: 0 } })
-
-  // Stable frontmatter for the editor UI — re-syncs on documentId change AND on
-  // shallow-value changes from the store. The shallow-value check lets external
-  // writes (e.g., AI-applied frontmatter via MCP suggest_edit) surface in the UI
-  // while still ignoring transient new-object references that don't change values
-  // (which was the original body-edit-ripple bug this state was added to solve).
-  const [stableFrontmatter, setStableFrontmatter] = useState<Record<string, unknown>>(
-    () => document.frontmatter ?? {}
-  )
-  // A document change re-syncs during render, not in an effect: an effect lands
-  // one commit late, so the returning tab's first paint built the frontmatter
-  // block from the previous tab's fields and it grew a frame later. Above a
-  // restored scroll offset the browser's scroll anchoring compensated for that
-  // growth and the next re-apply undid it — a visible 48px hop (#1103). React
-  // re-renders before committing when state is set during render.
-  const [stableFrontmatterDocId, setStableFrontmatterDocId] = useState(document.documentId)
-  if (stableFrontmatterDocId !== document.documentId) {
-    setStableFrontmatterDocId(document.documentId)
-    setStableFrontmatter(document.frontmatter ?? {})
-  }
-
-  useEffect(() => {
-    if (stableFrontmatterDocId !== document.documentId) return // the render-time sync owns this case
-    const next = document.frontmatter ?? {}
-    // Same doc — only re-sync if the values actually differ (not just identity)
-    const nextKeys = Object.keys(next)
-    const currentKeys = Object.keys(stableFrontmatter)
-    let differs = nextKeys.length !== currentKeys.length
-    if (!differs) {
-      for (const k of nextKeys) {
-        if ((next as Record<string, unknown>)[k] !== (stableFrontmatter as Record<string, unknown>)[k]) {
-          differs = true
-          break
-        }
-      }
-    }
-    if (differs) setStableFrontmatter(next)
-  }, [document.documentId, document.frontmatter, stableFrontmatter, stableFrontmatterDocId])
 
   const editor = useTipTapEditor({
     extensions: createEditorExtensions({
@@ -251,9 +222,9 @@ export function Editor() {
 
         const editorState = useEditorStore.getState()
         if (
-          editorState.sourceMode ||
+          inSourceMode() ||
           editorState.isRemarkableReadOnly ||
-          editorState.isPreviewTab ||
+          inPreviewTab() ||
           !editorState.document.documentId
         ) {
           return false
@@ -294,7 +265,7 @@ export function Editor() {
       handleDOMEvents: {
         mousedown: () => {
           // Clicking the editor while in preview mode promotes the tab
-          if (useEditorStore.getState().isPreviewTab) {
+          if (inPreviewTab()) {
             promoteCurrentPreview()
           }
           return false
@@ -374,13 +345,6 @@ export function Editor() {
     }
   }, [editor])
 
-  // Update editor editability when read-only mode changes (reMarkable or preview tab)
-  useEffect(() => {
-    if (!editor) return
-    // No `update` emitted: editability is not a content change.
-    editor.setEditable(!isRemarkableReadOnly && !isPreviewTab, false)
-  }, [editor, isRemarkableReadOnly, isPreviewTab])
-
   // Sync bulletListMarker setting without requiring an editor remount.
   // tiptap-markdown shallow-copies its options into editor.storage.markdown
   // during onBeforeCreate, and the bullet-list serializer reads that copy at
@@ -429,7 +393,7 @@ export function Editor() {
     // Don't steal focus during preview tab navigation. Mark focus as handled so a
     // later promotion to a permanent tab (e.g. the user clicks mid-document) doesn't
     // re-run this effect and yank the caret/scroll back to the top (#729).
-    if (useEditorStore.getState().isPreviewTab) {
+    if (inPreviewTab()) {
       hasFocusedRef.current = true
       return
     }
@@ -457,7 +421,7 @@ export function Editor() {
 
     // Source mode: CodeMirror owns the text, so the shortcuts that edit the
     // rich document are inert rather than reaching the hidden editor (#1150).
-    if (useEditorStore.getState().sourceMode && isRichEditShortcut(e)) return
+    if (inSourceMode() && isRichEditShortcut(e)) return
 
     if (isMod && e.key === 'n' && !e.shiftKey) {
       // Cmd+N: New document — prevent browser's "new window" in web mode
@@ -516,7 +480,7 @@ export function Editor() {
       }
     } else if (isMod && e.key === 'f' && !e.shiftKey) {
       // Cmd+F: Open find bar (skip in source mode — CodeMirror handles its own)
-      if (useEditorStore.getState().sourceMode) return
+      if (inSourceMode()) return
       e.preventDefault()
       if (isFindOpen) {
         // Bar already open — refocus and select the input so the user can type a new term
@@ -719,7 +683,7 @@ export function Editor() {
   // shape tiptap-markdown serializes as a pipe table.
   useEffect(() => {
     const handleMenuInsertTable = () => {
-      if (!editor || !editor.isEditable || useEditorStore.getState().sourceMode) return
+      if (!editor || !editor.isEditable || inSourceMode()) return
       insertTable(editor)
     }
     window.addEventListener('menu:insertTable', handleMenuInsertTable)
@@ -739,19 +703,15 @@ export function Editor() {
 
   const pendingFrontmatter = useEditorStore((state) => state.pendingFrontmatter)
 
-  // Check if document has frontmatter to display — uses stableFrontmatter so the
-  // visibility decision doesn't flip during body edits. Also shows when there is a
-  // pending AI suggestion even if the document has no existing frontmatter. On
-  // editable docs without frontmatter, mount the FrontmatterEditor anyway so it
-  // can render the "+ Add frontmatter" affordance (suppress for empty state,
-  // read-only modes, and preview tabs).
+  // The frontmatter block shows for a pending AI suggestion, a non-empty
+  // object, or an editable document (the "+ Add frontmatter" affordance;
+  // suppressed for the empty state, read-only modes and preview tabs).
   const showFrontmatter = useMemo(() => {
     if (pendingFrontmatter !== null) return true
-    if (stableFrontmatter && Object.keys(stableFrontmatter).length > 0) return true
-    if (hasFrontmatter(document.content)) return true
+    if (Object.keys(frontmatter).length > 0) return true
     if (!showEmptyState && !isRemarkableReadOnly && !isPreviewTab) return true
     return false
-  }, [document.content, stableFrontmatter, pendingFrontmatter, showEmptyState, isRemarkableReadOnly, isPreviewTab])
+  }, [frontmatter, pendingFrontmatter, showEmptyState, isRemarkableReadOnly, isPreviewTab])
 
   // Focus editor when transitioning from empty state to editing
   // (skip during preview tab navigation — editor is non-editable)
@@ -764,11 +724,11 @@ export function Editor() {
     }
   }, [showEmptyState, editor, isPreviewTab])
 
-  // Frontmatter editor save handler: the store's object is the truth from
-  // here; the session drops the raw block from the projected content.
-  const handleFrontmatterSave = useCallback((newFrontmatter: Record<string, unknown>) => {
-    setActiveFrontmatter(newFrontmatter)
-    setStableFrontmatter(newFrontmatter)
+  // The frontmatter editor wrote: the tab record is the truth, the projection
+  // marks the tab dirty and the store mirror follows (#1151).
+  const handleFrontmatterChange = useCallback((next: Record<string, unknown>) => {
+    const tabId = useTabStore.getState().activeTabId
+    if (tabId) setTabFrontmatter(tabId, next)
   }, [])
 
   const handleConfirmPasteAI = useCallback(() => {
@@ -935,8 +895,8 @@ export function Editor() {
             <div className={`max-w-3xl mx-auto prose-editor ${isRemarkableReadOnly && !isTransforming ? 'opacity-80 select-none' : ''} ${!annotationsVisible ? 'hide-annotations' : ''}`}>
               {showFrontmatter && (
                 isRemarkableReadOnly || isPreviewTab
-                  ? <FrontmatterDisplay content={document.content} frontmatter={document.frontmatter} />
-                  : <FrontmatterEditor key={document.documentId} frontmatter={stableFrontmatter} onSave={handleFrontmatterSave} />
+                  ? <FrontmatterDisplay frontmatter={frontmatter} />
+                  : <FrontmatterEditor key={activeTabId ?? document.documentId} frontmatter={frontmatter} onChange={handleFrontmatterChange} />
               )}
               <EditorContent
                 editor={editor}

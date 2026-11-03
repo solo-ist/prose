@@ -3,6 +3,7 @@ import { parseMarkdown, prepareTextContent } from './markdown'
 import { extractMarkdownFromHtml } from './htmlExport'
 import { useNotificationStore } from '../stores/notificationStore'
 import { useTabStore } from '../stores/tabStore'
+import type { SaveSnapshot } from '../document/session'
 import { reloadTabFromDisk } from '../tabs/actions'
 
 /**
@@ -144,9 +145,17 @@ export function notifyExternalEditConflict(tabId: string, path: string): void {
  * overwrite / load disk / cancel. `content` is the serialized document
  * captured at save time so "overwrite" writes exactly what the user saved.
  */
+export interface SaveConflict {
+  path: string
+  content: string
+  /** The tab whose save was held, and what the held text holds (#1151). */
+  tabId?: string
+  snapshot?: SaveSnapshot
+}
+
 interface SaveConflictState {
-  conflict: { path: string; content: string } | null
-  setConflict: (conflict: { path: string; content: string }) => void
+  conflict: SaveConflict | null
+  setConflict: (conflict: SaveConflict) => void
   clearConflict: () => void
 }
 

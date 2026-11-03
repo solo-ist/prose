@@ -8,7 +8,7 @@ import type { ToolResult } from '../../../../shared/tools/types'
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useEditorStore } from '../../../stores/editorStore'
 import { useTabStore } from '../../../stores/tabStore'
-import { isRemarkableOcrPath } from '../../remarkablePath'
+import { setTabFrontmatter } from '../../../tabs/actions'
 import type { ToolContext } from '../context'
 import type { ToolProvenance } from '../provenanceTypes'
 import { addAnnotationsTo, annotationsOf } from '../../../extensions/ai-annotations'
@@ -163,12 +163,12 @@ async function applyInsertion(
 export function isEditorReadOnly(handle: DocumentHandle): boolean {
   const tab = useTabStore.getState().getTabById(handle.tabId)
   if (!tab) return false
-  return tab.isPreview === true || isRemarkableOcrPath(tab.path)
+  return tab.isPreview === true || tab.readOnly === true
 }
 
-/** Frontmatter lives in the active document's store until PR 7 puts it on the tab. */
+/** The AI frontmatter overlay is the shown document's (`editorStore.pendingFrontmatter`); a direct `edit` lands on any tab. */
 const FRONTMATTER_BACKGROUND = toolError(
-  'The frontmatter of a document that is not in front of the user cannot be changed yet; switch to it first.',
+  'A frontmatter suggestion needs the document in front of the user; switch to it first, or use edit to write the frontmatter directly.',
   'FRONTMATTER_BACKGROUND'
 )
 
@@ -387,8 +387,8 @@ export async function executeEdit(
     if (parsed.kind === 'error') {
       return toolError(parsed.message, 'INVALID_FRONTMATTER')
     }
-    if (!handle.isActive) return FRONTMATTER_BACKGROUND
-    useEditorStore.getState().setFrontmatter(parsed.frontmatter)
+    // The tab record is the truth, shown or not (#1151).
+    setTabFrontmatter(handle.tabId, parsed.frontmatter)
     return toolSuccess({ applied: true, nodeId })
   }
 

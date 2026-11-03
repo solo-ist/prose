@@ -76,6 +76,9 @@ import {
   setSourceState,
   getSourceSession,
   serializeSession,
+  saveSnapshot,
+  recordSaved,
+  markFrontmatterChanged,
   type SharePushPerformer
 } from './session'
 import { resolveToolHandle, isToolHandleError } from './handle'
@@ -580,7 +583,7 @@ describe('source mode per tab (#1150)', () => {
       const source = enterSource('ts')
       expect(sourceText(source.state)).toBe(content)
       expect(useTabStore.getState().getTabById('ts')!.mode).toBe('source')
-      expect(useEditorStore.getState().sourceMode).toBe(true)
+      expect(getSourceSession('ts')).not.toBeNull()
       expect(getSession('ts')!.state.doc).toBe(before)
 
       // Typing: the state lands at once, the tab record and the store after the delay; the ProseMirror state waits.
@@ -603,7 +606,7 @@ describe('source mode per tab (#1150)', () => {
       expect(getSourceSession('ts')).toBeNull()
       expect(getSession('ts')!.state.doc).toBe(before)
       expect(useTabStore.getState().getTabById('ts')!.mode).toBe('rich')
-      expect(useEditorStore.getState().sourceMode).toBe(false)
+      expect(useTabStore.getState().getTabById('ts')!.isDirty).toBe(false)
     } finally {
       vi.useRealTimers()
     }
@@ -647,13 +650,13 @@ describe('source mode per tab (#1150)', () => {
       expect(getSourceSession('ta')).toBe(source)
       expect(getSourceSession('ta')!.state.selection.main.head).toBe(5)
       expect(useTabStore.getState().getTabById('ta')!.mode).toBe('source')
-      expect(useEditorStore.getState().sourceMode).toBe(false)
+      expect(getSourceSession('tb')).toBeNull()
       await vi.advanceTimersByTimeAsync(600)
       expect(useTabStore.getState().getTabById('ta')!.content).toContain('Typed in source.')
       expect(useTabStore.getState().getTabById('ta')!.isDirty).toBe(true)
 
       activateSession('ta')
-      expect(useEditorStore.getState().sourceMode).toBe(true)
+      expect(useTabStore.getState().activeTabId).toBe('ta')
       expect(getSourceSession('ta')).toBe(source)
 
       activateSession('tb')
@@ -663,5 +666,102 @@ describe('source mode per tab (#1150)', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('frontmatter on the tab, one dirty rule, the saved snapshot (#1151)', () => {
+  it('a frontmatter write dirties the tab and the mirror, the saved value back cleans it, a save snapshot cleans', async () => {
+    const content = '# Doc\n\nBody.\n'
+    const t = tab('tf', 'doc-f', '/docs/f.md', content)
+    useTabStore.getState().updateTab('tf', { frontmatter: { title: 'One' } })
+    await openSession(t, content)
+    activateSession('tf')
+    expect(useTabStore.getState().getTabById('tf')!.isDirty).toBe(false)
+    expect(useEditorStore.getState().document.frontmatter).toEqual({ title: 'One' })
+
+    useTabStore.getState().updateTab('tf', { frontmatter: { title: 'Two' } })
+    markFrontmatterChanged('tf')
+    expect(useTabStore.getState().getTabById('tf')!.isDirty).toBe(true)
+    expect(useEditorStore.getState().document.isDirty).toBe(true)
+    expect(useEditorStore.getState().document.frontmatter).toEqual({ title: 'Two' })
+    expect(serializeSession('tf')).toBe('---\ntitle: Two\n---\n' + content)
+
+    // Not sticky: the saved value back is clean again.
+    useTabStore.getState().updateTab('tf', { frontmatter: { title: 'One' } })
+    markFrontmatterChanged('tf')
+    expect(useTabStore.getState().getTabById('tf')!.isDirty).toBe(false)
+    expect(useEditorStore.getState().document.isDirty).toBe(false)
+
+    useTabStore.getState().updateTab('tf', { frontmatter: { title: 'Three' } })
+    markFrontmatterChanged('tf')
+    const snapshot = saveSnapshot('tf')
+    expect(snapshot.text).toBe('---\ntitle: Three\n---\n' + content)
+    recordSaved('tf', snapshot)
+    expect(useTabStore.getState().getTabById('tf')!.isDirty).toBe(false)
+    expect(useEditorStore.getState().document.isDirty).toBe(false)
+  })
+
+  it('an undo back to the saved body cleans the tab, and typing during a save keeps it dirty', async () => {
+    vi.useFakeTimers()
+    try {
+      const content = 'Some text.\n'
+      const t = tab('tu', 'doc-u', '/docs/u.md', content)
+      await openSession(t, content)
+      activateSession('tu')
+      editor.commands.insertContentAt(1, 'X')
+      await vi.advanceTimersByTimeAsync(600)
+      expect(useTabStore.getState().getTabById('tu')!.isDirty).toBe(true)
+      expect(editor.commands.undo()).toBe(true)
+      await vi.advanceTimersByTimeAsync(600)
+      expect(useTabStore.getState().getTabById('tu')!.isDirty).toBe(false)
+      expect(useEditorStore.getState().document.isDirty).toBe(false)
+      expect(useEditorStore.getState().document.content).toBe(content)
+
+      // The snapshot a save writes, then a keystroke before the write is recorded.
+      editor.commands.insertContentAt(1, 'Y')
+      const snapshot = saveSnapshot('tu')
+      expect(snapshot.text).toBe('YSome text.')
+      editor.commands.insertContentAt(1, 'Z')
+      recordSaved('tu', snapshot)
+      expect(useTabStore.getState().getTabById('tu')!.isDirty).toBe(true)
+      recordSaved('tu', saveSnapshot('tu'))
+      expect(useTabStore.getState().getTabById('tu')!.isDirty).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a background tab follows the same rule, and a tab that arrived dirty stays dirty until a save', async () => {
+    const a = tab('tba', 'doc-ba', '/docs/ba.md', 'Alpha.\n')
+    const b = tab('tbb', 'doc-bb', '/docs/bb.md', 'Beta.\n')
+    await openSession(a, a.content!)
+    await openSession(b, b.content!)
+    activateSession('tba')
+    useTabStore.getState().updateTab('tbb', { frontmatter: { k: 1 } })
+    markFrontmatterChanged('tbb')
+    expect(useTabStore.getState().getTabById('tbb')!.isDirty).toBe(true)
+    // The mirror is the shown tab's.
+    expect(useEditorStore.getState().document.isDirty).toBe(false)
+    expect(saveSnapshot('tbb').text).toBe('---\nk: 1\n---\nBeta.\n')
+    recordSaved('tbb', saveSnapshot('tbb'))
+    expect(useTabStore.getState().getTabById('tbb')!.isDirty).toBe(false)
+
+    tab('td', 'doc-d', '/docs/d.md', 'Draft.\n')
+    useTabStore.getState().updateTab('td', { isDirty: true })
+    await openSession(useTabStore.getState().getTabById('td')!, 'Draft.\n')
+    activateSession('td')
+    expect(useTabStore.getState().getTabById('td')!.isDirty).toBe(true)
+    recordSaved('td', saveSnapshot('td'))
+    expect(useTabStore.getState().getTabById('td')!.isDirty).toBe(false)
+  })
+
+  it('a preview tab is read-only until promoted; the mirror re-applies editable', async () => {
+    const p = tab('tp', 'doc-p', '/docs/p.md', 'Preview.\n')
+    useTabStore.getState().updateTab('tp', { isPreview: true })
+    await openSession(p, p.content!)
+    activateSession('tp')
+    expect(editor.isEditable).toBe(false)
+    useTabStore.getState().promotePreviewTab('tp')
+    expect(editor.isEditable).toBe(true)
   })
 })

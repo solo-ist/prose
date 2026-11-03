@@ -20,7 +20,9 @@ export function parseMarkdown(raw: string): ParsedMarkdown {
 
     const parsed = yaml.load(match[1])
     const frontmatter = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
-    const content = raw.slice(match[0].length).trim()
+    // The body keeps its bytes after the closing fence (a blank line, the
+    // final newline): an untouched document saves as it was read (#1105, #1151).
+    const content = raw.slice(match[0].length)
 
     return { content, frontmatter }
   } catch {

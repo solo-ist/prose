@@ -256,9 +256,11 @@ describe('executeTool with a binding', () => {
     expect(editor.state.doc.textContent).toContain('Beta rewritten.')
     expect(getSession('ta')!.state.doc.textContent).toContain('Alpha rewritten.')
 
-    // A frontmatter write on the background document is refused, not misdirected.
+    // A frontmatter write on the background document lands on its tab record (#1151), never on the shown one.
     const fm = await executeTool('edit', { nodeId: 'frontmatter', content: 'title: x' }, 'create', provenance, binding)
-    expect(fm.success).toBe(false)
-    expect((fm as { code?: string }).code).toBe('FRONTMATTER_BACKGROUND')
+    expect(fm.success, JSON.stringify(fm)).toBe(true)
+    expect(useTabStore.getState().getTabById('ta')!.frontmatter).toEqual({ title: 'x' })
+    expect(useTabStore.getState().getTabById('ta')!.isDirty).toBe(true)
+    expect(useTabStore.getState().getTabById('tb')!.frontmatter).toEqual({})
   })
 })

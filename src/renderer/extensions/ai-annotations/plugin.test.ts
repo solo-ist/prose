@@ -67,6 +67,20 @@ describe('adding records', () => {
     expect(after.urgentRevision).toBe(after.revision)
   })
 
+  it('lets an add that reuses an existing id supersede that record', () => {
+    const old = annotate('rewritten text.')
+    const { from, to } = rangeOf('Second paragraph.')
+    editor.view.dispatch(
+      addAnnotationsTo(editor.state.tr, [{ id: old.id, createdAt: old.createdAt, type: 'replacement', from, to, content: 'Second paragraph.', provenance: PROV }])
+    )
+    const records = annotationsOf(editor.state)
+    expect(records).toHaveLength(1)
+    expect(records[0].id).toBe(old.id)
+    expect(records[0].createdAt).toBe(old.createdAt)
+    expect(textOf(records[0])).toBe('Second paragraph.')
+    expect(records[0].detached).toBeUndefined()
+  })
+
   it('applies an add after mapping, so a replace-and-annotate is one dispatch', () => {
     const old = annotate('rewritten text.')
     const { from, to } = rangeOf('Some rewritten text.')

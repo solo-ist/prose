@@ -224,7 +224,14 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
             }
           }
           if (meta.add && meta.add.length > 0) {
-            records = [...records, ...stampAdded(meta.add, doc, documentId)]
+            const added = stampAdded(meta.add, doc, documentId)
+            // An add that reuses an existing id supersedes that record: a
+            // prior annotation carried over onto its unchanged words by an
+            // AI edit (buildWordDiffAnnotations) moves instead of leaving a
+            // detached entry beside a copy.
+            const ids = new Set(added.map((a) => a.id))
+            const kept = records.some((a) => ids.has(a.id)) ? records.filter((a) => !ids.has(a.id)) : records
+            records = [...kept, ...added]
             urgent = true
           }
         }

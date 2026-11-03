@@ -188,12 +188,17 @@ export function buildWordDiffAnnotations(params: {
 
   const diff = computeWordDiff(originalText, newText)
 
-  // --- Restore prior annotations for unchanged words ---
+  // --- Carry prior annotations over on their unchanged words ---
   // Prior annotations were captured before the replace; ProseMirror's position
-  // mapping detaches every record inside the replaced range. Re-add them using
-  // the new-text offsets of the unchanged words so the neighbour-word
-  // provenance mark survives. A record that was already detached is history
-  // (#674), not something to bring back to life.
+  // mapping detaches every record inside the replaced range. Each prior comes
+  // back on the words of it that survived, in new-text offsets: adjacent
+  // surviving words (whitespace between them) form one run, the first run
+  // keeps the prior's id and time so the record moves rather than leaving a
+  // superseded entry beside a copy, and every run is labelled with the text
+  // it covers. (One record per word, each labelled with the parent's whole
+  // text and stamped as new, was how this read in the Activity panel before.)
+  // A record that was already detached is history (#674), not something to
+  // bring back to life.
   const priorAnnotations = params.priorAnnotations?.filter((a) => !a.detached) ?? []
   if (priorAnnotations.length > 0) {
     const unchangedRanges = computeUnchangedWordRanges(originalText, newText)
@@ -201,13 +206,12 @@ export function buildWordDiffAnnotations(params: {
     // which equals rangeFrom (both executeEdit and executeInsert pass contentStart as rangeFrom).
     const originalContentStart = rangeFrom
 
-    for (const range of unchangedRanges) {
-      // Absolute positions of this word in the OLD document
-      const oldAbsFrom = originalContentStart + range.oldFrom
-      const oldAbsTo = originalContentStart + range.oldTo
-
-      // Find prior annotations whose range overlaps this unchanged word
-      for (const prior of priorAnnotations) {
+    for (const prior of priorAnnotations) {
+      const pieces: Array<{ from: number; to: number }> = []
+      for (const range of unchangedRanges) {
+        // Absolute positions of this word in the OLD document
+        const oldAbsFrom = originalContentStart + range.oldFrom
+        const oldAbsTo = originalContentStart + range.oldTo
         if (prior.to <= oldAbsFrom || prior.from >= oldAbsTo) continue
 
         // Clamp the annotation to the word boundary (handles partial overlaps)
@@ -225,21 +229,31 @@ export function buildWordDiffAnnotations(params: {
         const scale = wordNewLen / Math.max(wordOldLen, 1)
         const newRelFrom = range.newFrom + Math.round((oldRelFrom - range.oldFrom) * scale)
         const newRelTo = range.newFrom + Math.round((oldRelTo - range.oldFrom) * scale)
+        if (newRelFrom < newRelTo) pieces.push({ from: newRelFrom, to: newRelTo })
+      }
+      pieces.sort((a, b) => a.from - b.from)
 
-        const newAbsFrom = rangeFrom + newRelFrom
-        const newAbsTo = rangeFrom + newRelTo
-
-        if (newAbsFrom >= newAbsTo) continue
-
+      const runs: Array<{ from: number; to: number }> = []
+      for (const piece of pieces) {
+        const last = runs[runs.length - 1]
+        if (last && piece.from >= last.from && newText.slice(last.to, piece.from).trim() === '') {
+          last.to = Math.max(last.to, piece.to)
+        } else {
+          runs.push({ ...piece })
+        }
+      }
+      runs.forEach((run, i) => {
         out.push({
+          id: i === 0 ? prior.id : undefined,
+          createdAt: prior.createdAt,
           type: prior.type,
-          from: newAbsFrom,
-          to: newAbsTo,
-          content: prior.content,
+          from: rangeFrom + run.from,
+          to: rangeFrom + run.to,
+          content: newText.slice(run.from, run.to),
           provenance: prior.provenance,
           explanation: prior.explanation,
         })
-      }
+      })
     }
   }
 

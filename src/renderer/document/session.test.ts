@@ -64,12 +64,13 @@ import {
   persistRecords,
   setSessionIdentity,
   flushActiveProjections,
+  replaceSessionDocument,
   getSession
 } from './session'
 import { getIdentity } from './identity'
 import { useTabStore, type Tab } from '../stores/tabStore'
 import { useEditorStore } from '../stores/editorStore'
-import { useAnnotationStore } from '../extensions/ai-annotations/store'
+import { annotationsOf } from '../extensions/ai-annotations/transactions'
 import { useCommentStore } from '../extensions/comments/store'
 import { useSuggestionStore } from '../extensions/ai-suggestions/store'
 import type { AIAnnotation } from '../types/annotations'
@@ -103,6 +104,8 @@ function marksOf(doc: PMNode, markName: string): Array<{ id: string; text: strin
   return out
 }
 
+const PROV = { model: 'test', conversationId: 'c', messageId: 'm' }
+
 const annotation = (documentId: string, from: number, to: number, content: string): AIAnnotation => ({
   id: `ann-${documentId}-${from}`,
   documentId,
@@ -111,7 +114,7 @@ const annotation = (documentId: string, from: number, to: number, content: strin
   from,
   to,
   content,
-  provenance: { model: 'test', conversationId: 'c', messageId: 'm' }
+  provenance: PROV
 })
 
 const comment = (id: string, markedText: string, extra: Partial<CommentData> = {}): CommentData => ({
@@ -235,46 +238,119 @@ describe('the markdown projection', () => {
   })
 })
 
-describe('persistRecords and the mirrors (§G)', () => {
-  it('writes a background document under its own key and never pairs an id with another document\'s records', async () => {
+describe('persistRecords and the plugin state (§G)', () => {
+  it('writes each document under its own key from its own state, and a transaction on one never touches the other', async () => {
     const a = tab('ta', 'doc-a', '/docs/a.md', 'Alpha body.\n')
     const b = tab('tb', 'doc-b', '/docs/b.md', 'Beta body.\n')
     await openSession(a, 'Alpha body.\n')
     await openSession(b, 'Beta body.\n')
 
-    const violations: string[] = []
-    const unsubscribe = useAnnotationStore.subscribe((state) => {
-      for (const record of state.annotations) {
-        if (record.documentId !== state.documentId) {
-          violations.push(`${state.documentId} holds a record of ${record.documentId}`)
-        }
-      }
-    })
-
+    // An add is written at once, under the state's own id, with its anchor text.
     activateSession('ta')
-    const recA = annotation('doc-a', 1, 6, 'Alpha')
-    useAnnotationStore.getState().addAnnotation({ ...recA })
-    await useAnnotationStore.getState().pendingSave
-    expect(db.annotations.get('doc-a')).toHaveLength(1)
+    editor.commands.addAIAnnotations([{ type: 'insertion', from: 1, to: 6, content: 'Alpha', provenance: PROV }])
+    const stateA = annotationsOf(editor.state)
+    expect(stateA).toHaveLength(1)
+    expect(stateA[0]).toMatchObject({ documentId: 'doc-a', from: 1, to: 6, anchorText: 'Alpha' })
+    await getSession('ta')!.annotationWrite
+    expect(db.annotations.get('doc-a')).toEqual([stateA[0]])
     expect(db.annotations.has('doc-b')).toBe(false)
 
     activateSession('tb')
-    expect(useAnnotationStore.getState().documentId).toBe('doc-b')
-    expect(useAnnotationStore.getState().annotations).toEqual([])
+    expect(getIdentity(editor.state).documentId).toBe('doc-b')
+    expect(annotationsOf(editor.state)).toEqual([])
     expect(useCommentStore.getState().documentId).toBe('doc-b')
     expect(useSuggestionStore.getState().documentId).toBe('doc-b')
 
-    // A write for the background document lands under its key, with its records.
+    // Typing in B is a transaction on B's state alone.
+    editor.commands.insertContentAt(1, 'Zed ')
+    expect(annotationsOf(editor.state)).toEqual([])
+    expect(annotationsOf(getSession('ta')!.state)).toBe(stateA)
+
+    // A write for the background document lands under its key; the state stays the truth.
     const recA2 = annotation('doc-a', 1, 3, 'Al')
     await persistRecords('annotations', 'doc-a', [recA2])
     expect(db.annotations.get('doc-a')).toEqual([recA2])
-    expect(getSession('ta')?.records.annotations).toEqual([recA2])
-    expect(useAnnotationStore.getState().annotations).toEqual([])
+    expect(annotationsOf(getSession('ta')!.state)).toBe(stateA)
 
     activateSession('ta')
-    expect(useAnnotationStore.getState().annotations).toEqual([recA2])
-    unsubscribe()
-    expect(violations).toEqual([])
+    expect(annotationsOf(editor.state)).toBe(stateA)
+  })
+
+  it('persists a plain move on flush and a detach at once, never an empty set from a load', async () => {
+    const content = 'Alpha body here.\n'
+    const stored = { ...annotation('doc-m', 7, 11, 'body'), anchorText: 'body' }
+    db.annotations.set('doc-m', [stored])
+    const t = tab('tm', 'doc-m', '/docs/m.md', content)
+    await openSession(t, content)
+    activateSession('tm')
+    expect(annotationsOf(editor.state)[0]).toMatchObject({ from: 7, to: 11 })
+    // The seed wrote nothing back.
+    expect(db.annotations.get('doc-m')).toEqual([stored])
+
+    // Typing above the record moves it: the write waits for the flush.
+    editor.commands.insertContentAt(1, 'Zed ')
+    expect(annotationsOf(editor.state)[0]).toMatchObject({ from: 11, to: 15, anchorText: 'body' })
+    expect(db.annotations.get('doc-m')).toEqual([stored])
+    flushActiveProjections()
+    await getSession('tm')!.annotationWrite
+    expect((db.annotations.get('doc-m') as AIAnnotation[])[0]).toMatchObject({ from: 11, to: 15 })
+
+    // Deleting the annotated text detaches the record and writes at once.
+    editor.commands.deleteRange({ from: 11, to: 15 })
+    expect(annotationsOf(editor.state)[0].detached).toBe(true)
+    await getSession('tm')!.annotationWrite
+    expect((db.annotations.get('doc-m') as AIAnnotation[])[0].detached).toBe(true)
+  })
+})
+
+describe('reloads carry the records (#1138)', () => {
+  it('re-anchors stored rows when a disk reload re-opens the session', async () => {
+    const content = 'Intro paragraph here with words.\n\nSome rewritten text.\n'
+    const t = tab('tr', 'doc-r', '/docs/r.md', content)
+    await openSession(t, content)
+    activateSession('tr')
+    const doc = editor.state.doc
+    const match = (() => {
+      let pos = -1
+      doc.descendants((node, p) => {
+        if (pos === -1 && node.isText && node.text?.includes('rewritten')) pos = p + node.text.indexOf('rewritten')
+      })
+      return pos
+    })()
+    expect(match).toBeGreaterThan(0)
+    editor.commands.addAIAnnotations([{ type: 'replacement', from: match, to: match + 'rewritten text.'.length, content: 'rewritten text.', provenance: PROV }])
+    await getSession('tr')!.annotationWrite
+    expect((db.annotations.get('doc-r') as AIAnnotation[])[0].anchorText).toBe('rewritten text.')
+
+    // The file changed on disk: one word fewer above the highlight.
+    const shorter = 'Intro paragraph here.\n\nSome rewritten text.\n'
+    await replaceSessionDocument('tr', { content: shorter, body: shorter, frontmatter: {} }, { keepHistory: false })
+    const [record] = annotationsOf(editor.state)
+    expect(record.detached).toBeUndefined()
+    expect(editor.state.doc.textBetween(record.from, record.to, '\n')).toBe('rewritten text.')
+    expect(record.from).toBe(match - 'with words'.length - 1)
+  })
+
+  it('carries the records across a dev remount', async () => {
+    const content = 'Remount body text.\n'
+    const t = tab('th', 'doc-h', '/docs/h.md', content)
+    await openSession(t, content)
+    activateSession('th')
+    editor.commands.addAIAnnotations([{ type: 'insertion', from: 1, to: 8, content: 'Remount', provenance: PROV }])
+    await getSession('th')!.annotationWrite
+    const written = db.annotations.get('doc-h')
+
+    const remounted = new Editor({ extensions: createEditorExtensions(), content: '' })
+    attachEditor(remounted)
+    const carried = annotationsOf(getSession('th')!.state)
+    expect(carried.map((a) => a.anchorText)).toEqual(['Remount'])
+    expect(remounted.state.doc.textContent).toBe('Remount body text.')
+    // A remount writes nothing.
+    expect(db.annotations.get('doc-h')).toBe(written)
+
+    attachEditor(editor)
+    remounted.destroy()
+    expect(annotationsOf(getSession('th')!.state).map((a) => a.anchorText)).toEqual(['Remount'])
   })
 })
 
@@ -286,14 +362,13 @@ describe('setSessionIdentity', () => {
     const t = tab('t5', 'doc-5', '/docs/five.md', content)
     await openSession(t, content)
     activateSession('t5')
-    useAnnotationStore.getState().addAnnotation({ ...annotation('doc-5', 1, 9, 'Identity') })
-    await useAnnotationStore.getState().pendingSave
+    editor.commands.addAIAnnotations([{ type: 'insertion', from: 1, to: 9, content: 'Identity', provenance: PROV }])
+    await getSession('t5')!.annotationWrite
 
     await setSessionIdentity('t5', { documentId: 'doc-5b', path: '/docs/five-b.md', plain: false })
 
     expect(getIdentity(editor.state)).toEqual({ documentId: 'doc-5b', path: '/docs/five-b.md', plain: false })
-    expect(useAnnotationStore.getState().documentId).toBe('doc-5b')
-    expect(useAnnotationStore.getState().annotations.map((a) => a.documentId)).toEqual(['doc-5b'])
+    expect(annotationsOf(editor.state).map((a) => a.documentId)).toEqual(['doc-5b'])
     expect(useCommentStore.getState().documentId).toBe('doc-5b')
     expect(useSuggestionStore.getState().documentId).toBe('doc-5b')
     expect((db.annotations.get('doc-5b') as AIAnnotation[]).map((a) => a.documentId)).toEqual(['doc-5b'])

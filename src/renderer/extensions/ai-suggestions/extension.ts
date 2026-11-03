@@ -12,11 +12,10 @@ import { DOMParser as ProseMirrorDOMParser, Slice } from '@tiptap/pm/model'
 import type { Transaction } from '@tiptap/pm/state'
 import type { MarkSerializerSpec } from 'prosemirror-markdown'
 import type { AISuggestionOptions, AISuggestionData, SuggestionType } from './types'
-import { useAnnotationStore } from '../ai-annotations'
-import { createWordDiffAnnotations } from '../../lib/diffUtils'
+import { addAnnotationsTo, annotationsOf } from '../ai-annotations/transactions'
+import { buildWordDiffAnnotations } from '../../lib/diffUtils'
 import { pipelineLog } from '../../lib/aiPipelineLog'
 import { AI_REPLACEMENT_META } from '../comments'
-import { getIdentity } from '../../document/identity'
 
 /**
  * Transaction meta set by the four accept/reject commands. A writer resolving a
@@ -580,55 +579,43 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             explanation?: string
           }
 
-          // The annotation belongs to the document this state is (#1145). The
-          // mark was stamped when the suggestion was made and lags a rename,
-          // Save As or first save; the store id is that same identity, kept as
-          // the last fallback. A record for another id is refused by the store.
-          const annotationStore = useAnnotationStore.getState()
-          const docId = getIdentity(state).documentId || attrs.documentId || annotationStore.documentId
           const model = attrs.provenanceModel || 'unknown'
           const originalText = attrs.originalText || ''
           const explanation = attrs.explanation || ''
 
-          // Capture annotations overlapping the replaced range BEFORE
-          // dispatch (#674) — position mapping will collapse them; passing
-          // them to createWordDiffAnnotations lets unchanged words keep
-          // their prior provenance marks (parity with executeEdit's
-          // priorAnnotations capture in executors/editor.ts).
-          const priorAnnotations = docId
-            ? annotationStore.annotations.filter(
-                (a) => !a.detached && a.documentId === docId && a.to > markFrom && a.from < markTo
-              )
-            : []
+          // Records overlapping the replaced range, read from the state
+          // before the replace (#674): the plugin detaches them under the
+          // mapping; buildWordDiffAnnotations re-adds the ones on unchanged
+          // words (parity with executeEdit's priorAnnotations capture in
+          // executors/editor.ts).
+          const priorAnnotations = annotationsOf(state).filter(
+            (a) => !a.detached && a.to > markFrom && a.from < markTo
+          )
 
           // Not the writer deleting a commented passage — keep its thread open (#1099).
           tr.setMeta(AI_REPLACEMENT_META, true)
           tr.setMeta(AI_SUGGESTION_RESOLVED_META, true)
-          dispatch(tr)
 
-          // Create word-level annotations in a MICROTASK (#674). TipTap
-          // applies the command's transaction after the command body returns
-          // — creating annotations inline here would run BEFORE the
-          // aiAnnotations plugin maps existing annotations through this
-          // transaction, and addAnnotation's position-update pause would
-          // then swallow that mapping pass entirely. The result was stale
-          // positions on every pre-existing annotation (collapse-detection
-          // starved → entries never detached, decorations drifted). Deferring
-          // lets the plugin map (and detach) old annotations first; the new
-          // annotation's coordinates come from tr.mapping and stay valid.
-          if (docId && suggestedText.length > 0) {
+          // The provenance records ride on this same transaction (#1146): the
+          // annotation plugin maps the existing records through the replace
+          // first and appends these after, in the coordinates of the new
+          // document, so replace-and-annotate is one dispatch and the
+          // microtask the store needed is gone. The plugin stamps the
+          // document id from the state, whatever the mark carried (a mark
+          // made before a rename or first save carries the old id).
+          if (suggestedText.length > 0) {
             const provenance = {
               model,
               conversationId: attrs.provenanceConversationId || '',
               messageId: attrs.provenanceMessageId || '',
             }
-            queueMicrotask(() => {
-              if (conversion && conversion.singleTextblock) {
-                // Converted node sits at its pre-replace position (nothing
-                // before it shifted); content starts one position inside the
-                // node's opening token — word-diff offsets index that content.
-                createWordDiffAnnotations({
-                  documentId: docId,
+            if (conversion && conversion.singleTextblock) {
+              // Converted node sits at its pre-replace position (nothing
+              // before it shifted); content starts one position inside the
+              // node's opening token — word-diff offsets index that content.
+              addAnnotationsTo(
+                tr,
+                buildWordDiffAnnotations({
                   originalText,
                   newText: annotationNewText,
                   rangeFrom: conversion.insertedAt + 1,
@@ -636,48 +623,47 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
                   provenance,
                   explanation: explanation || undefined,
                 })
-              } else if (conversion) {
-                // Wrapper conversion (blockquote/list) or multi-node result:
-                // nested structure breaks linear text-offset math — record a
-                // single full-range annotation over the inserted content.
-                useAnnotationStore.getState().addAnnotation({
-                  documentId: docId,
+              )
+            } else if (conversion) {
+              // Wrapper conversion (blockquote/list) or multi-node result:
+              // nested structure breaks linear text-offset math — record a
+              // single full-range annotation over the inserted content.
+              addAnnotationsTo(tr, [
+                {
                   type: 'replacement',
                   from: conversion.insertedAt,
                   to: conversion.insertedAt + conversion.insertedSize,
                   content: conversion.visibleText,
                   provenance,
                   explanation: explanation || undefined,
-                })
-              } else {
-                // Coordinate-consistency note (#677 review): priorAnnotations
-                // carry PRE-dispatch from/to, while rangeFrom is mapped
-                // through tr. This command's only position-shifting step is
-                // the mark-range replacement itself (removeMark doesn't move
-                // positions), so map(markFrom, -1) === markFrom and
-                // diffUtils' originalContentStart (= rangeFrom) stays in the
-                // same coordinate space as the prior annotations.
-                const newFrom = tr.mapping.map(markFrom, -1)
-                const newTo = tr.mapping.map(markTo, 1)
-                console.log('[AISuggestion] Creating annotation:', { docId, model, from: newFrom, to: newTo })
-                createWordDiffAnnotations({
-                  documentId: docId,
+                },
+              ])
+            } else {
+              // Coordinate-consistency note (#677 review): priorAnnotations
+              // carry pre-replace from/to, while rangeFrom is mapped through
+              // tr. This command's only position-shifting step is the
+              // mark-range replacement itself (removeMark doesn't move
+              // positions), so map(markFrom, -1) === markFrom and the
+              // builder's originalContentStart (= rangeFrom) stays in the
+              // same coordinate space as the prior annotations.
+              addAnnotationsTo(
+                tr,
+                buildWordDiffAnnotations({
                   originalText,
                   // Parsed visible text when the inline-markdown path fired —
                   // word-diff offsets must index the rendered document, not the
                   // raw markdown source.
                   newText: annotationNewText,
-                  rangeFrom: newFrom,
-                  rangeTo: newTo,
+                  rangeFrom: tr.mapping.map(markFrom, -1),
+                  rangeTo: tr.mapping.map(markTo, 1),
                   provenance,
                   explanation: explanation || undefined,
                   priorAnnotations,
                 })
-              }
-            })
-          } else {
-            console.warn('[AISuggestion] Cannot create annotation - missing docId:', { docId, suggestedText: suggestedText.length })
+              )
+            }
           }
+          dispatch(tr)
 
           if (this.options.onSuggestionAccepted) {
             this.options.onSuggestionAccepted(id)
@@ -856,38 +842,27 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           // Not the writer deleting a commented passage — keep its thread open (#1099).
           tr.setMeta(AI_REPLACEMENT_META, true)
           tr.setMeta(AI_SUGGESTION_RESOLVED_META, true)
-          dispatch(tr)
 
-          // Create annotations in a MICROTASK after the transaction actually
-          // applies (see acceptAISuggestion — TipTap applies the tr after the
-          // command body returns; inline creation would starve existing
-          // annotations of this transaction's position mapping). Pre-dispatch
-          // coordinates map through the full accumulated step list:
-          // end-to-start processing means each suggestion's own step leaves
-          // its range-start boundary stable, and later (lower-position) steps
-          // shift it by their length delta — exactly what tr.mapping.map
-          // computes. priorAnnotations restoration is intentionally skipped
-          // in the batch path (it would need a per-step snapshot);
-          // overlapping older annotations detach rather than vanish (#674).
-          queueMicrotask(() => {
-            const annotationStore = useAnnotationStore.getState()
-            for (const { suggestion, conversion, annotationNewText } of applied) {
-              // The state's identity first, as in acceptAISuggestion (#1145):
-              // a mark stamped before a rename or first save carries the old id.
-              const docId = getIdentity(state).documentId || suggestion.documentId || annotationStore.documentId
-              if (!docId) {
-                console.warn('[AISuggestion] acceptAll: cannot create annotation - missing docId:', suggestion.id)
-                continue
-              }
-              const provenance = {
-                model: suggestion.provenanceModel || 'unknown',
-                conversationId: suggestion.provenanceConversationId,
-                messageId: suggestion.provenanceMessageId,
-              }
-              if (conversion && conversion.singleTextblock) {
-                const base = tr.mapping.map(conversion.insertedAt, -1)
-                createWordDiffAnnotations({
-                  documentId: docId,
+          // The provenance records ride on this transaction (#1146; see
+          // acceptAISuggestion). Pre-dispatch coordinates map through the
+          // full accumulated step list: end-to-start processing means each
+          // suggestion's own step leaves its range-start boundary stable, and
+          // later (lower-position) steps shift it by their length delta —
+          // exactly what tr.mapping.map computes. priorAnnotations
+          // restoration is intentionally skipped in the batch path (it would
+          // need a per-step snapshot); overlapping older annotations detach
+          // rather than vanish (#674).
+          for (const { suggestion, conversion, annotationNewText } of applied) {
+            const provenance = {
+              model: suggestion.provenanceModel || 'unknown',
+              conversationId: suggestion.provenanceConversationId,
+              messageId: suggestion.provenanceMessageId,
+            }
+            if (conversion && conversion.singleTextblock) {
+              const base = tr.mapping.map(conversion.insertedAt, -1)
+              addAnnotationsTo(
+                tr,
+                buildWordDiffAnnotations({
                   originalText: suggestion.originalText,
                   newText: annotationNewText,
                   rangeFrom: base + 1,
@@ -895,20 +870,23 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
                   provenance,
                   explanation: suggestion.explanation || undefined,
                 })
-              } else if (conversion) {
-                const base = tr.mapping.map(conversion.insertedAt, -1)
-                annotationStore.addAnnotation({
-                  documentId: docId,
+              )
+            } else if (conversion) {
+              const base = tr.mapping.map(conversion.insertedAt, -1)
+              addAnnotationsTo(tr, [
+                {
                   type: 'replacement',
                   from: base,
                   to: base + conversion.insertedSize,
                   content: conversion.visibleText,
                   provenance,
                   explanation: suggestion.explanation || undefined,
-                })
-              } else {
-                createWordDiffAnnotations({
-                  documentId: docId,
+                },
+              ])
+            } else {
+              addAnnotationsTo(
+                tr,
+                buildWordDiffAnnotations({
                   originalText: suggestion.originalText,
                   newText: annotationNewText,
                   rangeFrom: tr.mapping.map(suggestion.from, -1),
@@ -916,9 +894,10 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
                   provenance,
                   explanation: suggestion.explanation || undefined,
                 })
-              }
+              )
             }
-          })
+          }
+          dispatch(tr)
 
           return true
         },

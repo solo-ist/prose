@@ -1,25 +1,50 @@
 /**
  * AI Annotations ProseMirror Plugin
  *
- * Creates time-fading gradient decorations for AI-generated text.
- * Uses inline decorations to highlight annotated ranges with opacity
- * that decreases over 7 days.
+ * Owns the AI annotation records of its document (#1146) and paints them as
+ * time-fading inline decorations (opacity decreasing over 7 days).
+ *
+ * `apply` is the one place the record set changes: records are mapped
+ * through the transaction (split around text typed inside them, detached on
+ * collapse, never deleted, #674) or, across a whole-document replace, put
+ * back on their text (the source-mode exit and its undo, a disk reload's
+ * seed, #1138); then the transaction's metas run (load, removeRange, remove,
+ * add); an identity change restamps every record; and the anchors are
+ * refreshed from the document being applied, so a record can never carry
+ * another document's text. The session layer persists the set by watching
+ * the state's `revision` (document/session.ts).
  */
 
-import { Plugin, PluginKey } from '@tiptap/pm/state'
-import { Decoration, DecorationSet } from '@tiptap/pm/view'
-import { ReplaceStep } from '@tiptap/pm/transform'
+import { Plugin } from '@tiptap/pm/state'
 import type { Transaction } from '@tiptap/pm/state'
+import type { Node as PMNode } from '@tiptap/pm/model'
+import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import type { AIAnnotation, AIAnnotationOptions } from '../../types/annotations'
 import { calculateOpacity, formatAge, ANNOTATION_CONSTANTS } from '../../types/annotations'
-import { useAnnotationStore } from './store'
-import { getIdentity, RELOAD_META, BUILD_META } from '../../document/identity'
+import { getIdentity, IDENTITY_META, RELOAD_META } from '../../document/identity'
+import { pipelineLog } from '../../lib/aiPipelineLog'
+import {
+  aiAnnotationsPluginKey,
+  EMPTY_ANNOTATIONS,
+  type AIAnnotationsPluginState,
+  type AnnotationMeta
+} from './transactions'
+import {
+  isWholeDocumentReplace,
+  loadRecords,
+  mapRecords,
+  reanchorRecords,
+  refreshAnchors,
+  removeRecordsInRange,
+  restampRecords,
+  stampAdded
+} from './records'
 
-export const aiAnnotationsPluginKey = new PluginKey('aiAnnotations')
+export { aiAnnotationsPluginKey } from './transactions'
+export type { AIAnnotationsPluginState } from './transactions'
 
 // Track tooltip element for cleanup
 let activeTooltip: HTMLElement | null = null
-
 
 function removeTooltip() {
   if (activeTooltip) {
@@ -81,10 +106,39 @@ function showTooltip(annotation: AIAnnotation, event: MouseEvent) {
   }
 }
 
-export interface AIAnnotationsPluginState {
-  decorationSet: DecorationSet
-  annotations: AIAnnotation[]
-  lastRefresh: number
+function buildDecorations(doc: PMNode, records: readonly AIAnnotation[], maxAge: number): DecorationSet {
+  const decorations: Decoration[] = []
+  const maxPos = doc.content.size
+  for (const annotation of records) {
+    // Detached annotations are history-only (#674): no decoration, and their
+    // stale positions must not hit the bounds check. A zero-width record
+    // (an AI deletion marker) has nothing to paint.
+    if (annotation.detached) continue
+    if (annotation.from < 0 || annotation.to > maxPos || annotation.from >= annotation.to) continue
+    const opacity = calculateOpacity(annotation.createdAt, maxAge)
+    decorations.push(
+      Decoration.inline(annotation.from, annotation.to, {
+        class: `ai-annotation ai-annotation-${annotation.type}`,
+        style: `--annotation-opacity: ${opacity.toFixed(3)}`,
+        'data-annotation-id': annotation.id,
+        'data-annotation-type': annotation.type,
+        'data-annotation-model': annotation.provenance.model,
+        'data-annotation-age': formatAge(annotation.createdAt)
+      })
+    )
+  }
+  return DecorationSet.create(doc, decorations)
+}
+
+function logDetached(detached: readonly AIAnnotation[], reason: string): void {
+  for (const a of detached) pipelineLog('annotation:detach', { id: a.id, from: a.from, to: a.to, reason })
+}
+
+function logMoved(moved: readonly AIAnnotation[], before: ReadonlyMap<string, AIAnnotation>, via: string): void {
+  for (const a of moved) {
+    const prev = before.get(a.id)
+    pipelineLog('annotation:reanchor', { id: a.id, from: prev?.from, to: prev?.to, newFrom: a.from, newTo: a.to, via })
+  }
 }
 
 export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
@@ -92,311 +146,169 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
     className: options.className ?? 'ai-annotation',
     maxAge: options.maxAge ?? ANNOTATION_CONSTANTS.MAX_AGE_MS,
     showTooltip: options.showTooltip ?? true,
-    onAnnotationClick: options.onAnnotationClick ?? (() => {}),
+    onAnnotationClick: options.onAnnotationClick ?? (() => {})
   }
 
-  // Track annotation state - subscription happens lazily in view()
-  let currentAnnotations: AIAnnotation[] = []
-  let isVisible = true
-  let unsubscribe: (() => void) | null = null
-
-  return new Plugin({
+  return new Plugin<AIAnnotationsPluginState>({
     key: aiAnnotationsPluginKey,
 
     state: {
-      init(_, instance) {
-        const { doc } = instance
-        // Get initial state from store
-        const state = useAnnotationStore.getState()
-        currentAnnotations = state.annotations
-        isVisible = state.isVisible
-
-        const decorations: Decoration[] = []
-
-        // The store mirrors the active document (#1145): a state built for
-        // another document starts empty and is rebuilt once it is activated.
-        const mirrored = state.documentId === getIdentity(instance).documentId
-
-        if (isVisible && mirrored) {
-          for (const annotation of currentAnnotations) {
-            // Detached annotations are history-only (#674) — no decoration,
-            // and their stale positions must not hit the bounds warning.
-            if (annotation.detached) continue
-            if (annotation.from < 0 || annotation.to > doc.nodeSize - 2 || annotation.from >= annotation.to) {
-              console.warn('[AIAnnotations:plugin] Skipping invalid annotation (init):', {
-                id: annotation.id,
-                from: annotation.from,
-                to: annotation.to,
-                docSize: doc.nodeSize,
-                maxValidTo: doc.nodeSize - 2,
-                reason: annotation.from < 0 ? 'negative from' :
-                        annotation.to > doc.nodeSize - 2 ? `to (${annotation.to}) exceeds max (${doc.nodeSize - 2})` :
-                        `from (${annotation.from}) >= to (${annotation.to})`
-              })
-              continue
-            }
-
-            const opacity = calculateOpacity(annotation.createdAt, opts.maxAge)
-
-            decorations.push(
-              Decoration.inline(annotation.from, annotation.to, {
-                class: `ai-annotation ai-annotation-${annotation.type}`,
-                style: `--annotation-opacity: ${opacity.toFixed(3)}`,
-                'data-annotation-id': annotation.id,
-                'data-annotation-type': annotation.type,
-                'data-annotation-model': annotation.provenance.model,
-                'data-annotation-age': formatAge(annotation.createdAt),
-              })
-            )
-          }
-        }
-
+      // Every state starts empty; records arrive through a `load` meta on the
+      // session's seed transaction (document/session.ts).
+      init() {
         return {
-          decorationSet: DecorationSet.create(doc, decorations),
-          annotations: mirrored ? currentAnnotations : [],
+          records: EMPTY_ANNOTATIONS,
+          decorations: DecorationSet.empty,
           lastRefresh: Date.now(),
+          revision: 0,
+          urgentRevision: 0
         }
       },
 
-      apply(tr: Transaction, pluginState: AIAnnotationsPluginState, _oldState, newState) {
-        const { doc } = newState
+      apply(tr: Transaction, prev, oldState, newState) {
+        const doc = newState.doc
+        // The identity plugin runs first (priority 1000), so this is the
+        // document's own id, a rename included.
+        const { documentId } = getIdentity(newState)
+        const meta = tr.getMeta(aiAnnotationsPluginKey) as AnnotationMeta | undefined
+        let records = prev.records
+        let urgent = false
+        // The old decorations cannot be mapped through a whole-document
+        // replace (every range collapses); they are rebuilt from the records
+        // even when no record moved.
+        let repaint = false
 
-        // Get latest from store
-        const storeState = useAnnotationStore.getState()
-        const storeAnnotations = storeState.annotations
-        const storeVisible = storeState.isVisible
-
-        // The store mirrors the active document (#1145). Its records are read
-        // or moved only under their own identity, and never by a transaction
-        // that builds a session's state outside the view; any other
-        // transaction maps its own decorations and touches nothing.
-        const mirrored =
-          storeState.documentId === getIdentity(newState).documentId && tr.getMeta(BUILD_META) !== true
-        // A whole-document reload re-anchors the records by text afterwards
-        // (document/session.ts); mapping them through the replace would
-        // collapse every range.
-        const reload = tr.getMeta(RELOAD_META) === true
-
-        // Check if we need to rebuild decorations
-        const annotationsChanged = storeAnnotations !== pluginState.annotations
-        const visibilityChanged = storeVisible !== isVisible
-        const needsRefresh = Date.now() - pluginState.lastRefresh > ANNOTATION_CONSTANTS.REFRESH_INTERVAL_MS
-        // Explicit force-rebuild signal (e.g. after a tab switch re-loads annotations
-        // for the current document). Guarantees decorations rebuild from the store
-        // even if the annotations array reference happens to match.
-        const forceRebuild = tr.getMeta(aiAnnotationsPluginKey)?.rebuildDecorations === true
-
-        isVisible = storeVisible
-
-        // If document changed, map positions
-        let decorationSet = pluginState.decorationSet
-        if (tr.docChanged) {
-          decorationSet = decorationSet.map(tr.mapping, doc)
-
-          // Also update annotation positions in store
-          if (mirrored && !reload && storeAnnotations.length > 0) {
-            // Collect insertions (typing inside annotations should split them)
-            const insertions: Array<{ pos: number; length: number }> = []
-
-            for (const step of tr.steps) {
-              if (step instanceof ReplaceStep) {
-                const replaceStep = step as ReplaceStep
-                // Pure insertion: from === to with content
-                if (replaceStep.from === replaceStep.to && replaceStep.slice.content.size > 0) {
-                  insertions.push({
-                    pos: replaceStep.from,
-                    length: replaceStep.slice.content.size,
-                  })
-                }
-              }
-            }
-
-            // Use splitting-aware position update if there are insertions
-            if (insertions.length > 0) {
-              useAnnotationStore.getState().updatePositionsWithSplitting(
-                (pos, bias) => tr.mapping.map(pos, bias),
-                insertions
-              )
-            } else {
-              // No insertions, use simple position mapping
-              useAnnotationStore.getState().updatePositions((from, to) => {
-                try {
-                  const mappedFrom = tr.mapping.map(from, 1)
-                  const mappedTo = tr.mapping.map(to, -1)
-
-                  if (mappedFrom >= mappedTo) {
-                    return null
-                  }
-
-                  return { from: mappedFrom, to: mappedTo }
-                } catch {
-                  return null
-                }
-              })
-            }
+        if (tr.docChanged && records.length > 0) {
+          if (tr.getMeta(RELOAD_META) === true || isWholeDocumentReplace(tr)) {
+            // A whole-document replace: the source-mode exit, its undo or
+            // redo, a select-all paste. Mapping through it collapses every
+            // range; carry the records over by their text instead.
+            const before = new Map(records.map((a) => [a.id, a]))
+            const result = reanchorRecords(records, oldState.doc, doc)
+            logMoved(result.moved, before, 'reload')
+            logDetached(result.detached, 'reload-miss')
+            records = result.records
+            repaint = true
+            if (result.moved.length > 0 || result.detached.length > 0) urgent = true
+          } else {
+            const result = mapRecords(records, tr)
+            logDetached(result.detached, result.split > 0 ? 'split-collapse' : 'mapping-collapse')
+            records = result.records
+            if (result.detached.length > 0 || result.split > 0) urgent = true
           }
         }
 
-        if (!mirrored) {
-          return { ...pluginState, decorationSet }
-        }
-        if (reload) {
-          // Rebuilt by the re-anchoring's own rebuild meta.
-          return { ...pluginState, decorationSet: DecorationSet.empty }
-        }
-
-        // Rebuild decorations if needed
-        if (annotationsChanged || visibilityChanged || needsRefresh || tr.docChanged || forceRebuild) {
-          const decorations: Decoration[] = []
-
-          if (isVisible) {
-            for (const annotation of storeAnnotations) {
-              // Detached annotations are history-only (#674) — no decoration,
-              // and their stale positions must not hit the bounds warning.
-              if (annotation.detached) continue
-              // Validate bounds
-              const maxPos = doc.nodeSize - 2
-              if (annotation.from < 0 || annotation.to > maxPos || annotation.from >= annotation.to) {
-                console.warn('[AIAnnotations:plugin] Skipping invalid annotation (apply):', {
-                  id: annotation.id,
-                  from: annotation.from,
-                  to: annotation.to,
-                  docSize: doc.nodeSize,
-                  maxValidTo: maxPos,
-                  reason: annotation.from < 0 ? 'negative from' :
-                          annotation.to > maxPos ? `to (${annotation.to}) exceeds max (${maxPos})` :
-                          `from (${annotation.from}) >= to (${annotation.to})`
-                })
-                continue
-              }
-
-              const opacity = calculateOpacity(annotation.createdAt, opts.maxAge)
-
-              decorations.push(
-                Decoration.inline(annotation.from, annotation.to, {
-                  class: `ai-annotation ai-annotation-${annotation.type}`,
-                  style: `--annotation-opacity: ${opacity.toFixed(3)}`,
-                  'data-annotation-id': annotation.id,
-                  'data-annotation-type': annotation.type,
-                  'data-annotation-model': annotation.provenance.model,
-                  'data-annotation-age': formatAge(annotation.createdAt),
-                })
-              )
+        if (meta) {
+          if (meta.load) {
+            const before = new Map(meta.load.map((a) => [a.id, a]))
+            const result = loadRecords(meta.load, doc, documentId)
+            logMoved(result.moved, before, 'load')
+            logDetached(result.detached, 'load-miss')
+            // A seed is not a change to write back: the session marks the
+            // loaded revision as persisted.
+            records = result.records
+          }
+          for (const range of meta.removeRange ?? []) {
+            const next = removeRecordsInRange(records, range.from, range.to)
+            if (next !== records) {
+              records = next
+              urgent = true
             }
           }
-
-          return {
-            decorationSet: DecorationSet.create(doc, decorations),
-            annotations: storeAnnotations,
-            lastRefresh: needsRefresh ? Date.now() : pluginState.lastRefresh,
+          if (meta.remove && meta.remove.length > 0) {
+            const ids = new Set(meta.remove)
+            const next = records.filter((a) => !ids.has(a.id))
+            if (next.length !== records.length) {
+              records = next
+              urgent = true
+            }
+          }
+          if (meta.add && meta.add.length > 0) {
+            records = [...records, ...stampAdded(meta.add, doc, documentId)]
+            urgent = true
           }
         }
 
+        if (tr.getMeta(IDENTITY_META)) {
+          const next = restampRecords(records, documentId)
+          if (next !== records) {
+            records = next
+            urgent = true
+          }
+        }
+
+        if (tr.docChanged || meta) records = refreshAnchors(records, doc)
+
+        const changed = records !== prev.records
+        const needsRefresh = Date.now() - prev.lastRefresh > ANNOTATION_CONSTANTS.REFRESH_INTERVAL_MS
+        if (!changed && !needsRefresh && !tr.docChanged) return prev
+
+        const decorations =
+          changed || needsRefresh || repaint
+            ? buildDecorations(doc, records, opts.maxAge)
+            : prev.decorations.map(tr.mapping, doc)
+        const revision = changed ? prev.revision + 1 : prev.revision
         return {
-          ...pluginState,
-          decorationSet,
+          records,
+          decorations,
+          lastRefresh: needsRefresh ? Date.now() : prev.lastRefresh,
+          revision,
+          urgentRevision: changed && urgent ? revision : prev.urgentRevision
         }
-      },
+      }
     },
 
     props: {
       decorations(state) {
-        const pluginState = aiAnnotationsPluginKey.getState(state) as AIAnnotationsPluginState | undefined
-        return pluginState?.decorationSet ?? DecorationSet.empty
+        return aiAnnotationsPluginKey.getState(state)?.decorations ?? DecorationSet.empty
       },
 
       handleDOMEvents: {
-        mouseover(_view, event) {
+        mouseover(view, event) {
           if (!opts.showTooltip) return false
-
           const target = event.target as HTMLElement
           const annotationEl = target.closest('.ai-annotation')
-
           if (annotationEl) {
             const annotationId = annotationEl.getAttribute('data-annotation-id')
             if (annotationId) {
-              const annotation = currentAnnotations.find((a) => a.id === annotationId)
-              if (annotation) {
-                showTooltip(annotation, event)
-              }
+              const annotation = aiAnnotationsPluginKey.getState(view.state)?.records.find((a) => a.id === annotationId)
+              if (annotation) showTooltip(annotation, event)
             }
           }
-
           return false
         },
 
         mouseout(_view, event) {
           const target = event.target as HTMLElement
           const relatedTarget = event.relatedTarget as HTMLElement | null
-
           // Only remove tooltip if we're leaving the annotation area
           if (target.closest('.ai-annotation') && !relatedTarget?.closest('.ai-annotation')) {
             removeTooltip()
           }
-
           return false
         },
 
-        click(_view, event) {
+        click(view, event) {
           const target = event.target as HTMLElement
           const annotationEl = target.closest('.ai-annotation')
-
           if (annotationEl) {
             const annotationId = annotationEl.getAttribute('data-annotation-id')
             if (annotationId) {
-              const annotation = currentAnnotations.find((a) => a.id === annotationId)
-              if (annotation && opts.onAnnotationClick) {
-                opts.onAnnotationClick(annotation)
-              }
+              const annotation = aiAnnotationsPluginKey.getState(view.state)?.records.find((a) => a.id === annotationId)
+              if (annotation && opts.onAnnotationClick) opts.onAnnotationClick(annotation)
             }
           }
-
           return false
-        },
-      },
+        }
+      }
     },
 
-    view(editorView) {
-      // Subscribe when plugin view is created (after DB init). Decorations are
-      // derived from the store, so whenever annotations (or visibility) change —
-      // a new edit is marked, one is removed, or a tab switch re-loads them — we
-      // must trigger a rebuild. apply() only re-derives on a transaction, and a
-      // bare store mutation isn't one, so we dispatch a force-rebuild meta tx.
-      //
-      // The dispatch is deferred via queueMicrotask and coalesced behind a flag:
-      // store mutations can occur *inside* apply() (updatePositions on docChanged),
-      // and dispatching synchronously there would nest dispatches. Deferring runs
-      // the rebuild after the current dispatch settles. The rebuild path doesn't
-      // mutate the store (no docChanged), so it can't loop.
-      let lastAnnotations = useAnnotationStore.getState().annotations
-      let lastVisible = useAnnotationStore.getState().isVisible
-      let rebuildScheduled = false
-
-      unsubscribe = useAnnotationStore.subscribe((state) => {
-        currentAnnotations = state.annotations
-        isVisible = state.isVisible
-
-        const changed = state.annotations !== lastAnnotations || state.isVisible !== lastVisible
-        lastAnnotations = state.annotations
-        lastVisible = state.isVisible
-        if (!changed || rebuildScheduled) return
-
-        rebuildScheduled = true
-        queueMicrotask(() => {
-          rebuildScheduled = false
-          if (editorView.isDestroyed) return
-          editorView.dispatch(
-            editorView.state.tr.setMeta(aiAnnotationsPluginKey, { rebuildDecorations: true })
-          )
-        })
-      })
-
+    view() {
       return {
         destroy() {
           removeTooltip()
-          unsubscribe?.()
-        },
+        }
       }
-    },
+    }
   })
 }

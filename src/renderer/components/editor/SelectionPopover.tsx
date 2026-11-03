@@ -4,8 +4,8 @@ import { NodeSelection } from '@tiptap/pm/state'
 import { CellSelection } from '@tiptap/pm/tables'
 import { MessageSquarePlus, Bot, Bold, Italic, Link, Code, Superscript, Subscript, Quote } from 'lucide-react'
 import { Button } from '../ui/button'
-import { useAnnotationStore } from '../../extensions/ai-annotations'
-import { useEditorStore } from '../../stores/editorStore'
+import { selectAnnotations } from '../../extensions/ai-annotations'
+import { useActiveSession } from '../../document/useActiveSession'
 
 /**
  * Whether the range [from, to) is *fully* covered by AI annotation(s).
@@ -21,7 +21,7 @@ import { useEditorStore } from '../../stores/editorStore'
  * neighbour's annotation across the span.
  */
 function isRangeFullyAnnotated(
-  annotations: { from: number; to: number }[],
+  annotations: readonly { from: number; to: number }[],
   from: number,
   to: number
 ): boolean {
@@ -49,8 +49,7 @@ export function SelectionPopover({ editor, onAddComment, onToggleLink }: Selecti
   const [isVisible, setIsVisible] = useState(false)
   const [selectionRange, setSelectionRange] = useState<{ from: number; to: number } | null>(null)
   const [isNodeSelection, setIsNodeSelection] = useState(false)
-  const documentId = useEditorStore((state) => state.document.documentId)
-  const annotations = useAnnotationStore((state) => state.annotations)
+  const annotations = useActiveSession(selectAnnotations)
 
   // Check if current selection has an AI annotation
   const hasAIAnnotation = selectionRange
@@ -139,30 +138,25 @@ export function SelectionPopover({ editor, onAddComment, onToggleLink }: Selecti
   }, [])
 
   const handleToggleAIAnnotation = useCallback(() => {
-    if (!editor || !selectionRange || !documentId) return
+    if (!editor || !selectionRange) return
 
     const { from, to } = selectionRange
 
     if (hasAIAnnotation) {
-      // Remove annotation
-      useAnnotationStore.getState().removeAnnotationsInRange(from, to)
+      editor.commands.removeAIAnnotationsInRange(from, to)
     } else {
-      // Add annotation
       const selectedText = editor.state.doc.textBetween(from, to, '\n')
-      useAnnotationStore.getState().addAnnotation({
-        documentId,
-        type: 'insertion',
-        from,
-        to,
-        content: selectedText,
-        provenance: {
-          model: 'Imported',
-          conversationId: '',
-          messageId: '',
+      editor.commands.addAIAnnotations([
+        {
+          type: 'insertion',
+          from,
+          to,
+          content: selectedText,
+          provenance: { model: 'Imported', conversationId: '', messageId: '' },
         },
-      })
+      ])
     }
-  }, [editor, selectionRange, documentId, hasAIAnnotation])
+  }, [editor, selectionRange, hasAIAnnotation])
 
   const handleToggleLink = useCallback(() => {
     if (!editor) return

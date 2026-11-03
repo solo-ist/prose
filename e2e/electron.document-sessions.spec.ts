@@ -25,6 +25,7 @@ import {
   executeProseTool,
   getAnnotations,
   getAnnotationDocId,
+  selectors,
 } from './helpers'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -226,6 +227,31 @@ async function settle(): Promise<void> {
   await page.waitForTimeout(800)
 }
 
+/** The text the rendered highlights cover, '|' between separate runs. */
+async function paintedText(): Promise<string> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll('.ProseMirror .ai-annotation'))
+      .map((e) => e.textContent)
+      .join('|'),
+  )
+}
+
+/** Every live record's anchorText is the text under it in the document in the view (#1146). */
+async function liveAnchorsMatch(): Promise<boolean> {
+  return page.evaluate(() => {
+    const doc = (window as any).__prose_editor.state.doc
+    const records = (window as any).__prose_tools.getAnnotations() as Array<{
+      from: number
+      to: number
+      detached?: boolean
+      anchorText?: string
+    }>
+    return records.every(
+      (a) => a.detached || a.from === a.to || doc.textBetween(a.from, a.to, '\n') === a.anchorText,
+    )
+  })
+}
+
 const body = (name: string) =>
   `# ${name}\n\n${name} paragraph one.\n\n${name} paragraph two.\n\n${name} paragraph three.\n`
 
@@ -255,9 +281,13 @@ test('every record key holds only its own document across twenty edited switches
     ] as const) {
       const annotations = await readDB('annotations', doc.documentId)
       expect(annotations.length, `annotations under ${doc.title}`).toBeGreaterThan(0)
+      const other = doc.title === 'sessions-a' ? 'Beta' : 'Alpha'
       for (const record of annotations) {
         expect(record.documentId, `annotation documentId under ${doc.title}`).toBe(doc.documentId)
         expect((record.provenance as { messageId: string }).messageId).toBe(message)
+        // No key holds another document's text (§12 case 1, #1146).
+        if (!record.detached) expect(record.anchorText, `anchorText under ${doc.title}`).toBeTruthy()
+        expect(String(record.anchorText ?? '')).not.toContain(other)
       }
       const comments = await readDB('comments', doc.documentId)
       expect(comments.map((c) => c.id), `comments under ${doc.title}`).toEqual([comment])
@@ -279,10 +309,111 @@ test('every record key holds only its own document across twenty edited switches
     expect(await getAnnotationDocId(page)).toBe(target.documentId)
     expect(await commentDocId()).toBe(target.documentId)
     expect(await liveCommentIds()).toEqual([target.tabId === a.tabId ? 'c-a' : 'c-b'])
+    expect(await liveAnchorsMatch(), 'live anchors').toBe(true)
     await typeAtEndOfFirstParagraph(` v${i}`)
     await settle()
     await expectKeys()
   }
+})
+
+/**
+ * Case 2 — an edit above a highlight, a switch away with typing there, a
+ * return, then a relaunch: the highlight stays on its words and the other
+ * document's rows stay its own. The switch and return pass since PR 1 (the
+ * states persist); the relaunch re-parses the file, which is #1138's open
+ * half: the serializer drops the trailing space the edit left, so the
+ * stored positions are one too far unless the rows are re-anchored.
+ */
+test('an edit above a highlight survives a switch and a relaunch, and the other document keeps its own rows', async () => {
+  test.setTimeout(150_000)
+  const a = await openDoc('sessions-two-a.md', body('Alpha'), 'Alpha paragraph one')
+  await annotate('Alpha paragraph two', 'Alpha paragraph two rewritten.', 'msg-two-a')
+  await settle()
+  const painted = await paintedText()
+  expect(painted).toContain('rewritten')
+
+  const b = await openDoc('sessions-two-b.md', body('Beta'), 'Beta paragraph one')
+  await annotate('Beta paragraph two', 'Beta paragraph two rewritten.', 'msg-two-b')
+  await settle()
+  const paintedB = await paintedText()
+  expect(paintedB).toContain('rewritten')
+
+  const ownRows = async (doc: TabInfo, message: string, text: string) => {
+    const rows = await readDB('annotations', doc.documentId)
+    expect(rows.length, `rows under ${doc.title}`).toBeGreaterThan(0)
+    for (const row of rows) {
+      expect(row.documentId, `documentId under ${doc.title}`).toBe(doc.documentId)
+      expect((row.provenance as { messageId: string }).messageId).toBe(message)
+      expect(row.detached, `detached under ${doc.title}`).toBeFalsy()
+      expect(text, `anchorText under ${doc.title}`).toContain(String(row.anchorText))
+    }
+  }
+
+  // Back in A: delete "one." at the end of the first paragraph, leaving a
+  // trailing space that the markdown round trip drops.
+  await clickTab(a, 'Alpha paragraph one')
+  await page.locator('.ProseMirror p').first().click()
+  await page.keyboard.press('End')
+  for (let i = 0; i < 4; i++) await page.keyboard.press('Backspace')
+  await settle()
+  await clickTab(b, 'Beta paragraph one')
+  await typeAtEndOfFirstParagraph(' typed')
+  await settle()
+  await clickTab(a, 'Alpha paragraph')
+  expect(await paintedText()).toBe(painted)
+  expect(await liveAnchorsMatch()).toBe(true)
+  await ownRows(a, 'msg-two-a', painted)
+  await ownRows(b, 'msg-two-b', paintedB)
+
+  // The session draft (1 s debounce) and the annotation write both settle.
+  await page.waitForTimeout(1_600)
+  await app.close()
+  await launch()
+  await expect.poll(docText, { timeout: 10_000 }).toContain('Alpha paragraph')
+  await expect.poll(paintedText, { timeout: 10_000 }).toBe(painted)
+  expect(await liveAnchorsMatch()).toBe(true)
+  const bAgain = await tabByTitle(b.title)
+  await clickTab(bAgain, 'Beta paragraph')
+  await expect.poll(paintedText, { timeout: 10_000 }).toBe(paintedB)
+  expect(await liveAnchorsMatch()).toBe(true)
+  await ownRows(a, 'msg-two-a', painted)
+  await ownRows(b, 'msg-two-b', paintedB)
+})
+
+/**
+ * Case 4 (annotation half) — exit source mode with an edit, then one undo:
+ * the pre-edit document is back and the annotation is live on its words.
+ * The undo is a whole-document replace carrying no meta of ours; mapping
+ * through it collapsed every range, so this failed at 5b67ba9.
+ */
+test('one undo after a source-mode exit restores the document with its annotation attached', async () => {
+  await openDoc('sessions-four.md', body('Gamma'), 'Gamma paragraph one')
+  await annotate('Gamma paragraph two', 'Gamma paragraph two rewritten.', 'msg-four')
+  await settle()
+  const painted = await paintedText()
+  expect(painted).toContain('rewritten')
+  const before = await docText()
+
+  await page.locator('[aria-label="Source mode"]').click()
+  await page.waitForSelector(selectors.sourceEditor, { timeout: 5_000 })
+  await page.locator('.cm-line', { hasText: 'Gamma paragraph three' }).first().click()
+  await page.keyboard.press('End')
+  await page.keyboard.type(' typed in source')
+  await page.waitForTimeout(1_200)
+  await page.locator('[aria-label="WYSIWYG mode"]').click()
+  await page.waitForSelector(selectors.editor, { state: 'visible', timeout: 5_000 })
+  await expect.poll(docText).toContain('typed in source')
+  expect(await paintedText()).toBe(painted)
+  expect(await liveAnchorsMatch()).toBe(true)
+
+  // One undo step reverts the whole source edit (decision 10).
+  expect(await page.evaluate(() => (window as any).__prose_editor.commands.undo())).toBe(true)
+  await expect.poll(docText).toBe(before)
+  expect(await paintedText()).toBe(painted)
+  expect(await liveAnchorsMatch()).toBe(true)
+  const live = (await getAnnotations(page)) as Array<{ detached?: boolean }>
+  expect(live.length).toBeGreaterThan(0)
+  expect(live.every((a) => !a.detached)).toBe(true)
 })
 
 /**
@@ -516,6 +647,13 @@ test.describe('session tripwires', () => {
       if (file === 'src/renderer/document/session.ts' || file === 'src/renderer/tabs/actions.ts') continue
       if (file === 'src/renderer/stores/editorStore.ts') continue
       expect(source, `${file} calls setDocument({`).not.toMatch(/\bsetDocument\(\{/)
+    }
+  })
+
+  test('the annotation store is gone: records are read from a state and written through its transactions', () => {
+    for (const { file, source } of files) {
+      expect(source, `${file} references useAnnotationStore`).not.toMatch(/\buseAnnotationStore\b/)
+      expect(source, `${file} imports ai-annotations/store`).not.toMatch(/ai-annotations\/store'/)
     }
   })
 })

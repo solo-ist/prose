@@ -5,7 +5,9 @@
 import type { ToolResult } from '../../../../shared/tools/types'
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useTabStore } from '../../../stores/tabStore'
-import { useAnnotationStore } from '../../../extensions/ai-annotations'
+import { annotationsOf } from '../../../extensions/ai-annotations'
+import { getActiveSession } from '../../../document/session'
+import { getIdentity } from '../../../document/identity'
 import { pipelineLog } from '../../aiPipelineLog'
 import { switchToTab } from '../../../tabs/actions'
 
@@ -112,12 +114,13 @@ export async function executeSelectTab(args: {
   }
 
   try {
+    const active = getActiveSession()
     pipelineLog('tab:switch', {
       via: 'select_tab',
       toTabId: targetTab.id,
       toDocId: targetTab.documentId,
-      fromDocId: useAnnotationStore.getState().documentId,
-      annotationCountBefore: useAnnotationStore.getState().annotations.length,
+      fromDocId: active ? getIdentity(active.state).documentId : null,
+      annotationCountBefore: active ? annotationsOf(active.state).length : 0,
     })
 
     // One implementation for every switch: the tab bar, the explorer and this

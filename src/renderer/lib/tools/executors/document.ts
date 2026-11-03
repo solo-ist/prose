@@ -6,7 +6,7 @@ import type { ToolResult, DocumentMetadata, TextMatch, OutlineEntry } from '../.
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useEditorStore } from '../../../stores/editorStore'
 import { resolveDocumentHandle, type DocumentHandle } from '../../../document/handle'
-import { useAnnotationStore } from '../../../extensions/ai-annotations'
+import { annotationsOf } from '../../../extensions/ai-annotations'
 import { getNodesWithIds, findNodeById } from '../../../extensions/node-ids'
 import type { NodeWithId } from '../../../extensions/node-ids'
 import { getComments, useCommentStore, findFullyCoveredCommentIds } from '../../../extensions/comments'
@@ -196,7 +196,7 @@ export async function executeGetMetadata(): Promise<ToolResult<DocumentMetadata>
   // Comment and suggestion counts
   const commentCount = handle ? getComments(handle).length : 0
   const pendingSuggestionCount = handle ? getAISuggestions(handle).length : 0
-  const annotationCount = useAnnotationStore.getState().annotations.length
+  const annotationCount = handle ? annotationsOf(handle.state).length : 0
 
   // File timestamps (only available for saved files in Electron)
   let createdAt: string | null = null

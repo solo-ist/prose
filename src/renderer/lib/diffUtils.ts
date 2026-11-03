@@ -7,7 +7,7 @@
 
 import type { EditorState } from '@tiptap/pm/state'
 import type { EditorView } from '@tiptap/pm/view'
-import { useAnnotationStore } from '../extensions/ai-annotations/store'
+import type { AnnotationInput } from '../extensions/ai-annotations/transactions'
 import type { AnnotationType } from '../types/annotations'
 
 /**
@@ -167,42 +167,35 @@ export function computeUnchangedWordRanges(
  * preserved at its remapped absolute position, so a neighbour word's provenance mark
  * survives a single-word edit without being clobbered.
  */
-export function createWordDiffAnnotations(params: {
-  documentId: string
+export function buildWordDiffAnnotations(params: {
   originalText: string
   newText: string
   rangeFrom: number
   rangeTo: number
   provenance: { model: string; conversationId: string; messageId: string }
   explanation?: string
-  priorAnnotations?: import('../types/annotations').AIAnnotation[]
-}): void {
-  const { documentId, originalText, newText, rangeFrom, rangeTo, provenance, explanation, priorAnnotations } = params
+  priorAnnotations?: readonly import('../types/annotations').AIAnnotation[]
+}): AnnotationInput[] {
+  const { originalText, newText, rangeFrom, rangeTo, provenance, explanation } = params
   const annotationType: AnnotationType = originalText.trim() === '' ? 'insertion' : 'replacement'
-  const store = useAnnotationStore.getState()
+  const out: AnnotationInput[] = []
 
   // Multi-paragraph: fall back to full-range annotation (no word-level remap)
   if (newText.includes('\n')) {
-    store.addAnnotation({
-      documentId,
-      type: annotationType,
-      from: rangeFrom,
-      to: rangeTo,
-      content: newText,
-      provenance,
-      explanation,
-    })
-    return
+    out.push({ type: annotationType, from: rangeFrom, to: rangeTo, content: newText, provenance, explanation })
+    return out
   }
 
   const diff = computeWordDiff(originalText, newText)
 
   // --- Restore prior annotations for unchanged words ---
-  // Prior annotations were captured before applyInsertion; ProseMirror's position
-  // mapping collapses all positions inside the replaced range, so they are gone
-  // from the store by the time we get here.  Re-add them using the new-text offsets
-  // of the unchanged words so the neighbour-word provenance mark survives.
-  if (priorAnnotations && priorAnnotations.length > 0) {
+  // Prior annotations were captured before the replace; ProseMirror's position
+  // mapping detaches every record inside the replaced range. Re-add them using
+  // the new-text offsets of the unchanged words so the neighbour-word
+  // provenance mark survives. A record that was already detached is history
+  // (#674), not something to bring back to life.
+  const priorAnnotations = params.priorAnnotations?.filter((a) => !a.detached) ?? []
+  if (priorAnnotations.length > 0) {
     const unchangedRanges = computeUnchangedWordRanges(originalText, newText)
     // originalContentStart is the absolute PM position of char 0 in the old text,
     // which equals rangeFrom (both executeEdit and executeInsert pass contentStart as rangeFrom).
@@ -238,8 +231,7 @@ export function createWordDiffAnnotations(params: {
 
         if (newAbsFrom >= newAbsTo) continue
 
-        store.addAnnotation({
-          documentId: prior.documentId,
+        out.push({
           type: prior.type,
           from: newAbsFrom,
           to: newAbsTo,
@@ -292,26 +284,11 @@ export function createWordDiffAnnotations(params: {
 
   if (mergedRuns.length > 0) {
     for (const run of mergedRuns) {
-      store.addAnnotation({
-        documentId,
-        type: annotationType,
-        from: run.from,
-        to: run.to,
-        content: run.content,
-        provenance,
-        explanation,
-      })
+      out.push({ type: annotationType, from: run.from, to: run.to, content: run.content, provenance, explanation })
     }
   } else {
     // No word-level diff found (e.g. pure whitespace change), annotate full range
-    store.addAnnotation({
-      documentId,
-      type: annotationType,
-      from: rangeFrom,
-      to: rangeTo,
-      content: newText,
-      provenance,
-      explanation,
-    })
+    out.push({ type: annotationType, from: rangeFrom, to: rangeTo, content: newText, provenance, explanation })
   }
+  return out
 }

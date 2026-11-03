@@ -7,8 +7,8 @@ import { resolveDocumentHandle, type DocumentHandle } from '../../../document/ha
 import type { ToolResult } from '../../../../shared/tools/types'
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useEditorStore } from '../../../stores/editorStore'
-import { useAnnotationStore } from '../../../extensions/ai-annotations'
-import { createWordDiffAnnotations } from '../../diffUtils'
+import { addAnnotationsTo, annotationsOf } from '../../../extensions/ai-annotations'
+import { buildWordDiffAnnotations } from '../../diffUtils'
 import { findNodeById, findNodeByContent, getNodesWithIds, flattenNodes } from '../../../extensions/node-ids'
 import { generateId } from '../../persistence'
 import { getAISuggestions, parseMarkdownToSlice, sliceVisibleText } from '../../../extensions/ai-suggestions'
@@ -409,21 +409,19 @@ export async function executeEdit(
   const contentStart = pos + 1
   const contentEnd = pos + node.nodeSize - 1
 
-  // Every record below is stamped with the document the handle writes to
-  // (#1145): the provenance id is the chat's binding, which lags a rename,
-  // Save As or first save until PR 4 binds tool calls to it; the annotation
-  // store refuses a record stamped for another document.
+  // The records below are stamped by the annotation plugin with the document
+  // they enter (#1146); `provenance.documentId` is the chat's binding, which
+  // lags a rename, Save As or first save until PR 4 binds tool calls to it,
+  // and gates only whether the edit is annotated at all.
   // Snapshot existing annotations within this node's range BEFORE the edit.
   // applyInsertion issues a range-replace transaction; ProseMirror's position
   // mapping collapses all positions inside the deleted range to the insertion
-  // point, which causes updatePositions() to drop every annotation covering the
-  // old node content — including those on unchanged neighbour words.  By
-  // capturing them now we can restore them at their remapped positions after
-  // the edit (see createWordDiffAnnotations for the remap logic).
+  // point, which detaches every annotation covering the old node content —
+  // including those on unchanged neighbour words. By capturing them now we
+  // can restore them at their remapped positions after the edit (see
+  // buildWordDiffAnnotations for the remap logic).
   const priorAnnotations = provenance && provenance.documentId && content.length > 0
-    ? useAnnotationStore.getState().annotations.filter(
-        (a) => a.documentId === handle.documentId && a.to > contentStart && a.from < contentEnd
-      )
+    ? annotationsOf(handle.state).filter((a) => !a.detached && a.to > contentStart && a.from < contentEnd)
     : []
 
   // Range-replace via applyInsertion: the selection delete + first chunk
@@ -434,20 +432,21 @@ export async function executeEdit(
 
   // Create word-level AI annotations for provenance tracking
   if (provenance && provenance.documentId && content.length > 0) {
-    createWordDiffAnnotations({
-      documentId: handle.documentId,
-      originalText: node.textContent,
-      newText: content,
-      rangeFrom: contentStart,
-      rangeTo: insertedEnd,
-      provenance: {
-        model: provenance.model,
-        conversationId: provenance.conversationId,
-        messageId: provenance.messageId,
-      },
-      explanation: comment,
-      priorAnnotations,
-    })
+    handle.commands.addAIAnnotations(
+      buildWordDiffAnnotations({
+        originalText: node.textContent,
+        newText: content,
+        rangeFrom: contentStart,
+        rangeTo: insertedEnd,
+        provenance: {
+          model: provenance.model,
+          conversationId: provenance.conversationId,
+          messageId: provenance.messageId,
+        },
+        explanation: comment,
+        priorAnnotations,
+      })
+    )
   }
 
   return toolSuccess({
@@ -595,19 +594,20 @@ export async function executeInsert(
 
           if (provenance && provenance.documentId && text.length > 0) {
             const insertedSize = (sizeAfter - sizeBefore) + (insertTo - insertFrom)
-            createWordDiffAnnotations({
-              documentId: handle.documentId,
-              originalText: '',
-              newText: text,
-              rangeFrom: insertFrom,
-              rangeTo: insertFrom + insertedSize,
-              provenance: {
-                model: provenance.model,
-                conversationId: provenance.conversationId,
-                messageId: provenance.messageId,
-              },
-              explanation: comment,
-            })
+            handle.commands.addAIAnnotations(
+              buildWordDiffAnnotations({
+                originalText: '',
+                newText: text,
+                rangeFrom: insertFrom,
+                rangeTo: insertFrom + insertedSize,
+                provenance: {
+                  model: provenance.model,
+                  conversationId: provenance.conversationId,
+                  messageId: provenance.messageId,
+                },
+                explanation: comment,
+              })
+            )
           }
 
           return toolSuccess({ inserted: true, position })
@@ -636,23 +636,24 @@ export async function executeInsert(
 
     // Create AI annotation for provenance tracking over [insertFrom, insertedEnd].
     if (provenance && provenance.documentId && text.length > 0) {
-      // Route through createWordDiffAnnotations for visual consistency with
+      // Route through buildWordDiffAnnotations for visual consistency with
       // edit/suggest_edit-accept annotations (word-level underline, explanation
       // in tooltip). originalText is empty for pure insertions; the util
       // promotes the type to 'insertion' automatically.
-      createWordDiffAnnotations({
-        documentId: handle.documentId,
-        originalText: '',
-        newText: text,
-        rangeFrom: insertFrom,
-        rangeTo: insertedEnd,
-        provenance: {
-          model: provenance.model,
-          conversationId: provenance.conversationId,
-          messageId: provenance.messageId,
-        },
-        explanation: comment,
-      })
+      handle.commands.addAIAnnotations(
+        buildWordDiffAnnotations({
+          originalText: '',
+          newText: text,
+          rangeFrom: insertFrom,
+          rangeTo: insertedEnd,
+          provenance: {
+            model: provenance.model,
+            conversationId: provenance.conversationId,
+            messageId: provenance.messageId,
+          },
+          explanation: comment,
+        })
+      )
     }
 
     return toolSuccess({
@@ -698,26 +699,27 @@ function replaceTable(
   const tr = handle.state.tr
     .replaceWith(from, from + table.node.nodeSize, parsed)
     .setMeta(AI_REPLACEMENT_META, true)
-  handle.apply(tr)
-  pipelineLog('edit:result', { nodeId, path: 'wholeTable' })
-
   if (provenance && provenance.documentId) {
     // Row/cell structure breaks word-diff offsets — one full-range
-    // annotation over the new table, as wrapper block conversions do.
-    useAnnotationStore.getState().addAnnotation({
-      documentId: handle.documentId,
-      type: 'replacement',
-      from,
-      to: from + parsed.nodeSize,
-      content: parsed.textContent,
-      provenance: {
-        model: provenance.model,
-        conversationId: provenance.conversationId,
-        messageId: provenance.messageId,
+    // annotation over the new table, as wrapper block conversions do, on
+    // the same transaction as the replace.
+    addAnnotationsTo(tr, [
+      {
+        type: 'replacement',
+        from,
+        to: from + parsed.nodeSize,
+        content: parsed.textContent,
+        provenance: {
+          model: provenance.model,
+          conversationId: provenance.conversationId,
+          messageId: provenance.messageId,
+        },
+        explanation: comment,
       },
-      explanation: comment,
-    })
+    ])
   }
+  handle.apply(tr)
+  pipelineLog('edit:result', { nodeId, path: 'wholeTable' })
 
   return toolSuccess({ applied: true, nodeId })
 }
@@ -1178,25 +1180,28 @@ export function executeDeleteNode(
   const from = pos
   const to = pos + node.nodeSize
 
-  handle.chain().focus().deleteRange({ from, to }).run()
-
-  // Log a deletion annotation for provenance. Range collapses to a single
-  // point at the deletion site so the annotation store treats it as a marker
-  // rather than highlighting text that no longer exists.
+  // A deletion marker rides on the same transaction as the delete: a
+  // zero-width record at the deletion site (the plugin maps the existing
+  // records through the delete first), a history entry rather than a
+  // highlight of text that no longer exists; it follows its position and
+  // never detaches (#1146).
+  const chain = handle.chain().focus().deleteRange({ from, to })
   if (provenance && provenance.documentId) {
-    useAnnotationStore.getState().addAnnotation({
-      documentId: handle.documentId,
-      type: 'deletion',
-      from,
-      to: from,
-      content: deletedText,
-      provenance: {
-        model: provenance.model,
-        conversationId: provenance.conversationId,
-        messageId: provenance.messageId,
+    chain.addAIAnnotations([
+      {
+        type: 'deletion',
+        from,
+        to: from,
+        content: deletedText,
+        provenance: {
+          model: provenance.model,
+          conversationId: provenance.conversationId,
+          messageId: provenance.messageId,
+        },
       },
-    })
+    ])
   }
+  chain.run()
 
   return toolSuccess({ deleted: true, nodeId })
 }

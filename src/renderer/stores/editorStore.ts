@@ -94,9 +94,11 @@ export const useEditorStore = create<EditorState>()(
         const newDocument = { ...state.document, ...doc }
         return {
           document: newDocument,
-          // Clear any pending frontmatter overlay when switching documents,
-          // so a Tab A suggestion can't get accepted into Tab B.
-          ...(documentIdChanged ? { pendingFrontmatter: null } : {}),
+          // A document change clears the per-document extras: the pending
+          // frontmatter overlay (so a Tab A suggestion can't get accepted into
+          // Tab B) and the cached selection (so read_selection on B never
+          // answers with A's text, #1152).
+          ...(documentIdChanged ? { pendingFrontmatter: null, lastSelection: null } : {}),
           // Read-only follows the resulting path (see remarkableStateForPath).
           ...remarkableStateForPath(newDocument.path)
         }

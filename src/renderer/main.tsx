@@ -5,8 +5,7 @@ import {
   initDB,
   loadAnnotations as loadAnnotationsFromDB,
   loadComments as loadCommentsFromDB,
-  loadSuggestions as loadSuggestionsFromDB,
-  loadConversations as loadConversationsFromDB
+  loadSuggestions as loadSuggestionsFromDB
 } from './lib/persistence'
 import { getSessionTabIds, getProjectionStats, getActiveSession, getSession } from './document/session'
 import { sourceFolds, sourceSelection, sourceText } from './extensions/source/state'
@@ -19,7 +18,7 @@ import { executeTool } from './lib/tools'
 import { annotationsOf } from './extensions/ai-annotations'
 import { threadsOf, threadPluginState } from './extensions/comments'
 import { getAISuggestions } from './extensions/ai-suggestions'
-import { closeTab } from './tabs/actions'
+import { renameTab } from './tabs/actions'
 import { useTabStore } from './stores/tabStore'
 import { useSettingsStore } from './stores/settingsStore'
 import { useChatStore } from './stores/chatStore'
@@ -45,11 +44,14 @@ import './index.css'
     await getApi().copyToClipboard(dumpPipelineLog())
   },
 }
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-// About-dialog seam for e2e (#1063) — the dialog opens from the app menu, which
-// Playwright cannot click.
+// Empty-state seam for e2e (#1063): the About dialog's prose-mark spec needs
+// the editor out of its empty state without a document.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ;(window as any).__prose_setEditing = (v: boolean) => useEditorStore.setState({ isEditing: v })
+// Tab-bar rename seam (#1145): the inline rename is a double-click → input →
+// keyboard dance; specs call the action. Same always-on tier as __prose_tools.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+;(window as any).__prose_renameTab = renameTab
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ;(window as any).__prose_about = (open = true) =>
   useSettingsStore.getState().setAboutDialogOpen(open)
@@ -67,12 +69,9 @@ import './index.css'
     return session ? getIdentity(session.state).documentId : null
   },
   // A record is added inside the transaction that creates it; nothing ever
-  // pauses mapping (#1146). Kept as a readiness gate for the specs that poll
-  // it (updated in PR 8): open_file and select_tab return after the session
-  // is active.
-  isAnnotationMappingPaused: () => false,
   getActiveTabId: () => useTabStore.getState().activeTabId,
-  getDocumentIsDirty: () => useEditorStore.getState().document.isDirty,
+  // The tab record is the truth for the dirty flag (#1151).
+  getDocumentIsDirty: () => useTabStore.getState().getActiveTab()?.isDirty ?? false,
   loadAnnotationsFromDB,
   loadCommentsFromDB,
   loadSuggestionsFromDB,
@@ -108,8 +107,6 @@ import './index.css'
       suggestionIds: getAISuggestions({ state: session.state }).map((s) => s.id)
     }
   },
-  loadConversationsFromDB,
-  closeTab: (tabId: string, opts?: { force?: boolean }) => closeTab(tabId, opts),
   // A tab's source mode and, when open, its CodeMirror text, selection and
   // folds (document-sessions case 3, #1150); the active tab without an id.
   getSourceState: (tabId?: string) => {
@@ -119,10 +116,6 @@ import './index.css'
     if (!source) return { mode: 'rich', text: null, selection: null, folds: [] }
     return { mode: 'source', text: sourceText(source.state), selection: sourceSelection(source.state), folds: sourceFolds(source.state) }
   },
-  // Marks are restored inside the session's own seed transaction, before a
-  // state is ever shown, so there is no "not yet restored" state (#1145).
-  // Kept as a readiness gate for the specs that poll it (updated in PR 8).
-  getCommentStoreNeedsRestore: () => false,
   // Session seams (#1145): which tabs hold a state, and how much work the
   // sessions have done (serialisations are what a switch must not cost).
   getSessionTabIds,
@@ -151,10 +144,10 @@ import './index.css'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ;(window as any).__prose_share = {
   sync: async (documentId?: string) => {
-    const active = useEditorStore.getState().document
+    // The tab record, shown or not (#1151); the active tab without an id.
     const target = documentId
       ? useTabStore.getState().tabs.find((t) => t.documentId === documentId)
-      : { path: active.path, documentId: active.documentId }
+      : useTabStore.getState().getActiveTab()
     if (!target?.path || !target.documentId) return { ok: false, error: 'no document open' }
     const res = await getApi().shareGetForPath(target.path)
     if (!res.ok || res.entries.length === 0) return { ok: false, error: 'no share entry' }

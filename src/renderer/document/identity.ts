@@ -2,11 +2,10 @@
  * Document identity as ProseMirror plugin state (#1145).
  *
  * Every per-tab `EditorState` carries the id, path and plain-text flag of the
- * document it holds. Plugins that mirror or mutate a global store compare this
- * against the store's own id, so a transaction on one document can never read
- * or write another document's records, whatever the timing. The session layer
- * (document/session.ts) stamps it when a state is created and restamps it on
- * rename or Save As; nothing else writes it.
+ * document it holds, so a record persisted from a state is keyed by that
+ * state's own id, whatever the timing. The session layer (document/session.ts)
+ * stamps it when a state is created and restamps it on rename or Save As;
+ * nothing else writes it.
  */
 
 import { Extension } from '@tiptap/core'
@@ -33,9 +32,9 @@ export const ACTIVATED_META = 'sessionActivated'
 export const RELOAD_META = 'sessionReload'
 /**
  * Meta on a transaction that builds a session's state outside the view (the
- * normalisation on a scratch state, the seed that re-applies marks): the
- * document is not in the view and the stores do not mirror it, so a plugin
- * that mirrors a store must neither read it nor move its records.
+ * normalisation on a scratch state, the seed that re-applies marks, the HMR
+ * rebuild): the comments plugin reconciles its threads against the marks
+ * that landed instead of treating the change as an edit.
  */
 export const BUILD_META = 'sessionBuild'
 

@@ -55,7 +55,6 @@ export function useTabs() {
     closeOtherTabs: actions.closeOtherTabs,
     closeAllTabs: actions.closeAllTabs,
     renameTab: actions.renameTab,
-    reopenLastClosedTab: actions.reopenLastClosedTab,
-    getActiveTab: useTabStore.getState().getActiveTab
+    reopenLastClosedTab: actions.reopenLastClosedTab
   }
 }

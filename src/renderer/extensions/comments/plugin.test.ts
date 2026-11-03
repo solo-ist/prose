@@ -120,6 +120,23 @@ describe('edits', () => {
     expect(editor.view.dom.querySelectorAll('.comment-mark').length).toBe(0)
   })
 
+  it('keeps the recorded pushes across an appended transaction in the same apply (#1152)', () => {
+    // The editor's blocks carry no ids yet (the session's normalise step gives
+    // them in the app), so the first document change makes the node-ids
+    // plugin append a transaction after the one that added the thread.
+    const before = threadPluginState(editor.state)!
+    comment('rewritten text', 'c1')
+    const after = threadPluginState(editor.state)!
+    expect(after.pushes).toEqual([{ kind: 'thread', threadId: 'c1' }])
+    expect(after.pushRevision).toBe(before.pushRevision + 1)
+    // A later unrelated change (with ids in place) keeps them too: the
+    // session reads them once per revision.
+    editor.commands.insertContentAt(editor.state.doc.content.size, '<p>Tail.</p>')
+    const later = threadPluginState(editor.state)!
+    expect(later.pushes).toEqual([{ kind: 'thread', threadId: 'c1' }])
+    expect(later.pushRevision).toBe(after.pushRevision)
+  })
+
   it('adopts a pasted mark that has no thread', () => {
     const pasted = createDocument('<p>x <span data-comment-id="p1" data-comment="pasted note" data-comment-created="5">pasted words</span></p>', editor.schema)
     editor.view.dispatch(editor.state.tr.replaceWith(rangeOf('Second paragraph.').to, rangeOf('Second paragraph.').to, pasted.firstChild!.content))
@@ -164,8 +181,10 @@ describe('commands', () => {
     state = threadPluginState(editor.state)!
     expect(state.threads[0].shareId).toBe('srv-1')
     expect(state.urgentRevision).toBe(state.revision)
+    // No new push: the revision stands and the previous pushes are carried
+    // (the session reads them once per revision).
     expect(state.pushRevision).toBe(pushRevision)
-    expect(state.pushes).toEqual([])
+    expect(state.pushes).toEqual([{ kind: 'reply', threadId: 'c1', replyId: state.threads[0].replies[0].id }])
   })
 
   it('removeThread drops thread and marks without resolving; push: false records nothing', () => {

@@ -4,16 +4,6 @@
 
 export type SuggestionType = 'edit' | 'insertion'
 
-export interface AISuggestionMark {
-  id: string
-  type: SuggestionType
-  originalText: string
-  suggestedText: string
-  explanation: string
-  createdAt: number
-  userReply?: string
-}
-
 export interface AISuggestionData {
   id: string
   type: SuggestionType

@@ -48,18 +48,17 @@ export const NodeIds = Extension.create({
   },
 
   addProseMirrorPlugins() {
-    let initialized = false
-
     return [
       new Plugin({
         key: new PluginKey('nodeIds'),
         appendTransaction: (transactions, oldState, newState) => {
-          // Process if document changed OR this is the first run (to assign IDs to initial content)
+          // A document change fills every missing id. The initial content
+          // gets its ids from the session's normalise step, a doc-changing
+          // transaction on a scratch state (document/session.ts), so no
+          // first-run closure is needed; one plugin instance serves every
+          // tab's state (#1152).
           const docChanged = transactions.some((tr) => tr.docChanged)
-          const isFirstRun = !initialized
-          initialized = true
-
-          if (!docChanged && !isFirstRun) return null
+          if (!docChanged) return null
 
           let modified = false
           const tr = newState.tr

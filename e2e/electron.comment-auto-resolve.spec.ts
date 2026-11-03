@@ -127,16 +127,8 @@ test('deleting the last comment\'s text auto-resolves the thread (#933)', async 
 
   const commentId = await addCommentToFirstParagraph(page, 'Mark this text for deletion.')
 
-  // Wait for the restore cycle to complete (needsRestore goes false after a 100ms
-  // timer in the Editor effect). Without this, autoResolveDeletedComments sees
-  // needsRestore:true and returns early — correctly, since it can't know
-  // whether the state change was a genuine edit or a transient strip.
-  await page.waitForFunction(
-    () => (window as any).__prose_tools.getCommentStoreNeedsRestore() === false,
-    { timeout: 5_000 },
-  )
-
-  // Confirm the mark is live
+  // The thread and its mark land in one transaction (#1147): the mark is live
+  // as soon as add_comment returns.
   expect(await countCommentMarks(page)).toBeGreaterThan(0)
 
   // Delete the comment's marked text programmatically — find the mark's range
@@ -179,28 +171,18 @@ test('toggling source mode with one open comment does NOT resolve it', async () 
 
   const commentId = await addCommentToFirstParagraph(page, 'Should survive source mode toggle.')
 
-  // Wait for restore cycle so the guard state is settled before toggling.
-  await page.waitForFunction(
-    () => (window as any).__prose_tools.getCommentStoreNeedsRestore() === false,
-    { timeout: 5_000 },
-  )
-
   // Confirm live mark before toggle
   expect(await countCommentMarks(page)).toBeGreaterThan(0)
 
-  // Toggle to source mode — marks are transiently stripped from the TipTap doc
-  // but the store keeps the thread as resolved:false.
+  // Toggle to source mode: the rich state keeps its marks and the CodeMirror
+  // surface shows the text (#1150).
   await page.locator('[aria-label="Source mode"]').click()
   await page.waitForSelector(selectors.sourceEditor, { timeout: 5_000 })
 
-  // Toggle back to WYSIWYG — setContent fires (preventUpdate:true) and a 50ms
-  // setTimeout then restores the comment marks. The _preventUpdateInCurrentBatch
-  // flag must survive the node-ids appendTransaction that follows setContent so
-  // autoResolveDeletedComments correctly skips resolution (#933 guard).
+  // Toggle back without changes: nothing is dispatched (#1125), so the thread
+  // plugin sees no edit and resolves nothing.
   await page.locator('[aria-label="WYSIWYG mode"]').click()
   await page.waitForSelector(selectors.editor, { state: 'visible', timeout: 5_000 })
-
-  // Allow restoreComments setTimeout (50ms) + render cycle to complete
   await page.waitForTimeout(200)
 
   // The thread must NOT be resolved after the round-trip
@@ -235,15 +217,10 @@ async function nodeIdByText(testPage: Page, text: string): Promise<string> {
   return node!.id
 }
 
-/** Comment a node and wait for the restore cycle to settle. */
+/** Comment a node; the thread and its mark land in one transaction (#1147). */
 async function commentOn(testPage: Page, nodeId: string, commentText: string): Promise<string> {
   const result = await executeProseTool(testPage, 'add_comment', { nodeId, comment: commentText }, 'editor')
   expect(result.success, `add_comment: ${JSON.stringify(result)}`).toBe(true)
-  await testPage.waitForFunction(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    () => (window as any).__prose_tools.getCommentStoreNeedsRestore() === false,
-    { timeout: 5_000 },
-  )
   expect(await countCommentMarks(testPage)).toBeGreaterThan(0)
   return (result.data as { id: string }).id
 }

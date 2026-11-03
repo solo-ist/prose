@@ -1,10 +1,11 @@
 /**
  * Per-tab document sessions — the acceptance cases from
  * docs/architecture/editor-state.md §12: PR 1 (#1145) owns 1, 5, 7, 8 and 10,
- * PR 2 (#1146) adds 2 and 4, PR 3 (#1147) adds 6; plus the source-text
- * tripwires that keep the session layer the only place a document's
- * EditorState is created, swapped in, or persisted, and the record stores
- * gone.
+ * PR 2 (#1146) adds 2 and 4, PR 3 (#1147) adds 6, PR 4 (#1148) adds 11 and
+ * 12, PR 6 (#1150) adds 3 and the comment half of 4, PR 7 (#1151) adds 9;
+ * plus the source-text tripwires that keep the session layer the only place
+ * a document's EditorState is created, swapped in, or persisted, the record
+ * stores gone, and the editor store a mirror.
  *
  * Every record set (AI annotations, comment threads, suggestions) is checked
  * straight from IndexedDB, keyed by document id, after each switch: the §G
@@ -1143,7 +1144,38 @@ test.describe('session tripwires', () => {
       if (file === 'src/renderer/document/session.ts' || file === 'src/renderer/tabs/actions.ts') continue
       if (file === 'src/renderer/stores/editorStore.ts') continue
       expect(source, `${file} calls setDocument({`).not.toMatch(/\bsetDocument\(\{/)
+      expect(source, `${file} writes editorStore.document through setState`).not.toMatch(/useEditorStore\.setState\(\{\s*document\b/)
     }
+  })
+
+  test('no renderer code replaces a document with setContent: the session layer builds states (#1152)', () => {
+    for (const { file, source } of files) {
+      expect(source, `${file} calls commands.setContent(`).not.toMatch(/\.commands\.setContent\(|\.chain\(\)[^\n]*\.setContent\(/)
+    }
+  })
+
+  test('EditorState is a value import only in the session layer (#1152)', () => {
+    for (const { file, source } of files) {
+      if (file === 'src/renderer/document/session.ts') continue
+      const valueImports = [...source.matchAll(/import \{([^}]*)\} from '@tiptap\/pm\/state'/g)]
+      for (const m of valueImports) {
+        expect(m[1], `${file} imports EditorState as a value from @tiptap/pm/state`).not.toMatch(/(^|[,\s])EditorState([,\s]|$)/)
+      }
+    }
+  })
+
+  test('the record persisters are called only from the session layer and the tab actions (#1152)', () => {
+    for (const { file, source } of files) {
+      if (file === 'src/renderer/document/session.ts' || file === 'src/renderer/tabs/actions.ts') continue
+      expect(source, `${file} calls persistRecords(`).not.toMatch(/\bpersistRecords\(/)
+      expect(source, `${file} calls deleteDocumentRecords(`).not.toMatch(/\bdeleteDocumentRecords\(/)
+    }
+  })
+
+  test('the node-ids plugin keeps no first-run closure: one instance serves every state (#1152)', () => {
+    const nodeIds = files.find((f) => f.file === 'src/renderer/extensions/node-ids/index.ts')
+    expect(nodeIds).toBeTruthy()
+    expect(nodeIds!.source).not.toMatch(/\binitialized\b/)
   })
 
   test('the annotation store is gone: records are read from a state and written through its transactions', () => {

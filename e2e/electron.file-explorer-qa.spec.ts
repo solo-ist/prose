@@ -124,7 +124,7 @@ async function getSelectedPaths(testPage: Page): Promise<string[]> {
     const panel = document.querySelector('[data-testid="file-list-panel"]')
     if (!panel) return []
     const selected: string[] = []
-    const buttons = panel.querySelectorAll('button[title]')
+    const buttons = Array.from(panel.querySelectorAll('button[title]'))
     for (const btn of buttons) {
       if (btn.classList.contains('bg-accent')) {
         const titleAttr = btn.getAttribute('title')

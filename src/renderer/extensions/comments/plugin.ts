@@ -124,13 +124,18 @@ export function createCommentThreadsPlugin() {
         const revision = changed ? prev.revision + 1 : prev.revision
         const quiet = meta?.quiet === true || meta?.load !== undefined || meta?.merge !== undefined
         const pushes = changed && !quiet ? diffPushes(prev.threads, threads) : []
+        // A transaction with no pushes of its own carries the previous ones:
+        // they belong to `prev.pushRevision`, which the session reads once
+        // per revision (document/session.ts afterTransaction). An appended
+        // transaction (node ids after a paste, say) landing in the same
+        // applyTransaction must not drop what the main one recorded (#1152).
         return {
           threads,
           marks: marksChanged ? marks : prev.marks,
           decorations,
           revision,
           urgentRevision: changed && !meta?.load ? revision : prev.urgentRevision,
-          pushes: pushes.length > 0 ? pushes : EMPTY_PUSHES,
+          pushes: pushes.length > 0 ? pushes : prev.pushes,
           pushRevision: pushes.length > 0 ? prev.pushRevision + 1 : prev.pushRevision
         }
       }

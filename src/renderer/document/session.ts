@@ -919,6 +919,10 @@ export async function closeSession(tabId: string, opts: { discard?: boolean } = 
   if (!session) return false
   const wasActive = tabId === registry.activeTabId
   // A tab closing in source mode, shown or not, writes its text back first.
+  // `exitSource` lands its replace synchronously (`replaceSessionDocument`'s
+  // keep-history branch awaits nothing), so the session is still registered
+  // when the transaction runs; the vitest "writes its text back when it
+  // closes" is the guard for that.
   if (session.source) exitSource(tabId)
   if (wasActive) registry.activeTabId = null
   flushProjections(session)
@@ -988,6 +992,9 @@ export async function replaceSessionDocument(
   // back first; what follows replaces the whole document anyway.
   if (session.source && !opts.keepHistory) exitSource(tabId)
 
+  // The keep-history branch must stay synchronous (no await before the
+  // dispatch): `exitSource` relies on it from `closeSession`, which deletes
+  // the session right after.
   if (opts.keepHistory) {
     const identity = getIdentity(session.state)
     const doc = buildDocument(e, next.body, identity)
@@ -1217,7 +1224,7 @@ export function exitSource(tabId: string): void {
 
 /** True while `tabId`'s document is in source mode (its CodeMirror state is the truth). */
 export function isSourceSurfaceFor(tabId: string): boolean {
-  return registry.sessions.get(tabId)?.source !== null && registry.sessions.get(tabId)?.source !== undefined
+  return !!registry.sessions.get(tabId)?.source
 }
 
 /** The source session of a tab, for the surface and the seams. */
@@ -1236,6 +1243,9 @@ export function setSourceState(tabId: string, state: SourceState): void {
   const session = registry.sessions.get(tabId)
   if (!session?.source || session.source.state === state) return
   const docChanged = session.source.state.doc !== state.doc
+  // Mutated in place on purpose: `useActiveSource` hands the surface the
+  // `SourceSession` object, which stays the same across typing so React
+  // re-renders it on enter and exit only; the view keeps the state itself.
   session.source.state = state
   if (!docChanged) return
   if (session.sourceTimer) clearTimeout(session.sourceTimer)

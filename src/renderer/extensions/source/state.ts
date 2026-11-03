@@ -11,11 +11,11 @@
  * component.
  */
 
-import { Compartment, EditorState, type Extension, type Range, type StateEffect } from '@codemirror/state'
+import { Compartment, EditorState, type Extension, type Range, type StateEffect, type Transaction } from '@codemirror/state'
 import { EditorView, basicSetup } from 'codemirror'
 import { markdown } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
-import { HighlightStyle, syntaxHighlighting, foldEffect, foldedRanges } from '@codemirror/language'
+import { HighlightStyle, syntaxHighlighting, foldEffect, unfoldEffect, foldedRanges } from '@codemirror/language'
 import { tags } from '@lezer/highlight'
 import { keymap, ViewPlugin, Decoration, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import { indentWithTab } from '@codemirror/commands'
@@ -231,6 +231,11 @@ export function sourceText(state: SourceState): string {
 export function sourceSelection(state: SourceState): { anchor: number; head: number } {
   const { anchor, head } = state.selection.main
   return { anchor, head }
+}
+
+/** True when a transaction folds or unfolds something (a compartment reconfigure does not). */
+export function transactionTouchesFolds(tr: Transaction): boolean {
+  return tr.effects.some((e) => e.is(foldEffect) || e.is(unfoldEffect))
 }
 
 /** The folded ranges, as `[from, to]` pairs in document order. */

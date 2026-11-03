@@ -158,7 +158,7 @@ export function Editor() {
   // surface's, kept by the session across switches.
   const source = useActiveSource()
   const activeTabId = useTabStore((state) => state.activeTabId)
-  const { settings, effectiveTheme, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen } = useSettings()
+  const { settings, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen } = useSettings()
   const { setContext, cycleToolMode } = useChat()
   const { isChatOpen, isFileListOpen, toggleChat, toggleFileList, setChatOpen, setFileListOpen } = usePanelLayoutContext()
   const setEditorInstance = useEditorInstanceStore((state) => state.setEditor)
@@ -845,7 +845,6 @@ export function Editor() {
           fontSize={settings.editor.fontSize}
           lineHeight={settings.editor.lineHeight}
           fontFamily={settings.editor.fontFamily}
-          isDark={effectiveTheme === 'dark'}
           readOnly={isRemarkableReadOnly || isPreviewTab}
         />
       ) : (

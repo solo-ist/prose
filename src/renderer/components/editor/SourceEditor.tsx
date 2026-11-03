@@ -9,6 +9,7 @@ import {
   readOnlyCompartment,
   readOnlyExtension,
   sourceFolds,
+  transactionTouchesFolds,
   type SourceState
 } from '../../extensions/source/state'
 
@@ -23,7 +24,6 @@ interface SourceEditorProps {
   fontSize: number
   lineHeight: number
   fontFamily: string
-  isDark: boolean
   readOnly: boolean
 }
 
@@ -33,7 +33,9 @@ interface SourceEditorProps {
  * hands every resulting state back through `onState`; the appearance and
  * the read-only flag are compartments reconfigured in place when the
  * settings change, so nothing rebuilds the state (caret, folds and history
- * stay). The entry text is the state's initial document, not an undo step.
+ * stay). The theme reads CSS variables, so a light/dark switch needs no
+ * reconfigure. The entry text is the state's initial document, not an undo
+ * step.
  */
 export function SourceEditor({
   state,
@@ -43,7 +45,6 @@ export function SourceEditor({
   fontSize,
   lineHeight,
   fontFamily,
-  isDark,
   readOnly
 }: SourceEditorProps) {
   const scrollerRef = useRef<HTMLDivElement>(null)
@@ -71,7 +72,7 @@ export function SourceEditor({
           useEditorStore.getState().setCursorPosition(line.number, pos - line.from + 1)
         }
         onStateRef.current(next)
-        if (trs.some((tr) => tr.effects.length > 0 || tr.docChanged)) setAllFolded(sourceFolds(next).length > 0)
+        if (trs.some((tr) => tr.docChanged || transactionTouchesFolds(tr))) setAllFolded(sourceFolds(next).length > 0)
       }
     })
     viewRef.current = view
@@ -90,9 +91,14 @@ export function SourceEditor({
     if (scroller) view.dom.insertBefore(foldBtn, scroller)
     foldButtonRef.current = foldBtn
 
-    if (scrollerRef.current) scrollerRef.current.scrollTop = scrollTop
+    // After the first paint: the scroller has its full height only once
+    // CodeMirror has laid its lines out, so a synchronous set would no-op.
+    const restore = requestAnimationFrame(() => {
+      if (scrollerRef.current) scrollerRef.current.scrollTop = scrollTop
+    })
 
     return () => {
+      cancelAnimationFrame(restore)
       onStateRef.current(view.state)
       view.destroy()
       viewRef.current = null
@@ -106,7 +112,7 @@ export function SourceEditor({
     viewRef.current?.dispatch({
       effects: appearanceCompartment.reconfigure(appearanceExtensions({ fontSize, lineHeight, fontFamily }))
     })
-  }, [fontSize, lineHeight, fontFamily, isDark])
+  }, [fontSize, lineHeight, fontFamily])
 
   useEffect(() => {
     viewRef.current?.dispatch({ effects: readOnlyCompartment.reconfigure(readOnlyExtension(readOnly)) })

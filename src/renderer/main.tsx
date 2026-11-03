@@ -8,7 +8,7 @@ import {
   loadSuggestions as loadSuggestionsFromDB,
   loadConversations as loadConversationsFromDB
 } from './lib/persistence'
-import { getSessionTabIds, getProjectionStats, getActiveSession, getSession, getSourceSession } from './document/session'
+import { getSessionTabIds, getProjectionStats, getActiveSession, getSession } from './document/session'
 import { sourceFolds, sourceSelection, sourceText } from './extensions/source/state'
 import { getIdentity } from './document/identity'
 import { useCommandHistoryStore } from './stores/commandHistoryStore'
@@ -115,7 +115,7 @@ import './index.css'
   getSourceState: (tabId?: string) => {
     const session = tabId ? getSession(tabId) : getActiveSession()
     if (!session) return null
-    const source = getSourceSession(session.tabId)
+    const source = session.source
     if (!source) return { mode: 'rich', text: null, selection: null, folds: [] }
     return { mode: 'source', text: sourceText(source.state), selection: sourceSelection(source.state), folds: sourceFolds(source.state) }
   },

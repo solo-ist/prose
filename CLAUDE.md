@@ -37,7 +37,7 @@ npm run build:linux  # Build Linux distributable
 
 **Note**: Always run these commands for the user rather than asking them to run manually. Start dev servers in the background so work can continue.
 
-**Testing**: No unit test suite. E2E tests via Playwright (`e2e/`, `playwright.config.ts`). Manual QA via Circuit Electron (see below).
+**Testing**: Unit tests via vitest (`npm run test:unit`; `src/**/*.test.ts`, jsdom, a headless TipTap editor built from `createEditorExtensions()`; runs in CI before the Electron suite). E2E tests via Playwright (`e2e/`, `playwright.config.ts`). Manual QA via Circuit Electron (see below).
 
 ## Before Implementation
 
@@ -228,9 +228,11 @@ Most handlers live in `src/main/ipc.ts` (86 across 14 namespaces). A few sit clo
 
 ### State Management
 
+Editor state is not in a store. Every open tab owns a ProseMirror `EditorState` held by a session in `src/renderer/document/session.ts` (see "Editor" below); the tab record in `tabStore` is the truth for a document's body, frontmatter, dirty flag, preview / read-only flags and rich-or-source mode; annotation records, comment threads and suggestions live in the plugins' own state.
+
 Zustand stores in `src/renderer/stores/`:
-- `tabStore` - Multi-tab session lifecycle, persistence to IndexedDB
-- `editorStore` - Document content, path, dirty state
+- `tabStore` - The tab records (`Tab`: identity, `content`, `frontmatter`, `isDirty`, `isPreview`, `readOnly`, `mode`, `viewState`), the closed-tab history, session persistence to IndexedDB; `useActiveTab(select)` reads the active record
+- `editorStore` - A **mirror** of the active tab's record (`document`: id, path, content, frontmatter, dirty; written only by the session layer and `tabs/actions.ts`) plus UI flags (`isEditing`, `isRemarkableReadOnly`, `isAutosaving`, `annotationsVisible`, the AI frontmatter overlay `pendingFrontmatter`, the status-bar cursor). Nothing computes on the mirror.
 - `editorInstanceStore` - TipTap editor instance reference
 - `chatStore` - Chat messages, conversations, streaming state, panel visibility
 - `settingsStore` - App settings (theme, LLM config, editor preferences)
@@ -241,6 +243,9 @@ Zustand stores in `src/renderer/stores/`:
 - `linkHoverStore` - Currently hovered link URL for tooltip
 - `notificationStore` - Bespoke in-app toasts (the app uses no toast library; rendered by `components/layout/Notifications.tsx`)
 - `sharedListStore` - Every local share entry (live + revoked) for the explorer's Shared view and the ◎ indicator on shared tree rows (#1036)
+- `shareStore` - The active document's share entry and sync status (the ◎ popover)
+- `accountStore` - Gateway sign-in state
+- `projectsStore` - Project roots for the explorer
 
 ### Feature Flags
 
@@ -265,25 +270,30 @@ Client-side persistence uses IndexedDB (`src/renderer/lib/persistence.ts`). When
 - **Upgrades can be blocked** if the database is open in another tab. The upgrade waits until all connections close, but users may not notice. New stores may silently fail to create.
 - **Test fresh installs and upgrades** separately. A fresh install always gets the latest schema, but existing users need the migration path.
 
-**Annotation persistence invariant (comments / AI suggestions):** marks and
-decorations are NOT serialized into the `.md`; they live in IndexedDB keyed by
-`documentId` and are re-applied on load by matching the marked text. Three rules
-keep them safe (a violation of each caused real data loss):
-1. **Never persist an empty/stripped set from a routine save.** A document load
-   or source-mode toggle strips the marks for a moment and fires a transaction —
-   saving in that window writes `[]` and wipes the store. Routine saves (the
-   debounced transaction save, `useTabs` tab-switch save, `mergeCommentsForPersistence`)
-   skip empty/markless writes; genuine empties persist only via tab-close/delete.
-2. **Restore must wait for content.** On reload the file loads asynchronously, so
-   restore is gated on `editor.state.doc.textContent` being present (with
-   `document.content` in the effect deps) — restoring against an empty doc would
-   find no anchor text and consume the one-shot restore flag, losing the marks.
-3. **External merges land in the store before they persist.** Any path that
-   merges outside threads in (share pull, artifact import) must
-   `setState({ pendingComments: merged })` synchronously BEFORE its first await —
-   routine saves read `pendingComments`, and a persist-then-reload order leaves a
-   window where a concurrent save writes the pre-merge set over the just-saved
-   one (a pulled thread vanished this way; the acked pull cursor made it permanent).
+**Editor-state rules (comments, AI suggestions, AI annotations):** marks and
+decorations are NOT serialized into the `.md`; the records live in IndexedDB
+keyed by `documentId` and are re-applied at load by matching the marked text.
+Four rules keep them safe, each enforced by a mechanism rather than a
+convention (design: `docs/architecture/editor-state.md` §3.3; the tripwires in
+`e2e/electron.document-sessions.spec.ts` fail the build when one is broken):
+1. **No write without the producing state's document id.** The three IndexedDB
+   writers (`saveAnnotations`, `saveComments`, `saveSuggestions` and their
+   deletes) are imported only by `document/session.ts`, whose `persistRecords`
+   reads the id and the records from the same `EditorState`.
+2. **Id and records change together.** They are fields of one immutable
+   `EditorState` (the identity plugin and each record plugin's state): a state
+   is created whole and replaced whole, so no moment has the next id with the
+   previous records.
+3. **No timing flag guards shared state.** Load-time work is a pure function
+   that returns a finished state: marks are applied inside the session's seed
+   transaction before a state is ever shown, a reload re-anchors inside the
+   replace transaction, and a record is added in the transaction that creates
+   it. Nothing polls for "restored".
+4. **Design before touching shared editor state.** Only `session.ts` calls
+   `view.updateState`, creates an `EditorState` or persists records; no renderer
+   code calls `commands.setContent` (the session builds states). A new writer or
+   projection is a function in `session.ts`, added in a PR that cites the
+   design (`docs/patterns.md`, "How to Add a Session Writer or Projection").
 
 ### LLM Integration
 
@@ -307,13 +317,15 @@ Dark mode by default. Theme controlled via `dark` class on `<html>` element.
 
 ### Tabs
 
-Multi-tab interface managed by `tabStore`. Each tab tracks its document path, content, dirty state, and emoji. Session persistence via IndexedDB — tabs survive app restart. Preview tabs (single-click in file explorer) are replaced by the next open; double-click or editing promotes to a permanent tab.
+Every way a document enters a tab, leaves it, or changes identity goes through one function in `src/renderer/tabs/actions.ts` (open, preview, new, switch, close, reopen, rename, convert, reload from disk, restore at launch, `setTabFrontmatter`, `markTabSaved`); `hooks/useTabs.ts` is a thin React binding over it and the chat tools (`select_tab`, `open_file`, `new_file`, `save_file`) call the same functions. The tab record (`tabStore`) is the truth for the document's body, frontmatter, dirty flag, preview / read-only flags and mode; the session layer keeps it current from its projections. Session persistence via IndexedDB — tabs survive app restart; only the active tab's session opens at launch, the others on first activation. Preview tabs (single-click in file explorer) are replaced by the next open; double-click, clicking into the editor or editing promotes to a permanent tab, which re-applies `editable = !isPreview && !readOnly`.
 
 ### Editor
 
-The editor uses TipTap (ProseMirror-based) with markdown support via `tiptap-markdown`. Key files:
-- `src/renderer/components/editor/Editor.tsx` - Main editor component
-- `src/renderer/extensions/` - Custom TipTap extensions (ai-suggestions, diff-suggestions, node-ids, etc.)
+The editor uses TipTap (ProseMirror-based) with markdown support via `tiptap-markdown`. There is one TipTap editor and one `EditorState` per open tab: `src/renderer/document/session.ts` holds the states (`openSession` parses, normalises and seeds a state from the tab's text and its IndexedDB records; `activateSession` swaps it into the view with `view.updateState`; `applyToSession` runs a transaction on a shown or a background state; `replaceSessionDocument` is the one whole-document replace, re-anchoring every record by text; `setSessionIdentity` restamps on rename / Save As; `saveSnapshot` is the one save path), the identity plugin (`document/identity.ts`) stamps each state with its document id, and `document/handle.ts` gives tool executors a `DocumentHandle` for a shown or a background document. Projections (500 ms after the last keystroke) write the tab record and the editor-store mirror; records persist from the state that produced them. Source mode keeps a CodeMirror state per session (`extensions/source/state.ts`). Key files:
+- `src/renderer/document/session.ts` - The session layer (the only creator, swapper and persister of editor state)
+- `src/renderer/components/editor/Editor.tsx` - The editor component (keyboard, popovers, dialogs, the source surface)
+- `src/renderer/components/editor/extensions.ts` - The extension list (`createEditorExtensions`), shared with the vitest harness
+- `src/renderer/extensions/` - Custom TipTap extensions (ai-annotations, comments, ai-suggestions, node-ids, source, etc.); records live in plugin state, read with `annotationsOf(state)`, `threadsOf(state)`, `getAISuggestions({ state })`, written through the extensions' commands or their `…To(tr, …)` helpers
 
 ### Document Review
 
@@ -368,7 +380,7 @@ Opt-in crash reporting via `@sentry/electron`. Users enable it in Settings > Gen
 
 ## Common Patterns
 
-Step-by-step recipes for common extension tasks (settings tab, IPC channel, TipTap extension, panel, Zustand store, AI tool): see `docs/patterns.md`.
+Step-by-step recipes for common extension tasks (settings tab, IPC channel, TipTap extension, panel, Zustand store, AI tool, session writer or projection): see `docs/patterns.md`.
 
 ## Security Rules
 

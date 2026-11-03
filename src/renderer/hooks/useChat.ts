@@ -9,7 +9,8 @@ import { buildSystemPrompt, buildCommentsPrompt, buildSuggestionRepliesPrompt } 
 import { getApi } from '../lib/browserApi'
 import type { Editor } from '@tiptap/core'
 import { getComments, threadsOf, countOpenThreads } from '../extensions/comments'
-import { resolveDocumentHandle } from '../document/handle'
+import { isToolHandleError, resolveToolHandle, type ToolBinding } from '../document/handle'
+import { useTabStore } from '../stores/tabStore'
 import type { CommentData } from '../extensions/comments/types'
 import { getSuggestionsWithFeedback } from '../extensions/ai-suggestions'
 import { executeTool, resolveToolPosition } from '../lib/tools'
@@ -106,47 +107,37 @@ function summarizeToolResult(toolName: string, result: { success: boolean; data?
   return JSON.stringify(result)
 }
 
-// Module-level refs - these must be outside the hook to ensure event handlers
-// registered once at module level can access the same refs that sendMessage uses
-// Each ref includes a streamId to prevent race conditions when streams overlap
-const pendingToolCallsRef = {
-  current: [] as Array<{ id: string; name: string; args: unknown }>,
-  streamId: null as string | null
+// Module-level, per-stream state (#1148): the event handlers are registered
+// once for the app, and two turns on two documents may be live at once, so
+// everything a stream needs is keyed by its id.
+interface ToolLoopContext {
+  apiMessages: LLMMessage[]
+  assistantMsgId: string
+  roundtripCount: number
+  lastErrorSignature: string | null
+  // True if the turn started with a mode switch (Switch & Run or
+  // StatusBar toggle between sends). Propagates through every
+  // tool-loop continuation in the turn so the "you just switched"
+  // notice stays on the system prompt — without it, continuations
+  // after a legitimate read_document call lose the notice and the
+  // LLM pattern-matches against prior-mode assistant messages,
+  // hallucinating "I'm still in <old> Mode" despite the tool list
+  // and per-mode instructions reflecting the new mode.
+  modeJustSwitched: boolean
+  // Thinking blocks from the most recent stream turn. The Anthropic
+  // API requires these to be embedded verbatim in the assistant content
+  // array of tool-loop continuations — dropping or modifying them
+  // causes a 400 error. We accumulate them here and prepend them to
+  // assistantContentBlocks before pushing the continuation message.
+  thinkingBlocks: LLMThinkingBlock[]
 }
-const toolLoopContextRef = {
-  current: null as {
-    apiMessages: LLMMessage[]
-    assistantMsgId: string
-    roundtripCount: number
-    lastErrorSignature: string | null
-    // True if the turn started with a mode switch (Switch & Run or
-    // StatusBar toggle between sends). Propagates through every
-    // tool-loop continuation in the turn so the "you just switched"
-    // notice stays on the system prompt — without it, continuations
-    // after a legitimate read_document call lose the notice and the
-    // LLM pattern-matches against prior-mode assistant messages,
-    // hallucinating "I'm still in <old> Mode" despite the tool list
-    // and per-mode instructions reflecting the new mode.
-    modeJustSwitched: boolean
-    // Thinking blocks from the most recent stream turn. The Anthropic
-    // API requires these to be embedded verbatim in the assistant content
-    // array of tool-loop continuations — dropping or modifying them
-    // causes a 400 error. We accumulate them here and prepend them to
-    // assistantContentBlocks before pushing the continuation message.
-    thinkingBlocks: LLMThinkingBlock[]
-  } | null,
-  streamId: null as string | null
-}
+const pendingToolCalls = new Map<string, Array<{ id: string; name: string; args: unknown }>>()
+const toolLoopContexts = new Map<string, ToolLoopContext>()
 
-/**
- * Clear stream-related refs. Called on abort/error to prevent stale data
- * from being used by subsequent streams.
- */
-function clearStreamRefs(): void {
-  pendingToolCallsRef.current = []
-  pendingToolCallsRef.streamId = null
-  toolLoopContextRef.current = null
-  toolLoopContextRef.streamId = null
+/** Drop a stream's loop state (its turn ended, was aborted, or continued under a new stream id). */
+function clearStreamRefs(streamId: string): void {
+  pendingToolCalls.delete(streamId)
+  toolLoopContexts.delete(streamId)
 }
 
 /**
@@ -210,16 +201,16 @@ export function useChat() {
     streamListenersInitialized = true
     const api = getApi()
 
+    // Every event names its stream; the stream names its turn, and the turn
+    // its conversation, shown or parked (#1148). An event for a stream no
+    // turn owns (aborted, finished) is dropped.
     const unsubChunk = api.onLLMStreamChunk((chunk) => {
-      console.log('[useChat:chunk] Received:', chunk.streamId, 'delta:', chunk.delta?.slice(0, 30))
       const state = useChatStore.getState()
-      console.log('[useChat:chunk] Current streamId:', state.currentStreamId)
-      if (chunk.streamId === state.currentStreamId) {
-        console.log('[useChat:chunk] ✓ Appending delta')
-        state.appendStreamChunk(chunk.delta)
-      } else {
-        console.log('[useChat:chunk] ✗ REJECTED - streamId mismatch')
+      if (!state.turnFor(chunk.streamId)) {
+        console.log('[useChat:chunk] ✗ REJECTED - no turn for stream', chunk.streamId)
+        return
       }
+      state.appendStreamChunk(chunk.delta, chunk.streamId)
     })
 
     // Thinking delta: the main process sends cumulative thinking text on each
@@ -227,22 +218,18 @@ export function useChat() {
     // the ThinkingBlock component can show live updates while the model thinks.
     const unsubThinkingDelta = api.onLLMStreamThinkingDelta?.((delta) => {
       const state = useChatStore.getState()
-      if (delta.streamId !== state.currentStreamId || !state.streamingMessageId) return
-      state.updateMessage(state.streamingMessageId, { thinkingText: delta.thinking })
+      const found = state.turnFor(delta.streamId)
+      if (!found) return
+      state.updateMessageIn(found.conversationId, found.turn.messageId, { thinkingText: delta.thinking })
     })
 
     const unsubToolCall = api.onLLMStreamToolCall((toolCallEvent: LLMStreamToolCall) => {
       console.log('[useChat:toolCall] Received:', toolCallEvent.streamId, 'tool:', toolCallEvent.toolCall?.name)
-      const state = useChatStore.getState()
-      console.log('[useChat:toolCall] Current streamId:', state.currentStreamId, 'ref streamId:', pendingToolCallsRef.streamId)
-      // Validate both current stream and ref streamId match to prevent race conditions
-      if (toolCallEvent.streamId === state.currentStreamId &&
-          toolCallEvent.streamId === pendingToolCallsRef.streamId) {
-        console.log('[useChat:toolCall] ✓ Accumulating tool call')
-        // Accumulate tool calls
-        pendingToolCallsRef.current.push(toolCallEvent.toolCall)
+      const pending = useChatStore.getState().turnFor(toolCallEvent.streamId) ? pendingToolCalls.get(toolCallEvent.streamId) : undefined
+      if (pending) {
+        pending.push(toolCallEvent.toolCall)
       } else {
-        console.log('[useChat:toolCall] ✗ REJECTED - streamId mismatch')
+        console.log('[useChat:toolCall] ✗ REJECTED - no turn for stream')
       }
     })
 
@@ -255,10 +242,10 @@ export function useChat() {
     // once the tool result is appended in onLLMStreamComplete below.
     const unsubToolCallStart = api.onLLMStreamToolCallStart((start: LLMStreamToolCallStart) => {
       const state = useChatStore.getState()
-      if (start.streamId !== state.currentStreamId || !state.streamingMessageId) return
-      const currentMsg = state.messages.find((m) => m.id === state.streamingMessageId)
-      const existing = currentMsg?.content ?? ''
-      state.updateMessage(state.streamingMessageId, {
+      const found = state.turnFor(start.streamId)
+      if (!found) return
+      const existing = state.messageOf(found.conversationId, found.turn.messageId)?.content ?? ''
+      state.updateMessageIn(found.conversationId, found.turn.messageId, {
         content: existing + buildDraftingTag(start.toolCallId, start.toolName)
       })
     })
@@ -266,44 +253,35 @@ export function useChat() {
     const unsubComplete = api.onLLMStreamComplete(async (complete) => {
       console.log('[useChat:complete] Received:', complete.streamId, 'content:', complete.content?.slice(0, 50), 'toolCalls:', complete.toolCalls?.length || 0)
       const state = useChatStore.getState()
-      console.log('[useChat:complete] Current streamId:', state.currentStreamId)
-      if (complete.streamId !== state.currentStreamId) {
-        console.log('[useChat:complete] ✗ REJECTED - streamId mismatch')
+      const found = state.turnFor(complete.streamId)
+      if (!found) {
+        console.log('[useChat:complete] ✗ REJECTED - no turn for stream', complete.streamId)
         return
       }
-      console.log('[useChat:complete] ✓ Processing completion')
-
-      // Validate streamId on refs to prevent race conditions
-      const refsMatchStream = complete.streamId === pendingToolCallsRef.streamId &&
-                              complete.streamId === toolLoopContextRef.streamId
+      const { conversationId } = found
+      const { binding } = found.turn
+      const streamId = complete.streamId
+      const loop = toolLoopContexts.get(streamId)
 
       // Get all tool calls (from streaming events or completion message)
-      // Only use pendingToolCallsRef if it matches the current stream
-      const toolCalls = complete.toolCalls ||
-        (refsMatchStream ? pendingToolCallsRef.current : [])
-      console.log('[useChat:complete] toolCalls from complete:', complete.toolCalls?.length, 'from ref:', pendingToolCallsRef.current.length, 'refsMatch:', refsMatchStream)
-      console.log('[useChat:complete] toolLoopContextRef.current:', toolLoopContextRef.current ? 'SET' : 'NULL')
+      const toolCalls = complete.toolCalls || pendingToolCalls.get(streamId) || []
+      pendingToolCalls.set(streamId, [])
 
-      // Clear pending tool calls for this stream
-      if (refsMatchStream) {
-        pendingToolCallsRef.current = []
-      }
-
-      if (toolCalls && toolCalls.length > 0 && toolLoopContextRef.current && refsMatchStream) {
-        console.log('[useChat:complete] Executing', toolCalls.length, 'tool calls')
+      if (toolCalls && toolCalls.length > 0 && loop) {
+        console.log('[useChat:complete] Executing', toolCalls.length, 'tool calls for', binding.documentId)
         // Execute tool calls and continue the conversation
-        const { apiMessages, assistantMsgId, roundtripCount, lastErrorSignature } = toolLoopContextRef.current
+        const { apiMessages, assistantMsgId, roundtripCount, lastErrorSignature } = loop
 
         // Circuit breaker: stop if we've hit max roundtrips
         if (roundtripCount >= MAX_TOOL_ROUNDTRIPS) {
           console.log('[useChat:complete] Circuit breaker: max roundtrips reached', roundtripCount)
-          const currentMsg = state.messages.find((m) => m.id === assistantMsgId)
-          state.updateMessage(assistantMsgId, {
+          const currentMsg = state.messageOf(conversationId, assistantMsgId)
+          state.updateMessageIn(conversationId, assistantMsgId, {
             content: (currentMsg?.content || '') +
               `\n\n*Stopped: Maximum tool iterations (${MAX_TOOL_ROUNDTRIPS}) reached. The edits may require manual attention.*`
           })
-          state.completeStreaming()
-          clearStreamRefs()
+          state.completeStreaming(conversationId)
+          clearStreamRefs(streamId)
           return
         }
 
@@ -313,11 +291,11 @@ export function useChat() {
         //
         // Thinking blocks MUST come first and be preserved unmodified. The
         // API rejects continuations that drop or modify them (#700).
-        const assistantText = state.messages.find((m) => m.id === assistantMsgId)?.content || ''
+        const assistantText = state.messageOf(conversationId, assistantMsgId)?.content || ''
         const assistantContentBlocks: LLMContentBlock[] = []
 
         // Prepend thinking blocks from this turn — required by the API
-        const priorThinking = toolLoopContextRef.current?.thinkingBlocks ?? []
+        const priorThinking = loop.thinkingBlocks ?? []
         for (const tb of priorThinking) {
           assistantContentBlocks.push(tb)
         }
@@ -342,13 +320,18 @@ export function useChat() {
           { role: 'assistant' as const, content: assistantContentBlocks }
         ]
 
-        // Build provenance context for AI annotation tracking
+        // Provenance for AI annotation tracking: the turn's conversation and
+        // the document it is bound to, never the tab on screen (#1148).
+        const model = useSettingsStore.getState().settings.llm.model || 'unknown'
         const provenance = {
-          model: useSettingsStore.getState().settings.llm.model || 'unknown',
-          conversationId: useChatStore.getState().activeConversationId || '',
+          model,
+          conversationId,
           messageId: assistantMsgId,
-          documentId: useEditorStore.getState().document.documentId || '',
+          documentId: binding.documentId,
         }
+        // Positions are read on the bound document (a read: no source-mode refusal).
+        const sortTarget = await resolveToolHandle(binding)
+        const sortHandle = isToolHandleError(sortTarget) ? null : sortTarget
 
         // Sort editor-mutating tool calls by document position (descending)
         // so bottom-of-document edits execute first and don't shift positions above
@@ -358,7 +341,7 @@ export function useChat() {
           // Pre-resolve positions before any edits execute
           const positions = sortedToolCalls.map(tc =>
             EDITOR_MUTATING_TOOLS.has(tc.name)
-              ? resolveToolPosition(tc.name, tc.args as Record<string, unknown>, resolveDocumentHandle({ forWrite: true }))
+              ? resolveToolPosition(tc.name, tc.args as Record<string, unknown>, sortHandle)
               : -1
           )
           // Stable sort: editor tools by position descending, non-editor tools keep original order
@@ -382,7 +365,15 @@ export function useChat() {
         let currentErrorSignature: string | null = null
 
         for (const toolCall of sortedToolCalls) {
-          const result = await executeTool(toolCall.name, toolCall.args, state.toolMode, provenance)
+          // The binding is resolved per call: a tab-changing tool moves it,
+          // a closed tab reopens in the background, a rename follows.
+          const result = await executeTool(
+            toolCall.name,
+            toolCall.args,
+            state.toolMode,
+            { ...provenance, documentId: binding.documentId },
+            binding
+          )
           toolResults.push({ id: toolCall.id, name: toolCall.name, result })
 
           // Track error signature for consecutive failure detection
@@ -404,8 +395,8 @@ export function useChat() {
                 : '```json\n' + JSON.stringify(result.data, null, 2) + '\n```')
             : `Error: ${result.error}`
           const latest = useChatStore.getState()
-          const previous = latest.messages.find((m) => m.id === assistantMsgId)?.content ?? ''
-          latest.updateMessage(assistantMsgId, {
+          const previous = latest.messageOf(conversationId, assistantMsgId)?.content ?? ''
+          latest.updateMessageIn(conversationId, assistantMsgId, {
             content:
               stripDraftingTag(previous, toolCall.id) +
               `\n\n<tool-result name="${toolCall.name}" success="${result.success}">${resultText}</tool-result>`
@@ -422,40 +413,44 @@ export function useChat() {
         // Consecutive failure detection: stop if same error occurs twice
         if (currentErrorSignature && currentErrorSignature === lastErrorSignature) {
           console.log('[useChat:complete] Consecutive failure detected:', currentErrorSignature)
-          const currentMsg = state.messages.find((m) => m.id === assistantMsgId)
-          state.updateMessage(assistantMsgId, {
+          // The latest text, result tags included (a snapshot from before the
+          // loop would drop them).
+          const currentMsg = useChatStore.getState().messageOf(conversationId, assistantMsgId)
+          state.updateMessageIn(conversationId, assistantMsgId, {
             content: (currentMsg?.content || '') +
               `\n\n*Stopped: Same error occurred twice. Please check the search text is copied exactly from the document.*`
           })
-          state.completeStreaming()
-          clearStreamRefs()
+          state.completeStreaming(conversationId)
+          clearStreamRefs(streamId)
           return
         }
 
-        // Continue conversation with tool results
+        // Continue conversation with tool results, under a new stream id on
+        // the same turn.
         const newStreamId = createMessageId()
-        state.startStreaming(assistantMsgId, newStreamId)
+        state.startStreaming(assistantMsgId, newStreamId, binding, conversationId)
 
-        // Update context for potential next tool loop with new streamId.
-        // Preserve `modeJustSwitched` across the whole turn so subsequent
-        // continuations keep the "you just switched" notice.
-        // Store thinking blocks so the NEXT continuation can prepend them
-        // to its assistant content array (the API requires them preserved).
-        const priorTurnContext = toolLoopContextRef.current
-        toolLoopContextRef.current = {
+        // Loop state for the next roundtrip. Preserve `modeJustSwitched`
+        // across the whole turn so subsequent continuations keep the "you
+        // just switched" notice. Store thinking blocks so the NEXT
+        // continuation can prepend them to its assistant content array (the
+        // API requires them preserved).
+        toolLoopContexts.set(newStreamId, {
           apiMessages: updatedMessages,
           assistantMsgId,
           roundtripCount: roundtripCount + 1,
           lastErrorSignature: currentErrorSignature,
-          modeJustSwitched: priorTurnContext?.modeJustSwitched ?? false,
+          modeJustSwitched: loop.modeJustSwitched,
           thinkingBlocks: (complete.thinkingBlocks as LLMThinkingBlock[] | undefined) ?? []
-        }
-        toolLoopContextRef.streamId = newStreamId
-        pendingToolCallsRef.streamId = newStreamId
+        })
+        pendingToolCalls.set(newStreamId, [])
+        clearStreamRefs(streamId)
 
-        // Call LLM again with tool results
+        // Call LLM again with tool results; the system prompt describes the
+        // bound document as it is now, wherever it is.
         const settingsState = useSettingsStore.getState()
-        const editorState = useEditorStore.getState()
+        const bound = await resolveToolHandle(binding)
+        const boundContent = isToolHandleError(bound) ? '' : bound.serialize()
         const tools = getToolsForToolMode(state.toolMode)
         // Mid-stream mode switches are rare (user toggles during tool loop)
         // but the same idempotency logic applies. lastSentToolMode was set
@@ -469,8 +464,7 @@ export function useChat() {
         // The notice fires if the turn started with a switch (Switch &
         // Run or pre-send StatusBar toggle) OR if the user toggled mode
         // mid-loop. Either way we want the grounding text in the prompt.
-        const continuationModeJustSwitched =
-          toolLoopContextRef.current.modeJustSwitched || loopModeJustSwitched
+        const continuationModeJustSwitched = loop.modeJustSwitched || loopModeJustSwitched
 
         try {
           await api.llmChatStream({
@@ -480,9 +474,9 @@ export function useChat() {
             baseUrl: settingsState.settings.llm.baseUrl,
             messages: updatedMessages,
             system: buildSystemPrompt(
-              editorState.document.content,
+              boundContent,
               state.toolMode,
-              editorState.document.path,
+              binding.path,
               resolveModelName(settingsState.settings.llm.model, settingsState.fetchedModels),
               continuationModeJustSwitched
             ),
@@ -494,27 +488,25 @@ export function useChat() {
           })
         } catch (error) {
           console.error('[Chat] Tool loop error:', error)
-          state.completeStreaming()
-          clearStreamRefs()
+          state.completeStreaming(conversationId)
+          clearStreamRefs(newStreamId)
         }
       } else {
         // No tool calls - complete normally
-        state.completeStreaming()
-        clearStreamRefs()
+        state.completeStreaming(conversationId)
+        clearStreamRefs(streamId)
       }
     })
 
     const unsubError = api.onLLMStreamError((error) => {
       console.log('[useChat:error] Received:', error.streamId, 'error:', error.error)
       const state = useChatStore.getState()
-      console.log('[useChat:error] Current streamId:', state.currentStreamId)
-      if (error.streamId === state.currentStreamId) {
+      const found = state.turnFor(error.streamId)
+      if (found) {
         console.log('[useChat:error] ✓ Processing error')
         // Append error to the streaming message with actionable guidance
-        if (state.streamingMessageId) {
-          const currentMsg = state.messages.find(
-            (m) => m.id === state.streamingMessageId
-          )
+        {
+          const currentMsg = state.messageOf(found.conversationId, found.turn.messageId)
           // Provide actionable guidance based on error type
           const lowerError = error.error.toLowerCase()
           let guidance = ''
@@ -529,13 +521,13 @@ export function useChat() {
           // onLLMStreamComplete's tool-result loop, but a stream error between
           // content_block_start and that loop would leave them dangling.
           const cleaned = stripAllDraftingTags(currentMsg?.content || '')
-          state.updateMessage(state.streamingMessageId, {
+          state.updateMessageIn(found.conversationId, found.turn.messageId, {
             content: cleaned + `\n\nError: ${error.error}${guidance}`,
             isError: true
           })
         }
-        state.completeStreaming()
-        clearStreamRefs()
+        state.completeStreaming(found.conversationId)
+        clearStreamRefs(error.streamId)
       }
     })
 
@@ -557,7 +549,9 @@ export function useChat() {
   const sendMessage = useCallback(
     async (content: string, options?: { hidden?: boolean }): Promise<boolean> => {
       console.log('[useChat] sendMessage called with:', content?.substring(0, 50), 'isLoading:', isLoading)
-      if (!content.trim() || isLoading) return false
+      // The active conversation's own turn blocks a second send; another
+      // document's turn does not.
+      if (!content.trim() || useChatStore.getState().isLoading) return false
       console.log('[useChat] sendMessage passed initial check')
       // Read toolMode fresh from the store rather than relying on the
       // React-closure-captured value. Necessary because callers (notably
@@ -568,8 +562,18 @@ export function useChat() {
       const toolMode = useChatStore.getState().toolMode
 
       // Auto-create a conversation if there isn't one
-      if (!activeConversationId) {
-        addConversation(document.documentId)
+      let conversationId = useChatStore.getState().activeConversationId
+      if (!conversationId) {
+        conversationId = addConversation(document.documentId)
+      }
+      // The turn is bound to the conversation's document, the tab in front
+      // of the user now (#1148): every tool call and every stream event of
+      // the turn lands there, whatever tab is shown later.
+      const binding: ToolBinding = {
+        conversationId,
+        documentId: document.documentId,
+        path: document.path,
+        tabId: useTabStore.getState().activeTabId
       }
 
       // Gate every AI request on the single availability check (consent +
@@ -648,7 +652,7 @@ export function useChat() {
       })
 
       console.log('[useChat] Starting streaming, streamId:', streamId)
-      startStreaming(assistantMsgId, streamId)
+      startStreaming(assistantMsgId, streamId, binding, conversationId)
 
       // Initialize tool loop context if tools are enabled
       console.log('[useChat] toolMode:', toolMode)
@@ -673,16 +677,15 @@ export function useChat() {
       useChatStore.getState().setLastSentToolMode(toolMode)
 
       if (tools && tools.length > 0) {
-        toolLoopContextRef.current = {
+        toolLoopContexts.set(streamId, {
           apiMessages,
           assistantMsgId,
           roundtripCount: 0,
           lastErrorSignature: null,
           modeJustSwitched,
           thinkingBlocks: [] // populated by the first complete event
-        }
-        toolLoopContextRef.streamId = streamId
-        pendingToolCallsRef.streamId = streamId
+        })
+        pendingToolCalls.set(streamId, [])
       }
 
       console.log('[useChat] About to call llmChatStream')
@@ -735,12 +738,12 @@ export function useChat() {
         }
 
         // Update the assistant message with error and guidance
-        updateMessage(assistantMsgId, {
+        useChatStore.getState().updateMessageIn(conversationId, assistantMsgId, {
           content: `Error: ${errorMessage}. ${guidance}`,
           isError: true
         })
-        completeStreaming()
-        clearStreamRefs()
+        completeStreaming(conversationId)
+        clearStreamRefs(streamId)
       }
       return true
     },
@@ -762,27 +765,26 @@ export function useChat() {
     ]
   )
 
+  // Stop the ACTIVE conversation's turn; a turn on another document runs on.
   const stopGeneration = useCallback(() => {
     const state = useChatStore.getState()
-    if (state.currentStreamId) {
-      const api = getApi()
-      api.llmAbortStream(state.currentStreamId)
-    }
+    const conversationId = state.activeConversationId
+    const turn = conversationId ? state.turns[conversationId] : undefined
+    if (!conversationId || !turn) return
+    const api = getApi()
+    api.llmAbortStream(turn.streamId)
     // Strip orphan drafting tags before tearing down the stream — aborting
     // mid-tool-input composition would otherwise leave a perpetual chip.
-    // Must run before completeStreaming() clears streamingMessageId.
-    if (state.streamingMessageId) {
-      const currentMsg = state.messages.find((m) => m.id === state.streamingMessageId)
-      if (currentMsg?.content) {
-        const cleaned = stripAllDraftingTags(currentMsg.content)
-        if (cleaned !== currentMsg.content) {
-          state.updateMessage(state.streamingMessageId, { content: cleaned })
-        }
+    const currentMsg = state.messageOf(conversationId, turn.messageId)
+    if (currentMsg?.content) {
+      const cleaned = stripAllDraftingTags(currentMsg.content)
+      if (cleaned !== currentMsg.content) {
+        state.updateMessageIn(conversationId, turn.messageId, { content: cleaned })
       }
     }
     // Clear stream refs before completing to prevent race conditions
-    clearStreamRefs()
-    completeStreaming()
+    clearStreamRefs(turn.streamId)
+    completeStreaming(conversationId)
   }, [completeStreaming])
 
   const processComments = useCallback(async () => {

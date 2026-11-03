@@ -22,7 +22,7 @@
 
 import { useTabStore, generateUntitledTitle, type Tab, type ClosedTabSnapshot } from '../stores/tabStore'
 import { useEditorStore } from '../stores/editorStore'
-import { useChatStore, setCurrentDocumentId } from '../stores/chatStore'
+import { useChatStore } from '../stores/chatStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useFileListStore } from '../stores/fileListStore'
 import { parseMarkdown, prepareTextContent, serializeMarkdown } from '../lib/markdown'
@@ -181,6 +181,8 @@ function isEmptyUntitled(tab: Tab | null): boolean {
  * time, or every stored set deleted for a discarded untitled document).
  */
 async function retireTab(tab: Tab, opts: { discard: boolean }): Promise<void> {
+  // A chat turn bound to a discarded document finishes without writing (#1148).
+  if (opts.discard) useChatStore.getState().discardDocument(tab.documentId)
   const hadSession = await closeSession(tab.id, { discard: opts.discard })
   if (!hadSession && opts.discard) await deleteDocumentRecords(tab.documentId)
 }
@@ -288,10 +290,11 @@ async function arriveTab(tab: Tab, opts: ArriveOptions = {}): Promise<void> {
   const current = useTabStore.getState().getTabById(tab.id)
   if (!current) return
   activateSession(current.id)
-  setCurrentDocumentId(current.documentId)
 
+  // The conversations are loaded before anything saves under the new id:
+  // the list carries the document it belongs to (#1148).
   if (opts.fresh) {
-    useChatStore.setState({ conversations: [], activeConversationId: null, messages: [], context: null })
+    useChatStore.getState().resetForNewDocument(current.documentId)
   } else {
     await useChatStore.getState().loadForDocument(current.documentId)
     if (opts.activeChatId) {
@@ -689,12 +692,11 @@ export async function setTabIdentity(tabId: string, next: IdentityChange): Promi
       ])
     }
 
+    // The shown list, a parked list and any live turn follow the new id in
+    // the store; the stored rows are copied for a document that is not shown.
+    useChatStore.getState().rekeyDocument(oldDocumentId, documentId)
     if (isActive) {
-      const conversations = useChatStore
-        .getState()
-        .conversations.map((c) => ({ ...c, documentId }))
-      useChatStore.setState({ conversations })
-      setCurrentDocumentId(documentId)
+      const conversations = useChatStore.getState().conversations
       if (conversations.length > 0) await saveConversations(documentId, conversations)
     } else {
       const conversations = await loadConversations(oldDocumentId)

@@ -5,7 +5,8 @@ import {
   initDB,
   loadAnnotations as loadAnnotationsFromDB,
   loadComments as loadCommentsFromDB,
-  loadSuggestions as loadSuggestionsFromDB
+  loadSuggestions as loadSuggestionsFromDB,
+  loadConversations as loadConversationsFromDB
 } from './lib/persistence'
 import { getSessionTabIds, getProjectionStats, getActiveSession, getSession } from './document/session'
 import { getIdentity } from './document/identity'
@@ -16,6 +17,8 @@ import { dumpPipelineLog, clearPipelineLog } from './lib/aiPipelineLog'
 import { executeTool } from './lib/tools'
 import { annotationsOf } from './extensions/ai-annotations'
 import { threadsOf, threadPluginState } from './extensions/comments'
+import { getAISuggestions } from './extensions/ai-suggestions'
+import { closeTab } from './tabs/actions'
 import { useTabStore } from './stores/tabStore'
 import { useSettingsStore } from './stores/settingsStore'
 import { useChatStore } from './stores/chatStore'
@@ -92,6 +95,20 @@ import './index.css'
       markIds: [...(threadPluginState(session.state)?.marks.keys() ?? [])]
     }
   },
+  // A tab's document as its state holds it, shown or not (document-sessions
+  // cases 11 and 12: a chat turn landing in a tab that is not shown, #1148).
+  getSessionState: (tabId: string) => {
+    const session = getSession(tabId)
+    if (!session) return null
+    return {
+      documentId: getIdentity(session.state).documentId,
+      text: session.state.doc.textContent,
+      annotations: [...annotationsOf(session.state)],
+      suggestionIds: getAISuggestions({ state: session.state }).map((s) => s.id)
+    }
+  },
+  loadConversationsFromDB,
+  closeTab: (tabId: string, opts?: { force?: boolean }) => closeTab(tabId, opts),
   // Marks are restored inside the session's own seed transaction, before a
   // state is ever shown, so there is no "not yet restored" state (#1145).
   // Kept as a readiness gate for the specs that poll it (updated in PR 8).
@@ -154,6 +171,18 @@ import './index.css'
 ;(window as any).__prose_chat = {
   addConversation: (d: string) => useChatStore.getState().addConversation(d),
   addMessage: (m: ChatMessage) => useChatStore.getState().addMessage(m),
+  // The chat's turns and conversations, shown and parked, as copies (#1148).
+  getState: () => {
+    const s = useChatStore.getState()
+    return {
+      activeConversationId: s.activeConversationId,
+      conversationsDocumentId: s.conversationsDocumentId,
+      isStreaming: s.isStreaming,
+      turns: Object.fromEntries(Object.entries(s.turns).map(([id, t]) => [id, { streamId: t.streamId, messageId: t.messageId, binding: { ...t.binding } }])),
+      conversations: s.conversations.map((c) => ({ id: c.id, documentId: c.documentId, messages: c.messages.map((m) => ({ id: m.id, role: m.role, content: m.content })) })),
+      parked: Object.fromEntries(Object.entries(s.parked).map(([doc, list]) => [doc, list.map((c) => ({ id: c.id, documentId: c.documentId, messages: c.messages.map((m) => ({ id: m.id, role: m.role, content: m.content })) }))]))
+    }
+  },
 }
 
 function SentryFallback() {

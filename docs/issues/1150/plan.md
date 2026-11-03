@@ -153,3 +153,26 @@ folds: [[from, to]] }` for the active or a named tab.
 ## Execution log
 
 - **2026-11-03, step 0:** inventory (one pass over `1c0b22b`), plan written; branch `issue-1150-source-mode` from the PR 5 tip (`272a4ce`), to land onto `release/v1.9.0` after #1174 and #1175.
+- **2026-11-03, commits 1–3:** `a362a73` the state module (`extensions/source/state.ts`: base extensions, the
+  appearance and read-only compartments, the frontmatter and fold plugins moved out of `SourceEditor`,
+  `buildSourceState`, the readers, the fold-all effects) and `tab.mode` on the record, the snapshot, the draft and
+  the copy sites; `state.test.ts` 3 · `207cd16` the move (`session.source`, `enterSource` / `exitSource` /
+  `setSourceState` / `setSourceScroll` / `projectSource`, the per-session projection guard and write refusal,
+  leave / activate / close / replace / convert; `enterSourceMode` / `exitSourceMode` / `toggleSourceMode` as the
+  one guarded entry point behind the toolbar, the status bar, the View menu and ⌘⇧E; `arriveTab` reopening a
+  source tab in source mode; `SourceEditor` state-in / state-out over a view-level dispatcher and the
+  compartments, owning its scroll container; `Editor.tsx` without its source refs, state and layout effect,
+  rendering the surface from `useActiveSource` keyed by tab, the rich-editing shortcuts inert in source mode;
+  `__prose_tools.getSourceState`; `session.test.ts` +3: the baseline entry text, typing projected into the tab and
+  the store but not the ProseMirror state, a write refused with `SOURCE_MODE`, an untouched exit dispatching
+  nothing, an exit with changes as one undo step with annotations and threads re-anchored, a background tab
+  kept in source mode across a switch and written back on close) · `fd…` case 3 behaviour-first. Unit 91/91;
+  `typecheck:renderer` 67 (two below the baseline: the decoration typing `SourceEditor` carried is fixed in the
+  state module); `typecheck:e2e` 8; build clean. Specs on the branch build (source-mode-authority 11,
+  comment-auto-resolve, tab-caret, suggestions-persist, tab-switch-flush, document-sessions with case 3 and the
+  comment half of case 4): 42 passed; `electron.editor` failed on its default-profile launch (#1160, the dev
+  app holds the lock), 11 of its tests did not run. **Falsified on a build of `d5b8fec`'s renderer:** case 3 comes
+  back rich after the switch (no `.cm-editor`); the comment half of case 4 passes there too (PR 3's reconcile on
+  `RELOAD` and undo already keeps the thread), so it is a guard, not a falsifier. Env: the falsification round
+  trip must start from a clean tree (`git checkout <old> -- src` would overwrite uncommitted work; the classifier
+  caught exactly that once). QA §5 (eleven checks) written into the operator's QA doc.

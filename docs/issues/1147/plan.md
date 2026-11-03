@@ -250,3 +250,23 @@ green: `comment-auto-resolve`, `comment-threading`, `comment-occurrence`, `share
 
 - **2026-11-03, step 0:** inventory (three passes), plan written; branch `issue-1147-comment-plugin-state` from
   `e47c4b7` in the reused `prose-1146` worktree. Baselines on the head: `typecheck:renderer` 69, vitest 45/45.
+- **2026-11-03, commits 1–2:** `277c5f3` pure core (`threads.ts`, `transactions.ts`, `threads.test.ts` 13) ·
+  `e84f61a` the move (plugin owns the threads, store deleted, auto-resolve and reconcile in `apply`, the five
+  thread commands, session persist/push policy with the registered performer, `readThreads` / `patchThread` /
+  `documentPathOf`, `mergeThreads` with tombstone unmark, `sharePush` by `documentId`, `shareSync` background
+  merge, `artifactImport`, the six React readers, the executors, `useChat`, the seams; `plugin.test.ts` 11,
+  `session.test.ts` +4; e2e case 6 + the comment-store tripwire; design doc §5.1 shipped paragraph and §7 rows).
+  Unit 73/73; `typecheck:renderer` 69 = baseline; `typecheck:e2e` 8 = baseline; `npm run build` clean. Targeted
+  specs (document-sessions, comment-auto-resolve, comment-threading, comment-occurrence, share-sync,
+  source-mode-authority, annotation-reanchor, ai-edit-lifecycle, activity-panel, tab-switch-flush): first run 66
+  passed + 1 flaky; re-run on a fresh build 71 passed, 1 flaky, 1 failed = share-sync's serial file disrupted by
+  the retry of its flaky dialog case (`#1018`, a pointer-interception click timeout) so the Shared-view reconcile
+  case (`#1037`) ran out of order; share-sync alone: 26 passed, the `#1037` case flaky on a count poll, passed on
+  retry. Neither touches comment threads. **Case 6 falsified** on a build of `e47c4b7`'s renderer (the spec
+  launches `out/`, so a falsification needs `npm run build` after `git checkout <old> -- src`): the sync seam
+  ignores the document id, syncs the active tab and answers "no share entry"; passes on the branch.
+  **PR #1173** (https://github.com/solo-ist/prose/pull/1173) open onto `release/v1.9.0`; `qa/dev` = `27acc8b`
+  (release + branch, `--no-ff`), the dev window hot-reloaded; QA §3 (eleven checks) written into the operator's
+  `docs/qa/v1.9.0-editor-state.md` for the one-pass review. Env traps: the Playwright transform cache and the
+  re-added `store.ts` from PR 2 still apply; the `cd` into the main checkout for the QA doc moved the session's
+  working directory, so every command names the worktree.

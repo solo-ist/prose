@@ -109,7 +109,8 @@ interface ChatState {
   // Streaming actions
   /** Start (or continue) the turn of `conversationId` (the active one when omitted). */
   startStreaming: (messageId: string, streamId: string, binding?: ToolBinding, conversationId?: string) => void
-  appendStreamChunk: (delta: string, streamId?: string) => void
+  /** Append to the streaming message of the turn that owns `streamId`; an unknown stream is dropped. */
+  appendStreamChunk: (delta: string, streamId: string) => void
   /** End the turn of `conversationId` (the active one when omitted). */
   completeStreaming: (conversationId?: string) => void
 
@@ -388,9 +389,10 @@ export const useChatStore = create<ChatState>()(
 
       appendStreamChunk: (delta, streamId) => {
         const state = get()
-        const id = streamId ?? state.currentStreamId
-        if (!id) return
-        const found = state.turnFor(id)
+        // Never the active conversation's stream by default: a chunk that
+        // does not name its stream would land in whatever is shown, which is
+        // the cross-tab failure this store exists to close (#1148).
+        const found = streamId ? state.turnFor(streamId) : null
         if (!found) return
         patchConversation(found.conversationId, (messages) =>
           messages.map((msg) => (msg.id === found.turn.messageId ? { ...msg, content: msg.content + delta } : msg))

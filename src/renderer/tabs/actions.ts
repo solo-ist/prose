@@ -737,10 +737,16 @@ export async function setTabIdentity(tabId: string, next: IdentityChange): Promi
 export async function markActiveTabSaved(path: string): Promise<void> {
   const activeTabId = useTabStore.getState().activeTabId
   if (!activeTabId) return
-  const tab = useTabStore.getState().getTabById(activeTabId)
-  if (tab && tab.path !== path) await setTabIdentity(activeTabId, { path })
-  useEditorStore.getState().setDirty(false)
-  useTabStore.getState().updateTab(activeTabId, { isDirty: false })
+  await markTabSaved(activeTabId, path)
+}
+
+/** A tab's document was written to `path` (the active one, or a background one a chat turn saved, #1148). */
+export async function markTabSaved(tabId: string, path: string): Promise<void> {
+  const tab = useTabStore.getState().getTabById(tabId)
+  if (!tab) return
+  if (tab.path !== path) await setTabIdentity(tabId, { path })
+  if (tabId === useTabStore.getState().activeTabId) useEditorStore.getState().setDirty(false)
+  useTabStore.getState().updateTab(tabId, { isDirty: false })
   void recordDiskBaseline(path)
 }
 

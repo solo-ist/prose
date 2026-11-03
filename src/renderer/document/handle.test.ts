@@ -56,6 +56,8 @@ import { annotationsOf } from '../extensions/ai-annotations/transactions'
 import { threadsOf } from '../extensions/comments/transactions'
 import { getAISuggestions } from '../extensions/ai-suggestions/extension'
 import type { AISuggestionData } from '../extensions/ai-suggestions/types'
+import { executeTool } from '../lib/tools'
+import { getNodesWithIds } from '../extensions/node-ids'
 
 let editor: Editor
 const PROV = { model: 'test', conversationId: 'c', messageId: 'm' }
@@ -221,5 +223,42 @@ describe('resolveToolHandle', () => {
     } finally {
       delete (window as unknown as { api?: unknown }).api
     }
+  })
+})
+
+describe('executeTool with a binding', () => {
+  it('acts on the bound document while another tab is shown, and on the active tab without a binding', async () => {
+    await twoTabs()
+    const binding: ToolBinding = { conversationId: 'conv', documentId: 'doc-a', path: '/docs/a.md', tabId: null }
+    const provenance = { model: 'test', conversationId: 'conv', messageId: 'm1', documentId: 'doc-a' }
+
+    const read = await executeTool('read_document', {}, 'create', undefined, binding)
+    expect(read.success).toBe(true)
+    const data = (read as { data: { markdown: string; nodes: Array<{ id: string; content: string }> } }).data
+    expect(data.markdown).toContain('Alpha body here.')
+    expect(data.markdown).not.toContain('Beta')
+    const target = data.nodes.find((n) => n.content === 'Alpha second.')!
+    expect(target).toBeTruthy()
+
+    const edited = await executeTool('edit', { nodeId: target.id, content: 'Alpha rewritten.' }, 'create', provenance, binding)
+    expect(edited.success, JSON.stringify(edited)).toBe(true)
+    const a = getSession('ta')!.state
+    expect(a.doc.textContent).toContain('Alpha rewritten.')
+    expect(annotationsOf(a).map((r) => r.documentId)).toEqual(['doc-a'])
+    expect(editor.state.doc.textContent).toBe('Beta body.')
+    expect(annotationsOf(editor.state)).toEqual([])
+    expect(binding.tabId).toBe('ta')
+
+    // Without a binding the active tab (B) is the target, as for MCP clients.
+    const bNode = getNodesWithIds(editor.state.doc)[0]
+    const onActive = await executeTool('edit', { nodeId: bNode.nodeId, content: 'Beta rewritten.' }, 'create', { ...provenance, documentId: 'doc-b' })
+    expect(onActive.success, JSON.stringify(onActive)).toBe(true)
+    expect(editor.state.doc.textContent).toContain('Beta rewritten.')
+    expect(getSession('ta')!.state.doc.textContent).toContain('Alpha rewritten.')
+
+    // A frontmatter write on the background document is refused, not misdirected.
+    const fm = await executeTool('edit', { nodeId: 'frontmatter', content: 'title: x' }, 'create', provenance, binding)
+    expect(fm.success).toBe(false)
+    expect((fm as { code?: string }).code).toBe('FRONTMATTER_BACKGROUND')
   })
 })

@@ -7,15 +7,13 @@ import type { ToolResult, FileItem } from '../../../../shared/tools/types'
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { TOOL_FILE_ACCESS, type FileAccessOptions } from '../../../../shared/fileAccess'
 import { isFileOperationFailure } from '../../../../shared/fileOperationResult'
-import { useEditorStore } from '../../../stores/editorStore'
 import { resolveDocumentHandle } from '../../../document/handle'
 import { useSettingsStore } from '../../../stores/settingsStore'
 import { generateIdFromPath } from '../../persistence'
 import { useTabStore } from '../../../stores/tabStore'
-import { openFile, newTab, markActiveTabSaved } from '../../../tabs/actions'
-import { flushActiveProjections } from '../../../document/session'
-import { buildSaveContent } from '../../../hooks/useEditor'
-import type { ToolProvenance } from '../provenanceTypes'
+import { openFile, newTab, markTabSaved } from '../../../tabs/actions'
+import { serializeSession } from '../../../document/session'
+import type { ToolContext } from '../context'
 
 /** Human-readable text for a thrown value, including structured file-operation failures. */
 function describeError(e: unknown): string {
@@ -114,19 +112,21 @@ export async function executeNewFile(args: {
  */
 export async function executeSaveFile(args: {
   path?: string
-}): Promise<ToolResult<{ saved: boolean; path: string }>> {
+}, ctx: ToolContext): Promise<ToolResult<{ saved: boolean; path: string }>> {
   const api = getApi()
 
   if (!api) {
     return toolError('File API not available', 'API_NOT_AVAILABLE')
   }
+  const { handle } = ctx
+  if (!handle) {
+    return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
+  }
 
-  // The session projects the document to the store on a 500 ms debounce;
-  // land it first so the save holds the last keystrokes.
-  flushActiveProjections()
-  const { document } = useEditorStore.getState()
-  const targetPath = args.path ?? document.path
-  const content = buildSaveContent(document.content, document.frontmatter, targetPath)
+  // The full text as a save writes it, pending projections landed, from the
+  // document the call is bound to (shown or not, #1148).
+  const document = { path: handle.path }
+  const content = serializeSession(handle.tabId)
 
   try {
     let finalPath: string
@@ -148,9 +148,9 @@ export async function executeSaveFile(args: {
       finalPath = newPath
     }
 
-    // The active tab adopts the path: identity, records (conversations,
+    // The tab adopts the path: identity, records (conversations,
     // annotations, suggestions, comments) and the disk baseline follow.
-    await markActiveTabSaved(finalPath)
+    await markTabSaved(handle.tabId, finalPath)
 
     return toolSuccess({ saved: true, path: finalPath })
   } catch (e) {
@@ -260,7 +260,8 @@ export async function executeReadFile(args: {
 export async function executeCreateAndOpenFile(args: {
   filename?: string
   content?: string
-}, provenance?: ToolProvenance): Promise<ToolResult<{ path: string; opened: boolean }>> {
+}, ctx: ToolContext): Promise<ToolResult<{ path: string; opened: boolean }>> {
+  const { provenance } = ctx
   const api = getApi()
 
   if (!api) {

@@ -9,6 +9,7 @@ import { buildSystemPrompt, buildCommentsPrompt, buildSuggestionRepliesPrompt } 
 import { getApi } from '../lib/browserApi'
 import type { Editor } from '@tiptap/core'
 import { getComments, threadsOf, countOpenThreads } from '../extensions/comments'
+import { resolveDocumentHandle } from '../document/handle'
 import type { CommentData } from '../extensions/comments/types'
 import { getSuggestionsWithFeedback } from '../extensions/ai-suggestions'
 import { executeTool, resolveToolPosition } from '../lib/tools'
@@ -357,7 +358,7 @@ export function useChat() {
           // Pre-resolve positions before any edits execute
           const positions = sortedToolCalls.map(tc =>
             EDITOR_MUTATING_TOOLS.has(tc.name)
-              ? resolveToolPosition(tc.name, tc.args as Record<string, unknown>)
+              ? resolveToolPosition(tc.name, tc.args as Record<string, unknown>, resolveDocumentHandle({ forWrite: true }))
               : -1
           )
           // Stable sort: editor tools by position descending, non-editor tools keep original order

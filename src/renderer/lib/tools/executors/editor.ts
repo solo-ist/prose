@@ -3,10 +3,14 @@
  */
 
 import type { Node as PMNode } from '@tiptap/pm/model'
-import { resolveDocumentHandle, type DocumentHandle } from '../../../document/handle'
+import type { DocumentHandle } from '../../../document/handle'
 import type { ToolResult } from '../../../../shared/tools/types'
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useEditorStore } from '../../../stores/editorStore'
+import { useTabStore } from '../../../stores/tabStore'
+import { isRemarkableOcrPath } from '../../remarkablePath'
+import type { ToolContext } from '../context'
+import type { ToolProvenance } from '../provenanceTypes'
 import { addAnnotationsTo, annotationsOf } from '../../../extensions/ai-annotations'
 import { buildWordDiffAnnotations } from '../../diffUtils'
 import { findNodeById, findNodeByContent, getNodesWithIds, flattenNodes } from '../../../extensions/node-ids'
@@ -27,10 +31,12 @@ const STREAM_TARGET_FRAME_COUNT = 24
 
 /**
  * Decide whether the next agent insertion should stream chunk-by-chunk.
- * Always streams, except when the user has `prefers-reduced-motion: reduce`
- * set at the OS level, which forces instant apply.
+ * Streams when the document is shown, except when the user has
+ * `prefers-reduced-motion: reduce` set at the OS level; a document that is
+ * not shown takes the insertion in one transaction (#1148).
  */
-function shouldStreamInsertion(): boolean {
+function shouldStreamInsertion(handle: DocumentHandle): boolean {
+  if (!handle.isActive) return false
   if (
     typeof window !== 'undefined' &&
     typeof window.matchMedia === 'function' &&
@@ -112,7 +118,7 @@ async function applyInsertion(
     return from + (handle.state.doc.content.size - before) + (hasRange ? to! - from : 0)
   }
 
-  if (!shouldStreamInsertion()) return insert(text)
+  if (!shouldStreamInsertion(handle)) return insert(text)
   const chunks = buildStreamChunks(text)
   if (chunks.length <= 1) return insert(text)
   insert(chunks[0])
@@ -148,14 +154,23 @@ async function applyInsertion(
 }
 
 /**
- * Check if the editor is in a read-only mode (reMarkable OCR or preview tab).
- * AI tools should not mutate the document in these modes. Exported so that
- * document-tool executors (add_comment, resolve_comment) can apply the same gate.
+ * Check if the handle's document is in a read-only mode (reMarkable OCR or a
+ * preview tab). AI tools should not mutate the document in these modes.
+ * Exported so that document-tool executors (add_comment, resolve_comment)
+ * can apply the same gate. Read from the tab the handle names, not the
+ * active tab (#1148).
  */
-export function isEditorReadOnly(): boolean {
-  const state = useEditorStore.getState()
-  return state.isRemarkableReadOnly || state.isPreviewTab
+export function isEditorReadOnly(handle: DocumentHandle): boolean {
+  const tab = useTabStore.getState().getTabById(handle.tabId)
+  if (!tab) return false
+  return tab.isPreview === true || isRemarkableOcrPath(tab.path)
 }
+
+/** Frontmatter lives in the active document's store until PR 7 puts it on the tab. */
+const FRONTMATTER_BACKGROUND = toolError(
+  'The frontmatter of a document that is not in front of the user cannot be changed yet; switch to it first.',
+  'FRONTMATTER_BACKGROUND'
+)
 
 /**
  * Strip markdown block-level prefix that matches the target node's type, so
@@ -257,8 +272,7 @@ function detectBlockConversion(
  * so bottom-of-document edits don't shift positions of earlier edits.
  * Returns Infinity for tools that don't target a specific position.
  */
-export function resolveToolPosition(toolName: string, args: Record<string, unknown>): number {
-  const handle = resolveDocumentHandle({ forWrite: true })
+export function resolveToolPosition(toolName: string, args: Record<string, unknown>, handle: DocumentHandle | null): number {
   if (!handle) return Infinity
 
   if (toolName === 'edit' || toolName === 'suggest_edit') {
@@ -324,15 +338,15 @@ export async function executeEdit(
     comment?: string
     search?: string
   },
-  provenance?: ToolProvenance
+  ctx: ToolContext
 ): Promise<ToolResult<{ applied: boolean; nodeId: string }>> {
-  const handle = resolveDocumentHandle({ forWrite: true })
+  const { handle, provenance } = ctx
 
   if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
-  if (isEditorReadOnly()) {
+  if (isEditorReadOnly(handle)) {
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
@@ -373,6 +387,7 @@ export async function executeEdit(
     if (parsed.kind === 'error') {
       return toolError(parsed.message, 'INVALID_FRONTMATTER')
     }
+    if (!handle.isActive) return FRONTMATTER_BACKGROUND
     useEditorStore.getState().setFrontmatter(parsed.frontmatter)
     return toolSuccess({ applied: true, nodeId })
   }
@@ -504,15 +519,15 @@ export async function executeInsert(
     comment?: string
     search?: string
   },
-  provenance?: ToolProvenance
+  ctx: ToolContext
 ): Promise<ToolResult<{ inserted: boolean; position: string }>> {
-  const handle = resolveDocumentHandle({ forWrite: true })
+  const { handle, provenance } = ctx
 
   if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
-  if (isEditorReadOnly()) {
+  if (isEditorReadOnly(handle)) {
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
@@ -724,13 +739,6 @@ function replaceTable(
   return toolSuccess({ applied: true, nodeId })
 }
 
-interface ToolProvenance {
-  model: string
-  conversationId: string
-  messageId: string
-  documentId: string
-}
-
 /**
  * suggest_edit - Show an AI suggestion as a highlighted mark on text.
  * The user can click the highlighted text to see the suggestion and accept/reject it.
@@ -743,15 +751,15 @@ export function executeSuggestEdit(
     comment?: string
     search?: string
   },
-  provenance?: ToolProvenance
+  ctx: ToolContext
 ): ToolResult<{ suggested: boolean; suggestionId: string }> {
-  const handle = resolveDocumentHandle({ forWrite: true })
+  const { handle, provenance } = ctx
 
   if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
-  if (isEditorReadOnly()) {
+  if (isEditorReadOnly(handle)) {
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
@@ -792,6 +800,7 @@ export function executeSuggestEdit(
     if (parsed.kind === 'error') {
       return toolError(parsed.message, 'INVALID_FRONTMATTER')
     }
+    if (!handle.isActive) return FRONTMATTER_BACKGROUND
     useEditorStore.getState().setPendingFrontmatter(parsed.frontmatter)
     return toolSuccess({ suggested: true, suggestionId: generateId() })
   }
@@ -864,9 +873,15 @@ export function executeSuggestEdit(
         )
       }
     }
+    if (!handle.isActive) return FRONTMATTER_BACKGROUND
     useEditorStore.getState().setPendingFrontmatter(frontmatterToStage)
     return toolSuccess({ suggested: true, suggestionId: generateId() })
   }
+
+  // Staged frontmatter needs the active document's overlay (PR 7 puts it on
+  // the tab); refuse before anything is applied so the model can resend
+  // the body on its own.
+  if (frontmatterToStage && !handle.isActive) return FRONTMATTER_BACKGROUND
 
   // Find the node by ID, fall back to content matching if stale
   let found = findNodeById(handle.state.doc, nodeId)
@@ -1044,8 +1059,8 @@ interface SuggestionInfo {
  */
 export function executeAcceptDiff(args: {
   id?: string
-}): ToolResult<{ accepted: boolean; diffId?: string; count?: number }> {
-  const handle = resolveDocumentHandle({ forWrite: true })
+}, ctx: ToolContext): ToolResult<{ accepted: boolean; diffId?: string; count?: number }> {
+  const { handle } = ctx
 
   if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
@@ -1090,8 +1105,8 @@ export function executeAcceptDiff(args: {
  */
 export function executeRejectDiff(args: {
   id?: string
-}): ToolResult<{ rejected: boolean; diffId?: string; count?: number }> {
-  const handle = resolveDocumentHandle({ forWrite: true })
+}, ctx: ToolContext): ToolResult<{ rejected: boolean; diffId?: string; count?: number }> {
+  const { handle } = ctx
 
   if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
@@ -1139,15 +1154,15 @@ export function executeDeleteNode(
     nodeId: string
     search?: string
   },
-  provenance?: ToolProvenance
+  ctx: ToolContext
 ): ToolResult<{ deleted: boolean; nodeId: string }> {
-  const handle = resolveDocumentHandle({ forWrite: true })
+  const { handle, provenance } = ctx
 
   if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
-  if (isEditorReadOnly()) {
+  if (isEditorReadOnly(handle)) {
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
@@ -1215,14 +1230,14 @@ export function executeMoveCursor(args: {
   nodeId: string
   position?: 'start' | 'end'
   search?: string
-}): ToolResult<{ moved: boolean; nodeId: string; position: 'start' | 'end' }> {
-  const handle = resolveDocumentHandle({ forWrite: true })
+}, ctx: ToolContext): ToolResult<{ moved: boolean; nodeId: string; position: 'start' | 'end' }> {
+  const { handle } = ctx
 
   if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
-  if (isEditorReadOnly()) {
+  if (isEditorReadOnly(handle)) {
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
@@ -1263,8 +1278,8 @@ export function executeMoveCursor(args: {
 /**
  * List all pending AI suggestions.
  */
-export function executeListDiffs(): ToolResult<{ diffs: SuggestionInfo[] }> {
-  const handle = resolveDocumentHandle({ forWrite: true })
+export function executeListDiffs(ctx: ToolContext): ToolResult<{ diffs: SuggestionInfo[] }> {
+  const { handle } = ctx
 
   if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')

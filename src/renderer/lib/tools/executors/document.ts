@@ -5,7 +5,9 @@
 import type { ToolResult, DocumentMetadata, TextMatch, OutlineEntry } from '../../../../shared/tools/types'
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useEditorStore } from '../../../stores/editorStore'
-import { resolveDocumentHandle, type DocumentHandle } from '../../../document/handle'
+import { useTabStore } from '../../../stores/tabStore'
+import type { DocumentHandle } from '../../../document/handle'
+import type { ToolContext } from '../context'
 import { annotationsOf } from '../../../extensions/ai-annotations'
 import { getNodesWithIds, findNodeById } from '../../../extensions/node-ids'
 import type { NodeWithId } from '../../../extensions/node-ids'
@@ -68,11 +70,11 @@ function tableMarkdown(n: NodeWithId, handle: DocumentHandle): string {
  * Returns a structured tree of nodes with their IDs, allowing the AI to
  * target specific nodes by ID when making edits.
  */
-export function executeReadDocument(): ToolResult<{
+export function executeReadDocument(ctx: ToolContext): ToolResult<{
   nodes: DocumentNode[]
   markdown: string
 }> {
-  const handle = resolveDocumentHandle()
+  const { handle } = ctx
   const store = useEditorStore.getState()
 
   if (!handle) {
@@ -89,10 +91,32 @@ export function executeReadDocument(): ToolResult<{
   // Map to DocumentNode tree
   const nodes: DocumentNode[] = nodesWithIds.map((n) => toDocumentNode(n, handle))
 
+  // The document as it is now, pending projections landed: the store mirror
+  // lags the state by the projection delay, and a read right after an edit
+  // in the same turn must see the edit (#1148).
+  const { frontmatter, pendingFrontmatter } = documentFrontmatter(handle)
   return toolSuccess({
-    nodes: prependFrontmatterNode(nodes, store.document.frontmatter, store.pendingFrontmatter),
-    markdown: store.document.content
+    nodes: prependFrontmatterNode(nodes, frontmatter, pendingFrontmatter),
+    markdown: handle.serialize()
   })
+}
+
+/**
+ * The document's frontmatter: the editor store's when the document is shown
+ * (its overlay included), the tab record's otherwise (PR 7 moves it onto
+ * the tab for both).
+ */
+function documentFrontmatter(handle: DocumentHandle): {
+  frontmatter: Record<string, unknown>
+  pendingFrontmatter: Record<string, unknown> | null
+  isDirty: boolean
+} {
+  if (handle.isActive) {
+    const store = useEditorStore.getState()
+    return { frontmatter: store.document.frontmatter, pendingFrontmatter: store.pendingFrontmatter, isDirty: store.document.isDirty }
+  }
+  const tab = useTabStore.getState().getTabById(handle.tabId)
+  return { frontmatter: tab?.frontmatter ?? {}, pendingFrontmatter: null, isDirty: tab?.isDirty ?? false }
 }
 
 /**
@@ -135,13 +159,13 @@ function prependFrontmatterNode(
  * Falls back to cached selection if the live selection is empty
  * (e.g., when chat input has stolen focus).
  */
-export function executeReadSelection(): ToolResult<{
+export function executeReadSelection(ctx: ToolContext): ToolResult<{
   text: string
   from: number
   to: number
   isEmpty: boolean
 }> {
-  const handle = resolveDocumentHandle()
+  const { handle } = ctx
 
   if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
@@ -160,8 +184,9 @@ export function executeReadSelection(): ToolResult<{
     })
   }
 
-  // Fall back to cached selection (preserved when editor loses focus)
-  const cached = useEditorStore.getState().getLastSelection()
+  // Fall back to cached selection (preserved when editor loses focus); the
+  // cache is the shown document's.
+  const cached = handle.isActive ? useEditorStore.getState().getLastSelection() : null
   if (cached && cached.text) {
     return toolSuccess({
       text: cached.text,
@@ -183,9 +208,12 @@ export function executeReadSelection(): ToolResult<{
 /**
  * get_metadata - Get document metadata.
  */
-export async function executeGetMetadata(): Promise<ToolResult<DocumentMetadata>> {
-  const handle = resolveDocumentHandle()
-  const { document } = useEditorStore.getState()
+export async function executeGetMetadata(ctx: ToolContext): Promise<ToolResult<DocumentMetadata>> {
+  const { handle } = ctx
+  const fallback = useEditorStore.getState().document
+  const document = handle
+    ? { documentId: handle.documentId, path: handle.path, content: handle.serialize(), ...documentFrontmatter(handle) }
+    : { documentId: fallback.documentId, path: fallback.path, content: fallback.content, frontmatter: fallback.frontmatter, isDirty: fallback.isDirty }
 
   const content = document.content
   const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0
@@ -241,8 +269,8 @@ export function executeSearchDocument(args: {
   regex?: boolean
   caseSensitive?: boolean
   maxResults?: number
-}): ToolResult<{ matches: TextMatch[]; totalCount: number }> {
-  const handle = resolveDocumentHandle()
+}, ctx: ToolContext): ToolResult<{ matches: TextMatch[]; totalCount: number }> {
+  const { handle } = ctx
 
   if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
@@ -316,7 +344,7 @@ export function executeSearchDocument(args: {
 
   // Trigger FindBar UI with the search term if we found matches
   if (matches.length > 0) {
-    window.dispatchEvent(new CustomEvent('search:show', { detail: { query } }))
+    if (handle.isActive) window.dispatchEvent(new CustomEvent('search:show', { detail: { query } }))
   }
 
   return toolSuccess({ matches, totalCount })
@@ -326,8 +354,8 @@ export function executeSearchDocument(args: {
  * get_outline - Get the document structure as a list of headings.
  * When there are few headings (< 3), provides a summary instead.
  */
-export function executeGetOutline(): ToolResult<{ outline: OutlineEntry[]; summary?: string }> {
-  const handle = resolveDocumentHandle()
+export function executeGetOutline(ctx: ToolContext): ToolResult<{ outline: OutlineEntry[]; summary?: string }> {
+  const { handle } = ctx
 
   if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
@@ -356,8 +384,7 @@ export function executeGetOutline(): ToolResult<{ outline: OutlineEntry[]; summa
 
   // If few headings, provide a summary instead
   if (outline.length < 3) {
-    const store = useEditorStore.getState()
-    const content = store.document.content
+    const content = handle.serialize()
     const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0
 
     let summary = `Document has ${outline.length} heading${outline.length !== 1 ? 's' : ''}`
@@ -398,8 +425,8 @@ interface CommentEntry {
  * (replies, resolved state) from the comment store so the AI gets the
  * full thread context.
  */
-export function executeListComments(): ToolResult<{ comments: CommentEntry[] }> {
-  const handle = resolveDocumentHandle()
+export function executeListComments(ctx: ToolContext): ToolResult<{ comments: CommentEntry[] }> {
+  const { handle } = ctx
 
   if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
@@ -454,14 +481,14 @@ export function executeAddComment(args: {
   from?: number
   to?: number
   comment: string
-}): ToolResult<{ id: string }> {
-  const handle = resolveDocumentHandle()
+}, ctx: ToolContext): ToolResult<{ id: string }> {
+  const { handle } = ctx
 
   if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
-  if (isEditorReadOnly()) {
+  if (isEditorReadOnly(handle)) {
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
@@ -540,14 +567,14 @@ export function executeAddComment(args: {
  */
 export function executeResolveComment(args: {
   id: string
-}): ToolResult<{ resolved: boolean }> {
-  const handle = resolveDocumentHandle({ forWrite: true })
+}, ctx: ToolContext): ToolResult<{ resolved: boolean }> {
+  const { handle } = ctx
 
   if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
-  if (isEditorReadOnly()) {
+  if (isEditorReadOnly(handle)) {
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
@@ -574,8 +601,12 @@ export function executeResolveComment(args: {
 export function executeReplyToComment(args: {
   id: string
   text: string
-}): ToolResult<{ replyId: string }> {
-  if (isEditorReadOnly()) {
+}, ctx: ToolContext): ToolResult<{ replyId: string }> {
+  const { handle } = ctx
+  if (!handle) {
+    return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
+  }
+  if (isEditorReadOnly(handle)) {
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
@@ -586,11 +617,6 @@ export function executeReplyToComment(args: {
   }
   if (!text?.trim()) {
     return toolError('Reply text is required', 'INVALID_INPUT')
-  }
-
-  const handle = resolveDocumentHandle({ forWrite: true })
-  if (!handle) {
-    return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
   if (!threadsOf(handle.state).some((c) => c.id === id)) {

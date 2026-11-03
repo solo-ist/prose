@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useCallback, useState, useMemo } from 'react'
+import { useEffect, useRef, useCallback, useState, useMemo } from 'react'
 import { useEditor as useTipTapEditor, EditorContent } from '@tiptap/react'
 import { TextSelection } from '@tiptap/pm/state'
 import type { Slice } from '@tiptap/pm/model'
@@ -14,8 +14,9 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { useFileListStore } from '../../stores/fileListStore'
 import { useTabStore, scheduleSaveSession } from '../../stores/tabStore'
 import { promoteCurrentPreview } from '../../hooks/useTabs'
-import { openInTab, setActiveFrontmatter, updateFromSource } from '../../tabs/actions'
-import { attachEditor, enterSourceMode, exitSourceMode } from '../../document/session'
+import { openInTab, setActiveFrontmatter, toggleSourceMode } from '../../tabs/actions'
+import { attachEditor, setActiveSourceScroll, setActiveSourceState } from '../../document/session'
+import { useActiveSource } from '../../document/useActiveSession'
 import { createEditorExtensions } from './extensions'
 import { FindBar } from './FindBar'
 import { ShareStatusIcon } from '../share/ShareStatusIcon'
@@ -42,10 +43,23 @@ import { TransformAnimation, useTransformAnimation } from './TransformAnimation'
 import { AISuggestionPopover } from '../AISuggestionPopover'
 import { CommentPopover } from '../CommentPopover'
 import { LinkPopover } from './LinkPopover'
-import { SourceEditor, SourceEditorHandle } from './SourceEditor'
+import { SourceEditor } from './SourceEditor'
 import { getApi } from '../../lib/browserApi'
 
 const AI_PASTE_PROMPT_MIN_CHARS = 200
+
+/** The shortcuts that edit the rich document; inert while the tab is in source mode (#1150). */
+function isRichEditShortcut(e: KeyboardEvent): boolean {
+  const isMod = e.metaKey || e.ctrlKey
+  const key = e.key.toLowerCase()
+  if (e.altKey && !isMod && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) return true
+  if (!isMod) return false
+  if (e.shiftKey) {
+    return e.key === 'Backspace' || e.code === 'Period' || e.code === 'Comma' || ['x', 'f', 'a', 'k'].includes(key)
+  }
+  return ['l', 'd', '/', 'k', 'u'].includes(key)
+}
+
 
 interface PendingPasteAnnotation {
   documentId: string
@@ -140,13 +154,14 @@ export function Editor() {
   const annotationsVisible = useEditorStore((state) => state.annotationsVisible)
   const toggleAnnotationsVisible = useEditorStore((state) => state.toggleAnnotationsVisible)
   const sourceMode = useEditorStore((state) => state.sourceMode)
-  const { settings, effectiveTheme, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen } = useSettings()
+  // The active tab's source session (#1150): its CodeMirror state is the
+  // surface's, kept by the session across switches.
+  const source = useActiveSource()
+  const activeTabId = useTabStore((state) => state.activeTabId)
+  const { settings, setDialogOpen, setShortcutsDialogOpen, setModelPickerOpen } = useSettings()
   const { setContext, cycleToolMode } = useChat()
   const { isChatOpen, isFileListOpen, toggleChat, toggleFileList, setChatOpen, setFileListOpen } = usePanelLayoutContext()
   const setEditorInstance = useEditorInstanceStore((state) => state.setEditor)
-  // The source editor's text as of its last change, kept synchronously: on
-  // exit its ref is already detached and the sourceContent state can lag (#1102).
-  const latestSourceRef = useRef<string>('')
   const [isFindOpen, setIsFindOpen] = useState(false)
   const [isAddCommentOpen, setIsAddCommentOpen] = useState(false)
   const webPlatformEnabled = useWebPlatformEnabled()
@@ -159,10 +174,6 @@ export function Editor() {
   } | null>(null)
   const [pendingPasteAnnotation, setPendingPasteAnnotation] = useState<PendingPasteAnnotation | null>(null)
   const { isTransforming, startTransform, completeTransform } = useTransformAnimation()
-
-  // Source mode: holds markdown content while CodeMirror is mounted
-  const [sourceContent, setSourceContent] = useState<string>('')
-  const sourceEditorRef = useRef<SourceEditorHandle>(null)
 
   // Track if current file is linked to a reMarkable notebook (for showing "View Original" button)
   const [linkedNotebookId, setLinkedNotebookId] = useState<string | null>(null)
@@ -440,28 +451,13 @@ export function Editor() {
     }
   }, [editor, isEditing, document.path, document.content, document.isDirty])
 
-  // Source mode: the session serialises the document on entry and takes the
-  // typed text back as one undo step on exit (document/session.ts). A switch
-  // away while it is open runs the exit on the leaving session first. Layout
-  // effect to avoid a flash of empty content.
-  const prevSourceModeRef = useRef(sourceMode)
-  useLayoutEffect(() => {
-    if (!editor) return
-    const prev = prevSourceModeRef.current
-    prevSourceModeRef.current = sourceMode
-
-    if (sourceMode && !prev) {
-      const text = enterSourceMode(() => sourceEditorRef.current?.getContent() ?? latestSourceRef.current)
-      latestSourceRef.current = text
-      setSourceContent(text)
-    } else if (!sourceMode && prev) {
-      exitSourceMode()
-    }
-  }, [sourceMode, editor])
-
   // Handle keyboard shortcuts
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     const isMod = e.metaKey || e.ctrlKey
+
+    // Source mode: CodeMirror owns the text, so the shortcuts that edit the
+    // rich document are inert rather than reaching the hidden editor (#1150).
+    if (useEditorStore.getState().sourceMode && isRichEditShortcut(e)) return
 
     if (isMod && e.key === 'n' && !e.shiftKey) {
       // Cmd+N: New document — prevent browser's "new window" in web mode
@@ -638,12 +634,9 @@ export function Editor() {
         editor.chain().focus().setTextSelection(to).addFootnote().run()
       }
     } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'e') {
-      // Cmd+Shift+E: Toggle source view (disabled in read-only mode)
+      // Cmd+Shift+E: Toggle source view (the action refuses a preview or reMarkable tab)
       e.preventDefault()
-      const { isRemarkableReadOnly: rmReadOnly, isPreviewTab: previewTab } = useEditorStore.getState()
-      if (!rmReadOnly && !previewTab) {
-        useEditorStore.getState().toggleSourceMode()
-      }
+      toggleSourceMode()
     } else if (isMod && e.shiftKey && e.key.toLowerCase() === 'a') {
       // Cmd+Shift+A: Add comment to selection
       e.preventDefault()
@@ -771,14 +764,6 @@ export function Editor() {
     }
   }, [showEmptyState, editor, isPreviewTab])
 
-  // Source mode onChange handler: the store and the tab follow the text; the
-  // session's state waits for the exit (#1102).
-  const handleSourceChange = useCallback((newContent: string) => {
-    latestSourceRef.current = newContent
-    setSourceContent(newContent)
-    updateFromSource(newContent)
-  }, [])
-
   // Frontmatter editor save handler: the store's object is the truth from
   // here; the session drops the raw block from the projected content.
   const handleFrontmatterSave = useCallback((newFrontmatter: Record<string, unknown>) => {
@@ -850,27 +835,18 @@ export function Editor() {
       )}
       {showEmptyState ? (
         <EmptyState />
-      ) : sourceMode ? (
-        <div className="flex-1 overflow-auto px-12 py-6"
-          style={{
-            fontSize: `${settings.editor.fontSize}px`,
-            lineHeight: settings.editor.lineHeight,
-            fontFamily: settings.editor.fontFamily
-          }}
-        >
-          <div className="max-w-3xl mx-auto">
-            <SourceEditor
-              ref={sourceEditorRef}
-              content={sourceContent}
-              onChange={handleSourceChange}
-              fontSize={settings.editor.fontSize}
-              lineHeight={settings.editor.lineHeight}
-              fontFamily={settings.editor.fontFamily}
-              isDark={effectiveTheme === 'dark'}
-              readOnly={isRemarkableReadOnly || isPreviewTab}
-            />
-          </div>
-        </div>
+      ) : sourceMode && source ? (
+        <SourceEditor
+          key={activeTabId ?? 'source'}
+          state={source.state}
+          onState={setActiveSourceState}
+          scrollTop={source.scrollTop}
+          onScroll={setActiveSourceScroll}
+          fontSize={settings.editor.fontSize}
+          lineHeight={settings.editor.lineHeight}
+          fontFamily={settings.editor.fontFamily}
+          readOnly={isRemarkableReadOnly || isPreviewTab}
+        />
       ) : (
         <div
           className="flex-1 overflow-auto px-12 py-6"

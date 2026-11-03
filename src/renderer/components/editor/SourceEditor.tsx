@@ -1,276 +1,80 @@
-import { useEffect, useLayoutEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from 'react'
-import { EditorView, basicSetup } from 'codemirror'
-import { markdown } from '@codemirror/lang-markdown'
-import { languages } from '@codemirror/language-data'
-import { HighlightStyle, syntaxHighlighting, unfoldAll, foldEffect } from '@codemirror/language'
-import { tags } from '@lezer/highlight'
-import { EditorState } from '@codemirror/state'
-import { keymap, ViewPlugin, type ViewUpdate, Decoration, type DecorationSet } from '@codemirror/view'
-import { indentWithTab } from '@codemirror/commands'
+import { useEffect, useRef, useState } from 'react'
+import { EditorView } from '@codemirror/view'
+import { unfoldAll } from '@codemirror/language'
 import { useEditorStore } from '../../stores/editorStore'
-
-export interface SourceEditorHandle {
-  getContent: () => string
-}
+import {
+  appearanceCompartment,
+  appearanceExtensions,
+  foldAllHeadingsEffects,
+  readOnlyCompartment,
+  readOnlyExtension,
+  sourceFolds,
+  transactionTouchesFolds,
+  type SourceState
+} from '../../extensions/source/state'
 
 interface SourceEditorProps {
-  content: string
-  onChange: (content: string) => void
+  /** The tab's CodeMirror state (document/session.ts); read once, at mount. */
+  state: SourceState
+  /** Every transaction's resulting state, for the session to keep. */
+  onState: (state: SourceState) => void
+  /** The scroll offset to come back to, and where it goes while scrolling. */
+  scrollTop: number
+  onScroll: (scrollTop: number) => void
   fontSize: number
   lineHeight: number
   fontFamily: string
-  isDark: boolean
   readOnly: boolean
 }
 
 /**
- * Marks lines within YAML frontmatter (between opening and closing ---) with
- * a CSS class so they can be styled smaller than body content.
+ * The source surface (#1150): a CodeMirror view over the state its tab's
+ * session holds. The view is created once per mount with that state and
+ * hands every resulting state back through `onState`; the appearance and
+ * the read-only flag are compartments reconfigured in place when the
+ * settings change, so nothing rebuilds the state (caret, folds and history
+ * stay). The theme reads CSS variables, so a light/dark switch needs no
+ * reconfigure. The entry text is the state's initial document, not an undo
+ * step.
  */
-const frontmatterDeco = Decoration.line({ class: 'cm-frontmatter' })
-
-function buildFrontmatterDecorations(doc: { lines: number; line: (n: number) => { text: string; from: number } }): DecorationSet {
-  const widgets: ReturnType<typeof Decoration.line>[] = []
-  const ranges: { from: number }[] = []
-  if (doc.lines < 1) return Decoration.none
-  // Frontmatter must start on line 1 with ---
-  if (doc.line(1).text.trim() !== '---') return Decoration.none
-  ranges.push({ from: doc.line(1).from })
-  for (let i = 2; i <= doc.lines; i++) {
-    const line = doc.line(i)
-    ranges.push({ from: line.from })
-    if (line.text.trim() === '---') break
-  }
-  for (const r of ranges) {
-    widgets.push(frontmatterDeco.range(r.from))
-  }
-  return Decoration.set(widgets)
-}
-
-const frontmatterPlugin = ViewPlugin.fromClass(class {
-  decorations: DecorationSet
-  constructor(view: { state: { doc: { lines: number; line: (n: number) => { text: string; from: number } } } }) {
-    this.decorations = buildFrontmatterDecorations(view.state.doc)
-  }
-  update(update: ViewUpdate) {
-    if (update.docChanged) {
-      this.decorations = buildFrontmatterDecorations(update.state.doc)
-    }
-  }
-}, { decorations: (v) => v.decorations })
-
-/**
- * Custom CodeMirror theme that matches the app's native look.
- * Uses CSS variables so it works in both light and dark mode.
- */
-function createAppTheme(fontSize: number, lineHeight: number, fontFamily: string) {
-  return EditorView.theme({
-    '&': {
-      fontSize: `${fontSize}px`,
-      fontFamily,
-      backgroundColor: 'transparent',
-    },
-    '.cm-content': {
-      fontFamily,
-      lineHeight: String(lineHeight),
-      caretColor: 'hsl(var(--foreground))',
-    },
-    '.cm-cursor, .cm-dropCursor': {
-      borderLeftColor: 'hsl(var(--foreground))',
-    },
-    '.cm-gutters': {
-      fontFamily,
-      fontSize: `${fontSize}px`,
-      backgroundColor: 'transparent',
-      color: 'hsl(var(--muted-foreground) / 0.2)',
-      borderRight: 'none',
-      minWidth: '3em',
-    },
-    '.cm-activeLineGutter': {
-      backgroundColor: 'transparent',
-      color: 'hsl(var(--muted-foreground))',
-    },
-    '.cm-activeLine': {
-      backgroundColor: 'hsl(var(--muted) / 0.3)',
-    },
-    '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
-      backgroundColor: 'hsl(var(--selection))',
-    },
-    '.cm-scroller': {
-      overflow: 'auto',
-    },
-    '.cm-foldGutter': {
-      color: 'hsl(var(--muted-foreground) / 0.3)',
-    },
-    // Frontmatter lines: smaller, muted, mono — distinct from body content
-    '.cm-line.cm-frontmatter': {
-      fontSize: '0.75em',
-      color: 'hsl(var(--muted-foreground))',
-    },
-  })
-}
-
-/**
- * Syntax highlighting that uses muted tones for markdown punctuation
- * and foreground for content text, matching the WYSIWYG rendering.
- */
-const appHighlightStyle = HighlightStyle.define([
-  // Headings: bold, tighter line-height to match WYSIWYG
-  { tag: tags.heading1, fontWeight: '600', fontSize: '2em', lineHeight: '1.3' },
-  { tag: tags.heading2, fontWeight: '600', fontSize: '1.5em', lineHeight: '1.3' },
-  { tag: tags.heading3, fontWeight: '600', fontSize: '1.25em', lineHeight: '1.3' },
-  { tag: tags.heading4, fontWeight: '600', fontSize: '1.1em', lineHeight: '1.3' },
-  { tag: tags.heading5, fontWeight: '600', lineHeight: '1.3' },
-  { tag: tags.heading6, fontWeight: '600', lineHeight: '1.3' },
-  // Markdown meta/punctuation (#, **, >, -, etc.) — muted
-  { tag: tags.processingInstruction, color: 'hsl(var(--muted-foreground))' },
-  { tag: tags.contentSeparator, color: 'hsl(var(--muted-foreground))' },
-  // Emphasis and strong
-  { tag: tags.emphasis, fontStyle: 'italic' },
-  { tag: tags.strong, fontWeight: 'bold' },
-  // Links
-  { tag: tags.link, color: 'hsl(var(--primary))', textDecoration: 'underline' },
-  { tag: tags.url, color: 'hsl(var(--muted-foreground))' },
-  // Code
-  { tag: tags.monospace, color: 'hsl(var(--muted-foreground))' },
-  // Quotes
-  { tag: tags.quote, color: 'hsl(var(--muted-foreground))', fontStyle: 'italic' },
-  // Lists
-  { tag: tags.list, color: 'hsl(var(--muted-foreground))' },
-])
-
-export const SourceEditor = forwardRef<SourceEditorHandle, SourceEditorProps>(function SourceEditor({
-  content,
-  onChange,
+export function SourceEditor({
+  state,
+  onState,
+  scrollTop,
+  onScroll,
   fontSize,
   lineHeight,
   fontFamily,
-  isDark,
   readOnly
-}, ref) {
-  const containerRef = useRef<HTMLDivElement>(null)
+}: SourceEditorProps) {
+  const scrollerRef = useRef<HTMLDivElement>(null)
+  const hostRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const foldButtonRef = useRef<HTMLButtonElement | null>(null)
   const foldToggleRef = useRef<(() => void) | null>(null)
-  const [allFolded, setAllFolded] = useState(false)
+  const onStateRef = useRef(onState)
+  onStateRef.current = onState
+  const [allFolded, setAllFolded] = useState(() => sourceFolds(state).length > 0)
 
-  useImperativeHandle(ref, () => ({
-    getContent: () => viewRef.current?.state.doc.toString() ?? content,
-  }))
-  const onChangeRef = useRef(onChange)
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Track whether we're programmatically updating the doc (to skip onChange)
-  const isExternalUpdate = useRef(false)
-
-  // Keep onChange ref current
-  onChangeRef.current = onChange
-
-  const debouncedOnChange = useCallback((value: string) => {
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current)
-    }
-    debounceRef.current = setTimeout(() => {
-      onChangeRef.current(value)
-    }, 500)
-  }, [])
-
-  // Deliver a pending change on unmount instead of dropping it (#1102). A
-  // layout cleanup runs before the parent's layout effects — where the
-  // source-exit writeback reads the text — and while the view is still alive.
-  useLayoutEffect(() => () => {
-    if (!debounceRef.current) return
-    clearTimeout(debounceRef.current)
-    debounceRef.current = null
-    const view = viewRef.current
-    if (view) onChangeRef.current(view.state.doc.toString())
-  }, [])
-
-  // Create CodeMirror instance on mount
+  // Create the view once, over the session's state.
   useEffect(() => {
-    if (!containerRef.current) return
-
-    const appTheme = createAppTheme(fontSize, lineHeight, fontFamily)
-
-    // Block folding on line 1 when it's an H1 — folding the title hides the entire doc.
-    // foldService can't veto other services, so we intercept the transaction instead.
-    const blockLine1H1Fold = EditorState.transactionFilter.of((tr) => {
-      if (!tr.effects.length) return tr
-      const doc = tr.startState.doc
-      if (doc.lines < 1 || !/^#\s/.test(doc.line(1).text)) return tr
-      const line1End = doc.line(1).to
-      const hasLine1Fold = tr.effects.some(
-        (e) => e.is(foldEffect) && e.value.from === line1End
-      )
-      if (!hasLine1Fold) return tr
-      // Strip fold effects targeting line 1's H1, keep everything else
-      const kept = tr.effects.filter(
-        (e) => !(e.is(foldEffect) && e.value.from === line1End)
-      )
-      // Return a replacement spec — NOT [tr, spec] which would apply both
-      return { effects: kept }
-    })
-
-    // Hide the fold gutter chevron on line 1 when it's an H1.
-    // Both gutters render elements in the same order, so we match by index.
-    const hideLine1FoldMarker = ViewPlugin.fromClass(class {
-      update(update: ViewUpdate) {
-        const doc = update.state.doc
-        if (doc.lines < 1 || !/^#\s/.test(doc.line(1).text)) return
-        const lineNumGutter = update.view.dom.querySelector('.cm-gutter.cm-lineNumbers')
-        const foldGutter = update.view.dom.querySelector('.cm-gutter.cm-foldGutter')
-        if (!lineNumGutter || !foldGutter) return
-        const lineNumEls = lineNumGutter.querySelectorAll('.cm-gutterElement')
-        const foldEls = foldGutter.querySelectorAll('.cm-gutterElement')
-        // Find which index corresponds to line number "1"
-        for (let i = 0; i < lineNumEls.length; i++) {
-          if (lineNumEls[i].textContent?.trim() === '1') {
-            if (i < foldEls.length) {
-              (foldEls[i] as HTMLElement).style.visibility = 'hidden'
-            }
-            break
-          }
-        }
-      }
-    })
-
-    const extensions = [
-      basicSetup,
-      markdown({ codeLanguages: languages }),
-      blockLine1H1Fold,
-      hideLine1FoldMarker,
-      frontmatterPlugin,
-      keymap.of([indentWithTab]),
-      appTheme,
-      syntaxHighlighting(appHighlightStyle),
-      EditorView.lineWrapping,
-      EditorView.updateListener.of((update) => {
-        // Report cursor position
-        if (update.selectionSet || update.docChanged) {
-          const pos = update.state.selection.main.head
-          const line = update.state.doc.lineAt(pos)
-          useEditorStore.getState().setCursorPosition(line.number, pos - line.from + 1)
-        }
-        // Fire onChange on document changes (skip external updates)
-        if (update.docChanged && !isExternalUpdate.current) {
-          debouncedOnChange(update.state.doc.toString())
-        }
-      }),
-    ]
-
-    if (readOnly) {
-      extensions.push(EditorState.readOnly.of(true))
-    }
-
-    const state = EditorState.create({
-      doc: content,
-      extensions,
-    })
-
+    const host = hostRef.current
+    if (!host) return
     const view = new EditorView({
       state,
-      parent: containerRef.current,
+      parent: host,
+      dispatchTransactions: (trs, v) => {
+        v.update(trs)
+        const next = v.state
+        if (trs.some((tr) => tr.selection !== undefined || tr.docChanged)) {
+          const pos = next.selection.main.head
+          const line = next.doc.lineAt(pos)
+          useEditorStore.getState().setCursorPosition(line.number, pos - line.from + 1)
+        }
+        onStateRef.current(next)
+        if (trs.some((tr) => tr.docChanged || transactionTouchesFolds(tr))) setAllFolded(sourceFolds(next).length > 0)
+      }
     })
-
     viewRef.current = view
 
     // Insert fold-all button into .cm-editor before .cm-scroller
@@ -287,103 +91,49 @@ export const SourceEditor = forwardRef<SourceEditorHandle, SourceEditorProps>(fu
     if (scroller) view.dom.insertBefore(foldBtn, scroller)
     foldButtonRef.current = foldBtn
 
+    // After the first paint: the scroller has its full height only once
+    // CodeMirror has laid its lines out, so a synchronous set would no-op.
+    const restore = requestAnimationFrame(() => {
+      if (scrollerRef.current) scrollerRef.current.scrollTop = scrollTop
+    })
+
     return () => {
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current)
-      }
+      cancelAnimationFrame(restore)
+      onStateRef.current(view.state)
       view.destroy()
       viewRef.current = null
     }
-    // Only recreate on theme/font/readOnly changes — content sync handled separately
+    // The state and the scroll offset are read at mount only; the settings
+    // reach the live view through the compartments below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDark, fontSize, lineHeight, fontFamily, readOnly])
+  }, [])
 
-  // Sync content when it changes externally (e.g., tab switch)
   useEffect(() => {
-    const view = viewRef.current
-    if (!view) return
+    viewRef.current?.dispatch({
+      effects: appearanceCompartment.reconfigure(appearanceExtensions({ fontSize, lineHeight, fontFamily }))
+    })
+  }, [fontSize, lineHeight, fontFamily])
 
-    const currentContent = view.state.doc.toString()
-    if (content !== currentContent) {
-      // Replace only the span that differs. CodeMirror maps the selection,
-      // scroll anchor and folds through a change, so a minimal one leaves the
-      // caret where it was; replacing the whole doc collapsed it (#1102).
-      const max = Math.min(content.length, currentContent.length)
-      let start = 0
-      while (start < max && content[start] === currentContent[start]) start++
-      let end = 0
-      while (
-        end < max - start &&
-        content[content.length - 1 - end] === currentContent[currentContent.length - 1 - end]
-      ) end++
-      isExternalUpdate.current = true
-      view.dispatch({
-        changes: {
-          from: start,
-          to: currentContent.length - end,
-          insert: content.slice(start, content.length - end),
-        },
-      })
-      isExternalUpdate.current = false
-    }
-  }, [content])
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: readOnlyCompartment.reconfigure(readOnlyExtension(readOnly)) })
+  }, [readOnly])
 
   /**
    * Outline fold: collapse body content under each heading so only
    * heading lines remain visible, like a document outline.
-   * Skips line 1 if it's an H1 — folding that would hide the whole doc.
    */
-  const handleToggleFoldAll = useCallback(() => {
+  foldToggleRef.current = () => {
     const view = viewRef.current
     if (!view) return
-
-    if (allFolded) {
+    if (sourceFolds(view.state).length > 0) {
       unfoldAll(view)
-      setAllFolded(false)
       return
     }
+    const effects = foldAllHeadingsEffects(view.state)
+    if (effects.length > 0) view.dispatch({ effects })
+  }
 
-    const doc = view.state.doc
-    const headingPattern = /^#{1,6}\s/
-    const headingLines: number[] = []
-
-    for (let i = 1; i <= doc.lines; i++) {
-      if (headingPattern.test(doc.line(i).text)) {
-        headingLines.push(i)
-      }
-    }
-
-    if (headingLines.length === 0) return
-
-    const effects: ReturnType<typeof foldEffect.of>[] = []
-
-    // Skip line-1 H1: folding it collapses the entire document
-    const line1IsH1 = headingLines[0] === 1 && /^#\s/.test(doc.line(1).text)
-
-    for (let i = 0; i < headingLines.length; i++) {
-      if (i === 0 && line1IsH1) continue // skip the title heading
-
-      const headingLine = doc.line(headingLines[i])
-      const nextHeadingLineNum = headingLines[i + 1]
-      const foldEnd = nextHeadingLineNum
-        ? doc.line(nextHeadingLineNum - 1).to
-        : doc.line(doc.lines).to
-
-      if (headingLine.to < foldEnd) {
-        effects.push(foldEffect.of({ from: headingLine.to, to: foldEnd }))
-      }
-    }
-
-    if (effects.length > 0) {
-      view.dispatch({ effects })
-      setAllFolded(true)
-    }
-  }, [allFolded])
-
-  // Keep fold toggle ref current for the imperative button's click handler
-  foldToggleRef.current = handleToggleFoldAll
-
-  // Sync button text/title with allFolded state
+  // Sync button text/title with the fold state
   useEffect(() => {
     if (foldButtonRef.current) {
       foldButtonRef.current.textContent = allFolded ? '▸' : '▾'
@@ -393,6 +143,15 @@ export const SourceEditor = forwardRef<SourceEditorHandle, SourceEditorProps>(fu
   }, [allFolded])
 
   return (
-    <div ref={containerRef} className="source-editor h-full [&_.cm-editor]:h-full [&_.cm-editor]:outline-hidden" />
+    <div
+      ref={scrollerRef}
+      className="flex-1 overflow-auto px-12 py-6"
+      style={{ fontSize: `${fontSize}px`, lineHeight, fontFamily }}
+      onScroll={(e) => onScroll((e.currentTarget as HTMLDivElement).scrollTop)}
+    >
+      <div className="max-w-3xl mx-auto">
+        <div ref={hostRef} className="source-editor h-full [&_.cm-editor]:h-full [&_.cm-editor]:outline-hidden" />
+      </div>
+    </div>
   )
-})
+}

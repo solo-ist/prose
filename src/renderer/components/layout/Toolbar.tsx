@@ -4,6 +4,7 @@ import { requestBugReport } from '../EnableLoggingDialog'
 import { useEditor } from '../../hooks/useEditor'
 import { useTabs } from '../../hooks/useTabs'
 import { useEditorStore } from '../../stores/editorStore'
+import { toggleSourceMode } from '../../tabs/actions'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useTabStore } from '../../stores/tabStore'
 import { useFileListStore } from '../../stores/fileListStore'
@@ -97,7 +98,6 @@ export function Toolbar() {
   const annotationsVisible = useEditorStore((state) => state.annotationsVisible)
   const toggleAnnotationsVisible = useEditorStore((state) => state.toggleAnnotationsVisible)
   const sourceMode = useEditorStore((state) => state.sourceMode)
-  const toggleSourceMode = useEditorStore((state) => state.toggleSourceMode)
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
   const isPreviewTab = useEditorStore((state) => state.isPreviewTab)
   const webPlatformEnabled = useWebPlatformEnabled()

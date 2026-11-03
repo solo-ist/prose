@@ -10,6 +10,7 @@ import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { selectOpenThreadCount } from '../../extensions/comments'
 import { useActiveSession } from '../../document/useActiveSession'
 import { requestCommentReview } from '../editor/AIEditsHistoryPanel'
+import { toggleSourceMode } from '../../tabs/actions'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import {
   DropdownMenu,
@@ -76,7 +77,6 @@ export function StatusBar() {
   }, [toolMode])
   const isAutosaving = useEditorStore((state) => state.isAutosaving)
   const sourceMode = useEditorStore((state) => state.sourceMode)
-  const toggleSourceMode = useEditorStore((state) => state.toggleSourceMode)
   const hoveredUrl = useLinkHoverStore((state) => state.hoveredUrl)
   const editor = useEditorInstanceStore((state) => state.editor)
 

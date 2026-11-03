@@ -217,15 +217,7 @@ export function attachEditor(next: Editor | null): void {
     if (!transaction.docChanged) return
     if (useEditorStore.getState().sourceMode) return
     scheduleMarkdownProjection(session, transaction.getMeta(RELOAD_META) === true ? 0 : PROJECTION_DELAY_MS)
-    if (transaction.getMeta(AI_SUGGESTION_RESOLVED_META) === true) {
-      session.suggestionResolved = true
-      if (session.suggestionTimer) clearTimeout(session.suggestionTimer)
-      session.suggestionTimer = null
-      projectSuggestions(session)
-    } else {
-      if (session.suggestionTimer) clearTimeout(session.suggestionTimer)
-      session.suggestionTimer = setTimeout(() => projectSuggestions(session), PROJECTION_DELAY_MS)
-    }
+    scheduleSuggestionProjection(session, transaction)
   }
   next.on('transaction', onTransaction)
 
@@ -309,6 +301,32 @@ function sessionForDocument(documentId: string): Session | null {
     if (getIdentity(session.state).documentId === documentId) return session
   }
   return null
+}
+
+/** The tab holding `documentId`: its session first, else the tab record (a lazy tab). */
+export function tabIdForDocument(documentId: string): string | null {
+  const session = sessionForDocument(documentId)
+  if (session) return session.tabId
+  return useTabStore.getState().tabs.find((t) => t.documentId === documentId)?.id ?? null
+}
+
+/** Tabs between the start of their close and their removal from the tab store (#1148). */
+const closingTabs = new Set<string>()
+
+export function markTabClosing(tabId: string, closing: boolean): void {
+  if (closing) closingTabs.add(tabId)
+  else closingTabs.delete(tabId)
+}
+
+export function isTabClosing(tabId: string): boolean {
+  return closingTabs.has(tabId)
+}
+
+/** Open a lazy tab's session from its record (a background write to a tab never shown since launch). */
+export function openSessionForTab(tabId: string): Promise<Session> {
+  const tab = useTabStore.getState().getTabById(tabId)
+  if (!tab) throw new Error(`[session] no tab ${tabId}`)
+  return openSession(tab, tab.content ?? '', { viewState: tab.viewState })
 }
 
 /** Test seam: the tabs that hold a session, in insertion order. */
@@ -418,6 +436,18 @@ function projectMarkdown(session: Session): void {
     if (tab && tab.content !== content) {
       useTabStore.getState().updateTab(session.tabId, { content, isDirty: true })
     }
+  }
+}
+
+/** A resolve (accept, reject) persists at once; any other document change after the projection delay. */
+function scheduleSuggestionProjection(session: Session, tr: Transaction): void {
+  if (session.suggestionTimer) clearTimeout(session.suggestionTimer)
+  session.suggestionTimer = null
+  if (tr.getMeta(AI_SUGGESTION_RESOLVED_META) === true) {
+    session.suggestionResolved = true
+    projectSuggestions(session)
+  } else {
+    session.suggestionTimer = setTimeout(() => projectSuggestions(session), PROJECTION_DELAY_MS)
   }
 }
 
@@ -909,7 +939,13 @@ export async function closeSession(tabId: string, opts: { discard?: boolean } = 
 // Transactions on a session
 // ---------------------------------------------------------------------------
 
-/** Dispatch through the view for the active session, apply to the state otherwise. */
+/**
+ * Dispatch through the view for the active session, apply to the state
+ * otherwise. A background document change schedules the same projections
+ * the view's transaction handler does (the markdown into the tab record, the
+ * suggestion set into IndexedDB), flushed by the leaving step, a close or a
+ * serialisation (#1148).
+ */
 export function applyToSession(tabId: string, build: (state: EditorState) => Transaction): void {
   const session = requireSession(tabId)
   if (tabId === registry.activeTabId) {
@@ -922,7 +958,10 @@ export function applyToSession(tabId: string, build: (state: EditorState) => Tra
   const tr = build(prev)
   session.state = prev.applyTransaction(tr).state
   afterTransaction(session, prev)
-  if (tr.docChanged) projectMarkdown(session)
+  if (tr.docChanged) {
+    scheduleMarkdownProjection(session, PROJECTION_DELAY_MS)
+    scheduleSuggestionProjection(session, tr)
+  }
 }
 
 /**

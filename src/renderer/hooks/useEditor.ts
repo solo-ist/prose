@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from 'react'
 import { useEditorStore } from '../stores/editorStore'
-import { useChatStore, setCurrentDocumentId } from '../stores/chatStore'
+import { useChatStore } from '../stores/chatStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useNotificationStore } from '../stores/notificationStore'
 import { serializeMarkdown, extractFirstH1 } from '../lib/markdown'
@@ -48,11 +48,6 @@ export function useEditor() {
   } = useEditorStore()
 
   const { activeConversationId } = useChatStore()
-
-  // Keep the current document ID in sync for auto-saving
-  useEffect(() => {
-    setCurrentDocumentId(document.documentId)
-  }, [document.documentId])
 
   // Sync active chat ID to editor store for draft persistence
   useEffect(() => {

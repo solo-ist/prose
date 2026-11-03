@@ -28,10 +28,12 @@ import {
   getAnnotations,
   getAnnotationDocId,
   selectors,
+  openChat,
 } from './helpers'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
+const APP_VERSION: string = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version
 
 let app: ElectronApplication
 let page: Page
@@ -47,9 +49,28 @@ test.beforeEach(async () => {
   test.setTimeout(120_000)
   userDataDir = mkdtempSync(join(tmpdir(), 'prose-1145-'))
   docsDir = mkdtempSync(join(tmpdir(), 'prose-1145-docs-'))
+  // The chat cases (11, 12) need a configured, consented chat: a fake key
+  // (never sent, the stream is stubbed in main), create mode, and the
+  // release notes already seen so no modal covers the panel (#1113).
+  const chat = /^case 1[12]/.test(test.info().title)
   writeFileSync(
     join(userDataDir, 'settings.json'),
-    JSON.stringify({ defaultSaveDirectory: docsDir, featureFlags: { aiPipelineDebug: true } }, null, 2),
+    JSON.stringify(
+      {
+        defaultSaveDirectory: docsDir,
+        featureFlags: { aiPipelineDebug: true },
+        ...(chat
+          ? {
+              aiConsent: { consented: true, consentedAt: '2025-01-01T00:00:00.000Z' },
+              llm: { provider: 'anthropic', apiKey: 'sk-ant-test-1148', model: 'claude-sonnet-5-5' },
+              toolMode: 'create',
+              lastSeenVersion: APP_VERSION,
+            }
+          : {}),
+      },
+      null,
+      2,
+    ),
   )
   await launch()
 })
@@ -684,6 +705,249 @@ test('case 6: a share pull merges into a background tab and shows on activation 
   await expect.poll(() => page.locator('.comment-mark').first().textContent()).toBe('India paragraph two')
   expect((await projectionStats()).opens).toBe(opensBefore)
   expect(await sessionTabIds()).toEqual(expect.arrayContaining([a.tabId, b.tabId]))
+})
+
+// ---------------------------------------------------------------------------
+// A chat turn in flight (#1148): the LLM is a scripted stub installed on the
+// main process's `llm:stream` handler, one step per roundtrip; a step can
+// hold until the spec releases it, which is when the spec switches or closes
+// tabs. The real renderer path runs: useChat, the chat store, the tool loop,
+// executeTool with the turn's binding.
+// ---------------------------------------------------------------------------
+
+interface TurnStep {
+  text: string
+  toolCalls: Array<{ id: string; name: string; args: Record<string, unknown> }>
+  hold?: boolean
+}
+
+async function installFakeLLM(script: TurnStep[]): Promise<void> {
+  await app.evaluate(({ ipcMain }, script) => {
+    const g = globalThis as any
+    g.__turn = { script, requests: [] as unknown[], gates: {} as Record<number, () => void> }
+    ipcMain.removeHandler('llm:stream')
+    ipcMain.handle('llm:stream', async (event, req: { streamId: string; messages: unknown[] }) => {
+      const n = g.__turn.requests.push(req.messages) - 1
+      const step = g.__turn.script[n] ?? { text: 'Done.', toolCalls: [] }
+      if (step.text) event.sender.send('llm:stream:chunk', { streamId: req.streamId, delta: step.text })
+      if (step.hold) await new Promise<void>((resolve) => { g.__turn.gates[n] = resolve })
+      event.sender.send('llm:stream:complete', {
+        streamId: req.streamId,
+        content: step.text,
+        toolCalls: step.toolCalls.length > 0 ? step.toolCalls : undefined,
+      })
+      return { success: true }
+    })
+  }, script)
+}
+
+const turnRequests = () => app.evaluate(() => (globalThis as any).__turn.requests.length as number)
+const turnRequest = (n: number) => app.evaluate((_, n) => (globalThis as any).__turn.requests[n] as Array<{ role: string; content: unknown }>, n)
+const releaseGate = (n: number) => app.evaluate((_, n) => { (globalThis as any).__turn.gates[n]?.() }, n)
+const chatState = () => page.evaluate(() => (window as any).__prose_chat.getState() as {
+  activeConversationId: string | null
+  conversationsDocumentId: string | null
+  isStreaming: boolean
+  turns: Record<string, { streamId: string; messageId: string; binding: { documentId: string; tabId: string | null; path: string | null } }>
+  conversations: Array<{ id: string; documentId: string; messages: Array<{ id: string; role: string; content: string }> }>
+  parked: Record<string, Array<{ id: string; documentId: string; messages: Array<{ id: string; role: string; content: string }> }>>
+})
+const sessionState = (tabId: string) =>
+  page.evaluate(
+    (tabId) => (window as any).__prose_tools.getSessionState(tabId) as { documentId: string; text: string; annotations: Array<Record<string, unknown>>; suggestionIds: string[] } | null,
+    tabId,
+  )
+/** The pipeline log, each entry flattened to `{ event, ...data }`. */
+const toolCallLog = () =>
+  page.evaluate(() => {
+    const raw = (window as any).__prose_debug.exportLog() as string
+    const entries = JSON.parse(raw) as Array<{ event: string; data: Record<string, unknown> }>
+    return entries.map((e) => ({ event: e.event, ...e.data })) as Array<{ event: string; [k: string]: unknown }>
+  })
+
+/** Close a tab from the tab bar; a dirty tab's "Save changes?" prompt is answered with Discard. */
+async function closeTabFromBar(tab: TabInfo): Promise<void> {
+  await page.locator('li', { hasText: tab.title }).first().locator('[aria-label="Close tab"]').click()
+  const discard = page.getByRole('button', { name: 'Discard' })
+  if (await discard.isVisible({ timeout: 2_000 }).catch(() => false)) await discard.click()
+  await expect.poll(async () => (await tabs()).some((t) => t.tabId === tab.tabId)).toBe(false)
+}
+
+/** Start a turn in the chat panel: the prompt goes through sendMessage, bound to the active document. */
+async function startTurn(prompt: string): Promise<void> {
+  await openChat(page)
+  await page.evaluate((prompt) => {
+    window.dispatchEvent(new CustomEvent('prose:mode-switch-and-run', { detail: { prompt } }))
+  }, prompt)
+  await expect.poll(turnRequests, { timeout: 10_000 }).toBeGreaterThanOrEqual(1)
+}
+
+/** The turn's last roundtrip has no tool calls, so the loop ends as soon as its completion lands. */
+async function turnEnded(): Promise<void> {
+  await expect.poll(turnRequests, { timeout: 15_000 }).toBe(3)
+  await settle()
+}
+
+const EDIT_A_ONE = { id: 't1', name: 'edit', args: { nodeId: 'stale', search: 'India paragraph one.', content: 'India paragraph one, edited first.' } }
+const EDIT_A_THREE = { id: 't2', name: 'edit', args: { nodeId: 'stale', search: 'India paragraph three.', content: 'India paragraph three, edited later.' } }
+const SUGGEST_A_TWO = { id: 't3', name: 'suggest_edit', args: { nodeId: 'stale', search: 'India paragraph two.', content: 'India paragraph two, suggested later.' } }
+
+/**
+ * Case 11 — start a turn that edits A, switch to B before it finishes. The
+ * rest of the turn (an edit and a suggestion) lands in A's state and
+ * IndexedDB, B is untouched, every call resolved to A's document id, and
+ * the stream shows under A's conversation when A is active again. Fails on
+ * the release head: the later calls act on B (NODE_NOT_FOUND) and the
+ * stream text is dropped on the switch.
+ */
+test('case 11: a turn in flight keeps acting on its own document after a tab switch', async () => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  const b = await openDoc('sessions-eleven-b.md', body('Juliet'), 'Juliet paragraph one')
+  const a = await openDoc('sessions-eleven-a.md', body('India'), 'India paragraph one')
+  await installFakeLLM([
+    { text: 'Editing the first paragraph.', toolCalls: [EDIT_A_ONE] },
+    { text: 'Now the rest.', toolCalls: [EDIT_A_THREE, SUGGEST_A_TWO], hold: true },
+    { text: 'All done.', toolCalls: [] },
+  ])
+
+  await startTurn('Edit this document.')
+  // Roundtrip 1 landed on A and roundtrip 2 is held open.
+  await expect.poll(turnRequests, { timeout: 15_000 }).toBe(2)
+  await expect.poll(docText).toContain('edited first.')
+
+  // Switch to B while the turn is held, then let it finish.
+  await clickTab(b, 'Juliet paragraph one')
+  await releaseGate(1)
+  await turnEnded()
+
+  // Behaviour first (these fail on the release head: the later calls act
+  // on B and find nothing): A's rows are stored, B is untouched, the
+  // model got two successes, and A shows both edits on return.
+  await expect.poll(async () => (await readDB('annotations', a.documentId)).length, { timeout: 5_000 }).toBeGreaterThanOrEqual(2)
+  await expect.poll(async () => (await readDB('suggestions', a.documentId)).length, { timeout: 5_000 }).toBe(1)
+  expect(await docText()).toContain('Juliet paragraph three.')
+  expect(await docText()).not.toContain('edited')
+  expect(await getAnnotations(page)).toEqual([])
+  expect(await readDB('annotations', b.documentId)).toEqual([])
+  expect(await readDB('suggestions', b.documentId)).toEqual([])
+  // The request carries the whole history: the last two are roundtrip 2's.
+  const results = (await turnRequest(2)).filter((m) => m.role === 'tool').slice(-2)
+  expect(results.length).toBe(2)
+  for (const r of results) expect(String(r.content)).toContain('"success":true')
+
+  // Then the contracts: A's state, every call resolved to A, the turn's
+  // binding and the parked conversation.
+  const stateA = await sessionState(a.tabId)
+  expect(stateA?.text).toContain('edited later.')
+  expect(stateA?.text).toContain('edited first.')
+  expect(stateA?.suggestionIds.length).toBe(1)
+  expect(stateA?.annotations.length).toBeGreaterThanOrEqual(2)
+  const calls = (await toolCallLog()).filter((e) => e.event === 'tool:call')
+  expect(calls.length).toBeGreaterThanOrEqual(3)
+  for (const call of calls) expect(call.documentId).toBe(a.documentId)
+  const parkedState = await chatState()
+  expect(parkedState.isStreaming).toBe(false)
+  expect(Object.keys(parkedState.turns)).toEqual([])
+  const conversationId = parkedState.parked[a.documentId]?.[0]?.id
+  expect(conversationId, 'A conversation parked').toBeTruthy()
+
+  // Back on A: the finished stream is in A's conversation, shown.
+  await clickTab(a, 'India paragraph one, edited first.')
+  await expect.poll(docText).toContain('edited later.')
+  await expect.poll(async () => (await chatState()).conversationsDocumentId).toBe(a.documentId)
+  const shown = await chatState()
+  expect(shown.conversations[0]?.id).toBe(conversationId)
+  const assistant = shown.conversations[0].messages.filter((m) => m.role === 'assistant').pop()
+  expect(assistant?.content).toContain('All done.')
+  expect(assistant?.content).toContain('<tool-result name="edit" success="true">')
+  expect(assistant?.content).toContain('<tool-result name="suggest_edit" success="true">')
+  await expect.poll(() => page.locator('.ai-annotation').count()).toBeGreaterThanOrEqual(2)
+})
+
+/**
+ * Case 12 — close A's tab mid-turn. A saved A reopens in the background
+ * from disk and receives the rest of the turn; an untitled A fails the
+ * remaining calls with an error naming it; nothing lands in B either way.
+ */
+test('case 12: a saved document closed mid-turn reopens in the background and takes the rest of the turn', async () => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  const b = await openDoc('sessions-twelve-b.md', body('Juliet'), 'Juliet paragraph one')
+  const a = await openDoc('sessions-twelve-a.md', body('India'), 'India paragraph one')
+  await installFakeLLM([
+    { text: 'Editing the first paragraph.', toolCalls: [EDIT_A_ONE] },
+    { text: 'Now the rest.', toolCalls: [EDIT_A_THREE], hold: true },
+    { text: 'All done.', toolCalls: [] },
+  ])
+  await startTurn('Edit this document.')
+  await expect.poll(turnRequests, { timeout: 15_000 }).toBe(2)
+  await expect.poll(docText).toContain('edited first.')
+
+  // Close A from the tab bar (dirty from the first edit: Discard).
+  await closeTabFromBar(a)
+  await expect.poll(activeTabId).toBe(b.tabId)
+  expect((await tabs()).some((t) => t.path === a.path)).toBe(false)
+
+  await releaseGate(1)
+  await turnEnded()
+
+  // Behaviour first (fails on the release head: no reopen, the edit aims
+  // at B and finds nothing): A is back as a background tab, from disk, with
+  // the later edit applied and stored; B untouched.
+  const reopened = (await tabs()).find((t) => t.path === a.path)
+  expect(reopened, 'A reopened').toBeTruthy()
+  expect(reopened!.documentId).toBe(a.documentId)
+  expect(await activeTabId()).toBe(b.tabId)
+  await expect.poll(async () => (await readDB('annotations', a.documentId)).some((r) => String(r.content).includes('edited later')), { timeout: 5_000 }).toBe(true)
+  expect(await docText()).toContain('Juliet paragraph three.')
+  expect(await docText()).not.toContain('edited')
+  expect(await readDB('annotations', b.documentId)).toEqual([])
+  const results = (await turnRequest(2)).filter((m) => m.role === 'tool').slice(-1)
+  expect(results.length).toBe(1)
+  expect(String(results[0].content)).toContain('"success":true')
+
+  // Then the contracts.
+  const stateA = await sessionState(reopened!.tabId)
+  expect(stateA?.text).toContain('edited later.')
+  expect(stateA?.text).not.toContain('edited first.')
+  expect(stateA?.annotations.length).toBeGreaterThanOrEqual(1)
+  expect((await toolCallLog()).some((e) => e.event === 'tab:background-open' && e.path === a.path)).toBe(true)
+  expect(Object.keys((await chatState()).turns)).toEqual([])
+})
+
+test('case 12: an untitled document closed mid-turn fails the rest of the turn by name and touches nothing else', async () => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  const b = await openDoc('sessions-twelve-u-b.md', body('Juliet'), 'Juliet paragraph one')
+  const created = await executeProseTool(page, 'new_file', { content: body('India') })
+  expect(created.success, JSON.stringify(created)).toBe(true)
+  await expect.poll(docText).toContain('India paragraph one')
+  const untitledId = await activeTabId()
+  const a = (await tabs()).find((t) => t.tabId === untitledId && t.path === null)
+  expect(a, 'untitled A').toBeTruthy()
+  await installFakeLLM([
+    { text: 'Editing the first paragraph.', toolCalls: [EDIT_A_ONE] },
+    { text: 'Now the rest.', toolCalls: [EDIT_A_THREE], hold: true },
+    { text: 'All done.', toolCalls: [] },
+  ])
+  await startTurn('Edit this document.')
+  await expect.poll(turnRequests, { timeout: 15_000 }).toBe(2)
+  await expect.poll(docText).toContain('edited first.')
+
+  await closeTabFromBar(a!)
+  await expect.poll(activeTabId).toBe(b.tabId)
+
+  await releaseGate(1)
+  await turnEnded()
+
+  // Fails on the release head: the call aims at B and reports NODE_NOT_FOUND.
+  const results = (await turnRequest(2)).filter((m) => m.role === 'tool').slice(-1)
+  expect(results.length).toBe(1)
+  expect(String(results[0].content)).toContain('DOCUMENT_CLOSED')
+  expect(String(results[0].content)).toContain('Untitled')
+  expect((await tabs()).some((t) => t.path === null)).toBe(false)
+  expect(await docText()).toContain('Juliet paragraph three.')
+  expect(await docText()).not.toContain('edited')
+  expect(await readDB('annotations', b.documentId)).toEqual([])
+  expect(Object.keys((await chatState()).turns)).toEqual([])
 })
 })
 

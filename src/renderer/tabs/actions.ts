@@ -126,7 +126,8 @@ function snapshotOf(tab: Tab): ClosedTabSnapshot {
     content: tab.content,
     frontmatter: tab.frontmatter,
     cursorPosition: tab.cursorPosition,
-    viewState: tab.viewState
+    viewState: tab.viewState,
+    mode: tab.mode
   }
 }
 
@@ -919,7 +920,8 @@ export async function restoreTabs(restored: RestoredTab[], activeTabId: string |
       content: entry.content,
       frontmatter: entry.frontmatter,
       cursorPosition: entry.draft.cursorPosition,
-      viewState: entry.draft.viewState
+      viewState: entry.draft.viewState,
+      mode: entry.draft.mode
     })
   }
   const active =

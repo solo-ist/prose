@@ -45,6 +45,8 @@ export interface TabDraft {
   cursorPosition?: { line: number; column: number }
   /** Selection and scroll offset the tab comes back to (#1103). Additive; no DB_VERSION bump. */
   viewState?: { selection: { from: number; to: number }; scrollTop: number }
+  /** The tab was in source mode (#1150). Additive; no DB_VERSION bump. */
+  mode?: 'rich' | 'source'
   activeChatId: string | null
 }
 

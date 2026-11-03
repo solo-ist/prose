@@ -20,7 +20,11 @@ export interface Tab {
   cursorPosition?: { line: number; column: number }
   /** Selection and scroll offset to come back to (#1103) */
   viewState?: EditorViewState
+  /** Source mode is per tab (#1150); absent means rich. */
+  mode?: TabMode
 }
+
+export type TabMode = 'rich' | 'source'
 
 /** Snapshot of a closed tab for session-only reopen history (max 10) */
 export interface ClosedTabSnapshot {
@@ -32,6 +36,7 @@ export interface ClosedTabSnapshot {
   frontmatter?: Record<string, unknown>
   cursorPosition?: { line: number; column: number }
   viewState?: EditorViewState
+  mode?: TabMode
 }
 
 const CLOSED_TABS_MAX = 10
@@ -101,7 +106,8 @@ export const useTabStore = create<TabState>()(
         content: snapshot.content,
         frontmatter: snapshot.frontmatter,
         cursorPosition: snapshot.cursorPosition,
-        viewState: snapshot.viewState
+        viewState: snapshot.viewState,
+        mode: snapshot.mode
       }
 
       set((state) => ({
@@ -281,7 +287,8 @@ export function createTab(overrides: Partial<Tab> = {}): Omit<Tab, 'id'> {
     content: overrides.content,
     frontmatter: overrides.frontmatter,
     cursorPosition: overrides.cursorPosition,
-    viewState: overrides.viewState
+    viewState: overrides.viewState,
+    mode: overrides.mode
   }
 }
 
@@ -308,6 +315,7 @@ export async function persistSession(): Promise<void> {
     frontmatter: tab.frontmatter,
     cursorPosition: tab.cursorPosition,
     viewState: tab.id === state.activeTabId ? liveView ?? tab.viewState : tab.viewState,
+    mode: tab.mode,
     activeChatId: tab.documentId === chatState.currentDocumentId
       ? chatState.activeConversationId
       : null

@@ -5,7 +5,8 @@
  * (Quick Review / Side-by-side), and the editor tool executors.
  */
 
-import type { Editor } from '@tiptap/core'
+import type { EditorState } from '@tiptap/pm/state'
+import type { EditorView } from '@tiptap/pm/view'
 import { useAnnotationStore } from '../extensions/ai-annotations/store'
 import type { AnnotationType } from '../types/annotations'
 
@@ -13,7 +14,7 @@ import type { AnnotationType } from '../types/annotations'
  * Scroll the editor so the current selection is centered in the viewport.
  * Matches the behavior of FindBar's search result scrolling.
  */
-export function scrollSelectionIntoCenter(editor: Editor): void {
+export function scrollSelectionIntoCenter(editor: { state: EditorState; view: EditorView }): void {
   const { from } = editor.state.selection
   const coords = editor.view.coordsAtPos(from)
   const editorElement = editor.view.dom.closest('.overflow-auto')

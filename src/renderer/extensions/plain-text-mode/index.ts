@@ -10,6 +10,7 @@
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Fragment } from '@tiptap/pm/model'
+import { getIdentity } from '../../document/identity'
 
 const plainTextKey = new PluginKey('plainTextMode')
 
@@ -28,21 +29,15 @@ const STRUCTURED_BLOCKS = new Set([
 export const PlainTextMode = Extension.create({
   name: 'plainTextMode',
 
-  addStorage() {
-    return {
-      enabled: false,
-    }
-  },
-
   addProseMirrorPlugins() {
-    const extension = this
-
     return [
       new Plugin({
         key: plainTextKey,
 
         appendTransaction(_transactions, _oldState, newState) {
-          if (!extension.storage.enabled) return null
+          // Whether a document is plain text is part of its identity, so a
+          // `.txt` state flattens wherever it is applied (#1145).
+          if (!getIdentity(newState).plain) return null
 
           const { tr, schema } = newState
           let modified = false

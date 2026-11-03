@@ -1,108 +1,40 @@
 /**
- * AI Suggestion persistence store
+ * AI suggestion persistence facade.
  *
- * Manages saving/loading pending AI suggestions to IndexedDB,
- * allowing them to persist across tab switches.
+ * Suggestions live as marks in their document's session state; they are
+ * restored when a session opens and persisted from the marks by the session
+ * layer's projection (document/session.ts). This store keeps only the active
+ * document's id, set by the session layer, and the two writers the panels
+ * and tools call, which route through `persistRecords` (#1145).
  */
 
 import { create } from 'zustand'
 import type { AISuggestionData } from './types'
-import {
-  saveSuggestions as persistSuggestions,
-  loadSuggestions as fetchSuggestions,
-  deleteSuggestions as removeSuggestions
-} from '../../lib/persistence'
+import { persistRecords, deleteRecords } from '../../document/session'
 
 interface SuggestionPersistenceState {
-  /** Current document ID being tracked */
+  /** The document the active session holds */
   documentId: string | null
 
-  /** Pending suggestions for the current document (loaded from IndexedDB) */
-  pendingSuggestions: AISuggestionData[]
-
-  /** Set the current document ID and clear pending suggestions */
-  setDocumentId: (documentId: string) => void
-
-  /** Save current suggestions to IndexedDB */
+  /** Persist a suggestion list under a document id (both from one synchronous read). */
   saveSuggestions: (documentId: string, suggestions: AISuggestionData[]) => Promise<void>
 
-  /** Load suggestions from IndexedDB for a document */
-  loadSuggestions: (documentId: string) => Promise<void>
-
-  /** Clear pending suggestions from memory (not from IndexedDB) */
-  clearSuggestions: () => void
-
-  /** Delete suggestions from IndexedDB for a document */
+  /** Delete a document's stored suggestions */
   deleteSuggestions: (documentId: string) => Promise<void>
-
-  /**
-   * Snapshot live suggestions into memory so they survive an HMR remount.
-   * Called by Editor's cleanup on unmount; the existing restoreAISuggestions
-   * useEffect picks them up on the next mount without touching IndexedDB.
-   */
-  snapshotSuggestions: (documentId: string, suggestions: AISuggestionData[]) => void
 }
 
-export const useSuggestionStore = create<SuggestionPersistenceState>((set, get) => ({
+export const useSuggestionStore = create<SuggestionPersistenceState>(() => ({
   documentId: null,
-  pendingSuggestions: [],
-
-  setDocumentId: (documentId: string) => {
-    set({ documentId, pendingSuggestions: [] })
-  },
 
   saveSuggestions: async (documentId: string, suggestions: AISuggestionData[]) => {
     if (!documentId) {
       console.warn('[SuggestionStore] No documentId provided, skipping save')
       return
     }
-
-    console.log('[SuggestionStore] Saving suggestions:', {
-      documentId,
-      count: suggestions.length
-    })
-
-    await persistSuggestions(documentId, suggestions)
-  },
-
-  loadSuggestions: async (documentId: string) => {
-    console.log('[SuggestionStore] Loading suggestions for:', documentId)
-
-    const suggestions = await fetchSuggestions(documentId)
-
-    set({
-      documentId,
-      pendingSuggestions: suggestions
-    })
-
-    console.log('[SuggestionStore] Loaded suggestions:', {
-      documentId,
-      count: suggestions.length
-    })
-  },
-
-  clearSuggestions: () => {
-    set({ pendingSuggestions: [] })
+    await persistRecords('suggestions', documentId, suggestions)
   },
 
   deleteSuggestions: async (documentId: string) => {
-    await removeSuggestions(documentId)
-
-    // Clear from memory if it's the current document
-    const state = get()
-    if (state.documentId === documentId) {
-      set({ pendingSuggestions: [] })
-    }
-  },
-
-  snapshotSuggestions: (documentId: string, suggestions: AISuggestionData[]) => {
-    if (suggestions.length === 0) return
-
-    console.log('[SuggestionStore] Snapshotting live suggestions for HMR replay:', {
-      documentId,
-      count: suggestions.length
-    })
-
-    set({ documentId, pendingSuggestions: suggestions })
+    await deleteRecords('suggestions', documentId)
   }
 }))

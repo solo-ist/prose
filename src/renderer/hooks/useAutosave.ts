@@ -6,6 +6,7 @@ import { serializeMarkdown } from '../lib/markdown'
 import { handleMissingPath, isMissingPathFileError } from '../lib/stalePath'
 import { isDiskNewerThanBaseline, notifyExternalEditConflict, recordDiskBaseline } from '../lib/diskSync'
 import { useTabStore } from '../stores/tabStore'
+import { flushActiveProjections } from '../document/session'
 
 /**
  * Hook that handles automatic saving of documents.
@@ -28,6 +29,8 @@ export function useAutosave() {
   }, [])
 
   const performSave = useCallback(async () => {
+    // Land the session's pending projection so the save holds the last keystrokes.
+    flushActiveProjections()
     const { document, setDirty, setAutosaving } = useEditorStore.getState()
 
     // Don't save if:

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { useFileList } from '../../hooks/useFileList'
 import { useEditor } from '../../hooks/useEditor'
 import { useTabs } from '../../hooks/useTabs'
+import { relocateOpenTabs } from '../../tabs/actions'
 import { useSummaryStore } from '../../stores/summaryStore'
 import { useRemarkableSync } from '../../hooks/useRemarkableSync'
 import { useRemarkableEnabled, useWebPlatformEnabled } from '../../lib/featureFlags'
@@ -556,33 +557,18 @@ export function FileListPanel() {
 
       await api.renameFile(oldPath, newPath)
 
-      if (isMarkdownFile) {
-        // Tab sync: update tab if the file was open
-        const tab = useTabStore.getState().getTabByPath(oldPath)
-        if (tab) {
-          const newTitle = finalName.replace(/\.(md|markdown|txt)$/, '')
-          useTabStore.getState().updateTab(tab.id, { path: newPath, title: newTitle })
-        }
-      }
+      // Open tabs of the renamed file, or of files inside a renamed folder,
+      // follow it: path, title, document identity and stored records (#1145).
+      await relocateOpenTabs(oldPath, newPath)
 
-      // Migrate every reference whose path is the renamed entry or lives under
-      // it. The markdown-file tab/title sync above covers the renamed file
-      // itself; this also covers favorites, projects, and — for a
-      // directory rename — open tabs of files *inside* the folder. Without it
-      // those references orphan onto the now-dead path (#703 HITL: a folder
-      // rename dropped its favorite and could leave child tabs saving to a
-      // stale location).
+      // Migrate every other reference whose path is the renamed entry or lives
+      // under it: favorites and projects. Without it those references orphan
+      // onto the now-dead path (#703 HITL: a folder rename dropped its favorite
+      // and could leave child tabs saving to a stale location).
       const remapPath = (p: string): string | null => {
         if (p === oldPath) return newPath
         if (p.startsWith(`${oldPath}/`)) return `${newPath}${p.slice(oldPath.length)}`
         return null
-      }
-      for (const tab of useTabStore.getState().tabs) {
-        if (!tab.path) continue
-        const migrated = remapPath(tab.path)
-        if (migrated && migrated !== tab.path) {
-          useTabStore.getState().updateTab(tab.id, { path: migrated })
-        }
       }
       for (const fav of useSettingsStore.getState().settings.favorites ?? []) {
         const migrated = remapPath(fav.path)
@@ -670,12 +656,8 @@ export function FileListPanel() {
     try {
       await api.renameFile(sourcePath, destPath)
 
-      // Update tab if the moved file was open
-      const tab = useTabStore.getState().getTabByPath(sourcePath)
-      if (tab) {
-        const newTitle = destPath.split('/').pop()!.replace(/\.[^.]+$/, '')
-        useTabStore.getState().updateTab(tab.id, { path: destPath, title: newTitle })
-      }
+      // An open tab of the moved file follows it: identity and records too.
+      await relocateOpenTabs(sourcePath, destPath)
 
       await loadFiles()
       selectFile(destPath)
@@ -1457,7 +1439,7 @@ export function FileListPanel() {
                   {/* New untitled document */}
                   <button
                     className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50 text-muted-foreground mb-1"
-                    onClick={createNewTab}
+                    onClick={() => createNewTab()}
                     title="Create new untitled document"
                   >
                     <Plus className="h-4 w-4 shrink-0" />

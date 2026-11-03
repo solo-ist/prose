@@ -4,8 +4,8 @@ import { useFileListStore } from '../stores/fileListStore'
 import type { SyncProgress } from '../stores/fileListStore'
 import { subscribeRemarkableProgress } from '../lib/remarkableBridge'
 import { useTabStore } from '../stores/tabStore'
-import { useEditorStore } from '../stores/editorStore'
 import { parseMarkdown } from '../lib/markdown'
+import { reloadTabFromDisk } from '../tabs/actions'
 
 export type { SyncProgress }
 
@@ -73,25 +73,10 @@ async function refreshOpenOcrTab(notebookId: string): Promise<void> {
     }
     const parsed = parseMarkdown(raw)
 
-    // Always refresh the cached tab snapshot so background tabs hydrate the
-    // new content next time they activate.
-    useTabStore.getState().updateTab(tab.id, {
-      content: parsed.content,
-      frontmatter: parsed.frontmatter,
-      isDirty: false
-    })
-
-    // If this tab is the active editor, push the content through editorStore
-    // — Editor.tsx watches editorStore.document.content and runs setContent on
-    // the TipTap instance, so this is what makes the visible swap happen.
-    const editorState = useEditorStore.getState()
-    if (editorState.document.path === tab.path) {
-      editorState.setDocument({
-        content: parsed.content,
-        frontmatter: parsed.frontmatter,
-        isDirty: false
-      })
-    }
+    // The tab action refreshes the cached snapshot (background tabs hydrate
+    // it next time they activate) and pushes the content through the editor
+    // store when the tab is the active one.
+    await reloadTabFromDisk(tab.id, parsed)
   }
 }
 

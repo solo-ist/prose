@@ -6,7 +6,8 @@
 
 import { create } from 'zustand'
 import type { AIAnnotation, AnnotationState, AnnotationActions } from '../../types/annotations'
-import { generateId, saveAnnotations, loadAnnotations } from '../../lib/persistence'
+import { generateId } from '../../lib/persistence'
+import { persistRecords } from '../../document/session'
 import { pipelineLog } from '../../lib/aiPipelineLog'
 
 type AnnotationStore = AnnotationState & AnnotationActions & {
@@ -71,27 +72,33 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
       content: annotationData.content?.substring(0, 30),
       annotationDocId: annotationData.documentId,
       storeDocId: currentDocId,
-      willSync: annotationData.documentId && annotationData.documentId !== currentDocId
     })
+
+    // The store mirrors the active document (#1145): a record stamped for
+    // another document is refused rather than re-keying the whole store, which
+    // paired the new id with the previous document's records. Every caller
+    // stamps the active identity; background records get their own handle in
+    // PR 4 of the editor-state series.
+    if (annotationData.documentId && annotationData.documentId !== currentDocId) {
+      console.warn('[AnnotationStore] addAnnotation refused: record for another document', {
+        annotationDocId: annotationData.documentId,
+        storeDocId: currentDocId,
+      })
+      pipelineLog('annotation:refused', { id, annotationDocId: annotationData.documentId, storeDocId: currentDocId })
+      return ''
+    }
 
     // Temporarily pause position updates while adding annotation
     // This prevents the plugin from immediately mapping (and corrupting) the new annotation's
     // positions, which are already in the correct coordinate system for the current document
     set({ isLoadingDocument: true })
 
-    if (annotationData.documentId && annotationData.documentId !== currentDocId) {
-      set((state) => ({
-        annotations: [...state.annotations, annotation],
-        documentId: annotationData.documentId,
-      }))
-    } else {
-      set((state) => ({
-        annotations: [...state.annotations, annotation],
-      }))
-    }
+    set((state) => ({
+      annotations: [...state.annotations, annotation],
+    }))
 
     // Auto-save after adding. Tracked so tab switches await it — a
-    // fire-and-forget save racing loadAnnotations(nextDoc) was one of the
+    // fire-and-forget save racing the next document's load was one of the
     // "history entries vanished" paths (#674).
     trackedSave(get, set)
 
@@ -344,36 +351,6 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
     set({ isVisible: visible })
   },
 
-  // Load annotations for a document
-  loadAnnotations: async (documentId) => {
-    console.log('[AnnotationStore] loadAnnotations called:', { documentId })
-    try {
-      const annotations = await loadAnnotations(documentId)
-      pipelineLog('annotation:load', {
-        documentId,
-        count: annotations.length,
-        replacedCount: get().annotations.length,
-        previousDocId: get().documentId,
-      })
-      console.log('[AnnotationStore] Loaded from IndexedDB:', {
-        documentId,
-        count: annotations.length,
-        annotations: annotations.map(a => ({
-          id: a.id,
-          from: a.from,
-          to: a.to,
-          type: a.type,
-          content: a.content?.substring(0, 30)
-        }))
-      })
-      // Clear the "created this session" set - loaded annotations should animate
-      set({ annotations, documentId, createdThisSession: new Set() })
-    } catch (error) {
-      console.error('Failed to load annotations:', error)
-      set({ annotations: [], documentId })
-    }
-  },
-
   // Save current annotations
   saveAnnotations: async () => {
     const { documentId, annotations } = get()
@@ -384,29 +361,13 @@ export const useAnnotationStore = create<AnnotationStore>((set, get) => ({
     }
 
     try {
-      await saveAnnotations(documentId, annotations)
-      pipelineLog('annotation:save', { documentId, count: annotations.length })
+      await persistRecords('annotations', documentId, annotations)
       console.log('[AnnotationStore] Saved successfully:', { documentId, count: annotations.length })
     } catch (error) {
       console.error('Failed to save annotations:', error)
     }
   },
 
-  // Clear all annotations
-  clearAnnotations: () => {
-    set({ annotations: [] })
-  },
-
-  // Set document ID
-  setDocumentId: (documentId) => {
-    set({ documentId })
-  },
-
-  // Set loading document state (pauses position updates during tab switches)
-  setLoadingDocument: (loading) => {
-    console.log('[AnnotationStore] setLoadingDocument:', loading)
-    set({ isLoadingDocument: loading })
-  },
 }))
 
 // Selector for annotations at a specific position

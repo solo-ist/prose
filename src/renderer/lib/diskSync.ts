@@ -3,7 +3,7 @@ import { parseMarkdown, prepareTextContent } from './markdown'
 import { extractMarkdownFromHtml } from './htmlExport'
 import { useNotificationStore } from '../stores/notificationStore'
 import { useTabStore } from '../stores/tabStore'
-import { useEditorStore } from '../stores/editorStore'
+import { reloadTabFromDisk } from '../tabs/actions'
 
 /**
  * Disk-sync tracking for open documents (#843 minimal slice, on top of #829).
@@ -54,6 +54,16 @@ export function clearDiskBaseline(path: string): void {
 }
 
 /**
+ * A rename or move on disk keeps the file's bytes and mtime: whatever
+ * agreement we had with `oldPath` now holds for `newPath`.
+ */
+export function transferDiskBaseline(oldPath: string, newPath: string): void {
+  const value = baselines.get(oldPath)
+  baselines.delete(oldPath)
+  if (value !== undefined) baselines.set(newPath, value)
+}
+
+/**
  * True when the file at `path` changed on disk after our recorded baseline.
  * No baseline, missing file, or stat failure all read as "not newer" —
  * conservative against false conflicts. The 1ms slack absorbs ISO-string
@@ -92,8 +102,9 @@ export async function readDocumentFromDisk(
 
 /**
  * Replace a tab's content with the disk version — the user chose "Load disk
- * version" on a conflict, or a clean tab went stale (#829/#843). Pushes into
- * the live editor too when the tab is active, and refreshes the baseline.
+ * version" on a conflict, or a clean tab went stale (#829/#843). The tab
+ * action pushes it into the live editor when the tab is active and records
+ * the baseline.
  */
 export async function loadDiskVersionIntoTab(tabId: string, path: string): Promise<void> {
   const disk = await readDocumentFromDisk(path)
@@ -104,20 +115,8 @@ export async function loadDiskVersionIntoTab(tabId: string, path: string): Promi
     })
     return
   }
-  const { tabs, activeTabId, updateTab } = useTabStore.getState()
-  const tab = tabs.find((t) => t.id === tabId)
-  if (!tab) return
-  updateTab(tabId, { content: disk.content, frontmatter: disk.frontmatter, isDirty: false })
-  if (activeTabId === tabId) {
-    useEditorStore.getState().setDocument({
-      documentId: tab.documentId,
-      path,
-      content: disk.content,
-      frontmatter: disk.frontmatter,
-      isDirty: false,
-    })
-  }
-  await recordDiskBaseline(path)
+  if (!useTabStore.getState().getTabById(tabId)) return
+  await reloadTabFromDisk(tabId, disk)
 }
 
 /**

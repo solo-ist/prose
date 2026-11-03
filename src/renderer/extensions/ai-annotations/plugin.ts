@@ -13,6 +13,7 @@ import type { Transaction } from '@tiptap/pm/state'
 import type { AIAnnotation, AIAnnotationOptions } from '../../types/annotations'
 import { calculateOpacity, formatAge, ANNOTATION_CONSTANTS } from '../../types/annotations'
 import { useAnnotationStore } from './store'
+import { getIdentity, RELOAD_META, BUILD_META } from '../../document/identity'
 
 export const aiAnnotationsPluginKey = new PluginKey('aiAnnotations')
 
@@ -103,16 +104,20 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
     key: aiAnnotationsPluginKey,
 
     state: {
-      init(_, { doc }) {
+      init(_, instance) {
+        const { doc } = instance
         // Get initial state from store
         const state = useAnnotationStore.getState()
         currentAnnotations = state.annotations
         isVisible = state.isVisible
-        const createdThisSession = state.createdThisSession
 
         const decorations: Decoration[] = []
 
-        if (isVisible) {
+        // The store mirrors the active document (#1145): a state built for
+        // another document starts empty and is rebuilt once it is activated.
+        const mirrored = state.documentId === getIdentity(instance).documentId
+
+        if (isVisible && mirrored) {
           for (const annotation of currentAnnotations) {
             // Detached annotations are history-only (#674) — no decoration,
             // and their stale positions must not hit the bounds warning.
@@ -148,7 +153,7 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
 
         return {
           decorationSet: DecorationSet.create(doc, decorations),
-          annotations: currentAnnotations,
+          annotations: mirrored ? currentAnnotations : [],
           lastRefresh: Date.now(),
         }
       },
@@ -160,6 +165,17 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
         const storeState = useAnnotationStore.getState()
         const storeAnnotations = storeState.annotations
         const storeVisible = storeState.isVisible
+
+        // The store mirrors the active document (#1145). Its records are read
+        // or moved only under their own identity, and never by a transaction
+        // that builds a session's state outside the view; any other
+        // transaction maps its own decorations and touches nothing.
+        const mirrored =
+          storeState.documentId === getIdentity(newState).documentId && tr.getMeta(BUILD_META) !== true
+        // A whole-document reload re-anchors the records by text afterwards
+        // (document/session.ts); mapping them through the replace would
+        // collapse every range.
+        const reload = tr.getMeta(RELOAD_META) === true
 
         // Check if we need to rebuild decorations
         const annotationsChanged = storeAnnotations !== pluginState.annotations
@@ -178,7 +194,7 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
           decorationSet = decorationSet.map(tr.mapping, doc)
 
           // Also update annotation positions in store
-          if (storeAnnotations.length > 0) {
+          if (mirrored && !reload && storeAnnotations.length > 0) {
             // Collect insertions (typing inside annotations should split them)
             const insertions: Array<{ pos: number; length: number }> = []
 
@@ -221,10 +237,17 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
           }
         }
 
+        if (!mirrored) {
+          return { ...pluginState, decorationSet }
+        }
+        if (reload) {
+          // Rebuilt by the re-anchoring's own rebuild meta.
+          return { ...pluginState, decorationSet: DecorationSet.empty }
+        }
+
         // Rebuild decorations if needed
         if (annotationsChanged || visibilityChanged || needsRefresh || tr.docChanged || forceRebuild) {
           const decorations: Decoration[] = []
-          const createdThisSession = storeState.createdThisSession
 
           if (isVisible) {
             for (const annotation of storeAnnotations) {

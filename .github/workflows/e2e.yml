@@ -80,6 +80,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Run unit tests
+        run: npm run test:unit
+
       - name: Install Playwright system deps
         run: npx playwright install --with-deps
 

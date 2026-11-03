@@ -111,16 +111,8 @@ export interface AnnotationActions {
   toggleVisibility: () => void
   /** Set visibility of annotations */
   setVisibility: (visible: boolean) => void
-  /** Load annotations for a document */
-  loadAnnotations: (documentId: string) => Promise<void>
-  /** Save current annotations */
+  /** Persist the mirrored set under the store's document id (through the session layer) */
   saveAnnotations: () => Promise<void>
-  /** Clear all annotations (for new document) */
-  clearAnnotations: () => void
-  /** Set document ID */
-  setDocumentId: (documentId: string | null) => void
-  /** Set loading document state (pauses position updates during tab switches) */
-  setLoadingDocument: (loading: boolean) => void
 }
 
 /**

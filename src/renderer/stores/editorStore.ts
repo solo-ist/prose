@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import type { Document } from '../types'
 import { generateId, saveDraft, clearDraft } from '../lib/persistence'
-import type { DraftState, FileListState } from '../lib/persistence'
+import type { FileListState } from '../lib/persistence'
 import { useFileListStore } from './fileListStore'
 import { isRemarkableOcrPath, remarkableNotebookIdFromPath } from '../lib/remarkablePath'
 
@@ -22,11 +22,6 @@ function remarkableStateForPath(path: string | null): {
   }
 }
 
-interface ReadCache {
-  content: string | null
-  documentId: string | null
-}
-
 interface SelectionCache {
   text: string
   from: number
@@ -41,8 +36,6 @@ interface EditorState {
   // reMarkable read-only mode state
   isRemarkableReadOnly: boolean // True when viewing OCR output before transforming to editable
   remarkableNotebookId: string | null // Notebook ID for creating editable version
-  // Read cache for avoiding redundant read_document calls
-  readCache: ReadCache
   // Selection cache for read_selection when editor loses focus
   lastSelection: SelectionCache | null
   // Autosave in-progress flag (true only during the actual save call)
@@ -65,12 +58,6 @@ interface EditorState {
   setActiveChatId: (id: string | null) => void
   setEditing: (isEditing: boolean) => void
   setRemarkableReadOnly: (isReadOnly: boolean, notebookId?: string | null) => void
-  resetDocument: () => void
-  hydrateFromDraft: (draft: DraftState) => void
-  // Read cache methods
-  getCachedRead: () => string | null
-  updateReadCache: (content: string) => void
-  invalidateReadCache: () => void
   // Selection cache methods
   setLastSelection: (sel: SelectionCache | null) => void
   getLastSelection: () => SelectionCache | null
@@ -102,7 +89,6 @@ export const useEditorStore = create<EditorState>()(
     isEditing: false,
     isRemarkableReadOnly: false,
     remarkableNotebookId: null,
-    readCache: { content: null, documentId: null },
     lastSelection: null,
     isAutosaving: false,
     isPreviewTab: false,
@@ -117,8 +103,6 @@ export const useEditorStore = create<EditorState>()(
         const newDocument = { ...state.document, ...doc }
         return {
           document: newDocument,
-          // Invalidate cache when document changes
-          readCache: { content: null, documentId: null },
           // Clear any pending frontmatter overlay when switching documents,
           // so a Tab A suggestion can't get accepted into Tab B.
           ...(documentIdChanged ? { pendingFrontmatter: null } : {}),
@@ -134,11 +118,7 @@ export const useEditorStore = create<EditorState>()(
         // Preserve existing dirty state if content is the same
         const newDirty = contentChanged ? true : state.document.isDirty
         return {
-          document: { ...state.document, content, isDirty: newDirty },
-          // Only invalidate cache when content actually changes
-          readCache: contentChanged
-            ? { content: null, documentId: null }
-            : state.readCache
+          document: { ...state.document, content, isDirty: newDirty }
         }
       }),
 
@@ -150,9 +130,7 @@ export const useEditorStore = create<EditorState>()(
 
     setDirty: (isDirty) =>
       set((state) => ({
-        document: { ...state.document, isDirty },
-        // Invalidate cache when dirty flag is set to true
-        readCache: isDirty ? { content: null, documentId: null } : state.readCache
+        document: { ...state.document, isDirty }
       })),
 
     setFrontmatter: (frontmatter) =>
@@ -172,62 +150,6 @@ export const useEditorStore = create<EditorState>()(
         isRemarkableReadOnly: isReadOnly,
         remarkableNotebookId: notebookId
       }),
-
-    resetDocument: () =>
-      set({
-        document: createInitialDocument(),
-        cursorPosition: { line: 1, column: 1 },
-        activeChatId: null,
-        isEditing: true, // User explicitly created new document
-        isRemarkableReadOnly: false,
-        remarkableNotebookId: null,
-        readCache: { content: null, documentId: null },
-        lastSelection: null,
-        pendingFrontmatter: null
-      }),
-
-    hydrateFromDraft: (draft) =>
-      set({
-        document: draft.document,
-        cursorPosition: draft.cursorPosition ?? { line: 1, column: 1 },
-        activeChatId: draft.activeChatId,
-        isEditing: true, // Recovered from draft means user was editing
-        readCache: { content: null, documentId: null },
-        lastSelection: null,
-        // Restored drafts must honor read-only too (a restored OCR tab is read-only).
-        ...remarkableStateForPath(draft.document.path)
-      }),
-
-    // Read cache methods
-    getCachedRead: () => {
-      const state = get()
-      const { readCache, document } = state
-      // Return cached content only if:
-      // 1. Cache exists
-      // 2. Document ID matches
-      // 3. Document is not dirty
-      if (
-        readCache.content !== null &&
-        readCache.documentId === document.documentId &&
-        !document.isDirty
-      ) {
-        return readCache.content
-      }
-      return null
-    },
-
-    updateReadCache: (content: string) => {
-      const { document } = get()
-      set({
-        readCache: {
-          content,
-          documentId: document.documentId
-        }
-      })
-    },
-
-    invalidateReadCache: () =>
-      set({ readCache: { content: null, documentId: null } }),
 
     // Selection cache methods
     setLastSelection: (sel) => set({ lastSelection: sel }),

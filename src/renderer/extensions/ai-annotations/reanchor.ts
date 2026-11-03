@@ -2,26 +2,23 @@
  * Re-anchor AI annotations by their text across a whole-document reload.
  *
  * Annotations are decorations over stored positions, kept current by mapping
- * them through each transaction. A `setContent` (leaving source mode) replaces
- * the whole document in one step, and mapping through that collapses every
- * range, so the store would detach them all — history-only, no highlight —
- * even where the annotated text is untouched. Instead: index the doc's text
- * before and after the reload, pause mapping across it, then carry each live
- * annotation over the way a single replace step would — the text before and
- * after the reload differ in one region, and a range outside it shifts, while
+ * them through each transaction. A whole-document replace (leaving source
+ * mode) would collapse every range under that mapping, so the session layer
+ * skips the mapping for that one transaction (RELOAD_META) and carries each
+ * live annotation over with the helpers here instead: index the doc's text
+ * before and after, then map each range the way a single replace step would.
+ * The text before and after differ in one region: a range outside it shifts,
  * one spanning it grows around the edit, exactly as typing inside a highlight
- * does in the editor. A range the region cuts through goes back on the nearest
- * occurrence of its old text, and only an annotation with no such occurrence
- * detaches.
+ * does in the editor. A range the region cuts through goes back on the
+ * nearest occurrence of its old text, and only an annotation with no such
+ * occurrence detaches.
  */
 
-import type { Editor } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
-import { useAnnotationStore } from './store'
-import { aiAnnotationsPluginKey } from './plugin'
+import type { AIAnnotation } from '../../types/annotations'
 
 /** The doc's text with one '\n' between textblocks, and each char's doc position (-1 for separators). */
-function textIndex(doc: PMNode): { text: string; pos: number[] } {
+export function textIndex(doc: PMNode): { text: string; pos: number[] } {
   let text = ''
   const pos: number[] = []
   doc.descendants((node, nodePos) => {
@@ -39,10 +36,10 @@ function textIndex(doc: PMNode): { text: string; pos: number[] } {
   return { text, pos }
 }
 
-type TextIndex = ReturnType<typeof textIndex>
-type DocRange = { from: number; to: number }
+export type TextIndex = ReturnType<typeof textIndex>
+export type DocRange = { from: number; to: number }
 
-interface AnchorSnapshot {
+export interface AnchorSnapshot {
   from: number
   to: number
   /** Half-open offsets into the pre-reload index text. */
@@ -51,9 +48,10 @@ interface AnchorSnapshot {
   text: string
 }
 
-function snapshot(index: TextIndex): AnchorSnapshot[] {
+/** Where each live annotation sits in `index` (taken before the reload). */
+export function snapshotAnchors(index: TextIndex, annotations: AIAnnotation[]): AnchorSnapshot[] {
   const result: AnchorSnapshot[] = []
-  for (const a of useAnnotationStore.getState().annotations) {
+  for (const a of annotations) {
     if (a.detached) continue
     const start = index.pos.findIndex((p) => p >= a.from)
     let end = -1
@@ -70,7 +68,7 @@ function snapshot(index: TextIndex): AnchorSnapshot[] {
 }
 
 /** Half-open index offsets → doc positions, trimming block separators at either end. */
-function toDocRange(index: TextIndex, start: number, end: number): DocRange | null {
+export function toDocRange(index: TextIndex, start: number, end: number): DocRange | null {
   while (start < end && index.pos[start] === -1) start++
   while (end > start && index.pos[end - 1] === -1) end--
   if (start >= end) return null
@@ -83,7 +81,7 @@ function toDocRange(index: TextIndex, start: number, end: number): DocRange | nu
  * the region shifts, a range enclosing it grows around it, and a range the
  * region cuts through has no mapping (null).
  */
-function mapThroughDiff(before: string, after: string): (start: number, end: number) => [number, number] | null {
+export function mapThroughDiff(before: string, after: string): (start: number, end: number) => [number, number] | null {
   const shortest = Math.min(before.length, after.length)
   let prefix = 0
   while (prefix < shortest && before[prefix] === after[prefix]) prefix++
@@ -100,7 +98,7 @@ function mapThroughDiff(before: string, after: string): (start: number, end: num
 }
 
 /** The occurrence of `text` whose start is nearest `near`, as doc positions. */
-function nearestMatch(index: TextIndex, text: string, near: number): DocRange | null {
+export function nearestMatch(index: TextIndex, text: string, near: number): DocRange | null {
   let best: DocRange | null = null
   for (let i = index.text.indexOf(text); i !== -1; i = index.text.indexOf(text, i + 1)) {
     const from = index.pos[i]
@@ -111,33 +109,25 @@ function nearestMatch(index: TextIndex, text: string, near: number): DocRange | 
   return best
 }
 
-/** Run `reload` (a whole-document replace) without losing annotations whose text survives it. */
-export function reloadKeepingAnnotations(editor: Editor, reload: () => void): void {
-  const store = useAnnotationStore.getState()
-  const before = textIndex(editor.state.doc)
-  const anchors = snapshot(before)
-  const wasLoading = store.isLoadingDocument
-  store.setLoadingDocument(true)
-  try {
-    reload()
-  } finally {
-    store.setLoadingDocument(wasLoading)
-  }
-  if (anchors.length === 0 || wasLoading) return
-
-  const index = textIndex(editor.state.doc)
-  const mapped = mapThroughDiff(before.text, index.text)
+/**
+ * The position mapping that carries `anchors` (snapshotted from `before`)
+ * onto the reloaded document `after`. A range not in the snapshot (an
+ * out-of-bounds one) keeps its position; null detaches.
+ */
+export function reanchorMapping(
+  before: TextIndex,
+  after: TextIndex,
+  anchors: AnchorSnapshot[]
+): (from: number, to: number) => DocRange | null {
+  const mapped = mapThroughDiff(before.text, after.text)
   const moved = new Map<string, DocRange | null>()
   for (const a of anchors) {
     const offsets = mapped(a.start, a.end)
-    const range = (offsets && toDocRange(index, offsets[0], offsets[1])) ?? nearestMatch(index, a.text, a.from)
+    const range = (offsets && toDocRange(after, offsets[0], offsets[1])) ?? nearestMatch(after, a.text, a.from)
     moved.set(`${a.from}:${a.to}`, range)
   }
-  // Anything not snapshotted (an out-of-bounds range) keeps its position;
-  // null detaches, which updatePositions persists.
-  useAnnotationStore.getState().updatePositions((from, to) => {
+  return (from, to) => {
     const key = `${from}:${to}`
     return moved.has(key) ? moved.get(key)! : { from, to }
-  })
-  editor.view.dispatch(editor.state.tr.setMeta(aiAnnotationsPluginKey, { rebuildDecorations: true }))
+  }
 }

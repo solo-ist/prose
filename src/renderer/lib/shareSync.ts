@@ -16,6 +16,7 @@ import { useEffect } from 'react'
 import { getApi } from './browserApi'
 import { mergeCommentThreads, cleanString } from './commentMerge'
 import { useCommentStore } from '../extensions/comments/store'
+import { mergeThreads } from '../document/session'
 import { useEditorStore } from '../stores/editorStore'
 import { useNotificationStore } from '../stores/notificationStore'
 import { useReviewStore } from '../stores/reviewStore'
@@ -241,9 +242,9 @@ export async function syncShareComments(entry: ShareEntry, documentId: string): 
     // just-persisted one — a pulled thread vanished, and the acked cursor
     // made the drop permanent (observed live, 2026-09-12).
     useCommentStore.setState({ pendingComments: merged })
-    await store.saveComments(documentId, merged)
-    // Reload → sets needsRestore → the Editor restore effect re-derives marks.
-    await store.loadComments(documentId)
+    // The new threads' marks land in the document's session in place; the
+    // mirror and IndexedDB follow (#1145).
+    await mergeThreads(documentId, merged)
     // Only NEW conversation is news — reviewer edits/deletions sync silently
     // (they're revisions of things already seen).
     if (added > 0) {

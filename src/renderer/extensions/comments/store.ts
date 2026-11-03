@@ -1,54 +1,34 @@
 /**
- * Comment mark persistence store
+ * Comment thread mirror for the active document.
  *
- * Manages saving/loading pending comment marks to IndexedDB,
- * allowing them to persist across tab switches.
+ * The threads live with their document's session (document/session.ts);
+ * this store mirrors the active session's set for the popovers, the review
+ * panel, the status bar and the share sync. Its id is set only by the session
+ * layer, together with the threads, so there is never a moment with the next
+ * document's id and the previous document's threads (#1145). Writes to
+ * IndexedDB go through the session layer's `persistRecords`, which keeps the
+ * owning session's records in step.
  */
 
 import { create } from 'zustand'
 import type { CommentData } from './types'
-import {
-  saveComments as persistComments,
-  loadComments as fetchComments,
-  deleteComments as removeComments
-} from '../../lib/persistence'
+import { persistRecords, deleteRecords } from '../../document/session'
 
 interface CommentPersistenceState {
-  /** Current document ID being tracked */
+  /** The document whose threads are mirrored here */
   documentId: string | null
 
   /**
    * Comments for the current document — the single source of truth for rich
    * comment data (replies + resolved state) that the editor marks don't carry.
-   * Loaded from IndexedDB and kept live; the editor marks are just anchors.
+   * The editor marks are just anchors.
    */
   pendingComments: CommentData[]
 
-  /**
-   * One-shot signal that the marks for the current document still need to be
-   * restored into the editor. Set true by loadComments, cleared by markRestored
-   * once the Editor has re-applied the marks. This is the restore loop-breaker —
-   * it lets pendingComments stay populated (so replies/resolved survive) instead
-   * of clearing it after restore.
-   */
-  needsRestore: boolean
-
-  /** Set the current document ID and clear pending comments */
-  setDocumentId: (documentId: string) => void
-
-  /** Save current comments to IndexedDB */
+  /** Persist a thread list under a document id (both from one synchronous read). */
   saveComments: (documentId: string, comments: CommentData[]) => Promise<void>
 
-  /** Load comments from IndexedDB for a document */
-  loadComments: (documentId: string) => Promise<void>
-
-  /** Mark the current document's comment marks as restored into the editor. */
-  markRestored: () => void
-
-  /** Clear pending comments from memory (not from IndexedDB) */
-  clearComments: () => void
-
-  /** Delete comments from IndexedDB for a document */
+  /** Delete a document's stored threads */
   deleteComments: (documentId: string) => Promise<void>
 }
 
@@ -63,63 +43,19 @@ export function countOpenThreads(comments: CommentData[]): number {
   return comments.filter((c) => !c.resolved).length
 }
 
-export const useCommentStore = create<CommentPersistenceState>((set, get) => ({
+export const useCommentStore = create<CommentPersistenceState>(() => ({
   documentId: null,
   pendingComments: [],
-  needsRestore: false,
-
-  setDocumentId: (documentId: string) => {
-    set({ documentId, pendingComments: [], needsRestore: false })
-  },
 
   saveComments: async (documentId: string, comments: CommentData[]) => {
     if (!documentId) {
       console.warn('[CommentStore] No documentId provided, skipping save')
       return
     }
-
-    console.log('[CommentStore] Saving comments:', {
-      documentId,
-      count: comments.length
-    })
-
-    await persistComments(documentId, comments)
-  },
-
-  loadComments: async (documentId: string) => {
-    console.log('[CommentStore] Loading comments for:', documentId)
-
-    const comments = await fetchComments(documentId)
-
-    set({
-      documentId,
-      pendingComments: comments,
-      // Marks aren't serialized into the document, so the Editor must re-apply
-      // them after each load. Flag it; the Editor restore effect consumes this.
-      needsRestore: true
-    })
-
-    console.log('[CommentStore] Loaded comments:', {
-      documentId,
-      count: comments.length
-    })
-  },
-
-  markRestored: () => {
-    set({ needsRestore: false })
-  },
-
-  clearComments: () => {
-    set({ pendingComments: [], needsRestore: false })
+    await persistRecords('comments', documentId, comments)
   },
 
   deleteComments: async (documentId: string) => {
-    await removeComments(documentId)
-
-    // Clear from memory if it's the current document
-    const state = get()
-    if (state.documentId === documentId) {
-      set({ pendingComments: [] })
-    }
+    await deleteRecords('comments', documentId)
   }
 }))

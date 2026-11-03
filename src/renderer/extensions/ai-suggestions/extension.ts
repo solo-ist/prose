@@ -16,6 +16,7 @@ import { useAnnotationStore } from '../ai-annotations'
 import { createWordDiffAnnotations } from '../../lib/diffUtils'
 import { pipelineLog } from '../../lib/aiPipelineLog'
 import { AI_REPLACEMENT_META } from '../comments'
+import { getIdentity } from '../../document/identity'
 
 /**
  * Transaction meta set by the four accept/reject commands. A writer resolving a
@@ -43,11 +44,16 @@ function isMultiBlock(text: string): boolean {
  * block-anchor insertions (after_node / before_node) so that content is placed
  * as a document-level sibling rather than being absorbed into the anchor node.
  *
- * Returns null if the editor doesn't have a markdown parser in storage
- * (e.g., during tests) so callers can fall back to the text path.
+ * Takes the editor's markdown storage (or a document handle's codec).
+ * Returns null when there is no markdown parser (e.g., during tests) so
+ * callers can fall back to the text path.
  */
-export function parseMarkdownToSlice(editor: Editor, schema: Schema, text: string): Slice | null {
-  const parser = editor.storage?.markdown?.parser
+export function parseMarkdownToSlice(
+  markdown: { parser?: { parse?: (content: string) => unknown } } | undefined,
+  schema: Schema,
+  text: string
+): Slice | null {
+  const parser = markdown?.parser
   if (!parser || typeof parser.parse !== 'function') return null
 
   // tiptap-markdown's storage.markdown.parser.parse() returns an HTML *string*
@@ -103,7 +109,7 @@ function parseInlineSuggestion(
   suggestedText: string
 ): { slice: Slice; text: string } | null {
   if (suggestedText.includes('\n')) return null
-  const slice = parseMarkdownToSlice(editor, schema, suggestedText)
+  const slice = parseMarkdownToSlice(editor.storage?.markdown, schema, suggestedText)
   if (!slice || slice.content.childCount !== 1) return null
   const block = slice.content.firstChild
   if (!block || !block.isTextblock) return null
@@ -168,7 +174,7 @@ function applyBlockConversion(
   })
   if (blockPos < 0) return null
 
-  const slice = parseMarkdownToSlice(editor, schema, intentMarkdown)
+  const slice = parseMarkdownToSlice(editor.storage?.markdown, schema, intentMarkdown)
   if (!slice || slice.content.childCount === 0) return null
 
   const closed = new Slice(slice.content, 0, 0)
@@ -534,7 +540,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
               acceptPath = 'blockConversion'
             } else if (isMultiBlock(suggestedText)) {
               acceptPath = 'multiBlock'
-              const slice = parseMarkdownToSlice(editor, state.schema, suggestedText)
+              const slice = parseMarkdownToSlice(editor.storage?.markdown, state.schema, suggestedText)
               if (slice) {
                 tr.replace(markFrom, markTo, slice)
               } else {
@@ -574,9 +580,12 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             explanation?: string
           }
 
-          // Use fallbacks: store's documentId, or 'unknown' for model
+          // The annotation belongs to the document this state is (#1145). The
+          // mark was stamped when the suggestion was made and lags a rename,
+          // Save As or first save; the store id is that same identity, kept as
+          // the last fallback. A record for another id is refused by the store.
           const annotationStore = useAnnotationStore.getState()
-          const docId = attrs.documentId || annotationStore.documentId
+          const docId = getIdentity(state).documentId || attrs.documentId || annotationStore.documentId
           const model = attrs.provenanceModel || 'unknown'
           const originalText = attrs.originalText || ''
           const explanation = attrs.explanation || ''
@@ -819,7 +828,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
                 pipelineLog('accept:path', { id: suggestion.id, path: 'blockConversion', batch: true })
                 annotationNewText = conversion.visibleText
               } else if (isMultiBlock(suggestion.suggestedText)) {
-                const slice = parseMarkdownToSlice(editor, state.schema, suggestion.suggestedText)
+                const slice = parseMarkdownToSlice(editor.storage?.markdown, state.schema, suggestion.suggestedText)
                 if (slice) {
                   tr.replace(suggestion.from, suggestion.to, slice)
                 } else {
@@ -863,20 +872,12 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           queueMicrotask(() => {
             const annotationStore = useAnnotationStore.getState()
             for (const { suggestion, conversion, annotationNewText } of applied) {
-              const docId = suggestion.documentId || annotationStore.documentId
+              // The state's identity first, as in acceptAISuggestion (#1145):
+              // a mark stamped before a rename or first save carries the old id.
+              const docId = getIdentity(state).documentId || suggestion.documentId || annotationStore.documentId
               if (!docId) {
                 console.warn('[AISuggestion] acceptAll: cannot create annotation - missing docId:', suggestion.id)
                 continue
-              }
-              // Surface the fallback (#677 review): if a tab switch ever
-              // raced this microtask, the store's documentId would be the
-              // NEW tab's — make that visible rather than silently
-              // mis-keying the annotation.
-              if (!suggestion.documentId) {
-                console.warn('[AISuggestion] acceptAll: annotation documentId fell back to store documentId:', {
-                  suggestionId: suggestion.id,
-                  docId,
-                })
               }
               const provenance = {
                 model: suggestion.provenanceModel || 'unknown',
@@ -954,104 +955,14 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
 
       restoreAISuggestions:
         (suggestions) =>
-        ({ tr, state, dispatch }) => {
+        ({ tr, dispatch }) => {
           if (!dispatch || suggestions.length === 0) return false
-
-          const { doc, schema } = state
-          let restored = 0
-
-          // Process each suggestion
-          for (const suggestion of suggestions) {
-            // Find the original text in the document
-            const docText = doc.textContent
-            const searchText = suggestion.originalText
-
-            if (!searchText) {
-              console.warn('[AISuggestion] Cannot restore suggestion without originalText:', suggestion.id)
-              continue
-            }
-
-            // Find position of originalText in document
-            const textIndex = docText.indexOf(searchText)
-            if (textIndex === -1) {
-              console.warn('[AISuggestion] Cannot find originalText in document:', {
-                id: suggestion.id,
-                originalText: searchText.substring(0, 50)
-              })
-              continue
-            }
-
-            // Convert text index to document position
-            // We need to walk the document to find the correct ProseMirror position
-            let pos = 0
-            let charCount = 0
-            let foundStart = -1
-            let foundEnd = -1
-
-            doc.descendants((node, nodePos) => {
-              if (foundStart !== -1 && foundEnd !== -1) return false // Already found
-
-              if (node.isText && node.text) {
-                const nodeText = node.text
-                const nodeStart = charCount
-                const nodeEnd = charCount + nodeText.length
-
-                // Check if our target text starts in this node
-                if (foundStart === -1 && textIndex >= nodeStart && textIndex < nodeEnd) {
-                  // Target starts in this node
-                  const offsetInNode = textIndex - nodeStart
-                  foundStart = nodePos + offsetInNode
-                }
-
-                // Check if our target text ends in this node
-                const targetEnd = textIndex + searchText.length
-                if (foundStart !== -1 && targetEnd > nodeStart && targetEnd <= nodeEnd) {
-                  const offsetInNode = targetEnd - nodeStart
-                  foundEnd = nodePos + offsetInNode
-                  return false // Stop searching
-                }
-
-                charCount += nodeText.length
-              }
-            })
-
-            if (foundStart === -1 || foundEnd === -1) {
-              console.warn('[AISuggestion] Could not map text position:', suggestion.id)
-              continue
-            }
-
-            // Apply the suggestion mark
-            const mark = schema.marks.aiSuggestion.create({
-              id: suggestion.id,
-              type: suggestion.type,
-              originalText: suggestion.originalText,
-              suggestedText: suggestion.suggestedText,
-              explanation: suggestion.explanation,
-              createdAt: suggestion.createdAt,
-              userReply: suggestion.userReply || null,
-              provenanceModel: suggestion.provenanceModel || '',
-              provenanceConversationId: suggestion.provenanceConversationId || '',
-              provenanceMessageId: suggestion.provenanceMessageId || '',
-              documentId: suggestion.documentId || '',
-              blockConversionIntent: suggestion.blockConversionIntent ?? null,
-            })
-
-            tr.addMark(foundStart, foundEnd, mark)
-            restored++
-
-            console.log('[AISuggestion] Restored suggestion:', {
-              id: suggestion.id,
-              from: foundStart,
-              to: foundEnd
-            })
-          }
-
+          const restored = applySuggestionMarks(tr, suggestions)
           if (restored > 0) {
             dispatch(tr)
             console.log('[AISuggestion] Restored', restored, 'of', suggestions.length, 'suggestions')
             return true
           }
-
           return false
         },
     }
@@ -1059,40 +970,87 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
 })
 
 /**
+ * Re-apply suggestion marks for `suggestions` to the document `tr` holds, as
+ * part of `tr` (a session's seed transaction, a reload). Pure: the caller
+ * dispatches or applies the transaction. Each suggestion anchors on the first
+ * occurrence of its originalText; one whose text is gone is skipped. Returns
+ * the number of marks applied (#1145).
+ */
+export function applySuggestionMarks(tr: Transaction, suggestions: AISuggestionData[]): number {
+  const doc = tr.doc
+  const schema = doc.type.schema
+  const docText = doc.textContent
+  let restored = 0
+
+  for (const suggestion of suggestions) {
+    const searchText = suggestion.originalText
+    if (!searchText) {
+      console.warn('[AISuggestion] Cannot restore suggestion without originalText:', suggestion.id)
+      continue
+    }
+
+    const textIndex = docText.indexOf(searchText)
+    if (textIndex === -1) {
+      console.warn('[AISuggestion] Cannot find originalText in document:', {
+        id: suggestion.id,
+        originalText: searchText.substring(0, 50)
+      })
+      continue
+    }
+
+    // Walk the document to turn the text index into ProseMirror positions.
+    let charCount = 0
+    let foundStart = -1
+    let foundEnd = -1
+    doc.descendants((node, nodePos) => {
+      if (foundStart !== -1 && foundEnd !== -1) return false
+      if (node.isText && node.text) {
+        const nodeText = node.text
+        const nodeStart = charCount
+        const nodeEnd = charCount + nodeText.length
+        if (foundStart === -1 && textIndex >= nodeStart && textIndex < nodeEnd) {
+          foundStart = nodePos + (textIndex - nodeStart)
+        }
+        const targetEnd = textIndex + searchText.length
+        if (foundStart !== -1 && targetEnd > nodeStart && targetEnd <= nodeEnd) {
+          foundEnd = nodePos + (targetEnd - nodeStart)
+          return false
+        }
+        charCount += nodeText.length
+      }
+      return true
+    })
+
+    if (foundStart === -1 || foundEnd === -1) {
+      console.warn('[AISuggestion] Could not map text position:', suggestion.id)
+      continue
+    }
+
+    const mark = schema.marks.aiSuggestion.create({
+      id: suggestion.id,
+      type: suggestion.type,
+      originalText: suggestion.originalText,
+      suggestedText: suggestion.suggestedText,
+      explanation: suggestion.explanation,
+      createdAt: suggestion.createdAt,
+      userReply: suggestion.userReply || null,
+      provenanceModel: suggestion.provenanceModel || '',
+      provenanceConversationId: suggestion.provenanceConversationId || '',
+      provenanceMessageId: suggestion.provenanceMessageId || '',
+      documentId: suggestion.documentId || '',
+      blockConversionIntent: suggestion.blockConversionIntent ?? null,
+    })
+    tr.addMark(foundStart, foundEnd, mark)
+    restored++
+  }
+
+  return restored
+}
+
+/**
  * Extract all AI suggestions from the editor
  */
-export function getAISuggestions(editor: {
-  state: {
-    doc: {
-      descendants: (
-        fn: (
-          node: {
-            marks: Array<{
-              type: { name: string }
-              attrs: {
-                id: string
-                type: SuggestionType
-                originalText: string
-                suggestedText: string
-                explanation: string
-                createdAt: number
-                userReply?: string
-                provenanceModel?: string
-                provenanceConversationId?: string
-                provenanceMessageId?: string
-                documentId?: string
-                blockConversionIntent?: string | null
-              }
-            }>
-            nodeSize: number
-            textContent: string
-          },
-          pos: number
-        ) => void
-      ) => void
-    }
-  }
-}): AISuggestionData[] {
+export function getAISuggestions(editor: { state: { doc: PMNode } }): AISuggestionData[] {
   const suggestions: AISuggestionData[] = []
 
   editor.state.doc.descendants((node, pos) => {

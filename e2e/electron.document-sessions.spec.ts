@@ -1022,4 +1022,11 @@ test.describe('session tripwires', () => {
       expect(source, `${file} imports comments/store`).not.toMatch(/comments\/store'/)
     }
   })
+
+  test('the suggestion store is gone: suggestions are the marks, restored at load and persisted from a state', () => {
+    for (const { file, source } of files) {
+      expect(source, `${file} references useSuggestionStore`).not.toMatch(/\buseSuggestionStore\b/)
+      expect(source, `${file} imports ai-suggestions/store`).not.toMatch(/ai-suggestions\/store'/)
+    }
+  })
 })

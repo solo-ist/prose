@@ -7,16 +7,16 @@
  * the states persist, with their history, selection and marks, and the view
  * shows whichever one is active.
  *
- * The suggestion store is a mirror of the active session; its id is set only
- * here, inside `activateSession`, and every IndexedDB write of a record set
- * goes through `persistRecords`, which takes the id and the records from one
- * synchronous read. That is what closes the cross-document contamination the
- * old swap allowed (§G): there is no moment with the next document's id and
- * the previous document's records. AI annotation records (#1146) and comment
- * threads (#1147) live in each state's own plugin state: this file seeds
- * them on open, watches the plugin states' revisions after every transaction
- * to persist them, performs the share pushes the comment plugin records, and
- * exposes the active state to React through `subscribeActiveSession`.
+ * Every IndexedDB write of a record set goes through `persistRecords`, which
+ * takes the id and the records from one synchronous read. That is what
+ * closes the cross-document contamination the old swap allowed (§G): there
+ * is no moment with the next document's id and the previous document's
+ * records. AI annotation records (#1146) and comment threads (#1147) live in
+ * each state's own plugin state, AI suggestions are the marks themselves
+ * (#1149): this file seeds them on open, watches the plugin states'
+ * revisions and the marks after every transaction to persist them, performs
+ * the share pushes the comment plugin records, and exposes the active state
+ * to React through `subscribeActiveSession`.
  *
  * This is the only file that creates an `EditorState` for a document or calls
  * `view.updateState`, and the only importer of the record writers in
@@ -32,7 +32,6 @@ import { Node as PMNode } from '@tiptap/pm/model'
 import type { Tab } from '../stores/tabStore'
 import { useTabStore } from '../stores/tabStore'
 import { useEditorStore } from '../stores/editorStore'
-import { useSuggestionStore } from '../extensions/ai-suggestions/store'
 import { applyCommentMarks, mergeCommentsForPersistence } from '../extensions/comments/extension'
 import {
   loadThreadsInto,
@@ -90,14 +89,9 @@ export interface SessionRecords {
   suggestions: AISuggestionData[]
 }
 
-/** The record sets a session holds beside its state; annotations (#1146) and comment threads (#1147) live in the state. */
-export type SessionRecordSets = Pick<SessionRecords, 'suggestions'>
-
 export interface Session {
   tabId: string
   state: EditorState
-  /** The suggestions as loaded. For the active session the store mirrors the id. */
-  records: SessionRecordSets
   /**
    * The store content as loaded, and what the loaded document serialised to.
    * While the document still serialises to `serialized` (marks and
@@ -513,9 +507,7 @@ export async function persistRecords<K extends RecordKind>(
     console.warn(`[session] persistRecords(${kind}) without a documentId; skipped`)
     return
   }
-  const session = sessionForDocument(documentId)
-  // Annotations and comment threads are read from the state, never written into the session.
-  if (session && kind === 'suggestions') session.records.suggestions = records as AISuggestionData[]
+  // Every set is read from the state (plugin state or marks), never written into the session.
   stats.persists++
   switch (kind) {
     case 'annotations':
@@ -532,8 +524,6 @@ export async function persistRecords<K extends RecordKind>(
 }
 
 export async function deleteRecords(kind: RecordKind, documentId: string): Promise<void> {
-  const session = sessionForDocument(documentId)
-  if (session && kind === 'suggestions') session.records.suggestions = []
   switch (kind) {
     case 'annotations':
       await deleteAnnotations(documentId)
@@ -809,7 +799,6 @@ async function openSessionNow(
   const session: Session = {
     tabId: tab.id,
     state,
-    records: { suggestions },
     baseline: { content, serialized: serializeDoc(e, state.doc) },
     frontmatterRaw,
     projectionTimer: null,
@@ -852,10 +841,10 @@ function leaveSession(session: Session, e: Editor): void {
 
 /**
  * Put a session's state into the view. Synchronous: the leaving session is
- * flushed, the state swapped, the suggestion store set to the arriving id,
- * the editor store written inside `flushSync` so the frontmatter block is
- * committed before the scroll offset is restored, then one `ACTIVATED`
- * transaction so every plugin sees the new state.
+ * flushed, the state swapped, the editor store written inside `flushSync`
+ * so the frontmatter block is committed before the scroll offset is
+ * restored, then one `ACTIVATED` transaction so every plugin sees the new
+ * state.
  */
 export function activateSession(tabId: string, opts: { reattach?: boolean } = {}): void {
   const session = requireSession(tabId)
@@ -876,8 +865,6 @@ export function activateSession(tabId: string, opts: { reattach?: boolean } = {}
   session.state = view.state
   const identity = getIdentity(session.state)
   e.setEditable(!tab.isPreview && !isRemarkableOcrPath(tab.path), false)
-
-  useSuggestionStore.setState({ documentId: identity.documentId })
 
   if (!opts.reattach) {
     flushSync(() => {
@@ -998,7 +985,8 @@ export async function replaceSessionDocument(
       // The threads' marks re-anchored by text in the same transaction; the
       // plugin reads which ones landed (#1147).
       applyCommentMarks(tr, [...threadsOf(state)])
-      applySuggestionMarks(tr, session.records.suggestions)
+      // The live suggestion marks, re-anchored by their original text (#1149).
+      applySuggestionMarks(tr, getAISuggestions({ state }))
       return tr
     })
     const lost = threadsOf(session.state).filter((c) => !c.resolved && c.anchorLost === true).length
@@ -1060,15 +1048,13 @@ export async function mergeThreads(documentId: string, merged: readonly CommentD
 /**
  * Restamp a session after a rename, move, Save As or conversion: the state's
  * identity (the annotation plugin restamps its records in the same
- * transition and the write under the new id starts at once), the suggestion
- * mirror, and the comment and suggestion sets written under the new id (old
- * keys stay, as before). Resolves once the rows are under the new key.
+ * transition and the write under the new id starts at once), and the
+ * comment and suggestion sets written under the new id (old keys stay, as
+ * before). Resolves once the rows are under the new key.
  */
 export async function setSessionIdentity(tabId: string, identity: IdentityState): Promise<void> {
   const session = requireSession(tabId)
   const previous = getIdentity(session.state)
-  const isActive = tabId === registry.activeTabId
-  if (isActive) useSuggestionStore.setState({ documentId: identity.documentId })
   applyToSession(tabId, (state) =>
     state.tr.setMeta(IDENTITY_META, identity).setMeta('addToHistory', false)
   )

@@ -79,7 +79,6 @@ import { useEditorStore } from '../stores/editorStore'
 import { annotationsOf } from '../extensions/ai-annotations/transactions'
 import { threadsOf } from '../extensions/comments/transactions'
 import { saveAnnotations, saveComments } from '../lib/persistence'
-import { useSuggestionStore } from '../extensions/ai-suggestions/store'
 import type { AIAnnotation } from '../types/annotations'
 import type { CommentData } from '../extensions/comments/types'
 import type { AISuggestionData } from '../extensions/ai-suggestions/types'
@@ -265,7 +264,6 @@ describe('persistRecords and the plugin state (§G)', () => {
     activateSession('tb')
     expect(getIdentity(editor.state).documentId).toBe('doc-b')
     expect(annotationsOf(editor.state)).toEqual([])
-    expect(useSuggestionStore.getState().documentId).toBe('doc-b')
 
     // Typing in B is a transaction on B's state alone.
     editor.commands.insertContentAt(1, 'Zed ')
@@ -420,7 +418,6 @@ describe('setSessionIdentity', () => {
 
     expect(getIdentity(editor.state)).toEqual({ documentId: 'doc-5b', path: '/docs/five-b.md', plain: false })
     expect(annotationsOf(editor.state).map((a) => a.documentId)).toEqual(['doc-5b'])
-    expect(useSuggestionStore.getState().documentId).toBe('doc-5b')
     expect((db.annotations.get('doc-5b') as AIAnnotation[]).map((a) => a.documentId)).toEqual(['doc-5b'])
     expect((db.comments.get('doc-5b') as CommentData[]).map((c) => c.id)).toEqual(['c-5'])
     expect((db.suggestions.get('doc-5b') as AISuggestionData[]).map((s) => s.id)).toEqual(['s-5'])

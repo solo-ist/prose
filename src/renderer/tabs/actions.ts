@@ -58,6 +58,7 @@ import {
   persistRecords,
   deleteDocumentRecords,
   setSessionIdentity,
+  markTabClosing,
   replaceSessionDocument,
   setActiveFrontmatterRaw,
   updateFromSource as updateSessionFromSource
@@ -442,6 +443,37 @@ export async function newTab(init?: NewTabInit): Promise<string> {
   return tabId
 }
 
+/**
+ * Open a file in a tab that is not shown (#1148): a chat turn whose document
+ * was closed mid-turn gets it back from disk and finishes there. A path
+ * already open is returned as is. Null when the file cannot be read.
+ */
+export async function openInBackground(path: string): Promise<{ tabId: string; documentId: string } | null> {
+  const existing = useTabStore.getState().getTabByPath(path)
+  if (existing) return { tabId: existing.id, documentId: existing.documentId }
+  const documentId = await generateIdFromPath(path)
+  const disk = await readDocumentFromDisk(path)
+  if (!disk) return null
+  const tabId = useTabStore.getState().addTab(
+    {
+      documentId,
+      path,
+      title: titleFromPath(path),
+      isDirty: false,
+      content: disk.content,
+      frontmatter: disk.frontmatter,
+      cursorPosition: { line: 1, column: 1 }
+    },
+    { activate: false }
+  )
+  const tab = useTabStore.getState().getTabById(tabId)
+  if (!tab) throw new Error('Tab vanished while opening in the background')
+  await openSession(tab, disk.content)
+  recordDiskBaseline(path).catch(() => {})
+  pipelineLog('tab:background-open', { tabId, documentId, path })
+  return { tabId, documentId }
+}
+
 /** Switch to an open tab. Already active: re-derive preview state and return. */
 export async function switchToTab(tabId: string): Promise<void> {
   const tabStore = useTabStore.getState()
@@ -475,14 +507,21 @@ export async function closeTab(tabId: string, opts: { force?: boolean } = {}): P
 
   const wasActive = tabId === tabStore.activeTabId
   const untitled = tab.path === null
-  if (wasActive) {
-    await leaveTab(tab, { persist: !untitled })
-    tab = useTabStore.getState().getTabById(tabId) ?? tab
-  }
+  // A chat turn bound to this tab must not find it half-closed (session gone,
+  // record still there) and open an orphan session (#1148).
+  markTabClosing(tabId, true)
+  try {
+    if (wasActive) {
+      await leaveTab(tab, { persist: !untitled })
+      tab = useTabStore.getState().getTabById(tabId) ?? tab
+    }
 
-  if (!tab.isPreview) useTabStore.getState().pushClosedTab(snapshotOf(tab))
-  await retireTab(tab, { discard: untitled })
-  useTabStore.getState().removeTab(tabId)
+    if (!tab.isPreview) useTabStore.getState().pushClosedTab(snapshotOf(tab))
+    await retireTab(tab, { discard: untitled })
+    useTabStore.getState().removeTab(tabId)
+  } finally {
+    markTabClosing(tabId, false)
+  }
 
   const after = useTabStore.getState()
   if (after.tabs.length === 0) {
@@ -514,11 +553,15 @@ export async function closeOtherTabs(keepTabId: string): Promise<void> {
     if (!tab.isPreview) useTabStore.getState().pushClosedTab(snapshotOf(tab))
   }
   // Stored data is dropped only for clean untitled documents.
-  for (const tab of removing) {
-    await retireTab(tab, { discard: !tab.isDirty && !tab.path })
+  for (const tab of removing) markTabClosing(tab.id, true)
+  try {
+    for (const tab of removing) {
+      await retireTab(tab, { discard: !tab.isDirty && !tab.path })
+    }
+    useTabStore.getState().closeOtherTabs(keepTabId)
+  } finally {
+    for (const tab of removing) markTabClosing(tab.id, false)
   }
-
-  useTabStore.getState().closeOtherTabs(keepTabId)
   if (activeLeaves) {
     const next = useTabStore.getState().getTabById(keepTabId)
     if (next) await arriveTab(next)
@@ -537,10 +580,15 @@ export async function closeAllTabs(): Promise<void> {
   for (const tab of tabs) {
     if (!tab.isPreview) useTabStore.getState().pushClosedTab(snapshotOf(tab))
   }
-  for (const tab of tabs) {
-    await retireTab(tab, { discard: !tab.isDirty && !tab.path })
+  for (const tab of tabs) markTabClosing(tab.id, true)
+  try {
+    for (const tab of tabs) {
+      await retireTab(tab, { discard: !tab.isDirty && !tab.path })
+    }
+    useTabStore.getState().closeAllTabs()
+  } finally {
+    for (const tab of tabs) markTabClosing(tab.id, false)
   }
-  useTabStore.getState().closeAllTabs()
   await newTab()
 }
 

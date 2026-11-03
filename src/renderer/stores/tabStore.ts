@@ -42,7 +42,8 @@ interface TabState {
   closedTabs: ClosedTabSnapshot[]
 
   // Tab actions
-  addTab: (tab: Omit<Tab, 'id'> & { id?: string }) => string
+  /** `activate: false` adds the tab without showing it (a background reopen, #1148). */
+  addTab: (tab: Omit<Tab, 'id'> & { id?: string }, opts?: { activate?: boolean }) => string
   removeTab: (tabId: string) => void
   setActiveTab: (tabId: string) => void
   updateTab: (tabId: string, updates: Partial<Tab>) => void
@@ -111,7 +112,7 @@ export const useTabStore = create<TabState>()(
       return tab.id
     },
 
-    addTab: (tabData) => {
+    addTab: (tabData, opts) => {
       const id = tabData.id ?? generateId()
       const tab: Tab = {
         ...tabData,
@@ -120,7 +121,7 @@ export const useTabStore = create<TabState>()(
 
       set((state) => ({
         tabs: [...state.tabs, tab],
-        activeTabId: id
+        activeTabId: opts?.activate === false ? state.activeTabId : id
       }))
 
       return id

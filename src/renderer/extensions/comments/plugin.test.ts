@@ -184,7 +184,7 @@ describe('commands', () => {
     // No new push: the revision stands and the previous pushes are carried
     // (the session reads them once per revision).
     expect(state.pushRevision).toBe(pushRevision)
-    expect(state.pushes).toEqual([{ kind: 'reply', threadId: 'c1', replyId: state.threads[0].replies[0].id }])
+    expect(state.pushes).toEqual([{ kind: 'reply', threadId: 'c1', replyId: state.threads[0]!.replies![0]!.id }])
   })
 
   it('removeThread drops thread and marks without resolving; push: false records nothing', () => {

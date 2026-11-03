@@ -10,10 +10,8 @@
  * markedText + occurrenceIndex on load, as always.
  */
 import { extractCommentsFromHtml } from './htmlExport'
-import { loadComments } from './persistence'
-import { mergeThreads } from '../document/session'
+import { mergeThreads, readThreads } from '../document/session'
 import type { CommentData } from '../extensions/comments/types'
-import { useCommentStore } from '../extensions/comments/store'
 import { useNotificationStore } from '../stores/notificationStore'
 import { cleanString, cleanReply, mergeCommentThreads } from './commentMerge'
 
@@ -52,20 +50,16 @@ export async function importArtifactComments(rawHtml: string, documentId: string
     .filter(isImportableThread)
     .map((c) => cleanThread(c, block.publishRev ?? null))
 
-  const existing = await loadComments(documentId)
+  // The document's threads as they are: from its session when it is open
+  // (a re-import must merge against the live set, not an older stored one),
+  // else the stored rows (#1147).
+  const existing = [...(await readThreads(documentId))]
   const { merged, added } = mergeCommentThreads(existing, incoming)
 
   if (added > 0) {
-    // Annotation-persistence invariant rule 3: if this document is the one
-    // currently OPEN, the merge must land in the live store before any
-    // await — a concurrent routine save reading stale pendingComments would
-    // otherwise write the pre-import set over the just-imported one (the
-    // exact race caught live in shareSync; PR #901 review flagged the same
-    // hole here for re-imports of an already-open document).
-    const store = useCommentStore.getState()
-    if (store.documentId === documentId) useCommentStore.setState({ pendingComments: merged })
-    // An open document takes the new threads' marks in place; otherwise only
-    // IndexedDB is written and the next open restores them (#1145).
+    // An open document takes the merged set and the new threads' marks in
+    // one transaction on its session; otherwise only IndexedDB is written
+    // and the next open restores them (#1145).
     await mergeThreads(documentId, merged)
     useNotificationStore.getState().notify({
       message: `Imported ${added} comment${added === 1 ? '' : 's'} from the shared copy.`,

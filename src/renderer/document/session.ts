@@ -7,15 +7,15 @@
  * the states persist, with their history, selection and marks, and the view
  * shows whichever one is active.
  *
- * The comment and suggestion stores are mirrors of the active session. Their
- * id-setting entry points are called only here, inside `activateSession`,
- * with id and records in one write, and every IndexedDB write of a record set
+ * The suggestion store is a mirror of the active session; its id is set only
+ * here, inside `activateSession`, and every IndexedDB write of a record set
  * goes through `persistRecords`, which takes the id and the records from one
  * synchronous read. That is what closes the cross-document contamination the
  * old swap allowed (§G): there is no moment with the next document's id and
- * the previous document's records. AI annotation records live in each
- * state's own plugin state (#1146): this file seeds them on open, watches the
- * plugin state's revision after every transaction to persist them, and
+ * the previous document's records. AI annotation records (#1146) and comment
+ * threads (#1147) live in each state's own plugin state: this file seeds
+ * them on open, watches the plugin states' revisions after every transaction
+ * to persist them, performs the share pushes the comment plugin records, and
  * exposes the active state to React through `subscribeActiveSession`.
  *
  * This is the only file that creates an `EditorState` for a document or calls
@@ -32,14 +32,16 @@ import { Node as PMNode } from '@tiptap/pm/model'
 import type { Tab } from '../stores/tabStore'
 import { useTabStore } from '../stores/tabStore'
 import { useEditorStore } from '../stores/editorStore'
-import { useCommentStore } from '../extensions/comments/store'
 import { useSuggestionStore } from '../extensions/ai-suggestions/store'
+import { applyCommentMarks, mergeCommentsForPersistence } from '../extensions/comments/extension'
 import {
-  applyCommentMarks,
-  reconcileAnchorLost,
-  commentMarkIds,
-  mergeCommentsForPersistence
-} from '../extensions/comments/extension'
+  loadThreadsInto,
+  mergeThreadsInto,
+  threadPluginState,
+  threadsOf,
+  updateThreadIn,
+  type SharePush
+} from '../extensions/comments/transactions'
 import {
   applySuggestionMarks,
   getAISuggestions,
@@ -88,13 +90,13 @@ export interface SessionRecords {
   suggestions: AISuggestionData[]
 }
 
-/** The record sets a session holds beside its state; annotations live in the state (#1146). */
-export type SessionRecordSets = Omit<SessionRecords, 'annotations'>
+/** The record sets a session holds beside its state; annotations (#1146) and comment threads (#1147) live in the state. */
+export type SessionRecordSets = Pick<SessionRecords, 'suggestions'>
 
 export interface Session {
   tabId: string
   state: EditorState
-  /** Comment threads and suggestions. For the active session the stores mirror these. */
+  /** The suggestions as loaded. For the active session the store mirrors the id. */
   records: SessionRecordSets
   /**
    * The store content as loaded, and what the loaded document serialised to.
@@ -115,7 +117,19 @@ export interface Session {
   annotationsPersisted: number
   /** The in-flight annotation write; an identity change awaits it. */
   annotationWrite: Promise<void> | null
+  /** The comment plugin state's revision last written to IndexedDB (#1147). */
+  commentsPersisted: number
+  /** The in-flight comment write; an identity change and a merge await it. */
+  commentWrite: Promise<void> | null
+  /** The comment plugin state's `pushRevision` whose pushes were handed to the share module. */
+  pushesPerformed: number
 }
+
+/** What performs the share pushes a comment transition records (registered by lib/sharePush.ts). */
+export type SharePushPerformer = (
+  target: { documentId: string; path: string | null; tabId: string },
+  pushes: readonly SharePush[]
+) => void
 
 interface SourceSurface {
   tabId: string
@@ -215,20 +229,8 @@ export function attachEditor(next: Editor | null): void {
   }
   next.on('transaction', onTransaction)
 
-  // The comment store mirrors the active session; a store change belongs to
-  // it. Activation sets `activeTabId` before it writes the store, so this
-  // copies into the session the threads belong to; the id check is the
-  // invariant made explicit.
-  const unsubscribeComments = useCommentStore.subscribe((state) => {
-    const session = activeSession()
-    if (session && state.documentId === getIdentity(session.state).documentId) {
-      session.records.comments = state.pendingComments
-    }
-  })
-
   detachEditor = () => {
     next.off('transaction', onTransaction)
-    unsubscribeComments()
   }
 
   // Dev remount: the schema object changed; carry every state over.
@@ -261,14 +263,19 @@ function rebuildForSchema(session: Session, next: Editor): void {
   })
   // applyTransaction, as openSession does: the appended normalisers (node ids,
   // the table trailing paragraph) run on the rebuilt document too. The
-  // annotation records ride over in a `load` (the old key may differ from the
-  // new plugin's; `annotationsOf` finds them either way), already anchored,
-  // and the rebuilt revision counts as persisted: a remount writes nothing.
+  // annotation records and the comment threads ride over in a `load` (the
+  // old keys may differ from the new plugins'; the readers find them either
+  // way), already anchored (the comment marks came through the JSON), and
+  // the rebuilt revisions count as persisted: a remount writes nothing.
   const tr = state.tr.setMeta(IDENTITY_META, identity).setMeta(BUILD_META, true).setMeta('addToHistory', false)
   loadAnnotationsInto(tr, annotationsOf(session.state))
+  loadThreadsInto(tr, threadsOf(session.state))
   state = state.applyTransaction(tr).state
   session.state = state
   session.annotationsPersisted = annotationPluginState(state)?.revision ?? 0
+  const threads = threadPluginState(state)
+  session.commentsPersisted = threads?.revision ?? 0
+  session.pushesPerformed = threads?.pushRevision ?? 0
 }
 
 // ---------------------------------------------------------------------------
@@ -477,8 +484,8 @@ export async function persistRecords<K extends RecordKind>(
     return
   }
   const session = sessionForDocument(documentId)
-  // Annotations are read from the state, never written into the session.
-  if (session && kind !== 'annotations') (session.records as Record<string, unknown>)[kind] = records
+  // Annotations and comment threads are read from the state, never written into the session.
+  if (session && kind === 'suggestions') session.records.suggestions = records as AISuggestionData[]
   stats.persists++
   switch (kind) {
     case 'annotations':
@@ -496,10 +503,7 @@ export async function persistRecords<K extends RecordKind>(
 
 export async function deleteRecords(kind: RecordKind, documentId: string): Promise<void> {
   const session = sessionForDocument(documentId)
-  if (session && kind !== 'annotations') (session.records as Record<string, unknown>)[kind] = []
-  if (session && session.tabId === registry.activeTabId && kind === 'comments') {
-    useCommentStore.setState({ pendingComments: [] })
-  }
+  if (session && kind === 'suggestions') session.records.suggestions = []
   switch (kind) {
     case 'annotations':
       await deleteAnnotations(documentId)
@@ -523,9 +527,11 @@ export async function deleteDocumentRecords(documentId: string): Promise<void> {
 
 /**
  * Persist all three sets of a session under its own id. Positions drift with
- * every edit and are written only here (leave, close) and by the stores'
- * own mutators, as before. The suggestion set is written empty only when
- * `allowEmptySuggestions` says so (close).
+ * every edit and are written only here (leave, close) and by the plugins'
+ * urgent changes. The comment projection (threads merged with the live
+ * marks' positions and text) is always written, so stored anchors are fresh;
+ * the suggestion set is written empty only when `allowEmptySuggestions` says
+ * so (close).
  */
 async function persistSession(session: Session, opts: { allowEmptySuggestions?: boolean } = {}): Promise<void> {
   const { documentId } = getIdentity(session.state)
@@ -544,7 +550,8 @@ async function persistSession(session: Session, opts: { allowEmptySuggestions?: 
     session.annotationsPersisted = pluginState.revision
     await persistRecords('annotations', documentId, [...pluginState.records])
   }
-  const comments = mergeCommentsForPersistence(editorLike, session.records.comments)
+  session.commentsPersisted = threadPluginState(session.state)?.revision ?? session.commentsPersisted
+  const comments = mergeCommentsForPersistence(editorLike, threadsOf(session.state))
   await persistRecords('comments', documentId, comments)
   const suggestions = getAISuggestions(editorLike)
   if (suggestions.length > 0 || opts.allowEmptySuggestions) {
@@ -556,11 +563,17 @@ async function persistSession(session: Session, opts: { allowEmptySuggestions?: 
  * After a transaction on a session (through the view or `applyToSession`):
  * an urgent annotation change (add, remove, detach, split, re-anchor,
  * restamp) is written now; a plain move or anchor refresh waits for the
- * projection delay, flushed by the leaving step, a close or a save. A seed
- * bumps the revision but is marked persisted by its caller, so it writes
- * nothing.
+ * projection delay, flushed by the leaving step, a close or a save. Any
+ * comment thread change is written now (a seed is marked persisted by its
+ * caller), and the share pushes the comment plugin recorded for this
+ * transition are handed to the share module once (#1147).
  */
 function afterTransaction(session: Session, prev: EditorState): void {
+  afterAnnotationTransaction(session, prev)
+  afterCommentTransaction(session, prev)
+}
+
+function afterAnnotationTransaction(session: Session, prev: EditorState): void {
   const next = annotationPluginState(session.state)
   if (!next) return
   const before = annotationPluginState(prev)?.revision ?? 0
@@ -574,6 +587,94 @@ function afterTransaction(session: Session, prev: EditorState): void {
       if (registry.sessions.has(session.tabId)) persistAnnotationsNow(session)
     }, PROJECTION_DELAY_MS)
   }
+}
+
+let sharePushPerformer: SharePushPerformer | null = null
+
+/** lib/sharePush.ts registers itself here; the session layer never imports the share module. */
+export function registerSharePushPerformer(performer: SharePushPerformer | null): void {
+  sharePushPerformer = performer
+}
+
+function afterCommentTransaction(session: Session, prev: EditorState): void {
+  const next = threadPluginState(session.state)
+  if (!next) return
+  const before = threadPluginState(prev)
+  if (next.revision !== (before?.revision ?? 0) && next.urgentRevision > session.commentsPersisted) {
+    persistCommentsNow(session)
+  }
+  if (next.pushRevision !== session.pushesPerformed) {
+    session.pushesPerformed = next.pushRevision
+    if (next.pushes.length > 0 && sharePushPerformer) {
+      const identity = getIdentity(session.state)
+      sharePushPerformer({ documentId: identity.documentId, path: identity.path, tabId: session.tabId }, next.pushes)
+    }
+  }
+}
+
+/** Write the session's comment threads under its own id, from one synchronous read of the state. */
+function persistCommentsNow(session: Session): void {
+  const pluginState = threadPluginState(session.state)
+  if (!pluginState) return
+  const { documentId } = getIdentity(session.state)
+  session.commentsPersisted = pluginState.revision
+  const comments = mergeCommentsForPersistence({ state: session.state }, pluginState.threads)
+  const write = persistRecords('comments', documentId, comments).finally(() => {
+    if (session.commentWrite === write) session.commentWrite = null
+  })
+  session.commentWrite = write
+}
+
+/**
+ * The threads of a document: from its session when one is open, else the
+ * stored rows. The share paths read through here so a document open in a
+ * background tab is served from its state (#1147).
+ */
+export async function readThreads(documentId: string): Promise<readonly CommentData[]> {
+  const session = sessionForDocument(documentId)
+  if (session) return threadsOf(session.state)
+  return loadComments(documentId)
+}
+
+/**
+ * Patch one thread of a document from the share module (a server row id, a
+ * cleared stale id): a quiet transaction on the owning session, which
+ * persists at once, or a read-modify-write of the stored rows when the
+ * document is closed. `patch` runs against the thread as it is now, so a
+ * reply added meanwhile is kept.
+ */
+export async function patchThread(
+  documentId: string,
+  threadId: string,
+  patch: (current: CommentData) => Partial<CommentData> | null
+): Promise<void> {
+  const session = sessionForDocument(documentId)
+  if (session) {
+    applyToSession(session.tabId, (state) => {
+      const tr = state.tr.setMeta('addToHistory', false)
+      const current = threadsOf(state).find((c) => c.id === threadId)
+      const delta = current ? patch(current) : null
+      if (delta) updateThreadIn(tr, threadId, delta, { quiet: true })
+      return tr
+    })
+    await session.commentWrite
+    return
+  }
+  const stored = await loadComments(documentId)
+  const i = stored.findIndex((c) => c.id === threadId)
+  if (i === -1) return
+  const delta = patch(stored[i])
+  if (!delta) return
+  const next = stored.slice()
+  next[i] = { ...stored[i], ...delta }
+  await saveComments(documentId, next)
+}
+
+/** The path of a document: its session's identity, else the tab that holds it. */
+export function documentPathOf(documentId: string): string | null {
+  const session = sessionForDocument(documentId)
+  if (session) return getIdentity(session.state).path
+  return useTabStore.getState().tabs.find((t) => t.documentId === documentId)?.path ?? null
 }
 
 /** Write the session's annotation set under its own id, from one synchronous read of the state. */
@@ -658,7 +759,10 @@ async function openSessionNow(
     .setMeta(IDENTITY_META, identity)
     .setMeta(BUILD_META, true)
     .setMeta('addToHistory', false)
-  const outcome = applyCommentMarks(seed, comments)
+  // The stored threads and their marks, in one transaction; the plugin sets
+  // `anchorLost` from the marks that landed (#1147).
+  loadThreadsInto(seed, comments)
+  applyCommentMarks(seed, comments)
   applySuggestionMarks(seed, suggestions)
   // The stored annotation rows, re-anchored onto this document by their text
   // inside the plugin's apply (#1138); nothing is written back at load. When
@@ -670,11 +774,12 @@ async function openSessionNow(
   const seeded = annotationPluginState(state)
   const loaded = seeded?.records ?? []
   const changedAtLoad = loaded.length !== annotations.length || loaded.some((row, i) => row !== annotations[i])
+  const threads = threadPluginState(state)
 
   const session: Session = {
     tabId: tab.id,
     state,
-    records: { comments: reconcileAnchorLost(comments, outcome), suggestions },
+    records: { suggestions },
     baseline: { content, serialized: serializeDoc(e, state.doc) },
     frontmatterRaw,
     projectionTimer: null,
@@ -682,7 +787,12 @@ async function openSessionNow(
     suggestionResolved: false,
     annotationTimer: null,
     annotationsPersisted: (seeded?.revision ?? 0) - (changedAtLoad ? 1 : 0),
-    annotationWrite: null
+    annotationWrite: null,
+    // The seed's threads count as written: leave and close write the
+    // projection (with the `anchorLost` flags the seed set) anyway.
+    commentsPersisted: threads?.revision ?? 0,
+    commentWrite: null,
+    pushesPerformed: threads?.pushRevision ?? 0
   }
   registry.sessions.set(tab.id, session)
   stats.opens++
@@ -712,11 +822,10 @@ function leaveSession(session: Session, e: Editor): void {
 
 /**
  * Put a session's state into the view. Synchronous: the leaving session is
- * flushed, the state swapped, the stores set to the arriving records (id and
- * records in one write each), the editor store written inside `flushSync` so
- * the frontmatter block is committed before the scroll offset is restored,
- * then one `ACTIVATED` transaction so every plugin sees the new state under
- * the mirrored records.
+ * flushed, the state swapped, the suggestion store set to the arriving id,
+ * the editor store written inside `flushSync` so the frontmatter block is
+ * committed before the scroll offset is restored, then one `ACTIVATED`
+ * transaction so every plugin sees the new state.
  */
 export function activateSession(tabId: string, opts: { reattach?: boolean } = {}): void {
   const session = requireSession(tabId)
@@ -738,7 +847,6 @@ export function activateSession(tabId: string, opts: { reattach?: boolean } = {}
   const identity = getIdentity(session.state)
   e.setEditable(!tab.isPreview && !isRemarkableOcrPath(tab.path), false)
 
-  useCommentStore.setState({ documentId: identity.documentId, pendingComments: session.records.comments })
   useSuggestionStore.setState({ documentId: identity.documentId })
 
   if (!opts.reattach) {
@@ -844,19 +952,18 @@ export async function replaceSessionDocument(
     session.baseline = { content: next.content, serialized: serializeDoc(e, doc) }
     session.frontmatterRaw = getFrontmatterRaw(next.content)
 
-    let outcome = { anchored: [] as string[], lost: [] as string[] }
     applyToSession(tabId, (state) => {
       const tr = state.tr
         .replaceWith(0, state.doc.content.size, doc.content)
         .setMeta(RELOAD_META, true)
-      outcome = applyCommentMarks(tr, session.records.comments)
+      // The threads' marks re-anchored by text in the same transaction; the
+      // plugin reads which ones landed (#1147).
+      applyCommentMarks(tr, [...threadsOf(state)])
       applySuggestionMarks(tr, session.records.suggestions)
       return tr
     })
-    const comments = reconcileAnchorLost(session.records.comments, outcome)
-    session.records.comments = comments
-    if (isActive) useCommentStore.setState({ pendingComments: comments })
-    pipelineLog('session:reload', { tabId, keepHistory: true, lost: outcome.lost.length })
+    const lost = threadsOf(session.state).filter((c) => !c.resolved && c.anchorLost === true).length
+    pipelineLog('session:reload', { tabId, keepHistory: true, lost })
     return
   }
 
@@ -881,48 +988,48 @@ function selectionOf(state: EditorState): { from: number; to: number } {
 
 /**
  * Merge comment threads into a document (a share pull, an artifact
- * re-import). When a session holds the document the new threads' marks are
- * applied in place, in one history-free transaction, and the mirror follows;
- * otherwise only IndexedDB is written, as the import path already did.
+ * re-import). When a session holds the document, active or in the
+ * background, the merged set replaces its threads in one history-free
+ * transaction that also marks the new open threads and unmarks the ones the
+ * merge dropped (a reviewer's tombstone must not be rebuilt from a live
+ * mark); the write to IndexedDB starts in the same transition and is
+ * awaited. Otherwise only IndexedDB is written, as the import path already
+ * did.
  */
-export async function mergeThreads(documentId: string, merged: CommentData[]): Promise<void> {
+export async function mergeThreads(documentId: string, merged: readonly CommentData[]): Promise<void> {
   const session = sessionForDocument(documentId)
   if (!session) {
-    await saveComments(documentId, merged)
+    await saveComments(documentId, [...merged])
     return
   }
-  const present = commentMarkIds(session.state.doc)
-  const fresh = merged.filter((c) => !c.resolved && !present.has(c.id))
-  let result = merged
-  if (fresh.length > 0) {
-    let outcome = { anchored: [] as string[], lost: [] as string[] }
-    applyToSession(session.tabId, (state) => {
-      const tr = state.tr.setMeta('addToHistory', false)
-      outcome = applyCommentMarks(tr, fresh)
-      return tr
-    })
-    result = reconcileAnchorLost(merged, outcome)
-  }
-  session.records.comments = result
-  if (session.tabId === registry.activeTabId) useCommentStore.setState({ pendingComments: result })
-  await persistRecords('comments', documentId, result)
+  applyToSession(session.tabId, (state) => {
+    const tr = state.tr.setMeta('addToHistory', false)
+    const present = threadPluginState(state)?.marks ?? new Map()
+    const keep = new Set(merged.map((c) => c.id))
+    const type = state.schema.marks.comment
+    for (const span of present.values()) {
+      if (keep.has(span.id)) continue
+      for (const r of span.spans) tr.removeMark(r.from, r.to, type)
+    }
+    applyCommentMarks(tr, merged.filter((c) => !c.resolved && !present.has(c.id)))
+    mergeThreadsInto(tr, merged)
+    return tr
+  })
+  await session.commentWrite
 }
 
 /**
  * Restamp a session after a rename, move, Save As or conversion: the state's
  * identity (the annotation plugin restamps its records in the same
- * transition and the write under the new id starts at once), the mirrors,
- * and the comment and suggestion sets written under the new id (old keys
- * stay, as before). Resolves once the rows are under the new key.
+ * transition and the write under the new id starts at once), the suggestion
+ * mirror, and the comment and suggestion sets written under the new id (old
+ * keys stay, as before). Resolves once the rows are under the new key.
  */
 export async function setSessionIdentity(tabId: string, identity: IdentityState): Promise<void> {
   const session = requireSession(tabId)
   const previous = getIdentity(session.state)
   const isActive = tabId === registry.activeTabId
-  if (isActive) {
-    useCommentStore.setState({ documentId: identity.documentId })
-    useSuggestionStore.setState({ documentId: identity.documentId })
-  }
+  if (isActive) useSuggestionStore.setState({ documentId: identity.documentId })
   applyToSession(tabId, (state) =>
     state.tr.setMeta(IDENTITY_META, identity).setMeta('addToHistory', false)
   )
@@ -932,10 +1039,11 @@ export async function setSessionIdentity(tabId: string, identity: IdentityState)
   // it; a pending debounced move was folded into that same write.
   if (identity.documentId !== previous.documentId) {
     const editorLike = { state: session.state }
-    const comments = mergeCommentsForPersistence(editorLike, session.records.comments)
+    const comments = mergeCommentsForPersistence(editorLike, threadsOf(session.state))
     const suggestions = getAISuggestions(editorLike)
     await Promise.all([
       session.annotationWrite ?? Promise.resolve(),
+      session.commentWrite ?? Promise.resolve(),
       comments.length > 0 ? persistRecords('comments', identity.documentId, comments) : Promise.resolve(),
       suggestions.length > 0 ? persistRecords('suggestions', identity.documentId, suggestions) : Promise.resolve()
     ])

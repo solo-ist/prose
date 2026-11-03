@@ -9,10 +9,9 @@ import { resolveDocumentHandle, type DocumentHandle } from '../../../document/ha
 import { annotationsOf } from '../../../extensions/ai-annotations'
 import { getNodesWithIds, findNodeById } from '../../../extensions/node-ids'
 import type { NodeWithId } from '../../../extensions/node-ids'
-import { getComments, useCommentStore, findFullyCoveredCommentIds } from '../../../extensions/comments'
+import { getComments, findFullyCoveredCommentIds, threadsOf, countOpenThreads } from '../../../extensions/comments'
 import type { CommentReply } from '../../../extensions/comments/types'
 import { getAISuggestions } from '../../../extensions/ai-suggestions'
-import { pushReplyToShare, pushResolveToShare } from '../../sharePush'
 import { isEditorReadOnly } from './editor'
 import { getApi } from '../../browserApi'
 import { generateId } from '../../persistence'
@@ -193,8 +192,8 @@ export async function executeGetMetadata(): Promise<ToolResult<DocumentMetadata>
   const characterCount = content.length
   const lineCount = content.split('\n').length
 
-  // Comment and suggestion counts
-  const commentCount = handle ? getComments(handle).length : 0
+  // Open threads (anchor-lost ones included, as the status bar counts them), suggestions, annotations.
+  const commentCount = handle ? countOpenThreads(threadsOf(handle.state)) : 0
   const pendingSuggestionCount = handle ? getAISuggestions(handle).length : 0
   const annotationCount = handle ? annotationsOf(handle.state).length : 0
 
@@ -388,6 +387,8 @@ interface CommentEntry {
   to: number
   replies: CommentReply[]
   resolved: boolean
+  /** The thread's text was edited away; it is open but has no position (#1147). */
+  anchorLost?: boolean
 }
 
 /**
@@ -404,14 +405,13 @@ export function executeListComments(): ToolResult<{ comments: CommentEntry[] }> 
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
-  // Live marks give us current positions.
+  // Live marks give us current positions; the document's threads (its own
+  // state, #1147) hold replies + resolved state not carried by the mark.
   const liveMarks = getComments(handle)
-
-  // Persisted store holds replies + resolved state not carried by the mark.
-  const persistedComments = useCommentStore.getState().pendingComments
+  const threads = threadsOf(handle.state)
 
   const comments: CommentEntry[] = liveMarks.map((c) => {
-    const persisted = persistedComments.find((p) => p.id === c.id)
+    const thread = threads.find((p) => p.id === c.id)
     return {
       id: c.id,
       markedText: c.markedText,
@@ -419,26 +419,27 @@ export function executeListComments(): ToolResult<{ comments: CommentEntry[] }> 
       createdAt: c.createdAt,
       from: c.from,
       to: c.to,
-      replies: persisted?.replies ?? [],
-      resolved: persisted?.resolved ?? false,
+      replies: thread?.replies ?? [],
+      resolved: thread?.resolved ?? false,
     }
   })
 
-  // Also include resolved threads (mark removed, but store still has them).
-  const resolvedIds = new Set(liveMarks.map((c) => c.id))
-  for (const p of persistedComments) {
-    if (!resolvedIds.has(p.id) && p.resolved) {
-      comments.push({
-        id: p.id,
-        markedText: p.markedText,
-        comment: p.comment,
-        createdAt: p.createdAt,
-        from: p.from,
-        to: p.to,
-        replies: p.replies ?? [],
-        resolved: true,
-      })
-    }
+  // Markless threads: resolved ones as history, anchor-lost open ones so the
+  // model sees every open thread the status bar counts.
+  const liveIds = new Set(liveMarks.map((c) => c.id))
+  for (const p of threads) {
+    if (liveIds.has(p.id)) continue
+    comments.push({
+      id: p.id,
+      markedText: p.markedText,
+      comment: p.comment,
+      createdAt: p.createdAt,
+      from: p.from,
+      to: p.to,
+      replies: p.replies ?? [],
+      resolved: p.resolved === true,
+      ...(p.resolved ? {} : { anchorLost: true }),
+    })
   }
 
   return toolSuccess({ comments })
@@ -524,64 +525,23 @@ export function executeAddComment(args: {
     return toolError('Failed to apply comment mark — the range may not contain markable content', 'COMMENT_FAILED')
   }
 
-  // The Comment extension's onCommentAdded hook mirrors the new comment into the
-  // store (with correct occurrenceIndex) and persists it, so reply_to_comment /
-  // resolve_comment can find it by ID in the same session. No manual mirror here.
+  // setComment adds the thread in the mark's own transaction (#1147), so
+  // reply_to_comment / resolve_comment find it by id at once.
 
   return toolSuccess({ id })
 }
 
 /**
- * Resolve the comment store entry for a given ID, falling back to the live
- * editor marks when the store doesn't have it yet.
- *
- * The comment store is only populated on tab-load (from IndexedDB) and on
- * explicit saves (tab switch, resolve, reply). When `add_comment` creates a
- * new mark inside the same "session" the mark exists only in the TipTap
- * document — `pendingComments` won't have it until the next save. This helper
- * bridges that gap so tools can act on freshly-created comments.
- */
-function ensureInStore(
-  id: string,
-  store: ReturnType<typeof useCommentStore.getState>,
-  handle: DocumentHandle | null
-): boolean {
-  const alreadyInStore = store.pendingComments.some((c) => c.id === id)
-  if (alreadyInStore) return true
-
-  // Fall back to live editor marks
-  if (!handle) return false
-  const liveMark = getComments(handle).find((c) => c.id === id)
-  if (!liveMark) return false
-
-  // Synthesize a minimal store entry from the live mark
-  const synth = {
-    id: liveMark.id,
-    markedText: liveMark.markedText,
-    comment: liveMark.comment,
-    createdAt: liveMark.createdAt,
-    occurrenceIndex: liveMark.occurrenceIndex ?? 0,
-    from: liveMark.from,
-    to: liveMark.to,
-    replies: [],
-    resolved: false,
-  }
-  useCommentStore.setState({
-    pendingComments: [...store.pendingComments, synth],
-  })
-  return true
-}
-
-/**
  * resolve_comment - Mark a comment thread as resolved.
  *
- * Sets resolved:true on the persisted CommentData and removes the editor mark.
- * The thread remains in the store as collapsed history — it is not deleted.
+ * Sets resolved:true on the thread and removes the editor mark, in one
+ * transaction on the document (#1147). The thread remains as collapsed
+ * history — it is not deleted.
  */
 export function executeResolveComment(args: {
   id: string
 }): ToolResult<{ resolved: boolean }> {
-  const handle = resolveDocumentHandle()
+  const handle = resolveDocumentHandle({ forWrite: true })
 
   if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
@@ -597,30 +557,13 @@ export function executeResolveComment(args: {
     return toolError('Comment ID is required', 'INVALID_INPUT')
   }
 
-  // Ensure the comment is in the store (synthesizes from live mark if needed).
-  const store = useCommentStore.getState()
-  const found = ensureInStore(id, store, handle)
-  if (!found) {
+  if (!threadsOf(handle.state).some((c) => c.id === id)) {
     return toolError(`Comment with ID "${id}" not found`, 'COMMENT_NOT_FOUND')
   }
 
-  // Re-read after possible synthesis
-  const currentComments = useCommentStore.getState().pendingComments
-  const updated = currentComments.map((c) =>
-    c.id === id ? { ...c, resolved: true } : c
-  )
-  useCommentStore.setState({ pendingComments: updated })
-
-  const documentId = useCommentStore.getState().documentId
-  if (documentId) {
-    useCommentStore.getState().saveComments(documentId, updated)
-  }
-
-  // Remove the editor mark so the highlight disappears.
-  handle.commands.unsetComment(id)
-
-  // Share-sourced threads push resolution into the live conversation (#769).
-  pushResolveToShare(id)
+  // Resolved and unmarked together; the session persists the thread and
+  // pushes the resolve to a share (#769).
+  handle.commands.resolveThread(id)
 
   return toolSuccess({ resolved: true })
 }
@@ -645,12 +588,12 @@ export function executeReplyToComment(args: {
     return toolError('Reply text is required', 'INVALID_INPUT')
   }
 
-  const handle = resolveDocumentHandle()
+  const handle = resolveDocumentHandle({ forWrite: true })
+  if (!handle) {
+    return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
+  }
 
-  // Ensure the comment is in the store (synthesizes from live mark if needed).
-  const store = useCommentStore.getState()
-  const found = ensureInStore(id, store, handle)
-  if (!found) {
+  if (!threadsOf(handle.state).some((c) => c.id === id)) {
     return toolError(`Comment with ID "${id}" not found`, 'COMMENT_NOT_FOUND')
   }
 
@@ -661,21 +604,9 @@ export function executeReplyToComment(args: {
     createdAt: Date.now(),
   }
 
-  // Re-read after possible synthesis
-  const currentComments = useCommentStore.getState().pendingComments
-  const updated = currentComments.map((c) =>
-    c.id === id ? { ...c, replies: [...(c.replies ?? []), reply] } : c
-  )
-
-  useCommentStore.setState({ pendingComments: updated })
-
-  const documentId = useCommentStore.getState().documentId
-  if (documentId) {
-    useCommentStore.getState().saveComments(documentId, updated)
-  }
-
-  // Share-sourced threads push the reply into the live conversation (#769).
-  pushReplyToShare(id, reply.id)
+  // One transaction on the document; the session persists the thread and
+  // pushes the reply to a share (#769).
+  handle.commands.replyToThread(id, reply)
 
   return toolSuccess({ replyId: reply.id })
 }

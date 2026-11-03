@@ -1,6 +1,21 @@
-export { Comment, getComments, mergeCommentsForPersistence, commentMarkdownSerializer, findFullyCoveredCommentIds, AI_REPLACEMENT_META } from './extension'
-export type { CommentMark, CommentData, CommentReply, CommentOptions } from './types'
-export { useCommentStore, countOpenThreads } from './store'
+export { Comment, getComments, mergeCommentsForPersistence, commentMarkdownSerializer, findFullyCoveredCommentIds, applyCommentMarks } from './extension'
+export { AI_REPLACEMENT_META } from './plugin'
+export {
+  commentThreadsPluginKey,
+  threadPluginState,
+  threadsOf,
+  selectThreads,
+  selectOpenThreadCount,
+  countOpenThreads,
+  addThreadsTo,
+  updateThreadIn,
+  removeThreadFrom,
+  mergeThreadsInto,
+  loadThreadsInto,
+  EMPTY_THREADS
+} from './transactions'
+export type { CommentThreadsPluginState, SharePush, ThreadMeta, MarkSpan } from './transactions'
+export type { CommentData, CommentReply, CommentOptions } from './types'
 
 /**
  * Event fired to open a comment thread's popover on its marked text. Dispatched

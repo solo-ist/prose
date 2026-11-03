@@ -25,7 +25,7 @@ import { ReviewContainer } from '../review/ReviewContainer'
 import { AIEditsHistoryPanel, activityItemVisible, DEFAULT_ACTIVITY_FILTER, requestCommentReview, type ActivityFilter } from '../editor/AIEditsHistoryPanel'
 import { selectAnnotations } from '../../extensions/ai-annotations'
 import { useActiveSession } from '../../document/useActiveSession'
-import { useCommentStore, countOpenThreads } from '../../extensions/comments/store'
+import { selectThreads, countOpenThreads } from '../../extensions/comments'
 import { MODE_SWITCH_RUN_EVENT } from './toolResultRenderers/RequestModeSwitchResult'
 import { cn } from '../../lib/utils'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -106,7 +106,7 @@ export function ChatPanel() {
   // Activity feed sources for the tab badge + filter affordance. The
   // annotations are the active document's own records (#1146).
   const annotations = useActiveSession(selectAnnotations)
-  const pendingComments = useCommentStore((s) => s.pendingComments)
+  const pendingComments = useActiveSession(selectThreads)
 
   // There's something to filter whenever any annotation or comment exists.
   const hasActivity = annotations.length > 0 || pendingComments.length > 0

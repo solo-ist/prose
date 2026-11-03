@@ -11,7 +11,8 @@ import { pushShareContent } from '../../lib/shareContentSync'
 import { syncShareComments } from '../../lib/shareSync'
 import { useShareStore, deriveShareStatus } from '../../stores/shareStore'
 import { useEditorStore } from '../../stores/editorStore'
-import { useCommentStore, countOpenThreads } from '../../extensions/comments/store'
+import { selectThreads, countOpenThreads } from '../../extensions/comments'
+import { useActiveSession } from '../../document/useActiveSession'
 import { OPEN_COMMENT_EVENT, requestCommentReview } from '../editor/AIEditsHistoryPanel'
 import { formatAge } from '../../types/annotations'
 import type { CommentData } from '../../extensions/comments/types'
@@ -30,7 +31,7 @@ export function ShareStatusPopover() {
   const setSyncMode = useShareStore((s) => s.setSyncMode)
   const unseen = useShareStore((s) => s.unseenComments)
   const docDirty = useEditorStore((s) => s.document.isDirty)
-  const pendingComments = useCommentStore((s) => s.pendingComments)
+  const pendingComments = useActiveSession(selectThreads)
   const openCount = countOpenThreads(pendingComments)
   // The most recent reviewer threads — the popover's jump list into the
   // commenting layer. Share-sourced and still open, newest first. The

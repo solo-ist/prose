@@ -88,7 +88,7 @@ export async function pushShareContent(reason: 'auto' | 'manual'): Promise<boole
     // on-create push had no publication to hit) — push them NOW, before
     // baking, so the artifact bakes under server ids and viewer replies to
     // those threads have a live row to land on.
-    await backfillShareThreads()
+    await backfillShareThreads(doc.documentId)
     // Re-attempt queued pushes (a reply whose create failed/rate-limited earlier
     // sits in the pending-op queue, not in backfill's missing-THREAD set) BEFORE
     // the drain + readiness check — otherwise a queued reply is only ever flushed
@@ -105,7 +105,7 @@ export async function pushShareContent(reason: 'auto' | 'manual'): Promise<boole
     // that row under its local id and the eventual retry would double it via the
     // live poll. Defer + reschedule; the retry re-runs this whole flush/drain.
     // (Manual QA / security read-through, 2026-09-19.)
-    if (hasUnsyncedRows()) {
+    if (await hasUnsyncedRows(doc.documentId)) {
       scheduleAutoPush(PUSH_RETRY_MS)
       return false
     }

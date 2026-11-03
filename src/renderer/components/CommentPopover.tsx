@@ -23,11 +23,11 @@ import { Trash2, X, Sparkles, CheckCheck, Send, User, MessageSquare, RotateCcw, 
 import { useChat } from '../hooks/useChat'
 import { useAIConfigured } from '../hooks/useAIConfigured'
 import { aiUnavailableMessage } from '../lib/llm'
-import { useCommentStore } from '../extensions/comments/store'
+import { selectThreads } from '../extensions/comments'
+import { useActiveSession } from '../document/useActiveSession'
 import type { CommentData, CommentReply } from '../extensions/comments/types'
 import { formatAge } from '../types/annotations'
 import { generateId } from '../lib/persistence'
-import { pushRemoveToShare, pushReplyToShare, pushResolveToShare } from '../lib/sharePush'
 import { renderMarkdown } from './chat/ChatMessage'
 import { OPEN_COMMENT_EVENT, requestCommentReview } from './editor/AIEditsHistoryPanel'
 import { PROSE_ICONS, IconThumb } from '../lib/prose-icons'
@@ -77,10 +77,8 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
   // is a no-op — grey it out.
   const inCommentReview = useReviewMode() === 'comments'
 
-  // Get persisted comment data (replies + resolved state)
-  const pendingComments = useCommentStore((s) => s.pendingComments)
-  const documentId = useCommentStore((s) => s.documentId)
-  const saveComments = useCommentStore((s) => s.saveComments)
+  // The active document's threads (replies + resolved state), from its state (#1147).
+  const pendingComments = useActiveSession(selectThreads)
 
   const currentComment: CommentData | undefined = popover.commentId
     ? pendingComments.find((c) => c.id === popover.commentId)
@@ -227,48 +225,28 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
     }
   }, [popover.isOpen, popover.commentId])
 
+  // Each write is one transaction on the active document: thread and marks
+  // change together, the session persists, and a shared thread's push
+  // (remove, resolve, reply) follows from the transition (#1147).
   const handleRemove = useCallback(() => {
     if (!popover.commentId) return
-    const id = popover.commentId
-    // Remove the editor mark and drop the persisted record entirely.
-    editor.commands.unsetComment(id)
-    const { pendingComments: current } = useCommentStore.getState()
-    // A shared thread comes off the shared page too (#903) — read its shareId
-    // before the record is gone.
-    const removed = current.find((c) => c.id === id)
-    if (removed) pushRemoveToShare(removed)
-    const updated = current.filter((c) => c.id !== id)
-    useCommentStore.setState({ pendingComments: updated })
-    if (documentId) saveComments(documentId, updated)
+    editor.commands.removeThread(popover.commentId)
     setPopover((prev) => ({ ...prev, isOpen: false }))
-  }, [editor, popover.commentId, documentId, saveComments])
+  }, [editor, popover.commentId])
 
   const handleResolve = useCallback(() => {
     if (!popover.commentId) return
-    const id = popover.commentId
-    // Mark resolved:true in the store (thread persists as history),
-    // then remove the editor mark so the highlight disappears.
-    const { pendingComments: current } = useCommentStore.getState()
-    const updated = current.map((c) => c.id === id ? { ...c, resolved: true } : c)
-    useCommentStore.setState({ pendingComments: updated })
-    if (documentId) saveComments(documentId, updated)
-    editor.commands.unsetComment(id)
+    // Thread resolved (kept as history) and the mark removed, so the
+    // highlight disappears.
+    editor.commands.resolveThread(popover.commentId)
     setShowResolvedThread(false)
-    pushResolveToShare(id)
-  }, [editor, popover.commentId, documentId, saveComments])
+  }, [editor, popover.commentId])
 
   const handleReopen = useCallback(() => {
     if (!popover.commentId) return
-    const id = popover.commentId
-    const { pendingComments: current } = useCommentStore.getState()
-    const updated = current.map((c) => c.id === id ? { ...c, resolved: false } : c)
-    useCommentStore.setState({ pendingComments: updated })
-    if (documentId) saveComments(documentId, updated)
-    // Re-anchor the editor mark that resolving removed, so the highlight returns.
-    const thread = updated.find((c) => c.id === id)
-    if (thread) editor.commands.restoreComments([thread])
-    pushResolveToShare(id)
-  }, [editor, popover.commentId, documentId, saveComments])
+    // Reopened, with the mark re-anchored on its text so the highlight returns.
+    editor.commands.reopenThread(popover.commentId)
+  }, [editor, popover.commentId])
 
   const handleProcess = useCallback(() => {
     if (!popover.commentId || !ai.available) return
@@ -300,16 +278,10 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
       text,
       createdAt: Date.now(),
     }
-    const { pendingComments: current } = useCommentStore.getState()
-    const updated = current.map((c) =>
-      c.id === id ? { ...c, replies: [...(c.replies ?? []), reply] } : c
-    )
-    useCommentStore.setState({ pendingComments: updated })
-    if (documentId) saveComments(documentId, updated)
+    editor.commands.replyToThread(id, reply)
     setReplyText('')
     replyInputRef.current?.focus()
-    pushReplyToShare(id, reply.id)
-  }, [replyText, popover.commentId, documentId, saveComments])
+  }, [editor, replyText, popover.commentId])
 
   const handleReplyKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

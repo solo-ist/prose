@@ -3,7 +3,6 @@ import { useEditor as useTipTapEditor, EditorContent } from '@tiptap/react'
 import { TextSelection } from '@tiptap/pm/state'
 import type { Slice } from '@tiptap/pm/model'
 import type { EditorView } from '@tiptap/pm/view'
-import { pushNewThreadToShare } from '../../lib/sharePush'
 import { useNotificationStore } from '../../stores/notificationStore'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
@@ -42,7 +41,6 @@ import { FrontmatterEditor, serializeFrontmatter } from './FrontmatterEditor'
 import { TransformAnimation, useTransformAnimation } from './TransformAnimation'
 import { AISuggestionPopover } from '../AISuggestionPopover'
 import { CommentPopover } from '../CommentPopover'
-import { useCommentStore } from '../../extensions/comments/store'
 import { LinkPopover } from './LinkPopover'
 import { SourceEditor, SourceEditorHandle } from './SourceEditor'
 import { getApi } from '../../lib/browserApi'
@@ -217,25 +215,8 @@ export function Editor() {
   const editor = useTipTapEditor({
     extensions: createEditorExtensions({
       bulletListMarker: settings.editor.bulletListMarker ?? '*',
-      // Mirror every newly-created comment mark into the persistence store so
-      // replies/resolve can find it by ID immediately — without waiting for a
-      // tab-switch save. Catches both the UI (AddCommentDialog) and tool
-      // (add_comment) paths, since both go through setComment. Restoration
-      // uses tr.addMark directly and does NOT fire this, so no double-add.
-      onCommentAdded: (commentData) => {
-        const store = useCommentStore.getState()
-        if (store.pendingComments.some((c) => c.id === commentData.id)) return
-        const updated = [
-          ...store.pendingComments,
-          { ...commentData, replies: [], resolved: false },
-        ]
-        useCommentStore.setState({ pendingComments: updated })
-        if (store.documentId) store.saveComments(store.documentId, updated)
-        // Live new-thread push (#769): the conversation is always live — a
-        // comment created here becomes a server row on the publication
-        // immediately. No-op when the document isn't published.
-        pushNewThreadToShare(commentData.id)
-      },
+      // A new comment's thread rides in the mark's own transaction (#1147);
+      // the session persists it and pushes it to a share from there.
       // setComment refuses ranges that would swallow an existing thread's
       // mark (#830) — tell the user to reply on that thread instead.
       onCommentBlocked: () => {

@@ -8,35 +8,40 @@
  * reaches the shared page without a re-publish.
  *
  * Invariants:
- * - Called ONLY from user/AI action handlers (the Comment extension's
- *   onCommentAdded mirror for new threads, CommentPopover, Comment Review,
- *   AI tool executors) — never from useCommentStore.saveComments, which also
- *   fires on tab flushes and on the sync merge itself and would echo-loop.
+ * - Every push is addressed by `documentId` (#1147). The comment threads
+ *   plugin records what a transition asks for (a new local thread, a reply,
+ *   a resolve toggle, a removal) and the session layer hands the batch to
+ *   `performSharePushes` with the owning document; a backfill and a queued
+ *   retry name the document too. A push never reads "the active document":
+ *   a tab switch while one is in flight changes nothing about where its
+ *   result lands.
  * - Local state is the source of truth. A failed push queues and retries on
  *   the next window focus or successful content push; errors surface only
  *   into shareStore (the status icon), never as dialogs.
  * - A successful push records the server row id as shareId (on the thread or
- *   reply) — the dedupe key for pull-merge and bake (see
- *   commentMerge/htmlExport): the local row, the baked row, and the live-poll
- *   row stay one identity.
+ *   reply) through `patchThread`, a quiet transaction on the owning session
+ *   (or the stored rows when the document is closed) — the dedupe key for
+ *   pull-merge and bake (see commentMerge/htmlExport): the local row, the
+ *   baked row, and the live-poll row stay one identity.
  */
 import { getApi } from './browserApi'
 import { isWebPlatformEnabled } from './featureFlags'
-import { useCommentStore } from '../extensions/comments/store'
-import { useEditorStore } from '../stores/editorStore'
+import { documentPathOf, patchThread, readThreads, registerSharePushPerformer } from '../document/session'
 import { useShareStore } from '../stores/shareStore'
+import type { CommentData } from '../extensions/comments/types'
+import type { SharePush } from '../extensions/comments/transactions'
 import type { ShareEntry } from '../types'
 
 type PendingOp =
-  | { kind: 'thread'; threadId: string }
-  | { kind: 'reply'; threadId: string; replyId: string }
-  | { kind: 'resolve'; threadId: string }
+  | { kind: 'thread'; documentId: string; threadId: string }
+  | { kind: 'reply'; documentId: string; threadId: string; replyId: string }
+  | { kind: 'resolve'; documentId: string; threadId: string }
   | { kind: 'remove'; publicationId: string; shareId: string }
 
 function opKey(op: PendingOp): string {
-  if (op.kind === 'reply') return `reply:${op.threadId}:${op.replyId}`
+  if (op.kind === 'reply') return `reply:${op.documentId}:${op.threadId}:${op.replyId}`
   if (op.kind === 'remove') return `remove:${op.publicationId}:${op.shareId}`
-  return `${op.kind}:${op.threadId}`
+  return `${op.kind}:${op.documentId}:${op.threadId}`
 }
 
 const inFlight = new Set<string>()
@@ -53,6 +58,8 @@ const inFlightThreads = new Map<string, Promise<void>>()
 // baked while its push is still in flight lands under its LOCAL id, while
 // the live poll returns the same reply under its SERVER id — the viewer then
 // shows it twice. `awaitPendingPushes()` before the bake closes that race.
+// A push registers synchronously, before its first read, so a drain started
+// right after a flush sees it.
 const pendingPushes = new Set<Promise<unknown>>()
 
 function track(p: Promise<unknown>): void {
@@ -90,15 +97,16 @@ function isRateLimited(): boolean {
   return Date.now() < rateLimitedUntil
 }
 
-/**
- * Active non-revoked entry for the current document, or null. Pass `path`
- * to pin the lookup to a document read earlier (synchronously, at gesture
- * time) rather than whatever is open when the await resolves.
- */
-async function activeEntry(path = useEditorStore.getState().document.path): Promise<ShareEntry | null> {
+/** Active non-revoked entry for a document, by its path, or null. */
+async function entryFor(documentId: string): Promise<ShareEntry | null> {
+  const path = documentPathOf(documentId)
   if (!path) return null
   const res = await getApi().shareGetForPath(path)
   return res.ok && res.entries.length > 0 ? res.entries[0] : null
+}
+
+async function threadOf(documentId: string, threadId: string): Promise<CommentData | undefined> {
+  return (await readThreads(documentId)).find((c) => c.id === threadId)
 }
 
 function reportPushError(error: string, code?: string): void {
@@ -123,30 +131,29 @@ function queueOnce(op: PendingOp): void {
  * written on the thread while the push was in flight (replies, a resolve)
  * flows through the now-unblocked reply/resolve pushes.
  */
-export function pushNewThreadToShare(threadId: string): void {
-  void pushThread(threadId)
+export function pushNewThreadToShare(documentId: string, threadId: string): void {
+  void pushThread(documentId, threadId)
 }
 
-async function pushThread(threadId: string): Promise<void> {
+async function pushThread(documentId: string, threadId: string): Promise<void> {
   if (!isWebPlatformEnabled()) return
-  const thread = useCommentStore.getState().pendingComments.find((c) => c.id === threadId)
-  if (!thread || thread.shareId || !thread.markedText) return
-  if (isRateLimited()) {
-    queueOnce({ kind: 'thread', threadId })
-    return
-  }
-
-  const key = `thread:${threadId}`
+  const key = `thread:${documentId}:${threadId}`
   const existing = inFlightThreads.get(key)
   if (existing) return existing
 
   const run = (async () => {
     try {
-      const entry = await activeEntry()
+      const thread = await threadOf(documentId, threadId)
+      if (!thread || thread.shareId || !thread.markedText) return
+      if (isRateLimited()) {
+        queueOnce({ kind: 'thread', documentId, threadId })
+        return
+      }
+      const entry = await entryFor(documentId)
       if (!entry) return
       // Re-read at send time — a queued retry pushes the current text, and a
       // thread deleted/merged meanwhile must not post.
-      const current = useCommentStore.getState().pendingComments.find((c) => c.id === threadId)
+      const current = await threadOf(documentId, threadId)
       if (!current || current.shareId || !current.markedText) return
       // A thread carrying an authorName is a viewer's (pulled) — re-seeding
       // it (revoke→republish migration) must keep the original identity, so
@@ -161,25 +168,22 @@ async function pushThread(threadId: string): Promise<void> {
       })
       if (!res.ok) {
         noteRateLimit(res.code)
-        queueOnce({ kind: 'thread', threadId })
+        queueOnce({ kind: 'thread', documentId, threadId })
         reportPushError(res.error, res.code)
         return
       }
       clearPushError()
       // Record the server row id on the local thread — the dedupe invariant.
-      const store = useCommentStore.getState()
-      const updated = store.pendingComments.map((c) => (c.id === threadId ? { ...c, shareId: res.id } : c))
-      useCommentStore.setState({ pendingComments: updated })
-      if (store.documentId) await store.saveComments(store.documentId, updated)
+      await patchThread(documentId, threadId, (c) => (c.shareId ? null : { shareId: res.id }))
       // Replies/resolves written before the server row existed were silent
       // no-ops in their own pushes — release them now.
-      const settled = updated.find((c) => c.id === threadId)
+      const settled = await threadOf(documentId, threadId)
       for (const r of settled?.replies ?? []) {
-        if (!r.shareId) pushReplyToShare(threadId, r.id)
+        if (!r.shareId) pushReplyToShare(documentId, threadId, r.id)
       }
-      if (settled?.resolved === true) pushResolveToShare(threadId)
+      if (settled?.resolved === true) pushResolveToShare(documentId, threadId)
     } catch {
-      queueOnce({ kind: 'thread', threadId })
+      queueOnce({ kind: 'thread', documentId, threadId })
     } finally {
       inFlightThreads.delete(key)
     }
@@ -190,30 +194,24 @@ async function pushThread(threadId: string): Promise<void> {
 }
 
 /**
- * Backfill: push every thread that never got a server row. Threads created
- * BEFORE the document was shared miss the on-create push (no publication
- * existed), bake under their desktop ids, and every viewer reply to them
- * 404s — this is the repair. The content push calls it BEFORE baking, so
- * the artifact always bakes under server ids. Sequential on purpose (the
- * dedupe invariant writes shareIds between pushes); pulled viewer threads
- * already carry a shareId and are untouched.
+ * Backfill: push every thread of a document that never got a server row.
+ * Threads created BEFORE the document was shared miss the on-create push (no
+ * publication existed), bake under their desktop ids, and every viewer reply
+ * to them 404s — this is the repair. The content push calls it BEFORE
+ * baking, so the artifact always bakes under server ids. Sequential on
+ * purpose (the dedupe invariant writes shareIds between pushes); pulled
+ * viewer threads already carry a shareId and are untouched.
  */
 // Row ids proven to exist in a publication (`${pubId}:${rowId}`) — rows
 // never leave a live publication, so a verification holds for the session.
 const verifiedRows = new Set<string>()
 
-export async function backfillShareThreads(): Promise<boolean> {
-  if (!isWebPlatformEnabled()) return false
-  // The comment store must hold THIS document's threads — right after a tab
-  // switch it can still hold the previous doc's, and pushing those to this
-  // doc's publication would cross-pollinate conversations.
-  const docId = useEditorStore.getState().document.documentId
-  const store = useCommentStore.getState()
-  if (!docId || store.documentId !== docId) return false
+export async function backfillShareThreads(documentId: string): Promise<boolean> {
+  if (!isWebPlatformEnabled() || !documentId) return false
   // A closed rate window means every push below would bounce — wait for the
   // next content push rather than burning the reopening budget.
   if (isRateLimited()) return false
-  const entry = await activeEntry()
+  const entry = await entryFor(documentId)
   if (!entry) return false
 
   // Conversation migration (revoke → republish): a shareId whose row is not
@@ -221,7 +219,8 @@ export async function backfillShareThreads(): Promise<boolean> {
   // and revoke deletes reviewer rows server-side. Clear those ids (thread +
   // replies) so the missing-push below re-seeds them, with viewer identity
   // preserved via fromAuthor: false.
-  const unverified = store.pendingComments.filter(
+  const threads = await readThreads(documentId)
+  const unverified = threads.filter(
     (c) => c.shareId && !verifiedRows.has(`${entry.publicationId}:${c.shareId}`)
   )
   if (unverified.length > 0) {
@@ -229,35 +228,25 @@ export async function backfillShareThreads(): Promise<boolean> {
     if (res.ok) {
       const live = new Set(res.comments.map((r) => r.id))
       for (const id of live) verifiedRows.add(`${entry.publicationId}:${id}`)
-      const staleIds = new Set(
-        unverified.filter((c) => !live.has(c.shareId as string)).map((c) => c.id)
-      )
-      if (staleIds.size > 0) {
-        const cleared = useCommentStore.getState().pendingComments.map((c) =>
-          staleIds.has(c.id)
-            ? { ...c, shareId: undefined, replies: (c.replies ?? []).map((r) => ({ ...r, shareId: undefined })) }
-            : c
-        )
-        // Not persisted here — the re-pushes below record and save the new
-        // shareIds; if they all fail, the stale ids return on reload and are
-        // re-detected next push.
-        useCommentStore.setState({ pendingComments: cleared })
+      const stale = unverified.filter((c) => !live.has(c.shareId as string))
+      for (const c of stale) {
+        await patchThread(documentId, c.id, (current) => ({
+          shareId: undefined,
+          replies: (current.replies ?? []).map((r) => ({ ...r, shareId: undefined }))
+        }))
       }
     }
   }
 
-  const missing = useCommentStore
-    .getState()
-    .pendingComments.filter((c) => !c.shareId && c.markedText)
-    .map((c) => c.id)
+  const missing = (await readThreads(documentId)).filter((c) => !c.shareId && c.markedText).map((c) => c.id)
   if (missing.length === 0) return false
   for (const id of missing) {
     // A mid-loop 429 closes the window — stop instead of queueing bounces;
     // the remainder re-detects as missing on the next content push.
     if (isRateLimited()) break
-    await pushThread(id)
+    await pushThread(documentId, id)
   }
-  const after = useCommentStore.getState().pendingComments
+  const after = await readThreads(documentId)
   for (const c of after) {
     if (c.shareId) verifiedRows.add(`${entry.publicationId}:${c.shareId}`)
   }
@@ -265,11 +254,11 @@ export async function backfillShareThreads(): Promise<boolean> {
 }
 
 /**
- * True when a LOCAL row still needs a server id — baking it now would emit it
- * under its local id, and once the pending push assigns a server id the live
- * poll would surface the same row again (a duplicate in the viewer). Callers
- * check this AFTER flushing the queue and draining in-flight pushes, so what
- * remains is genuinely unresolved.
+ * True when a LOCAL row of the document still needs a server id — baking it
+ * now would emit it under its local id, and once the pending push assigns a
+ * server id the live poll would surface the same row again (a duplicate in
+ * the viewer). Callers check this AFTER flushing the queue and draining
+ * in-flight pushes, so what remains is genuinely unresolved.
  *
  * Threads: a pulled/viewer thread always carries a shareId (id === shareId per
  * shareSync), so `markedText && !shareId` reliably means "local + unpushed" —
@@ -282,36 +271,33 @@ export async function backfillShareThreads(): Promise<boolean> {
  * thread op counts too; resolves are idempotent state, not rows, and never
  * dup, so they don't block.
  */
-export function hasUnsyncedRows(): boolean {
-  for (const c of useCommentStore.getState().pendingComments) {
+export async function hasUnsyncedRows(documentId: string): Promise<boolean> {
+  for (const c of await readThreads(documentId)) {
     if (c.markedText && !c.shareId) return true
   }
-  return pendingOps.some((op) => op.kind === 'thread' || op.kind === 'reply')
+  return pendingOps.some((op) => (op.kind === 'thread' || op.kind === 'reply') && op.documentId === documentId)
 }
 
 /**
  * Push a just-written reply on a share-sourced thread. No-op for local-only
  * threads (no shareId) or replies already pushed.
  */
-export function pushReplyToShare(threadId: string, replyId: string): void {
+export function pushReplyToShare(documentId: string, threadId: string, replyId: string): void {
   if (!isWebPlatformEnabled()) return
-  const { pendingComments } = useCommentStore.getState()
-  const thread = pendingComments.find((c) => c.id === threadId)
-  if (!thread?.shareId) return
-  const reply = (thread.replies ?? []).find((r) => r.id === replyId)
-  if (!reply || reply.shareId) return
-  if (isRateLimited()) {
-    queueOnce({ kind: 'reply', threadId, replyId })
-    return
-  }
-
-  const key = `reply:${threadId}:${replyId}`
-  if (inFlight.has(key)) return
-  inFlight.add(key)
-
+  const key = `reply:${documentId}:${threadId}:${replyId}`
   track((async () => {
+    const thread = await threadOf(documentId, threadId)
+    if (!thread?.shareId) return
+    const reply = (thread.replies ?? []).find((r) => r.id === replyId)
+    if (!reply || reply.shareId) return
+    if (isRateLimited()) {
+      queueOnce({ kind: 'reply', documentId, threadId, replyId })
+      return
+    }
+    if (inFlight.has(key)) return
+    inFlight.add(key)
     try {
-      const entry = await activeEntry()
+      const entry = await entryFor(documentId)
       if (!entry) return
       // Same migration identity rule as threads: a reply with an authorName
       // is a viewer's and re-seeds under that name as fromAuthor: false.
@@ -325,25 +311,17 @@ export function pushReplyToShare(threadId: string, replyId: string): void {
       )
       if (!res.ok) {
         noteRateLimit(res.code)
-        queueOnce({ kind: 'reply', threadId, replyId })
+        queueOnce({ kind: 'reply', documentId, threadId, replyId })
         reportPushError(res.error, res.code)
         return
       }
       clearPushError()
       // Record the server row id on the local reply — the dedupe invariant.
-      const store = useCommentStore.getState()
-      const updated = store.pendingComments.map((c) =>
-        c.id === threadId
-          ? {
-              ...c,
-              replies: (c.replies ?? []).map((r) => (r.id === replyId ? { ...r, shareId: res.id } : r)),
-            }
-          : c
-      )
-      useCommentStore.setState({ pendingComments: updated })
-      if (store.documentId) await store.saveComments(store.documentId, updated)
+      await patchThread(documentId, threadId, (c) => ({
+        replies: (c.replies ?? []).map((r) => (r.id === replyId && !r.shareId ? { ...r, shareId: res.id } : r))
+      }))
     } catch {
-      queueOnce({ kind: 'reply', threadId, replyId })
+      queueOnce({ kind: 'reply', documentId, threadId, replyId })
     } finally {
       inFlight.delete(key)
     }
@@ -352,63 +330,57 @@ export function pushReplyToShare(threadId: string, replyId: string): void {
 
 /**
  * Push the thread's current resolution state. Reads `resolved` from the
- * store at send time, so a queued retry always pushes the latest state.
+ * document's threads at send time, so a queued retry always pushes the
+ * latest state.
  */
-export function pushResolveToShare(threadId: string): void {
+export function pushResolveToShare(documentId: string, threadId: string): void {
   if (!isWebPlatformEnabled()) return
-  const { pendingComments } = useCommentStore.getState()
-  const thread = pendingComments.find((c) => c.id === threadId)
-  if (!thread?.shareId) return
-  if (isRateLimited()) {
-    queueOnce({ kind: 'resolve', threadId })
-    return
-  }
-
-  const key = `resolve:${threadId}`
-  // Resolve is a TOGGLE, so a concurrent call can't just no-op past an
-  // in-flight push: a double-click lands inside the HTTP window, the
-  // early-return drops the newer state, and — resolution being author-only —
-  // nothing ever pulls the server back into line (#909). Coalesce instead:
-  // note the re-request and re-fire once the in-flight push settles; the
-  // send-time re-read then pushes whatever the store says NOW.
-  if (inFlight.has(key)) {
-    resolveRerun.add(key)
-    return
-  }
-  inFlight.add(key)
-
+  const key = `resolve:${documentId}:${threadId}`
   track((async () => {
+    const thread = await threadOf(documentId, threadId)
+    if (!thread?.shareId) return
+    if (isRateLimited()) {
+      queueOnce({ kind: 'resolve', documentId, threadId })
+      return
+    }
+    // Resolve is a TOGGLE, so a concurrent call can't just no-op past an
+    // in-flight push: a double-click lands inside the HTTP window, the
+    // early-return drops the newer state, and — resolution being author-only —
+    // nothing ever pulls the server back into line (#909). Coalesce instead:
+    // note the re-request and re-fire once the in-flight push settles; the
+    // send-time re-read then pushes whatever the threads say NOW.
+    if (inFlight.has(key)) {
+      resolveRerun.add(key)
+      return
+    }
+    inFlight.add(key)
     let sentState: boolean | null = null
     try {
-      const entry = await activeEntry()
+      const entry = await entryFor(documentId)
       if (!entry) return
-      // Re-read at send time — the source of truth is the local store.
-      const current = useCommentStore.getState().pendingComments.find((c) => c.id === threadId)
+      // Re-read at send time — the source of truth is the local thread.
+      const current = await threadOf(documentId, threadId)
       if (!current?.shareId) return
       sentState = current.resolved === true
-      const res = await getApi().shareResolveComment(
-        entry.publicationId,
-        current.shareId,
-        sentState
-      )
+      const res = await getApi().shareResolveComment(entry.publicationId, current.shareId, sentState)
       if (!res.ok) {
         noteRateLimit(res.code)
-        queueOnce({ kind: 'resolve', threadId })
+        queueOnce({ kind: 'resolve', documentId, threadId })
         reportPushError(res.error, res.code)
         return
       }
       clearPushError()
     } catch {
-      queueOnce({ kind: 'resolve', threadId })
+      queueOnce({ kind: 'resolve', documentId, threadId })
     } finally {
       inFlight.delete(key)
       // A toggle arrived mid-flight, or the state changed after we read it —
       // converge on the final local state instead of leaving the server on
       // the stale value.
-      const latest = useCommentStore.getState().pendingComments.find((c) => c.id === threadId)
+      const latest = await threadOf(documentId, threadId)
       const changedUnderUs = sentState !== null && latest !== undefined && (latest.resolved === true) !== sentState
       if (resolveRerun.delete(key) || changedUnderUs) {
-        pushResolveToShare(threadId)
+        pushResolveToShare(documentId, threadId)
       }
     }
   })())
@@ -416,26 +388,26 @@ export function pushResolveToShare(threadId: string): void {
 
 /**
  * Take a thread the author deleted in Prose off the shared page too (#903):
- * the gateway removes it with its replies. Call it with the thread BEFORE it
- * leaves the store, since the push needs its shareId. Local-only threads (no
- * shareId) never reached the page and are a no-op.
+ * the gateway removes it with its replies. Called with the thread as it was
+ * (the push needs its shareId). Local-only threads (no shareId) never
+ * reached the page and are a no-op.
  */
-export function pushRemoveToShare(thread: { shareId?: string }): void {
+export function pushRemoveToShare(documentId: string, thread: { shareId?: string }): void {
   if (!isWebPlatformEnabled() || !thread.shareId) return
   const shareId = thread.shareId
-  // Pin the document NOW: the entry lookup awaits, and a document switch in
-  // that gap would aim the removal at another publication, whose 404 ends
-  // the retries — a removal the user saw locally that never left the page.
-  const path = useEditorStore.getState().document.path
+  // The entry is looked up by the document's own path, pinned now; a
+  // document switch during the lookup changes nothing.
+  const path = documentPathOf(documentId)
+  if (!path) return
   track((async () => {
-    const entry = await activeEntry(path)
+    const res = await getApi().shareGetForPath(path)
+    const entry = res.ok && res.entries.length > 0 ? res.entries[0] : null
     if (entry) sendRemove(entry.publicationId, shareId)
   })())
 }
 
 // The removal's target is pinned to the publication it was made against: a
-// queued retry can fire after the user switched documents, when
-// activeEntry() would name a different publication.
+// queued retry can fire after the user switched documents.
 function sendRemove(publicationId: string, shareId: string): void {
   const op: PendingOp = { kind: 'remove', publicationId, shareId }
   if (isRateLimited()) {
@@ -472,9 +444,35 @@ export function flushPendingShareOps(): void {
   const ops = pendingOps
   pendingOps = []
   for (const op of ops) {
-    if (op.kind === 'thread') pushNewThreadToShare(op.threadId)
-    else if (op.kind === 'reply') pushReplyToShare(op.threadId, op.replyId)
+    if (op.kind === 'thread') pushNewThreadToShare(op.documentId, op.threadId)
+    else if (op.kind === 'reply') pushReplyToShare(op.documentId, op.threadId, op.replyId)
     else if (op.kind === 'remove') sendRemove(op.publicationId, op.shareId)
-    else pushResolveToShare(op.threadId)
+    else pushResolveToShare(op.documentId, op.threadId)
   }
 }
+
+/**
+ * The pushes a comment transition recorded on its plugin state, performed
+ * for the document that owns it (document/session.ts hands them over once
+ * per transition, #1147).
+ */
+export function performSharePushes(target: { documentId: string }, pushes: readonly SharePush[]): void {
+  for (const push of pushes) {
+    switch (push.kind) {
+      case 'thread':
+        pushNewThreadToShare(target.documentId, push.threadId)
+        break
+      case 'reply':
+        pushReplyToShare(target.documentId, push.threadId, push.replyId)
+        break
+      case 'resolve':
+        pushResolveToShare(target.documentId, push.threadId)
+        break
+      case 'remove':
+        pushRemoveToShare(target.documentId, push.thread)
+        break
+    }
+  }
+}
+
+registerSharePushPerformer(performSharePushes)

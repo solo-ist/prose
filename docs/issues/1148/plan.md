@@ -196,3 +196,24 @@ again. Must stay green: `ai-edit-lifecycle`, `ai-provenance`, `activity-panel`, 
 ## Execution log
 
 - **2026-11-03, step 0:** inventory (three passes over `e84f61a`), plan written; branch `issue-1148-chat-binding` from the PR 3 tip (`458678d`), to land onto `release/v1.9.0` after #1173 merges.
+- **2026-11-03, commits 1–4:** `beca72c` handle + session (`handleForTab` for active and background tabs over
+  TipTap's `CommandManager` with a hand-built chain and one-shot commands, `focus`/`blur`/`scrollIntoView`
+  no-ops; `resolveToolHandle` with the tab → document → background reopen → `DOCUMENT_CLOSED` ladder;
+  `openSessionForTab`, the closing guard, the inactive branch's debounced markdown and suggestion projections;
+  `addTab({ activate })`, `openInBackground`; `handle.test.ts` 6) · `0bbd967` executors on `{ handle, provenance }`
+  from `executeTool(name, args, mode, provenance, binding?)`, rebinding by the tab-changing tools, `tool:call`,
+  read-only from the handle's tab, atomic background insertion, reads from `handle.serialize()`, frontmatter
+  writes refused on a background document, `save_file` on the bound tab (`markTabSaved`); `handle.test.ts` +1 ·
+  `c5a9784` chat store `turns` + `parked` + routed writes + active-conversation flags + move / rekey / discard,
+  `useChat` on the binding with per-stream loop state, `arriveTab` loads before anything saves under the new id
+  (the shown list carries its document id, a pending save is flushed before the list is replaced; `useEditor`'s
+  duplicate writer removed), seams `__prose_chat.getState`, `__prose_tools.getSessionState`,
+  `loadConversationsFromDB`, `closeTab`; `chatStore.test.ts` 5 · `d895271` + the behaviour-first reorder: cases 11
+  and 12 (saved and untitled) over a scripted, gated `llm:stream` stub installed from `app.evaluate`, the turn
+  started through the `prose:mode-switch-and-run` event, tabs closed from the tab bar with Discard. Unit 85/85;
+  `typecheck:renderer` 69 and `typecheck:e2e` 8 = baselines; build clean. **Falsified on a build of `1021558`'s
+  renderer** (the specs assert behaviour before any new seam): case 11 leaves one annotation in A (the later calls
+  acted on B), the saved case 12 never reopens A, the untitled case 12 reports `NODE_NOT_FOUND` over B's nodes
+  instead of `DOCUMENT_CLOSED`; all three pass on the branch (14.9 s). Fixture lesson: `findNodeByContent` wants
+  the node's whole text (the trailing period included). Design doc §4.14 shipped paragraph and §11 row trued;
+  QA §4 (ten checks) written into the operator's QA doc.

@@ -765,13 +765,27 @@ const toolCallLog = () =>
     return entries.map((e) => ({ event: e.event, ...e.data })) as Array<{ event: string; [k: string]: unknown }>
   })
 
+/** Close a tab from the tab bar; a dirty tab's "Save changes?" prompt is answered with Discard. */
+async function closeTabFromBar(tab: TabInfo): Promise<void> {
+  await page.locator('li', { hasText: tab.title }).first().locator('[aria-label="Close tab"]').click()
+  const discard = page.getByRole('button', { name: 'Discard' })
+  if (await discard.isVisible({ timeout: 2_000 }).catch(() => false)) await discard.click()
+  await expect.poll(async () => (await tabs()).some((t) => t.tabId === tab.tabId)).toBe(false)
+}
+
 /** Start a turn in the chat panel: the prompt goes through sendMessage, bound to the active document. */
 async function startTurn(prompt: string): Promise<void> {
   await openChat(page)
   await page.evaluate((prompt) => {
     window.dispatchEvent(new CustomEvent('prose:mode-switch-and-run', { detail: { prompt } }))
   }, prompt)
-  await expect.poll(async () => (await chatState()).isStreaming, { timeout: 10_000 }).toBe(true)
+  await expect.poll(turnRequests, { timeout: 10_000 }).toBeGreaterThanOrEqual(1)
+}
+
+/** The turn's last roundtrip has no tool calls, so the loop ends as soon as its completion lands. */
+async function turnEnded(): Promise<void> {
+  await expect.poll(turnRequests, { timeout: 15_000 }).toBe(3)
+  await settle()
 }
 
 const EDIT_A_ONE = { id: 't1', name: 'edit', args: { nodeId: 'stale', search: 'India paragraph one.', content: 'India paragraph one, edited first.' } }
@@ -800,45 +814,46 @@ test('case 11: a turn in flight keeps acting on its own document after a tab swi
   // Roundtrip 1 landed on A and roundtrip 2 is held open.
   await expect.poll(turnRequests, { timeout: 15_000 }).toBe(2)
   await expect.poll(docText).toContain('edited first.')
-  const turnsBefore = await chatState()
-  const conversationId = Object.keys(turnsBefore.turns)[0]
-  expect(turnsBefore.turns[conversationId].binding.documentId).toBe(a.documentId)
 
   // Switch to B while the turn is held, then let it finish.
   await clickTab(b, 'Juliet paragraph one')
-  const parkedState = await chatState()
-  expect(parkedState.isStreaming).toBe(false)
-  expect(parkedState.parked[a.documentId]?.[0]?.id).toBe(conversationId)
   await releaseGate(1)
-  await expect.poll(turnRequests, { timeout: 15_000 }).toBe(3)
-  await expect.poll(async () => Object.keys((await chatState()).turns).length, { timeout: 15_000 }).toBe(0)
+  await turnEnded()
 
-  // A's state took the later edit and the suggestion; its rows are stored.
-  const stateA = await sessionState(a.tabId)
-  expect(stateA?.text).toContain('edited later.')
-  expect(stateA?.text).toContain('edited first.')
-  expect(stateA?.suggestionIds.length).toBe(1)
-  expect(stateA?.annotations.length).toBeGreaterThanOrEqual(2)
+  // Behaviour first (these fail on the release head: the later calls act
+  // on B and find nothing): A's rows are stored, B is untouched, the
+  // model got two successes, and A shows both edits on return.
   await expect.poll(async () => (await readDB('annotations', a.documentId)).length, { timeout: 5_000 }).toBeGreaterThanOrEqual(2)
   await expect.poll(async () => (await readDB('suggestions', a.documentId)).length, { timeout: 5_000 }).toBe(1)
-  // B, shown throughout, is untouched.
   expect(await docText()).toContain('Juliet paragraph three.')
   expect(await docText()).not.toContain('edited')
   expect(await getAnnotations(page)).toEqual([])
   expect(await readDB('annotations', b.documentId)).toEqual([])
   expect(await readDB('suggestions', b.documentId)).toEqual([])
-  // Every call resolved to A.
-  const calls = (await toolCallLog()).filter((e) => e.event === 'tool:call')
-  expect(calls.length).toBeGreaterThanOrEqual(3)
-  for (const call of calls) expect(call.documentId).toBe(a.documentId)
-  // The turn's results reached the model under A's conversation (the
-  // request carries the whole history: the last two are roundtrip 2's).
+  // The request carries the whole history: the last two are roundtrip 2's.
   const results = (await turnRequest(2)).filter((m) => m.role === 'tool').slice(-2)
   expect(results.length).toBe(2)
   for (const r of results) expect(String(r.content)).toContain('"success":true')
 
+  // Then the contracts: A's state, every call resolved to A, the turn's
+  // binding and the parked conversation.
+  const stateA = await sessionState(a.tabId)
+  expect(stateA?.text).toContain('edited later.')
+  expect(stateA?.text).toContain('edited first.')
+  expect(stateA?.suggestionIds.length).toBe(1)
+  expect(stateA?.annotations.length).toBeGreaterThanOrEqual(2)
+  const calls = (await toolCallLog()).filter((e) => e.event === 'tool:call')
+  expect(calls.length).toBeGreaterThanOrEqual(3)
+  for (const call of calls) expect(call.documentId).toBe(a.documentId)
+  const parkedState = await chatState()
+  expect(parkedState.isStreaming).toBe(false)
+  expect(Object.keys(parkedState.turns)).toEqual([])
+  const conversationId = parkedState.parked[a.documentId]?.[0]?.id
+  expect(conversationId, 'A conversation parked').toBeTruthy()
+
   // Back on A: the finished stream is in A's conversation, shown.
   await clickTab(a, 'India paragraph one, edited first.')
+  await expect.poll(docText).toContain('edited later.')
   await expect.poll(async () => (await chatState()).conversationsDocumentId).toBe(a.documentId)
   const shown = await chatState()
   expect(shown.conversations[0]?.id).toBe(conversationId)
@@ -867,34 +882,36 @@ test('case 12: a saved document closed mid-turn reopens in the background and ta
   await expect.poll(turnRequests, { timeout: 15_000 }).toBe(2)
   await expect.poll(docText).toContain('edited first.')
 
-  // Close A (dirty from the first edit; forced, as the dialog's Discard would).
-  const closed = await page.evaluate((tabId) => (window as any).__prose_tools.closeTab(tabId, { force: true }), a.tabId)
-  expect(closed).toBe(true)
+  // Close A from the tab bar (dirty from the first edit: Discard).
+  await closeTabFromBar(a)
   await expect.poll(activeTabId).toBe(b.tabId)
   expect((await tabs()).some((t) => t.path === a.path)).toBe(false)
 
   await releaseGate(1)
-  await expect.poll(turnRequests, { timeout: 15_000 }).toBe(3)
-  await expect.poll(async () => Object.keys((await chatState()).turns).length, { timeout: 15_000 }).toBe(0)
+  await turnEnded()
 
-  // A is back as a background tab, from disk, with the later edit applied.
+  // Behaviour first (fails on the release head: no reopen, the edit aims
+  // at B and finds nothing): A is back as a background tab, from disk, with
+  // the later edit applied and stored; B untouched.
   const reopened = (await tabs()).find((t) => t.path === a.path)
   expect(reopened, 'A reopened').toBeTruthy()
   expect(reopened!.documentId).toBe(a.documentId)
   expect(await activeTabId()).toBe(b.tabId)
-  const stateA = await sessionState(reopened!.tabId)
-  expect(stateA?.text).toContain('edited later.')
-  expect(stateA?.text).not.toContain('edited first.')
-  expect(stateA?.annotations.length).toBeGreaterThanOrEqual(1)
   await expect.poll(async () => (await readDB('annotations', a.documentId)).some((r) => String(r.content).includes('edited later')), { timeout: 5_000 }).toBe(true)
-  // B untouched.
   expect(await docText()).toContain('Juliet paragraph three.')
   expect(await docText()).not.toContain('edited')
   expect(await readDB('annotations', b.documentId)).toEqual([])
   const results = (await turnRequest(2)).filter((m) => m.role === 'tool').slice(-1)
   expect(results.length).toBe(1)
   expect(String(results[0].content)).toContain('"success":true')
+
+  // Then the contracts.
+  const stateA = await sessionState(reopened!.tabId)
+  expect(stateA?.text).toContain('edited later.')
+  expect(stateA?.text).not.toContain('edited first.')
+  expect(stateA?.annotations.length).toBeGreaterThanOrEqual(1)
   expect((await toolCallLog()).some((e) => e.event === 'tab:background-open' && e.path === a.path)).toBe(true)
+  expect(Object.keys((await chatState()).turns)).toEqual([])
 })
 
 test('case 12: an untitled document closed mid-turn fails the rest of the turn by name and touches nothing else', async () => {
@@ -915,14 +932,13 @@ test('case 12: an untitled document closed mid-turn fails the rest of the turn b
   await expect.poll(turnRequests, { timeout: 15_000 }).toBe(2)
   await expect.poll(docText).toContain('edited first.')
 
-  const closed = await page.evaluate((tabId) => (window as any).__prose_tools.closeTab(tabId, { force: true }), a!.tabId)
-  expect(closed).toBe(true)
+  await closeTabFromBar(a!)
   await expect.poll(activeTabId).toBe(b.tabId)
 
   await releaseGate(1)
-  await expect.poll(turnRequests, { timeout: 15_000 }).toBe(3)
-  await expect.poll(async () => Object.keys((await chatState()).turns).length, { timeout: 15_000 }).toBe(0)
+  await turnEnded()
 
+  // Fails on the release head: the call aims at B and reports NODE_NOT_FOUND.
   const results = (await turnRequest(2)).filter((m) => m.role === 'tool').slice(-1)
   expect(results.length).toBe(1)
   expect(String(results[0].content)).toContain('DOCUMENT_CLOSED')
@@ -931,6 +947,7 @@ test('case 12: an untitled document closed mid-turn fails the rest of the turn b
   expect(await docText()).toContain('Juliet paragraph three.')
   expect(await docText()).not.toContain('edited')
   expect(await readDB('annotations', b.documentId)).toEqual([])
+  expect(Object.keys((await chatState()).turns)).toEqual([])
 })
 })
 

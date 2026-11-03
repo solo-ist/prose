@@ -154,3 +154,21 @@ block out of its `init.content` (the `new_file` tool), so no tab record ever car
    frontmatter is still refused with `FRONTMATTER_BACKGROUND`; a background `edit` of frontmatter now lands on the tab.
 
 ## Execution log
+- **2026-11-03, commits 1–3:** `b84ce2f` the move (tab record the truth; `session.saved` + `writeProjection`;
+  `saveSnapshot` / `recordSaved` / `markFrontmatterChanged` / `applyActiveEditable` and the store mirror in
+  `session.ts`; `setTabFrontmatter`, `markTabSaved(tabId, path, snapshot)`, `newTab` parse, the preview-on-dirty
+  subscription in `tabs/actions.ts`; `useEditor` saves over `saveSnapshot`; `useAutosave` over the pure
+  `autosavePlan`; executors, the conflict overwrite, `editorStore` deletions, `tabStore` `readOnly` /
+  `activeTabOf` / `useActiveTab`, `parseMarkdown` without the trim; `Editor.tsx` / `FrontmatterEditor` /
+  `FrontmatterDisplay` / `Toolbar` / `StatusBar`; vitest `markdown.test` 2, `autosavePlan.test` 4, `session.test`
+  +4, `handle.test` re-pointed) · `aa4be37` case 9 (both halves), the store tripwire, `source-mode-authority`
+  without `.trimEnd()` · docs. Found while testing: an untouched source exit after text was typed and undone
+  dropped the pending projection and left the record dirty with the undone text (fixed: it re-projects). Unit
+  101/101; `typecheck:renderer` 65 (baseline 67); `typecheck:e2e` 8; build clean. **Falsified on a build of
+  `cb66710`'s renderer:** case 9's rich half fails at the autosave poll (the file never changes), its source half at
+  the dirty poll (the tab never goes dirty). Branch build, 13 specs (tab-caret, source-mode-authority, stale-paths,
+  file-explorer-qa, explorer-interactivity, document-sessions, tab-switch-flush, suggestions-persist,
+  comment-auto-resolve, markdown-create, remarkable-sync, remarkable-path, ai-edit-lifecycle): 74 passed, 0 failed,
+  3.7 min. `web.spec`'s preview-promotion case (the Source button enabling on promotion) is not run locally and
+  CI's web-e2e is label-gated; the Electron preview specs and the mirror's editable re-apply cover the same path.
+  QA §6 (eighteen checks) written into the operator's QA doc.

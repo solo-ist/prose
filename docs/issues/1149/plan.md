@@ -39,3 +39,6 @@ new tripwire.
 
 - **2026-11-03:** branch from `a83ccf2`; store deleted, session records dropped, reload re-anchors the live marks,
   tripwire added. `typecheck:renderer` 69 (baseline), vitest 85/85, `typecheck:e2e` 8 (baseline).
+  Targeted specs on the branch build (suggestions, suggestions-persist, restructure, source-mode-authority,
+  ai-edit-lifecycle, document-sessions with the new tripwire): 44 passed, 2.7 min. **PR #1175** opened against the
+  PR 4 branch, to be retargeted to `release/v1.9.0` when #1174 merges.

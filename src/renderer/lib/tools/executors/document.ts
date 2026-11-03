@@ -183,8 +183,8 @@ export function executeReadSelection(ctx: ToolContext): ToolResult<{
     })
   }
 
-  // Fall back to cached selection (preserved when editor loses focus); the
-  // cache is the shown document's.
+  // Fall back to the cached selection (kept while the editor loses focus);
+  // the cache is the shown document's and is cleared on a document change.
   const cached = handle.isActive ? useEditorStore.getState().getLastSelection() : null
   if (cached && cached.text) {
     return toolSuccess({

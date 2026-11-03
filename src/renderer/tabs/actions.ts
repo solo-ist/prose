@@ -907,9 +907,12 @@ export async function convertTab(tabId: string, to: 'txt' | 'md'): Promise<boole
 export function setTabFrontmatter(tabId: string, frontmatter: Record<string, unknown>): void {
   const store = useTabStore.getState()
   if (!store.getTabById(tabId)) return
-  store.updateTab(tabId, { frontmatter })
-  if (hasSession(tabId)) markFrontmatterChanged(tabId)
-  else store.updateTab(tabId, { isDirty: true })
+  if (hasSession(tabId)) {
+    store.updateTab(tabId, { frontmatter })
+    markFrontmatterChanged(tabId)
+  } else {
+    store.updateTab(tabId, { frontmatter, isDirty: true })
+  }
 }
 
 /** Source mode for a tab, shown or not; refused on a preview or reMarkable tab (#1150). */

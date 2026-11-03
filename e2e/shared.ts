@@ -388,13 +388,13 @@ export async function executeProseTool(
   )
 }
 
-/** Live annotation store contents. */
+/** The active document's annotation records, from its own state (#1146). */
 export async function getAnnotations(page: Page): Promise<Array<Record<string, unknown>>> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return page.evaluate(() => (window as any).__prose_tools.getAnnotations())
 }
 
-/** The annotation store's current documentId. */
+/** The active document's id, from its state's identity (#1146). */
 export async function getAnnotationDocId(page: Page): Promise<string | null> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return page.evaluate(() => (window as any).__prose_tools.getAnnotationDocId())

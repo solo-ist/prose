@@ -1,4 +1,4 @@
-import yaml from 'js-yaml'
+import * as yaml from 'js-yaml'
 
 export interface ParsedMarkdown {
   content: string
@@ -46,10 +46,6 @@ export function serializeMarkdown(content: string, frontmatter: Record<string, u
  */
 export function prepareTextContent(content: string): string {
   return content.replace(/\n/g, '\n\n').replace(/\n{3,}/g, '\n\n')
-}
-
-export function hasFrontmatter(raw: string): boolean {
-  return raw.trimStart().startsWith('---')
 }
 
 /**

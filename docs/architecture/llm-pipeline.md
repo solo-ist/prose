@@ -130,7 +130,7 @@ The `NodeIds` extension (`src/renderer/extensions/node-ids/`) assigns 8-char ran
 
 ### Persistence
 
-Suggestions are persisted to IndexedDB via `useSuggestionStore`. On tab switch, `restoreAISuggestions()` recovers marks by text-content search (not stored positions, which would be stale).
+Suggestions are persisted to IndexedDB by the session layer from the live marks (`document/session.ts`, the suggestion projection: debounced, immediate on an accept or reject). At load the session's seed transaction re-applies them with `applySuggestionMarks` by text-content search (not stored positions, which would be stale); a tab switch swaps states and re-applies nothing.
 
 ---
 

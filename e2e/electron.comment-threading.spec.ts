@@ -5,7 +5,7 @@
  * 1. reply_to_comment tool appends an AI reply to the persisted thread.
  * 2. resolve_comment sets resolved:true in the store instead of deleting the record.
  * 3. list_comments returns replies + resolved state.
- * 4. Resolved threads are not re-marked on restoreComments.
+ * 4. Resolved threads are not re-marked when the marks are re-applied at load.
  *
  * Each test opens a fresh markdown file for isolation. No tab sharing.
  * No LLM calls — all tools invoked via window.__prose_tools.executeTool.
@@ -64,7 +64,7 @@ test.afterAll(async () => {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Returns the current pendingComments from the comment store. */
+/** The active document's threads, from its own plugin state (#1147). */
 async function getCommentStore(testPage: Page): Promise<Array<Record<string, unknown>>> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return testPage.evaluate(() => (window as any).__prose_tools.getCommentStore())

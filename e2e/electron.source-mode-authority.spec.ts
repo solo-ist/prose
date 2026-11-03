@@ -63,12 +63,9 @@ async function openFresh(name: string): Promise<string> {
   writeFileSync(path, DOC)
   const opened = await executeProseTool(page, 'open_file', { path })
   expect(opened.success, `open_file ${name}`).toBe(true)
+  // The marks are applied inside the session's seed transaction before the
+  // state is shown, so once the editor is there the document is whole (#1152).
   await waitForEditor(page)
-  await page.waitForFunction(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    () => (window as any).__prose_tools.getCommentStoreNeedsRestore() === false,
-    { timeout: 5_000 },
-  )
   return path
 }
 

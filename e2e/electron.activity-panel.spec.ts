@@ -41,21 +41,11 @@ async function nodeIdByText(testPage: Page, text: string): Promise<string> {
   return match!.id
 }
 
-/** Poll out the ~100ms annotation mapping-pause window before an accept. */
-async function waitForMappingResumed(testPage: Page): Promise<void> {
-  await expect
-    .poll(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      async () => testPage.evaluate(() => (window as any).__prose_tools.isAnnotationMappingPaused()),
-      { timeout: 5_000 },
-    )
-    .toBe(false)
-}
-
 async function suggestAndAccept(testPage: Page, nodeId: string, content: string): Promise<void> {
   const suggested = await executeProseTool(testPage, 'suggest_edit', { nodeId, content })
   expect(suggested.success).toBe(true)
-  await waitForMappingResumed(testPage)
+  // No wait between the two calls: a record is added inside the transaction
+  // that creates it, so there is no mapping-pause window to poll out (#1152).
   const accepted = await executeProseTool(testPage, 'accept_diff', {
     id: (suggested.data as { suggestionId: string }).suggestionId,
   })

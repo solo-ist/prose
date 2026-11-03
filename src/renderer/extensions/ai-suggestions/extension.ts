@@ -236,10 +236,6 @@ declare module '@tiptap/core' {
        * Reject all AI suggestions
        */
       rejectAllAISuggestions: () => ReturnType
-      /**
-       * Restore AI suggestions from persisted data (used after tab switch)
-       */
-      restoreAISuggestions: (suggestions: AISuggestionData[]) => ReturnType
     }
   }
 }
@@ -932,18 +928,6 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           return false
         },
 
-      restoreAISuggestions:
-        (suggestions) =>
-        ({ tr, dispatch }) => {
-          if (!dispatch || suggestions.length === 0) return false
-          const restored = applySuggestionMarks(tr, suggestions)
-          if (restored > 0) {
-            dispatch(tr)
-            console.log('[AISuggestion] Restored', restored, 'of', suggestions.length, 'suggestions')
-            return true
-          }
-          return false
-        },
     }
   },
 })

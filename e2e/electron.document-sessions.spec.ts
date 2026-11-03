@@ -1157,9 +1157,12 @@ test.describe('session tripwires', () => {
   test('EditorState is a value import only in the session layer (#1152)', () => {
     for (const { file, source } of files) {
       if (file === 'src/renderer/document/session.ts') continue
+      // `import type { … }` lines are comment-free and never match; an inline
+      // `type EditorState` inside a value import is a type too.
       const valueImports = [...source.matchAll(/import \{([^}]*)\} from '@tiptap\/pm\/state'/g)]
       for (const m of valueImports) {
-        expect(m[1], `${file} imports EditorState as a value from @tiptap/pm/state`).not.toMatch(/(^|[,\s])EditorState([,\s]|$)/)
+        const values = m[1].split(',').map((entry) => entry.trim()).filter((entry) => !entry.startsWith('type '))
+        expect(values, `${file} imports EditorState as a value from @tiptap/pm/state`).not.toContain('EditorState')
       }
     }
   })

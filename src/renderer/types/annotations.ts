@@ -53,6 +53,16 @@ export interface AIAnnotation {
    * not-detached.
    */
   detached?: boolean
+  /**
+   * The text the range covers, with one '\n' between textblocks (the
+   * convention of `extensions/ai-annotations/reanchor.ts`'s `textIndex`).
+   * Stamped when the record enters a document's state and refreshed on every
+   * change to that document, so it can only ever hold that document's text;
+   * read when the record is applied to a re-parsed document (a relaunch, a
+   * disk reload, a conversion) to put it back on its words (#1138, #1146).
+   * Optional: rows written before 1.9.0 are filled in on their first load.
+   */
+  anchorText?: string
 }
 
 /**

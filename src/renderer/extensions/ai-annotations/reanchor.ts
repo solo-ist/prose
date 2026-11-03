@@ -99,6 +99,9 @@ export function mapThroughDiff(before: string, after: string): (start: number, e
 
 /** The occurrence of `text` whose start is nearest `near`, as doc positions. */
 export function nearestMatch(index: TextIndex, text: string, near: number): DocRange | null {
+  // An empty needle matches everywhere and `indexOf('', i + 1)` never
+  // advances past the end: nothing to anchor by.
+  if (!text) return null
   let best: DocRange | null = null
   for (let i = index.text.indexOf(text); i !== -1; i = index.text.indexOf(text, i + 1)) {
     const from = index.pos[i]

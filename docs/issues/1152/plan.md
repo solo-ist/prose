@@ -95,3 +95,15 @@ with no outside user stay (harmless; a later sweep). 4. `getDocumentIsDirty` kee
 the tab record, the truth. 5. `__prose_renameTab` keeps its name and moves to `main.tsx`.
 
 ## Execution log
+- **2026-11-03, commits 1–5:** `73697ac` plan · `c9bbb28` the sweep (seams, dead code, the two latent bugs, five
+  tripwires, e2e tsc 8 → 6) · `7c3d166` guidance and the design doc · `5141bdf` + the tripwire fix (inline `type`
+  imports). Found on the way: removing the node-ids closure made two comment-plugin tests fail, which exposed the
+  push-carry bug (an appended transaction reset `pushes` while keeping `pushRevision`; the session reads pushes
+  once per revision, so a comment's share push after a paste was dropped); fixed in the plugin and pinned. Unit
+  103/103 (12 files); `typecheck:renderer` 66 (baseline 67); `typecheck:e2e` 6 (baseline 8); build clean. Branch
+  build, 13 specs (activity-panel, ai-edit-lifecycle, source-mode-authority, comment-auto-resolve,
+  comment-threading, document-sessions with the twelve tripwires, node-ids, suggestions-persist, tab-caret,
+  file-explorer-qa, share-sync, comment-occurrence, annotation-reanchor): 103 passed, 1 failed = the new
+  `EditorState` tripwire reading an inline `type EditorState` as a value (fixed, the tripwire group re-run green).
+  No falsification run: the PR adds no behaviour spec; the two bug fixes are pinned by vitest (`editorStore.test`,
+  `plugin.test`). QA §7 (four checks) written into the operator's QA doc.

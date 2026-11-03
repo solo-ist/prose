@@ -57,6 +57,7 @@ import {
   type IdentityState
 } from './identity'
 import { parseMarkdown, serializeMarkdown } from '../lib/markdown'
+import { buildSourceState, sourceText, type SourceState } from '../extensions/source/state'
 import { getContentWithoutFrontmatter, getFrontmatterRaw } from '../components/editor/FrontmatterDisplay'
 import { editorScrollContainer, selectionFromViewState, type EditorViewState } from '../lib/editorViewState'
 import { isRemarkableOcrPath } from '../lib/remarkablePath'
@@ -117,6 +118,20 @@ export interface Session {
   commentWrite: Promise<void> | null
   /** The comment plugin state's `pushRevision` whose pushes were handed to the share module. */
   pushesPerformed: number
+  /** Source mode: the CodeMirror state and what it opened on; null in rich mode (#1150). */
+  source: SourceSession | null
+  /** A pending projection of the source text into the tab record. */
+  sourceTimer: ReturnType<typeof setTimeout> | null
+}
+
+/** A tab in source mode: its CodeMirror state lives here, across switches (#1150). */
+export interface SourceSession {
+  /** Every transaction of the view that shows it lands here. */
+  state: SourceState
+  /** The text shown on entering; unchanged on exit means nothing to write back (#1125). */
+  entryText: string
+  /** The source surface's scroll offset, kept across a switch. */
+  scrollTop: number
 }
 
 /** What performs the share pushes a comment transition records (registered by lib/sharePush.ts). */
@@ -124,13 +139,6 @@ export type SharePushPerformer = (
   target: { documentId: string; path: string | null; tabId: string },
   pushes: readonly SharePush[]
 ) => void
-
-interface SourceSurface {
-  tabId: string
-  getContent: () => string
-  /** The text shown on entering; unchanged on exit means nothing to write back (#1125). */
-  entryText: string
-}
 
 interface Registry {
   sessions: Map<string, Session>
@@ -155,7 +163,6 @@ if (hot) hot.data.sessionRegistry = registry
 let editor: Editor | null = null
 let editorWaiters: Array<(editor: Editor) => void> = []
 let detachEditor: (() => void) | null = null
-let sourceSurface: SourceSurface | null = null
 /** React readers of the active state (`useActiveSession`). */
 const activeListeners = new Set<() => void>()
 
@@ -209,7 +216,8 @@ export function attachEditor(next: Editor | null): void {
     afterTransaction(session, prev)
     notifyActiveSession()
     if (!transaction.docChanged) return
-    if (useEditorStore.getState().sourceMode) return
+    // The source text is the document while source mode is open (#1102).
+    if (session.source) return
     scheduleMarkdownProjection(session, transaction.getMeta(RELOAD_META) === true ? 0 : PROJECTION_DELAY_MS)
     scheduleSuggestionProjection(session, transaction)
   }
@@ -464,9 +472,9 @@ function projectSuggestions(session: Session): void {
 
 /** Land the session's pending projections now (the leaving step, a save). */
 export function flushProjections(session: Session): void {
-  if (session.tabId === registry.activeTabId && sourceSurface?.tabId === session.tabId) {
-    // Source mode: the source editor's text is the document; project it.
-    updateFromSource(sourceSurface.getContent())
+  if (session.sourceTimer) {
+    clearTimeout(session.sourceTimer)
+    projectSource(session)
   }
   if (session.projectionTimer) {
     clearTimeout(session.projectionTimer)
@@ -811,7 +819,9 @@ async function openSessionNow(
     // projection (with the `anchorLost` flags the seed set) anyway.
     commentsPersisted: threads?.revision ?? 0,
     commentWrite: null,
-    pushesPerformed: threads?.pushRevision ?? 0
+    pushesPerformed: threads?.pushRevision ?? 0,
+    source: null,
+    sourceTimer: null
   }
   registry.sessions.set(tab.id, session)
   stats.opens++
@@ -828,11 +838,15 @@ async function openSessionNow(
   return session
 }
 
-/** The leaving half of a switch: source mode closed, projections landed, scroll kept. */
+/**
+ * The leaving half of a switch: projections landed, scroll kept. A tab in
+ * source mode stays there, its CodeMirror state on the session; its rich
+ * view state is the one recorded before it entered (#1150).
+ */
 function leaveSession(session: Session, e: Editor): void {
-  exitSourceModeFor(session)
   flushProjections(session)
   session.state = e.view.state
+  if (session.source) return
   const { from, to } = session.state.selection
   useTabStore.getState().updateTab(session.tabId, {
     viewState: { selection: { from, to }, scrollTop: editorScrollContainer(e)?.scrollTop ?? 0 }
@@ -877,10 +891,13 @@ export function activateSession(tabId: string, opts: { reattach?: boolean } = {}
         isDirty: tab.isDirty
       })
       store.setPreviewTab(tab.isPreview ?? false)
-      store.setSourceMode(false)
+      // The mirror follows the session's own mode (#1150; the field goes in PR 7).
+      store.setSourceMode(session.source !== null)
     })
-    const container = editorScrollContainer(e)
-    if (container) container.scrollTop = tab.viewState?.scrollTop ?? 0
+    if (!session.source) {
+      const container = editorScrollContainer(e)
+      if (container) container.scrollTop = tab.viewState?.scrollTop ?? 0
+    }
   }
 
   view.dispatch(view.state.tr.setMeta(ACTIVATED_META, true).setMeta('addToHistory', false))
@@ -901,10 +918,9 @@ export async function closeSession(tabId: string, opts: { discard?: boolean } = 
   const session = registry.sessions.get(tabId)
   if (!session) return false
   const wasActive = tabId === registry.activeTabId
-  if (wasActive) {
-    exitSourceModeFor(session)
-    registry.activeTabId = null
-  }
+  // A tab closing in source mode, shown or not, writes its text back first.
+  if (session.source) exitSource(tabId)
+  if (wasActive) registry.activeTabId = null
   flushProjections(session)
   registry.sessions.delete(tabId)
   if (session.annotationTimer) {
@@ -968,6 +984,9 @@ export async function replaceSessionDocument(
   const session = requireSession(tabId)
   const e = requireEditor()
   const isActive = tabId === registry.activeTabId
+  // A reload or conversion of a tab in source mode takes the typed text
+  // back first; what follows replaces the whole document anyway.
+  if (session.source && !opts.keepHistory) exitSource(tabId)
 
   if (opts.keepHistory) {
     const identity = getIdentity(session.state)
@@ -1076,11 +1095,16 @@ export async function setSessionIdentity(tabId: string, identity: IdentityState)
   pipelineLog('session:identity', { tabId, from: previous.documentId, to: identity.documentId })
 }
 
-/** The markdown the session's document projects to (what the store holds), pending projections landed. */
+/**
+ * The markdown the session's document projects to (what the store holds),
+ * pending projections landed. In source mode the typed text is the
+ * document (#1102, #1150).
+ */
 export function projectSessionContent(tabId: string): string {
   const session = requireSession(tabId)
   const e = requireEditor()
   flushProjections(session)
+  if (session.source) return sourceText(session.source.state)
   return projectedContent(e, session)
 }
 
@@ -1089,6 +1113,7 @@ export function serializeSession(tabId: string): string {
   const session = requireSession(tabId)
   const e = requireEditor()
   flushProjections(session)
+  if (session.source) return sourceText(session.source.state)
   const content = projectedContent(e, session)
   const frontmatter =
     tabId === registry.activeTabId
@@ -1098,7 +1123,7 @@ export function serializeSession(tabId: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Frontmatter and source mode (the active session only, until PRs 6 and 7)
+// Frontmatter (the active session only, until PR 7) and source mode (#1150)
 // ---------------------------------------------------------------------------
 
 /**
@@ -1120,68 +1145,130 @@ export function setActiveFrontmatterRaw(raw: string): void {
 }
 
 /**
- * Source mode is opening: the document as text, byte for byte when nothing
- * serialisable changed since the load (#1102). `getContent` reads the source
- * editor's live text for the exit and for a switch while it is open.
+ * Source mode opens for a tab (#1150): the document as text, byte for byte
+ * when nothing serialisable changed since the load (#1102), becomes the
+ * initial document of a CodeMirror state kept on the session. The tab
+ * record says `source`; the editor store's mirror follows for the active
+ * tab (the field goes in PR 7).
  */
-export function enterSourceMode(getContent: () => string): string {
-  const session = activeSession()
-  const e = editor
-  if (!session || !e) return ''
+export function enterSource(tabId: string): SourceSession {
+  const session = requireSession(tabId)
+  if (session.source) return session.source
+  const e = requireEditor()
   flushProjections(session)
   const content = projectedContent(e, session)
-  const frontmatter = useEditorStore.getState().document.frontmatter ?? {}
+  const frontmatter =
+    tabId === registry.activeTabId
+      ? (useEditorStore.getState().document.frontmatter ?? {})
+      : (useTabStore.getState().getTabById(tabId)?.frontmatter ?? {})
   const text = serializeMarkdown(getContentWithoutFrontmatter(content), frontmatter)
-  sourceSurface = { tabId: session.tabId, getContent, entryText: text }
-  return text
+  session.source = { state: buildSourceState(text), entryText: text, scrollTop: 0 }
+  useTabStore.getState().updateTab(tabId, { mode: 'source' })
+  if (tabId === registry.activeTabId) {
+    useEditorStore.getState().setSourceMode(true)
+    notifyActiveSession()
+  }
+  pipelineLog('source:enter', { tabId })
+  return session.source
 }
 
 /**
- * Source mode is closing (the toggle, or a switch away): the typed text
- * becomes the document in one undo step when it changed; an untouched toggle
+ * Source mode closes for a tab, shown or not (the toggle, a close, a reload,
+ * a conversion): the typed text becomes the document in one undo step when it
+ * changed, every annotation re-anchored by its plugin; an untouched exit
  * dispatches nothing (#1125).
  */
-export function exitSourceMode(): void {
-  const surface = sourceSurface
-  sourceSurface = null
-  if (!surface) return
-  const session = registry.sessions.get(surface.tabId)
-  if (!session) return
-  const live = surface.getContent()
-  if (live === surface.entryText) return
-  const { content: body, frontmatter } = parseMarkdown(live)
-  // `content` is what the baseline substitutes on the next projection: the body
-  // alone here, because the frontmatter editor owns the raw block after a source
-  // exit and saves add it back from the store (see replaceSessionDocument).
-  void replaceSessionDocument(surface.tabId, { content: body, body, frontmatter }, { keepHistory: true })
-  if (surface.tabId === registry.activeTabId) {
-    const store = useEditorStore.getState()
-    store.setFrontmatter(frontmatter)
-    store.setContent(body)
+export function exitSource(tabId: string): void {
+  const session = registry.sessions.get(tabId)
+  if (!session?.source) return
+  const source = session.source
+  if (session.sourceTimer) {
+    clearTimeout(session.sourceTimer)
+    session.sourceTimer = null
   }
+  // Cleared first: the transaction handler projects the exit's replace only
+  // when the session is no longer in source mode.
+  session.source = null
+  const live = sourceText(source.state)
+  const changed = live !== source.entryText
+  const isActive = tabId === registry.activeTabId
+  if (changed) {
+    const { content: body, frontmatter } = parseMarkdown(live)
+    // `content` is what the baseline substitutes on the next projection: the
+    // body alone here, because the frontmatter editor owns the raw block after
+    // a source exit and saves add it back from the store.
+    void replaceSessionDocument(tabId, { content: body, body, frontmatter }, { keepHistory: true })
+    if (isActive) {
+      const store = useEditorStore.getState()
+      // `setFrontmatter` marks dirty unconditionally; only a changed block earns that.
+      if (JSON.stringify(store.document.frontmatter ?? {}) !== JSON.stringify(frontmatter)) store.setFrontmatter(frontmatter)
+      store.setContent(body)
+    } else {
+      useTabStore.getState().updateTab(tabId, { content: body, frontmatter })
+    }
+  }
+  useTabStore.getState().updateTab(tabId, { mode: 'rich' })
+  if (isActive) {
+    useEditorStore.getState().setSourceMode(false)
+    notifyActiveSession()
+  }
+  pipelineLog('source:exit', { tabId, changed })
 }
 
-function exitSourceModeFor(session: Session): void {
-  if (sourceSurface?.tabId !== session.tabId) return
-  exitSourceMode()
-  useEditorStore.getState().setSourceMode(false)
-}
-
-/** True while the source editor shows `tabId`'s document. */
+/** True while `tabId`'s document is in source mode (its CodeMirror state is the truth). */
 export function isSourceSurfaceFor(tabId: string): boolean {
-  return sourceSurface?.tabId === tabId
+  return registry.sessions.get(tabId)?.source !== null && registry.sessions.get(tabId)?.source !== undefined
+}
+
+/** The source session of a tab, for the surface and the seams. */
+export function getSourceSession(tabId: string): SourceSession | null {
+  return registry.sessions.get(tabId)?.source ?? null
 }
 
 /**
- * Typing in source mode: the store and the tab follow the text; the
- * session's state stays as it was until the exit (#1102). A late write from
- * a source editor that no longer shows the active document is ignored.
+ * A transaction of the view that shows `tabId`'s source landed: the state
+ * is recorded (a reference), and a document change projects into the tab
+ * record after the projection delay (the dirty dot, the close prompt, the
+ * session draft, Copy Markdown); the ProseMirror state waits for the exit
+ * (#1102).
  */
-export function updateFromSource(text: string): void {
-  const session = activeSession()
-  if (!session || sourceSurface?.tabId !== session.tabId) return
-  const { content: body, frontmatter } = parseMarkdown(text)
-  const store = useEditorStore.getState()
-  store.setContent(body)
-  store.setDocument({ frontmatter })
+export function setSourceState(tabId: string, state: SourceState): void {
+  const session = registry.sessions.get(tabId)
+  if (!session?.source || session.source.state === state) return
+  const docChanged = session.source.state.doc !== state.doc
+  session.source.state = state
+  if (!docChanged) return
+  if (session.sourceTimer) clearTimeout(session.sourceTimer)
+  session.sourceTimer = setTimeout(() => projectSource(session), PROJECTION_DELAY_MS)
+}
+
+export function setSourceScroll(tabId: string, scrollTop: number): void {
+  const session = registry.sessions.get(tabId)
+  if (session?.source) session.source.scrollTop = scrollTop
+}
+
+/** The active tab's source state landed (the surface's dispatcher). */
+export function setActiveSourceState(state: SourceState): void {
+  if (registry.activeTabId) setSourceState(registry.activeTabId, state)
+}
+
+export function setActiveSourceScroll(scrollTop: number): void {
+  if (registry.activeTabId) setSourceScroll(registry.activeTabId, scrollTop)
+}
+
+/** The source text into the store (active) or the tab record (background), as a rich edit's projection does. */
+function projectSource(session: Session): void {
+  session.sourceTimer = null
+  if (!session.source || !registry.sessions.has(session.tabId)) return
+  const { content: body, frontmatter } = parseMarkdown(sourceText(session.source.state))
+  if (session.tabId === registry.activeTabId) {
+    const store = useEditorStore.getState()
+    store.setContent(body)
+    store.setDocument({ frontmatter })
+  } else {
+    const tab = useTabStore.getState().getTabById(session.tabId)
+    if (tab && (tab.content !== body || JSON.stringify(tab.frontmatter ?? {}) !== JSON.stringify(frontmatter))) {
+      useTabStore.getState().updateTab(session.tabId, { content: body, frontmatter, isDirty: true })
+    }
+  }
 }

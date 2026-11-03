@@ -42,7 +42,7 @@ import { useChat } from '../../hooks/useChat'
 import { useSummaryStore } from '../../stores/summaryStore'
 import { useEditor } from '../../hooks/useEditor'
 import { useTabs } from '../../hooks/useTabs'
-import { hydrateDraft, restoreTabs, convertTab, type RestoredTab } from '../../tabs/actions'
+import { hydrateDraft, restoreTabs, convertTab, type RestoredTab, toggleSourceMode } from '../../tabs/actions'
 import { useSettings } from '../../hooks/useSettings'
 import { usePanelLayout, PanelLayoutProvider } from '../../hooks/usePanelLayout'
 import type { ImperativePanelHandle } from 'react-resizable-panels'
@@ -643,7 +643,7 @@ export function App() {
           window.dispatchEvent(new CustomEvent('menu:insertTable'))
           break
         case 'toggleSourceView':
-          useEditorStore.getState().toggleSourceMode()
+          toggleSourceMode()
           break
         case 'find':
           // Dispatch custom event for Editor to handle

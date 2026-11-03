@@ -71,8 +71,16 @@ import {
   patchThread,
   readThreads,
   registerSharePushPerformer,
+  enterSource,
+  exitSource,
+  setSourceState,
+  getSourceSession,
+  serializeSession,
   type SharePushPerformer
 } from './session'
+import { resolveToolHandle, isToolHandleError } from './handle'
+import { undoDepth as pmUndoDepth } from '@tiptap/pm/history'
+import { sourceText } from '../extensions/source/state'
 import { getIdentity } from './identity'
 import { useTabStore, type Tab } from '../stores/tabStore'
 import { useEditorStore } from '../stores/editorStore'
@@ -555,5 +563,105 @@ describe('comment threads in the state (#1147)', () => {
     expect(editor.commands.undo()).toBe(true)
     expect(markText(editor.state.doc, 'c-r')).toBe('rewritten text')
     expect(threadsOf(editor.state)[0].anchorLost).toBe(false)
+  })
+})
+
+describe('source mode per tab (#1150)', () => {
+  it('enters with the document as loaded (the #1102 baseline), projects typing into the tab, and an untouched exit changes nothing', async () => {
+    vi.useFakeTimers()
+    try {
+      // A bullet the serializer would rewrite: the baseline keeps the loaded bytes.
+      const content = '# Title\n\n* item one\n'
+      const t = tab('ts', 'doc-s', '/docs/s.md', content)
+      await openSession(t, content)
+      activateSession('ts')
+      const before = getSession('ts')!.state.doc
+
+      const source = enterSource('ts')
+      expect(sourceText(source.state)).toBe(content)
+      expect(useTabStore.getState().getTabById('ts')!.mode).toBe('source')
+      expect(useEditorStore.getState().sourceMode).toBe(true)
+      expect(getSession('ts')!.state.doc).toBe(before)
+
+      // Typing: the state lands at once, the tab record and the store after the delay; the ProseMirror state waits.
+      const typed = source.state.update({ changes: { from: content.length, insert: 'More.\n' } }).state
+      setSourceState('ts', typed)
+      expect(getSourceSession('ts')!.state).toBe(typed)
+      expect(useEditorStore.getState().document.content).not.toContain('More.')
+      await vi.advanceTimersByTimeAsync(600)
+      expect(useEditorStore.getState().document.content).toContain('More.')
+      expect(getSession('ts')!.state.doc).toBe(before)
+      expect(serializeSession('ts')).toBe(content + 'More.\n')
+
+      // A write is refused while source mode is open on this tab.
+      const refused = await resolveToolHandle({ conversationId: 'c', documentId: 'doc-s', path: '/docs/s.md', tabId: 'ts' }, { forWrite: true })
+      expect(isToolHandleError(refused) && refused.code).toBe('SOURCE_MODE')
+
+      // Back to the entry text, then exit: nothing dispatched, rich again, clean.
+      setSourceState('ts', typed.update({ changes: { from: content.length, to: content.length + 6, insert: '' } }).state)
+      exitSource('ts')
+      expect(getSourceSession('ts')).toBeNull()
+      expect(getSession('ts')!.state.doc).toBe(before)
+      expect(useTabStore.getState().getTabById('ts')!.mode).toBe('rich')
+      expect(useEditorStore.getState().sourceMode).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('an exit with changes is one replace and one undo step, with the annotations and threads re-anchored', async () => {
+    const content = 'Intro here.\n\nSome rewritten text.\n'
+    db.comments.set('doc-x', [comment('c-x', 'rewritten text')])
+    const t = tab('tx', 'doc-x', '/docs/x.md', content)
+    await openSession(t, content)
+    activateSession('tx')
+    editor.commands.addAIAnnotations([{ type: 'insertion', from: 1, to: 6, content: 'Intro', provenance: PROV }])
+    const depth = pmUndoDepth(editor.state)
+
+    const source = enterSource('tx')
+    const edited = source.state.update({ changes: { from: 0, insert: 'Added line.\n\n' } }).state
+    setSourceState('tx', edited)
+    exitSource('tx')
+
+    expect(editor.state.doc.textContent).toContain('Added line.')
+    expect(pmUndoDepth(editor.state)).toBe(depth + 1)
+    expect(annotationsOf(editor.state)[0].detached).toBeFalsy()
+    expect(editor.state.doc.textBetween(annotationsOf(editor.state)[0].from, annotationsOf(editor.state)[0].to)).toBe('Intro')
+    expect(threadsOf(editor.state)[0].anchorLost).toBeFalsy()
+    expect(editor.commands.undo()).toBe(true)
+    expect(editor.state.doc.textContent).not.toContain('Added line.')
+  })
+
+  it('keeps a background tab in source mode across a switch and writes its text back when it closes', async () => {
+    vi.useFakeTimers()
+    try {
+      const a = tab('ta', 'doc-a', '/docs/a.md', 'Alpha body.\n')
+      const b = tab('tb', 'doc-b', '/docs/b.md', 'Beta body.\n')
+      await openSession(a, a.content!)
+      await openSession(b, b.content!)
+      activateSession('ta')
+      const source = enterSource('ta')
+      setSourceState('ta', source.state.update({ changes: { from: 0, insert: 'Typed in source. ' }, selection: { anchor: 5 } }).state)
+
+      activateSession('tb')
+      expect(getSourceSession('ta')).toBe(source)
+      expect(getSourceSession('ta')!.state.selection.main.head).toBe(5)
+      expect(useTabStore.getState().getTabById('ta')!.mode).toBe('source')
+      expect(useEditorStore.getState().sourceMode).toBe(false)
+      await vi.advanceTimersByTimeAsync(600)
+      expect(useTabStore.getState().getTabById('ta')!.content).toContain('Typed in source.')
+      expect(useTabStore.getState().getTabById('ta')!.isDirty).toBe(true)
+
+      activateSession('ta')
+      expect(useEditorStore.getState().sourceMode).toBe(true)
+      expect(getSourceSession('ta')).toBe(source)
+
+      activateSession('tb')
+      await closeSession('ta')
+      expect(useTabStore.getState().getTabById('ta')!.mode).toBe('rich')
+      expect(useTabStore.getState().getTabById('ta')!.content).toContain('Typed in source.')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

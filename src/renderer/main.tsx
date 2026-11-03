@@ -8,7 +8,8 @@ import {
   loadSuggestions as loadSuggestionsFromDB,
   loadConversations as loadConversationsFromDB
 } from './lib/persistence'
-import { getSessionTabIds, getProjectionStats, getActiveSession, getSession } from './document/session'
+import { getSessionTabIds, getProjectionStats, getActiveSession, getSession, getSourceSession } from './document/session'
+import { sourceFolds, sourceSelection, sourceText } from './extensions/source/state'
 import { getIdentity } from './document/identity'
 import { useCommandHistoryStore } from './stores/commandHistoryStore'
 import { seedEmojiCache } from './lib/emojiService'
@@ -109,6 +110,15 @@ import './index.css'
   },
   loadConversationsFromDB,
   closeTab: (tabId: string, opts?: { force?: boolean }) => closeTab(tabId, opts),
+  // A tab's source mode and, when open, its CodeMirror text, selection and
+  // folds (document-sessions case 3, #1150); the active tab without an id.
+  getSourceState: (tabId?: string) => {
+    const session = tabId ? getSession(tabId) : getActiveSession()
+    if (!session) return null
+    const source = getSourceSession(session.tabId)
+    if (!source) return { mode: 'rich', text: null, selection: null, folds: [] }
+    return { mode: 'source', text: sourceText(source.state), selection: sourceSelection(source.state), folds: sourceFolds(source.state) }
+  },
   // Marks are restored inside the session's own seed transaction, before a
   // state is ever shown, so there is no "not yet restored" state (#1145).
   // Kept as a readiness gate for the specs that poll it (updated in PR 8).

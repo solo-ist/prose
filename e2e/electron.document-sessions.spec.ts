@@ -171,6 +171,29 @@ async function posOf(needle: string): Promise<number> {
   return pos
 }
 
+/** Source mode through the Toolbar button, as the source-mode-authority spec does. */
+async function enterSource(): Promise<void> {
+  await page.locator('[aria-label="Source mode"]').click()
+  await page.waitForSelector(selectors.sourceEditor, { timeout: 5_000 })
+}
+
+async function exitSource(): Promise<void> {
+  await page.locator('[aria-label="WYSIWYG mode"]').click()
+  await page.waitForSelector('.ProseMirror', { timeout: 5_000 })
+}
+
+const sourceState = (tabId?: string) =>
+  page.evaluate(
+    (tabId) =>
+      (window as any).__prose_tools.getSourceState(tabId) as {
+        mode: 'rich' | 'source'
+        text: string | null
+        selection: { anchor: number; head: number } | null
+        folds: Array<[number, number]>
+      } | null,
+    tabId,
+  )
+
 async function commentOn(needle: string, id: string): Promise<void> {
   const from = await posOf(needle)
   await page.evaluate(
@@ -409,14 +432,54 @@ test('an edit above a highlight survives a switch and a relaunch, and the other 
 })
 
 /**
- * Case 4 (annotation half) — exit source mode with an edit, then one undo:
- * the pre-edit document is back and the annotation is live on its words.
- * The undo is a whole-document replace carrying no meta of ours; mapping
- * through it collapsed every range, so this failed at 5b67ba9.
+ * Case 3 — A in source mode with its caret on a line, switch to B through
+ * the tab bar, return: A is still in source mode with its text and caret;
+ * exiting without changes writes nothing and does not dirty A. Fails on the
+ * release head: a switch exits source mode, so A comes back rich.
  */
-test('one undo after a source-mode exit restores the document with its annotation attached', async () => {
+test('case 3: a tab stays in source mode with its caret across a switch, and an untouched exit is clean', async () => {
+  const a = await openDoc('sessions-three-a.md', body('Golf'), 'Golf paragraph one')
+  const bytesBefore = readFileSync(a.path!, 'utf8')
+  const b = await openDoc('sessions-three-b.md', body('Hotel'), 'Hotel paragraph one')
+  await clickTab(a, 'Golf paragraph one')
+
+  await enterSource()
+  // Put the caret at the end of the third paragraph's line.
+  await page.locator('.cm-line', { hasText: 'Golf paragraph three.' }).first().click()
+  await page.keyboard.press('End')
+  const caretBefore = (await sourceState())!
+  expect(caretBefore.mode).toBe('source')
+  expect(caretBefore.text).toContain('Golf paragraph three.')
+  expect(caretBefore.selection!.head).toBe(caretBefore.text!.indexOf('Golf paragraph three.') + 'Golf paragraph three.'.length)
+
+  await clickTab(b, 'Hotel paragraph one')
+  expect(await page.locator(selectors.sourceEditor).count()).toBe(0)
+  await clickTab(a, 'Golf paragraph one')
+  await page.waitForSelector(selectors.sourceEditor, { timeout: 5_000 })
+  const caretAfter = (await sourceState())!
+  expect(caretAfter.mode).toBe('source')
+  expect(caretAfter.text).toBe(caretBefore.text)
+  expect(caretAfter.selection).toEqual(caretBefore.selection)
+
+  await exitSource()
+  expect((await sourceState())!.mode).toBe('rich')
+  expect(await page.evaluate(() => (window as any).__prose_tools.getDocumentIsDirty())).toBe(false)
+  await page.keyboard.press('Meta+s')
+  await settle()
+  expect(readFileSync(a.path!, 'utf8')).toBe(bytesBefore)
+})
+
+/**
+ * Case 4 — exit source mode with an edit, then one undo: the pre-edit
+ * document is back, the annotation is live on its words and the comment
+ * thread's mark is on its text. The undo is a whole-document replace
+ * carrying no meta of ours; mapping through it collapsed every range, so
+ * the annotation half failed at 5b67ba9; the comment half is PR 6's.
+ */
+test('one undo after a source-mode exit restores the document with its annotation and comment attached', async () => {
   await openDoc('sessions-four.md', body('Gamma'), 'Gamma paragraph one')
   await annotate('Gamma paragraph two', 'Gamma paragraph two rewritten.', 'msg-four')
+  await commentOn('Gamma paragraph one', 'c-four')
   await settle()
   const painted = await paintedText()
   expect(painted).toContain('rewritten')
@@ -441,6 +504,9 @@ test('one undo after a source-mode exit restores the document with its annotatio
   expect(live.length).toBeGreaterThan(0)
   expect(live.every((a) => !a.detached)).toBe(true)
   expect(await liveAnchorsMatch()).toBe(true)
+  // The comment thread survived the round trip and the undo on its text.
+  expect(await liveCommentIds()).toEqual(['c-four'])
+  await expect.poll(() => page.locator('.comment-mark').first().textContent()).toBe('Gamma paragraph one')
 })
 
 /**

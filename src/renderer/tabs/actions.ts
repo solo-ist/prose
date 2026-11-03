@@ -61,8 +61,11 @@ import {
   markTabClosing,
   replaceSessionDocument,
   setActiveFrontmatterRaw,
-  updateFromSource as updateSessionFromSource
+  enterSource,
+  exitSource,
+  getSession
 } from '../document/session'
+import { isRemarkableOcrPath } from '../lib/remarkablePath'
 import { isPlainTextPath } from '../document/identity'
 
 // ---------------------------------------------------------------------------
@@ -290,6 +293,8 @@ async function arriveTab(tab: Tab, opts: ArriveOptions = {}): Promise<void> {
   }
   const current = useTabStore.getState().getTabById(tab.id)
   if (!current) return
+  // A tab that was in source mode (a relaunch, a reopen) comes back in it (#1150).
+  if (current.mode === 'source' && !getSession(current.id)?.source) enterSource(current.id)
   activateSession(current.id)
 
   // The conversations are loaded before anything saves under the new id:
@@ -850,6 +855,8 @@ export async function convertTab(tabId: string, to: 'txt' | 'md'): Promise<boole
   if (!from.test(tab.path)) return false
   const newPath = tab.path.replace(from, `.${to}`)
   const isActive = tabId === useTabStore.getState().activeTabId
+  // The typed text first, as a document replace follows (#1150).
+  if (getSession(tabId)?.source) exitSource(tabId)
   if (isActive) flushActiveProjections()
   const current =
     isActive && useEditorStore.getState().document.documentId === tab.documentId
@@ -893,9 +900,26 @@ export function setActiveFrontmatter(frontmatter: Record<string, unknown>): void
   setActiveFrontmatterRaw('')
 }
 
-/** Typing in source mode: the store and the tab follow the text (#1102). */
-export function updateFromSource(text: string): void {
-  updateSessionFromSource(text)
+/** Source mode for a tab, shown or not; refused on a preview or reMarkable tab (#1150). */
+export function enterSourceMode(tabId: string | null = useTabStore.getState().activeTabId): boolean {
+  if (!tabId) return false
+  const tab = useTabStore.getState().getTabById(tabId)
+  if (!tab || tab.isPreview || isRemarkableOcrPath(tab.path) || !hasSession(tabId)) return false
+  enterSource(tabId)
+  return true
+}
+
+/** Back to the rich editor: the typed text becomes the document in one undo step when it changed. */
+export function exitSourceMode(tabId: string | null = useTabStore.getState().activeTabId): void {
+  if (tabId) exitSource(tabId)
+}
+
+/** The one toggle behind the toolbar, the status bar, the View menu and ⌘⇧E. */
+export function toggleSourceMode(): void {
+  const tabId = useTabStore.getState().activeTabId
+  if (!tabId) return
+  if (getSession(tabId)?.source) exitSourceMode(tabId)
+  else enterSourceMode(tabId)
 }
 
 // ---------------------------------------------------------------------------

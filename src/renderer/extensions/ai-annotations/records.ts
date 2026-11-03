@@ -240,7 +240,13 @@ export function reanchorRecords(records: readonly AIAnnotation[], before: PMNode
       }
       continue
     }
-    const range = mapping!(a.from, a.to)
+    if (!mapping || a.from < 0 || a.from > a.to) {
+      // A malformed range (never produced by the pipeline; loadRecords
+      // detaches such rows) has no anchor to carry: left as it is.
+      out.push(a)
+      continue
+    }
+    const range = mapping(a.from, a.to)
     if (!range || range.from < 0 || range.to > size || range.from >= range.to) {
       const d = { ...a, detached: true }
       out.push(d)

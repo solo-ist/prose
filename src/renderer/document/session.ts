@@ -534,10 +534,16 @@ async function persistSession(session: Session, opts: { allowEmptySuggestions?: 
     clearTimeout(session.annotationTimer)
     session.annotationTimer = null
   }
-  // The set as it is: plugin state is never transiently stripped (the seed
-  // loads before a state is shown; a reload re-anchors in the same apply).
-  session.annotationsPersisted = annotationPluginState(session.state)?.revision ?? 0
-  await persistRecords('annotations', documentId, [...annotationsOf(session.state)])
+  // The set as it is, when the stored rows are behind it: plugin state is
+  // never transiently stripped (the seed loads before a state is shown; a
+  // reload re-anchors in the same apply), and a revision already written
+  // (by an urgent change, a flush, or a seed that changed nothing) is not
+  // written again.
+  const pluginState = annotationPluginState(session.state)
+  if (pluginState && pluginState.revision !== session.annotationsPersisted) {
+    session.annotationsPersisted = pluginState.revision
+    await persistRecords('annotations', documentId, [...pluginState.records])
+  }
   const comments = mergeCommentsForPersistence(editorLike, session.records.comments)
   await persistRecords('comments', documentId, comments)
   const suggestions = getAISuggestions(editorLike)
@@ -655,9 +661,15 @@ async function openSessionNow(
   const outcome = applyCommentMarks(seed, comments)
   applySuggestionMarks(seed, suggestions)
   // The stored annotation rows, re-anchored onto this document by their text
-  // inside the plugin's apply (#1138); nothing is written back at load.
+  // inside the plugin's apply (#1138); nothing is written back at load. When
+  // the seed moved, detached or filled in a row, the stored rows are behind
+  // the state and the next leave, close or save writes them (the revision
+  // counts as unpersisted); otherwise the seed's revision counts as written.
   loadAnnotationsInto(seed, annotations)
   state = state.applyTransaction(seed).state
+  const seeded = annotationPluginState(state)
+  const loaded = seeded?.records ?? []
+  const changedAtLoad = loaded.length !== annotations.length || loaded.some((row, i) => row !== annotations[i])
 
   const session: Session = {
     tabId: tab.id,
@@ -669,7 +681,7 @@ async function openSessionNow(
     suggestionTimer: null,
     suggestionResolved: false,
     annotationTimer: null,
-    annotationsPersisted: annotationPluginState(state)?.revision ?? 0,
+    annotationsPersisted: (seeded?.revision ?? 0) - (changedAtLoad ? 1 : 0),
     annotationWrite: null
   }
   registry.sessions.set(tab.id, session)

@@ -71,6 +71,7 @@ import { getIdentity } from './identity'
 import { useTabStore, type Tab } from '../stores/tabStore'
 import { useEditorStore } from '../stores/editorStore'
 import { annotationsOf } from '../extensions/ai-annotations/transactions'
+import { saveAnnotations } from '../lib/persistence'
 import { useCommentStore } from '../extensions/comments/store'
 import { useSuggestionStore } from '../extensions/ai-suggestions/store'
 import type { AIAnnotation } from '../types/annotations'
@@ -300,6 +301,51 @@ describe('persistRecords and the plugin state (§G)', () => {
     expect(annotationsOf(editor.state)[0].detached).toBe(true)
     await getSession('tm')!.annotationWrite
     expect((db.annotations.get('doc-m') as AIAnnotation[])[0].detached).toBe(true)
+  })
+
+  it('writes once on a close with a pending move, and not at all when nothing is behind', async () => {
+    const content = 'Alpha body here.\n'
+    db.annotations.set('doc-w', [{ ...annotation('doc-w', 7, 11, 'body'), anchorText: 'body' }])
+    const t = tab('tw', 'doc-w', '/docs/w.md', content)
+    await openSession(t, content)
+    activateSession('tw')
+    const writes = () => vi.mocked(saveAnnotations).mock.calls.filter(([id]) => id === 'doc-w').length
+    const before = writes()
+
+    editor.commands.insertContentAt(1, 'Zed ')
+    expect(writes()).toBe(before)
+    await closeSession('tw')
+    expect(writes()).toBe(before + 1)
+    expect((db.annotations.get('doc-w') as AIAnnotation[])[0]).toMatchObject({ from: 11, to: 15 })
+
+    // Re-open and close with nothing changed: the stored rows are current, no write.
+    const t2 = tab('tw2', 'doc-w', '/docs/w.md', 'Zed Alpha body here.\n')
+    await openSession(t2, 'Zed Alpha body here.\n')
+    activateSession('tw2')
+    const again = writes()
+    await closeSession('tw2')
+    expect(writes()).toBe(again)
+  })
+
+  it('writes rows the seed re-anchored or filled in at the next close', async () => {
+    const content = 'Intro here.\n\nSome rewritten text.\n'
+    // A legacy row (no anchorText; "rewritten text." sits at 19..34: p1 is
+    // 13 positions, "Some " five more) and one whose text moved since it was stored.
+    const legacy = annotation('doc-s', 19, 34, 'rewritten text.')
+    const stale = { ...annotation('doc-s', 2, 17, 'rewritten text.'), id: 'stale', anchorText: 'rewritten text.' }
+    db.annotations.set('doc-s', [legacy, stale])
+    const t = tab('ts', 'doc-s', '/docs/s.md', content)
+    await openSession(t, content)
+    activateSession('ts')
+    const live = annotationsOf(editor.state)
+    expect(live[0].anchorText).toBe('rewritten text.')
+    expect(editor.state.doc.textBetween(live[1].from, live[1].to, '\n')).toBe('rewritten text.')
+    // Nothing written at load.
+    expect(db.annotations.get('doc-s')).toEqual([legacy, stale])
+    await closeSession('ts')
+    const rows = db.annotations.get('doc-s') as AIAnnotation[]
+    expect(rows[0].anchorText).toBe('rewritten text.')
+    expect(rows[1].from).toBe(live[1].from)
   })
 })
 

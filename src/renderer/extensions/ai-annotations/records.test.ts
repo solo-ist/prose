@@ -99,9 +99,19 @@ describe('mapRecords', () => {
     expect(result.detached).toEqual([])
 
     const unrelated = state.tr.insertText('x', rangeOf(doc, 'Second').to)
-    const same = mapRecords([a], unrelated)
-    expect(same.records).toBe(same.records)
-    expect(mapRecords([a], unrelated).records[0]).toBe(a)
+    const input = [a]
+    const same = mapRecords(input, unrelated)
+    expect(same.records).toBe(input)
+    expect(same.moved).toEqual([])
+  })
+
+  it('leaves a malformed range alone instead of mapping it', () => {
+    const doc = docOf(PROBE)
+    const bad = { ...record(doc, 'Intro'), from: 30, to: 10 }
+    const before = docOf(PROBE.replace('with words.', 'with'))
+    const r = reanchorRecords([bad], doc, before)
+    expect(r.records[0]).toBe(bad)
+    expect(r.detached).toEqual([])
   })
 
   it('splits a record around text typed inside it, with new ids and sliced content', () => {

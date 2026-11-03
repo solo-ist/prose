@@ -248,7 +248,8 @@ function boundTab(binding: ToolBinding): string | null {
  */
 export async function resolveToolHandle(
   binding: ToolBinding,
-  opts: ResolveHandleOptions = {}
+  opts: ResolveHandleOptions = {},
+  retried = false
 ): Promise<DocumentHandle | ToolHandleError> {
   const editor = getAttachedEditor()
   if (!editor || editor.isDestroyed) return { error: 'Editor not available', code: 'EDITOR_NOT_AVAILABLE' }
@@ -267,8 +268,11 @@ export async function resolveToolHandle(
   }
   if (!getSession(tabId)) await openSessionForTab(tabId)
   // The close window: a tab that started closing while the session opened.
+  // One retry; a second race in a row reports the document closed rather
+  // than opening tab after tab.
   if (isTabClosing(tabId) || !useTabStore.getState().getTabById(tabId)) {
-    return resolveToolHandle({ ...binding, tabId: null }, opts)
+    if (retried) return { error: 'The document closed while the call was being resolved.', code: 'DOCUMENT_CLOSED' }
+    return resolveToolHandle({ ...binding, tabId: null }, opts, true)
   }
   if (opts.forWrite && isSourceSurfaceFor(tabId)) {
     return { error: 'Document is open in source mode; writes are refused until it is closed', code: 'SOURCE_MODE' }

@@ -1,32 +1,22 @@
 /**
  * Comment Mark Extension for TipTap
  *
- * Allows users to add comments to selected text.
- * Comments are instructions for AI to process.
+ * Allows users to add comments to selected text. Comments are instructions
+ * for AI to process. The mark is the anchor; the thread (replies, resolved,
+ * anchorLost, share ids) lives in the comment threads plugin state of the
+ * document's `EditorState` (#1147, plugin.ts), and every command below
+ * changes mark and thread in one transaction.
  */
 
 import { Mark, mergeAttributes } from '@tiptap/core'
-import { Plugin, PluginKey } from '@tiptap/pm/state'
-import type { EditorState, Transaction } from '@tiptap/pm/state'
-import { Decoration, DecorationSet } from '@tiptap/pm/view'
-import type { EditorView } from '@tiptap/pm/view'
+import type { Transaction } from '@tiptap/pm/state'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import type { MarkSerializerSpec } from 'prosemirror-markdown'
-import type { CommentOptions, CommentData } from './types'
-import { useCommentStore } from './store'
-import { pushResolveToShare } from '../../lib/sharePush'
-import { getIdentity, RELOAD_META, ACTIVATED_META } from '../../document/identity'
+import type { CommentOptions, CommentData, CommentReply } from './types'
+import { createCommentThreadsPlugin } from './plugin'
+import { addThreadsTo, removeThreadFrom, threadsOf, updateThreadIn } from './transactions'
 
-const commentStatePluginKey = new PluginKey('commentState')
-
-/**
- * Transaction meta marking a programmatic AI replacement — an accepted
- * suggestion or an `edit`/`insert` tool write (#1099). Those build mark-free
- * content, so any comment anchored in the replaced range vanishes without the
- * writer having deleted anything. autoResolveDeletedComments reads the meta
- * and keeps such threads open as anchorLost instead of resolving them.
- */
-export const AI_REPLACEMENT_META = 'aiReplacement'
+export { AI_REPLACEMENT_META } from './plugin'
 
 /**
  * Markdown serializer for comment marks - outputs just the text content
@@ -54,10 +44,16 @@ declare module '@tiptap/core' {
        * Remove all comments
        */
       unsetAllComments: () => ReturnType
-      /**
-       * Restore comment marks from persisted data (used after tab switch)
-       */
-      restoreComments: (comments: CommentData[]) => ReturnType
+      /** Resolve a thread: `resolved: true` and its marks removed, one transaction. */
+      resolveThread: (id: string) => ReturnType
+      /** Reopen a resolved thread and put its mark back on its text (by markedText + occurrence). */
+      reopenThread: (id: string) => ReturnType
+      /** Append a reply to a thread. */
+      replyToThread: (id: string, reply: CommentReply) => ReturnType
+      /** Drop a thread and its marks. `push: false` skips the share removal (the e2e seam). */
+      removeThread: (id: string, opts?: { push?: boolean }) => ReturnType
+      /** Patch a thread's metadata. */
+      updateThread: (id: string, patch: Partial<CommentData>) => ReturnType
     }
   }
 }
@@ -68,8 +64,6 @@ export const Comment = Mark.create<CommentOptions>({
   addOptions() {
     return {
       HTMLAttributes: {},
-      onCommentAdded: undefined,
-      onCommentRemoved: undefined,
       onCommentBlocked: undefined,
     }
   },
@@ -145,7 +139,7 @@ export const Comment = Mark.create<CommentOptions>({
     return {
       setComment:
         (attrs) =>
-        ({ commands, state }) => {
+        ({ commands, state, tr }) => {
           const { from, to } = state.selection
 
           // Same-type marks are exclusive in ProseMirror: setMark on a range
@@ -200,13 +194,12 @@ export const Comment = Mark.create<CommentOptions>({
           const result = commands.setMark(this.name, {
             id: attrs.id,
             comment: attrs.comment,
-            createdAt: Date.now(),
+            createdAt: commentData.createdAt,
             occurrenceIndex,
           })
 
-          if (result && this.options.onCommentAdded) {
-            this.options.onCommentAdded(commentData)
-          }
+          // The thread rides in the same transaction as its mark (#1147).
+          if (result) addThreadsTo(tr, [{ ...commentData, replies: [], resolved: false }])
 
           return result
         },
@@ -226,10 +219,6 @@ export const Comment = Mark.create<CommentOptions>({
                 if (!id || mark.attrs.id === id) {
                   tr.removeMark(pos, pos + node.nodeSize, mark.type)
                   removed = true
-
-                  if (this.options.onCommentRemoved && mark.attrs.id) {
-                    this.options.onCommentRemoved(mark.attrs.id)
-                  }
                 }
               }
             })
@@ -249,23 +238,60 @@ export const Comment = Mark.create<CommentOptions>({
           return commands.unsetComment()
         },
 
-      restoreComments:
-        (comments) =>
-        ({ tr, dispatch }) => {
-          if (!dispatch || comments.length === 0) return false
-          const outcome = applyCommentMarks(tr, comments)
-          // Reconcile anchorLost flags in the store (#769).
-          const { pendingComments } = useCommentStore.getState()
-          const reconciled = reconcileAnchorLost(pendingComments, outcome)
-          if (reconciled !== pendingComments) {
-            useCommentStore.setState({ pendingComments: reconciled })
+      resolveThread:
+        (id) =>
+        ({ tr, state, dispatch }) => {
+          const thread = threadsOf(state).find((c) => c.id === id)
+          if (!thread) return false
+          if (dispatch) {
+            updateThreadIn(tr, id, { resolved: true })
+            removeMarksOf(tr, id)
           }
-          if (outcome.anchored.length > 0) {
-            dispatch(tr)
-            console.log('[Comment] Restored', outcome.anchored.length, 'of', comments.length, 'comments')
-            return true
+          return true
+        },
+
+      reopenThread:
+        (id) =>
+        ({ tr, state, dispatch }) => {
+          const thread = threadsOf(state).find((c) => c.id === id)
+          if (!thread) return false
+          if (dispatch) {
+            updateThreadIn(tr, id, { resolved: false })
+            // Re-anchor the mark that resolving removed; the plugin reads the
+            // outcome from the marks (anchorLost when the text is gone).
+            applyCommentMarks(tr, [{ ...thread, resolved: false }])
           }
-          return false
+          return true
+        },
+
+      replyToThread:
+        (id, reply) =>
+        ({ tr, state, dispatch }) => {
+          const thread = threadsOf(state).find((c) => c.id === id)
+          if (!thread) return false
+          if (dispatch) updateThreadIn(tr, id, { replies: [...(thread.replies ?? []), reply] })
+          return true
+        },
+
+      removeThread:
+        (id, opts = {}) =>
+        ({ tr, state, dispatch }) => {
+          const thread = threadsOf(state).find((c) => c.id === id)
+          if (!thread) return false
+          if (dispatch) {
+            removeThreadFrom(tr, id, { quiet: opts.push === false })
+            removeMarksOf(tr, id)
+          }
+          return true
+        },
+
+      updateThread:
+        (id, patch) =>
+        ({ tr, state, dispatch }) => {
+          const thread = threadsOf(state).find((c) => c.id === id)
+          if (!thread) return false
+          if (dispatch) updateThreadIn(tr, id, patch)
+          return true
         },
     }
   },
@@ -275,82 +301,19 @@ export const Comment = Mark.create<CommentOptions>({
   // the default amber. Resolved threads remove their mark, so only these two
   // render in the document.
   addProseMirrorPlugins() {
-    // Set when any transaction in the current dispatch is a programmatic
-    // content load: TipTap tags setContent with preventUpdate:true, and user
-    // edits never are. Kept per plugin instance so editors never share it, and
-    // outside the plugin state because appendTransaction follow-ups (node-ids)
-    // lack the meta and would overwrite a state value before the view update
-    // reads it (#933). `apply` is only the hook that arms it.
-    let contentLoadInDispatch = false
-    // Same per-dispatch shape for AI replacements (#1099).
-    let aiReplacementInDispatch = false
-    // And for a session activation or reload (#1145): the document in the
-    // view changed wholesale, nothing was deleted by the writer.
-    let sessionSwapInDispatch = false
-    return [
-      new Plugin({
-        key: commentStatePluginKey,
-        state: {
-          init: () => null,
-          apply(tr) {
-            if (tr.getMeta('preventUpdate') === true) contentLoadInDispatch = true
-            if (tr.getMeta(AI_REPLACEMENT_META) === true) aiReplacementInDispatch = true
-            if (tr.getMeta(RELOAD_META) === true || tr.getMeta(ACTIVATED_META) === true) {
-              sessionSwapInDispatch = true
-            }
-            return null
-          },
-        },
-        view: (view) => {
-          // A reply lands in the store without a ProseMirror transaction, so
-          // nudge the view to recompute decorations when the store changes.
-          // queueMicrotask defers past the current dispatch (onCommentAdded
-          // fires mid-transaction) to avoid reentrant dispatches.
-          const unsubscribe = useCommentStore.subscribe(() => {
-            queueMicrotask(() => {
-              if (view.isDestroyed) return
-              view.dispatch(view.state.tr.setMeta(commentStatePluginKey, true))
-            })
-          })
-          return {
-            update: (v, prevState) => {
-              // Consume unconditionally so every dispatch starts clean.
-              const contentLoad = contentLoadInDispatch
-              const aiReplacement = aiReplacementInDispatch
-              const sessionSwap = sessionSwapInDispatch
-              contentLoadInDispatch = false
-              aiReplacementInDispatch = false
-              sessionSwapInDispatch = false
-              autoResolveDeletedComments(v, prevState, contentLoad, aiReplacement, sessionSwap)
-            },
-            destroy: unsubscribe,
-          }
-        },
-        props: {
-          decorations: (state) => {
-            const byId = new Map(
-              useCommentStore.getState().pendingComments.map((c) => [c.id, c])
-            )
-            const decos: Decoration[] = []
-            state.doc.descendants((node, pos) => {
-              const mark = node.marks.find((m) => m.type.name === 'comment')
-              if (!mark || !mark.attrs.id) return
-              const data = byId.get(mark.attrs.id)
-              // Unknown ids (not yet mirrored into the store) read as pending.
-              const pending = data ? !data.resolved && (data.replies?.length ?? 0) === 0 : true
-              if (pending) {
-                decos.push(
-                  Decoration.inline(pos, pos + node.nodeSize, { class: 'comment-mark--pending' })
-                )
-              }
-            })
-            return DecorationSet.create(state.doc, decos)
-          },
-        },
-      }),
-    ]
+    return [createCommentThreadsPlugin()]
   },
 })
+
+/** Remove every mark of thread `id` from the document `tr` holds. */
+function removeMarksOf(tr: Transaction, id: string): void {
+  const type = tr.doc.type.schema.marks.comment
+  const ranges: Array<{ from: number; to: number }> = []
+  tr.doc.descendants((node, pos) => {
+    if (node.marks.some((m) => m.type === type && m.attrs.id === id)) ranges.push({ from: pos, to: pos + node.nodeSize })
+  })
+  for (const r of ranges) tr.removeMark(r.from, r.to, type)
+}
 
 export interface AnchorOutcome {
   anchored: string[]
@@ -359,9 +322,10 @@ export interface AnchorOutcome {
 
 /**
  * Re-apply comment marks for `comments` to the document `tr` holds, as part
- * of `tr`: a session's seed transaction, a reload, a thread merge (#1145).
- * Pure: the caller dispatches or applies the transaction and reconciles the
- * store's anchorLost flags with `reconcileAnchorLost` from the outcome.
+ * of `tr`: a session's seed transaction, a reload, a thread merge, a re-open
+ * (#1145, #1147). Pure: the caller dispatches or applies the transaction; the
+ * threads plugin reads the outcome from the marks (`anchorLost` for a thread
+ * whose text is gone).
  *
  * Creation (setComment) and persistence (getComments) count the occurrences
  * of markedText in the raw textContent, so the Nth occurrence is found in
@@ -449,108 +413,6 @@ export function applyCommentMarks(tr: Transaction, comments: CommentData[]): Anc
   }
 
   return { anchored: anchoredIds, lost: lostIds }
-}
-
-/** The thread list with anchorLost set for the lost ids and cleared for the anchored ones (#769). */
-export function reconcileAnchorLost(comments: CommentData[], outcome: AnchorOutcome): CommentData[] {
-  const lost = new Set(outcome.lost)
-  const anchored = new Set(outcome.anchored)
-  let changed = false
-  const next = comments.map((c) => {
-    if (lost.has(c.id) && c.anchorLost !== true) {
-      changed = true
-      return { ...c, anchorLost: true }
-    }
-    if (anchored.has(c.id) && c.anchorLost) {
-      changed = true
-      return { ...c, anchorLost: false }
-    }
-    return c
-  })
-  return changed ? next : comments
-}
-
-/** Comment-mark ids currently present in a document. */
-export function commentMarkIds(doc: ProseMirrorNode): Set<string> {
-  const ids = new Set<string>()
-  doc.descendants((node) => {
-    node.marks.forEach((m) => {
-      if (m.type.name === 'comment' && m.attrs.id) ids.add(m.attrs.id as string)
-    })
-  })
-  return ids
-}
-
-/**
- * Plugin view.update hook: when a genuine edit removes a comment's mark — the
- * anchoring text was deleted — auto-resolve that thread in the store so it
- * leaves the open-thread count immediately and files under resolved, matching
- * the expectation that deleting the text "handles" the comment (#928). Without
- * this the store keeps the thread as open until the next reload (saveComments
- * writes IndexedDB only, never the live store), so the local count drifts above
- * the web's (which drops the row as lost). The resolve is also pushed to the
- * share, so the web viewer files the thread under Resolved rather than as an
- * unanchored "lost" thread; the pull never re-takes resolve state, so the
- * local resolve sticks either way.
- *
- * Guards mirror the persistence "never lose a thread to a transient strip"
- * invariant: skip a session activation or reload, and skip when every mark
- * vanished in a dispatch that was a programmatic content load (doc load or
- * source-mode toggle strip them all before the restore re-applies them).
- * `contentLoad` comes from the plugin's per-dispatch flag; user edits —
- * including deleting the last comment's text — never set it (#933).
- *
- * An AI replacement (`aiReplacement`, from AI_REPLACEMENT_META) is not the
- * writer's intent: the thread stays open, flagged anchorLost so persistence
- * keeps it, and nothing is pushed — the share has no unresolve, so a resolve
- * pushed here could never be taken back (#1099). Restore re-anchors it on a
- * later load if its text survived; an undo brings the mark straight back, and
- * the flag is cleared as soon as it does.
- */
-function autoResolveDeletedComments(
-  view: EditorView,
-  prevState: EditorState,
-  contentLoad: boolean,
-  aiReplacement: boolean,
-  sessionSwap: boolean
-): void {
-  if (view.state.doc === prevState.doc) return
-  // A session activation or reload changed the whole document; nothing was
-  // deleted by the writer. And the store must mirror the document in the view
-  // before its threads can be compared with the view's marks (#1145).
-  if (sessionSwap) return
-  const identity = getIdentity(view.state)
-  if (identity.documentId !== getIdentity(prevState).documentId) return
-  const store = useCommentStore.getState()
-  if (store.documentId !== identity.documentId) return
-  const prevIds = commentMarkIds(prevState.doc)
-  const anyLost = store.pendingComments.some((c) => c.anchorLost === true)
-  if (prevIds.size === 0 && !anyLost) return
-  const currIds = commentMarkIds(view.state.doc)
-  // All marks gone at once: a content load's transient strip (skip), or the
-  // user deleting the text of the only remaining comment (resolve it).
-  if (currIds.size === 0 && contentLoad) return
-  const removedOpen = store.pendingComments.filter(
-    (c) => !c.resolved && prevIds.has(c.id) && !currIds.has(c.id)
-  )
-  // A live mark means the anchor exists again (an undo of the replacement).
-  const reanchored = store.pendingComments.filter(
-    (c) => c.anchorLost === true && currIds.has(c.id)
-  )
-  if (removedOpen.length === 0 && reanchored.length === 0) return
-  const removedIds = new Set(removedOpen.map((c) => c.id))
-  const reanchoredIds = new Set(reanchored.map((c) => c.id))
-  const updated = store.pendingComments.map((c) => {
-    if (removedIds.has(c.id)) return aiReplacement ? { ...c, anchorLost: true } : { ...c, resolved: true }
-    if (reanchoredIds.has(c.id)) return { ...c, anchorLost: false }
-    return c
-  })
-  useCommentStore.setState({ pendingComments: updated })
-  if (store.documentId) void store.saveComments(store.documentId, updated)
-  if (aiReplacement) return
-  // Resolve on the share too, so the web viewer files the thread under
-  // Resolved rather than as an unanchored open thread.
-  removedOpen.forEach((c) => pushResolveToShare(c.id))
 }
 
 /**
@@ -662,14 +524,14 @@ export function getComments(editor: { state: { doc: ProseMirrorNode } }): Commen
 
 /**
  * Merge live comment marks (current positions, from `getComments`) with the
- * persisted store entries (replies + resolved state, which the marks don't
- * carry) into the canonical shape to persist.
+ * threads (replies + resolved state, which the marks don't carry) into the
+ * canonical shape to persist, export or bake into a share artifact.
  *
  * - Live marks win for position/markedText/occurrenceIndex.
- * - Stored entries contribute replies + resolved + author (the mark doesn't
- *   carry author, so it must be re-grafted from the store or it resets to user).
- * - Resolved threads have no mark (restoreComments skips them), so they're
- *   appended from the store as history-only entries.
+ * - Threads contribute replies + resolved + author (the mark doesn't carry
+ *   author, so it must be re-grafted or it resets to user).
+ * - Resolved threads have no mark (restore skips them), so they're appended
+ *   as history-only entries.
  *
  * This is the persistence-shaped sibling of executeListComments' tool-facing
  * merge — keep the two in step. Saving raw getComments() instead of this is the
@@ -677,22 +539,9 @@ export function getComments(editor: { state: { doc: ProseMirrorNode } }): Commen
  */
 export function mergeCommentsForPersistence(
   editor: Parameters<typeof getComments>[0],
-  stored: CommentData[]
+  stored: readonly CommentData[]
 ): CommentData[] {
   const liveMarks = getComments(editor)
-
-  // Safety net against transient data loss: if the document currently has NO
-  // live comment marks but the store still holds unresolved threads, the marks
-  // were stripped transiently (a document load or source-mode toggle fires
-  // setContent before the restore re-applies them) — NOT deleted. A tab-switch
-  // save landing in that window would otherwise drop every unresolved thread
-  // (they'd survive the merge only as live marks). Return the stored set
-  // unchanged so the threads can't be lost; the next save with marks present
-  // re-syncs positions. (Mirrors the suggestion save's "never persist empty".)
-  if (liveMarks.length === 0 && stored.some((c) => !c.resolved)) {
-    return stored
-  }
-
   const storedById = new Map(stored.map((c) => [c.id, c]))
   const liveIds = new Set(liveMarks.map((m) => m.id))
 
@@ -707,18 +556,15 @@ export function mergeCommentsForPersistence(
       : m
   })
 
-  // Resolved (markless) threads survive only in the store — keep them.
+  // Resolved (markless) threads survive only as metadata — keep them.
   const resolvedOnly = stored.filter((c) => c.resolved && !liveIds.has(c.id))
 
-  // Anchor-lost threads (#769) are markless but must never be dropped: the
-  // reviewer's comment outlives the text it pointed at. restoreComments owns
-  // the flag; unresolved markless threads WITHOUT it keep today's semantics
-  // (a mark deleted with its text mid-session deletes the thread) — EXCEPT
-  // share-sourced threads (shareId), which always survive as anchor-lost:
-  // a reviewer's comment must never silently vanish because of local edits
-  // or an overlap anomaly (#857).
+  // Open markless threads are anchor-lost (#769): the reviewer's comment
+  // outlives the text it pointed at. The plugin sets the flag as soon as a
+  // mark goes; a thread that reaches here without it is flagged, never
+  // dropped (a deleted text resolves its thread in the plugin, #928).
   const lostOnly = stored
-    .filter((c) => !c.resolved && !liveIds.has(c.id) && (c.anchorLost === true || c.shareId))
+    .filter((c) => !c.resolved && !liveIds.has(c.id))
     .map((c) => (c.anchorLost === true ? c : { ...c, anchorLost: true }))
 
   return [...merged, ...resolvedOnly, ...lostOnly]

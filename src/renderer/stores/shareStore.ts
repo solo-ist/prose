@@ -14,7 +14,6 @@ import { subscribeWithSelector } from 'zustand/middleware'
 import { getApi } from '../lib/browserApi'
 import { isWebPlatformEnabled } from '../lib/featureFlags'
 import { useEditorStore } from './editorStore'
-import { useCommentStore, countOpenThreads } from '../extensions/comments/store'
 import type { ShareEntry } from '../types'
 
 export type ShareStatus = 'synced' | 'dirty' | 'syncing' | 'error' | 'offline'
@@ -63,11 +62,6 @@ export function deriveShareStatus(s: {
   // auto push / manual publish) must never render as synced.
   if (s.shareDirty) return 'dirty'
   return 'synced'
-}
-
-/** Open-thread count for the popover's Conversation row — the #830 predicate. */
-export function openThreadCount(): number {
-  return countOpenThreads(useCommentStore.getState().pendingComments)
 }
 
 export const useShareStore = create<ShareState>()(

@@ -1,8 +1,10 @@
 /**
- * Per-tab document sessions (#1145) — the acceptance cases from
- * docs/architecture/editor-state.md §12 that PR 1 owns (1, 5, 7, 8, 10) and
- * the three source-text tripwires that keep the session layer the only place
- * a document's EditorState is created, swapped in, or persisted.
+ * Per-tab document sessions — the acceptance cases from
+ * docs/architecture/editor-state.md §12: PR 1 (#1145) owns 1, 5, 7, 8 and 10,
+ * PR 2 (#1146) adds 2 and 4, PR 3 (#1147) adds 6; plus the source-text
+ * tripwires that keep the session layer the only place a document's
+ * EditorState is created, swapped in, or persisted, and the record stores
+ * gone.
  *
  * Every record set (AI annotations, comment threads, suggestions) is checked
  * straight from IndexedDB, keyed by document id, after each switch: the §G
@@ -594,6 +596,95 @@ test('a settled switch serialises nothing and twenty large tabs fit the heap cei
   expect(heap!).toBeLessThan(HEAP_CEILING_BYTES)
 })
 
+
+/**
+ * Case 6 — a share pull for a document open in a background tab lands in
+ * that tab's state and IndexedDB; activating it shows the merged thread
+ * without a reload. The pull itself is stubbed at the IPC handler (the
+ * renderer's merge is the subject here; share-sync.spec drives main's real
+ * pull against a loopback gateway); the share entry lookup is the real local
+ * read of share-sync.json. Fails on the release head before #1147: the sync
+ * refuses any document that is not the active one.
+ */
+test('case 6: a share pull merges into a background tab and shows on activation without a reload', async () => {
+  const a = await openDoc('sessions-six-a.md', body('India'), 'India paragraph one')
+  const b = await openDoc('sessions-six-b.md', body('Juliet'), 'Juliet paragraph one')
+  await commentOn('Juliet paragraph two', 'c-b')
+  await settle()
+  expect(await activeTabId()).toBe(b.tabId)
+  expect(await sessionTabIds()).toEqual(expect.arrayContaining([a.tabId, b.tabId]))
+
+  // A is published (a local share entry; no gatewayOrigin, so the lookup
+  // returns it whatever gateway the settings name) and the gateway holds one
+  // reviewer row on A's text.
+  writeFileSync(
+    join(userDataDir, 'share-sync.json'),
+    JSON.stringify(
+      {
+        version: 1,
+        shares: {
+          'pub-six': {
+            publicationId: 'pub-six',
+            shareUrl: 'https://share.example/s/tok-six',
+            localPath: a.path,
+            documentId: a.documentId,
+            title: 'India',
+            publishRev: 'rev1',
+            revCount: 1,
+            publishedAt: new Date(Date.now() - 60_000).toISOString(),
+            lastPulledAt: null,
+            lastCommentCursor: null,
+            revokedAt: null,
+            syncMode: 'publish',
+          },
+        },
+      },
+      null,
+      2,
+    ),
+  )
+  const row = {
+    id: 'row-six',
+    parentId: null,
+    markedText: 'India paragraph two',
+    occurrenceIndex: 0,
+    commentText: 'Reviewer note on India',
+    authorName: 'Reviewer Rae',
+    fromAuthor: false,
+    resolvedAt: null,
+    publishRev: 'rev1',
+    createdAt: new Date().toISOString(),
+  }
+  await app.evaluate(({ ipcMain }, row) => {
+    ipcMain.removeHandler('share:pullComments')
+    ipcMain.handle('share:pullComments', async () => ({ ok: true, comments: [row], nextCursor: null }))
+  }, row)
+
+  const opensBefore = (await projectionStats()).opens
+  const outcome = await page.evaluate((id) => (window as any).__prose_share.sync(id), a.documentId)
+  expect(outcome, JSON.stringify(outcome)).toEqual({ ok: true, added: 1 })
+
+  // B, still shown, is untouched in state and in IndexedDB.
+  expect(await commentDocId()).toBe(b.documentId)
+  expect(await liveCommentIds()).toEqual(['c-b'])
+  expect((await readDB('comments', b.documentId)).map((c) => c.id)).toEqual(['c-b'])
+  // A's background state holds the thread, anchored on its text, and its row is stored.
+  const background = await page.evaluate(
+    (tabId) => (window as any).__prose_tools.getSessionThreads(tabId) as { threads: any[]; markIds: string[] },
+    a.tabId,
+  )
+  expect(background.threads.map((c) => [c.id, c.shareId, c.anchorLost])).toEqual([['row-six', 'row-six', false]])
+  expect(background.markIds).toEqual(['row-six'])
+  const rowsA = await readDB('comments', a.documentId)
+  expect(rowsA.map((c) => [c.id, c.shareId, c.anchorLost])).toEqual([['row-six', 'row-six', false]])
+
+  // Activating A shows the thread on its text: no session rebuilt, no reload.
+  await clickTab(a, 'India paragraph one')
+  await expect.poll(liveCommentIds).toEqual(['row-six'])
+  await expect.poll(() => page.locator('.comment-mark').first().textContent()).toBe('India paragraph two')
+  expect((await projectionStats()).opens).toBe(opensBefore)
+  expect(await sessionTabIds()).toEqual(expect.arrayContaining([a.tabId, b.tabId]))
+})
 })
 
 // ---------------------------------------------------------------------------
@@ -658,6 +749,13 @@ test.describe('session tripwires', () => {
     for (const { file, source } of files) {
       expect(source, `${file} references useAnnotationStore`).not.toMatch(/\buseAnnotationStore\b/)
       expect(source, `${file} imports ai-annotations/store`).not.toMatch(/ai-annotations\/store'/)
+    }
+  })
+
+  test('the comment store is gone: threads are read from a state and written through its transactions', () => {
+    for (const { file, source } of files) {
+      expect(source, `${file} references useCommentStore`).not.toMatch(/\buseCommentStore\b/)
+      expect(source, `${file} imports comments/store`).not.toMatch(/comments\/store'/)
     }
   })
 })

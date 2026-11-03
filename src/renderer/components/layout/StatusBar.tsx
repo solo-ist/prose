@@ -7,7 +7,8 @@ import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useLinkHoverStore } from '../../stores/linkHoverStore'
 import { useReviewStore } from '../../stores/reviewStore'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
-import { useCommentStore, countOpenThreads } from '../../extensions/comments/store'
+import { selectOpenThreadCount } from '../../extensions/comments'
+import { useActiveSession } from '../../document/useActiveSession'
 import { requestCommentReview } from '../editor/AIEditsHistoryPanel'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import {
@@ -90,7 +91,7 @@ export function StatusBar() {
   // same selector the chat chips and Comment Review derive from, so the
   // surfaces can't render contradictory totals (#830). New marks mirror into
   // the store on creation, so this stays live without a doc subscription.
-  const commentCount = useCommentStore((s) => countOpenThreads(s.pendingComments))
+  const commentCount = useActiveSession(selectOpenThreadCount)
 
   // Clicking the count enters Comment Review (a top-level reviewMode takeover,
   // the peer of Quick Review). The App-level effect keyed on reviewMode opens

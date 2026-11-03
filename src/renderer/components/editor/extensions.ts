@@ -94,7 +94,6 @@ const TaskListDashMarker = TaskList.extend({
 
 export interface EditorExtensionOptions {
   bulletListMarker?: string
-  onCommentAdded?: CommentOptions['onCommentAdded']
   onCommentBlocked?: CommentOptions['onCommentBlocked']
 }
 
@@ -159,7 +158,6 @@ export function createEditorExtensions(options: EditorExtensionOptions = {}): Ex
     }),
     FocusMode,
     Comment.configure({
-      onCommentAdded: options.onCommentAdded,
       onCommentBlocked: options.onCommentBlocked
     }),
     AISuggestion,

@@ -7,7 +7,7 @@ import {
   loadComments as loadCommentsFromDB,
   loadSuggestions as loadSuggestionsFromDB
 } from './lib/persistence'
-import { getSessionTabIds, getProjectionStats, getActiveSession } from './document/session'
+import { getSessionTabIds, getProjectionStats, getActiveSession, getSession } from './document/session'
 import { getIdentity } from './document/identity'
 import { useCommandHistoryStore } from './stores/commandHistoryStore'
 import { seedEmojiCache } from './lib/emojiService'
@@ -15,12 +15,14 @@ import { ErrorBoundary } from './lib/sentry'
 import { dumpPipelineLog, clearPipelineLog } from './lib/aiPipelineLog'
 import { executeTool } from './lib/tools'
 import { annotationsOf } from './extensions/ai-annotations'
-import { useCommentStore } from './extensions/comments/store'
+import { threadsOf, threadPluginState } from './extensions/comments'
 import { useTabStore } from './stores/tabStore'
 import { useSettingsStore } from './stores/settingsStore'
 import { useChatStore } from './stores/chatStore'
 import { useEditorStore } from './stores/editorStore'
 import { syncShareComments } from './lib/shareSync'
+// Registers the share-push performer with the session layer (#1147).
+import './lib/sharePush'
 import type { ChatMessage } from './types'
 import { getApi } from './lib/browserApi'
 import './lib/remarkableBridge'
@@ -70,9 +72,26 @@ import './index.css'
   loadAnnotationsFromDB,
   loadCommentsFromDB,
   loadSuggestionsFromDB,
-  // Comment store access for e2e verification of threading (#699).
-  getCommentStore: () => useCommentStore.getState().pendingComments,
-  getCommentDocId: () => useCommentStore.getState().documentId,
+  // The active document's comment threads, from its own state (#699, #1147);
+  // a copy, so a spec cannot mutate plugin state.
+  getCommentStore: () => {
+    const session = getActiveSession()
+    return session ? [...threadsOf(session.state)] : []
+  },
+  getCommentDocId: () => {
+    const session = getActiveSession()
+    return session ? getIdentity(session.state).documentId : null
+  },
+  // A background tab's threads and the ids its document carries as marks
+  // (document-sessions case 6: a share pull into a tab that is not shown).
+  getSessionThreads: (tabId: string) => {
+    const session = getSession(tabId)
+    if (!session) return null
+    return {
+      threads: [...threadsOf(session.state)],
+      markIds: [...(threadPluginState(session.state)?.marks.keys() ?? [])]
+    }
+  },
   // Marks are restored inside the session's own seed transaction, before a
   // state is ever shown, so there is no "not yet restored" state (#1145).
   // Kept as a readiness gate for the specs that poll it (updated in PR 8).
@@ -96,31 +115,30 @@ import './index.css'
 // Share-sync seam for e2e (#915) — same always-on tier as __prose_tools.
 // `sync` drives the REAL pull-merge (the exact path the ShareStatusPopover's
 // open-pull takes: fresh entry lookup → syncShareComments) without the
-// interval/debounce, so tests control when each pull happens. `deleteThread`
-// mirrors the LOCAL half of CommentPopover's handleRemove (unset mark, drop
-// the record, persist) — the author-deletion gesture whose non-resurrection
-// the seenRowIds ledger guarantees (#905). It deliberately skips the share
-// removal push (#903) so the row stays served; that push is covered through
-// the shareRemoveComment IPC directly.
+// interval/debounce, so tests control when each pull happens; with a
+// `documentId` it addresses that document's tab, shown or not (#1147).
+// `deleteThread` is CommentPopover's handleRemove without the share removal
+// push (#903) — the author-deletion gesture whose non-resurrection the
+// seenRowIds ledger guarantees (#905); the row stays served, and that push
+// is covered through the shareRemoveComment IPC directly.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ;(window as any).__prose_share = {
-  sync: async () => {
-    const { document } = useEditorStore.getState()
-    if (!document.path || !document.documentId) return { ok: false, error: 'no document open' }
-    const res = await getApi().shareGetForPath(document.path)
+  sync: async (documentId?: string) => {
+    const active = useEditorStore.getState().document
+    const target = documentId
+      ? useTabStore.getState().tabs.find((t) => t.documentId === documentId)
+      : { path: active.path, documentId: active.documentId }
+    if (!target?.path || !target.documentId) return { ok: false, error: 'no document open' }
+    const res = await getApi().shareGetForPath(target.path)
     if (!res.ok || res.entries.length === 0) return { ok: false, error: 'no share entry' }
     const entry = res.entries.find((e) => !e.revokedAt)
     if (!entry) return { ok: false, error: 'revoked' }
-    return syncShareComments(entry, document.documentId)
+    return syncShareComments(entry, target.documentId)
   },
   deleteThread: (id: string) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const editor = (window as any).__prose_editor
-    editor?.commands.unsetComment(id)
-    const { pendingComments, documentId, saveComments } = useCommentStore.getState()
-    const updated = pendingComments.filter((c) => c.id !== id)
-    useCommentStore.setState({ pendingComments: updated })
-    if (documentId) void saveComments(documentId, updated)
+    editor?.commands.removeThread(id, { push: false })
   },
 }
 // Test seam — INTENTIONALLY always-on, same tier as __prose_tools/__prose_debug.

@@ -7,7 +7,9 @@ import { aiAvailability, aiUnavailableMessage } from '../lib/llm'
 import { notifyAINotConfigured } from '../lib/notifyAI'
 import { buildSystemPrompt, buildCommentsPrompt, buildSuggestionRepliesPrompt } from '../lib/prompts'
 import { getApi } from '../lib/browserApi'
-import { getComments } from '../extensions/comments'
+import type { Editor } from '@tiptap/core'
+import { getComments, threadsOf, countOpenThreads } from '../extensions/comments'
+import type { CommentData } from '../extensions/comments/types'
 import { getSuggestionsWithFeedback } from '../extensions/ai-suggestions'
 import { executeTool, resolveToolPosition } from '../lib/tools'
 import { getToolsForClaudeAPI } from '../../shared/tools/registry'
@@ -144,6 +146,22 @@ function clearStreamRefs(): void {
   pendingToolCallsRef.streamId = null
   toolLoopContextRef.current = null
   toolLoopContextRef.streamId = null
+}
+
+/**
+ * The open threads of the editor's document with their replies (from the
+ * threads plugin state) and, where the mark is live, its current positions
+ * and text. An anchor-lost thread is included as it is: the model can still
+ * read and answer it (#1147).
+ */
+function openThreadsWithPositions(editor: Editor): CommentData[] {
+  const live = new Map(getComments(editor).map((m) => [m.id, m]))
+  return threadsOf(editor.state)
+    .filter((c) => !c.resolved)
+    .map((c) => {
+      const m = live.get(c.id)
+      return m ? { ...c, ...m, replies: c.replies ?? [] } : c
+    })
 }
 
 export function useChat() {
@@ -770,7 +788,7 @@ export function useChat() {
     const editor = useEditorInstanceStore.getState().editor
     if (!editor) return
 
-    const comments = getComments(editor)
+    const comments = openThreadsWithPositions(editor)
     if (comments.length === 0) return
 
     // Build the prompt from comments. The AI uses reply_to_comment /
@@ -788,7 +806,7 @@ export function useChat() {
     const editor = useEditorInstanceStore.getState().editor
     if (!editor) return
 
-    const target = getComments(editor).find((c) => c.id === commentId)
+    const target = openThreadsWithPositions(editor).find((c) => c.id === commentId)
     if (!target) return
 
     const commentsPrompt = buildCommentsPrompt([target])
@@ -800,7 +818,7 @@ export function useChat() {
   const getCommentCount = useCallback(() => {
     const editor = useEditorInstanceStore.getState().editor
     if (!editor) return 0
-    return getComments(editor).length
+    return countOpenThreads(threadsOf(editor.state))
   }, [])
 
   const processSuggestionReplies = useCallback(async () => {

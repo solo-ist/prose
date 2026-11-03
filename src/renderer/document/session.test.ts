@@ -65,14 +65,20 @@ import {
   setSessionIdentity,
   flushActiveProjections,
   replaceSessionDocument,
-  getSession
+  getSession,
+  getProjectionStats,
+  mergeThreads,
+  patchThread,
+  readThreads,
+  registerSharePushPerformer,
+  type SharePushPerformer
 } from './session'
 import { getIdentity } from './identity'
 import { useTabStore, type Tab } from '../stores/tabStore'
 import { useEditorStore } from '../stores/editorStore'
 import { annotationsOf } from '../extensions/ai-annotations/transactions'
-import { saveAnnotations } from '../lib/persistence'
-import { useCommentStore } from '../extensions/comments/store'
+import { threadsOf } from '../extensions/comments/transactions'
+import { saveAnnotations, saveComments } from '../lib/persistence'
 import { useSuggestionStore } from '../extensions/ai-suggestions/store'
 import type { AIAnnotation } from '../types/annotations'
 import type { CommentData } from '../extensions/comments/types'
@@ -206,8 +212,8 @@ describe('openSession', () => {
     expect(paragraphTexts[0]).toBe('What that he said.')
     // c-short sits in paragraph two, c-second in paragraph three: marks by order of appearance.
     expect(comments.map((m) => m.id)).toEqual(['c-short', 'c-second'])
-    expect(session.records.comments.find((c) => c.id === 'c-lost')?.anchorLost).toBe(true)
-    expect(session.records.comments.find((c) => c.id === 'c-short')?.anchorLost).toBeFalsy()
+    expect(threadsOf(session.state).find((c) => c.id === 'c-lost')?.anchorLost).toBe(true)
+    expect(threadsOf(session.state).find((c) => c.id === 'c-short')?.anchorLost).toBeFalsy()
 
     // "the" carries the comment mark too, so the suggestion spans two text nodes.
     const suggestions = marksOf(session.state.doc, 'aiSuggestion')
@@ -259,7 +265,6 @@ describe('persistRecords and the plugin state (§G)', () => {
     activateSession('tb')
     expect(getIdentity(editor.state).documentId).toBe('doc-b')
     expect(annotationsOf(editor.state)).toEqual([])
-    expect(useCommentStore.getState().documentId).toBe('doc-b')
     expect(useSuggestionStore.getState().documentId).toBe('doc-b')
 
     // Typing in B is a transaction on B's state alone.
@@ -415,12 +420,143 @@ describe('setSessionIdentity', () => {
 
     expect(getIdentity(editor.state)).toEqual({ documentId: 'doc-5b', path: '/docs/five-b.md', plain: false })
     expect(annotationsOf(editor.state).map((a) => a.documentId)).toEqual(['doc-5b'])
-    expect(useCommentStore.getState().documentId).toBe('doc-5b')
     expect(useSuggestionStore.getState().documentId).toBe('doc-5b')
     expect((db.annotations.get('doc-5b') as AIAnnotation[]).map((a) => a.documentId)).toEqual(['doc-5b'])
     expect((db.comments.get('doc-5b') as CommentData[]).map((c) => c.id)).toEqual(['c-5'])
     expect((db.suggestions.get('doc-5b') as AISuggestionData[]).map((s) => s.id)).toEqual(['s-5'])
     // The old keys stay, as before.
     expect(db.comments.has('doc-5')).toBe(true)
+  })
+})
+
+describe('comment threads in the state (#1147)', () => {
+  const pushes: Array<{ documentId: string; pushes: unknown[] }> = []
+  const performer: SharePushPerformer = (target, batch) => {
+    pushes.push({ documentId: target.documentId, pushes: [...batch] })
+  }
+  beforeEach(() => {
+    pushes.length = 0
+    registerSharePushPerformer(performer)
+  })
+
+  function markText(doc: PMNode, id: string): string {
+    return marksOf(doc, 'comment')
+      .filter((m) => m.id === id)
+      .map((m) => m.text)
+      .join('')
+  }
+
+  it('seeds the threads from the stored rows and writes nothing back until the close', async () => {
+    const content = 'Alpha body here.\n\nSecond line.\n'
+    db.comments.set('doc-c', [comment('kept', 'body here'), comment('gone', 'not in the text')])
+    const t = tab('tc', 'doc-c', '/docs/c.md', content)
+    const session = await openSession(t, content)
+    const writes = () => vi.mocked(saveComments).mock.calls.filter(([id]) => id === 'doc-c').length
+    const before = writes()
+    expect(threadsOf(session.state).map((c) => [c.id, c.anchorLost === true])).toEqual([['kept', false], ['gone', true]])
+    expect(markText(session.state.doc, 'kept')).toBe('body here')
+    expect(writes()).toBe(before)
+    expect(pushes).toEqual([])
+
+    activateSession('tc')
+    await closeSession('tc')
+    expect(writes()).toBe(before + 1)
+    const rows = db.comments.get('doc-c') as CommentData[]
+    expect(rows.find((c) => c.id === 'gone')?.anchorLost).toBe(true)
+    expect(rows.find((c) => c.id === 'kept')?.anchorLost).toBe(false)
+  })
+
+  it('writes a thread change at once under the state\'s own id and hands the push to the performer', async () => {
+    const a = tab('ta', 'doc-a', '/docs/a.md', 'Alpha body.\n')
+    const b = tab('tb', 'doc-b', '/docs/b.md', 'Beta body.\n')
+    await openSession(a, 'Alpha body.\n')
+    await openSession(b, 'Beta body.\n')
+    activateSession('ta')
+    editor.chain().setTextSelection({ from: 1, to: 6 }).setComment({ id: 'c-a', comment: 'on alpha' }).run()
+    expect(threadsOf(editor.state).map((c) => c.id)).toEqual(['c-a'])
+    await getSession('ta')!.commentWrite
+    expect((db.comments.get('doc-a') as CommentData[]).map((c) => c.id)).toEqual(['c-a'])
+    expect(db.comments.has('doc-b')).toBe(false)
+    expect(pushes).toEqual([{ documentId: 'doc-a', pushes: [{ kind: 'thread', threadId: 'c-a' }] }])
+
+    // B's state knows nothing of it; a write-back for A lands in A while B is shown.
+    activateSession('tb')
+    expect(threadsOf(editor.state)).toEqual([])
+    await patchThread('doc-a', 'c-a', () => ({ shareId: 'srv-a' }))
+    expect(threadsOf(getSession('ta')!.state)[0].shareId).toBe('srv-a')
+    expect((db.comments.get('doc-a') as CommentData[])[0].shareId).toBe('srv-a')
+    expect(threadsOf(editor.state)).toEqual([])
+    // Quiet: no push for a share write-back.
+    expect(pushes).toHaveLength(1)
+
+    // A resolve on A from the background is one transaction on A's state.
+    activateSession('ta')
+    editor.commands.resolveThread('c-a')
+    await getSession('ta')!.commentWrite
+    expect((db.comments.get('doc-a') as CommentData[])[0].resolved).toBe(true)
+    expect(marksOf(editor.state.doc, 'comment')).toEqual([])
+    expect(pushes[1]).toEqual({ documentId: 'doc-a', pushes: [{ kind: 'resolve', threadId: 'c-a' }] })
+  })
+
+  it('merges a share pull into a background tab\'s state and IndexedDB; activating it shows the thread without a reopen', async () => {
+    const a = tab('ta', 'doc-a', '/docs/a.md', 'Alpha body here.\n')
+    const b = tab('tb', 'doc-b', '/docs/b.md', 'Beta body.\n')
+    await openSession(a, 'Alpha body here.\n')
+    await openSession(b, 'Beta body.\n')
+    activateSession('tb')
+    editor.chain().setTextSelection({ from: 1, to: 5 }).setComment({ id: 'c-b', comment: 'on beta' }).run()
+    await getSession('tb')!.commentWrite
+    const opens = getProjectionStats().opens
+
+    const pulled: CommentData = comment('srv-1', 'body here', { shareId: 'srv-1', authorName: 'Reviewer', anchorLost: true })
+    await mergeThreads('doc-a', [pulled])
+    const stateA = getSession('ta')!.state
+    expect(threadsOf(stateA).map((c) => [c.id, c.anchorLost])).toEqual([['srv-1', false]])
+    expect(markText(stateA.doc, 'srv-1')).toBe('body here')
+    expect((db.comments.get('doc-a') as CommentData[]).map((c) => c.id)).toEqual(['srv-1'])
+    // B untouched, in state and in IndexedDB.
+    expect(threadsOf(editor.state).map((c) => c.id)).toEqual(['c-b'])
+    expect((db.comments.get('doc-b') as CommentData[]).map((c) => c.id)).toEqual(['c-b'])
+    expect(await readThreads('doc-a')).toBe(threadsOf(stateA))
+    // A merge pushes nothing.
+    expect(pushes.every((p) => p.documentId !== 'doc-a')).toBe(true)
+
+    activateSession('ta')
+    expect(getProjectionStats().opens).toBe(opens)
+    expect(threadsOf(editor.state).map((c) => c.id)).toEqual(['srv-1'])
+    expect(markText(editor.state.doc, 'srv-1')).toBe('body here')
+
+    // A later pull that dropped the thread (a reviewer tombstone) takes its mark with it.
+    await mergeThreads('doc-a', [])
+    expect(threadsOf(editor.state)).toEqual([])
+    expect(marksOf(editor.state.doc, 'comment')).toEqual([])
+    expect(db.comments.get('doc-a')).toEqual([])
+
+    // No session: the stored rows are written.
+    await mergeThreads('doc-z', [pulled])
+    expect((db.comments.get('doc-z') as CommentData[]).map((c) => c.id)).toEqual(['srv-1'])
+  })
+
+  it('re-anchors the threads across a reload with history and reports the lost one', async () => {
+    const content = 'Intro here.\n\nSome rewritten text.\n'
+    db.comments.set('doc-r', [comment('c-r', 'rewritten text')])
+    const t = tab('tr', 'doc-r', '/docs/r.md', content)
+    await openSession(t, content)
+    activateSession('tr')
+    expect(markText(editor.state.doc, 'c-r')).toBe('rewritten text')
+
+    const next = 'Intro here, longer.\n\nSome rewritten text.\n'
+    await replaceSessionDocument('tr', { content: next, body: next, frontmatter: {} }, { keepHistory: true })
+    expect(markText(editor.state.doc, 'c-r')).toBe('rewritten text')
+    expect(threadsOf(editor.state)[0].anchorLost).toBeFalsy()
+
+    const gone = 'Intro here.\n\nNothing like it.\n'
+    await replaceSessionDocument('tr', { content: gone, body: gone, frontmatter: {} }, { keepHistory: true })
+    expect(threadsOf(editor.state)[0].resolved).toBeFalsy()
+    expect(threadsOf(editor.state)[0].anchorLost).toBe(true)
+    expect(marksOf(editor.state.doc, 'comment')).toEqual([])
+    expect(editor.commands.undo()).toBe(true)
+    expect(markText(editor.state.doc, 'c-r')).toBe('rewritten text')
+    expect(threadsOf(editor.state)[0].anchorLost).toBe(false)
   })
 })

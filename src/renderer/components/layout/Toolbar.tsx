@@ -11,8 +11,7 @@ import { useSettings } from '../../hooks/useSettings'
 import { usePanelLayoutContext } from '../../hooks/usePanelLayout'
 import { isMacOS, getApi } from '../../lib/browserApi'
 import { buildProseHtml } from '../../lib/htmlExport'
-import { useCommentStore } from '../../extensions/comments/store'
-import { mergeCommentsForPersistence } from '../../extensions/comments/extension'
+import { mergeCommentsForPersistence, threadsOf } from '../../extensions/comments'
 import { extractFirstH1 } from '../../lib/markdown'
 import { useTabTier } from '../../hooks/useTabTier'
 import { useWebPlatformEnabled } from '../../lib/featureFlags'
@@ -263,7 +262,7 @@ export function Toolbar() {
       const docDir = document.path ? document.path.substring(0, document.path.lastIndexOf('/')) || null : null
       // Comments travel with the export (#768): embed the full thread data
       // (replies + resolved, which the marks in editorHtml don't carry).
-      const comments = mergeCommentsForPersistence(editor, useCommentStore.getState().pendingComments)
+      const comments = mergeCommentsForPersistence(editor, threadsOf(editor.state))
       const html = await buildProseHtml(editorHtml, document.content, document.frontmatter, title, docDir, comments)
       const defaultName = (title || 'document') + '.html'
       await getApi().exportHtml(html, defaultName)

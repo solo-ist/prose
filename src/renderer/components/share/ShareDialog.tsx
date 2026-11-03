@@ -116,7 +116,7 @@ export function ShareDialog({ open, onOpenChange }: ShareDialogProps) {
       // Threads written before this publication existed have no server rows
       // — the just-PUT artifact baked them under desktop ids. Push them and
       // re-bake so viewer replies to them have live rows to land on.
-      void backfillShareThreads().then((pushed) => {
+      void backfillShareThreads(document.documentId).then((pushed) => {
         if (pushed) void pushShareContent('manual')
       })
       return null

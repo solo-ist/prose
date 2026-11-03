@@ -7,9 +7,9 @@ import type { Editor } from '@tiptap/core'
 import { getApi } from './browserApi'
 import { buildShareHtml } from './htmlExport'
 import { extractFirstH1 } from './markdown'
-import { useCommentStore } from '../extensions/comments/store'
-import { useEditorStore } from '../stores/editorStore'
 import { mergeCommentsForPersistence } from '../extensions/comments/extension'
+import { threadsOf } from '../extensions/comments/transactions'
+import { getIdentity } from '../document/identity'
 
 export interface ShareArtifactDoc {
   content: string
@@ -37,23 +37,16 @@ export async function buildShareArtifact(
   if (!editor || !doc.content || !doc.path) return null
   // Identity guard (TOCTOU). A caller may await between choosing this document
   // and reaching here (auth lookup, thread backfill, push drain). If the active
-  // document has since switched, the live editor + comment store now belong to
-  // a DIFFERENT document — baking them would publish that document's private
-  // content under THIS publication's link.
-  //
-  // Check BOTH stores: they switch at different times. On a tab change the
-  // editor (and editorStore.document) flips to the new document immediately,
-  // while the comment store's documentId lags behind an async comment load.
-  // Checking only the comment store leaves a window where the editor already
-  // renders B while comments still read A — snapshotting there bakes B's HTML
-  // into A's link. Require both to point at doc.documentId before snapshotting.
-  if (useEditorStore.getState().document.documentId !== doc.documentId) return null
-  if (useCommentStore.getState().documentId !== doc.documentId) return null
+  // document has since switched, the live editor now shows a DIFFERENT
+  // document — baking it would publish that document's private content under
+  // THIS publication's link. The state carries its own identity and its own
+  // threads (#1147), so one check covers both.
+  if (getIdentity(editor.state).documentId !== doc.documentId) return null
   // Snapshot the live editor HTML and comments SYNCHRONOUSLY, before the async
   // auth lookup below — a switch during that await must not swap in another
   // document's content after the identity check has passed.
   const editorHtml = editor.getHTML()
-  const merged = mergeCommentsForPersistence(editor, useCommentStore.getState().pendingComments)
+  const merged = mergeCommentsForPersistence(editor, threadsOf(editor.state))
   const status = await getApi().shareAuthStatus()
   const gatewayUrl = status.ok ? status.gatewayUrl : ''
   const title = documentTitle(doc.content, doc.path)

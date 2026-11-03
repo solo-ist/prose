@@ -6,7 +6,8 @@ import { useTabs } from '../../hooks/useTabs'
 import { useEditorStore } from '../../stores/editorStore'
 import { toggleSourceMode } from '../../tabs/actions'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
-import { useTabStore } from '../../stores/tabStore'
+import { useTabStore, useActiveTab } from '../../stores/tabStore'
+import { useActiveSource } from '../../document/useActiveSession'
 import { useFileListStore } from '../../stores/fileListStore'
 import { useSettings } from '../../hooks/useSettings'
 import { usePanelLayoutContext } from '../../hooks/usePanelLayout'
@@ -94,12 +95,12 @@ export function Toolbar() {
   } = useTabs()
   const { settings, isLoaded, effectiveTheme, autosaveActive, setAppearance, setDialogOpen, toggleAutosaveActive } = useSettings()
   const { isChatOpen, isFileListOpen, toggleChat, toggleFileList } = usePanelLayoutContext()
-  const isEditing = useEditorStore((state) => state.isEditing)
   const annotationsVisible = useEditorStore((state) => state.annotationsVisible)
   const toggleAnnotationsVisible = useEditorStore((state) => state.toggleAnnotationsVisible)
-  const sourceMode = useEditorStore((state) => state.sourceMode)
+  // Source mode and preview are the active tab's (#1151).
+  const sourceMode = useActiveSource() !== null
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
-  const isPreviewTab = useEditorStore((state) => state.isPreviewTab)
+  const isPreviewTab = useActiveTab((tab) => tab?.isPreview ?? false)
   const webPlatformEnabled = useWebPlatformEnabled()
 
   const [hasCopied, setHasCopied] = useState(false)

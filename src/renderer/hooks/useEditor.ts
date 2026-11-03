@@ -3,49 +3,36 @@ import { useEditorStore } from '../stores/editorStore'
 import { useChatStore } from '../stores/chatStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useNotificationStore } from '../stores/notificationStore'
-import { serializeMarkdown, extractFirstH1 } from '../lib/markdown'
+import { extractFirstH1 } from '../lib/markdown'
 import { handleMissingPath, isMissingPathFileError } from '../lib/stalePath'
 import { isDiskNewerThanBaseline, useSaveConflictStore } from '../lib/diskSync'
 import { clearDraft } from '../lib/persistence'
+import { useTabStore } from '../stores/tabStore'
 import { openFile as openFileInTab, newTab, markActiveTabSaved } from '../tabs/actions'
-import { flushActiveProjections } from '../document/session'
+import { saveSnapshot, type SaveSnapshot } from '../document/session'
 
 // Sanitize filename by removing invalid characters
 function sanitizeFilename(name: string): string {
   return name.replace(/[/\\:*?"<>|]/g, '-').trim().slice(0, 100)
 }
 
-/** The bytes a save writes: frontmatter + body, or the raw text for `.txt`. */
-export function buildSaveContent(
-  content: string,
-  frontmatter: Record<string, unknown>,
-  path?: string | null
-): string {
-  if (path?.endsWith('.txt')) {
-    return content
-  }
-  return serializeMarkdown(content, frontmatter)
-}
-
 function getPathFilename(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? 'document.md'
 }
 
-/** The editor store's document after the session's pending projection has landed. */
-function currentDocument() {
-  flushActiveProjections()
-  return useEditorStore.getState().document
+/**
+ * The active tab and what a save of it writes (#1151): the session lands its
+ * projection and serialises the body with the tab's frontmatter (the text
+ * verbatim in source mode). Null with no tab open.
+ */
+function activeSave(): { tabId: string; path: string | null; snapshot: SaveSnapshot } | null {
+  const tab = useTabStore.getState().getActiveTab()
+  if (!tab) return null
+  return { tabId: tab.id, path: tab.path, snapshot: saveSnapshot(tab.id) }
 }
 
 export function useEditor() {
-  const {
-    document,
-    cursorPosition,
-    setContent,
-    setFrontmatter,
-    setCursorPosition,
-    setActiveChatId
-  } = useEditorStore()
+  const { document, cursorPosition, setActiveChatId } = useEditorStore()
 
   const { activeConversationId } = useChatStore()
 
@@ -79,13 +66,13 @@ export function useEditor() {
     }
   }, [])
 
-  const saveContentAs = useCallback(async (content: string, defaultFilename?: string | null) => {
+  const saveContentAs = useCallback(async (content: string, defaultFilename?: string | null, written?: SaveSnapshot) => {
     if (!window.api) return
     try {
       const path = await window.api.saveFileAs(content, defaultFilename ?? undefined)
       if (path) {
         // The active tab adopts the path: identity, records and baseline follow.
-        await markActiveTabSaved(path)
+        await markActiveTabSaved(path, written)
         await clearDraft()
       }
     } catch (error) {
@@ -100,50 +87,52 @@ export function useEditor() {
 
   const saveFile = useCallback(async () => {
     if (!window.api) return
-    const current = currentDocument()
-    const content = buildSaveContent(current.content, current.frontmatter, current.path)
+    const current = activeSave()
+    if (!current) return
+    const { tabId, path, snapshot } = current
+    const content = snapshot.text
 
-    if (current.path) {
+    if (path) {
       // External-edit guard (#843): the file changed on disk after we loaded
       // or last saved it — hold the save and let the user decide via the
       // conflict dialog instead of silently overwriting the disk edits.
-      if (await isDiskNewerThanBaseline(current.path)) {
-        useSaveConflictStore.getState().setConflict({ path: current.path, content })
+      if (await isDiskNewerThanBaseline(path)) {
+        useSaveConflictStore.getState().setConflict({ path, content, tabId, snapshot })
         return
       }
       try {
-        await window.api.saveFile(current.path, content)
-        await markActiveTabSaved(current.path)
+        await window.api.saveFile(path, content)
+        await markActiveTabSaved(path, snapshot)
       } catch (error) {
         if (isMissingPathFileError(error)) {
-          handleMissingPath(current.path, 'save')
-          await saveContentAs(content, getPathFilename(current.path))
+          handleMissingPath(path, 'save')
+          await saveContentAs(content, getPathFilename(path), snapshot)
           return
         }
 
         console.error('Failed to save file:', error)
         useNotificationStore.getState().notify({
-          id: `save-failed:${current.path}`,
-          message: `Could not save "${getPathFilename(current.path)}". Use Save As to keep your edits.`,
+          id: `save-failed:${path}`,
+          message: `Could not save "${getPathFilename(path)}". Use Save As to keep your edits.`,
           durationMs: 0
         })
       }
     } else {
       // Pre-fill the Save As dialog with the H1 heading (sanitized) if available
-      const h1 = extractFirstH1(current.content)
+      const h1 = extractFirstH1(snapshot.body)
       const defaultFilename = h1 ? sanitizeFilename(h1) + '.md' : undefined
-      await saveContentAs(content, defaultFilename)
+      await saveContentAs(content, defaultFilename, snapshot)
     }
   }, [saveContentAs])
 
   const saveFileAs = useCallback(async () => {
     if (!window.api) return
-    const current = currentDocument()
-    const content = buildSaveContent(current.content, current.frontmatter, current.path)
+    const current = activeSave()
+    if (!current) return
     // Pre-fill the Save As dialog with the H1 heading (sanitized) if the document is untitled
-    const h1 = !current.path ? extractFirstH1(current.content) : null
+    const h1 = !current.path ? extractFirstH1(current.snapshot.body) : null
     const defaultFilename = h1 ? sanitizeFilename(h1) + '.md' : undefined
-    await saveContentAs(content, defaultFilename)
+    await saveContentAs(current.snapshot.text, defaultFilename, current.snapshot)
   }, [saveContentAs])
 
   // A new untitled tab (the empty state's "New Document").
@@ -157,8 +146,9 @@ export function useEditor() {
     const sanitizedTitle = sanitizeFilename(title)
     if (!sanitizedTitle) return false
 
-    const current = currentDocument()
-    const content = buildSaveContent(current.content, current.frontmatter, current.path)
+    const current = activeSave()
+    if (!current) return false
+    const content = current.snapshot.text
     const settings = useSettingsStore.getState().settings
     const currentExt = current.path?.endsWith('.txt') ? '.txt' : '.md'
     const hasKnownExt = /\.(md|markdown|txt)$/.test(sanitizedTitle)
@@ -220,7 +210,7 @@ export function useEditor() {
       }
 
       // The active tab adopts the path: identity, records and baseline follow.
-      await markActiveTabSaved(finalPath)
+      await markActiveTabSaved(finalPath, current.snapshot)
 
       // Clear draft since we saved
       await clearDraft()
@@ -229,7 +219,7 @@ export function useEditor() {
     } catch (error) {
       if (oldPath && isMissingPathFileError(error)) {
         handleMissingPath(oldPath, 'save')
-        await saveContentAs(content, getPathFilename(oldPath))
+        await saveContentAs(content, getPathFilename(oldPath), current.snapshot)
         return !useEditorStore.getState().document.isDirty
       }
       console.error('Failed to quick save:', error)
@@ -240,9 +230,6 @@ export function useEditor() {
   return {
     document,
     cursorPosition,
-    setContent,
-    setFrontmatter,
-    setCursorPosition,
     openFile,
     openFileFromPath,
     saveFile,

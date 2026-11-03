@@ -20,7 +20,7 @@
  * state into its neighbour.
  */
 
-import { useTabStore, generateUntitledTitle, type Tab, type ClosedTabSnapshot } from '../stores/tabStore'
+import { useTabStore, generateUntitledTitle, activeTabOf, type Tab, type ClosedTabSnapshot } from '../stores/tabStore'
 import { useEditorStore } from '../stores/editorStore'
 import { useChatStore } from '../stores/chatStore'
 import { useSettingsStore } from '../stores/settingsStore'
@@ -60,12 +60,14 @@ import {
   setSessionIdentity,
   markTabClosing,
   replaceSessionDocument,
-  setActiveFrontmatterRaw,
+  markFrontmatterChanged,
+  recordSaved,
+  saveSnapshot,
   enterSource,
   exitSource,
-  getSession
+  getSession,
+  type SaveSnapshot
 } from '../document/session'
-import { isRemarkableOcrPath } from '../lib/remarkablePath'
 import { isPlainTextPath } from '../document/identity'
 
 // ---------------------------------------------------------------------------
@@ -206,9 +208,7 @@ let chatPanelStateBeforePreview: boolean | null = null
  * activation runs this, so the flag can no longer stick to a previous tab.
  */
 function syncPreviewMode(): void {
-  const { tabs, activeTabId } = useTabStore.getState()
-  const active = tabs.find((t) => t.id === activeTabId) ?? null
-  useEditorStore.getState().setPreviewTab(active?.isPreview ?? false)
+  const { tabs } = useTabStore.getState()
   const browsing = tabs.some((t) => t.isPreview)
   if (browsing) {
     if (chatPanelStateBeforePreview === null) {
@@ -259,16 +259,13 @@ async function leaveTab(tab: Tab, opts: { persist?: boolean } = {}): Promise<voi
     await persistSessionRecords(tab.id)
   }
 
-  // Cache what the editor holds now; typing may have continued through the awaits.
+  // The projection keeps the record's content, frontmatter and dirty flag
+  // current (#1151); land a pending one (typing may have continued through
+  // the awaits) and cache the status-bar cursor.
   flushActiveProjections()
   const fresh = useEditorStore.getState()
   if (fresh.document.documentId !== tab.documentId) return
-  useTabStore.getState().updateTab(tab.id, {
-    content: fresh.document.content,
-    frontmatter: fresh.document.frontmatter,
-    cursorPosition: fresh.cursorPosition,
-    isDirty: fresh.document.isDirty
-  })
+  useTabStore.getState().updateTab(tab.id, { cursorPosition: fresh.cursorPosition })
 }
 
 interface ArriveOptions {
@@ -426,9 +423,14 @@ export async function openInTab(
  * `new_file` tool). Tolerates a click event as `init` (explorer button).
  */
 export async function newTab(init?: NewTabInit): Promise<string> {
-  const content = typeof init?.content === 'string' ? init.content : ''
-  const frontmatter =
-    init?.frontmatter && typeof init.frontmatter === 'object' ? init.frontmatter : {}
+  // A block in the given text (the `new_file` tool) is the tab's frontmatter,
+  // never body text: no record carries one (#1151).
+  const parsed = parseMarkdown(typeof init?.content === 'string' ? init.content : '')
+  const content = parsed.content
+  const frontmatter = {
+    ...(init?.frontmatter && typeof init.frontmatter === 'object' ? init.frontmatter : {}),
+    ...parsed.frontmatter
+  }
   const isDirty = init?.isDirty === true
 
   const activeTab = useTabStore.getState().getActiveTab()
@@ -742,19 +744,24 @@ export async function setTabIdentity(tabId: string, next: IdentityChange): Promi
  * path (identity and records follow when it changed), the dirty flag clears
  * and the disk baseline is recorded (#843).
  */
-export async function markActiveTabSaved(path: string): Promise<void> {
+export async function markActiveTabSaved(path: string, written?: SaveSnapshot): Promise<void> {
   const activeTabId = useTabStore.getState().activeTabId
   if (!activeTabId) return
-  await markTabSaved(activeTabId, path)
+  await markTabSaved(activeTabId, path, written)
 }
 
-/** A tab's document was written to `path` (the active one, or a background one a chat turn saved, #1148). */
-export async function markTabSaved(tabId: string, path: string): Promise<void> {
+/**
+ * A tab's document was written to `path` (the active one, or a background one
+ * a chat turn saved, #1148). `written` is the snapshot the save wrote: the
+ * session records it and the projection clears the dirty flag, so typing
+ * that went on during the write keeps the tab dirty (#1151).
+ */
+export async function markTabSaved(tabId: string, path: string, written?: SaveSnapshot): Promise<void> {
   const tab = useTabStore.getState().getTabById(tabId)
   if (!tab) return
   if (tab.path !== path) await setTabIdentity(tabId, { path })
-  if (tabId === useTabStore.getState().activeTabId) useEditorStore.getState().setDirty(false)
-  useTabStore.getState().updateTab(tabId, { isDirty: false })
+  if (hasSession(tabId)) recordSaved(tabId, written ?? saveSnapshot(tabId))
+  else useTabStore.getState().updateTab(tabId, { isDirty: false })
   void recordDiskBaseline(path)
 }
 
@@ -831,14 +838,12 @@ export async function reloadTabFromDisk(tabId: string, doc: ParsedDocument): Pro
     isDirty: false
   })
   if (hasSession(tabId)) {
+    // The re-open seeds the saved snapshot from the new text (the record is clean).
     await replaceSessionDocument(
       tabId,
       { content: doc.content, body: doc.content, frontmatter: doc.frontmatter },
       { keepHistory: false }
     )
-  }
-  if (tabId === useTabStore.getState().activeTabId) {
-    useEditorStore.getState().setDirty(false)
   }
   if (tab.path) void recordDiskBaseline(tab.path)
 }
@@ -858,10 +863,9 @@ export async function convertTab(tabId: string, to: 'txt' | 'md'): Promise<boole
   // The typed text first, as a document replace follows (#1150).
   if (getSession(tabId)?.source) exitSource(tabId)
   if (isActive) flushActiveProjections()
-  const current =
-    isActive && useEditorStore.getState().document.documentId === tab.documentId
-      ? useEditorStore.getState().document
-      : { content: tab.content ?? '', frontmatter: tab.frontmatter ?? {} }
+  // The record is the truth for both tabs once the projection landed (#1151).
+  const fresh = useTabStore.getState().getTabById(tabId) ?? tab
+  const current = { content: fresh.content ?? '', frontmatter: fresh.frontmatter ?? {} }
 
   let fileText: string
   let nextContent: string
@@ -894,17 +898,25 @@ export async function convertTab(tabId: string, to: 'txt' | 'md'): Promise<boole
 // Frontmatter and source mode (the active tab)
 // ---------------------------------------------------------------------------
 
-/** The frontmatter editor saved: the store's object is the truth from here. */
-export function setActiveFrontmatter(frontmatter: Record<string, unknown>): void {
-  useEditorStore.getState().setFrontmatter(frontmatter)
-  setActiveFrontmatterRaw('')
+/**
+ * The frontmatter editor, the `edit` tool or the overlay's Accept replaced a
+ * tab's frontmatter (#1151): the record is the truth and the projection
+ * marks the tab dirty (or clean again) at once. A lazy tab is marked dirty
+ * directly; its session reads the record when it opens.
+ */
+export function setTabFrontmatter(tabId: string, frontmatter: Record<string, unknown>): void {
+  const store = useTabStore.getState()
+  if (!store.getTabById(tabId)) return
+  store.updateTab(tabId, { frontmatter })
+  if (hasSession(tabId)) markFrontmatterChanged(tabId)
+  else store.updateTab(tabId, { isDirty: true })
 }
 
 /** Source mode for a tab, shown or not; refused on a preview or reMarkable tab (#1150). */
 export function enterSourceMode(tabId: string | null = useTabStore.getState().activeTabId): boolean {
   if (!tabId) return false
   const tab = useTabStore.getState().getTabById(tabId)
-  if (!tab || tab.isPreview || isRemarkableOcrPath(tab.path) || !hasSession(tabId)) return false
+  if (!tab || tab.isPreview || tab.readOnly || !hasSession(tabId)) return false
   enterSource(tabId)
   return true
 }
@@ -985,31 +997,12 @@ export async function hydrateDraft(draft: DraftState): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Store → tab mirror
+// Preview promotion on dirty
 // ---------------------------------------------------------------------------
 
-/**
- * Keep the active tab's cached content and dirty flag in step with the
- * editor store, which the session's projection writes. The tab bar's dirty
- * dot and the saved session (which reads tab content) depend on it. Typing
- * in a preview promotes it. Identity (path, documentId) is never synced from
- * here; the identity flows above write both sides themselves.
- */
-function syncActiveTabWithDocument(): void {
-  const activeTab = useTabStore.getState().getActiveTab()
-  if (!activeTab) return
-  const { document } = useEditorStore.getState()
-  if (document.documentId !== activeTab.documentId) return
-
-  if (activeTab.isPreview && document.isDirty) promotePreview()
-
-  if (activeTab.isDirty !== document.isDirty || activeTab.content !== document.content) {
-    useTabStore.getState().updateTab(activeTab.id, {
-      isDirty: document.isDirty,
-      content: document.content,
-      frontmatter: document.frontmatter
-    })
-  }
-}
-
-useEditorStore.subscribe((state) => state.document, syncActiveTabWithDocument)
+// A preview tab that goes dirty (a write the read-only view did not stop) is
+// promoted, as the old store→tab mirror did; the editor store's mirror of the
+// active record lives in document/session.ts (#1151).
+useTabStore.subscribe(activeTabOf, (tab) => {
+  if (tab?.isPreview && tab.isDirty) promotePreview()
+})

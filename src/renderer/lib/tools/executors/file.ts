@@ -12,7 +12,7 @@ import { useSettingsStore } from '../../../stores/settingsStore'
 import { generateIdFromPath } from '../../persistence'
 import { useTabStore } from '../../../stores/tabStore'
 import { openFile, newTab, markTabSaved } from '../../../tabs/actions'
-import { serializeSession } from '../../../document/session'
+import { saveSnapshot } from '../../../document/session'
 import type { ToolContext } from '../context'
 
 /** Human-readable text for a thrown value, including structured file-operation failures. */
@@ -126,7 +126,8 @@ export async function executeSaveFile(args: {
   // The full text as a save writes it, pending projections landed, from the
   // document the call is bound to (shown or not, #1148).
   const document = { path: handle.path }
-  const content = serializeSession(handle.tabId)
+  const snapshot = saveSnapshot(handle.tabId)
+  const content = snapshot.text
 
   try {
     let finalPath: string
@@ -150,7 +151,7 @@ export async function executeSaveFile(args: {
 
     // The tab adopts the path: identity, records (conversations,
     // annotations, suggestions, comments) and the disk baseline follow.
-    await markTabSaved(handle.tabId, finalPath)
+    await markTabSaved(handle.tabId, finalPath, snapshot)
 
     return toolSuccess({ saved: true, path: finalPath })
   } catch (e) {

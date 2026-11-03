@@ -8,7 +8,7 @@ import { useLinkHoverStore } from '../../stores/linkHoverStore'
 import { useReviewStore } from '../../stores/reviewStore'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { selectOpenThreadCount } from '../../extensions/comments'
-import { useActiveSession } from '../../document/useActiveSession'
+import { useActiveSession, useActiveSource } from '../../document/useActiveSession'
 import { requestCommentReview } from '../editor/AIEditsHistoryPanel'
 import { toggleSourceMode } from '../../tabs/actions'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
@@ -76,7 +76,7 @@ export function StatusBar() {
     return () => clearTimeout(timer)
   }, [toolMode])
   const isAutosaving = useEditorStore((state) => state.isAutosaving)
-  const sourceMode = useEditorStore((state) => state.sourceMode)
+  const sourceMode = useActiveSource() !== null
   const hoveredUrl = useLinkHoverStore((state) => state.hoveredUrl)
   const editor = useEditorInstanceStore((state) => state.editor)
 

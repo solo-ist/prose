@@ -42,7 +42,7 @@ import { useChat } from '../../hooks/useChat'
 import { useSummaryStore } from '../../stores/summaryStore'
 import { useEditor } from '../../hooks/useEditor'
 import { useTabs } from '../../hooks/useTabs'
-import { hydrateDraft, restoreTabs, convertTab, type RestoredTab, toggleSourceMode } from '../../tabs/actions'
+import { hydrateDraft, restoreTabs, convertTab, type RestoredTab, toggleSourceMode, markTabSaved } from '../../tabs/actions'
 import { useSettings } from '../../hooks/useSettings'
 import { usePanelLayout, PanelLayoutProvider } from '../../hooks/usePanelLayout'
 import type { ImperativePanelHandle } from 'react-resizable-panels'
@@ -184,13 +184,13 @@ export function App() {
     if (!conflict || !window.api) return
     try {
       await window.api.saveFile(conflict.path, conflict.content)
-      void recordDiskBaseline(conflict.path)
-      const { tabs, updateTab } = useTabStore.getState()
-      const tab = tabs.find((t) => t.path === conflict.path)
-      if (tab) updateTab(tab.id, { isDirty: false })
-      if (useEditorStore.getState().document.path === conflict.path) {
-        useEditorStore.getState().setDirty(false)
-      }
+      // The tab records what the held text held; typing since keeps it dirty (#1151).
+      const { tabs } = useTabStore.getState()
+      const tab =
+        (conflict.tabId ? tabs.find((t) => t.id === conflict.tabId) : undefined) ??
+        tabs.find((t) => t.path === conflict.path)
+      if (tab) await markTabSaved(tab.id, conflict.path, conflict.snapshot)
+      else void recordDiskBaseline(conflict.path)
     } catch (error) {
       console.error('[DiskSync] Overwrite save failed:', error)
       useNotificationStore.getState().notify({

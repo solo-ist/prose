@@ -124,10 +124,9 @@ test('a source-mode edit leaves every untouched byte alone on save', async () =>
   await page.waitForTimeout(1_200)
 
   const saved = await saveAndRead(path, 'Added.')
-  // trimEnd: parseMarkdown trims the body of any document with frontmatter at
-  // load, so the final newline is already gone before source mode is involved
-  // — a separate defect (#1105), not this round trip.
-  expect(saved).toBe(DOC.replace('Second paragraph.', 'Second paragraph. Added.').trimEnd())
+  // Byte for byte, final newline included: the parser keeps the body's bytes
+  // after the fences since #1151 (it used to trim them, #1105).
+  expect(saved).toBe(DOC.replace('Second paragraph.', 'Second paragraph. Added.'))
 })
 
 test('a comment survives a source-mode edit on a non-idempotent document', async () => {

@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import * as yaml from 'js-yaml'
 import { Lock, Plus, X, ChevronDown, ChevronUp, Check } from 'lucide-react'
 import { Input } from '../ui/input'
 import { useEditorStore } from '../../stores/editorStore'
@@ -12,8 +11,10 @@ interface Field {
 }
 
 interface FrontmatterEditorProps {
+  /** The active tab's frontmatter (#1151): the truth the rows are initialised from. */
   frontmatter: Record<string, unknown>
-  onSave: (frontmatter: Record<string, unknown>) => void
+  /** Every row edit, as the object the rows serialise to; the tab record takes it. */
+  onChange: (frontmatter: Record<string, unknown>) => void
 }
 
 function frontmatterToFields(frontmatter: Record<string, unknown>): Field[] {
@@ -36,22 +37,27 @@ function fieldsToFrontmatter(fields: Field[]): Record<string, unknown> {
   return result
 }
 
-export function serializeFrontmatter(frontmatter: Record<string, unknown>): string {
-  if (Object.keys(frontmatter).length === 0) return ''
-  const yamlStr = yaml.dump(frontmatter, { lineWidth: -1, quotingType: '"', forceQuotes: false })
-  return `---\n${yamlStr}---\n`
+/** The same object by value (insertion order included, as the YAML dump keeps it). */
+function sameFrontmatter(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
 }
 
-export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProps) {
+/**
+ * The frontmatter block, controlled by the tab's object (#1151). The rows
+ * are local state (an in-progress row has no key yet, so the object cannot
+ * hold it); they re-initialise from the prop only when its *value* differs
+ * from what the rows serialise to, so the store's echo of our own write and
+ * an equal-valued new object never wipe a row mid-edit (#1105), while an
+ * outside write (the `edit` tool, Accept) does land. Writes go out through
+ * `onChange`, outside the state updater.
+ */
+export function FrontmatterEditor({ frontmatter, onChange }: FrontmatterEditorProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [fields, setFields] = useState<Field[]>(() => frontmatterToFields(frontmatter))
+  const fieldsRef = useRef(fields)
+  fieldsRef.current = fields
   const pendingFrontmatter = useEditorStore((state) => state.pendingFrontmatter)
   const rejectPendingFrontmatter = useEditorStore((state) => state.rejectPendingFrontmatter)
-  const setStoredFrontmatter = useEditorStore((state) => state.setFrontmatter)
-
-  // Track whether the next prop change originated from our own onSave round-trip
-  // so we don't clobber an in-progress local edit when the store echoes back.
-  const skipNextPropSyncRef = useRef(false)
 
   // Per-row input refs so Enter can advance focus through key/value fields.
   const keyRefs = useRef<(HTMLInputElement | null)[]>([])
@@ -59,34 +65,24 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
   // When Enter appends a new row, remember where to move focus once it renders.
   const pendingFocusRef = useRef<{ index: number; field: 'key' | 'value' } | null>(null)
 
-  // Sync local fields when the frontmatter prop changes from outside this
-  // component (e.g., AI-applied frontmatter via MCP suggest_edit). User-initiated
-  // edits set the skip flag so we don't re-init on the round-trip.
+  // An outside write lands; our own echo (same value) does not touch the rows.
   useEffect(() => {
-    if (skipNextPropSyncRef.current) {
-      skipNextPropSyncRef.current = false
-      return
-    }
+    if (sameFrontmatter(fieldsToFrontmatter(fieldsRef.current), frontmatter)) return
     setFields(frontmatterToFields(frontmatter))
   }, [frontmatter])
 
+  const commit = useCallback((next: Field[]) => {
+    setFields(next)
+    onChange(fieldsToFrontmatter(next))
+  }, [onChange])
+
   const handleFieldChange = useCallback((index: number, field: Partial<Field>) => {
-    setFields(prev => {
-      const next = prev.map((f, i) => i === index ? { ...f, ...field } : f)
-      skipNextPropSyncRef.current = true
-      onSave(fieldsToFrontmatter(next))
-      return next
-    })
-  }, [onSave])
+    commit(fieldsRef.current.map((f, i) => (i === index ? { ...f, ...field } : f)))
+  }, [commit])
 
   const handleDelete = useCallback((index: number) => {
-    setFields(prev => {
-      const next = prev.filter((_, i) => i !== index)
-      skipNextPropSyncRef.current = true
-      onSave(fieldsToFrontmatter(next))
-      return next
-    })
-  }, [onSave])
+    commit(fieldsRef.current.filter((_, i) => i !== index))
+  }, [commit])
 
   const handleAdd = useCallback(() => {
     setFields(prev => [...prev, { key: '', value: '', readonly: false, originalValue: '' }])
@@ -133,19 +129,14 @@ export function FrontmatterEditor({ frontmatter, onSave }: FrontmatterEditorProp
     handleAdd()
   }, [fields, handleAdd])
 
-  // Accept handler: write the accepted frontmatter directly to the store FIRST
-  // as a durable fallback, then call onSave to reserialize body content (which
-  // no-ops if the TipTap editor isn't mounted), then clear the pending state.
-  // The direct store write guarantees the user's accept can't be silently
-  // dropped even if onSave's editor-dependent code path is unavailable.
+  // Accept: the suggestion becomes the tab's frontmatter, then the overlay clears.
   const handleAcceptPending = useCallback(() => {
     if (!pendingFrontmatter) return
     const accepted = pendingFrontmatter
-    setStoredFrontmatter(accepted)
     setFields(frontmatterToFields(accepted))
-    onSave(accepted)
+    onChange(accepted)
     rejectPendingFrontmatter()
-  }, [pendingFrontmatter, setStoredFrontmatter, rejectPendingFrontmatter, onSave])
+  }, [pendingFrontmatter, rejectPendingFrontmatter, onChange])
 
   if (Object.keys(frontmatter).length === 0 && fields.length === 0 && !pendingFrontmatter) {
     return (

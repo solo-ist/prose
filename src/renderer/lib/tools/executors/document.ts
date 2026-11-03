@@ -102,21 +102,20 @@ export function executeReadDocument(ctx: ToolContext): ToolResult<{
 }
 
 /**
- * The document's frontmatter: the editor store's when the document is shown
- * (its overlay included), the tab record's otherwise (PR 7 moves it onto
- * the tab for both).
+ * The document's frontmatter and dirty flag from its tab record (#1151); the
+ * AI overlay is the shown document's only.
  */
 function documentFrontmatter(handle: DocumentHandle): {
   frontmatter: Record<string, unknown>
   pendingFrontmatter: Record<string, unknown> | null
   isDirty: boolean
 } {
-  if (handle.isActive) {
-    const store = useEditorStore.getState()
-    return { frontmatter: store.document.frontmatter, pendingFrontmatter: store.pendingFrontmatter, isDirty: store.document.isDirty }
-  }
   const tab = useTabStore.getState().getTabById(handle.tabId)
-  return { frontmatter: tab?.frontmatter ?? {}, pendingFrontmatter: null, isDirty: tab?.isDirty ?? false }
+  return {
+    frontmatter: tab?.frontmatter ?? {},
+    pendingFrontmatter: handle.isActive ? useEditorStore.getState().pendingFrontmatter : null,
+    isDirty: tab?.isDirty ?? false
+  }
 }
 
 /**

@@ -30,7 +30,7 @@ import { EditorState } from '@tiptap/pm/state'
 import type { Transaction } from '@tiptap/pm/state'
 import { Node as PMNode } from '@tiptap/pm/model'
 import type { Tab } from '../stores/tabStore'
-import { useTabStore } from '../stores/tabStore'
+import { useTabStore, activeTabOf } from '../stores/tabStore'
 import { useEditorStore } from '../stores/editorStore'
 import { applyCommentMarks, mergeCommentsForPersistence } from '../extensions/comments/extension'
 import {
@@ -58,9 +58,7 @@ import {
 } from './identity'
 import { parseMarkdown, serializeMarkdown } from '../lib/markdown'
 import { buildSourceState, sourceText, type SourceState } from '../extensions/source/state'
-import { getContentWithoutFrontmatter, getFrontmatterRaw } from '../components/editor/FrontmatterDisplay'
 import { editorScrollContainer, selectionFromViewState, type EditorViewState } from '../lib/editorViewState'
-import { isRemarkableOcrPath } from '../lib/remarkablePath'
 import {
   loadAnnotations,
   saveAnnotations,
@@ -100,8 +98,12 @@ export interface Session {
    * an untouched document saves byte for byte (#1102).
    */
   baseline: { content: string; serialized: string } | null
-  /** The raw frontmatter block the content carried ('' once the frontmatter editor took over). */
-  frontmatterRaw: string
+  /**
+   * What the file holds (the load, then every save): the one reference the
+   * dirty flag is computed against, for the body and the frontmatter
+   * together. Null when the tab arrived dirty: dirty until a save (#1151).
+   */
+  saved: SavedSnapshot | null
   projectionTimer: ReturnType<typeof setTimeout> | null
   suggestionTimer: ReturnType<typeof setTimeout> | null
   /** An accept or reject happened since the last suggestion persist (#1126). */
@@ -123,6 +125,26 @@ export interface Session {
   /** A pending projection of the source text into the tab record. */
   sourceTimer: ReturnType<typeof setTimeout> | null
 }
+
+/** The body and the frontmatter (as `frontmatterKey`) a save wrote, or the load read. */
+export interface SavedSnapshot {
+  body: string
+  frontmatter: string
+}
+
+/** What a save writes: the file text, and the body and frontmatter it holds. */
+export interface SaveSnapshot {
+  text: string
+  body: string
+  frontmatter: Record<string, unknown>
+}
+
+/** A frontmatter object as a comparable string (insertion order kept, as the YAML dump keeps it). */
+export function frontmatterKey(frontmatter: Record<string, unknown> | undefined): string {
+  return JSON.stringify(frontmatter ?? {})
+}
+
+const EMPTY_FRONTMATTER: Record<string, unknown> = {}
 
 /** A tab in source mode: its CodeMirror state lives here, across switches (#1150). */
 export interface SourceSession {
@@ -402,11 +424,32 @@ function buildDocument(e: Editor, body: string, identity: IdentityState): PMNode
   return scratch.applyTransaction(tr).state.doc
 }
 
-/** The markdown the session's document projects to, with the baseline substitution. */
+/** The body the session's document projects to, with the baseline substitution (#1102). */
 function projectedContent(e: Editor, session: Session): string {
   const body = serializeDoc(e, session.state.doc)
   if (session.baseline && session.baseline.serialized === body) return session.baseline.content
-  return session.frontmatterRaw + body
+  return body
+}
+
+function isDirtyAgainst(saved: SavedSnapshot | null, body: string, frontmatter: Record<string, unknown>): boolean {
+  return saved === null || saved.body !== body || saved.frontmatter !== frontmatterKey(frontmatter)
+}
+
+/**
+ * The tab record follows a projection (#1151): the body, the frontmatter the
+ * source projection parsed (null from the rich one: the record's stands), and
+ * the dirty flag as one comparison against the saved snapshot, for the shown
+ * tab and a background one alike. The editor store mirrors the active record.
+ */
+function writeProjection(session: Session, body: string, frontmatter: Record<string, unknown> | null): void {
+  const store = useTabStore.getState()
+  const tab = store.getTabById(session.tabId)
+  if (!tab) return
+  const current = tab.frontmatter ?? EMPTY_FRONTMATTER
+  const next = frontmatter && frontmatterKey(frontmatter) !== frontmatterKey(current) ? frontmatter : current
+  const isDirty = isDirtyAgainst(session.saved, body, next)
+  if (tab.content === body && tab.isDirty === isDirty && tab.frontmatter === next) return
+  store.updateTab(session.tabId, { content: body, frontmatter: next, isDirty })
 }
 
 // ---------------------------------------------------------------------------
@@ -423,22 +466,24 @@ function scheduleMarkdownProjection(session: Session, delay: number): void {
   session.projectionTimer = setTimeout(() => projectMarkdown(session), delay)
 }
 
-/** Write the session's document to the editor store (active) or the tab record (background). */
+/** Write the session's document to the tab record (the editor store mirrors the active one). */
 function projectMarkdown(session: Session): void {
   session.projectionTimer = null
   const e = editor
   if (!e || !registry.sessions.has(session.tabId)) return
   stats.projections++
-  const content = projectedContent(e, session)
-  if (session.tabId === registry.activeTabId) {
-    // Today's dirty semantics: the store marks dirty only when the bytes changed.
-    useEditorStore.getState().setContent(content)
-  } else {
-    const tab = useTabStore.getState().getTabById(session.tabId)
-    if (tab && tab.content !== content) {
-      useTabStore.getState().updateTab(session.tabId, { content, isDirty: true })
-    }
+  writeProjection(session, projectedContent(e, session), null)
+}
+
+/** Land the session's projection now, whichever surface it is on. */
+function projectNow(session: Session): void {
+  if (session.source) {
+    if (session.sourceTimer) clearTimeout(session.sourceTimer)
+    projectSource(session)
+    return
   }
+  if (session.projectionTimer) clearTimeout(session.projectionTimer)
+  projectMarkdown(session)
 }
 
 /** A resolve (accept, reject) persists at once; any other document change after the projection delay. */
@@ -771,11 +816,10 @@ async function openSessionNow(
   ])
   const raced = registry.sessions.get(tab.id)
   if (raced) return raced
+  const record = useTabStore.getState().getTabById(tab.id) ?? tab
 
   const identity: IdentityState = { documentId, path: tab.path, plain: isPlainTextPath(tab.path) }
-  const frontmatterRaw = getFrontmatterRaw(content)
-  const body = getContentWithoutFrontmatter(content)
-  const doc = buildDocument(e, body, identity)
+  const doc = buildDocument(e, content, identity)
 
   let state = EditorState.create({
     schema: e.schema,
@@ -808,7 +852,10 @@ async function openSessionNow(
     tabId: tab.id,
     state,
     baseline: { content, serialized: serializeDoc(e, state.doc) },
-    frontmatterRaw,
+    // A clean tab holds what its file holds; a dirty one (a restored draft,
+    // prose://) has nothing to compare against until a save. The record is
+    // read now: the caller's copy may predate a frontmatter write.
+    saved: record.isDirty ? null : { body: content, frontmatter: frontmatterKey(record.frontmatter) },
     projectionTimer: null,
     suggestionTimer: null,
     suggestionResolved: false,
@@ -878,21 +925,17 @@ export function activateSession(tabId: string, opts: { reattach?: boolean } = {}
   if (view.state !== session.state) view.updateState(session.state)
   session.state = view.state
   const identity = getIdentity(session.state)
-  e.setEditable(!tab.isPreview && !isRemarkableOcrPath(tab.path), false)
+  applyActiveEditable()
 
   if (!opts.reattach) {
     flushSync(() => {
-      const store = useEditorStore.getState()
-      store.setDocument({
+      useEditorStore.getState().setDocument({
         documentId: identity.documentId,
         path: tab.path,
         content: tab.content ?? '',
-        frontmatter: tab.frontmatter ?? {},
+        frontmatter: tab.frontmatter ?? EMPTY_FRONTMATTER,
         isDirty: tab.isDirty
       })
-      store.setPreviewTab(tab.isPreview ?? false)
-      // The mirror follows the session's own mode (#1150; the field goes in PR 7).
-      store.setSourceMode(session.source !== null)
     })
     if (!session.source) {
       const container = editorScrollContainer(e)
@@ -1002,7 +1045,6 @@ export async function replaceSessionDocument(
     // The baseline first: the projection runs inside the dispatch and must
     // emit the typed bytes, not a re-serialisation (#1102).
     session.baseline = { content: next.content, serialized: serializeDoc(e, doc) }
-    session.frontmatterRaw = getFrontmatterRaw(next.content)
 
     applyToSession(tabId, (state) => {
       const tr = state.tr
@@ -1115,41 +1157,85 @@ export function projectSessionContent(tabId: string): string {
   return projectedContent(e, session)
 }
 
-/** The full document text as a save writes it, after pending projections land. */
-export function serializeSession(tabId: string): string {
+/**
+ * What a save writes (#1151), pending projections landed: the typed text
+ * verbatim in source mode (and its parse), otherwise the projected body with
+ * the tab's frontmatter, as the body alone for a plain `.txt` identity. Every
+ * save path (⌘S, Save As, quick save, autosave, `save_file`, the conflict
+ * overwrite) writes `text` and hands the snapshot to `markTabSaved`.
+ */
+export function saveSnapshot(tabId: string): SaveSnapshot {
   const session = requireSession(tabId)
   const e = requireEditor()
   flushProjections(session)
-  if (session.source) return sourceText(session.source.state)
-  const content = projectedContent(e, session)
-  const frontmatter =
-    tabId === registry.activeTabId
-      ? useEditorStore.getState().document.frontmatter
-      : (useTabStore.getState().getTabById(tabId)?.frontmatter ?? {})
-  return serializeMarkdown(getContentWithoutFrontmatter(content), frontmatter)
+  if (session.source) {
+    const text = sourceText(session.source.state)
+    const parsed = parseMarkdown(text)
+    return { text, body: parsed.content, frontmatter: parsed.frontmatter }
+  }
+  const body = projectedContent(e, session)
+  const frontmatter = useTabStore.getState().getTabById(tabId)?.frontmatter ?? EMPTY_FRONTMATTER
+  const text = getIdentity(session.state).plain ? body : serializeMarkdown(body, frontmatter)
+  return { text, body, frontmatter }
 }
 
-// ---------------------------------------------------------------------------
-// Frontmatter (the active session only, until PR 7) and source mode (#1150)
-// ---------------------------------------------------------------------------
+/** The full document text as a save writes it, after pending projections land. */
+export function serializeSession(tabId: string): string {
+  return saveSnapshot(tabId).text
+}
 
 /**
- * The frontmatter editor took over the block: the store's object is the
- * truth from here, the raw block leaves the projected content, and the
- * projection lands now so the store holds the body alone.
+ * A save wrote `snapshot` (or the file was reloaded): the session records it
+ * and the projection lands now, so the tab is clean unless typing went on
+ * during the write.
  */
-export function setActiveFrontmatterRaw(raw: string): void {
-  const session = activeSession()
+export function recordSaved(tabId: string, snapshot: SaveSnapshot): void {
+  const session = registry.sessions.get(tabId)
   if (!session) return
-  if (session.baseline) {
-    session.baseline = {
-      content: raw + getContentWithoutFrontmatter(session.baseline.content),
-      serialized: session.baseline.serialized
-    }
-  }
-  session.frontmatterRaw = raw
-  scheduleMarkdownProjection(session, 0)
+  session.saved = { body: snapshot.body, frontmatter: frontmatterKey(snapshot.frontmatter) }
+  projectNow(session)
 }
+
+/** The tab's frontmatter object was replaced (the editor, the `edit` tool, Accept): the dirty flag follows now. */
+export function markFrontmatterChanged(tabId: string): void {
+  const session = registry.sessions.get(tabId)
+  if (session) projectNow(session)
+}
+
+// ---------------------------------------------------------------------------
+// Editable, and the editor store's mirror of the active tab (#1151)
+// ---------------------------------------------------------------------------
+
+/** `editable = !tab.isPreview && !tab.readOnly` on the view: at activation and when either flag flips. */
+export function applyActiveEditable(): void {
+  const e = editor
+  const tab = useTabStore.getState().getActiveTab()
+  if (!e || !tab) return
+  // No `update` emitted: editability is not a content change.
+  e.setEditable(!tab.isPreview && !tab.readOnly, false)
+}
+
+// The editor store's `document` mirrors the active tab's record: content,
+// frontmatter and the dirty flag follow every projection; the identity is
+// written by activation and `setTabIdentity`. Nothing computes on the mirror.
+const stopMirror = useTabStore.subscribe(activeTabOf, (tab, prev) => {
+  if (!tab) return
+  const store = useEditorStore.getState()
+  if (store.document.documentId !== tab.documentId) return
+  const doc = store.document
+  const frontmatter = tab.frontmatter ?? EMPTY_FRONTMATTER
+  if (doc.content !== (tab.content ?? '') || doc.frontmatter !== frontmatter || doc.isDirty !== tab.isDirty) {
+    store.setDocument({ content: tab.content ?? '', frontmatter, isDirty: tab.isDirty })
+  }
+  if (prev && prev.id === tab.id && (prev.isPreview !== tab.isPreview || prev.readOnly !== tab.readOnly)) {
+    applyActiveEditable()
+  }
+})
+if (hot) hot.dispose(() => stopMirror())
+
+// ---------------------------------------------------------------------------
+// Source mode (#1150)
+// ---------------------------------------------------------------------------
 
 /**
  * Source mode opens for a tab (#1150): the document as text, byte for byte
@@ -1163,18 +1249,12 @@ export function enterSource(tabId: string): SourceSession {
   if (session.source) return session.source
   const e = requireEditor()
   flushProjections(session)
-  const content = projectedContent(e, session)
-  const frontmatter =
-    tabId === registry.activeTabId
-      ? (useEditorStore.getState().document.frontmatter ?? {})
-      : (useTabStore.getState().getTabById(tabId)?.frontmatter ?? {})
-  const text = serializeMarkdown(getContentWithoutFrontmatter(content), frontmatter)
+  const body = projectedContent(e, session)
+  const frontmatter = useTabStore.getState().getTabById(tabId)?.frontmatter ?? EMPTY_FRONTMATTER
+  const text = getIdentity(session.state).plain ? body : serializeMarkdown(body, frontmatter)
   session.source = { state: buildSourceState(text), entryText: text, scrollTop: 0 }
   useTabStore.getState().updateTab(tabId, { mode: 'source' })
-  if (tabId === registry.activeTabId) {
-    useEditorStore.getState().setSourceMode(true)
-    notifyActiveSession()
-  }
+  if (tabId === registry.activeTabId) notifyActiveSession()
   pipelineLog('source:enter', { tabId })
   return session.source
 }
@@ -1201,24 +1281,22 @@ export function exitSource(tabId: string): void {
   const isActive = tabId === registry.activeTabId
   if (changed) {
     const { content: body, frontmatter } = parseMarkdown(live)
-    // `content` is what the baseline substitutes on the next projection: the
-    // body alone here, because the frontmatter editor owns the raw block after
-    // a source exit and saves add it back from the store.
-    void replaceSessionDocument(tabId, { content: body, body, frontmatter }, { keepHistory: true })
-    if (isActive) {
-      const store = useEditorStore.getState()
-      // `setFrontmatter` marks dirty unconditionally; only a changed block earns that.
-      if (JSON.stringify(store.document.frontmatter ?? {}) !== JSON.stringify(frontmatter)) store.setFrontmatter(frontmatter)
-      store.setContent(body)
-    } else {
-      useTabStore.getState().updateTab(tabId, { content: body, frontmatter })
+    // The frontmatter first: the replace's projection compares the record's.
+    const tab = useTabStore.getState().getTabById(tabId)
+    if (tab && frontmatterKey(frontmatter) !== frontmatterKey(tab.frontmatter)) {
+      useTabStore.getState().updateTab(tabId, { frontmatter })
     }
+    // `content` is what the baseline substitutes on the next projection: the
+    // body alone, as the record holds it.
+    void replaceSessionDocument(tabId, { content: body, body, frontmatter }, { keepHistory: true })
+    flushProjections(session)
+  } else {
+    // Nothing to write back, but the record may hold a projection of text
+    // that was typed and then undone: re-project from the document.
+    projectMarkdown(session)
   }
   useTabStore.getState().updateTab(tabId, { mode: 'rich' })
-  if (isActive) {
-    useEditorStore.getState().setSourceMode(false)
-    notifyActiveSession()
-  }
+  if (isActive) notifyActiveSession()
   pipelineLog('source:exit', { tabId, changed })
 }
 
@@ -1266,19 +1344,10 @@ export function setActiveSourceScroll(scrollTop: number): void {
   if (registry.activeTabId) setSourceScroll(registry.activeTabId, scrollTop)
 }
 
-/** The source text into the store (active) or the tab record (background), as a rich edit's projection does. */
+/** The source text into the tab record (body, frontmatter, dirty), as a rich edit's projection does. */
 function projectSource(session: Session): void {
   session.sourceTimer = null
   if (!session.source || !registry.sessions.has(session.tabId)) return
   const { content: body, frontmatter } = parseMarkdown(sourceText(session.source.state))
-  if (session.tabId === registry.activeTabId) {
-    const store = useEditorStore.getState()
-    store.setContent(body)
-    store.setDocument({ frontmatter })
-  } else {
-    const tab = useTabStore.getState().getTabById(session.tabId)
-    if (tab && (tab.content !== body || JSON.stringify(tab.frontmatter ?? {}) !== JSON.stringify(frontmatter))) {
-      useTabStore.getState().updateTab(session.tabId, { content: body, frontmatter, isDirty: true })
-    }
-  }
+  writeProjection(session, body, frontmatter)
 }

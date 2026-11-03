@@ -53,12 +53,15 @@ test.beforeEach(async () => {
   // (never sent, the stream is stubbed in main), create mode, and the
   // release notes already seen so no modal covers the panel (#1113).
   const chat = /^case 1[12]/.test(test.info().title)
+  // Case 9 runs with autosave in auto mode (the default is off).
+  const autosave = /^case 9/.test(test.info().title)
   writeFileSync(
     join(userDataDir, 'settings.json'),
     JSON.stringify(
       {
         defaultSaveDirectory: docsDir,
         featureFlags: { aiPipelineDebug: true },
+        ...(autosave ? { autosave: { mode: 'auto', intervalSeconds: 30 } } : {}),
         ...(chat
           ? {
               aiConsent: { consented: true, consentedAt: '2025-01-01T00:00:00.000Z' },
@@ -97,6 +100,7 @@ interface TabInfo {
   path: string | null
   documentId: string
   isActive: boolean
+  isDirty: boolean
 }
 
 async function tabs(): Promise<TabInfo[]> {
@@ -506,6 +510,63 @@ test('one undo after a source-mode exit restores the document with its annotatio
   // The comment thread survived the round trip and the undo on its text.
   expect(await liveCommentIds()).toEqual(['c-four'])
   await expect.poll(() => page.locator('.comment-mark').first().textContent()).toBe('Gamma paragraph one')
+})
+
+/**
+ * Case 9 — a frontmatter-only edit dirties the tab and autosaves in auto
+ * mode: the file gets the new title with the body bytes untouched (blank
+ * line after the fences and final newline included), and the tab is clean
+ * again. Fails on the release head: autosave arms on the editor's `update`
+ * event, which a frontmatter keystroke never fires, so the file never changes.
+ */
+test('case 9: a frontmatter-only edit dirties the tab and autosaves in auto mode', async () => {
+  const content = '---\ntitle: Nine\n---\n\n' + body('India')
+  const doc = await openDoc('sessions-nine.md', content, 'India paragraph one')
+  expect((await tabByTitle(doc.title)).isDirty).toBe(false)
+
+  await page.locator('[title="Click to edit frontmatter"]').click()
+  const value = page.locator('input[placeholder="value"]').first()
+  await expect(value).toHaveValue('Nine')
+  await value.click()
+  await page.keyboard.press('End')
+  await page.keyboard.type(' edited')
+
+  // Dirty at once (the frontmatter write lands its projection now).
+  await expect.poll(async () => (await tabByTitle(doc.title)).isDirty).toBe(true)
+  // The autosave lands: the new title, the body bytes as they were.
+  await expect.poll(() => readFileSync(doc.path!, 'utf8'), { timeout: 8_000 }).toBe(
+    '---\ntitle: Nine edited\n---\n\n' + body('India'),
+  )
+  await expect.poll(async () => (await tabByTitle(doc.title)).isDirty).toBe(false)
+  expect(await page.evaluate(() => (window as any).__prose_tools.getDocumentIsDirty())).toBe(false)
+})
+
+/**
+ * Case 9, source half — the same edit typed in source mode: the record
+ * follows the typed text, autosave writes the text verbatim while source
+ * mode is still open, and leaving it without further typing is clean. Fails
+ * on the release head: nothing arms autosave while CodeMirror has the text.
+ */
+test('case 9: a frontmatter edit typed in source mode autosaves without leaving source mode', async () => {
+  const content = '---\ntitle: Nine\n---\n\n' + body('Juliet')
+  const doc = await openDoc('sessions-nine-source.md', content, 'Juliet paragraph one')
+
+  await enterSource()
+  await page.locator('.cm-line', { hasText: 'title: Nine' }).first().click()
+  await page.keyboard.press('End')
+  await page.keyboard.type(' typed')
+
+  await expect.poll(async () => (await tabByTitle(doc.title)).isDirty).toBe(true)
+  await expect.poll(() => readFileSync(doc.path!, 'utf8'), { timeout: 8_000 }).toBe(
+    '---\ntitle: Nine typed\n---\n\n' + body('Juliet'),
+  )
+  await expect.poll(async () => (await tabByTitle(doc.title)).isDirty).toBe(false)
+  expect((await sourceState())!.mode).toBe('source')
+
+  await exitSource()
+  await settle()
+  expect((await tabByTitle(doc.title)).isDirty).toBe(false)
+  expect(await page.evaluate(() => (window as any).__prose_tools.getDocumentIsDirty())).toBe(false)
 })
 
 /**
@@ -1063,6 +1124,17 @@ test.describe('session tripwires', () => {
       if (source.includes("from '@codemirror/state'")) continue
       expect(source, `${file} calls view.updateState`).not.toMatch(/\bview\.updateState\(/)
       expect(source, `${file} calls EditorState.create`).not.toMatch(/\bEditorState\.create\(/)
+    }
+  })
+
+  test('the editor store is a mirror: no preview, source-mode or dirty setters remain on it', () => {
+    const store = files.find((f) => f.file === 'src/renderer/stores/editorStore.ts')
+    expect(store).toBeTruthy()
+    for (const member of ['sourceMode', 'isPreviewTab', 'setContent', 'setFrontmatter', 'setDirty', 'setPreviewTab', 'setSourceMode']) {
+      expect(store!.source, `editorStore defines ${member}`).not.toMatch(new RegExp(`\\b${member}\\s*[:(]`))
+    }
+    for (const { file, source } of files) {
+      expect(source, `${file} reads editorStore.sourceMode / isPreviewTab`).not.toMatch(/\b(state|editorState)\.(sourceMode|isPreviewTab)\b/)
     }
   })
 

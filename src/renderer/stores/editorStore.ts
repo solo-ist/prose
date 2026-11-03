@@ -29,6 +29,11 @@ interface SelectionCache {
 }
 
 interface EditorState {
+  /**
+   * A mirror of the active tab's record (#1151): identity from activation and
+   * `setTabIdentity`, content / frontmatter / dirty from the session layer's
+   * projection. Nothing computes on it; the tab record is the truth.
+   */
   document: Document
   cursorPosition: { line: number; column: number }
   activeChatId: string | null
@@ -40,32 +45,20 @@ interface EditorState {
   lastSelection: SelectionCache | null
   // Autosave in-progress flag (true only during the actual save call)
   isAutosaving: boolean
-  // Preview tab mode: single-click file opens as non-editable preview; clicking editor promotes to edit
-  isPreviewTab: boolean
   // AI annotation visibility toggle
   annotationsVisible: boolean
-  // Source view mode (CodeMirror raw markdown vs TipTap WYSIWYG)
-  sourceMode: boolean
   // Pending frontmatter suggestion from AI — shown as an overlay in FrontmatterEditor.
   // null means no pending suggestion; a Record means an AI-proposed frontmatter diff awaiting accept/reject.
   pendingFrontmatter: Record<string, unknown> | null
   setDocument: (doc: Partial<Document>) => void
-  setContent: (content: string) => void
-  setPath: (path: string | null) => void
-  setDirty: (isDirty: boolean) => void
-  setFrontmatter: (frontmatter: Record<string, unknown>) => void
   setCursorPosition: (line: number, column: number) => void
   setActiveChatId: (id: string | null) => void
   setEditing: (isEditing: boolean) => void
-  setRemarkableReadOnly: (isReadOnly: boolean, notebookId?: string | null) => void
   // Selection cache methods
   setLastSelection: (sel: SelectionCache | null) => void
   getLastSelection: () => SelectionCache | null
   setAutosaving: (isAutosaving: boolean) => void
-  setPreviewTab: (val: boolean) => void
   toggleAnnotationsVisible: () => void
-  setSourceMode: (val: boolean) => void
-  toggleSourceMode: () => void
   // Pending frontmatter suggestion methods
   setPendingFrontmatter: (frontmatter: Record<string, unknown> | null) => void
   rejectPendingFrontmatter: () => void
@@ -91,9 +84,7 @@ export const useEditorStore = create<EditorState>()(
     remarkableNotebookId: null,
     lastSelection: null,
     isAutosaving: false,
-    isPreviewTab: false,
     annotationsVisible: true,
-    sourceMode: false,
     pendingFrontmatter: null,
 
     setDocument: (doc) =>
@@ -111,33 +102,6 @@ export const useEditorStore = create<EditorState>()(
         }
       }),
 
-    setContent: (content) =>
-      set((state) => {
-        const contentChanged = state.document.content !== content
-        // Only mark dirty if content actually changed
-        // Preserve existing dirty state if content is the same
-        const newDirty = contentChanged ? true : state.document.isDirty
-        return {
-          document: { ...state.document, content, isDirty: newDirty }
-        }
-      }),
-
-    setPath: (path) =>
-      set((state) => ({
-        document: { ...state.document, path },
-        ...remarkableStateForPath(path)
-      })),
-
-    setDirty: (isDirty) =>
-      set((state) => ({
-        document: { ...state.document, isDirty }
-      })),
-
-    setFrontmatter: (frontmatter) =>
-      set((state) => ({
-        document: { ...state.document, frontmatter, isDirty: true }
-      })),
-
     setCursorPosition: (line, column) =>
       set({ cursorPosition: { line, column } }),
 
@@ -145,25 +109,15 @@ export const useEditorStore = create<EditorState>()(
 
     setEditing: (isEditing) => set({ isEditing }),
 
-    setRemarkableReadOnly: (isReadOnly, notebookId = null) =>
-      set({
-        isRemarkableReadOnly: isReadOnly,
-        remarkableNotebookId: notebookId
-      }),
-
     // Selection cache methods
     setLastSelection: (sel) => set({ lastSelection: sel }),
 
     getLastSelection: () => get().lastSelection,
 
     setAutosaving: (isAutosaving) => set({ isAutosaving }),
-    setPreviewTab: (val) => set({ isPreviewTab: val }),
 
     toggleAnnotationsVisible: () =>
       set((state) => ({ annotationsVisible: !state.annotationsVisible })),
-
-    setSourceMode: (val) => set({ sourceMode: val }),
-    toggleSourceMode: () => set((state) => ({ sourceMode: !state.sourceMode })),
 
     // Pending frontmatter suggestion methods
     setPendingFrontmatter: (frontmatter) => set({ pendingFrontmatter: frontmatter }),

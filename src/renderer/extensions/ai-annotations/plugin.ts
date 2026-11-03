@@ -209,7 +209,7 @@ export function createAIAnnotationsPlugin(options: AIAnnotationOptions = {}) {
             records = result.records
           }
           for (const range of meta.removeRange ?? []) {
-            const next = removeRecordsInRange(records, range.from, range.to)
+            const next = removeRecordsInRange(records, range.from, range.to, doc)
             if (next !== records) {
               records = next
               urgent = true

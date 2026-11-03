@@ -68,6 +68,16 @@ export function anchorTextAt(doc: PMNode, from: number, to: number): string {
 }
 
 /**
+ * The label a remnant record carries (`content`, shown in the Activity
+ * panel): the text it now covers, block separators trimmed at the ends.
+ * Slicing the parent's `content` by position offsets, as the store did, drifts
+ * by two per block boundary the range crosses.
+ */
+function labelOf(doc: PMNode, from: number, to: number): string {
+  return anchorTextAt(doc, from, to).replace(/^\n+|\n+$/g, '')
+}
+
+/**
  * A transaction that replaces the whole document: the source-mode exit
  * (which also carries `RELOAD_META`), its undo and redo (prosemirror-history's
  * inverse step, which carries no meta of ours), a select-all paste. Mapping
@@ -84,9 +94,11 @@ export function isWholeDocumentReplace(tr: Transform): boolean {
  * Map the records through `tr` the way the store's `updatePositions` and
  * `updatePositionsWithSplitting` did: `from` with bias 1, `to` with bias -1;
  * an insertion strictly inside a record splits it into remnants with new ids
- * and sliced `content` (the AI-authored parts), and when both remnants
- * collapse one detached copy under the original id survives; a collapsed
- * range detaches. Returns the same array when nothing changed.
+ * and the text each still covers as `content` (the AI-authored parts), and
+ * when both remnants collapse one detached copy under the original id
+ * survives; a collapsed range detaches. As before, only the first insertion
+ * inside a record splits it (two in one transaction is an IME edge case).
+ * Returns the same array when nothing changed.
  */
 export function mapRecords(records: readonly AIAnnotation[], tr: Transform): MapResult {
   if (records.length === 0 || tr.steps.length === 0) return { records, moved: [], detached: [], split: 0 }
@@ -137,7 +149,7 @@ export function mapRecords(records: readonly AIAnnotation[], tr: Transform): Map
           id: generateId(),
           from: beforeFrom,
           to: beforeTo,
-          content: a.content.slice(0, inside.pos - a.from)
+          content: labelOf(tr.doc, beforeFrom, beforeTo)
         }
         out.push(r)
         moved.push(r)
@@ -149,7 +161,7 @@ export function mapRecords(records: readonly AIAnnotation[], tr: Transform): Map
           id: generateId(),
           from: afterFrom,
           to: afterTo,
-          content: a.content.slice(inside.pos - a.from)
+          content: labelOf(tr.doc, afterFrom, afterTo)
         }
         out.push(r)
         moved.push(r)
@@ -341,15 +353,17 @@ export function refreshAnchors(records: readonly AIAnnotation[], doc: PMNode): r
 }
 
 /**
- * Remove every record overlapping `[from, to)`; a record that straddles an
- * edge keeps its outside part as a remnant with a new id and sliced
- * `content`, as the store's `removeAnnotationsInRange` did. Returns the same
- * array when nothing overlapped.
+ * Remove every record overlapping `[from, to)` of `doc`; a record that
+ * straddles an edge keeps its outside part as a remnant with a new id and
+ * the text it still covers as `content`, as the store's
+ * `removeAnnotationsInRange` did. Returns the same array when nothing
+ * overlapped.
  */
 export function removeRecordsInRange(
   records: readonly AIAnnotation[],
   from: number,
-  to: number
+  to: number,
+  doc: PMNode
 ): readonly AIAnnotation[] {
   if (from >= to) return records
   let changed = false
@@ -361,10 +375,10 @@ export function removeRecordsInRange(
     }
     changed = true
     if (a.from < from) {
-      out.push({ ...a, id: generateId(), to: from, content: a.content.slice(0, from - a.from) })
+      out.push({ ...a, id: generateId(), to: from, content: labelOf(doc, a.from, from) })
     }
     if (a.to > to) {
-      out.push({ ...a, id: generateId(), from: to, content: a.content.slice(to - a.from) })
+      out.push({ ...a, id: generateId(), from: to, content: labelOf(doc, to, a.to) })
     }
   }
   return changed ? out : records

@@ -286,16 +286,32 @@ describe('refreshAnchors, removeRecordsInRange, restampRecords, stampAdded', () 
   it('removes records in a range, keeping the outside parts as remnants', () => {
     const a = record(doc, 'Some rewritten text.')
     const inside = rangeOf(doc, 'rewritten')
-    const out = removeRecordsInRange([a], inside.from, inside.to)
+    const out = removeRecordsInRange([a], inside.from, inside.to, doc)
     expect(out).toHaveLength(2)
     expect(textAt(doc, out[0])).toBe('Some ')
     expect(out[0].content).toBe('Some ')
     expect(textAt(doc, out[1])).toBe(' text.')
     expect(out[1].content).toBe(' text.')
     expect(out[0].id).not.toBe(a.id)
-    expect(removeRecordsInRange([a], a.from, a.to)).toEqual([])
+    expect(removeRecordsInRange([a], a.from, a.to, doc)).toEqual([])
     const untouched = [a]
-    expect(removeRecordsInRange(untouched, 1, 2)).toBe(untouched)
+    expect(removeRecordsInRange(untouched, 1, 2, doc)).toBe(untouched)
+  })
+
+  it('labels remnants with the text they cover when the record crosses a block boundary', () => {
+    const two = docOf('<p>alpha beta</p><p>gamma delta</p>')
+    const a = record(two, 'beta\ngamma')
+    expect(a.content).toBe('beta\ngamma')
+    // Un-mark "gamma": the remnant covers "beta" and the block boundary, and
+    // says so (position-offset slicing would have given "beta\ng").
+    const gamma = rangeOf(two, 'gamma')
+    const [remnant] = removeRecordsInRange([a], gamma.from, gamma.to, two)
+    expect(remnant.content).toBe('beta')
+    expect(textAt(two, remnant)).toBe('beta\n')
+    // Type inside "gamma": the two remnants are labelled by their own text.
+    const state = EditorState.create({ doc: two })
+    const split = mapRecords([a], state.tr.insertText('X', gamma.from + 2))
+    expect(split.records.map((r) => r.content)).toEqual(['beta\nga', 'mma'])
   })
 
   it('restamps only when an id differs', () => {

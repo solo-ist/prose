@@ -914,6 +914,10 @@ export async function setSessionIdentity(tabId: string, identity: IdentityState)
   applyToSession(tabId, (state) =>
     state.tr.setMeta(IDENTITY_META, identity).setMeta('addToHistory', false)
   )
+  // `applyToSession` runs `afterTransaction` synchronously (through the view's
+  // dispatch or the inactive branch), and the restamp is urgent, so by here the
+  // annotation write under the new id has started and `annotationWrite` holds
+  // it; a pending debounced move was folded into that same write.
   if (identity.documentId !== previous.documentId) {
     const editorLike = { state: session.state }
     const comments = mergeCommentsForPersistence(editorLike, session.records.comments)

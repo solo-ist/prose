@@ -4,7 +4,6 @@
  */
 
 import StarterKit from '@tiptap/starter-kit'
-import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
 import { createLowlight } from 'lowlight'
 import javascript from 'highlight.js/lib/languages/javascript'
 import typescript from 'highlight.js/lib/languages/typescript'
@@ -47,6 +46,7 @@ import { TableCellKeymap } from '../../extensions/table-cell-keymap'
 import { TableTrailingParagraph } from '../../extensions/table-trailing-paragraph'
 import { TableMarkdown } from '../../extensions/table-markdown'
 import { TableInputRule } from '../../extensions/table-input-rule'
+import { CodeBlockMarkdown, IndentedCodeParse } from '../../extensions/code-block-markdown'
 import { Identity } from '../../document/identity'
 
 // Lowlight instance with a curated set of common languages.
@@ -110,9 +110,12 @@ export function createEditorExtensions(options: EditorExtensionOptions = {}): Ex
       codeBlock: false
     }),
     DocumentWithFootnotes,
-    CodeBlockLowlight.configure({
+    // Code blocks whose markdown survives their content: indented blocks stay
+    // indented, fences grow past the backtick runs inside them (#1109).
+    CodeBlockMarkdown.configure({
       lowlight
     }),
+    IndentedCodeParse,
     Placeholder.configure({
       placeholder: 'Start writing...'
     }),

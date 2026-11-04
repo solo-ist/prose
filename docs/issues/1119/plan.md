@@ -45,3 +45,11 @@ inline payload would annotate offsets of the markdown source, not of the rendere
 ## Execution log
 
 - 2026-11-04: inventory (above).
+- 2026-11-04, built: `9e06669` plan · `9b7c354` the change. Unit 103/103, `typecheck:renderer` 66 (= baseline),
+  `typecheck:e2e` 6 (= baseline), build clean; `electron.edit-markdown.spec.ts` 7/7 on the built app, the five
+  neighbouring AI-edit and table specs 42 passed. Falsification on a build of `26eca3e`'s renderer: 4/7 fail (the
+  three motion-on rows with literal markup; with motion off the annotation overshoots the rendered sentence by the
+  four asterisks); the two reduced-motion content rows and the streaming case pass on both. **PR #1186** open onto
+  `release/v1.9.0`; `qa/dev` = `cae8c22`; QA block §4 in the untracked `docs/qa/v1.9.0-tranche-b.md`. Found on
+  the way: `read_document` lists a table before its cells and the table has no id, so a spec helper looking a cell
+  up by text must take the deepest id-bearing match.

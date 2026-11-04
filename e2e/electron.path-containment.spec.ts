@@ -27,6 +27,7 @@ import {
   dismissOnboarding,
   dismissOverlay,
   executeProseTool,
+  seedSettings,
 } from './helpers'
 
 let app: ElectronApplication
@@ -76,21 +77,14 @@ test.beforeAll(async () => {
   // Visible name that resolves into a hidden folder.
   symlinkSync(join(homeDir, '.hidden', 'h.md'), join(homeDir, 'sneaky.md'))
 
-  writeFileSync(
-    join(userDataDir, 'settings.json'),
-    JSON.stringify(
-      {
+  seedSettings(userDataDir, {
         appearance: { mode: 'dark', color: 'mono', icon: 'pilcrow' },
         fileAssociation: { hasBeenPrompted: true },
         aiConsent: { consented: false, consentedAt: new Date().toISOString(), version: 1 },
         recovery: { mode: 'silent' },
         autosave: { mode: 'off', intervalSeconds: 30 },
         defaultSaveDirectory: homeDir,
-      },
-      null,
-      2,
-    ),
-  )
+      })
 
   console.log('[918] launching')
   const launched = await launchApp({ env: { PROSE_USER_DATA_DIR: userDataDir } })

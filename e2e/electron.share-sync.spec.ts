@@ -42,6 +42,7 @@ import {
   executeProseTool,
   switchExplorerTab,
   selectors,
+  seedSettings,
 } from './helpers'
 
 // ---------------------------------------------------------------------------
@@ -249,10 +250,7 @@ function readSyncEntry(publicationId: string): Record<string, unknown> | null {
 }
 
 function writeSettings(gatewayUrl: string): void {
-  writeFileSync(
-    join(userDataDir, 'settings.json'),
-    JSON.stringify(
-      {
+  seedSettings(userDataDir, {
         appearance: { mode: 'dark', color: 'mono', icon: 'pilcrow' },
         fileAssociation: { hasBeenPrompted: true },
         aiConsent: { consented: false, consentedAt: new Date().toISOString(), version: 1 },
@@ -262,11 +260,7 @@ function writeSettings(gatewayUrl: string): void {
         // No featureFlags.webPlatform: sharing is on by default since 1.8.1
         // (#943), so the whole suite runs on the default.
         webPlatform: { gatewayUrl },
-      },
-      null,
-      2,
-    ),
-  )
+      })
 }
 
 // The preload bridge and the renderer test seams, reached untyped from the

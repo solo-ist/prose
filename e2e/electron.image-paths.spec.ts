@@ -20,7 +20,8 @@ import {
   dismissOverlay,
   waitForEditor,
   executeProseTool,
-  getEditorMarkdown
+  getEditorMarkdown,
+  seedSettings,
 } from './helpers'
 
 let app: ElectronApplication
@@ -45,10 +46,7 @@ test.beforeAll(async () => {
   // serves images only from inside home (#918), as the real app does.
   qaDocsDir = mkdtempSync(join(homedir(), 'prose-e2e-1133-'))
   writeFileSync(join(qaDocsDir, IMAGE_NAME), PNG)
-  writeFileSync(
-    join(qaUserDataDir, 'settings.json'),
-    JSON.stringify({ defaultSaveDirectory: qaDocsDir, aiConsent: { consented: false, version: 1 }, lastSeenVersion: '0.0.0' }, null, 2)
-  )
+  seedSettings(qaUserDataDir, { defaultSaveDirectory: qaDocsDir, aiConsent: { consented: false, version: 1 } })
   const result = await launchApp({
     env: { PROSE_USER_DATA_DIR: qaUserDataDir, PROSE_DOCS_DIR: qaDocsDir, PROSE_DEBUG_PORT: '9229' }
   })

@@ -28,7 +28,10 @@ let qaDocsDir: string
 
 const selectedTab = () => page.locator('[role="tab"][aria-selected="true"]')
 // The status bar's open-thread count opens Comment Review; the chat chip offers the same text.
-const statusBarReview = () => page.locator('[data-testid="status-bar"]').getByRole('button', { name: /1 comment/ })
+// Falls back to the bar's own shape so the spec also runs (and fails for the right
+// reason) on a build without the test id.
+const statusBarReview = () =>
+  page.locator('[data-testid="status-bar"], div.h-6.border-t.border-border').first().getByRole('button', { name: /1 comment/ })
 
 async function toggleChat(): Promise<void> {
   await app.evaluate(({ BrowserWindow }) => {

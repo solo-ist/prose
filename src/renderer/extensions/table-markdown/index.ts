@@ -27,6 +27,7 @@
  *
  * tiptap-markdown's own `HTMLNode` and `childNodes` are not importable (the
  * package exports only its entry point), so the fallback is reproduced here.
+ * Probed against tiptap-markdown 0.8.10 and markdown-it 14.
  */
 
 import { Fragment } from '@tiptap/pm/model'
@@ -120,28 +121,35 @@ function serializeAsHtml(
 
 function serializePipeTable(state: SerializerState, table: PMNode): void {
   const width = tableWidth(table)
+  // `inTable` steers the hard-break serializer; restore it even when a cell's
+  // content throws, or every later hard break in the document writes `<br>`.
   state.inTable = true
-  table.forEach((row, _offset, index) => {
-    state.write('| ')
-    for (let column = 0; column < width; column++) {
-      if (column) state.write(' | ')
-      const cell = column < row.childCount ? row.child(column) : null
-      const content = cell?.firstChild ?? null
-      if (content && content.textContent.trim()) {
-        const start = state.out.length
-        state.renderInline(content)
-        state.out = state.out.slice(0, start) + escapePipes(state.out.slice(start))
+  try {
+    table.forEach((row, _offset, index) => {
+      state.write('| ')
+      for (let column = 0; column < width; column++) {
+        if (column) state.write(' | ')
+        const cell = column < row.childCount ? row.child(column) : null
+        // Every cell with a paragraph renders, text or not: a lone image is
+        // content too. (A padding column has no cell and writes nothing.)
+        const content = cell?.firstChild ?? null
+        if (content) {
+          const start = state.out.length
+          state.renderInline(content)
+          state.out = state.out.slice(0, start) + escapePipes(state.out.slice(start))
+        }
       }
-    }
-    state.write(' |')
-    state.ensureNewLine()
-    if (index === 0) {
-      state.write(`| ${Array.from({ length: width }, () => '---').join(' | ')} |`)
+      state.write(' |')
       state.ensureNewLine()
-    }
-  })
-  state.closeBlock(table)
-  state.inTable = false
+      if (index === 0) {
+        state.write(`| ${Array.from({ length: width }, () => '---').join(' | ')} |`)
+        state.ensureNewLine()
+      }
+    })
+    state.closeBlock(table)
+  } finally {
+    state.inTable = false
+  }
 }
 
 export const TableMarkdown = Table.extend({

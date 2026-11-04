@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import { Editor } from '@tiptap/core'
 import { createEditorExtensions } from '../../components/editor/extensions'
-import { escapePipes } from './index'
+import { TableMarkdown, escapePipes } from './index'
 
 type Content = string | Record<string, unknown>
 
@@ -138,6 +138,41 @@ describe('table markdown (#1107)', () => {
     const out = serialize(broken)
     expect(out).toContain('<br>')
     expect(out.split('\n').filter((line) => line.startsWith('|'))).toHaveLength(3)
+  })
+
+  it('keeps a cell whose only content is an image', () => {
+    const imageOnly = doc({
+      type: 'table',
+      content: [
+        row(cell('tableHeader', 'h'), cell('tableHeader', 'i')),
+        row(
+          { type: 'tableCell', content: [paragraph({ type: 'image', attrs: { src: 'pic.png', alt: 'pic' } })] },
+          cell('tableCell', 'z')
+        )
+      ]
+    })
+    const body = serialize(imageOnly)
+      .split('\n')
+      .filter((line) => line.startsWith('|'))[2]
+    expect(body).toBe('| ![pic](pic.png) | z |')
+  })
+
+  it('restores inTable when a cell throws while rendering', () => {
+    const table = withEditor('| a | b |\n| --- | --- |\n| c | d |', (editor) => editor.state.doc.firstChild!)
+    const state = {
+      out: '',
+      inTable: false,
+      write() {},
+      ensureNewLine() {},
+      closeBlock() {},
+      renderInline() {
+        throw new Error('malformed cell')
+      }
+    }
+    const storage = (TableMarkdown.config.addStorage as () => { markdown: { serialize: Function } }).call(TableMarkdown)
+    const context = { editor: { storage: { markdown: { options: { html: true } } } } }
+    expect(() => storage.markdown.serialize.call(context, state, table, table)).toThrow('malformed cell')
+    expect(state.inTable).toBe(false)
   })
 
   it('escapePipes escapes every pipe in rendered cell text', () => {

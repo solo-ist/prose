@@ -48,3 +48,11 @@ inside `apply` (design `docs/architecture/editor-state.md` §6: positions live i
 ## Execution log
 
 - 2026-11-04: inventory (above).
+- 2026-11-04, built: `a0c473f` plan · `185fdf8` the change · a follow-up commit gives the spec's counter locator a
+  structural fallback so it also runs on the pre-#1106 bar. Unit 111/111 (13 files; 8 new), `typecheck:renderer`
+  66 (= baseline), `typecheck:e2e` 6 (= baseline), build clean, `electron.find-bar.spec.ts` 4/4 on the built app.
+  Falsification on a build of `26eca3e`'s renderer: 3 of 4 fail at the behaviour they pin (stale highlight text after
+  typing above; the counter still `1/3` after a delete; reopening with the same term painted nothing on the old bar,
+  which scanned only when the term string changed); the navigation case passes on both and is a guard. **PR #1185**
+  open onto `release/v1.9.0`; `qa/dev` = `8b87414`; QA block §3 in the untracked `docs/qa/v1.9.0-tranche-b.md`.
+  `useEditorState` returns `null` for a nullable editor, hence the `NO_SEARCH` default in the bar.

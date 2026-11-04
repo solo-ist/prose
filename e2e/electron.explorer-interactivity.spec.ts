@@ -305,3 +305,33 @@ test.describe('paste after navigating (#1166)', () => {
     await leaveSubfolder()
   })
 })
+
+// The `..` row is a drop target (#1167): a file dropped on it moves up one
+// folder. Before, the row had no drag handling and the list container's drop
+// moved the file into the folder it was already in.
+test.describe('drop on .. (#1167)', () => {
+  const panel = () => page.locator(selectors.fileListPanel)
+
+  test('a file dropped on the parent row moves up a folder', async () => {
+    writeFileSync(join(subfolderPath, 'upme.md'), '# Up\n')
+    await panel().locator('button[title]', { hasText: /^my-subfolder$/ }).dblclick()
+    const parentRow = panel().getByText('..')
+    await expect(parentRow).toBeVisible({ timeout: 5_000 })
+    await expect(panel().getByText('upme', { exact: true })).toBeVisible({ timeout: 8_000 })
+
+    // The explorer's own drag payload, handed to the row the way a drag would.
+    const dataTransfer = await page.evaluateHandle((sourcePath) => {
+      const dt = new DataTransfer()
+      dt.setData('application/prose-file-path', sourcePath)
+      return dt
+    }, join(subfolderPath, 'upme.md'))
+    await parentRow.dispatchEvent('dragenter', { dataTransfer })
+    await expect(panel().locator('button[title="Go to parent folder"]')).toHaveClass(/ring-primary/)
+    await parentRow.dispatchEvent('drop', { dataTransfer })
+
+    await expect.poll(() => existsSync(join(qaFilesDir, 'upme.md')), { timeout: 8_000 }).toBe(true)
+    expect(existsSync(join(subfolderPath, 'upme.md'))).toBe(false)
+    await panel().getByText('..').click()
+    await expect(panel().locator('button[title]', { hasText: /^my-subfolder$/ })).toBeVisible({ timeout: 5_000 })
+  })
+})

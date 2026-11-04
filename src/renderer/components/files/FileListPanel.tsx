@@ -260,6 +260,8 @@ export function FileListPanel() {
   const [newFileTargetDir, setNewFileTargetDir] = useState<string | null>(null)
   // Drop-over highlight for the ".." (root directory) drop target
   const [rootDropOver, setRootDropOver] = useState(false)
+  // The `..` row as a drop target (#1167): highlighted while a file is dragged over it.
+  const [parentDropOver, setParentDropOver] = useState(false)
   // Notebook folder expand/collapse state lives in fileListStore so it
   // survives panel unmount (Shift+Cmd+H). Synced folders default open,
   // unsynced default closed — membership in the Set means "toggled".
@@ -1428,9 +1430,43 @@ export function FileListPanel() {
                       which is the upward-traversal ceiling while in a project. */}
                   {!(currentProject && rootPath === currentProject.path) && (
                     <button
-                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50 text-muted-foreground mb-1"
+                      className={cn(
+                        'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50 text-muted-foreground mb-1',
+                        parentDropOver && 'ring-1 ring-primary bg-primary/10'
+                      )}
                       onClick={navigateToParent}
                       title="Go to parent folder"
+                      data-testid="file-list-parent"
+                      // A file dropped here moves up one folder (#1167). The events stop
+                      // here so the list container's own drop, into the shown folder,
+                      // does not run as well. The button is absent at a project's root,
+                      // so there is no drop target past the ceiling.
+                      onDragOver={(e) => {
+                        if (e.dataTransfer.types.includes('application/prose-file-path')) {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          e.dataTransfer.dropEffect = 'move'
+                        }
+                      }}
+                      onDragEnter={(e) => {
+                        if (e.dataTransfer.types.includes('application/prose-file-path')) {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setParentDropOver(true)
+                        }
+                      }}
+                      onDragLeave={(e) => {
+                        e.stopPropagation()
+                        setParentDropOver(false)
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setParentDropOver(false)
+                        const sourcePath = e.dataTransfer.getData('application/prose-file-path')
+                        const parentPath = rootPath?.split('/').slice(0, -1).join('/')
+                        if (sourcePath && parentPath) handleFileDrop(sourcePath, parentPath)
+                      }}
                     >
                       <ChevronUp className="h-4 w-4 shrink-0" />
                       <span className="truncate">..</span>

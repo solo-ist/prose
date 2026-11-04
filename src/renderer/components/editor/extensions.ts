@@ -4,6 +4,7 @@
  */
 
 import StarterKit from '@tiptap/starter-kit'
+import Strike from '@tiptap/extension-strike'
 import { createLowlight } from 'lowlight'
 import javascript from 'highlight.js/lib/languages/javascript'
 import typescript from 'highlight.js/lib/languages/typescript'
@@ -106,7 +107,16 @@ export function createEditorExtensions(options: EditorExtensionOptions = {}): Ex
         levels: [1, 2, 3, 4, 5, 6]
       },
       document: false,
-      codeBlock: false
+      codeBlock: false,
+      strike: false
+    }),
+    // Strike without its Mod-Shift-s keymap (#1169): that chord is the File
+    // menu's Save As, and a key the page handles never reaches a menu
+    // accelerator. Prose binds strikethrough to ⌘⇧X in Editor.tsx.
+    Strike.extend({
+      addKeyboardShortcuts() {
+        return {}
+      }
     }),
     DocumentWithFootnotes,
     // Code blocks whose markdown survives their content: indented blocks stay

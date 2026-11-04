@@ -31,3 +31,9 @@ Falsified on a build of the release head's renderer. The seven existing rail cas
 ## Execution log
 
 - 2026-11-04: inventory, probe (above).
+- 2026-11-04, built: plan · `193cbfc` the change (rebased onto `b497543` after #1187 merged; the spec rebuilt from
+  the release version plus the one case). `typecheck:renderer` 66, `typecheck:e2e` 6, build clean, tables spec
+  28/28 on the built app; falsified on the release head's renderer (139.6 px off after the toggle). Found on the
+  way: at mount the editor's DOM is not inside the scroll container, so a `closest()` in the mount effect observed
+  the wrong element; and falsifying against a base ahead of the branch's own base leaves that base's extra files
+  staged after `git checkout HEAD -- src` (use `git merge-base`). **PR #1193**; `qa/dev` = `0067317`; QA §9.

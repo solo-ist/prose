@@ -65,7 +65,8 @@ function countRows(markdown: string): number {
 function countColumns(markdown: string): number {
   const header = markdown.split('\n').find((l) => /^\|/.test(l.trim()))
   if (!header) return 0
-  return header.trim().replace(/^\||\|$/g, '').split('|').length
+  // An escaped pipe (`\|`) is cell content, not a column boundary (#1107).
+  return header.trim().replace(/^\||\|$/g, '').split(/(?<!\\)\|/).length
 }
 
 async function insertTableViaMenu(): Promise<void> {
@@ -341,6 +342,78 @@ test.describe('Electron — table editing (#1060)', () => {
     expectPipeTable(reserialized)
     expect(countColumns(reserialized)).toBe(countColumns(md))
     expect(countRows(reserialized)).toBe(countRows(md))
+  })
+
+  /** Reload the given markdown as the document, as the file-open path would. */
+  async function reloadMarkdown(markdown: string): Promise<void> {
+    await page.evaluate((md) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(window as any).__prose_editor.commands.setContent(md)
+    }, markdown)
+  }
+
+  /** The text of the first cell of the first table in the document. */
+  async function firstCellText(): Promise<string | null> {
+    return page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const editor = (window as any).__prose_editor
+      let text: string | null = null
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      editor.state.doc.descendants((node: any) => {
+        if (text !== null) return false
+        if (node.type.name === 'table') {
+          text = node.firstChild.firstChild.textContent
+          return false
+        }
+        return true
+      })
+      return text
+    })
+  }
+
+  test('a pipe typed into a cell stays one cell across a round trip (#1107)', async () => {
+    await insertTableViaMenu()
+    await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(window as any).__prose_editor.commands.focus(4)
+    })
+    await page.keyboard.type('a|b')
+
+    // Serialized: the pipe is escaped, so the row still has three cells. Before
+    // #1107 this wrote `| a|b |  |  |`, a four-cell row under a three-cell
+    // delimiter, and the next parse split the cell in two.
+    const md = await getEditorMarkdown(page)
+    expectPipeTable(md)
+    expect(md).toContain('a\\|b')
+    expect(countColumns(md)).toBe(3)
+
+    await reloadMarkdown(md)
+    expect(await firstCellText()).toBe('a|b')
+    const reserialized = await getEditorMarkdown(page)
+    expect(countColumns(reserialized)).toBe(3)
+    expect(countRows(reserialized)).toBe(3)
+  })
+
+  test('a cell that ends in a pipe does not grow the row (#1107)', async () => {
+    await insertTableViaMenu()
+    await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(window as any).__prose_editor.commands.focus(4)
+    })
+    await page.keyboard.type('pipe here|')
+
+    // The trailing pipe used to manufacture an empty extra cell that markdown-it
+    // dropped on the next parse, taking the typed pipe with it.
+    const md = await getEditorMarkdown(page)
+    expectPipeTable(md)
+    expect(md).toContain('pipe here\\|')
+    expect(countColumns(md)).toBe(3)
+
+    await reloadMarkdown(md)
+    expect(await firstCellText()).toBe('pipe here|')
+    const reserialized = await getEditorMarkdown(page)
+    expect(countColumns(reserialized)).toBe(3)
+    expect(countRows(reserialized)).toBe(3)
   })
 
   test('a trailing table gets a paragraph after it, and that is where a click below lands (#1087)', async () => {

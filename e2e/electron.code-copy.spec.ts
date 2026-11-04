@@ -8,10 +8,10 @@
 
 import { test, expect } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { launchApp, waitForAppReady, dismissOnboarding, dismissOverlay, waitForEditor, executeProseTool } from './helpers'
+import { launchApp, waitForAppReady, dismissOnboarding, dismissOverlay, waitForEditor, executeProseTool, seedSettings } from './helpers'
 
 let app: ElectronApplication
 let page: Page
@@ -24,10 +24,7 @@ test.beforeAll(async () => {
   test.setTimeout(90_000)
   qaUserDataDir = mkdtempSync(join(tmpdir(), 'prose-1111-'))
   qaDocsDir = mkdtempSync(join(tmpdir(), 'prose-1111-docs-'))
-  writeFileSync(
-    join(qaUserDataDir, 'settings.json'),
-    JSON.stringify({ defaultSaveDirectory: qaDocsDir, aiConsent: { consented: false, version: 1 }, lastSeenVersion: '0.0.0' }, null, 2)
-  )
+  seedSettings(qaUserDataDir, { defaultSaveDirectory: qaDocsDir, aiConsent: { consented: false, version: 1 } })
   const result = await launchApp({
     env: { PROSE_USER_DATA_DIR: qaUserDataDir, PROSE_DOCS_DIR: qaDocsDir, PROSE_DEBUG_PORT: '9229' }
   })

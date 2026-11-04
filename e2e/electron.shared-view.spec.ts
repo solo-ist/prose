@@ -21,6 +21,7 @@ import {
   dismissOverlay,
   switchExplorerTab,
   selectors,
+  seedSettings,
 } from './helpers'
 
 let app: ElectronApplication | null
@@ -62,10 +63,7 @@ test.beforeAll(async () => {
     writeFileSync(join(docsDir, name), `# ${name}\n\nBody.\n`)
   }
 
-  writeFileSync(
-    join(userDataDir, 'settings.json'),
-    JSON.stringify(
-      {
+  seedSettings(userDataDir, {
         appearance: { mode: 'dark', color: 'mono', icon: 'pilcrow' },
         fileAssociation: { hasBeenPrompted: true },
         aiConsent: { consented: false, consentedAt: iso(0), version: 1 },
@@ -74,11 +72,7 @@ test.beforeAll(async () => {
         defaultSaveDirectory: docsDir,
         // Sharing is on by default since 1.8.1 (#943) — no flag needed.
         webPlatform: { gatewayUrl: GATEWAY },
-      },
-      null,
-      2,
-    ),
-  )
+      })
 
   const base = {
     documentId: 'seeded',

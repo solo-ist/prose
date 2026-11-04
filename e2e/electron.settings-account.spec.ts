@@ -22,7 +22,7 @@ import { createServer, type Server, type IncomingMessage, type ServerResponse } 
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { launchApp, waitForAppReady, dismissOnboarding, dismissOverlay, executeProseTool } from './helpers'
+import { launchApp, waitForAppReady, dismissOnboarding, dismissOverlay, executeProseTool, seedSettings } from './helpers'
 
 const STUB_CODE = '424242'
 const EMAIL = 'qa-fixture@example.invalid'
@@ -122,21 +122,14 @@ test.beforeAll(async () => {
 
   // Keep to top-level keys plus `appearance`: `settings:load` merges with a
   // shallow spread, so a partial nested object drops its siblings.
-  writeFileSync(
-    join(userDataDir, 'settings.json'),
-    JSON.stringify(
-      {
+  seedSettings(userDataDir, {
         appearance: { mode: 'dark', icon: 'pilcrow' },
         defaultSaveDirectory: docsDir,
         aiConsent: { consented: true, consentedAt: '2026-01-01T00:00:00.000Z', version: 1 },
         fileAssociation: { hasBeenPrompted: true },
         // Sharing is on by default since 1.8.1 (#943), so no featureFlags here.
         webPlatform: { gatewayUrl: gateway.origin },
-      },
-      null,
-      2,
-    ),
-  )
+      })
 
   // Linux CI has no keyring: without --password-store=basic, safeStorage reports
   // unavailable and credentialStore.set — which is where completeSignIn puts the

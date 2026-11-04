@@ -6,8 +6,8 @@
 
 import { type ElectronApplication, type Page, _electron as electron } from '@playwright/test'
 import { findLatestBuild, parseElectronApp } from 'electron-playwright-helpers'
-import { existsSync } from 'fs'
-import { resolve, dirname } from 'path'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { resolve, dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -25,6 +25,29 @@ export * from './shared'
  * In CI, launches from the built output (requires `npm run build` first).
  * Locally, can optionally launch from source via electron-vite dev.
  */
+/**
+ * Write a spec profile's `settings.json` with the baseline every Electron spec
+ * needs and the spec's own keys on top (#1113). The baseline keeps the
+ * first-run surfaces off: the default-handler prompt (`fileAssociation`), the
+ * AI consent dialog (`aiConsent`, override it to test consent itself) and the
+ * post-update release notes (`lastSeenVersion` = this build's version; the
+ * modal is suppressed only while consent is due, so a spec that seeds consent
+ * without this ran under an undismissed modal). A key in `overrides` replaces
+ * the baseline key wholesale.
+ */
+export function seedSettings(userDataDir: string, overrides: Record<string, unknown> = {}): void {
+  const projectRoot = resolve(__dirname, '..')
+  const appVersion = (JSON.parse(readFileSync(resolve(projectRoot, 'package.json'), 'utf-8')) as { version: string }).version
+  mkdirSync(userDataDir, { recursive: true })
+  const settings = {
+    fileAssociation: { hasBeenPrompted: true },
+    aiConsent: { consented: true, consentedAt: '2026-01-01T00:00:00.000Z', version: 1 },
+    lastSeenVersion: appVersion,
+    ...overrides,
+  }
+  writeFileSync(join(userDataDir, 'settings.json'), JSON.stringify(settings, null, 2))
+}
+
 export async function launchApp(
   options?: { env?: Record<string, string>; args?: string[] },
 ): Promise<{ app: ElectronApplication; page: Page }> {

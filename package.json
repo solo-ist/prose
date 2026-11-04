@@ -87,6 +87,8 @@
     "lowlight": "^3.3.0",
     "lucide-react": "^0.468.0",
     "markdown-it-footnote": "^3.0.3",
+    "markdown-it-sub": "^2.0.0",
+    "markdown-it-sup": "^2.0.0",
     "marked": "^17.0.1",
     "react-resizable-panels": "^2.1.7",
     "rmapi-js": "^10.0.0",

@@ -20,8 +20,6 @@ import yaml from 'highlight.js/lib/languages/yaml'
 import Placeholder from '@tiptap/extension-placeholder'
 import Link from '@tiptap/extension-link'
 import Underline from '@tiptap/extension-underline'
-import Superscript from '@tiptap/extension-superscript'
-import Subscript from '@tiptap/extension-subscript'
 import TableRow from '@tiptap/extension-table-row'
 import TableCell from '@tiptap/extension-table-cell'
 import TableHeader from '@tiptap/extension-table-header'
@@ -47,6 +45,7 @@ import { TableTrailingParagraph } from '../../extensions/table-trailing-paragrap
 import { TableMarkdown } from '../../extensions/table-markdown'
 import { TableInputRule } from '../../extensions/table-input-rule'
 import { CodeBlockMarkdown, IndentedCodeParse } from '../../extensions/code-block-markdown'
+import { SubscriptMarkdown, SuperscriptMarkdown } from '../../extensions/sup-sub-markdown'
 import { Identity } from '../../document/identity'
 
 // Lowlight instance with a curated set of common languages.
@@ -129,8 +128,9 @@ export function createEditorExtensions(options: EditorExtensionOptions = {}): Ex
       }
     }),
     Underline,
-    Superscript,
-    Subscript,
+    // Written as ^x^ and ~x~ rather than <sup>/<sub> (#1110).
+    SuperscriptMarkdown,
+    SubscriptMarkdown,
     // The table extension with a serializer that escapes `|` in cells and pads
     // ragged rows, so a pipe table survives its own content (#1107).
     TableMarkdown.configure({

@@ -96,6 +96,46 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [popover.isOpen])
 
+  // Follow the mark as the document scrolls or the window resizes (#1168):
+  // re-read its rect in one animation frame and re-anchor (the viewport clamp
+  // below re-runs from the new position). Close for good when the mark is
+  // gone (accepted, rejected) or has left the editor pane, so the card rides
+  // off with its text instead of popping back in on scroll-back. Capture
+  // phase catches the inner scroller: scroll events do not bubble but do
+  // propagate down from the window in capture.
+  useEffect(() => {
+    if (!popover.isOpen || !popover.suggestionId) return
+    const id = popover.suggestionId
+    let raf = 0
+    const reposition = () => {
+      raf = 0
+      const mark = document.querySelector(`.ai-suggestion-mark[data-ai-suggestion-id="${id}"]`) as HTMLElement | null
+      const rect = mark?.getBoundingClientRect()
+      const pane = mark?.closest('.overflow-auto')?.getBoundingClientRect()
+      const paneTop = pane?.top ?? 0
+      const paneBottom = pane?.bottom ?? window.innerHeight
+      if (!mark || !rect || rect.bottom < paneTop || rect.top > paneBottom) {
+        setPopover((prev) => (prev.suggestionId === id ? { ...prev, isOpen: false } : prev))
+        return
+      }
+      setPopover((prev) =>
+        prev.isOpen && prev.suggestionId === id
+          ? { ...prev, position: { x: rect.left + rect.width / 2, y: rect.bottom + 8 } }
+          : prev
+      )
+    }
+    const onChange = () => {
+      if (!raf) raf = requestAnimationFrame(reposition)
+    }
+    window.addEventListener('scroll', onChange, true)
+    window.addEventListener('resize', onChange)
+    return () => {
+      window.removeEventListener('scroll', onChange, true)
+      window.removeEventListener('resize', onChange)
+      if (raf) cancelAnimationFrame(raf)
+    }
+  }, [popover.isOpen, popover.suggestionId])
+
   // Focus feedback input when form is shown
   useEffect(() => {
     if (showFeedbackForm && feedbackInputRef.current) {

@@ -21,7 +21,10 @@ let qaUserDataDir: string
 let qaDocsDir: string
 
 const findInput = () => page.locator('input[placeholder="Find..."]')
-const counter = () => page.locator('[data-testid="find-bar-count"]')
+// The counter by its test id, falling back to the bar's span so the spec also
+// runs (and fails for the right reason) on the pre-#1106 bar, which has no id.
+const counter = () =>
+  page.locator('[data-testid="find-bar-count"], div.absolute.top-0.right-0 span.min-w-16').first()
 const highlights = () => page.locator('.prose-editor .search-match')
 
 async function setDocument(html: string): Promise<void> {

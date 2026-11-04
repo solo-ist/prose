@@ -43,3 +43,13 @@ anchored regex, a transaction-level handler):
 ## Execution log
 
 - 2026-11-04: inventory (above).
+- 2026-11-04, built: `0cccc3d` plan · `d6ef8f3` (amended after a rebase onto `ab0a721`, where #1107 and #1106 had
+  merged: both PRs add imports and tables-spec cases at the same anchors; the spec was rebuilt from the release
+  version plus the two new cases after a by-hand resolution cut a #1107 test in half). Unit 131/131 (15 files; 6
+  new), `typecheck:renderer` 66 (= baseline), `typecheck:e2e` 6 (= baseline), build clean, `electron.tables.spec.ts`
+  27/27 on the built app. Falsification on a build of `26eb276`'s renderer: both new cases fail (no table after the
+  delimiter row; the lone-row guard's markdown differed there too). The TipTap input-rule plugin runs a rule before
+  the typed character is in the document, so the "whole paragraph" check is "caret at the paragraph's end", not a
+  text comparison; `handleTextInput` takes a fifth `deflt` argument in prosemirror-view 1.42. **PR #1187** open onto
+  `release/v1.9.0`; QA block §5 in the untracked `docs/qa/v1.9.0-tranche-b.md`. The round trip of a typed cell
+  that contains a pipe is #1107's (merged); the unit test asserts the cell text, not the escaped markdown.

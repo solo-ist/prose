@@ -43,3 +43,9 @@ loss).
 ## Execution log
 
 - 2026-11-04: inventory (above).
+- 2026-11-04, built: `be39271` plan · `1b066be` the change. Unit 130/130, `typecheck:renderer` 66 (= baseline),
+  `typecheck:e2e` 6 (= baseline), build clean; the new spec 1/1 on the built app and failing on a build of
+  `6118a61`'s renderer at the first assertion (raw spaced name). Found on the way: the local-file handler serves
+  images only from inside the home directory (#918), so the spec's folder lives under `$HOME`; the image node view
+  renders a second `<img>` (ProseMirror's separator), so the spec counts image nodes. **PR #1192** open onto
+  `release/v1.9.0`; `qa/dev` = `bf4287f`; QA block §8 in the untracked `docs/qa/v1.9.0-tranche-b.md`.

@@ -37,3 +37,7 @@ pinned by the `code-block-markdown` unit tests (the serializer does not depend o
 ## Execution log
 
 - 2026-11-04: inventory (above).
+- 2026-11-04, built: plan · the change (node view in `code-block-markdown/index.ts`, styles in `index.css`). Unit
+  148/148, `typecheck:renderer` 66, `typecheck:e2e` 6, build clean; `electron.code-copy.spec.ts` 1/1 on the built
+  app, failing on the branch base at the first assertion (no button). **PR #1195**; `qa/dev` = release + #1134 +
+  #1135 + #1111; QA block §11 in the untracked `docs/qa/v1.9.0-tranche-b.md`.

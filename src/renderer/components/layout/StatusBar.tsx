@@ -153,7 +153,10 @@ export function StatusBar() {
   }
 
   return (
-    <div className="flex h-6 items-center justify-between border-t border-border bg-muted/30 px-4 text-xs text-muted-foreground font-mono">
+    <div
+      data-testid="status-bar"
+      className="flex h-6 items-center justify-between border-t border-border bg-muted/30 px-4 text-xs text-muted-foreground font-mono"
+    >
       <div className="flex items-center gap-4 min-w-0">
         {hoveredUrl ? (
           <>

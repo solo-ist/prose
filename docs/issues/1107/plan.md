@@ -46,3 +46,10 @@ editor-state rules discourage). A foreign file whose body row is wider than its 
 
 - 2026-11-04: inventory (above); extension, unit tests and plan written. Falsification: the unit tests run against
   the unmodified extension list first (the escape and padding cases must fail), then with `TableMarkdown` wired.
+- 2026-11-04, built: `2b51153` plan · `05302eb` the change. Falsification: the eight unit tests against the
+  unmodified extension list → five failed (the pipe and padding cases: `| a|b | c |`, `| 1 | 2 | 3 |` under a
+  two-column header), three parity cases passed; with `TableMarkdown` wired → 8/8. The two e2e cases against a
+  build of `26eca3e`'s renderer → both fail (`| a|b |  |  |`); on the branch → pass. Unit 111/111 (13 files),
+  `typecheck:renderer` 66 (= baseline), `typecheck:e2e` 6 (= baseline), build clean, the tables spec and the
+  session tripwires green on the built app. Found on the way: the tables spec's `countColumns` helper split on
+  every `|`, escaped or not; it now treats `\|` as cell content.

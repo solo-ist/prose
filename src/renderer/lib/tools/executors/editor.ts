@@ -98,12 +98,40 @@ function nextFrame(): Promise<void> {
  * user clicks or keystrokes mid-stream can't redirect later chunks into
  * the user's cursor position.
  */
+/** What an insertion wrote: where it ends, and its text as rendered (the annotation's word diff indexes that). */
+interface Insertion {
+  end: number
+  text: string
+}
+
+/**
+ * The rendered text of a payload that has markdown structure, or `null` for
+ * plain text. Plain means the parse is one paragraph of unmarked text equal to
+ * the payload, so streaming it word by word changes nothing; anything else
+ * (inline marks, several blocks, a list, a heading, whitespace the parser
+ * would trim) must go in as one parsed transaction, because later stream
+ * chunks are raw text and would land the markup literally (#1119).
+ */
+function structuredText(handle: DocumentHandle, text: string): string | null {
+  const slice = parseMarkdownToSlice(handle.markdown, handle.state.schema, text)
+  if (!slice) return null
+  const block = slice.content.childCount === 1 ? slice.content.firstChild : null
+  if (block && block.type.name === 'paragraph') {
+    let plain = true
+    block.content.forEach((inline) => {
+      if (!inline.isText || inline.marks.length > 0) plain = false
+    })
+    if (plain && block.textContent === text) return null
+  }
+  return sliceVisibleText(slice)
+}
+
 async function applyInsertion(
   handle: DocumentHandle,
   text: string,
   from: number,
   to?: number
-): Promise<number> {
+): Promise<Insertion> {
   const hasRange = to !== undefined && to !== from
   const selection = hasRange ? { from, to: to! } : from
   // Tag the range replacement as an AI write so a comment it unanchors stays
@@ -118,9 +146,13 @@ async function applyInsertion(
     return from + (handle.state.doc.content.size - before) + (hasRange ? to! - from : 0)
   }
 
-  if (!shouldStreamInsertion(handle)) return insert(text)
+  // Structure (marks, blocks) is parsed in one transaction: the path reduced
+  // motion already takes, now for every payload the stream cannot represent.
+  const rendered = structuredText(handle, text)
+  if (rendered !== null) return { end: insert(text), text: rendered }
+  if (!shouldStreamInsertion(handle)) return { end: insert(text), text }
   const chunks = buildStreamChunks(text)
-  if (chunks.length <= 1) return insert(text)
+  if (chunks.length <= 1) return { end: insert(text), text }
   insert(chunks[0])
   // Anchor the running endpoint at end-of-insertion using TipTap's own
   // cursor placement (`selectionToInsertionEnd` in
@@ -150,7 +182,7 @@ async function applyInsertion(
   // a frame per chunk, and anything else edited meanwhile (the writer typing
   // below the node) would land in that delta and stretch the annotation over
   // text the AI never wrote (#1101).
-  return pos
+  return { end: pos, text }
 }
 
 /**
@@ -443,16 +475,17 @@ export async function executeEdit(
   // insert run in the same chain (atomic transaction). Subsequent rAF chunks
   // fall inside the history plugin's newGroupDelay (500ms) and collapse into
   // a single undo step.
-  const insertedEnd = await applyInsertion(handle, content, contentStart, contentEnd)
+  const inserted = await applyInsertion(handle, content, contentStart, contentEnd)
 
-  // Create word-level AI annotations for provenance tracking
+  // Create word-level AI annotations for provenance tracking. `newText` is the
+  // text as rendered, so the word diff indexes the document, not the markdown.
   if (provenance && provenance.documentId && content.length > 0) {
     handle.commands.addAIAnnotations(
       buildWordDiffAnnotations({
         originalText: node.textContent,
-        newText: content,
+        newText: inserted.text,
         rangeFrom: contentStart,
-        rangeTo: insertedEnd,
+        rangeTo: inserted.end,
         provenance: {
           model: provenance.model,
           conversationId: provenance.conversationId,
@@ -647,20 +680,21 @@ export async function executeInsert(
     // uniformly, and so range replacement (cursor case with non-empty
     // selection) is atomic with the first chunk's insert. It reports where
     // the inserted content ends (#1101).
-    const insertedEnd = await applyInsertion(handle, text, insertFrom, insertTo)
+    const inserted = await applyInsertion(handle, text, insertFrom, insertTo)
 
-    // Create AI annotation for provenance tracking over [insertFrom, insertedEnd].
+    // Create AI annotation for provenance tracking over [insertFrom, inserted.end].
     if (provenance && provenance.documentId && text.length > 0) {
       // Route through buildWordDiffAnnotations for visual consistency with
       // edit/suggest_edit-accept annotations (word-level underline, explanation
       // in tooltip). originalText is empty for pure insertions; the util
-      // promotes the type to 'insertion' automatically.
+      // promotes the type to 'insertion' automatically. `newText` is the text
+      // as rendered (#1119).
       handle.commands.addAIAnnotations(
         buildWordDiffAnnotations({
           originalText: '',
-          newText: text,
+          newText: inserted.text,
           rangeFrom: insertFrom,
-          rangeTo: insertedEnd,
+          rangeTo: inserted.end,
           provenance: {
             model: provenance.model,
             conversationId: provenance.conversationId,

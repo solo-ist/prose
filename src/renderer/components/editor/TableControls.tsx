@@ -135,13 +135,31 @@ export function TableControls({ editor }: { editor: Editor | null }) {
     })
   }, [applyMetrics])
 
+  /**
+   * A sidebar toggle changes the editor pane's width without a window resize
+   * or a transaction, so the rails kept their old size and place until
+   * something else re-measured (#1134). The scroll container's size is the
+   * signal (the editor element is centred at a fixed maximum width, so a
+   * toggle moves it without resizing it), observed from the table element
+   * itself, which is in the DOM whenever the rails are up.
+   */
+  const resizeObserver = useRef<ResizeObserver | null>(null)
+
   const setTable = useCallback(
     (el: HTMLTableElement | null) => {
       if (tableEl.current === el) return
       tableEl.current = el
+      resizeObserver.current?.disconnect()
+      resizeObserver.current = null
+      if (el && typeof ResizeObserver !== 'undefined') {
+        const observer = new ResizeObserver(() => scheduleMeasure())
+        observer.observe(el.closest('.overflow-auto') ?? el)
+        observer.observe(el)
+        resizeObserver.current = observer
+      }
       applyMetrics(el ? measure(el) : null)
     },
-    [applyMetrics]
+    [applyMetrics, scheduleMeasure]
   )
 
   /** The table element containing a document position, via the rendered DOM. */
@@ -279,6 +297,7 @@ export function TableControls({ editor }: { editor: Editor | null }) {
 
   useEffect(() => {
     return () => {
+      resizeObserver.current?.disconnect()
       if (frame.current !== null) cancelAnimationFrame(frame.current)
     }
   }, [])

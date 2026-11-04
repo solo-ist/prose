@@ -59,6 +59,18 @@ export function resolveImageSrc(src: string): string {
 }
 
 /**
+ * Percent-encode what markdown-it cannot read in a raw link destination:
+ * whitespace (a pasted macOS screenshot has spaces and a narrow no-break
+ * space before "AM") and angle brackets (#1133). Nothing else is touched, so
+ * a source that is already encoded (every reload yields one, markdown-it
+ * normalizes the destination) is left as it is, and URLs keep their query
+ * strings.
+ */
+export function encodeImageSrc(src: string): string {
+  return src.replace(/[\s<>]/g, (ch) => encodeURIComponent(ch))
+}
+
+/**
  * Derive alt text from a filename: strip extension, replace separators with spaces.
  */
 function altFromFilename(name: string): string {
@@ -95,6 +107,24 @@ async function saveImageFile(file: File): Promise<{ src: string; alt: string }> 
 export const ImageWithUpload = Image.extend({
   inline: true,
   group: 'inline',
+
+  // The default image serializer writes `src` raw, and markdown-it reads a
+  // destination with spaces as text, so a pasted screenshot became literal
+  // markdown on the next parse (#1133). Same output otherwise: escaped alt,
+  // backslash-escaped parentheses, the title in quotes. tiptap-markdown keeps
+  // its own parse hooks for the node under this spec.
+  addStorage() {
+    return {
+      ...this.parent?.(),
+      markdown: {
+        serialize(state: { write: (text: string) => void; esc: (text: string) => string }, node: Node) {
+          const src = encodeImageSrc(String(node.attrs.src ?? '')).replace(/[()]/g, '\\$&')
+          const title = node.attrs.title ? ` "${String(node.attrs.title).replace(/"/g, '\\"')}"` : ''
+          state.write(`![${state.esc(node.attrs.alt || '')}](${src}${title})`)
+        }
+      }
+    }
+  },
 
   // Resolve relative paths for display and set title for hover tooltip
   renderHTML({ HTMLAttributes }) {

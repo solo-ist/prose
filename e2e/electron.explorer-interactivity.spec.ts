@@ -246,3 +246,62 @@ test.describe('Electron — explorer interactivity (#703)', () => {
     await expect(panel.getByText('.hidden-config')).not.toBeVisible({ timeout: 5_000 })
   })
 })
+
+// Paste lands in the folder being shown (#1166). Before, pasteFile() with no
+// target resolved to the clipboard path's own folder for a cut (so cut → open
+// another folder → paste did nothing) and duplicated beside the source for a
+// copy. Driven through the context menus, the second path the issue names.
+test.describe('paste after navigating (#1166)', () => {
+  const panel = () => page.locator(selectors.fileListPanel)
+
+  async function enterSubfolder(): Promise<void> {
+    await panel().locator('button[title]', { hasText: /^my-subfolder$/ }).dblclick()
+    await expect(panel().getByText('..')).toBeVisible({ timeout: 5_000 })
+  }
+
+  async function leaveSubfolder(): Promise<void> {
+    await panel().getByText('..').click()
+    await expect(panel().locator('button[title]', { hasText: /^my-subfolder$/ })).toBeVisible({ timeout: 5_000 })
+  }
+
+  async function pickMenuItem(item: RegExp): Promise<void> {
+    await page.waitForSelector(selectors.contextMenu, { timeout: 5_000 })
+    const menuItem = page.getByRole('menuitem', { name: item })
+    await menuItem.waitFor({ state: 'visible', timeout: 3_000 })
+    await menuItem.click()
+  }
+
+  /** Right-click a markdown row (shown without its extension) and pick a menu item. */
+  async function rowMenu(name: string, item: RegExp): Promise<void> {
+    await panel().getByText(name, { exact: true }).click({ button: 'right' })
+    await pickMenuItem(item)
+  }
+
+  /** Right-click the list's empty area and pick a menu item. */
+  async function listMenu(item: RegExp): Promise<void> {
+    await panel().locator('div.p-2.grow.shrink-0').click({ button: 'right', position: { x: 10, y: 10 } })
+    await pickMenuItem(item)
+  }
+
+  test('cut, open a subfolder, paste: the file moves there', async () => {
+    writeFileSync(join(qaFilesDir, 'cutme.md'), '# Cut me\n')
+    await expect(panel().getByText('cutme', { exact: true })).toBeVisible({ timeout: 8_000 })
+    await rowMenu('cutme', /^Cut/)
+    await enterSubfolder()
+    await listMenu(/^Paste/)
+    await expect.poll(() => existsSync(join(subfolderPath, 'cutme.md')), { timeout: 8_000 }).toBe(true)
+    expect(existsSync(join(qaFilesDir, 'cutme.md'))).toBe(false)
+    await leaveSubfolder()
+  })
+
+  test('copy, open a subfolder, paste: a copy lands there and the source stays', async () => {
+    writeFileSync(join(qaFilesDir, 'copyme.md'), '# Copy me\n')
+    await expect(panel().getByText('copyme', { exact: true })).toBeVisible({ timeout: 8_000 })
+    await rowMenu('copyme', /^Copy/)
+    await enterSubfolder()
+    await listMenu(/^Paste/)
+    await expect.poll(() => existsSync(join(subfolderPath, 'copyme.md')), { timeout: 8_000 }).toBe(true)
+    expect(existsSync(join(qaFilesDir, 'copyme.md'))).toBe(true)
+    await leaveSubfolder()
+  })
+})

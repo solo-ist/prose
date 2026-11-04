@@ -39,3 +39,12 @@ unmodified `markdown.ts` first.
 ## Execution log
 
 - 2026-11-04: inventory and probe (above); tests written first.
+- 2026-11-04, built: `49b5642` plan · `c9549a3` the change. Falsification: the two date tests against the
+  unmodified `markdown.ts` → `2026-09-04T00:00:00.000Z` and a quoted `'2026-09-04'`; after the schema → 6/6 in
+  the file. `@types/js-yaml` declares no `types` namespace, so the schema is built from `DEFAULT_SCHEMA`'s own
+  `implicit`/`explicit` lists minus the timestamp tag (probed: `null, bool, int, float, timestamp, merge` /
+  `str, seq, map, binary, omap, pairs, set`). Unit 107/107 (12 files), `typecheck:renderer` 66 (= baseline),
+  build clean; the frontmatter-touching Electron specs (`document-sessions`, `source-mode-authority`,
+  `tab-caret`, `stale-paths`, `remarkable-sync`) 47 passed on the built app. **PR #1184** open onto
+  `release/v1.9.0`; `qa/dev` = `a476c3e` (release + #1107 + #862); QA block §2 in the untracked
+  `docs/qa/v1.9.0-tranche-b.md`.

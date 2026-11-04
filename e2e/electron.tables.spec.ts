@@ -451,6 +451,36 @@ test.describe('Electron — table editing (#1060)', () => {
     expect(await getEditorMarkdown(page)).toContain('| not | a table |')
   })
 
+  test('the rails follow the table when a sidebar toggles (#1134)', async () => {
+    await insertTableViaMenu()
+    await hoverRails()
+    const tableBox = async () => (await page.locator('.prose-editor table').first().boundingBox())!
+    const gripBox = async () => (await page.locator('[data-testid="table-append-row"]').boundingBox())!
+    const before = await tableBox()
+    const gripBefore = await gripBox()
+    expect(Math.abs(gripBefore.x + gripBefore.width / 2 - (before.x + before.width / 2))).toBeLessThan(2)
+
+    // Toggle the explorer through the menu action, not the keyboard: a key in
+    // the editor counts as typing and hides the rails (#1097), and moving the
+    // pointer to a toolbar button would re-measure on the way back.
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]?.webContents.send('menu:action', 'toggleFileList')
+    })
+    await expect.poll(async () => (await tableBox()).x).not.toBe(before.x)
+    // The sidebar animates; the rails must land on the table's new place.
+    await expect
+      .poll(async () => {
+        const t = await tableBox()
+        const g = await gripBox()
+        return Math.abs(g.x + g.width / 2 - (t.x + t.width / 2))
+      })
+      .toBeLessThan(2)
+
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]?.webContents.send('menu:action', 'toggleFileList')
+    })
+  })
+
   test('a trailing table gets a paragraph after it, and that is where a click below lands (#1087)', async () => {
     await insertTableViaMenu()
 

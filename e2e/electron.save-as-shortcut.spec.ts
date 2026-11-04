@@ -10,11 +10,11 @@
 
 import { test, expect } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'
-import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { launchApp, waitForAppReady, dismissOnboarding, dismissOverlay, waitForEditor } from './helpers'
+import { launchApp, waitForAppReady, dismissOnboarding, dismissOverlay, waitForEditor, seedSettings } from './helpers'
 
 let app: ElectronApplication
 let page: Page
@@ -23,10 +23,7 @@ let qaUserDataDir: string
 test.beforeAll(async () => {
   test.setTimeout(90_000)
   qaUserDataDir = mkdtempSync(join(tmpdir(), 'prose-1169-'))
-  writeFileSync(
-    join(qaUserDataDir, 'settings.json'),
-    JSON.stringify({ aiConsent: { consented: false, version: 1 }, lastSeenVersion: '0.0.0' }, null, 2)
-  )
+  seedSettings(qaUserDataDir, { aiConsent: { consented: false, version: 1 } })
   const result = await launchApp({ env: { PROSE_USER_DATA_DIR: qaUserDataDir, PROSE_DEBUG_PORT: '9229' } })
   app = result.app
   page = result.page

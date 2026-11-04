@@ -17,7 +17,7 @@ import { getAISuggestions } from '../../../extensions/ai-suggestions'
 import { isEditorReadOnly } from './editor'
 import { getApi } from '../../browserApi'
 import { generateId } from '../../persistence'
-import { dump as dumpYaml } from 'js-yaml'
+import { dumpFrontmatterYaml } from '../../markdown'
 
 /**
  * Node representation with ID for AI targeting.
@@ -138,7 +138,7 @@ function prependFrontmatterNode(
   // block that would mislead the agent.
   let yamlBody: string
   try {
-    yamlBody = dumpYaml(active, { lineWidth: -1, quotingType: '"', forceQuotes: false }).trimEnd()
+    yamlBody = dumpFrontmatterYaml(active, { quotingType: '"', forceQuotes: false }).trimEnd()
   } catch {
     return nodes
   }

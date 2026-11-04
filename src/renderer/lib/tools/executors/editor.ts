@@ -16,10 +16,9 @@ import { buildWordDiffAnnotations } from '../../diffUtils'
 import { findNodeById, findNodeByContent, getNodesWithIds, flattenNodes } from '../../../extensions/node-ids'
 import { generateId } from '../../persistence'
 import { getAISuggestions, parseMarkdownToSlice, sliceVisibleText } from '../../../extensions/ai-suggestions'
-import { parseMarkdown, FRONTMATTER_REGEX } from '../../markdown'
+import { parseMarkdown, loadFrontmatterYaml, FRONTMATTER_REGEX } from '../../markdown'
 import { pipelineLog } from '../../aiPipelineLog'
 import { AI_REPLACEMENT_META } from '../../../extensions/comments'
-import { load as parseYaml } from 'js-yaml'
 
 /**
  * Target visible duration for a chunked streaming insertion. The number of
@@ -485,7 +484,7 @@ function parseFrontmatterPayload(
 
   let loaded: unknown
   try {
-    loaded = parseYaml(yamlSource)
+    loaded = loadFrontmatterYaml(yamlSource)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     return { kind: 'error', message: `Frontmatter content failed to parse as YAML: ${message}` }
@@ -831,7 +830,7 @@ export function executeSuggestEdit(
       if (fenceMatch) {
         let yamlThrew = false
         try {
-          parseYaml(fenceMatch[1])
+          loadFrontmatterYaml(fenceMatch[1])
         } catch {
           yamlThrew = true
         }

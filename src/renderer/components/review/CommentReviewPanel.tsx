@@ -36,6 +36,8 @@ import { cn } from '../../lib/utils'
 interface CommentReviewPanelProps {
   /** Exit Review mode and return to the Activity list. */
   onExit: () => void
+  /** "Back to activity" on the done state; falls back to `onExit`. */
+  onDone?: () => void
   /** Open Review focused on this thread (from a card's expand icon); else start at 0. */
   initialThreadId?: string | null
   /** Bumped on every focus request so a repeat expand on the same thread (after
@@ -45,7 +47,7 @@ interface CommentReviewPanelProps {
 
 const SWIPE_THRESHOLD = 90
 
-export function CommentReviewPanel({ onExit, initialThreadId, focusSeq }: CommentReviewPanelProps) {
+export function CommentReviewPanel({ onExit, onDone, initialThreadId, focusSeq }: CommentReviewPanelProps) {
   const editor = useEditorInstanceStore((s) => s.editor)
   const pendingComments = useActiveSession(selectThreads)
   const { processComment, isStreaming } = useChat()
@@ -181,7 +183,7 @@ export function CommentReviewPanel({ onExit, initialThreadId, focusSeq }: Commen
     return () => window.removeEventListener('keydown', onKey)
   }, [onExit, sendReply, goNext, goPrev, resolve])
 
-  if (!current) return <DoneState onExit={onExit} />
+  if (!current) return <DoneState onExit={onExit} onDone={onDone ?? onExit} />
 
   const replies = current.replies ?? []
   const quote = current.markedText?.trim()
@@ -383,7 +385,7 @@ export function CommentReviewPanel({ onExit, initialThreadId, focusSeq }: Commen
 
 // ─── Done state ─────────────────────────────────────────────────────────────
 
-function DoneState({ onExit }: { onExit: () => void }) {
+function DoneState({ onExit, onDone }: { onExit: () => void; onDone: () => void }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 items-center justify-between border-b border-border py-2.5 pl-4 pr-2">
@@ -405,7 +407,7 @@ function DoneState({ onExit }: { onExit: () => void }) {
           Every thread is resolved. Resolved threads stay in the Activity list — nothing was deleted.
         </p>
         <button
-          onClick={onExit}
+          onClick={onDone}
           className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground"
         >
           <ChevronLeft className="h-3 w-3" />

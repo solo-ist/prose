@@ -254,7 +254,7 @@ export function ChatPanel() {
   if (reviewMode) {
     return (
       <div className="flex h-full flex-col bg-muted/20">
-        <ReviewContainer />
+        <ReviewContainer onReturnToActivity={() => setSidebarMode('activity')} />
       </div>
     )
   }

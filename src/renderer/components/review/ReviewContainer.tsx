@@ -13,7 +13,12 @@ import { CommentReviewPanel } from './CommentReviewPanel'
  * in one place. SideBySideDiffPanel retains its own header for its bulk
  * actions + cross-link. This container is intentionally thin.
  */
-export function ReviewContainer() {
+interface ReviewContainerProps {
+  /** Select the sidebar's Activity tab; the done state's "Back to activity" calls it before closing (#1135). */
+  onReturnToActivity?: () => void
+}
+
+export function ReviewContainer({ onReturnToActivity }: ReviewContainerProps = {}) {
   const reviewMode = useReviewMode()
   const setReviewMode = useReviewStore((s) => s.setReviewMode)
   const commentReviewTargetId = useCommentReviewTargetId()
@@ -39,6 +44,10 @@ export function ReviewContainer() {
       {reviewMode === 'comments' ? (
         <CommentReviewPanel
           onExit={() => setReviewMode(null)}
+          onDone={() => {
+            onReturnToActivity?.()
+            setReviewMode(null)
+          }}
           initialThreadId={commentReviewTargetId}
           focusSeq={commentReviewTargetSeq}
         />

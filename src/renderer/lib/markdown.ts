@@ -1,5 +1,32 @@
 import * as yaml from 'js-yaml'
 
+/**
+ * The YAML schema for frontmatter: js-yaml's default set without the YAML 1.1
+ * `timestamp` type (#862). With it, `date: 2026-09-04` loads as a JS `Date`
+ * and is written back as `2026-09-04T00:00:00.000Z` on every save (and the
+ * non-string value locks the row in the frontmatter panel). Without it a date
+ * is the text it was written as, and `dump` leaves it bare because nothing in
+ * this schema would read it as another type. Every other default type stays.
+ */
+const TIMESTAMP_TAG = 'tag:yaml.org,2002:timestamp'
+// A schema instance carries the type lists it was extended with; the typings
+// stop at the constructor, so the default schema is read through a local shape.
+const defaults = yaml.DEFAULT_SCHEMA as unknown as { implicit: Array<yaml.Type & { tag: string }>; explicit: yaml.Type[] }
+export const FRONTMATTER_YAML_SCHEMA = new yaml.Schema({
+  implicit: defaults.implicit.filter((type) => type.tag !== TIMESTAMP_TAG),
+  explicit: defaults.explicit
+})
+
+/** Parse YAML the way frontmatter is parsed everywhere (the file, the model's payload). Throws on malformed YAML. */
+export function loadFrontmatterYaml(text: string): unknown {
+  return yaml.load(text, { schema: FRONTMATTER_YAML_SCHEMA })
+}
+
+/** Serialize frontmatter YAML with the same schema, so what was loaded writes back as it was. */
+export function dumpFrontmatterYaml(value: unknown, options: Omit<yaml.DumpOptions, 'schema'> = {}): string {
+  return yaml.dump(value, { lineWidth: -1, ...options, schema: FRONTMATTER_YAML_SCHEMA })
+}
+
 export interface ParsedMarkdown {
   content: string
   frontmatter: Record<string, unknown>
@@ -18,7 +45,7 @@ export function parseMarkdown(raw: string): ParsedMarkdown {
       return { content: raw, frontmatter: {} }
     }
 
-    const parsed = yaml.load(match[1])
+    const parsed = loadFrontmatterYaml(match[1])
     const frontmatter = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
     // The body keeps its bytes after the closing fence (a blank line, the
     // final newline): an untouched document saves as it was read (#1105, #1151).
@@ -35,7 +62,7 @@ export function serializeMarkdown(content: string, frontmatter: Record<string, u
     return content
   }
 
-  const yamlStr = yaml.dump(frontmatter, { lineWidth: -1 }).trimEnd()
+  const yamlStr = dumpFrontmatterYaml(frontmatter).trimEnd()
   return `---\n${yamlStr}\n---\n${content}`
 }
 

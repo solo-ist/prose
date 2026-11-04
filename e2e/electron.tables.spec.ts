@@ -416,6 +416,41 @@ test.describe('Electron — table editing (#1060)', () => {
     expect(countRows(reserialized)).toBe(3)
   })
 
+  test('typing a header row and a delimiter row makes a table (#1108)', async () => {
+    await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(window as any).__prose_editor.commands.focus('end')
+    })
+    await page.keyboard.type('| Name | Role |')
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('| --- | --- |')
+
+    await expect(page.locator('.prose-editor table')).toHaveCount(1)
+    await expect(page.locator('.prose-editor table th')).toHaveText(['Name', 'Role'])
+    // The caret landed in the first body cell: typing fills it.
+    await page.keyboard.type('Ada')
+    await expect(page.locator('.prose-editor table td').first()).toHaveText('Ada')
+
+    const md = await getEditorMarkdown(page)
+    expectPipeTable(md)
+    expect(md).toContain('| Name | Role |')
+    expect(countColumns(md)).toBe(2)
+    expect(countRows(md)).toBe(2)
+  })
+
+  test('a pipe row followed by prose stays a paragraph (#1108)', async () => {
+    await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(window as any).__prose_editor.commands.focus('end')
+    })
+    await page.keyboard.type('| not | a table |')
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('Just a sentence with a | in it.')
+
+    await expect(page.locator('.prose-editor table')).toHaveCount(0)
+    expect(await getEditorMarkdown(page)).toContain('| not | a table |')
+  })
+
   test('a trailing table gets a paragraph after it, and that is where a click below lands (#1087)', async () => {
     await insertTableViaMenu()
 

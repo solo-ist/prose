@@ -46,6 +46,7 @@ import { PersistentSelection } from '../../extensions/persistent-selection'
 import { TableCellKeymap } from '../../extensions/table-cell-keymap'
 import { TableTrailingParagraph } from '../../extensions/table-trailing-paragraph'
 import { TableMarkdown } from '../../extensions/table-markdown'
+import { TableInputRule } from '../../extensions/table-input-rule'
 import { Identity } from '../../document/identity'
 
 // Lowlight instance with a curated set of common languages.
@@ -144,6 +145,8 @@ export function createEditorExtensions(options: EditorExtensionOptions = {}): Ex
     // A table may not be the last node in the document, or there is no way to
     // click or arrow past it (#1087).
     TableTrailingParagraph,
+    // A typed header row and delimiter row become a table (#1108).
+    TableInputRule,
     TaskListDashMarker,
     TaskItem.configure({
       nested: true

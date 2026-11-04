@@ -19,6 +19,8 @@
 import { Extension } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
+import type { NodeView } from '@tiptap/pm/view'
+import { getApi } from '../../lib/browserApi'
 
 /** The slice of prosemirror-markdown's serializer state this serializer uses. */
 interface SerializerState {
@@ -84,7 +86,90 @@ export const IndentedCodeParse = Extension.create({
   }
 })
 
+/**
+ * A code block with a copy button in its corner (#1111). The `code` element is
+ * the content, so lowlight's decorations and editing are untouched; the
+ * button lives outside it, takes `mousedown` with `preventDefault` so the
+ * caret and a drag selection in the block stay where they are, and is kept
+ * out of ProseMirror's event handling and mutation observer so its label can
+ * change. It copies the block's plain text, never the fence or the language.
+ * A read-only editor hides it in CSS (`.ProseMirror[contenteditable=false]`).
+ */
+function codeBlockView(node: PMNode, languageClassPrefix: string, htmlAttributes: Record<string, unknown>): NodeView {
+  let current = node
+  const dom = document.createElement('div')
+  dom.className = 'code-block'
+  const pre = document.createElement('pre')
+  const code = document.createElement('code')
+  pre.appendChild(code)
+  dom.appendChild(pre)
+  for (const [key, value] of Object.entries(htmlAttributes)) {
+    if (value !== null && value !== undefined) pre.setAttribute(key, String(value))
+  }
+
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'code-copy'
+  button.dataset.testid = 'code-copy'
+  button.setAttribute('aria-label', 'Copy code')
+  button.contentEditable = 'false'
+  button.textContent = 'Copy'
+  let reset: ReturnType<typeof setTimeout> | null = null
+  button.addEventListener('mousedown', (event) => event.preventDefault())
+  button.addEventListener('click', (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    void getApi()
+      .copyToClipboard(current.textContent)
+      .then(() => {
+        button.textContent = 'Copied'
+        if (reset) clearTimeout(reset)
+        reset = setTimeout(() => {
+          button.textContent = 'Copy'
+        }, 1500)
+      })
+      .catch((error) => console.error('Failed to copy code block:', error))
+  })
+  dom.appendChild(button)
+
+  const sync = (n: PMNode) => {
+    code.className = n.attrs.language ? `${languageClassPrefix}${n.attrs.language}` : ''
+    if (n.attrs.nodeId) pre.setAttribute('data-node-id', String(n.attrs.nodeId))
+    else pre.removeAttribute('data-node-id')
+    if (n.attrs.indented) pre.setAttribute('data-indented', 'true')
+    else pre.removeAttribute('data-indented')
+  }
+  sync(node)
+
+  return {
+    dom,
+    contentDOM: code,
+    update(next) {
+      if (next.type !== node.type) return false
+      current = next
+      sync(next)
+      return true
+    },
+    stopEvent(event) {
+      return button.contains(event.target as Node)
+    },
+    ignoreMutation(mutation) {
+      if (mutation.type === 'selection') return false
+      return !code.contains(mutation.target)
+    },
+    destroy() {
+      if (reset) clearTimeout(reset)
+    }
+  }
+}
+
 export const CodeBlockMarkdown = CodeBlockLowlight.extend({
+  addNodeView() {
+    const prefix = this.options.languageClassPrefix ?? 'language-'
+    const htmlAttributes = (this.options.HTMLAttributes ?? {}) as Record<string, unknown>
+    return ({ node }) => codeBlockView(node, prefix, htmlAttributes)
+  },
+
   addAttributes() {
     return {
       ...this.parent?.(),

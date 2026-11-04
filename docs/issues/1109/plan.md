@@ -47,3 +47,10 @@ covers the typed path.
 ## Execution log
 
 - 2026-11-04: inventory (above).
+- 2026-11-04, built: `aae5cde` plan · `4a5f07a` the change. Falsification against the unmodified list: 5/6 fail
+  (`indented: false`, a three-backtick fence around a ``` run, the checklist at 48 fence lines instead of 20);
+  wired → 6/6. Unit 131/131 (15 files), `typecheck:renderer` 66 (= baseline), build clean; `source-mode-authority`,
+  `tab-switch-flush`, `markdown-create`, `document-sessions` 40 passed on the built app. **PR #1190** open onto
+  `release/v1.9.0`; `qa/dev` = `bfbc756` (release + #1108 + #1109, the `extensions.ts` import hunk kept from both);
+  QA block §6 in the untracked `docs/qa/v1.9.0-tranche-b.md`. The serializer writes no final newline (the save path
+  keeps the file's), and the default bullet marker is `*`: both fixtures, not code.

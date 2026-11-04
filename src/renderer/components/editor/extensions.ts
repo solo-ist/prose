@@ -23,7 +23,6 @@ import Link from '@tiptap/extension-link'
 import Underline from '@tiptap/extension-underline'
 import Superscript from '@tiptap/extension-superscript'
 import Subscript from '@tiptap/extension-subscript'
-import Table from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
 import TableCell from '@tiptap/extension-table-cell'
 import TableHeader from '@tiptap/extension-table-header'
@@ -46,6 +45,7 @@ import { DocumentWithFootnotes, Footnote, FootnoteReference, Footnotes } from '.
 import { PersistentSelection } from '../../extensions/persistent-selection'
 import { TableCellKeymap } from '../../extensions/table-cell-keymap'
 import { TableTrailingParagraph } from '../../extensions/table-trailing-paragraph'
+import { TableMarkdown } from '../../extensions/table-markdown'
 import { Identity } from '../../document/identity'
 
 // Lowlight instance with a curated set of common languages.
@@ -127,7 +127,9 @@ export function createEditorExtensions(options: EditorExtensionOptions = {}): Ex
     Underline,
     Superscript,
     Subscript,
-    Table.configure({
+    // The table extension with a serializer that escapes `|` in cells and pads
+    // ragged rows, so a pipe table survives its own content (#1107).
+    TableMarkdown.configure({
       resizable: false,
       HTMLAttributes: {
         class: 'prose-table'

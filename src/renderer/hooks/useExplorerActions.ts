@@ -105,13 +105,35 @@ export function useExplorerActions({
     }
   }, [api])
 
+  // Resolve where a new file/folder is created and where a paste lands (#1166):
+  // the selected folder, the parent dir of the selected file, or the folder being
+  // shown when nothing is selected.
+  const resolveTargetDir = useCallback((): string | null => {
+    if (!selectedPath) return rootPath
+    const files = useFileListStore.getState().files
+    const findItem = (items: typeof files): typeof files[0] | null => {
+      for (const item of items) {
+        if (item.path === selectedPath) return item
+        if (item.children) {
+          const found = findItem(item.children)
+          if (found) return found
+        }
+      }
+      return null
+    }
+    const selected = findItem(files)
+    if (selected?.isDirectory) return selected.path
+    return selectedPath.substring(0, selectedPath.lastIndexOf('/'))
+  }, [selectedPath, rootPath])
+
   const pasteFile = useCallback(async (targetDir?: string) => {
     if (!clipboardPath) return
 
     try {
       if (clipboardOperation === 'cut') {
-        // Move: rename to target directory (or same dir if no target)
-        const destDir = targetDir || clipboardPath.substring(0, clipboardPath.lastIndexOf('/'))
+        // Move into the target, else the folder the explorer is showing (#1166);
+        // only with no folder at all does it fall back to the source folder.
+        const destDir = targetDir || resolveTargetDir() || clipboardPath.substring(0, clipboardPath.lastIndexOf('/'))
         const fileName = clipboardPath.split('/').pop()!
         const newPath = `${destDir}/${fileName}`
         if (newPath !== clipboardPath) {
@@ -124,34 +146,9 @@ export function useExplorerActions({
         // Clear clipboard after cut-paste
         setClipboardPath(null)
       } else {
-        // Copy: duplicate or copy to target directory
-        // Determine destination directory:
-        // 1. Explicit targetDir argument
-        // 2. Selected path (if it's a folder)
-        // 3. Parent of selected path (if it's a file)
-        // 4. Fall back to duplicateFile (same dir as source)
-        let destDir = targetDir
-        if (!destDir) {
-          const { selectedPath: selPath, files } = useFileListStore.getState()
-          if (selPath) {
-            const findItem = (items: typeof files): typeof files[0] | null => {
-              for (const item of items) {
-                if (item.path === selPath) return item
-                if (item.children) {
-                  const found = findItem(item.children)
-                  if (found) return found
-                }
-              }
-              return null
-            }
-            const sel = findItem(files)
-            if (sel?.isDirectory) {
-              destDir = sel.path
-            } else {
-              destDir = selPath.substring(0, selPath.lastIndexOf('/'))
-            }
-          }
-        }
+        // Copy into the target, else the resolved folder (#1166); with no folder
+        // at all, duplicate beside the source.
+        const destDir = targetDir || resolveTargetDir()
 
         let newPath: string
         if (destDir) {
@@ -202,32 +199,13 @@ export function useExplorerActions({
     } catch (error) {
       console.error('Failed to paste file:', error)
     }
-  }, [clipboardPath, clipboardOperation, api, onFileOpen, setClipboardPath])
+  }, [clipboardPath, clipboardOperation, api, onFileOpen, setClipboardPath, resolveTargetDir])
 
   const startRename = useCallback(() => {
     if (!selectedPath) return
     setRenamingPath(selectedPath)
   }, [selectedPath, setRenamingPath])
 
-  // Resolve where a new file/folder should be created: the selected folder, the
-  // parent dir of the selected file, or the root when nothing is selected.
-  const resolveTargetDir = useCallback((): string | null => {
-    if (!selectedPath) return rootPath
-    const files = useFileListStore.getState().files
-    const findItem = (items: typeof files): typeof files[0] | null => {
-      for (const item of items) {
-        if (item.path === selectedPath) return item
-        if (item.children) {
-          const found = findItem(item.children)
-          if (found) return found
-        }
-      }
-      return null
-    }
-    const selected = findItem(files)
-    if (selected?.isDirectory) return selected.path
-    return selectedPath.substring(0, selectedPath.lastIndexOf('/'))
-  }, [selectedPath, rootPath])
 
   const newFileInContext = useCallback(() => {
     const targetDir = resolveTargetDir()

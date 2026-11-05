@@ -5,7 +5,11 @@
  * This allows Claude Desktop to communicate with Prose even when
  * launching the mcp-stdio script separately.
  *
- * Socket path: ~/Library/Application Support/Prose/prose.sock
+ * Socket path: <userData>/prose.sock, resolved when it is used, not at import:
+ * index.ts redirects userData (the Prose Dev profile, the PROSE_USER_DATA_DIR
+ * test seam) after the hoisted imports have run, so a path computed at module
+ * load pointed at the installed app's profile and the dev instance took over
+ * the installed app's socket (#1139).
  */
 
 import * as net from 'net'
@@ -16,9 +20,10 @@ import { app } from 'electron'
 import { getToolsForMCP } from '../../shared/tools/registry'
 import type { ToolResult } from '../../shared/tools/types'
 
-// Socket location in app support directory
-const SOCKET_DIR = path.join(app.getPath('userData'), '')
-const SOCKET_PATH = path.join(SOCKET_DIR, 'prose.sock')
+/** The socket's path under the profile in force when it is asked for. */
+function socketPath(): string {
+  return path.join(app.getPath('userData'), 'prose.sock')
+}
 
 // Maximum buffer size (1MB) to prevent memory exhaustion from malformed input
 const MAX_BUFFER_SIZE = 1024 * 1024
@@ -45,7 +50,7 @@ export class McpSocketServer {
    * Get the socket path.
    */
   getSocketPath(): string {
-    return SOCKET_PATH
+    return socketPath()
   }
 
   /**
@@ -63,6 +68,9 @@ export class McpSocketServer {
     if (!this.authToken) {
       throw new Error('Auth token must be set before starting socket server')
     }
+
+    const SOCKET_PATH = socketPath()
+    const SOCKET_DIR = path.dirname(SOCKET_PATH)
 
     // Ensure socket directory exists
     if (!fs.existsSync(SOCKET_DIR)) {
@@ -109,6 +117,7 @@ export class McpSocketServer {
    * Stop the socket server.
    */
   async stop(): Promise<void> {
+    const SOCKET_PATH = socketPath()
     if (this.server) {
       await new Promise<void>((resolve) => {
         this.server!.close(() => resolve())

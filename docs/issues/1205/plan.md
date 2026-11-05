@@ -20,3 +20,6 @@ click, and the return to `idle`. Falsified on a build of the merge-base's `src` 
 ## Execution log
 
 - 2026-11-04: inventory (above).
+- 2026-11-04, built: `939d827` plan · the change commit follows. `typecheck:renderer` 66 (= baseline), e2e tsc 6
+  (= baseline), build clean; `electron.code-copy` 1/1 on the change. **Falsified** on a build of the merge-base's
+  `src` (`d3e4b0e`): the spec fails there on the missing `data-state`; HEAD restored and rebuilt.

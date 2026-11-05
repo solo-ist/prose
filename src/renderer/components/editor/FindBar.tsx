@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { X, ChevronUp, ChevronDown } from 'lucide-react'
 import { TextSelection } from '@tiptap/pm/state'
+import type { EditorView } from '@tiptap/pm/view'
 import { useEditorState } from '@tiptap/react'
 import type { Editor } from '@tiptap/react'
 import { Input } from '../ui/input'
@@ -20,6 +21,24 @@ interface FindBarProps {
  * state (#1106): the bar dispatches the term and the index and reads the
  * matches and the counter back, so an edit anywhere keeps them right.
  */
+/**
+ * Scroll the editor pane so `pos` is in view, keeping the focus where it is.
+ * ProseMirror's own `scrollIntoView` walks the scrollable ancestors of the DOM
+ * selection's focus node, which sits in the find input while the bar is used,
+ * so it never reaches the pane; it only worked when the DOM selection
+ * happened to be in the editor (#1203). Centres the match when it is outside
+ * the pane's middle band, leaves the pane alone otherwise.
+ */
+function scrollMatchIntoView(view: EditorView, pos: number): void {
+  const pane = view.dom.closest('.overflow-auto') as HTMLElement | null
+  if (!pane) return
+  const coords = view.coordsAtPos(pos)
+  const rect = pane.getBoundingClientRect()
+  const margin = Math.min(48, rect.height / 4)
+  if (coords.top >= rect.top + margin && coords.bottom <= rect.bottom - margin) return
+  pane.scrollTop += coords.top - rect.top - rect.height / 2
+}
+
 export function FindBar({ editor, isOpen, onClose }: FindBarProps) {
   const [searchTerm, setSearchTerm] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -46,12 +65,15 @@ export function FindBar({ editor, isOpen, onClose }: FindBarProps) {
     }
   }, [isOpen])
 
-  // Clear highlights when closed
+  // Clear highlights when closed. The plugin state is per tab, so a clear
+  // reaches only the tab that is active then; a tab that arrives later with
+  // its term still set (searched before a switch) is cleared here too, as the
+  // plugin term it carries re-runs this effect (#1203).
   useEffect(() => {
-    if (!isOpen && editor) {
+    if (!isOpen && editor && pluginTerm) {
       editor.commands.clearSearchHighlight()
     }
-  }, [isOpen, editor])
+  }, [isOpen, editor, pluginTerm])
 
   // Listen for search:show events from tools (e.g., search_document)
   useEffect(() => {
@@ -81,9 +103,9 @@ export function FindBar({ editor, isOpen, onClose }: FindBarProps) {
   }, [])
 
   /**
-   * Select match `index` and scroll it into view in one transaction, without
-   * focusing the editor: the input keeps the focus so Enter and Shift+Enter
-   * keep navigating.
+   * Select match `index` and scroll the pane to it, without focusing the
+   * editor: the input keeps the focus so Enter and Shift+Enter keep
+   * navigating. The scroll is done by hand (see `scrollMatchIntoView`).
    */
   const reveal = useCallback(
     (index: number) => {
@@ -91,7 +113,8 @@ export function FindBar({ editor, isOpen, onClose }: FindBarProps) {
       const match = searchHighlightPluginKey.getState(editor.state)?.results[index]
       if (!match) return
       const { tr, doc } = editor.state
-      editor.view.dispatch(tr.setSelection(TextSelection.create(doc, match.from, match.to)).scrollIntoView())
+      editor.view.dispatch(tr.setSelection(TextSelection.create(doc, match.from, match.to)))
+      scrollMatchIntoView(editor.view, match.from)
     },
     [editor]
   )

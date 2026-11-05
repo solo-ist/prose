@@ -68,3 +68,12 @@ CI and claude review. Pulled into 1.9.0 by the operator on 2026-11-04 ("one last
 ## Execution log
 
 - 2026-11-04 (late): inventory, decisions, plan.
+- 2026-11-05 (~00:10 EST), built: `c32a965` plan · `c0b1d99` the change. unit 156/156 (19 files), `typecheck:renderer` 65
+  (baseline 66, the deleted dialog), e2e tsc 6 (= baseline), build clean; `electron.onboarding` 3/3,
+  `electron.release-notes` 4/4, `electron.seed-settings` 1/1, `electron.mcp-socket-path` 1/1 on the built app.
+  **Falsified** on a build of the merge-base's `src` (`bbb1873`): all three onboarding cases fail there (no modal);
+  HEAD restored and rebuilt. Every step screenshotted from the built app (dark and light) and compared with the design
+  renders before the PR. Found on the way: the App Store flag is stamped at build time (`build:env`, the preload
+  define), so the MAS e2e case was dropped for the vitest sequence + a manual check on a MAS build; and
+  `electron.mcp-socket-path.spec.ts` (#1201, merged after #1200's tripwire) seeded `aiConsent`-less settings by hand
+  and turned `electron.seed-settings` red on the release head: it goes through `seedSettings` now.

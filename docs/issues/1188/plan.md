@@ -51,6 +51,16 @@ CI and claude review. Pulled into 1.9.0 by the operator on 2026-11-04 ("one last
 - **e2e**: `dismissOnboarding` / `dismissConsentDialog` drive the modal on a fresh profile (Get started → Write without
   AI → Continue → Escape → Escape) before the old Escape loop; specs that seed consent are untouched.
 
+## The home screen (operator, 2026-11-05, from the first live pass)
+
+The app had lost its home screen (the empty state: mark, shortcuts, New Document / Open File): since #1145
+`arriveTab` sets `isEditing` on every arrival, the blank launch tab included, so a fresh launch showed an Untitled
+editor and the modal's "New document" opened "Untitled 2". Change: `newTab({ home: true })` (the launch tab, the tab
+left after the last close) arrives with `isEditing` off, so the empty state shows until the user acts; New Document
+and ⌘T over a blank untitled tab start writing in it instead of opening another; the modal's Done step has one
+button, **Done**, which closes onto the home screen (the design's New document / Open file… live there). e2e's
+`waitForEditor` enters the home screen when it is showing, so specs that launch into a blank tab keep working.
+
 ## Tests
 
 - vitest `steps.test.ts`: the four sequences (direct/App Store × AI on/off), the already-default skip, `resolveStep`,

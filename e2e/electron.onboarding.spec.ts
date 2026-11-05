@@ -92,9 +92,18 @@ test.describe('Electron — first-run onboarding (#1188)', () => {
     await expect(summary).toContainText('Ask again next launch')
     await expect(summary.getByText('Crash reports').locator('..')).toContainText('Off')
 
-    await primary().click() // New document
+    await expect(primary()).toHaveText('Done')
+    await expect(secondary()).toHaveCount(0)
+    await primary().click()
     await expect(modal()).toHaveCount(0)
+    // The home screen, not an editor: mark, shortcuts, New Document / Open File.
+    await expect(page.getByRole('heading', { name: 'Start Writing' })).toBeVisible()
+    await expect(page.locator('.ProseMirror')).toHaveCount(0)
+    // New Document starts writing in the blank tab: one tab, no "Untitled 2".
+    await page.getByRole('button', { name: 'New Document' }).click()
     await expect(page.locator('.ProseMirror')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Start Writing' })).toHaveCount(0)
+    await expect(page.getByText('Untitled 2')).toHaveCount(0)
     await expect
       .poll(() => readSettings()?.aiConsent?.consented, { timeout: 10_000 })
       .toBe(true)
@@ -121,6 +130,7 @@ test.describe('Electron — first-run onboarding (#1188)', () => {
     await expect(progress()).toHaveText(/^5 \/ 5 · Done$/i)
     await page.keyboard.press('Escape')
     await expect(modal()).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: 'Start Writing' })).toBeVisible()
     await expect
       .poll(() => readSettings()?.aiConsent?.consented, { timeout: 10_000 })
       .toBe(false)

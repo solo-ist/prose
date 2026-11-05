@@ -94,6 +94,12 @@ export interface NewTabInit {
   content?: string
   frontmatter?: Record<string, unknown>
   isDirty?: boolean
+  /**
+   * A blank tab that shows the home screen (the empty state: mark, shortcuts,
+   * New Document / Open File) until the user acts on it: the launch tab, and
+   * the tab left after the last close (#1188).
+   */
+  home?: boolean
 }
 
 /** A session tab after App's stale-file resolution, ready to add. */
@@ -271,6 +277,8 @@ async function leaveTab(tab: Tab, opts: { persist?: boolean } = {}): Promise<voi
 interface ArriveOptions {
   /** A brand-new untitled document: reset the chat instead of loading one. */
   fresh?: boolean
+  /** A blank tab that is to show the home screen: `isEditing` stays off. */
+  home?: boolean
   /** Launch restore: the conversation that was open in this tab. */
   activeChatId?: string | null
   /** The tab's content was just read from disk: record the disk baseline (#843). */
@@ -309,7 +317,10 @@ async function arriveTab(tab: Tab, opts: ArriveOptions = {}): Promise<void> {
   }
 
   syncPreviewMode()
-  useEditorStore.getState().setEditing(true)
+  // `isEditing` hides the home screen. Every arrival sets it except a blank
+  // tab meant to show the home screen (#1188); before the sessions work the
+  // launch tab arrived the same way and the home screen was lost with it.
+  useEditorStore.getState().setEditing(!opts.home)
 
   if (current.path) {
     useFileListStore.getState().revealAndSelectPath(current.path)
@@ -434,6 +445,15 @@ export async function newTab(init?: NewTabInit): Promise<string> {
   const isDirty = init?.isDirty === true
 
   const activeTab = useTabStore.getState().getActiveTab()
+  // New Document over the home screen, or ⌘T on a blank untitled tab, starts
+  // writing in that tab instead of opening "Untitled 2" (#1188). A request
+  // with content (the `new_file` tool) and the home-screen tab itself always
+  // open a new one.
+  const blankRequest = !init || (init.content === undefined && init.frontmatter === undefined && !init.home)
+  if (blankRequest && activeTab && isEmptyUntitled(activeTab)) {
+    useEditorStore.getState().setEditing(true)
+    return activeTab.id
+  }
   if (activeTab) await leaveTab(activeTab)
 
   const documentId = generateId()
@@ -450,7 +470,7 @@ export async function newTab(init?: NewTabInit): Promise<string> {
   })
   const tab = useTabStore.getState().getTabById(tabId)
   if (!tab) throw new Error('Tab vanished while creating')
-  await arriveTab(tab, { fresh: true })
+  await arriveTab(tab, { fresh: true, home: init?.home })
   return tabId
 }
 
@@ -536,7 +556,7 @@ export async function closeTab(tabId: string, opts: { force?: boolean } = {}): P
 
   const after = useTabStore.getState()
   if (after.tabs.length === 0) {
-    await newTab()
+    await newTab({ home: true })
   } else if (wasActive && after.activeTabId) {
     const next = after.getTabById(after.activeTabId)
     if (next) await arriveTab(next)
@@ -600,7 +620,7 @@ export async function closeAllTabs(): Promise<void> {
   } finally {
     for (const tab of tabs) markTabClosing(tab.id, false)
   }
-  await newTab()
+  await newTab({ home: true })
 }
 
 /**

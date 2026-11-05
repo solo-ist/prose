@@ -16,7 +16,7 @@ import { KeyboardShortcutsDialog } from '../settings/KeyboardShortcutsDialog'
 import { AboutDialog } from '../settings/AboutDialog'
 import { ModelPickerDialog } from '../ModelPickerDialog'
 import { APP_VERSION } from '../../buildInfo.generated'
-import { OnboardingDialog, type OnboardingFinish } from '../onboarding/OnboardingDialog'
+import { OnboardingDialog } from '../onboarding/OnboardingDialog'
 import { ReleaseNotesDialog } from '../releaseNotes/ReleaseNotesDialog'
 import { EnableLoggingDialog } from '../EnableLoggingDialog'
 import { Notifications } from './Notifications'
@@ -417,7 +417,7 @@ export function App() {
     }
     // Create blank tab after discarding
     if (!tabsInitialized.current) {
-      await createNewTab()
+      await createNewTab({ home: true })
       tabsInitialized.current = true
     }
     setRecoveryDialogOpen(false)
@@ -440,18 +440,15 @@ export function App() {
   useEffect(() => {
     if (!settingsLoaded) return
     const aiConsent = settings.aiConsent
-    const current = !!aiConsent && aiConsent.version >= AI_CONSENT_VERSION
+    // The same predicate the gate always had: a record without a version is
+    // current (e2e seeds one), only a missing record or a lower version is due.
+    const current = !(!aiConsent || aiConsent.version < AI_CONSENT_VERSION)
     setConsentCurrentAtLoad((known) => (known === null ? current : known))
     if (!current) setAIConsentDialogOpen(true)
   }, [settingsLoaded, settings.aiConsent, setAIConsentDialogOpen])
-  const handleOnboardingFinish = useCallback(
-    async (action: OnboardingFinish) => {
-      setAIConsentDialogOpen(false)
-      if (action === 'new') await createNewTab()
-      else if (action === 'open') await openFile()
-    },
-    [setAIConsentDialogOpen, createNewTab, openFile]
-  )
+  // Done closes the modal onto the home screen: the blank launch tab shows the
+  // empty state (mark, shortcuts, New Document / Open File).
+  const handleOnboardingFinish = useCallback(() => setAIConsentDialogOpen(false), [setAIConsentDialogOpen])
 
   // Post-update release notes (#1058). Deliberately not updater-driven: the updater
   // is disabled on MAS and in dev, and `updater:update-available` fires BEFORE
@@ -538,7 +535,7 @@ export function App() {
         if (!draft) {
           // No draft to recover - create blank tab and complete initialization
           if (!tabsInitialized.current) {
-            await createNewTab()
+            await createNewTab({ home: true })
             tabsInitialized.current = true
           }
           useChatStore.getState().setInitializing(false)
@@ -552,7 +549,7 @@ export function App() {
         if (!draft.document.content && !draft.document.isDirty) {
           await clearDraft()
           if (!tabsInitialized.current) {
-            await createNewTab()
+            await createNewTab({ home: true })
             tabsInitialized.current = true
           }
           useChatStore.getState().setInitializing(false)
@@ -579,7 +576,7 @@ export function App() {
         console.error('Failed to check for recovery:', error)
         // Create blank tab on error
         if (!tabsInitialized.current) {
-          await createNewTab()
+          await createNewTab({ home: true })
           tabsInitialized.current = true
         }
         useChatStore.getState().setInitializing(false)

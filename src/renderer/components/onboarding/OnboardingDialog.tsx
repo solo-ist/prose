@@ -30,13 +30,11 @@ import {
   type StepId
 } from './steps'
 
-export type OnboardingFinish = 'new' | 'open' | 'close'
-
 interface OnboardingDialogProps {
   open: boolean
   /** `'ai'` re-enters an existing user at the AI step (a bumped consent version, the Settings toggle). */
   startAt: 'welcome' | 'ai'
-  onFinish: (action: OnboardingFinish) => void
+  onFinish: () => void
 }
 
 const ACCEPT = 'hsl(140 60% 55%)'
@@ -166,17 +164,14 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
     if (to) setStep(to)
   }
 
-  const finish = useCallback(
-    (action: OnboardingFinish) => {
-      // Done is unreachable without the AI choice; the guard keeps the write explicit.
-      if (ai === null) return
-      setAIConsent(ai === 'ai')
-      setErrorTracking(crash)
-      if (def === 'done' || defaultAlready) setFileAssociationConfig({ hasBeenPrompted: true })
-      onFinish(action)
-    },
-    [ai, crash, def, defaultAlready, setAIConsent, setErrorTracking, setFileAssociationConfig, onFinish]
-  )
+  const finish = useCallback(() => {
+    // Done is unreachable without the AI choice; the guard keeps the write explicit.
+    if (ai === null) return
+    setAIConsent(ai === 'ai')
+    setErrorTracking(crash)
+    if (def === 'done' || defaultAlready) setFileAssociationConfig({ hasBeenPrompted: true })
+    onFinish()
+  }, [ai, crash, def, defaultAlready, setAIConsent, setErrorTracking, setFileAssociationConfig, onFinish])
 
   const verifyKey = async () => {
     const value = keyInput.trim()
@@ -247,7 +242,7 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
   const onEscape = (event: KeyboardEvent) => {
     event.preventDefault()
     if (ai === null) return
-    if (current === 'done') finish('close')
+    if (current === 'done') finish()
     else setStep('done')
   }
 
@@ -282,10 +277,10 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
       }
       break
     case 'done':
-      primaryLabel = 'New document'
-      secondaryLabel = 'Open file…'
-      onPrimary = () => finish('new')
-      onSecondary = () => finish('open')
+      // One button (operator, 2026-11-05; the design had New document and
+      // Open file… here): Done closes onto the home screen, which has both.
+      primaryLabel = 'Done'
+      onPrimary = finish
       break
   }
 

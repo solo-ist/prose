@@ -119,6 +119,12 @@ export async function waitForAppReady(page: Page): Promise<void> {
  * re-call `waitForEditor` if they reopen a document.
  */
 export async function waitForEditor(page: Page): Promise<void> {
+  // A blank tab shows the home screen until the user acts (#1188): enter it
+  // the way a user would, so the editor mounts.
+  if ((await page.locator(selectors.editor).count()) === 0) {
+    const newDoc = page.getByRole('button', { name: 'New Document' })
+    if (await newDoc.isVisible({ timeout: 1_500 }).catch(() => false)) await newDoc.click()
+  }
   await page.waitForSelector(selectors.editor, { state: 'attached', timeout: 10_000 })
 }
 

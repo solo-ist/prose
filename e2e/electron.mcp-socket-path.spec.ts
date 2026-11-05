@@ -9,10 +9,10 @@
 
 import { test, expect } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'
-import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { launchApp, waitForAppReady, dismissOnboarding, dismissOverlay } from './helpers'
+import { launchApp, waitForAppReady, dismissOnboarding, dismissOverlay, seedSettings } from './helpers'
 
 let app: ElectronApplication
 let page: Page
@@ -21,8 +21,8 @@ let qaUserDataDir: string
 test.beforeAll(async () => {
   test.setTimeout(60_000)
   qaUserDataDir = mkdtempSync(join(tmpdir(), 'prose-1139-'))
-  // No aiConsent: consent stays due, which keeps the release-notes modal off; dismissOnboarding closes the consent dialog.
-  writeFileSync(join(qaUserDataDir, 'settings.json'), JSON.stringify({ fileAssociation: { hasBeenPrompted: true } }, null, 2))
+  // The shared seeder: consent given and the release-notes modal off (#1113), so nothing is up over the window.
+  seedSettings(qaUserDataDir, { fileAssociation: { hasBeenPrompted: true } })
   const result = await launchApp({ env: { PROSE_USER_DATA_DIR: qaUserDataDir, PROSE_DEBUG_PORT: '9229' } })
   app = result.app
   page = result.page

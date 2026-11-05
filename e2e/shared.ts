@@ -64,19 +64,30 @@ export const selectors = {
  * Clicks "Use Without AI" if the dialog is visible; does nothing otherwise.
  */
 export async function dismissConsentDialog(page: Page): Promise<void> {
-  const btn = page.getByRole('button', { name: 'Use Without AI' })
-  const visible = await btn.isVisible({ timeout: 3_000 }).catch(() => false)
-  if (visible) {
-    // Scroll into view first (CI's Xvfb display may be smaller than the dialog),
-    // then force click to bypass any stacked overlay intercepting pointer events.
-    await btn.scrollIntoViewIfNeeded().catch(() => {})
-    await btn.click({ force: true })
-    // Wait for the overlay to disappear
-    await page.waitForSelector('[data-state="open"][aria-hidden="true"]', {
-      state: 'detached',
-      timeout: 3_000,
-    }).catch(() => {})
+  await declineOnboarding(page)
+}
+
+/**
+ * The first-run onboarding modal (#1188) on a fresh profile: one alert dialog
+ * that ignores Escape until the AI choice is made. Decline AI, then Escape
+ * skips to Done and a second Escape finishes (writes `consented: false`,
+ * closes). Does nothing when the modal is not up.
+ */
+export async function declineOnboarding(page: Page): Promise<void> {
+  const modal = page.getByTestId('onboarding')
+  if (!(await modal.isVisible({ timeout: 3_000 }).catch(() => false))) return
+  const primary = page.getByTestId('onboarding-primary')
+  if (await page.getByRole('button', { name: 'Get started' }).isVisible().catch(() => false)) {
+    await primary.click()
   }
+  const decline = page.getByRole('radio', { name: 'Write without AI' })
+  if (await decline.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    await decline.click()
+    await primary.click()
+  }
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Escape')
+  await modal.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => {})
 }
 
 // ---------------------------------------------------------------------------
@@ -108,6 +119,12 @@ export async function waitForAppReady(page: Page): Promise<void> {
  * re-call `waitForEditor` if they reopen a document.
  */
 export async function waitForEditor(page: Page): Promise<void> {
+  // A blank tab shows the home screen until the user acts (#1188): enter it
+  // the way a user would, so the editor mounts.
+  if ((await page.locator(selectors.editor).count()) === 0) {
+    const newDoc = page.getByRole('button', { name: 'New Document' })
+    if (await newDoc.isVisible({ timeout: 1_500 }).catch(() => false)) await newDoc.click()
+  }
   await page.waitForSelector(selectors.editor, { state: 'attached', timeout: 10_000 })
 }
 
@@ -181,6 +198,10 @@ export async function runEditorCommand(page: Page, command: string): Promise<voi
  * dismiss them one at a time.
  */
 export async function dismissOnboarding(page: Page): Promise<void> {
+  // The one-modal onboarding first (#1188); the Escape loop below is for any
+  // other alert dialog (the logging prompt, a later-launch default-editor prompt).
+  await declineOnboarding(page)
+
   // Wait for the DefaultHandlerPrompt's 1s delay + settings load time
   // before starting to dismiss. A short fixed wait is more reliable than
   // racing against dialog appearance.

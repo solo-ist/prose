@@ -16,7 +16,7 @@ import { KeyboardShortcutsDialog } from '../settings/KeyboardShortcutsDialog'
 import { AboutDialog } from '../settings/AboutDialog'
 import { ModelPickerDialog } from '../ModelPickerDialog'
 import { APP_VERSION } from '../../buildInfo.generated'
-import { AIConsentDialog } from '../AIConsentDialog'
+import { OnboardingDialog } from '../onboarding/OnboardingDialog'
 import { ReleaseNotesDialog } from '../releaseNotes/ReleaseNotesDialog'
 import { EnableLoggingDialog } from '../EnableLoggingDialog'
 import { Notifications } from './Notifications'
@@ -417,7 +417,7 @@ export function App() {
     }
     // Create blank tab after discarding
     if (!tabsInitialized.current) {
-      await createNewTab()
+      await createNewTab({ home: true })
       tabsInitialized.current = true
     }
     setRecoveryDialogOpen(false)
@@ -428,15 +428,27 @@ export function App() {
     }
   }, [pendingSession, pendingDraft, discardSession, discardDraft, createNewTab])
 
-  // Auto-show AI consent dialog on first launch or when disclosure version changes
+  // First-run onboarding (#1188): one modal, opened on first launch or when the
+  // disclosure version changes. Settings' AI toggle reopens it through the same
+  // flag, so the seam is unchanged.
   const setAIConsentDialogOpen = useSettingsStore((s) => s.setAIConsentDialogOpen)
+  const isOnboardingOpen = useSettingsStore((s) => s.isAIConsentDialogOpen)
+  // Whether consent was already current when settings loaded. The later-launch
+  // default-editor prompt ("Remind me later") runs only then, so it never
+  // stacks on onboarding nor follows it in the same session.
+  const [consentCurrentAtLoad, setConsentCurrentAtLoad] = useState<boolean | null>(null)
   useEffect(() => {
     if (!settingsLoaded) return
     const aiConsent = settings.aiConsent
-    if (!aiConsent || aiConsent.version < AI_CONSENT_VERSION) {
-      setAIConsentDialogOpen(true)
-    }
+    // The same predicate the gate always had: a record without a version is
+    // current (e2e seeds one), only a missing record or a lower version is due.
+    const current = !(!aiConsent || aiConsent.version < AI_CONSENT_VERSION)
+    setConsentCurrentAtLoad((known) => (known === null ? current : known))
+    if (!current) setAIConsentDialogOpen(true)
   }, [settingsLoaded, settings.aiConsent, setAIConsentDialogOpen])
+  // Done closes the modal onto the home screen: the blank launch tab shows the
+  // empty state (mark, shortcuts, New Document / Open File).
+  const handleOnboardingFinish = useCallback(() => setAIConsentDialogOpen(false), [setAIConsentDialogOpen])
 
   // Post-update release notes (#1058). Deliberately not updater-driven: the updater
   // is disabled on MAS and in dev, and `updater:update-available` fires BEFORE
@@ -523,7 +535,7 @@ export function App() {
         if (!draft) {
           // No draft to recover - create blank tab and complete initialization
           if (!tabsInitialized.current) {
-            await createNewTab()
+            await createNewTab({ home: true })
             tabsInitialized.current = true
           }
           useChatStore.getState().setInitializing(false)
@@ -537,7 +549,7 @@ export function App() {
         if (!draft.document.content && !draft.document.isDirty) {
           await clearDraft()
           if (!tabsInitialized.current) {
-            await createNewTab()
+            await createNewTab({ home: true })
             tabsInitialized.current = true
           }
           useChatStore.getState().setInitializing(false)
@@ -564,7 +576,7 @@ export function App() {
         console.error('Failed to check for recovery:', error)
         // Create blank tab on error
         if (!tabsInitialized.current) {
-          await createNewTab()
+          await createNewTab({ home: true })
           tabsInitialized.current = true
         }
         useChatStore.getState().setInitializing(false)
@@ -847,8 +859,12 @@ export function App() {
           open={isModelPickerOpen}
           onOpenChange={setModelPickerOpen}
         />
-        <DefaultHandlerPrompt />
-        <AIConsentDialog />
+        {consentCurrentAtLoad === true && <DefaultHandlerPrompt />}
+        <OnboardingDialog
+          open={isOnboardingOpen}
+          startAt={settings.aiConsent ? 'ai' : 'welcome'}
+          onFinish={handleOnboardingFinish}
+        />
         {releaseNotesMarkdown && <ReleaseNotesDialog markdown={releaseNotesMarkdown} />}
         <EnableLoggingDialog />
         <Notifications />

@@ -96,3 +96,8 @@ button, **Done**, which closes onto the home screen (the design's New document /
   passed**, 1 flaky (editor theme toggle), 8 did not run (smoke, #1160), 2 failed (`share-sync:817` #1037,
   `shared-view:181`) which fail on a build of the merge-base too (#1085 class). Done, the home screen and the first
   edit screenshotted from the built app.
+- 2026-11-05 (~01:50 EST): CI on `505b0d2` failed one test, `electron.shared-view:181`, and it was this change, not the
+  #1085 flake: the spec dismissed context menus by clicking `.prose-editor`, which the home screen no longer renders on
+  a blank launch tab (the first run on this branch, before the home screen, had passed it). `shared-view`'s
+  `dismissMenu` clicks the status bar's empty middle instead (always rendered; Escape there also emptied the Shared view),
+  and `share-sync`'s #1037 case presses Escape (its status bar is not on screen). Both specs green locally (35/35).

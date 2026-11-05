@@ -870,7 +870,8 @@ test('the Shared view reconciles with the gateway list: server revocations, coun
   await expect(page.getByRole('menuitem', { name: 'Revoke', exact: true })).toBeVisible()
   await expect(page.getByRole('menuitem', { name: 'Copy link' })).toHaveCount(0)
   await expect(page.getByRole('menuitem', { name: 'Open', exact: true })).toHaveCount(0)
-  await page.locator('.prose-editor').click({ position: { x: 20, y: 20 }, force: true })
+  // Escape, not a click on the editor element, which is absent behind the home screen (#1188).
+  await page.keyboard.press('Escape')
   await expect(page.getByRole('menu')).toHaveCount(0)
 
   gateway.publications = []

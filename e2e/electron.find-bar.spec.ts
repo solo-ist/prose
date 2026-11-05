@@ -13,7 +13,15 @@ import type { ElectronApplication, Page } from '@playwright/test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { launchApp, waitForAppReady, dismissOnboarding, dismissOverlay, waitForEditor, seedSettings } from './helpers'
+import {
+  launchApp,
+  waitForAppReady,
+  dismissOnboarding,
+  dismissOverlay,
+  waitForEditor,
+  seedSettings,
+  executeProseTool,
+} from './helpers'
 
 let app: ElectronApplication
 let page: Page
@@ -132,6 +140,62 @@ test.describe('Electron — find bar (#1106)', () => {
     await expect(highlights()).toHaveCount(3)
     await findInput().press('Escape')
     await expect(findInput()).toHaveCount(0)
+    await expect(highlights()).toHaveCount(0)
+  })
+
+  // #1203, first half: the pane scrolls to a match below the fold while the
+  // focus stays in the input. ProseMirror's own scrollIntoView never reached
+  // the pane from there.
+  test('Enter scrolls the pane to a match below the fold while the input keeps the focus', async () => {
+    const filler = Array.from({ length: 60 }, (_, i) => `<p>filler line ${i + 1}</p>`).join('')
+    await setDocument(`<p>needle one</p>${filler}<p>needle two</p>${filler}<p>needle three</p>`)
+    const paneTop = () =>
+      page.locator('.prose-editor .ProseMirror').evaluate((el) => (el.closest('.overflow-auto') as HTMLElement).scrollTop)
+    const currentInPane = () =>
+      page.locator('.prose-editor .search-match-current').first().evaluate((el) => {
+        const pane = el.closest('.overflow-auto') as HTMLElement
+        const r = el.getBoundingClientRect()
+        const p = pane.getBoundingClientRect()
+        return r.top >= p.top && r.bottom <= p.bottom
+      })
+    await search('needle')
+    await expect(counter()).toHaveText('1/3')
+    await findInput().press('Enter')
+    await expect(counter()).toHaveText('2/3')
+    await expect.poll(currentInPane).toBe(true)
+    expect(await paneTop()).toBeGreaterThan(0)
+    await expect(findInput()).toBeFocused()
+    await findInput().press('Enter')
+    await expect(counter()).toHaveText('3/3')
+    await expect.poll(currentInPane).toBe(true)
+    await expect(findInput()).toBeFocused()
+    await findInput().press('Shift+Enter')
+    await expect(counter()).toHaveText('2/3')
+    await expect.poll(currentInPane).toBe(true)
+    await expect(findInput()).toBeFocused()
+  })
+
+  // #1203, second half: the search state is per tab, so closing the bar on
+  // tab B must not leave tab A's highlights behind.
+  test('a closed bar leaves no highlights in a tab searched before a switch', async () => {
+    const a = await executeProseTool(page, 'create_and_open_file', {
+      filename: 'needles-1203.md',
+      content: 'needle one\n\nneedle two\n\nneedle three'
+    })
+    expect(a.success).toBe(true)
+    await waitForEditor(page)
+    await search('needle')
+    await expect(highlights()).toHaveCount(3)
+    const b = await executeProseTool(page, 'create_and_open_file', { filename: 'other-1203.md', content: 'nothing here' })
+    expect(b.success).toBe(true)
+    await waitForEditor(page)
+    await expect(page.locator('.prose-editor .ProseMirror')).toContainText('nothing here')
+    await expect(highlights()).toHaveCount(0)
+    await findInput().press('Escape')
+    await expect(findInput()).toHaveCount(0)
+    const back = await executeProseTool(page, 'select_tab', { match: 'needles-1203' })
+    expect(back.success).toBe(true)
+    await expect(page.locator('.prose-editor .ProseMirror')).toContainText('needle three')
     await expect(highlights()).toHaveCount(0)
   })
 })

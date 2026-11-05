@@ -111,4 +111,42 @@ test.describe('Electron — image file names with spaces (#1133)', () => {
 
     expect(await getEditorMarkdown(page)).toBe(md)
   })
+
+  // A relative image path resolves against its own document's folder after a
+  // tab switch, not the folder of the tab that was active before (#1204): the
+  // node views are rebuilt on the switch, before the active-document mirror
+  // is updated.
+  test('the image survives a switch to a document in another folder and back', async () => {
+    const otherDir = mkdtempSync(join(homedir(), 'prose-e2e-1204-'))
+    try {
+      const otherPath = join(otherDir, 'elsewhere.md')
+      writeFileSync(otherPath, '# Elsewhere\n\nAnother folder.')
+      const created = await executeProseTool(page, 'create_and_open_file', {
+        filename: 'shots-switch.md',
+        content: `# Shots\n\n![Screenshot](${ENCODED})\n\nAfter the picture.`
+      })
+      expect(created.success, JSON.stringify(created)).toBe(true)
+      await waitForEditor(page)
+      // `img.editor-image`: ProseMirror wraps an inline node view in
+      // zero-size `img.ProseMirror-separator` elements, which a bare `img`
+      // locator finds first.
+      const img = () => page.locator('.ProseMirror img.editor-image').first()
+      const loaded = () => img().evaluate((el) => (el as HTMLImageElement).complete && (el as HTMLImageElement).naturalWidth > 0)
+      await expect.poll(loaded).toBe(true)
+
+      const away = await executeProseTool(page, 'open_file', { path: otherPath })
+      expect(away.success, JSON.stringify(away)).toBe(true)
+      await expect(page.locator('.ProseMirror')).toContainText('Another folder')
+      const back = await executeProseTool(page, 'open_file', { path: join(qaDocsDir, 'shots-switch.md') })
+      expect(back.success, JSON.stringify(back)).toBe(true)
+      await expect(page.locator('.ProseMirror')).toContainText('After the picture')
+
+      const src = decodeURIComponent(await img().evaluate((el) => (el as HTMLImageElement).src))
+      expect(src).toContain(`${qaDocsDir}/`)
+      expect(src).not.toContain(otherDir)
+      await expect.poll(loaded, { message: `after the switch back, src=${src}` }).toBe(true)
+    } finally {
+      rmSync(otherDir, { recursive: true, force: true })
+    }
+  })
 })

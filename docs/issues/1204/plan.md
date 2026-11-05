@@ -37,3 +37,8 @@ build of the merge-base's `src`.
 ## Execution log
 
 - 2026-11-04: inventory (above).
+- 2026-11-04, built: `ad219f3` plan · `13867a4` the change. `typecheck:renderer` 66 (= baseline), e2e tsc 6 (= baseline),
+  build clean; `electron.image-paths` 2/2 on the fix. **Falsified** on a build of the merge-base's `src` (`d3e4b0e`):
+  the new case fails there (the `img` `src` carries the other document's folder after the switch back), the #1133
+  case still passes; HEAD restored and rebuilt. Spec note: a bare `.ProseMirror img` locator finds ProseMirror's
+  zero-size `img.ProseMirror-separator` first; the case locates `img.editor-image`.

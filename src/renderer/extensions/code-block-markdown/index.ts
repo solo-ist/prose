@@ -95,6 +95,37 @@ export const IndentedCodeParse = Extension.create({
  * change. It copies the block's plain text, never the fence or the language.
  * A read-only editor hides it in CSS (`.ProseMirror[contenteditable=false]`).
  */
+const SVG_NS = 'http://www.w3.org/2000/svg'
+type Shape = [tag: string, attrs: Record<string, string>]
+// Lucide's `clipboard` and `check` glyphs (ISC), built with DOM calls: no innerHTML.
+const CLIPBOARD: Shape[] = [
+  ['rect', { x: '8', y: '2', width: '8', height: '4', rx: '1', ry: '1' }],
+  ['path', { d: 'M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2' }]
+]
+const CHECK: Shape[] = [['path', { d: 'M20 6 9 17l-5-5' }]]
+
+function svgIcon(shapes: Shape[]): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, 'svg')
+  const base: Record<string, string> = {
+    viewBox: '0 0 24 24',
+    width: '14',
+    height: '14',
+    fill: 'none',
+    stroke: 'currentColor',
+    'stroke-width': '2',
+    'stroke-linecap': 'round',
+    'stroke-linejoin': 'round',
+    'aria-hidden': 'true'
+  }
+  for (const [key, value] of Object.entries(base)) svg.setAttribute(key, value)
+  for (const [tag, attrs] of shapes) {
+    const el = document.createElementNS(SVG_NS, tag)
+    for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value)
+    svg.appendChild(el)
+  }
+  return svg
+}
+
 function codeBlockView(node: PMNode, languageClassPrefix: string, htmlAttributes: Record<string, unknown>): NodeView {
   let current = node
   const dom = document.createElement('div')
@@ -111,9 +142,17 @@ function codeBlockView(node: PMNode, languageClassPrefix: string, htmlAttributes
   button.type = 'button'
   button.className = 'code-copy'
   button.dataset.testid = 'code-copy'
-  button.setAttribute('aria-label', 'Copy code')
   button.contentEditable = 'false'
-  button.textContent = 'Copy'
+  // A clipboard glyph, a check while "copied" (#1205); the label carries the
+  // words for assistive tech and the tooltip.
+  const setState = (state: 'idle' | 'copied') => {
+    const label = state === 'copied' ? 'Copied' : 'Copy code'
+    button.dataset.state = state
+    button.setAttribute('aria-label', label)
+    button.title = label
+    button.replaceChildren(svgIcon(state === 'copied' ? CHECK : CLIPBOARD))
+  }
+  setState('idle')
   let reset: ReturnType<typeof setTimeout> | null = null
   button.addEventListener('mousedown', (event) => event.preventDefault())
   button.addEventListener('click', (event) => {
@@ -122,11 +161,9 @@ function codeBlockView(node: PMNode, languageClassPrefix: string, htmlAttributes
     void getApi()
       .copyToClipboard(current.textContent)
       .then(() => {
-        button.textContent = 'Copied'
+        setState('copied')
         if (reset) clearTimeout(reset)
-        reset = setTimeout(() => {
-          button.textContent = 'Copy'
-        }, 1500)
+        reset = setTimeout(() => setState('idle'), 1500)
       })
       .catch((error) => console.error('Failed to copy code block:', error))
   })

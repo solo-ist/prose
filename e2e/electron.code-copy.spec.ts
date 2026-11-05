@@ -55,6 +55,11 @@ test.describe('Electron — code block copy button (#1111)', () => {
     await expect(block).toHaveCount(1)
     const button = page.locator('.ProseMirror [data-testid="code-copy"]')
     await expect(button).toHaveCount(1)
+    // A glyph, not a word (#1205): the label carries the text.
+    await expect(button).toHaveAttribute('aria-label', 'Copy code')
+    await expect(button).toHaveAttribute('data-state', 'idle')
+    await expect(button.locator('svg')).toHaveCount(1)
+    await expect(button).toHaveText('')
 
     // Park the caret inside the block, then copy: the caret must stay put.
     await page.evaluate(() => {
@@ -78,7 +83,10 @@ test.describe('Electron — code block copy button (#1111)', () => {
       return [s.from, s.to]
     })
     expect(after).toEqual(before)
-    await expect(button).toHaveText(/Copied/)
+    await expect(button).toHaveAttribute('data-state', 'copied')
+    await expect(button).toHaveAttribute('aria-label', 'Copied')
+    await expect(button).toHaveText('')
+    await expect(button).toHaveAttribute('data-state', 'idle', { timeout: 4000 })
 
     // Read-only: no button; editable again: back.
     await page.evaluate(() => {

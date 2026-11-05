@@ -35,3 +35,7 @@ Falsified on a build of the merge-base's `src`.
 ## Execution log
 
 - 2026-11-04: inventory (above).
+- 2026-11-04, built: `0c69ccb` plan · `c1322c5` the change. `typecheck:renderer` 66 (= baseline), e2e tsc 6 (= baseline),
+  build clean; `electron.find-bar` 6/6 on the fix. **Falsified** on a build of the merge-base's `src` (`d3e4b0e`): both
+  new cases fail there (the current match never enters the pane; tab A comes back with 3 highlights), the four #1106
+  cases pass on both builds; HEAD restored and rebuilt.

@@ -87,3 +87,12 @@ button, **Done**, which closes onto the home screen (the design's New document /
   define), so the MAS e2e case was dropped for the vitest sequence + a manual check on a MAS build; and
   `electron.mcp-socket-path.spec.ts` (#1201, merged after #1200's tripwire) seeded `aiConsent`-less settings by hand
   and turned `electron.seed-settings` red on the release head: it goes through `seedSettings` now.
+- 2026-11-05 (~01:00 EST), the operator's first live pass: Done became one button closing onto the home screen, and
+  the home screen came back for every blank tab (`newTab({ home: true })` on launch and after the last close;
+  New Document / ⌘T reuse a blank untitled tab). The first CI run had failed three chat-binding cases: the rewritten
+  consent gate read a seeded record without a `version` as stale and the fresh-profile dismissal declined AI; the
+  gate keeps its exact old predicate. Commit `505b0d2`. `typecheck:renderer` 66 (= baseline), e2e tsc 6, build clean;
+  onboarding 3/3, document-sessions 12/12, find-bar 6/6, tab-switch-flush, release-notes 4/4. **Full local suite: 271
+  passed**, 1 flaky (editor theme toggle), 8 did not run (smoke, #1160), 2 failed (`share-sync:817` #1037,
+  `shared-view:181`) which fail on a build of the merge-base too (#1085 class). Done, the home screen and the first
+  edit screenshotted from the built app.

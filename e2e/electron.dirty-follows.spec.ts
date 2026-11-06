@@ -94,7 +94,8 @@ test('in source mode the dirty flag follows the keystroke, and undo clears it at
   expect(await isDirty()).toBe(false)
   await page.keyboard.type('x')
   expect(await isDirty(), 'dirty right after the keystroke').toBe(true)
-  await page.keyboard.press('Meta+z')
+  // CodeMirror's undo is Mod-z: ⌘Z here, Ctrl+Z on the Linux CI runner.
+  await page.keyboard.press('ControlOrMeta+z')
   expect(await isDirty(), 'clean right after the undo').toBe(false)
   await page.locator('[aria-label="WYSIWYG mode"]').click()
   await page.waitForSelector(selectors.editor, { state: 'visible', timeout: 5_000 })

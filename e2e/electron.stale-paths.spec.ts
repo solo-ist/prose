@@ -19,6 +19,7 @@ import {
   executeProseTool,
   getEditorMarkdown,
   selectors,
+  seedSettings,
 } from './helpers'
 import { ensureFileListOpen } from './shared'
 
@@ -34,22 +35,15 @@ let missingRecentPath: string
 let sessionMissingPath: string
 
 function writeSettings(): void {
-  writeFileSync(
-    join(qaUserDataDir, 'settings.json'),
-    JSON.stringify(
-      {
-        appearance: { mode: 'dark', color: 'mono', icon: 'pilcrow', migrationToastShown: true },
+  seedSettings(qaUserDataDir, {
+        appearance: { mode: 'dark', color: 'mono', icon: 'pilcrow' },
         fileAssociation: { hasBeenPrompted: true },
         aiConsent: { consented: false, consentedAt: new Date().toISOString(), version: 1 },
         recovery: { mode: 'silent' },
         autosave: { mode: 'off', intervalSeconds: 30 },
         defaultSaveDirectory: qaDocsDir,
         recentFiles: [missingRecentPath, existingRecentPath],
-      },
-      null,
-      2,
-    ),
-  )
+      })
 }
 
 async function launchIsolatedApp(): Promise<void> {

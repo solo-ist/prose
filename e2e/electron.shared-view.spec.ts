@@ -21,6 +21,7 @@ import {
   dismissOverlay,
   switchExplorerTab,
   selectors,
+  seedSettings,
 } from './helpers'
 
 let app: ElectronApplication | null
@@ -46,7 +47,10 @@ function syncFilePath(): string {
 // (forced: its DismissableLayer disables pointer events on the rest of the
 // page while open, which Playwright's actionability check would wait out).
 async function dismissMenu(): Promise<void> {
-  await page.locator(selectors.editorContent).click({ position: { x: 20, y: 20 }, force: true })
+  // A click outside, on the status bar's empty middle: it is always rendered,
+  // where the editor element is not while a blank launch tab shows the home
+  // screen (#1188), and unlike Escape it has no other effect on the window.
+  await page.locator('[data-testid="status-bar"]').click({ position: { x: 400, y: 10 }, force: true })
   await expect(page.getByRole('menu')).toHaveCount(0)
 }
 
@@ -62,11 +66,8 @@ test.beforeAll(async () => {
     writeFileSync(join(docsDir, name), `# ${name}\n\nBody.\n`)
   }
 
-  writeFileSync(
-    join(userDataDir, 'settings.json'),
-    JSON.stringify(
-      {
-        appearance: { mode: 'dark', color: 'mono', icon: 'pilcrow', migrationToastShown: true },
+  seedSettings(userDataDir, {
+        appearance: { mode: 'dark', color: 'mono', icon: 'pilcrow' },
         fileAssociation: { hasBeenPrompted: true },
         aiConsent: { consented: false, consentedAt: iso(0), version: 1 },
         recovery: { mode: 'silent' },
@@ -74,11 +75,7 @@ test.beforeAll(async () => {
         defaultSaveDirectory: docsDir,
         // Sharing is on by default since 1.8.1 (#943) — no flag needed.
         webPlatform: { gatewayUrl: GATEWAY },
-      },
-      null,
-      2,
-    ),
-  )
+      })
 
   const base = {
     documentId: 'seeded',

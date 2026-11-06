@@ -1,0 +1,103 @@
+# #1188 — First-run onboarding: one multi-step modal
+
+Issue: https://github.com/solo-ist/prose/issues/1188 (epic #1094). Design package: `docs/issues/1188/design/` (PR #1189,
+merged). Branch `issue-1188-onboarding` from `release/v1.9.0` = `bbb1873`; renderer-only; one PR, merge commit, green
+CI and claude review. Pulled into 1.9.0 by the operator on 2026-11-04 ("one last thing before we get the release out").
+
+## Decisions (operator, 2026-11-04, the issue's three open questions)
+
+1. **Crash reports start unchecked.** Matches the public "opt-in, off by default"; Settings keeps the toggle.
+2. **Escape:** ignored until the AI choice is made (steps 1–2); afterwards it jumps to Done, and on Done it finishes
+   (writes what was chosen, closes). e2e's fresh-profile dismissal drives the modal instead of Escaping blindly.
+3. **Default editor step is skipped when Prose is already the `.md` default** (`fileAssociationIsDefault() === true`;
+   `null` counts as not default, as the old prompt did), and `hasBeenPrompted` is still written at Done.
+
+## What exists today (confirmed)
+
+- `AIConsentDialog` (two internal steps: consent + crash checkbox, then the Skill download on direct builds), opened
+  by `App.tsx` when `aiConsent` is missing or its `version` is below `AI_CONSENT_VERSION`, and by Settings' AI toggle
+  when enabling without consent. `DefaultHandlerPrompt` opens on a 1 s timer when `fileAssociation.hasBeenPrompted`
+  is unset and Prose is not known to be the default. The API key lives in Settings → AI: the store's
+  `settings.llm.apiKey` is sent with `settings:save`, where main moves it into `credentialStore` (Keychain) and strips
+  it from disk, so "saved to Keychain" is the truth of the existing path. `testApiKey`, `downloadSkill`, `mcpInstall`,
+  `mcpGetStatus`, `fileAssociationIsDefault`, `openExternal` and `isMasBuild` are all on `window.api` already.
+- No main-process change is needed; nothing under `src/main` or `src/preload` moves.
+
+## Change
+
+- **`components/onboarding/steps.ts`** (pure, unit-tested): `sequenceFor({ ai, direct, defaultAlready })` gives the
+  steps that apply (`welcome`, `ai`, `key` unless AI is declined, `claude` on direct builds, `default` unless already
+  default, `done`); the key step stays in the count until AI is declined, so Welcome reads "1 / 6" before the choice,
+  as the design renders. `resolveStep` moves a step that fell out of the sequence to the next one that applies.
+  `summaryRows` builds the Done table (AI assistance, Crash reports, Claude Skill and Desktop on direct builds,
+  Default for `.md`).
+- **`components/onboarding/OnboardingDialog.tsx`**: one Radix alert dialog (no outside-click dismiss), 520×560,
+  header `n / total · LABEL` with the segment bar, scrolling body, footer with Back / secondary / primary. Theme tokens
+  throughout (the design's dark render is the dark theme); Fraunces italic only for the Welcome and Done headings,
+  the brand mark is the `ProseMark` vector (#1063). Answers are held in memory; **Done writes** `aiConsent`,
+  `errorTracking.enabled` and, when the step was acknowledged or skipped as already default,
+  `fileAssociation.hasBeenPrompted`. Side effects run when their button is pressed and Back never undoes them: Verify
+  checks the key format (`validateApiKeyFormat`) then `testApiKey`, and on success stores it through
+  `setLLMConfig` + `saveSettings` (the Settings path); Download runs `downloadSkill`; Install runs `mcpInstall`
+  (pre-set to Installed when `mcpGetStatus` says so). Re-entry (`startAt: 'ai'` for a stale consent version or the
+  Settings toggle) keeps the crash checkbox at the current setting and shows an existing key as already in the
+  Keychain. The design's "Show me" button (open Get Info on a sample file) needs main-process work and is left out;
+  the four-step list stays.
+- **`App.tsx`**: the consent gate stays (same seam, same flag, so Settings' toggle still reopens it), feeds
+  `OnboardingDialog` with `startAt` (`'ai'` when an `aiConsent` record exists) and runs the Done action (New document
+  → `createNewTab`, Open file… → `openFile`). `DefaultHandlerPrompt` stays only as the **later-launch re-prompt** for
+  "Remind me later": it is mounted only when consent was already current when settings loaded, so it never stacks on
+  onboarding nor follows it in the same session. `AIConsentDialog.tsx` is deleted.
+- **e2e**: `dismissOnboarding` / `dismissConsentDialog` drive the modal on a fresh profile (Get started → Write without
+  AI → Continue → Escape → Escape) before the old Escape loop; specs that seed consent are untouched.
+
+## The home screen (operator, 2026-11-05, from the first live pass)
+
+The app had lost its home screen (the empty state: mark, shortcuts, New Document / Open File): since #1145
+`arriveTab` sets `isEditing` on every arrival, the blank launch tab included, so a fresh launch showed an Untitled
+editor and the modal's "New document" opened "Untitled 2". Change: `newTab({ home: true })` (the launch tab, the tab
+left after the last close) arrives with `isEditing` off, so the empty state shows until the user acts; New Document
+and ⌘T over a blank untitled tab start writing in it instead of opening another; the modal's Done step has one
+button, **Done**, which closes onto the home screen (the design's New document / Open file… live there). e2e's
+`waitForEditor` enters the home screen when it is showing, so specs that launch into a blank tab keep working.
+
+## Tests
+
+- vitest `steps.test.ts`: the four sequences (direct/App Store × AI on/off), the already-default skip, `resolveStep`,
+  the summary rows and tones.
+- `e2e/electron.onboarding.spec.ts` (fresh `PROSE_USER_DATA_DIR`, no `settings.json`; the release-notes modal is
+  off while consent is due): direct build, AI on: one alert dialog, "1 / 6", Continue disabled and Escape inert
+  before a choice, a malformed key rejected with Continue disabled, skip through to Done with "Remind me later", New
+  document closes it, `settings.json` holds `consented: true`, `errorTracking.enabled: false`, no `hasBeenPrompted`,
+  and no second dialog follows; AI off: "2 / 5", Escape jumps to Done, Back works from Done, Escape finishes,
+  `consented: false`; `MAS_BUILD=1`: "App Store build", four steps, Continue on the default step writes
+  `hasBeenPrompted`; a stale consent version re-enters at "2 / 6 · AI and privacy". Falsified on a build of the
+  merge-base (no modal there). Skill download and the already-default skip are manual QA (a save dialog; a
+  Launch Services answer the spec cannot force).
+
+## Execution log
+
+- 2026-11-04 (late): inventory, decisions, plan.
+- 2026-11-05 (~00:10 EST), built: `c32a965` plan · `c0b1d99` the change. unit 156/156 (19 files), `typecheck:renderer` 65
+  (baseline 66, the deleted dialog), e2e tsc 6 (= baseline), build clean; `electron.onboarding` 3/3,
+  `electron.release-notes` 4/4, `electron.seed-settings` 1/1, `electron.mcp-socket-path` 1/1 on the built app.
+  **Falsified** on a build of the merge-base's `src` (`bbb1873`): all three onboarding cases fail there (no modal);
+  HEAD restored and rebuilt. Every step screenshotted from the built app (dark and light) and compared with the design
+  renders before the PR. Found on the way: the App Store flag is stamped at build time (`build:env`, the preload
+  define), so the MAS e2e case was dropped for the vitest sequence + a manual check on a MAS build; and
+  `electron.mcp-socket-path.spec.ts` (#1201, merged after #1200's tripwire) seeded `aiConsent`-less settings by hand
+  and turned `electron.seed-settings` red on the release head: it goes through `seedSettings` now.
+- 2026-11-05 (~01:00 EST), the operator's first live pass: Done became one button closing onto the home screen, and
+  the home screen came back for every blank tab (`newTab({ home: true })` on launch and after the last close;
+  New Document / ⌘T reuse a blank untitled tab). The first CI run had failed three chat-binding cases: the rewritten
+  consent gate read a seeded record without a `version` as stale and the fresh-profile dismissal declined AI; the
+  gate keeps its exact old predicate. Commit `505b0d2`. `typecheck:renderer` 66 (= baseline), e2e tsc 6, build clean;
+  onboarding 3/3, document-sessions 12/12, find-bar 6/6, tab-switch-flush, release-notes 4/4. **Full local suite: 271
+  passed**, 1 flaky (editor theme toggle), 8 did not run (smoke, #1160), 2 failed (`share-sync:817` #1037,
+  `shared-view:181`) which fail on a build of the merge-base too (#1085 class). Done, the home screen and the first
+  edit screenshotted from the built app.
+- 2026-11-05 (~01:50 EST): CI on `505b0d2` failed one test, `electron.shared-view:181`, and it was this change, not the
+  #1085 flake: the spec dismissed context menus by clicking `.prose-editor`, which the home screen no longer renders on
+  a blank launch tab (the first run on this branch, before the home screen, had passed it). `shared-view`'s
+  `dismissMenu` clicks the status bar's empty middle instead (always rendered; Escape there also emptied the Shared view),
+  and `share-sync`'s #1037 case presses Escape (its status bar is not on screen). Both specs green locally (35/35).

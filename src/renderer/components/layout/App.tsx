@@ -1,5 +1,4 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useGoogleDocsEnabled, isGoogleDocsEnabled } from '../../lib/featureFlags'
 import { useSharePullSync } from '../../lib/shareSync'
 import { useShareContentSync } from '../../lib/shareContentSync'
 import { downloadSkillWithAlert } from '../../lib/skillDownload'
@@ -16,9 +15,10 @@ import { DefaultHandlerPrompt } from './DefaultHandlerPrompt'
 import { KeyboardShortcutsDialog } from '../settings/KeyboardShortcutsDialog'
 import { AboutDialog } from '../settings/AboutDialog'
 import { ModelPickerDialog } from '../ModelPickerDialog'
-import { AIConsentDialog } from '../AIConsentDialog'
+import { APP_VERSION } from '../../buildInfo.generated'
+import { OnboardingDialog } from '../onboarding/OnboardingDialog'
+import { ReleaseNotesDialog } from '../releaseNotes/ReleaseNotesDialog'
 import { EnableLoggingDialog } from '../EnableLoggingDialog'
-import { MigrationToast } from './MigrationToast'
 import { Notifications } from './Notifications'
 import {
   ResizablePanelGroup,
@@ -36,30 +36,28 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from '../ui/alert-dialog'
-import { Input } from '../ui/input'
-import { Label } from '../ui/label'
-import { Checkbox } from '../ui/checkbox'
 import { buttonVariants } from '../ui/button'
 import { cn } from '../../lib/utils'
 import { useChat } from '../../hooks/useChat'
 import { useSummaryStore } from '../../stores/summaryStore'
 import { useEditor } from '../../hooks/useEditor'
 import { useTabs } from '../../hooks/useTabs'
+import { hydrateDraft, restoreTabs, convertTab, type RestoredTab, toggleSourceMode, markTabSaved } from '../../tabs/actions'
+import { landProjections } from '../../document/session'
 import { useSettings } from '../../hooks/useSettings'
 import { usePanelLayout, PanelLayoutProvider } from '../../hooks/usePanelLayout'
 import type { ImperativePanelHandle } from 'react-resizable-panels'
 import { useEditorStore } from '../../stores/editorStore'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { getApi } from '../../lib/browserApi'
-import { useChatStore, setCurrentDocumentId } from '../../stores/chatStore'
-import { useTabStore, createTab, restoreSession, clearSavedSession, hasUnsavedTabs } from '../../stores/tabStore'
+import { useChatStore } from '../../stores/chatStore'
+import { useTabStore, restoreSession, clearSavedSession, hasUnsavedTabs } from '../../stores/tabStore'
 import { useFileListStore } from '../../stores/fileListStore'
 import { useSettingsStore, AI_CONSENT_VERSION } from '../../stores/settingsStore'
 import { useAutosave } from '../../hooks/useAutosave'
 import {
   loadDraft,
   clearDraft,
-  loadConversations,
   deleteConversations
 } from '../../lib/persistence'
 import { extractFirstH1 } from '../../lib/markdown'
@@ -122,7 +120,6 @@ export function App() {
   const panelLayout = usePanelLayout({ fileListPanelRef, chatPanelRef })
   const { isChatOpen, isFileListOpen, toggleChat, toggleFileList, setChatOpen, panelSizes } = panelLayout
 
-  const googleDocsEnabled = useGoogleDocsEnabled()
   // Pull reviewer comments for published docs — background poll + focus (#769)
   useSharePullSync()
   // Content push engine: auto-mode background pushes + share-dirty tracking (#769)
@@ -133,17 +130,12 @@ export function App() {
   const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false)
   const [pendingDraft, setPendingDraft] = useState<DraftState | null>(null)
   const [pendingSession, setPendingSession] = useState<SessionState | null>(null)
-  const [importDialogOpen, setImportDialogOpen] = useState(false)
-  const [importDocId, setImportDocId] = useState('')
-  const [importAsAI, setImportAsAI] = useState(false)
   const tabsInitialized = useRef(false)
 
-  const hydrateFromDraft = useEditorStore((state) => state.hydrateFromDraft)
   const documentPath = useEditorStore((state) => state.document.path)
   const isDirty = useEditorStore((state) => state.document.isDirty)
   const editor = useEditorInstanceStore((state) => state.editor)
   const tabs = useTabStore((state) => state.tabs)
-  const addTab = useTabStore((state) => state.addTab)
   const initFileWatcher = useFileListStore((state) => state.initFileWatcher)
 
   // Initialize autosave functionality
@@ -170,7 +162,11 @@ export function App() {
         for (const tab of tabs) {
           if (!tab.path) continue
           if (!(await isDiskNewerThanBaseline(tab.path))) continue
-          if (tab.isDirty) {
+          // Typing inside the projection delay must not be reloaded over (#885).
+          landProjections(tab.id)
+          const fresh = useTabStore.getState().getTabById(tab.id)
+          if (!fresh) continue
+          if (fresh.isDirty) {
             notifyExternalEditConflict(tab.id, tab.path)
           } else {
             await loadDiskVersionIntoTab(tab.id, tab.path)
@@ -193,13 +189,13 @@ export function App() {
     if (!conflict || !window.api) return
     try {
       await window.api.saveFile(conflict.path, conflict.content)
-      void recordDiskBaseline(conflict.path)
-      const { tabs, updateTab } = useTabStore.getState()
-      const tab = tabs.find((t) => t.path === conflict.path)
-      if (tab) updateTab(tab.id, { isDirty: false })
-      if (useEditorStore.getState().document.path === conflict.path) {
-        useEditorStore.getState().setDirty(false)
-      }
+      // The tab records what the held text held; typing since keeps it dirty (#1151).
+      const { tabs } = useTabStore.getState()
+      const tab =
+        (conflict.tabId ? tabs.find((t) => t.id === conflict.tabId) : undefined) ??
+        tabs.find((t) => t.path === conflict.path)
+      if (tab) await markTabSaved(tab.id, conflict.path, conflict.snapshot)
+      else void recordDiskBaseline(conflict.path)
     } catch (error) {
       console.error('[DiskSync] Overwrite save failed:', error)
       useNotificationStore.getState().notify({
@@ -289,60 +285,11 @@ export function App() {
     document.title = `${fileName}${dirtyIndicator} — Prose`
   }, [documentPath, documentContent, isDirty, isAutoSaving])
 
-  // Recover draft and associated conversations
-  const recoverDraft = useCallback(
-    async (draft: DraftState) => {
-      hydrateFromDraft(draft)
-      setCurrentDocumentId(draft.document.documentId)
-
-      // Create a tab for the recovered document
-      const title = draft.document.path
-        ? (() => {
-            const fullFileName = draft.document.path.split('/').pop() || 'Untitled'
-            const hasExtension = fullFileName.includes('.')
-            return hasExtension
-              ? fullFileName.substring(0, fullFileName.lastIndexOf('.'))
-              : fullFileName
-          })()
-        : 'Untitled'
-
-      addTab({
-        documentId: draft.document.documentId,
-        path: draft.document.path,
-        title,
-        isDirty: draft.document.isDirty,
-        content: draft.document.content,
-        cursorPosition: draft.cursorPosition
-      })
-      tabsInitialized.current = true
-
-      // Restore file list state if present
-      if (draft.fileList) {
-        useFileListStore.setState({
-          viewMode: draft.fileList.viewMode,
-          rootPath: draft.fileList.rootPath,
-          expandedFolders: new Set(draft.fileList.expandedFolders),
-          selectedPath: draft.fileList.selectedPath
-        })
-        // Reload files if we have a rootPath
-        if (draft.fileList.rootPath) {
-          useFileListStore.getState().loadFiles()
-        }
-      }
-
-      // Load conversations for the recovered document
-      const conversations = await loadConversations(draft.document.documentId)
-      useChatStore.setState({
-        conversations,
-        activeConversationId: draft.activeChatId ?? conversations[0]?.id ?? null,
-        messages:
-          conversations.find((c) => c.id === draft.activeChatId)?.messages ??
-          conversations[0]?.messages ??
-          []
-      })
-    },
-    [hydrateFromDraft, addTab]
-  )
+  // Recover a legacy single-document draft (pre-session builds)
+  const recoverDraft = useCallback(async (draft: DraftState) => {
+    await hydrateDraft(draft)
+    tabsInitialized.current = true
+  }, [])
 
   // Discard draft and cleanup if it was an unsaved document
   const discardDraft = useCallback(async (draft: DraftState) => {
@@ -353,117 +300,89 @@ export function App() {
     }
   }, [])
 
-  // Recover session (multiple tabs)
-  const recoverSessionState = useCallback(
-    async (session: SessionState) => {
-      // Restore each tab
-      for (let i = 0; i < session.tabs.length; i++) {
-        const tabDraft = session.tabs[i]
-        const isActiveTab = tabDraft.tabId === session.activeTabId
-        let restoredPath = tabDraft.path
-        let restoredIsDirty = tabDraft.isDirty
-        let restoredContent = tabDraft.content
-        let restoredFrontmatter = tabDraft.frontmatter
+  // Recover session (multiple tabs). Each draft is resolved against the disk
+  // here (missing, stale, conflict); the tab action adds the tabs and arrives
+  // at the active one.
+  const recoverSessionState = useCallback(async (session: SessionState) => {
+    const restored: RestoredTab[] = []
+    for (const tabDraft of session.tabs) {
+      let restoredPath = tabDraft.path
+      let restoredIsDirty = tabDraft.isDirty
+      let restoredContent = tabDraft.content
+      let restoredFrontmatter = tabDraft.frontmatter
+      let fromDisk = false
 
-        if (tabDraft.path && window.api) {
-          const exists = await window.api.fileExists(tabDraft.path).catch(() => false)
-          if (!exists) {
-            handleMissingPath(tabDraft.path, 'restore')
-            restoredPath = null
-            restoredIsDirty = true
-          } else if (await isSnapshotStale(tabDraft.path, session.savedAt)) {
-            // The file changed on disk after this session was saved — e.g. an
-            // external editor, git, or an agent wrote it while Prose was
-            // closed. Hydrating the snapshot unconditionally would resurrect
-            // stale content, and a save from that tab would clobber the
-            // external edits (#829).
-            if (!tabDraft.isDirty) {
-              // Clean tab: the snapshot has nothing the disk doesn't — load
-              // the disk version. Falls back to the snapshot on read failure.
-              const disk = await readDocumentFromDisk(tabDraft.path)
-              if (disk) {
-                restoredContent = disk.content
-                restoredFrontmatter = disk.frontmatter
-                void recordDiskBaseline(tabDraft.path)
-              }
-            } else {
-              // Dirty tab: unsaved draft AND external disk edits — a genuine
-              // conflict. Keep the draft (nothing is lost yet) and let the
-              // user choose; silently picking either side guarantees loss.
-              notifyRestoreConflict(tabDraft.tabId, tabDraft.path)
-              // Baseline = when this draft last agreed with disk, so the
-              // save guards keep protecting the disk edits (#843).
-              void recordDiskBaseline(tabDraft.path, session.savedAt)
+      if (tabDraft.path && window.api) {
+        const exists = await window.api.fileExists(tabDraft.path).catch(() => false)
+        if (!exists) {
+          handleMissingPath(tabDraft.path, 'restore')
+          restoredPath = null
+          restoredIsDirty = true
+        } else if (await isSnapshotStale(tabDraft.path, session.savedAt)) {
+          // The file changed on disk after this session was saved — e.g. an
+          // external editor, git, or an agent wrote it while Prose was
+          // closed. Hydrating the snapshot unconditionally would resurrect
+          // stale content, and a save from that tab would clobber the
+          // external edits (#829).
+          if (!tabDraft.isDirty) {
+            // Clean tab: the snapshot has nothing the disk doesn't — load
+            // the disk version. Falls back to the snapshot on read failure.
+            const disk = await readDocumentFromDisk(tabDraft.path)
+            if (disk) {
+              restoredContent = disk.content
+              restoredFrontmatter = disk.frontmatter
+              fromDisk = true
             }
           } else {
-            // Disk unchanged since the snapshot — content agrees with disk.
-            void recordDiskBaseline(tabDraft.path)
+            // Dirty tab: unsaved draft AND external disk edits — a genuine
+            // conflict. Keep the draft (nothing is lost yet) and let the
+            // user choose; silently picking either side guarantees loss.
+            notifyRestoreConflict(tabDraft.tabId, tabDraft.path)
+            // Baseline = when this draft last agreed with disk, so the
+            // save guards keep protecting the disk edits (#843).
+            void recordDiskBaseline(tabDraft.path, session.savedAt)
           }
-        }
-
-        addTab({
-          id: tabDraft.tabId,
-          documentId: tabDraft.documentId,
-          path: restoredPath,
-          title: tabDraft.title,
-          baseTitle: tabDraft.baseTitle,
-          isDirty: restoredIsDirty,
-          content: restoredContent,
-          frontmatter: restoredFrontmatter,
-          cursorPosition: tabDraft.cursorPosition
-        })
-
-        // If this is the active tab, hydrate the editor
-        if (isActiveTab) {
-          const documentContent = restoredContent
-          // Use setDocument (not a raw setState) so reMarkable read-only state is
-          // derived from the restored path. A raw setState bypasses that derivation,
-          // which left a restored OCR tab editable — a stray save there would clobber
-          // the hidden sync-managed file.
-          useEditorStore.getState().setDocument({
-            documentId: tabDraft.documentId,
-            path: restoredPath,
-            content: documentContent,
-            frontmatter: restoredFrontmatter ?? {},
-            isDirty: restoredIsDirty
-          })
-          setCurrentDocumentId(tabDraft.documentId)
-
-          // Load conversations for the active tab
-          const conversations = await loadConversations(tabDraft.documentId)
-          useChatStore.setState({
-            conversations,
-            activeConversationId: tabDraft.activeChatId ?? conversations[0]?.id ?? null,
-            messages:
-              conversations.find((c) => c.id === tabDraft.activeChatId)?.messages ??
-              conversations[0]?.messages ??
-              []
-          })
+        } else {
+          // Disk unchanged since the snapshot — content agrees with disk.
+          fromDisk = true
         }
       }
 
-      // Set active tab
-      if (session.activeTabId) {
-        useTabStore.getState().setActiveTab(session.activeTabId)
-      }
+      restored.push({
+        draft: tabDraft,
+        path: restoredPath,
+        isDirty: restoredIsDirty,
+        content: restoredContent,
+        frontmatter: restoredFrontmatter,
+        fromDisk
+      })
+    }
 
-      // Restore file list state if present
-      if (session.fileList) {
-        useFileListStore.setState({
-          viewMode: session.fileList.viewMode,
-          rootPath: session.fileList.rootPath,
-          expandedFolders: new Set(session.fileList.expandedFolders),
-          selectedPath: session.fileList.selectedPath
-        })
-        if (session.fileList.rootPath) {
-          useFileListStore.getState().loadFiles()
-        }
+    // Baselines for the background tabs whose content agrees with disk; the
+    // active tab's is recorded when it arrives.
+    for (const entry of restored) {
+      if (entry.fromDisk && entry.path && entry.draft.tabId !== session.activeTabId) {
+        void recordDiskBaseline(entry.path)
       }
+    }
 
-      tabsInitialized.current = true
-    },
-    [addTab]
-  )
+    await restoreTabs(restored, session.activeTabId)
+
+    // Restore file list state if present
+    if (session.fileList) {
+      useFileListStore.setState({
+        viewMode: session.fileList.viewMode,
+        rootPath: session.fileList.rootPath,
+        expandedFolders: new Set(session.fileList.expandedFolders),
+        selectedPath: session.fileList.selectedPath
+      })
+      if (session.fileList.rootPath) {
+        useFileListStore.getState().loadFiles()
+      }
+    }
+
+    tabsInitialized.current = true
+  }, [])
 
   // Discard session
   const discardSession = useCallback(async (session: SessionState) => {
@@ -503,7 +422,7 @@ export function App() {
     }
     // Create blank tab after discarding
     if (!tabsInitialized.current) {
-      await createNewTab()
+      await createNewTab({ home: true })
       tabsInitialized.current = true
     }
     setRecoveryDialogOpen(false)
@@ -514,244 +433,77 @@ export function App() {
     }
   }, [pendingSession, pendingDraft, discardSession, discardDraft, createNewTab])
 
-  // Google Docs sync handlers
-  const handleGoogleSync = useCallback(async () => {
-    if (!window.api?.googleSync || !window.api?.googleGetConnectionStatus) {
-      console.warn('Google API not available')
-      return
-    }
-
-    // Check if connected
-    const status = await window.api.googleGetConnectionStatus()
-    if (!status.connected) {
-      alert('Please connect your Google account first.\n\nGo to Settings > Account to connect.')
-      return
-    }
-
-    const editorState = useEditorStore.getState()
-    let frontmatter = editorState.document.frontmatter
-
-    // Strip frontmatter from content before syncing
-    const { parseMarkdown, serializeMarkdown } = await import('../../lib/markdown')
-    const parsed = parseMarkdown(editorState.document.content)
-    const content = parsed.content
-    const path = editorState.document.path
-    const title = path
-      ? path.split('/').pop()?.replace(/\.[^/.]+$/, '') || 'Untitled'
-      : 'Untitled'
-
-    // Safety net: if frontmatter lost google_doc_id (e.g. after tab switch), re-read from disk
-    if (!frontmatter.google_doc_id && path && window.api?.readFile) {
-      try {
-        const raw = await window.api.readFile(path)
-        const diskParsed = parseMarkdown(raw)
-        if (diskParsed.frontmatter.google_doc_id) {
-          frontmatter = diskParsed.frontmatter
-          editorState.setFrontmatter(frontmatter)
-        }
-      } catch {
-        // File read failed, proceed with in-memory frontmatter
-      }
-    }
-
-    useFileListStore.getState().setGoogleSyncing(true)
-    try {
-      const result = await window.api.googleSync(content, frontmatter, title)
-
-      if (!result.success) {
-        alert(`Sync failed: ${result.error || 'Unknown error'}`)
-        return
-      }
-
-      if (result.direction === 'pull' && result.content !== undefined) {
-        // Pull: update editor content
-        const editor = useEditorInstanceStore.getState().editor
-        if (editor) {
-          editor.commands.setContent(result.content)
-        }
-        const updatedFrontmatter = {
-          ...frontmatter,
-          google_doc_id: result.docId || frontmatter.google_doc_id,
-          google_synced_at: result.modifiedTime || new Date().toISOString()
-        }
-        editorState.setFrontmatter(updatedFrontmatter)
-        editorState.setDirty(true)
-
-        // Update sync metadata
-        if (result.docId && path && window.api.googleUpdateSyncMetadataEntry) {
-          await window.api.googleUpdateSyncMetadataEntry({
-            title,
-            googleDocId: result.docId,
-            localPath: path,
-            webViewLink: result.webViewLink || `https://docs.google.com/document/d/${result.docId}/edit`,
-            syncedAt: new Date().toISOString(),
-            remoteModifiedTime: result.modifiedTime || new Date().toISOString()
-          })
-          useFileListStore.getState().loadGoogleDocsMetadata()
-        }
-
-        console.log('[Google Sync] Pulled changes from Google Docs')
-      } else {
-        // Push or Create: update frontmatter with docId + synced_at
-        const updatedFrontmatter = {
-          ...frontmatter,
-          google_doc_id: result.docId || frontmatter.google_doc_id,
-          google_synced_at: result.modifiedTime || new Date().toISOString()
-        }
-        editorState.setFrontmatter(updatedFrontmatter)
-
-        // Save file to persist frontmatter to disk
-        if (editorState.document.path) {
-          const serialized = serializeMarkdown(editorState.document.content, updatedFrontmatter)
-          await window.api!.saveFile(editorState.document.path, serialized)
-        }
-
-        // Update sync metadata
-        const docId = result.docId || String(frontmatter.google_doc_id)
-        if (docId && window.api.googleUpdateSyncMetadataEntry) {
-          await window.api.googleUpdateSyncMetadataEntry({
-            title,
-            googleDocId: docId,
-            localPath: editorState.document.path || '',
-            webViewLink: result.webViewLink || `https://docs.google.com/document/d/${docId}/edit`,
-            syncedAt: new Date().toISOString(),
-            remoteModifiedTime: result.modifiedTime || new Date().toISOString()
-          })
-          useFileListStore.getState().loadGoogleDocsMetadata()
-        }
-
-        if (result.direction === 'create' && result.webViewLink) {
-          if (confirm('Created new Google Doc.\n\nOpen in browser?')) {
-            window.open(result.webViewLink, '_blank')
-          }
-        }
-
-        console.log(`[Google Sync] ${result.direction === 'create' ? 'Created' : 'Pushed'} to Google Docs`)
-      }
-    } catch (error) {
-      alert(`Error syncing with Google Docs: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    } finally {
-      useFileListStore.getState().setGoogleSyncing(false)
-    }
-  }, [])
-
-  const handleGoogleImport = useCallback(async () => {
-    if (!window.api?.googleImport || !window.api?.googleGetConnectionStatus) {
-      console.warn('Google API not available')
-      return
-    }
-
-    // Check if connected
-    const status = await window.api.googleGetConnectionStatus()
-    if (!status.connected) {
-      alert('Please connect your Google account first.\n\nGo to Settings > Account to connect.')
-      return
-    }
-
-    // Open the import dialog (prompt() doesn't work in Electron)
-    setImportDocId('')
-    setImportDialogOpen(true)
-  }, [])
-
-  const handleGoogleImportConfirm = useCallback(async () => {
-    const rawDocId = importDocId.trim()
-    const markAsAI = importAsAI
-    setImportDialogOpen(false)
-    setImportDocId('')
-    setImportAsAI(false)
-
-    if (!rawDocId || !window.api?.googleImport) return
-
-    try {
-      const result = await window.api.googleImport(rawDocId)
-
-      if (result.success && result.content !== undefined) {
-        const extractedDocId = result.docId || rawDocId
-        const docTitle = result.title || 'Untitled'
-
-        // Auto-save to ~/Documents/Google Docs/
-        const { serializeMarkdown } = await import('../../lib/markdown')
-        const frontmatter = {
-          google_doc_id: extractedDocId,
-          google_synced_at: new Date().toISOString()
-        }
-        const serialized = serializeMarkdown(result.content, frontmatter)
-
-        let savedPath: string | undefined
-        if (window.api.googleEnsureFolder) {
-          try {
-            const folderPath = await window.api.googleEnsureFolder()
-            const sanitizedTitle = docTitle.replace(/[/\\:*?"<>|]/g, '-').trim() || 'Untitled'
-            savedPath = `${folderPath}/${sanitizedTitle}.md`
-            await window.api.saveFile(savedPath, serialized)
-
-            // Record in sync metadata
-            if (window.api.googleUpdateSyncMetadataEntry) {
-              await window.api.googleUpdateSyncMetadataEntry({
-                title: docTitle,
-                googleDocId: extractedDocId,
-                localPath: savedPath,
-                webViewLink: `https://docs.google.com/document/d/${extractedDocId}/edit`,
-                syncedAt: new Date().toISOString(),
-                remoteModifiedTime: new Date().toISOString()
-              })
-              useFileListStore.getState().loadGoogleDocsMetadata()
-            }
-          } catch (err) {
-            console.error('Failed to auto-save imported doc:', err)
-          }
-        }
-
-        if (savedPath) {
-          // Open the saved file in a tab
-          await openFileInTab(savedPath)
-        } else {
-          // Fallback: create a new untitled tab with the imported content baked in.
-          // Same race-free pattern as the prose:// URL handler — the new editor mounts
-          // with content already in editorStore, no setContent-after-mount needed.
-          await createNewTab({
-            content: result.content,
-            frontmatter,
-            isDirty: true
-          })
-        }
-
-        // Mark as AI-generated if checkbox was checked
-        if (markAsAI) {
-          // Wait for editor to settle with the content
-          setTimeout(() => {
-            const editor = useEditorInstanceStore.getState().editor
-            const editorState = useEditorStore.getState()
-            if (editor && result.content) {
-              const { useAnnotationStore } = require('../../extensions/ai-annotations/store')
-              useAnnotationStore.getState().addAnnotation({
-                documentId: editorState.document.documentId,
-                type: 'insertion' as const,
-                from: 0,
-                to: editor.state.doc.content.size,
-                content: result.content,
-                provenance: { model: 'external', conversationId: '', messageId: '' }
-              })
-            }
-          }, 100)
-        }
-      } else {
-        alert(`Failed to import from Google Docs: ${result.error || 'Unknown error'}`)
-      }
-    } catch (error) {
-      alert(`Error importing from Google Docs: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    }
-  }, [importDocId, importAsAI, createNewTab, openFileInTab])
-
-  // Auto-show AI consent dialog on first launch or when disclosure version changes
+  // First-run onboarding (#1188): one modal, opened on first launch or when the
+  // disclosure version changes. Settings' AI toggle reopens it through the same
+  // flag, so the seam is unchanged.
   const setAIConsentDialogOpen = useSettingsStore((s) => s.setAIConsentDialogOpen)
+  const isOnboardingOpen = useSettingsStore((s) => s.isAIConsentDialogOpen)
+  // Whether consent was already current when settings loaded. The later-launch
+  // default-editor prompt ("Remind me later") runs only then, so it never
+  // stacks on onboarding nor follows it in the same session.
+  const [consentCurrentAtLoad, setConsentCurrentAtLoad] = useState<boolean | null>(null)
   useEffect(() => {
     if (!settingsLoaded) return
     const aiConsent = settings.aiConsent
-    if (!aiConsent || aiConsent.version < AI_CONSENT_VERSION) {
-      setAIConsentDialogOpen(true)
-    }
+    // The same predicate the gate always had: a record without a version is
+    // current (e2e seeds one), only a missing record or a lower version is due.
+    const current = !(!aiConsent || aiConsent.version < AI_CONSENT_VERSION)
+    setConsentCurrentAtLoad((known) => (known === null ? current : known))
+    if (!current) setAIConsentDialogOpen(true)
   }, [settingsLoaded, settings.aiConsent, setAIConsentDialogOpen])
+  // Done closes the modal onto the home screen: the blank launch tab shows the
+  // empty state (mark, shortcuts, New Document / Open File).
+  const handleOnboardingFinish = useCallback(() => setAIConsentDialogOpen(false), [setAIConsentDialogOpen])
+
+  // Post-update release notes (#1058). Deliberately not updater-driven: the updater
+  // is disabled on MAS and in dev, and `updater:update-available` fires BEFORE
+  // restart, so it cannot show a post-update modal. Compare a stored version
+  // instead, the same shape as the aiConsent gate above.
+  const [releaseNotesMarkdown, setReleaseNotesMarkdown] = useState<string | null>(null)
+  const setReleaseNotesOpen = useSettingsStore((s) => s.setReleaseNotesOpen)
+  const setLastSeenVersion = useSettingsStore((s) => s.setLastSeenVersion)
+  // "Has this version been seen" is decided once per launch. Without this latch the
+  // effect re-runs on any settings change — including the write it makes itself —
+  // and re-opens the dialog under the user's cursor, detaching the button they are
+  // mid-click on.
+  const releaseNotesChecked = useRef(false)
+  useEffect(() => {
+    if (!settingsLoaded) return
+    if (releaseNotesChecked.current) return
+    releaseNotesChecked.current = true
+
+    const seen = settings.lastSeenVersion
+    if (seen === APP_VERSION) return
+
+    // A fresh install is mid-onboarding and has nothing to catch up on — it is
+    // identified by the consent dialog being due, which is exactly the condition
+    // the effect above tests. Record the version silently so the next real update
+    // is the first one that shows notes.
+    const consentDue = !settings.aiConsent || settings.aiConsent.version < AI_CONSENT_VERSION
+    if (consentDue) {
+      setLastSeenVersion(APP_VERSION)
+      return
+    }
+
+    let cancelled = false
+    void (async () => {
+      // No notes bundled for this build (a local build, a hotfix tag) is a normal
+      // outcome: record the version and stay quiet rather than show an empty modal.
+      const notes = await getApi().getReleaseNotes?.(APP_VERSION).catch(() => null)
+      if (cancelled) return
+      if (!notes?.markdown) {
+        setLastSeenVersion(APP_VERSION)
+        return
+      }
+      setReleaseNotesMarkdown(notes.markdown)
+      setReleaseNotesOpen(true)
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reads settings once,
+    // behind the latch above; adding them back re-opens the dialog mid-click.
+  }, [settingsLoaded, setReleaseNotesOpen, setLastSeenVersion])
 
   // Check for session/draft recovery after settings are loaded
   useEffect(() => {
@@ -788,7 +540,7 @@ export function App() {
         if (!draft) {
           // No draft to recover - create blank tab and complete initialization
           if (!tabsInitialized.current) {
-            await createNewTab()
+            await createNewTab({ home: true })
             tabsInitialized.current = true
           }
           useChatStore.getState().setInitializing(false)
@@ -802,7 +554,7 @@ export function App() {
         if (!draft.document.content && !draft.document.isDirty) {
           await clearDraft()
           if (!tabsInitialized.current) {
-            await createNewTab()
+            await createNewTab({ home: true })
             tabsInitialized.current = true
           }
           useChatStore.getState().setInitializing(false)
@@ -829,7 +581,7 @@ export function App() {
         console.error('Failed to check for recovery:', error)
         // Create blank tab on error
         if (!tabsInitialized.current) {
-          await createNewTab()
+          await createNewTab({ home: true })
           tabsInitialized.current = true
         }
         useChatStore.getState().setInitializing(false)
@@ -878,77 +630,13 @@ export function App() {
           // Delegate to Toolbar, which owns the export handler
           window.dispatchEvent(new CustomEvent('menu:exportHtml'))
           break
-        case 'convertToTxt': {
-          if (!window.api) break
-          const txtCurrentPath = useEditorStore.getState().document.path
-          if (!txtCurrentPath || !txtCurrentPath.endsWith('.md')) break
-          const txtPath = txtCurrentPath.replace(/\.md$/, '.txt')
-          ;(async () => {
-            try {
-              const editorInstance = useEditorInstanceStore.getState().editor
-              if (!editorInstance) return
-              const plainText = editorInstance.getText({ blockSeparator: '\n' })
-              await window.api!.renameFile(txtCurrentPath, txtPath)
-              await window.api!.saveFile(txtPath, plainText)
-              const { generateIdFromPath } = await import('../../lib/persistence')
-              const { prepareTextContent } = await import('../../lib/markdown')
-              const newDocId = await generateIdFromPath(txtPath)
-              // Reload plain text into the editor so the store content
-              // matches what's on disk (prevents stale markdown on next save)
-              const editorContent = prepareTextContent(plainText)
-              editorInstance.commands.setContent(editorContent)
-              useEditorStore.getState().setDocument({
-                documentId: newDocId,
-                path: txtPath,
-                content: plainText,
-                frontmatter: {},
-                isDirty: false
-              })
-              const activeTab = useTabStore.getState().activeTabId
-              if (activeTab) {
-                useTabStore.getState().updateTab(activeTab, {
-                  path: txtPath,
-                  documentId: newDocId,
-                  frontmatter: {}
-                })
-              }
-              useFileListStore.getState().loadFiles()
-            } catch (e) {
-              console.error('Failed to convert to plain text:', e)
-            }
-          })()
-          break
-        }
+        case 'convertToTxt':
         case 'convertToMarkdown': {
-          if (!window.api) break
-          const currentPath = useEditorStore.getState().document.path
-          if (!currentPath || !currentPath.endsWith('.txt')) break
-          const mdPath = currentPath.replace(/\.txt$/, '.md')
-          ;(async () => {
-            try {
-              await window.api!.renameFile(currentPath, mdPath)
-              const { serializeMarkdown } = await import('../../lib/markdown')
-              const doc = useEditorStore.getState().document
-              const mdContent = serializeMarkdown(doc.content, doc.frontmatter)
-              await window.api!.saveFile(mdPath, mdContent)
-              const { generateIdFromPath } = await import('../../lib/persistence')
-              const newDocId = await generateIdFromPath(mdPath)
-              useEditorStore.getState().setDocument({
-                documentId: newDocId,
-                path: mdPath,
-                content: doc.content,
-                frontmatter: doc.frontmatter,
-                isDirty: false
-              })
-              const activeTab = useTabStore.getState().activeTabId
-              if (activeTab) {
-                useTabStore.getState().updateTab(activeTab, { path: mdPath, documentId: newDocId })
-              }
-              useFileListStore.getState().loadFiles()
-            } catch (e) {
-              console.error('Failed to convert to markdown:', e)
-            }
-          })()
+          const tabId = useTabStore.getState().activeTabId
+          if (!tabId) break
+          convertTab(tabId, action === 'convertToTxt' ? 'txt' : 'md').catch((e) => {
+            console.error(`Failed to convert document (${action}):`, e)
+          })
           break
         }
         case 'settings':
@@ -968,8 +656,11 @@ export function App() {
         case 'addComment':
           window.dispatchEvent(new CustomEvent('menu:addComment'))
           break
+        case 'insertTable':
+          window.dispatchEvent(new CustomEvent('menu:insertTable'))
+          break
         case 'toggleSourceView':
-          useEditorStore.getState().toggleSourceMode()
+          toggleSourceMode()
           break
         case 'find':
           // Dispatch custom event for Editor to handle
@@ -993,12 +684,6 @@ export function App() {
           break
         case 'reopenClosedTab':
           reopenLastClosedTab()
-          break
-        case 'googleSync':
-          if (isGoogleDocsEnabled()) handleGoogleSync()
-          break
-        case 'googleImport':
-          if (isGoogleDocsEnabled()) handleGoogleImport()
           break
         case 'showRecentFiles':
           // Open the file list panel and switch to recent view
@@ -1027,7 +712,7 @@ export function App() {
     })
 
     return unsubscribe
-  }, [openFileInTab, saveFile, saveFileAs, createNewTab, setDialogOpen, toggleChat, toggleFileList, isFileListOpen, setShortcutsDialogOpen, setAboutDialogOpen, editor, handleGoogleSync, handleGoogleImport, reopenLastClosedTab])
+  }, [openFileInTab, saveFile, saveFileAs, createNewTab, setDialogOpen, toggleChat, toggleFileList, isFileListOpen, setShortcutsDialogOpen, setAboutDialogOpen, editor, reopenLastClosedTab])
 
   // Keep the native "Reopen Closed Tab" menu item enabled only while the
   // session-only closed-tab stack has entries. Push the current emptiness to
@@ -1179,10 +864,14 @@ export function App() {
           open={isModelPickerOpen}
           onOpenChange={setModelPickerOpen}
         />
-        <DefaultHandlerPrompt />
-        <AIConsentDialog />
+        {consentCurrentAtLoad === true && <DefaultHandlerPrompt />}
+        <OnboardingDialog
+          open={isOnboardingOpen}
+          startAt={settings.aiConsent ? 'ai' : 'welcome'}
+          onFinish={handleOnboardingFinish}
+        />
+        {releaseNotesMarkdown && <ReleaseNotesDialog markdown={releaseNotesMarkdown} />}
         <EnableLoggingDialog />
-        <MigrationToast />
         <Notifications />
 
         {/* External-edit save conflict (#843): a manual save landed on a file
@@ -1208,56 +897,6 @@ export function App() {
               </AlertDialogAction>
               <AlertDialogAction onClick={() => { void handleConflictOverwrite() }}>
                 Overwrite &amp; Save
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-
-        {/* Google Docs Import Dialog */}
-        <AlertDialog open={googleDocsEnabled && importDialogOpen} onOpenChange={(open) => {
-          if (!open) {
-            setImportDialogOpen(false)
-            setImportDocId('')
-          }
-        }}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Import from Google Docs</AlertDialogTitle>
-              <AlertDialogDescription>
-                Enter the Google Doc ID or paste the full document URL.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <div className="py-2 space-y-3">
-              <div>
-                <Label htmlFor="google-doc-id" className="sr-only">Document ID</Label>
-                <Input
-                  id="google-doc-id"
-                  value={importDocId}
-                  onChange={(e) => setImportDocId(e.target.value)}
-                  placeholder="e.g. 1BxiM0C2..."
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && importDocId.trim()) {
-                      handleGoogleImportConfirm()
-                    }
-                  }}
-                  autoFocus
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="import-as-ai"
-                  checked={importAsAI}
-                  onCheckedChange={(checked) => setImportAsAI(checked === true)}
-                />
-                <Label htmlFor="import-as-ai" className="text-sm font-normal cursor-pointer">
-                  Mark as AI-generated
-                </Label>
-              </div>
-            </div>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={handleGoogleImportConfirm} disabled={!importDocId.trim()}>
-                Import
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

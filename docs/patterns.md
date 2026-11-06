@@ -56,7 +56,7 @@ const result = await getApi().myFeatureDoThing('value')
 
 ## How to Add a TipTap Extension
 
-**Example:** `src/renderer/extensions/search-highlight/` (simple Extension), `src/renderer/extensions/diff-suggestions/` (full Node with NodeView).
+**Example:** `src/renderer/extensions/search-highlight/` (simple Extension), `src/renderer/extensions/image/` (a Node with a NodeView), `src/renderer/extensions/comments/` (a Mark whose records live in plugin state).
 
 1. **Create the extension directory** — `src/renderer/extensions/my-extension/`:
    - `extension.ts` — the TipTap `Extension.create()`, `Node.create()`, or `Mark.create()` definition
@@ -68,12 +68,12 @@ const result = await getApi().myFeatureDoThing('value')
    - `Node.create<TOptions>()` — new document node types
    - `Mark.create<TOptions>()` — inline marks
 
-3. **Implement the extension** — define `name`, `addOptions()`, `addStorage()`, `addCommands()`, and `addProseMirrorPlugins()` as needed. Declare custom commands via `declare module '@tiptap/core'`.
+3. **Implement the extension** — define `name`, `addOptions()`, `addCommands()`, and `addProseMirrorPlugins()` as needed. Declare custom commands via `declare module '@tiptap/core'`. **Never keep per-document data in `addStorage()` or in a closure of `addProseMirrorPlugins()`**: there is one editor and one extension instance for every open tab, so anything outside the `EditorState` is shared across documents. Per-document data goes in a ProseMirror plugin's state (`new Plugin({ state: { init, apply } })`), written by transaction metas, as `extensions/comments/plugin.ts` does.
 
-4. **Register in the editor** — `src/renderer/components/editor/Editor.tsx`, add to the `extensions` array:
+4. **Register in the editor** — `src/renderer/components/editor/extensions.ts`, add to the list `createEditorExtensions()` returns (the vitest harness builds the same list):
    ```ts
    import { MyExtension } from '../../extensions/my-extension'
-   // in useTipTapEditor:
+   // in createEditorExtensions:
    MyExtension.configure({ myOption: 'value' }),
    ```
 
@@ -180,20 +180,49 @@ export const useMyStore = create<MyState>()(
    ```
    For MCP exposure, add the tool name to `mcpToolNames`.
 
-4. **Write the executor** — `src/renderer/lib/tools/executors/`:
+4. **Write the executor** — `src/renderer/lib/tools/executors/`. An executor takes the validated args and a `ToolContext` (`lib/tools/context.ts`): `ctx.handle` is the `DocumentHandle` of the document the call is bound to (shown or not), `ctx.provenance` the model / conversation / message that made the call. Read and write the document through the handle, never through the editor instance or the editor store:
    ```ts
-   export function executeMyTool(args: { param1: string }): ToolResult {
-     const editor = useEditorInstanceStore.getState().editor
-     if (!editor) return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
-     // ... use Zustand stores via .getState(), not hooks
-     return toolSuccess({ result: 'data' })
+   export function executeMyTool(args: { param1: string }, ctx: ToolContext): ToolResult {
+     const { handle } = ctx
+     if (!handle) return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
+     const text = handle.state.doc.textContent         // read the state
+     handle.commands.insertContentAt(0, 'x')           // or a transaction: handle.apply(handle.state.tr…)
+     return toolSuccess({ result: text.length })
    }
    ```
+   `handle.view` exists only while the document is shown (`handle.isActive`): use it for scrolling and focus, never for the edit itself. `isEditorReadOnly(handle)` gates writes on preview and reMarkable tabs; a target in source mode is refused before the executor runs.
 
-5. **Wire the dispatcher** — `src/renderer/lib/tools/index.ts`: add a `case` to the `switch` in `executeTool()`:
+5. **Wire the dispatcher** — `src/renderer/lib/tools/index.ts`: add a `case` to the `switch` in `executeTool()`, and the tool's name to `DOCUMENT_TOOLS` (it needs a handle) or `WRITING_TOOLS` (it writes):
    ```ts
    case 'my_tool':
-     return executeMyTool(validatedArgs)
+     return executeMyTool(validatedArgs, ctx)
    ```
 
 **Tool modes:** `requiresMode: null` = available everywhere. `requiresMode: 'full'` = only in Full Autonomy mode. See `docs/architecture/llm-pipeline.md` for details.
+
+---
+
+## How to Add a Session Writer or Projection
+
+**Example:** `afterTransaction` and `persistRecords` in `src/renderer/document/session.ts` (the annotation and comment persisters), `writeProjection` (the dirty rule), `scheduleSuggestionProjection`.
+
+Editor state is per tab (`docs/architecture/editor-state.md`): every open tab owns an `EditorState`, and only `session.ts` creates one, swaps one into the view, or persists what one holds. Anything that writes a document's records to IndexedDB, or derives something from a document's state into a store or the tab record, is a *projection* in that file.
+
+1. **Read from the state, write under its id** — a projection takes the `Session` (or the `EditorState`) and reads both the records and the document id from it:
+   ```ts
+   const identity = getIdentity(session.state)          // { documentId, path, plain }
+   const rows = annotationsOf(session.state)            // or threadsOf, getAISuggestions({ state })
+   session.annotationWrite = persistRecords('annotations', identity.documentId, rows)
+   ```
+   Never read the records from one place and the id from another; never read `editorStore.document` to decide what to persist.
+
+2. **Decide when it runs** — from `afterTransaction(session, prev)` (every transaction of a shown session and every `applyToSession` on a background one): compare the plugin state's `revision` / `urgentRevision` with what the session last wrote, persist at once for an urgent change (add, remove, resolve) and on a timer for a plain move; the timer is flushed by `flushProjections` (leave, save, close). A projection into the tab record goes through `writeProjection` so the dirty flag stays one comparison against `session.saved`.
+
+3. **Keep it per session, not per module** — timers and "last written" markers live on the `Session` object (`annotationTimer`, `annotationsPersisted`, …), never in a module variable: two tabs run the same code.
+
+4. **Pin it** — a vitest in `session.test.ts` with two tabs open (the headless editor from `createEditorExtensions()`): the write lands under the right id, nothing lands under the other tab's id, the timer flushes on `closeSession`.
+
+**Rules:**
+- The IndexedDB writers in `lib/persistence.ts` are imported only by `session.ts`; `persistRecords` / `deleteDocumentRecords` are called only from `session.ts` and `tabs/actions.ts`; `view.updateState` and `EditorState.create` appear only in `session.ts`; no renderer code calls `commands.setContent`. The tripwires in `e2e/electron.document-sessions.spec.ts` fail the suite otherwise.
+- No timing flag guarding shared state: a load is a pure function that returns a finished state; a record is added in the transaction that creates it.
+- `editorStore.document` is a mirror of the active tab, written by the session layer and `tabs/actions.ts`; components read `useActiveTab(select)` / `useActiveSession(select)` for the truth.

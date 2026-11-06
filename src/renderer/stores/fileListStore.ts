@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
-import type { FileItem, RemarkableSyncMetadata, RemarkableCloudNotebook, RemarkableSyncState, RemarkableSyncPhase, GoogleSyncMetadata } from '../types'
+import type { FileItem, RemarkableSyncMetadata, RemarkableCloudNotebook, RemarkableSyncState, RemarkableSyncPhase } from '../types'
 
 /**
  * Build a flat path→id map from the current tree so freshly-loaded nodes can
@@ -44,7 +44,7 @@ export interface SyncProgress {
   phase: RemarkableSyncPhase
 }
 
-type ViewMode = 'recent' | 'folder' | 'notebooks' | 'googledocs' | 'projects' | 'favorites' | 'shared'
+type ViewMode = 'recent' | 'folder' | 'notebooks' | 'projects' | 'favorites' | 'shared'
 
 export type { ViewMode }
 
@@ -180,9 +180,6 @@ interface FileListState {
   // Dotfile visibility — toggled by ⌘⇧. (session-only, not persisted)
   showDotfiles: boolean
 
-  // Google Docs sync state
-  isGoogleSyncing: boolean
-
   // reMarkable global sync state
   remarkableSyncActive: boolean
   remarkableSyncProgress: SyncProgress | null
@@ -194,16 +191,12 @@ interface FileListState {
   syncState: RemarkableSyncState | null
   syncingNotebookIds: string[]
 
-  // Google Docs metadata
-  googleDocsMetadata: GoogleSyncMetadata | null
-
   // Actions
   togglePanel: () => void
   setPanelOpen: (open: boolean) => void
   setViewMode: (mode: ViewMode) => void
   setClipboardPath: (path: string | null, operation?: 'copy' | 'cut') => void
   setRenamingPath: (path: string | null) => void
-  setGoogleSyncing: (syncing: boolean) => void
   setRemarkableSyncActive: (active: boolean) => void
   setRemarkableSyncProgress: (progress: SyncProgress | null) => void
   setRemarkableSyncError: (error: string | null) => void
@@ -226,7 +219,6 @@ interface FileListState {
   addSyncingNotebook: (id: string) => void
   removeSyncingNotebook: (id: string) => void
   clearSyncingNotebooks: () => void
-  loadGoogleDocsMetadata: () => Promise<void>
   selectFile: (path: string | null) => void
   toggleFolder: (path: string) => void
   setExpanded: (path: string, expanded: boolean) => void
@@ -261,11 +253,9 @@ export const useFileListStore = create<FileListState>()(
     selectedPaths: new Set<string>(),
     anchorPath: null,
     showDotfiles: false,
-    isGoogleSyncing: false,
     remarkableSyncActive: false,
     remarkableSyncProgress: null,
     remarkableSyncError: null,
-    googleDocsMetadata: null,
     notebookMetadata: null,
     cloudNotebooks: [],
     syncState: null,
@@ -291,7 +281,6 @@ export const useFileListStore = create<FileListState>()(
 
     setClipboardPath: (path, operation = 'copy') => set({ clipboardPath: path, clipboardOperation: path ? operation : null }),
     setRenamingPath: (path) => set({ renamingPath: path }),
-    setGoogleSyncing: (syncing) => set({ isGoogleSyncing: syncing }),
     setRemarkableSyncActive: (active) => set({ remarkableSyncActive: active }),
     setRemarkableSyncProgress: (progress) => set({ remarkableSyncProgress: progress }),
     setRemarkableSyncError: (error) => set({ remarkableSyncError: error }),
@@ -547,19 +536,6 @@ export const useFileListStore = create<FileListState>()(
         const updatedLoading = new Set(currentLoading)
         updatedLoading.delete(folderPath)
         set({ loadingFolders: updatedLoading })
-      }
-    },
-
-    loadGoogleDocsMetadata: async () => {
-      if (!window.api?.googleGetSyncMetadata) return
-
-      set({ isLoading: true })
-      try {
-        const metadata = await window.api.googleGetSyncMetadata()
-        set({ googleDocsMetadata: metadata, isLoading: false })
-      } catch (error) {
-        console.error('Failed to load Google Docs metadata:', error)
-        set({ googleDocsMetadata: null, isLoading: false })
       }
     },
 

@@ -1,234 +1,147 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { useEditorStore } from '../stores/editorStore'
 import { useSettingsStore } from '../stores/settingsStore'
-import { useEditorInstanceStore } from '../stores/editorInstanceStore'
-import { serializeMarkdown } from '../lib/markdown'
+import { useTabStore, activeTabOf } from '../stores/tabStore'
 import { handleMissingPath, isMissingPathFileError } from '../lib/stalePath'
-import { isDiskNewerThanBaseline, notifyExternalEditConflict, recordDiskBaseline } from '../lib/diskSync'
-import { useTabStore } from '../stores/tabStore'
+import { isDiskNewerThanBaseline, notifyExternalEditConflict } from '../lib/diskSync'
+import { hasSession, saveSnapshot } from '../document/session'
+import { markTabSaved } from '../tabs/actions'
+import { planAutosave, type AutosaveMode } from './autosavePlan'
+
+/** `auto` mode: this long after the last projection of a dirty tab (itself 500 ms after the last keystroke). */
+export const AUTOSAVE_AUTO_DELAY_MS = 1500
 
 /**
- * Hook that handles automatic saving of documents.
- * - Off mode: No autosave
- * - Auto mode: Save after user stops typing (debounced editor updates)
- * - Custom mode: Save on interval (user-configurable timer)
- * - Only saves documents that have a file path (not new unsaved documents)
+ * Autosave (#1151): one timer per dirty tab with a path, armed from the tab
+ * record rather than the editor's `update` event, so a frontmatter-only
+ * edit, a source-mode edit and a background edit (a chat turn) all save; a
+ * tab switch cancels nothing, and a save marks the tab it wrote.
+ * - Off: nothing.
+ * - Auto: a dirty tab's debounce re-arms on every projection (typing stopped).
+ * - Custom: the clean→dirty transition arms the interval once.
  */
 export function useAutosave() {
-  const timerRef = useRef<NodeJS.Timeout | null>(null)
-  const isSavingRef = useRef(false)
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  const saving = useRef(new Set<string>())
   const blockedPathRef = useRef<string | null>(null)
-  const editorUnsubscribeRef = useRef<(() => void) | null>(null)
 
-  const clearTimer = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current)
-      timerRef.current = null
-    }
+  const clearTimer = useCallback((tabId: string) => {
+    const timer = timers.current.get(tabId)
+    if (!timer) return
+    clearTimeout(timer)
+    timers.current.delete(tabId)
   }, [])
 
-  const performSave = useCallback(async () => {
-    const { document, setDirty, setAutosaving } = useEditorStore.getState()
+  const clearAll = useCallback(() => {
+    for (const timer of timers.current.values()) clearTimeout(timer)
+    timers.current.clear()
+  }, [])
 
-    // Don't save if:
-    // - Already saving
-    // - No file path (new unsaved document)
-    // - Document is not dirty
-    if (
-      isSavingRef.current ||
-      !document.path ||
-      !document.isDirty ||
-      blockedPathRef.current === document.path
-    ) {
-      return
-    }
+  const performSave = useCallback(async (tabId: string) => {
+    const tab = useTabStore.getState().getTabById(tabId)
+    if (!tab?.path || !hasSession(tabId) || saving.current.has(tabId) || blockedPathRef.current === tab.path) return
+    const path = tab.path
+    // The projection lands inside the snapshot; the dirty flag is read after it.
+    const snapshot = saveSnapshot(tabId)
+    if (!useTabStore.getState().getTabById(tabId)?.isDirty) return
 
     // External-edit guard (#843): never autosave over a file that changed on
     // disk after our baseline — skip the write and surface the persistent
     // conflict toast instead (a dialog from a background timer would be
     // hostile). Re-checked on every attempt, so resolving the conflict
     // ("Load disk version" or a manual overwrite) resumes autosave.
-    if (await isDiskNewerThanBaseline(document.path)) {
-      const tab = useTabStore.getState().tabs.find((t) => t.path === document.path)
-      if (tab) notifyExternalEditConflict(tab.id, document.path)
+    if (await isDiskNewerThanBaseline(path)) {
+      notifyExternalEditConflict(tabId, path)
       return
     }
 
-    isSavingRef.current = true
-    setAutosaving(true)
-
+    saving.current.add(tabId)
+    useEditorStore.getState().setAutosaving(true)
     try {
-      const content = serializeMarkdown(document.content, document.frontmatter)
-      // Run save and minimum display time in parallel so "saving..." is visible
-      await Promise.all([
-        window.api?.saveFile(document.path, content),
-        new Promise((r) => setTimeout(r, 500))
-      ])
-      setDirty(false)
+      // Run the save and a minimum display time in parallel so "saving..." is visible.
+      await Promise.all([window.api?.saveFile(path, snapshot.text), new Promise((r) => setTimeout(r, 500))])
       blockedPathRef.current = null
-      void recordDiskBaseline(document.path)
+      // The tab that was written, with what was written: typing during the write keeps it dirty.
+      await markTabSaved(tabId, path, snapshot)
     } catch (error) {
       if (isMissingPathFileError(error)) {
-        blockedPathRef.current = document.path
-        clearTimer()
-        handleMissingPath(document.path, 'autosave')
+        blockedPathRef.current = path
+        clearTimer(tabId)
+        handleMissingPath(path, 'autosave')
         return
       }
       console.error('[Autosave] Failed to save:', error)
     } finally {
-      isSavingRef.current = false
-      setAutosaving(false)
+      saving.current.delete(tabId)
+      if (saving.current.size === 0) useEditorStore.getState().setAutosaving(false)
     }
   }, [clearTimer])
 
+  const arm = useCallback((tabId: string, delay: number) => {
+    clearTimer(tabId)
+    timers.current.set(
+      tabId,
+      setTimeout(() => {
+        timers.current.delete(tabId)
+        void performSave(tabId)
+      }, delay)
+    )
+  }, [clearTimer, performSave])
+
   useEffect(() => {
-    return useEditorStore.subscribe(
-      (state) => state.document.path,
-      (path) => {
-        if (path !== blockedPathRef.current) {
-          blockedPathRef.current = null
-        }
+    const modeOf = (): AutosaveMode => {
+      const { settings, autosaveActive } = useSettingsStore.getState()
+      return autosaveActive ? (settings.autosave?.mode ?? 'off') : 'off'
+    }
+    const delayOf = (mode: AutosaveMode): number =>
+      mode === 'auto' ? AUTOSAVE_AUTO_DELAY_MS : (useSettingsStore.getState().settings.autosave?.intervalSeconds ?? 30) * 1000
+
+    const unsubscribeTabs = useTabStore.subscribe(
+      (state) => state.tabs,
+      (tabs, prev) => {
+        const mode = modeOf()
+        const plan = planAutosave(prev, tabs, mode)
+        for (const id of plan.clear) clearTimer(id)
+        for (const id of plan.arm) arm(id, delayOf(mode))
       }
     )
-  }, [])
 
-  useEffect(() => {
-    const { settings, autosaveActive } = useSettingsStore.getState()
-    const autosaveMode = settings.autosave?.mode ?? 'off'
-
-    // Clean up any existing editor listener
-    if (editorUnsubscribeRef.current) {
-      editorUnsubscribeRef.current()
-      editorUnsubscribeRef.current = null
-    }
-
-    // Setup based on mode
-    if (autosaveMode === 'auto' && autosaveActive) {
-      // Auto mode: Listen to editor updates and debounce
-      const { editor } = useEditorInstanceStore.getState()
-      if (editor) {
-        const handleUpdate = () => {
-          const { document } = useEditorStore.getState()
-
-          // Clear existing timer
-          clearTimer()
-
-          // Schedule save if document has a path
-          // Note: isDirty may not be set yet (Editor.tsx debounces store updates)
-          // so we check it in performSave instead, which runs after the 1.5s delay
-          if (document.path) {
-            timerRef.current = setTimeout(performSave, 1500)
-          }
-        }
-
-        editor.on('update', handleUpdate)
-        editorUnsubscribeRef.current = () => {
-          editor.off('update', handleUpdate)
-        }
-      }
-    }
-
-    // Subscribe to document changes for custom mode
-    const unsubscribe = useEditorStore.subscribe(
-      (state) => ({ isDirty: state.document.isDirty, path: state.document.path }),
-      ({ isDirty, path }) => {
-        const { settings, autosaveActive } = useSettingsStore.getState()
-        const mode = settings.autosave?.mode ?? 'off'
-
-        // Only manage timer in custom mode — auto mode manages its own timer via handleUpdate
-        if (mode === 'custom') {
-          clearTimer()
-          if (autosaveActive && path && isDirty) {
-            const intervalMs = (settings.autosave?.intervalSeconds ?? 30) * 1000
-            timerRef.current = setTimeout(performSave, intervalMs)
-          }
-        }
-      },
-      { equalityFn: (a, b) => a.isDirty === b.isDirty && a.path === b.path }
-    )
-
-    // Subscribe to settings changes to handle mode switching
+    // A mode change drops every pending timer; custom mode re-arms the dirty tabs.
     const unsubscribeSettings = useSettingsStore.subscribe(
       (state) => ({ autosave: state.settings.autosave, autosaveActive: state.autosaveActive }),
-      ({ autosave, autosaveActive }) => {
-        const mode = autosave?.mode ?? 'off'
-
-        // Clear any pending save and existing editor listener
-        clearTimer()
-        if (editorUnsubscribeRef.current) {
-          editorUnsubscribeRef.current()
-          editorUnsubscribeRef.current = null
-        }
-
-        // Re-attach editor listener if switching to auto mode
-        if (mode === 'auto' && autosaveActive) {
-          const { editor } = useEditorInstanceStore.getState()
-          if (editor) {
-            const handleUpdate = () => {
-              const { document } = useEditorStore.getState()
-              clearTimer()
-              if (document.path) {
-                timerRef.current = setTimeout(performSave, 1500)
-              }
-            }
-
-            editor.on('update', handleUpdate)
-            editorUnsubscribeRef.current = () => {
-              editor.off('update', handleUpdate)
-            }
-          }
+      () => {
+        clearAll()
+        const mode = modeOf()
+        if (mode !== 'custom') return
+        for (const tab of useTabStore.getState().tabs) {
+          if (tab.isDirty && tab.path) arm(tab.id, delayOf(mode))
         }
       },
       { equalityFn: (a, b) => a.autosave === b.autosave && a.autosaveActive === b.autosaveActive }
     )
 
-    // Subscribe to editor instance changes (for auto mode)
-    const unsubscribeEditor = useEditorInstanceStore.subscribe(
-      (state) => state.editor,
-      (editor) => {
-        const { settings, autosaveActive } = useSettingsStore.getState()
-        const mode = settings.autosave?.mode ?? 'off'
-
-        // Clean up old listener
-        if (editorUnsubscribeRef.current) {
-          editorUnsubscribeRef.current()
-          editorUnsubscribeRef.current = null
-        }
-
-        // Setup new listener if in auto mode
-        if (mode === 'auto' && autosaveActive && editor) {
-          const handleUpdate = () => {
-            const { document } = useEditorStore.getState()
-            clearTimer()
-            if (document.path) {
-              timerRef.current = setTimeout(performSave, 1500)
-            }
-          }
-
-          editor.on('update', handleUpdate)
-          editorUnsubscribeRef.current = () => {
-            editor.off('update', handleUpdate)
-          }
-        }
+    // A blocked (missing) path unblocks once the shown document moves off it.
+    const unsubscribePath = useTabStore.subscribe(
+      (state) => activeTabOf(state)?.path ?? null,
+      (path) => {
+        if (path !== blockedPathRef.current) blockedPathRef.current = null
       }
     )
 
     return () => {
-      clearTimer()
-      if (editorUnsubscribeRef.current) {
-        editorUnsubscribeRef.current()
-        editorUnsubscribeRef.current = null
-      }
-      unsubscribe()
+      clearAll()
+      unsubscribeTabs()
       unsubscribeSettings()
-      unsubscribeEditor()
+      unsubscribePath()
     }
-  }, [clearTimer, performSave])
+  }, [arm, clearAll, clearTimer])
 
   // Force save function for use by other components
   const forceSave = useCallback(async () => {
-    clearTimer()
-    await performSave()
+    const tabId = useTabStore.getState().activeTabId
+    if (!tabId) return
+    clearTimer(tabId)
+    await performSave(tabId)
   }, [clearTimer, performSave])
 
   return { forceSave }

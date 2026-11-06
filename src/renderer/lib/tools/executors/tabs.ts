@@ -5,17 +5,11 @@
 import type { ToolResult } from '../../../../shared/tools/types'
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useTabStore } from '../../../stores/tabStore'
-import { useEditorStore } from '../../../stores/editorStore'
-import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
-import { useChatStore, setCurrentDocumentId } from '../../../stores/chatStore'
-import { useAnnotationStore } from '../../../extensions/ai-annotations'
-import { useSuggestionStore } from '../../../extensions/ai-suggestions/store'
-import { getAISuggestions } from '../../../extensions/ai-suggestions'
-import { useCommentStore } from '../../../extensions/comments/store'
-import { getComments } from '../../../extensions/comments'
-import { useFileListStore } from '../../../stores/fileListStore'
-import { serializeMarkdown } from '../../markdown'
+import { annotationsOf } from '../../../extensions/ai-annotations'
+import { getActiveSession } from '../../../document/session'
+import { getIdentity } from '../../../document/identity'
 import { pipelineLog } from '../../aiPipelineLog'
+import { switchToTab } from '../../../tabs/actions'
 
 // Tab summary shape returned to Claude
 interface TabSummary {
@@ -51,7 +45,7 @@ export function executeListTabs(): ToolResult<{ tabs: TabSummary[] }> {
 /**
  * select_tab - Switch the active tab.
  * Accepts tabId (exact) or match (case-insensitive substring of title or path basename).
- * Mirrors the switchToTab logic from useTabs.ts, using store APIs directly.
+ * Runs the shared switchToTab flow (tabs/actions.ts).
  */
 export async function executeSelectTab(args: {
   tabId?: string
@@ -120,98 +114,18 @@ export async function executeSelectTab(args: {
   }
 
   try {
-    // Persist the CURRENT tab's full state before switching (#674). This
-    // executor had drifted from useTabs.switchToTab: it saved only the
-    // conversation, so agent-driven tab switches silently discarded the
-    // active tab's unsaved content, annotations, suggestions, and comments.
-    const { document, cursorPosition } = useEditorStore.getState()
-    const activeTab = tabState.tabs.find((t) => t.id === tabState.activeTabId)
-    // The editor→store content sync is DEBOUNCED (500ms, Editor.tsx
-    // onUpdate). An agent accepting an edit and switching tabs in the same
-    // breath would snapshot pre-edit content and silently revert the edit on
-    // toggle-back — so serialize the LIVE editor state here instead of
-    // trusting editorStore.document.content.
-    const liveEditor = useEditorInstanceStore.getState().editor
-    const liveContent = liveEditor?.storage?.markdown?.getMarkdown != null
-      ? serializeMarkdown(liveEditor.storage.markdown.getMarkdown(), document.frontmatter)
-      : document.content
-    if (activeTab) {
-      useTabStore.getState().updateTab(activeTab.id, {
-        content: liveContent,
-        frontmatter: document.frontmatter,
-        cursorPosition,
-        isDirty: document.isDirty || liveContent !== document.content
-      })
-    }
-    await useChatStore.getState().saveCurrentConversation(document.documentId)
-
-    // Await any in-flight annotation write, then persist (#674 save race)
-    const pendingSave = useAnnotationStore.getState().pendingSave
-    if (pendingSave) await pendingSave
-    await useAnnotationStore.getState().saveAnnotations()
-
-    if (liveEditor && activeTab?.documentId) {
-      await useSuggestionStore.getState().saveSuggestions(activeTab.documentId, getAISuggestions(liveEditor))
-      await useCommentStore.getState().saveComments(activeTab.documentId, getComments(liveEditor))
-    }
-
+    const active = getActiveSession()
     pipelineLog('tab:switch', {
       via: 'select_tab',
       toTabId: targetTab.id,
       toDocId: targetTab.documentId,
-      fromDocId: useAnnotationStore.getState().documentId,
-      annotationCountBefore: useAnnotationStore.getState().annotations.length,
+      fromDocId: active ? getIdentity(active.state).documentId : null,
+      annotationCountBefore: active ? annotationsOf(active.state).length : 0,
     })
 
-    // Pause annotation position updates during document loading
-    useAnnotationStore.getState().setLoadingDocument(true)
-
-    // Pre-set the annotation store's documentId before setDocument so the
-    // Editor.tsx recovery effect doesn't fire a competing load (#674).
-    const newDocumentId = targetTab.documentId
-    useAnnotationStore.getState().setDocumentId(newDocumentId)
-
-    // Activate the new tab
-    useTabStore.getState().setActiveTab(targetTab.id)
-
-    // Load target tab's document into editorStore
-    useEditorStore.getState().setDocument({
-      documentId: newDocumentId,
-      path: targetTab.path,
-      content: targetTab.content ?? '',
-      frontmatter: targetTab.frontmatter ?? {},
-      isDirty: targetTab.isDirty
-    })
-
-    if (targetTab.cursorPosition) {
-      useEditorStore.getState().setCursorPosition(
-        targetTab.cursorPosition.line,
-        targetTab.cursorPosition.column
-      )
-    }
-
-    // Load conversations, annotations, suggestions, and comments for the new document
-    setCurrentDocumentId(newDocumentId)
-    await useChatStore.getState().loadForDocument(newDocumentId)
-    await useAnnotationStore.getState().loadAnnotations(newDocumentId)
-    await useSuggestionStore.getState().loadSuggestions(newDocumentId)
-    await useCommentStore.getState().loadComments(newDocumentId)
-
-    // Clear reMarkable read-only state
-    useEditorStore.getState().setRemarkableReadOnly(false, null)
-
-    // Mark as editing
-    useEditorStore.getState().setEditing(true)
-
-    // Update file list selection if file has path
-    if (targetTab.path) {
-      useFileListStore.getState().revealAndSelectPath(targetTab.path)
-    }
-
-    // Resume annotation position updates
-    setTimeout(() => {
-      useAnnotationStore.getState().setLoadingDocument(false)
-    }, 100)
+    // One implementation for every switch: the tab bar, the explorer and this
+    // tool all run the same leaving and arriving steps (#1145).
+    await switchToTab(targetTab.id)
 
     return toolSuccess({
       selected: true,

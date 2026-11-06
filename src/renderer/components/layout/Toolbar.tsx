@@ -4,18 +4,20 @@ import { requestBugReport } from '../EnableLoggingDialog'
 import { useEditor } from '../../hooks/useEditor'
 import { useTabs } from '../../hooks/useTabs'
 import { useEditorStore } from '../../stores/editorStore'
+import { toggleSourceMode } from '../../tabs/actions'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
-import { useTabStore } from '../../stores/tabStore'
+import { useTabStore, useActiveTab } from '../../stores/tabStore'
+import { useActiveSource } from '../../document/useActiveSession'
+import { landAllProjections } from '../../document/session'
 import { useFileListStore } from '../../stores/fileListStore'
 import { useSettings } from '../../hooks/useSettings'
 import { usePanelLayoutContext } from '../../hooks/usePanelLayout'
 import { isMacOS, getApi } from '../../lib/browserApi'
 import { buildProseHtml } from '../../lib/htmlExport'
-import { useCommentStore } from '../../extensions/comments/store'
-import { mergeCommentsForPersistence } from '../../extensions/comments/extension'
+import { mergeCommentsForPersistence, threadsOf } from '../../extensions/comments'
 import { extractFirstH1 } from '../../lib/markdown'
 import { useTabTier } from '../../hooks/useTabTier'
-import { useGoogleDocsEnabled, useWebPlatformEnabled } from '../../lib/featureFlags'
+import { useWebPlatformEnabled } from '../../lib/featureFlags'
 import { ShareDialog } from '../share/ShareDialog'
 import { useShareStore } from '../../stores/shareStore'
 import { Button } from '../ui/button'
@@ -51,7 +53,6 @@ import {
   Copy,
   Check,
   Timer,
-  CircleUserRound,
   Bug,
   LifeBuoy,
   MessageSquarePlus,
@@ -95,36 +96,19 @@ export function Toolbar() {
   } = useTabs()
   const { settings, isLoaded, effectiveTheme, autosaveActive, setAppearance, setDialogOpen, toggleAutosaveActive } = useSettings()
   const { isChatOpen, isFileListOpen, toggleChat, toggleFileList } = usePanelLayoutContext()
-  const isEditing = useEditorStore((state) => state.isEditing)
   const annotationsVisible = useEditorStore((state) => state.annotationsVisible)
   const toggleAnnotationsVisible = useEditorStore((state) => state.toggleAnnotationsVisible)
-  const sourceMode = useEditorStore((state) => state.sourceMode)
-  const toggleSourceMode = useEditorStore((state) => state.toggleSourceMode)
+  // Source mode and preview are the active tab's (#1151).
+  const sourceMode = useActiveSource() !== null
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
-  const isPreviewTab = useEditorStore((state) => state.isPreviewTab)
-  const isGoogleSyncing = useFileListStore((state) => state.isGoogleSyncing)
-  const googleDocsEnabled = useGoogleDocsEnabled()
+  const isPreviewTab = useActiveTab((tab) => tab?.isPreview ?? false)
   const webPlatformEnabled = useWebPlatformEnabled()
 
   const [hasCopied, setHasCopied] = useState(false)
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
-  const [googlePicture, setGooglePicture] = useState<string | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const tabBarContainerRef = useRef<HTMLDivElement>(null)
   const { tier, containerWidth } = useTabTier(tabBarContainerRef, { tabCount: tabs.length })
-
-  // Test seam: expose renameTab so e2e can exercise the rename + annotation
-  // migration logic (#674) deterministically, without driving the fragile
-  // double-click → inline-input → keyboard UI dance. Same always-on tier as
-  // window.__prose_editor / __prose_tools (editorInstanceStore / main.tsx).
-  useEffect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ;(window as any).__prose_renameTab = renameTab
-    return () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      delete (window as any).__prose_renameTab
-    }
-  }, [renameTab])
 
   // Track fullscreen state for traffic light padding
   useEffect(() => {
@@ -133,30 +117,6 @@ export function Toolbar() {
     const cleanup = api.onFullscreenChange((fs) => setIsFullscreen(fs))
     return cleanup
   }, [])
-
-  // Check Google connection status on mount and when settings change
-  useEffect(() => {
-    if (!googleDocsEnabled) return
-    // First check settings for cached picture
-    if (settings.google?.picture) {
-      setGooglePicture(settings.google.picture)
-    }
-
-    async function checkGoogleConnection() {
-      if (!window.api?.googleGetConnectionStatus) return
-      try {
-        const status = await window.api.googleGetConnectionStatus()
-        if (status.connected && status.picture) {
-          setGooglePicture(status.picture)
-        } else if (!status.connected) {
-          setGooglePicture(null)
-        }
-      } catch {
-        // Keep cached picture from settings if check fails
-      }
-    }
-    checkGoogleConnection()
-  }, [settings.google, googleDocsEnabled])
 
   // Tab close confirmation state
   const [pendingCloseTabId, setPendingCloseTabId] = useState<string | null>(null)
@@ -202,15 +162,10 @@ export function Toolbar() {
   }
 
   const handleTabClose = useCallback(async (tabId: string) => {
-    const tab = useTabStore.getState().getTabById(tabId)
-    if (!tab) return
-
-    if (tab.isDirty) {
-      // Show confirmation dialog
-      setPendingCloseTabId(tabId)
-    } else {
-      await closeTab(tabId)
-    }
+    // closeTab lands the pending projection and refuses a dirty tab; the
+    // dialog follows its answer rather than a flag read mid-delay (#885).
+    const closed = await closeTab(tabId)
+    if (!closed) setPendingCloseTabId(tabId)
   }, [closeTab])
 
   const handleSaveAndClose = async () => {
@@ -237,7 +192,8 @@ export function Toolbar() {
 
   const handleCloseOthers = async (tabId: string) => {
     // Confirm before discarding any unsaved tabs (the bulk close force-closes).
-    const dirtyTabs = tabs.filter(t => t.id !== tabId && t.isDirty)
+    landAllProjections()
+    const dirtyTabs = useTabStore.getState().tabs.filter(t => t.id !== tabId && t.isDirty)
     if (dirtyTabs.length > 0) {
       setPendingBulkClose({ kind: 'others', keepTabId: tabId, dirtyCount: dirtyTabs.length })
       return
@@ -246,7 +202,8 @@ export function Toolbar() {
   }
 
   const handleCloseAll = async () => {
-    const dirtyTabs = tabs.filter(t => t.isDirty)
+    landAllProjections()
+    const dirtyTabs = useTabStore.getState().tabs.filter(t => t.isDirty)
     if (dirtyTabs.length > 0) {
       setPendingBulkClose({ kind: 'all', dirtyCount: dirtyTabs.length })
       return
@@ -291,7 +248,7 @@ export function Toolbar() {
       const docDir = document.path ? document.path.substring(0, document.path.lastIndexOf('/')) || null : null
       // Comments travel with the export (#768): embed the full thread data
       // (replies + resolved, which the marks in editorHtml don't carry).
-      const comments = mergeCommentsForPersistence(editor, useCommentStore.getState().pendingComments)
+      const comments = mergeCommentsForPersistence(editor, threadsOf(editor.state))
       const html = await buildProseHtml(editorHtml, document.content, document.frontmatter, title, docDir, comments)
       const defaultName = (title || 'document') + '.html'
       await getApi().exportHtml(html, defaultName)
@@ -493,126 +450,6 @@ export function Toolbar() {
       ),
     },
     {
-      id: 'google',
-      label: googlePicture ? 'Open Google Docs' : 'Connect Google account',
-      icon: <CircleUserRound />,
-      available: googleDocsEnabled,
-      onSelect: () => {
-        if (googlePicture) {
-          const authParam = settings.google?.email ? `?authuser=${encodeURIComponent(settings.google.email)}` : ''
-          window.open(`https://docs.google.com${authParam}`, '_blank')
-        } else {
-          setDialogOpen(true, 'account')
-        }
-      },
-      renderBar: (key) => (
-        <Tooltip key={key}>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => {
-                if (googlePicture) {
-                  const authParam = settings.google?.email ? `?authuser=${encodeURIComponent(settings.google.email)}` : ''
-                  window.open(`https://docs.google.com${authParam}`, '_blank')
-                } else {
-                  setDialogOpen(true, 'account')
-                }
-              }}
-              aria-label={googlePicture ? 'Open Google Docs' : 'Connect Google account'}
-              className="relative"
-            >
-              {googlePicture ? (
-                <>
-                  <img
-                    src={googlePicture}
-                    alt="Google account"
-                    className="h-5 w-5 rounded-full"
-                    referrerPolicy="no-referrer"
-                  />
-                  {isGoogleSyncing && (
-                    <svg
-                      className="absolute inset-0 pointer-events-none"
-                      style={{ width: '100%', height: '100%' }}
-                      viewBox="0 0 40 40"
-                      fill="none"
-                    >
-                      <defs>
-                        <linearGradient id="sync-ring-a" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stopColor="#8b5cf6" />
-                          <stop offset="50%" stopColor="#d946ef" />
-                          <stop offset="100%" stopColor="#8b5cf6" />
-                        </linearGradient>
-                        <linearGradient id="sync-ring-b" x1="100%" y1="0%" x2="0%" y2="100%">
-                          <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.7" />
-                          <stop offset="100%" stopColor="#a78bfa" stopOpacity="0.7" />
-                        </linearGradient>
-                      </defs>
-                      <circle
-                        className="animate-spin"
-                        cx="20" cy="20" r="18"
-                        stroke="url(#sync-ring-a)"
-                        strokeWidth="2"
-                        strokeDasharray="28 85"
-                        strokeLinecap="round"
-                        style={{ animationDuration: '2s', transformOrigin: '50% 50%' }}
-                      />
-                      <circle
-                        className="animate-spin"
-                        cx="20" cy="20" r="14"
-                        stroke="url(#sync-ring-b)"
-                        strokeWidth="1.5"
-                        strokeDasharray="18 70"
-                        strokeLinecap="round"
-                        style={{ animationDuration: '1.5s', animationDirection: 'reverse', transformOrigin: '50% 50%' }}
-                      />
-                    </svg>
-                  )}
-                </>
-              ) : isGoogleSyncing ? (
-                <svg
-                  viewBox="0 0 40 40"
-                  fill="none"
-                  style={{ width: '1.25rem', height: '1.25rem' }}
-                >
-                  <defs>
-                    <linearGradient id="sync-ring-solo" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#8b5cf6" />
-                      <stop offset="50%" stopColor="#d946ef" />
-                      <stop offset="100%" stopColor="#8b5cf6" />
-                    </linearGradient>
-                  </defs>
-                  <circle
-                    className="animate-spin"
-                    cx="20" cy="20" r="18"
-                    stroke="url(#sync-ring-solo)"
-                    strokeWidth="2"
-                    strokeDasharray="28 85"
-                    strokeLinecap="round"
-                    style={{ animationDuration: '2s', transformOrigin: '50% 50%' }}
-                  />
-                  <circle
-                    className="animate-spin"
-                    cx="20" cy="20" r="12"
-                    stroke="url(#sync-ring-solo)"
-                    strokeWidth="1.5"
-                    strokeDasharray="15 60"
-                    strokeLinecap="round"
-                    style={{ animationDuration: '1.5s', animationDirection: 'reverse', transformOrigin: '50% 50%' }}
-                  />
-                </svg>
-              ) : (
-                <CircleUserRound className="h-5 w-5 text-muted-foreground" />
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            {googlePicture ? 'Open Google Docs' : 'Connect Google account'}
-          </TooltipContent>
-        </Tooltip>
-      ),
-    },
-    {
       id: 'chat',
       label: isChatOpen ? 'Hide chat' : 'Show chat',
       icon: <PanelRight />,
@@ -648,7 +485,7 @@ export function Toolbar() {
   // Default bar/menu boundary (until the user drags it): the toggle actions sit
   // on the bar, document actions in the ⋯ menu. "chat" is pinned to the bar
   // separately and excluded from this count.
-  const TOGGLE_IDS = ['copy', 'autosave', 'source-mode', 'annotations', 'theme', 'google']
+  const TOGGLE_IDS = ['copy', 'autosave', 'source-mode', 'annotations', 'theme']
   const defaultBarCount = toolbarActions.filter(
     (a) => TOGGLE_IDS.includes(a.id) && a.available !== false && !a.pinnedBar
   ).length

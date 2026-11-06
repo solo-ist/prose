@@ -94,7 +94,7 @@ test('switching projects leaves the base-root bookmark slot untouched', async ()
   writeFileSync(join(projDir, 'Draft.md'), '# Draft\n')
 
   seedProfile({
-    appearance: { color: 'mono', mode: 'dark', icon: 'pilcrow', migrationToastShown: true },
+    appearance: { color: 'mono', mode: 'dark', icon: 'pilcrow' },
     defaultSaveDirectory: baseDir,
     masDirectoryBookmark: BASE_BOOKMARK,
     projects: [
@@ -140,7 +140,7 @@ test('a poisoned bookmark slot (project bookmark in masDirectoryBookmark) is hea
   mkdirSync(projDir, { recursive: true })
 
   seedProfile({
-    appearance: { color: 'mono', mode: 'dark', icon: 'pilcrow', migrationToastShown: true },
+    appearance: { color: 'mono', mode: 'dark', icon: 'pilcrow' },
     // The v1.6.0–v1.6.2 clobber state: the slot holds the project's bookmark
     // and the base root's own bookmark is gone (unrecoverable).
     defaultSaveDirectory: baseDir,

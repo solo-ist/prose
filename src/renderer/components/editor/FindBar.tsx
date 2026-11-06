@@ -1,9 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { X, ChevronUp, ChevronDown } from 'lucide-react'
+import { TextSelection } from '@tiptap/pm/state'
+import type { EditorView } from '@tiptap/pm/view'
+import { useEditorState } from '@tiptap/react'
+import type { Editor } from '@tiptap/react'
 import { Input } from '../ui/input'
 import { Button } from '../ui/button'
-import type { Editor } from '@tiptap/react'
-import type { SearchResult } from '../../extensions/search-highlight'
+import { searchHighlightPluginKey } from '../../extensions/search-highlight'
+
+const NO_SEARCH = { count: 0, currentIndex: -1, pluginTerm: '' }
 
 interface FindBarProps {
   editor: Editor | null
@@ -11,11 +16,46 @@ interface FindBarProps {
   onClose: () => void
 }
 
+/**
+ * The find bar. The search itself lives in the search-highlight plugin's
+ * state (#1106): the bar dispatches the term and the index and reads the
+ * matches and the counter back, so an edit anywhere keeps them right.
+ */
+/**
+ * Scroll the editor pane so `pos` is in view, keeping the focus where it is.
+ * ProseMirror's own `scrollIntoView` walks the scrollable ancestors of the DOM
+ * selection's focus node, which sits in the find input while the bar is used,
+ * so it never reaches the pane; it only worked when the DOM selection
+ * happened to be in the editor (#1203). Centres the match when it is outside
+ * the pane's middle band, leaves the pane alone otherwise.
+ */
+function scrollMatchIntoView(view: EditorView, pos: number): void {
+  const pane = view.dom.closest('.overflow-auto') as HTMLElement | null
+  if (!pane) return
+  const coords = view.coordsAtPos(pos)
+  const rect = pane.getBoundingClientRect()
+  const margin = Math.min(48, rect.height / 4)
+  if (coords.top >= rect.top + margin && coords.bottom <= rect.bottom - margin) return
+  pane.scrollTop += coords.top - rect.top - rect.height / 2
+}
+
 export function FindBar({ editor, isOpen, onClose }: FindBarProps) {
   const [searchTerm, setSearchTerm] = useState('')
-  const [results, setResults] = useState<SearchResult[]>([])
-  const [currentIndex, setCurrentIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // Null while there is no editor (the hook's nullable-editor overload).
+  const search = useEditorState({
+    editor,
+    selector: ({ editor: current }) => {
+      const state = current ? searchHighlightPluginKey.getState(current.state) : undefined
+      return {
+        count: state?.results.length ?? 0,
+        currentIndex: state?.currentIndex ?? -1,
+        pluginTerm: state?.term ?? ''
+      }
+    }
+  })
+  const { count, currentIndex, pluginTerm } = search ?? NO_SEARCH
 
   // Focus input when opened
   useEffect(() => {
@@ -25,12 +65,15 @@ export function FindBar({ editor, isOpen, onClose }: FindBarProps) {
     }
   }, [isOpen])
 
-  // Clear highlights when closed
+  // Clear highlights when closed. The plugin state is per tab, so a clear
+  // reaches only the tab that is active then; a tab that arrives later with
+  // its term still set (searched before a switch) is cleared here too, as the
+  // plugin term it carries re-runs this effect (#1203).
   useEffect(() => {
-    if (!isOpen && editor) {
+    if (!isOpen && editor && pluginTerm) {
       editor.commands.clearSearchHighlight()
     }
-  }, [isOpen, editor])
+  }, [isOpen, editor, pluginTerm])
 
   // Listen for search:show events from tools (e.g., search_document)
   useEffect(() => {
@@ -59,85 +102,52 @@ export function FindBar({ editor, isOpen, onClose }: FindBarProps) {
     return () => window.removeEventListener('find:focus', handleFindFocus)
   }, [])
 
-  // Search for matches in the document
-  const search = useCallback(() => {
-    if (!editor || !searchTerm.trim()) {
-      setResults([])
-      setCurrentIndex(0)
-      editor?.commands.clearSearchHighlight()
-      return
-    }
+  /**
+   * Select match `index` and scroll the pane to it, without focusing the
+   * editor: the input keeps the focus so Enter and Shift+Enter keep
+   * navigating. The scroll is done by hand (see `scrollMatchIntoView`).
+   */
+  const reveal = useCallback(
+    (index: number) => {
+      if (!editor) return
+      const match = searchHighlightPluginKey.getState(editor.state)?.results[index]
+      if (!match) return
+      const { tr, doc } = editor.state
+      editor.view.dispatch(tr.setSelection(TextSelection.create(doc, match.from, match.to)))
+      scrollMatchIntoView(editor.view, match.from)
+    },
+    [editor]
+  )
 
-    const doc = editor.state.doc
-    const searchResults: SearchResult[] = []
-    const searchLower = searchTerm.toLowerCase()
-
-    doc.descendants((node, pos) => {
-      if (node.isText && node.text) {
-        const textLower = node.text.toLowerCase()
-        let index = 0
-        while ((index = textLower.indexOf(searchLower, index)) !== -1) {
-          searchResults.push({
-            from: pos + index,
-            to: pos + index + searchTerm.length
-          })
-          index += 1
-        }
-      }
-    })
-
-    setResults(searchResults)
-    const newIndex = searchResults.length > 0 ? 0 : -1
-    setCurrentIndex(newIndex)
-
-    // Update decorations and highlight first result
-    if (searchResults.length > 0) {
-      editor.commands.setSearchHighlight(searchResults, 0)
-      editor.commands.setTextSelection(searchResults[0])
-      scrollToSelection(editor)
-    } else {
-      editor.commands.clearSearchHighlight()
-    }
-  }, [editor, searchTerm])
-
-  // Debounced search on input change
+  // Debounced search on input change. The plugin's term is a dependency so a
+  // tab switch (a fresh editor state, no term) re-runs the same search there.
   useEffect(() => {
-    const timer = setTimeout(search, 150)
-    return () => clearTimeout(timer)
-  }, [search])
-
-  const scrollToSelection = (editor: Editor) => {
-    const { from } = editor.state.selection
-    const coords = editor.view.coordsAtPos(from)
-    const editorElement = editor.view.dom.closest('.overflow-auto')
-    if (editorElement && coords) {
-      const rect = editorElement.getBoundingClientRect()
-      if (coords.top < rect.top || coords.bottom > rect.bottom) {
-        editorElement.scrollTo({
-          top: editorElement.scrollTop + coords.top - rect.top - rect.height / 2,
-          behavior: 'smooth'
-        })
+    if (!editor || !isOpen) return
+    const term = searchTerm.trim() ? searchTerm : ''
+    if (term === pluginTerm) return
+    const timer = setTimeout(() => {
+      if (!term) {
+        editor.commands.clearSearchHighlight()
+        return
       }
-    }
-  }
+      editor.commands.setSearchTerm(term)
+      reveal(0)
+    }, 150)
+    return () => clearTimeout(timer)
+  }, [editor, isOpen, searchTerm, pluginTerm, reveal])
 
-  const goToNext = useCallback(() => {
-    if (!editor || results.length === 0) return
-    const nextIndex = (currentIndex + 1) % results.length
-    setCurrentIndex(nextIndex)
-    editor.commands.setSearchHighlight(results, nextIndex)
-    editor.commands.setTextSelection(results[nextIndex])
-    scrollToSelection(editor)
-  }, [editor, results, currentIndex])
+  const goTo = useCallback(
+    (index: number) => {
+      if (!editor || count === 0) return
+      editor.commands.setSearchIndex(index)
+      const next = searchHighlightPluginKey.getState(editor.state)?.currentIndex ?? -1
+      if (next >= 0) reveal(next)
+    },
+    [editor, count, reveal]
+  )
 
-  const goToPrevious = useCallback(() => {
-    if (!editor || results.length === 0) return
-    const prevIndex = currentIndex <= 0 ? results.length - 1 : currentIndex - 1
-    setCurrentIndex(prevIndex)
-    editor.commands.setSearchHighlight(results, prevIndex)
-    editor.commands.setTextSelection(results[prevIndex])
-    scrollToSelection(editor)
-  }, [editor, results, currentIndex])
+  const goToNext = useCallback(() => goTo(currentIndex + 1), [goTo, currentIndex])
+  const goToPrevious = useCallback(() => goTo(currentIndex - 1), [goTo, currentIndex])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -167,15 +177,15 @@ export function FindBar({ editor, isOpen, onClose }: FindBarProps) {
         onKeyDown={handleKeyDown}
         className="w-48 h-8 text-sm"
       />
-      <span className="text-xs text-muted-foreground min-w-16 text-center">
-        {results.length > 0 ? `${currentIndex + 1}/${results.length}` : 'No results'}
+      <span className="text-xs text-muted-foreground min-w-16 text-center" data-testid="find-bar-count">
+        {count > 0 ? `${currentIndex + 1}/${count}` : 'No results'}
       </span>
       <div className="flex items-center">
         <Button
           variant="ghost"
           size="sm"
           onClick={goToPrevious}
-          disabled={results.length === 0}
+          disabled={count === 0}
           className="h-7 w-7 p-0"
           aria-label="Previous match"
         >
@@ -185,7 +195,7 @@ export function FindBar({ editor, isOpen, onClose }: FindBarProps) {
           variant="ghost"
           size="sm"
           onClick={goToNext}
-          disabled={results.length === 0}
+          disabled={count === 0}
           className="h-7 w-7 p-0"
           aria-label="Next match"
         >

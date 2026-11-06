@@ -1,6 +1,6 @@
 import type { NodeView, EditorView } from '@tiptap/pm/view'
 import type { Node } from '@tiptap/pm/model'
-import { resolveImageSrc } from './index'
+import { documentDirOf, resolveImageSrc } from './index'
 
 export class ImageNodeView implements NodeView {
   dom: HTMLElement
@@ -56,7 +56,9 @@ export class ImageNodeView implements NodeView {
   }
 
   private syncAttrs(): void {
-    const src = resolveImageSrc(this.node.attrs.src || '')
+    // Against this state's own document folder, not the active-document
+    // mirror, which lags a tab switch (#1204).
+    const src = resolveImageSrc(this.node.attrs.src || '', documentDirOf(this.view.state))
     this.img.src = src
     if (this.node.attrs.alt) this.img.alt = this.node.attrs.alt
     if (this.node.attrs.title) this.img.title = this.node.attrs.title

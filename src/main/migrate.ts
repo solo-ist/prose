@@ -9,9 +9,10 @@
  * decryption failure) and avoids needing IS_MAS_BUILD logic here.
  */
 import { join } from 'path'
-import { access, copyFile, writeFile, mkdir, readdir } from 'fs/promises'
+import { access, copyFile, writeFile, mkdir, readdir, unlink } from 'fs/promises'
 import { app } from 'electron'
 import { LEGACY_SETTINGS_DIR } from './paths'
+import { credentialStore } from './credentialStore'
 
 const SENTINEL = 'migration-v2.done'
 const LOG_FILE = 'migration.log'
@@ -126,5 +127,31 @@ async function writeLogs(newDir: string, log: string[], sentinelPath: string | n
     } catch {
       // Best-effort sentinel
     }
+  }
+}
+
+/**
+ * Drop the Google Docs OAuth refresh token (#1057).
+ *
+ * The integration was removed in 1.9.0, so its stored credential would
+ * otherwise sit in the credential store indefinitely — a live refresh token for
+ * a feature that no longer exists. Both deletes are no-ops once gone, so this
+ * is safe to call on every launch; it is deliberately NOT behind
+ * migrateFromLegacyDir's sentinel, which existing installs have already
+ * tripped.
+ *
+ * Two locations, because the old auth path read both: the credentialStore key
+ * and the pre-1.2 legacy file it migrated from.
+ */
+export async function purgeGoogleCredentials(): Promise<void> {
+  try {
+    await credentialStore.delete('google-refresh-token')
+  } catch {
+    // credentialStore.delete already swallows a missing file; belt and braces.
+  }
+  try {
+    await unlink(join(LEGACY_SETTINGS_DIR, '.google-refresh-token'))
+  } catch {
+    // Already gone, or never existed.
   }
 }

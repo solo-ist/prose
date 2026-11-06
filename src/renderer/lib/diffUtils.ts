@@ -5,15 +5,16 @@
  * (Quick Review / Side-by-side), and the editor tool executors.
  */
 
-import type { Editor } from '@tiptap/core'
-import { useAnnotationStore } from '../extensions/ai-annotations/store'
+import type { EditorState } from '@tiptap/pm/state'
+import type { EditorView } from '@tiptap/pm/view'
+import type { AnnotationInput } from '../extensions/ai-annotations/transactions'
 import type { AnnotationType } from '../types/annotations'
 
 /**
  * Scroll the editor so the current selection is centered in the viewport.
  * Matches the behavior of FindBar's search result scrolling.
  */
-export function scrollSelectionIntoCenter(editor: Editor): void {
+export function scrollSelectionIntoCenter(editor: { state: EditorState; view: EditorView }): void {
   const { from } = editor.state.selection
   const coords = editor.view.coordsAtPos(from)
   const editorElement = editor.view.dom.closest('.overflow-auto')
@@ -166,54 +167,51 @@ export function computeUnchangedWordRanges(
  * preserved at its remapped absolute position, so a neighbour word's provenance mark
  * survives a single-word edit without being clobbered.
  */
-export function createWordDiffAnnotations(params: {
-  documentId: string
+export function buildWordDiffAnnotations(params: {
   originalText: string
   newText: string
   rangeFrom: number
   rangeTo: number
   provenance: { model: string; conversationId: string; messageId: string }
   explanation?: string
-  priorAnnotations?: import('../types/annotations').AIAnnotation[]
-}): void {
-  const { documentId, originalText, newText, rangeFrom, rangeTo, provenance, explanation, priorAnnotations } = params
+  priorAnnotations?: readonly import('../types/annotations').AIAnnotation[]
+}): AnnotationInput[] {
+  const { originalText, newText, rangeFrom, rangeTo, provenance, explanation } = params
   const annotationType: AnnotationType = originalText.trim() === '' ? 'insertion' : 'replacement'
-  const store = useAnnotationStore.getState()
+  const out: AnnotationInput[] = []
 
   // Multi-paragraph: fall back to full-range annotation (no word-level remap)
   if (newText.includes('\n')) {
-    store.addAnnotation({
-      documentId,
-      type: annotationType,
-      from: rangeFrom,
-      to: rangeTo,
-      content: newText,
-      provenance,
-      explanation,
-    })
-    return
+    out.push({ type: annotationType, from: rangeFrom, to: rangeTo, content: newText, provenance, explanation })
+    return out
   }
 
   const diff = computeWordDiff(originalText, newText)
 
-  // --- Restore prior annotations for unchanged words ---
-  // Prior annotations were captured before applyInsertion; ProseMirror's position
-  // mapping collapses all positions inside the replaced range, so they are gone
-  // from the store by the time we get here.  Re-add them using the new-text offsets
-  // of the unchanged words so the neighbour-word provenance mark survives.
-  if (priorAnnotations && priorAnnotations.length > 0) {
+  // --- Carry prior annotations over on their unchanged words ---
+  // Prior annotations were captured before the replace; ProseMirror's position
+  // mapping detaches every record inside the replaced range. Each prior comes
+  // back on the words of it that survived, in new-text offsets: adjacent
+  // surviving words (whitespace between them) form one run, the first run
+  // keeps the prior's id and time so the record moves rather than leaving a
+  // superseded entry beside a copy, and every run is labelled with the text
+  // it covers. (One record per word, each labelled with the parent's whole
+  // text and stamped as new, was how this read in the Activity panel before.)
+  // A record that was already detached is history (#674), not something to
+  // bring back to life.
+  const priorAnnotations = params.priorAnnotations?.filter((a) => !a.detached) ?? []
+  if (priorAnnotations.length > 0) {
     const unchangedRanges = computeUnchangedWordRanges(originalText, newText)
     // originalContentStart is the absolute PM position of char 0 in the old text,
     // which equals rangeFrom (both executeEdit and executeInsert pass contentStart as rangeFrom).
     const originalContentStart = rangeFrom
 
-    for (const range of unchangedRanges) {
-      // Absolute positions of this word in the OLD document
-      const oldAbsFrom = originalContentStart + range.oldFrom
-      const oldAbsTo = originalContentStart + range.oldTo
-
-      // Find prior annotations whose range overlaps this unchanged word
-      for (const prior of priorAnnotations) {
+    for (const prior of priorAnnotations) {
+      const pieces: Array<{ from: number; to: number }> = []
+      for (const range of unchangedRanges) {
+        // Absolute positions of this word in the OLD document
+        const oldAbsFrom = originalContentStart + range.oldFrom
+        const oldAbsTo = originalContentStart + range.oldTo
         if (prior.to <= oldAbsFrom || prior.from >= oldAbsTo) continue
 
         // Clamp the annotation to the word boundary (handles partial overlaps)
@@ -231,22 +229,31 @@ export function createWordDiffAnnotations(params: {
         const scale = wordNewLen / Math.max(wordOldLen, 1)
         const newRelFrom = range.newFrom + Math.round((oldRelFrom - range.oldFrom) * scale)
         const newRelTo = range.newFrom + Math.round((oldRelTo - range.oldFrom) * scale)
+        if (newRelFrom < newRelTo) pieces.push({ from: newRelFrom, to: newRelTo })
+      }
+      pieces.sort((a, b) => a.from - b.from)
 
-        const newAbsFrom = rangeFrom + newRelFrom
-        const newAbsTo = rangeFrom + newRelTo
-
-        if (newAbsFrom >= newAbsTo) continue
-
-        store.addAnnotation({
-          documentId: prior.documentId,
+      const runs: Array<{ from: number; to: number }> = []
+      for (const piece of pieces) {
+        const last = runs[runs.length - 1]
+        if (last && piece.from >= last.from && newText.slice(last.to, piece.from).trim() === '') {
+          last.to = Math.max(last.to, piece.to)
+        } else {
+          runs.push({ ...piece })
+        }
+      }
+      runs.forEach((run, i) => {
+        out.push({
+          id: i === 0 ? prior.id : undefined,
+          createdAt: prior.createdAt,
           type: prior.type,
-          from: newAbsFrom,
-          to: newAbsTo,
-          content: prior.content,
+          from: rangeFrom + run.from,
+          to: rangeFrom + run.to,
+          content: newText.slice(run.from, run.to),
           provenance: prior.provenance,
           explanation: prior.explanation,
         })
-      }
+      })
     }
   }
 
@@ -291,26 +298,11 @@ export function createWordDiffAnnotations(params: {
 
   if (mergedRuns.length > 0) {
     for (const run of mergedRuns) {
-      store.addAnnotation({
-        documentId,
-        type: annotationType,
-        from: run.from,
-        to: run.to,
-        content: run.content,
-        provenance,
-        explanation,
-      })
+      out.push({ type: annotationType, from: run.from, to: run.to, content: run.content, provenance, explanation })
     }
   } else {
     // No word-level diff found (e.g. pure whitespace change), annotate full range
-    store.addAnnotation({
-      documentId,
-      type: annotationType,
-      from: rangeFrom,
-      to: rangeTo,
-      content: newText,
-      provenance,
-      explanation,
-    })
+    out.push({ type: annotationType, from: rangeFrom, to: rangeTo, content: newText, provenance, explanation })
   }
+  return out
 }

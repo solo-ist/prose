@@ -58,7 +58,7 @@ test.beforeAll(async () => {
     join(qaUserDataDir, 'settings.json'),
     JSON.stringify(
       {
-        appearance: { mode: 'dark', icon: 'default' },
+        appearance: { mode: 'dark', icon: 'pilcrow' },
         defaultSaveDirectory: qaDocDir,
         favorites: [],
       },

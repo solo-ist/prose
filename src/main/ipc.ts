@@ -2,17 +2,19 @@ import { ipcMain, dialog, app, shell, BrowserWindow, clipboard, nativeImage } fr
 import { IS_MAS_BUILD } from './env'
 import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat, copyFile } from 'fs/promises'
 import { join, dirname, isAbsolute, basename } from 'path'
-import { randomUUID } from 'crypto'
+import { randomUUID, createHash } from 'crypto'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
 import { withRetry, getNetworkErrorMessage } from '../shared/utils/retry'
-import { getDefaultModel, getDefaultHaikuModel, supportsAdaptiveThinking } from '../shared/llm/models'
+import { getDefaultModel, getDefaultHaikuModel, supportsAdaptiveThinking, getThinkingOffMode } from '../shared/llm/models'
 import { getSettingsDir, LEGACY_SETTINGS_DIR, normalizePath, resolveWithin, resolveToolPath, IMAGE_EXTENSIONS } from './paths'
 import type { FileAccessOptions } from '../shared/fileAccess'
 import { clearRecentFiles } from './recentFiles'
+import { dialogDefaultPath, rememberDialogDir } from './dialogDirs'
 import { refreshMenu, setReopenClosedTabEnabled } from './menu'
 import { credentialStore } from './credentialStore'
 import { toFileOperationFailure, type ReadFileResult, type SaveFileResult } from '../shared/fileOperationResult'
+import { readReleaseNotes, type ReleaseNotes } from './releaseNotes'
 
 // Credential store keys
 const LLM_API_KEY = 'llm-api-key'
@@ -123,6 +125,80 @@ const REMARKABLE_CREDENTIAL_KEY = 'remarkable-anthropic-key'
  * Refuse a final path segment that is empty, `.` or `..`. Used on the C-class
  * handlers (rename, createDirectory) whose last segment is a user-typed name.
  */
+/**
+ * The key Prose writes into Claude Desktop's `claude_desktop_config.json`.
+ * Capitalized; the lowercase `prose` key is from an older install, which
+ * mcp:install deletes on sight.
+ */
+const MCP_CONFIG_KEY = 'Prose'
+
+/**
+ * Claude Desktop's config file, and the directory holding it.
+ *
+ * PROSE_CLAUDE_CONFIG_PATH redirects both — the same test seam as
+ * PROSE_USER_DATA_DIR (src/main/index.ts), so e2e can exercise install and
+ * status against a scratch config instead of the user's real one.
+ */
+function claudeDesktopConfigPath(): string {
+  return (
+    process.env.PROSE_CLAUDE_CONFIG_PATH ||
+    join(homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+  )
+}
+
+/** The mcp-stdio bundle this build would install. */
+function bundledMcpServerPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'mcp-stdio.cjs')
+    : join(__dirname, '../../out/mcp-stdio.cjs')
+}
+
+function sha256(content: string): string {
+  return createHash('sha256').update(content).digest('hex')
+}
+
+/**
+ * Does the installed MCP integration differ from what mcp:install would write?
+ *
+ * Two things are compared, and they are the two things install actually
+ * writes: the server bytes — the whole tool surface (registry, schemas,
+ * src/mcp-stdio) compiles into them via build:mcp-stdio — and the config entry
+ * pointing at the installed server.
+ *
+ * The entry's `command` is deliberately NOT compared. It is a `which node`
+ * result, so it reflects the PATH of whichever process last ran the install —
+ * a packaged app launched from Finder resolves it differently from a dev run.
+ * Comparing it would nag about how the app was started rather than about
+ * anything to do with MCP.
+ */
+async function mcpNeedsUpdate(serverPath: string, configPath: string): Promise<boolean> {
+  let bundled: string
+  try {
+    bundled = await readFile(bundledMcpServerPath(), 'utf-8')
+  } catch {
+    // We can't read what we'd install, so we can't claim it differs. Staying
+    // quiet beats a prompt that would reinstall the same unreadable thing.
+    return false
+  }
+
+  try {
+    if (sha256(bundled) !== sha256(await readFile(serverPath, 'utf-8'))) return true
+  } catch {
+    return true
+  }
+
+  // The entry must exist and point at the installed server — if Claude
+  // Desktop's config lost it, or still points somewhere else, reinstalling is
+  // exactly the fix the prompt offers.
+  try {
+    const config = JSON.parse(await readFile(configPath, 'utf-8'))
+    const args = config?.mcpServers?.[MCP_CONFIG_KEY]?.args
+    return !Array.isArray(args) || args[0] !== serverPath
+  } catch {
+    return true
+  }
+}
+
 function assertPlainEntryName(name: string): void {
   if (!name || name === '.' || name === '..') {
     throw new Error('Invalid file or folder name')
@@ -130,7 +206,7 @@ function assertPlainEntryName(name: string): void {
 }
 
 const defaultSettings: Settings = {
-  appearance: { lightColor: 'mono', darkColor: 'prose', mode: 'system', icon: 'pilcrow', migrationToastShown: true },
+  appearance: { lightColor: 'mono', darkColor: 'prose', mode: 'system', icon: 'pilcrow' },
   llm: {
     provider: 'anthropic',
     model: getDefaultModel('anthropic'),
@@ -141,7 +217,6 @@ const defaultSettings: Settings = {
     fontSize: 16,
     lineHeight: 1.6,
     fontFamily: "'IBM Plex Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
-    streamingEdits: true,
     bulletListMarker: '*' as const
   },
   recovery: {
@@ -158,6 +233,7 @@ export function setupIpcHandlers(): void {
   // File: Open dialog
   ipcMain.handle('file:open', async () => {
     const result = await dialog.showOpenDialog({
+      defaultPath: await dialogDefaultPath('open'),
       properties: ['openFile'],
       filters: [
         { name: 'Documents', extensions: ['md', 'markdown', 'txt', 'html', 'htm'] },
@@ -170,6 +246,7 @@ export function setupIpcHandlers(): void {
     }
 
     const path = result.filePaths[0]
+    await rememberDialogDir('open', path, 'file')
     const content = await readFile(path, 'utf-8')
 
     // Track in macOS Dock recent items (renderer handles settingsStore tracking)
@@ -234,7 +311,7 @@ export function setupIpcHandlers(): void {
   // File: Save As dialog
   ipcMain.handle('file:saveAs', async (_event, content: string, defaultFilename?: string) => {
     const result = await dialog.showSaveDialog({
-      defaultPath: defaultFilename,
+      defaultPath: await dialogDefaultPath('save', defaultFilename),
       filters: [
         { name: 'Markdown', extensions: ['md'] },
         { name: 'All Files', extensions: ['*'] }
@@ -246,6 +323,7 @@ export function setupIpcHandlers(): void {
     }
 
     await writeFile(result.filePath, content, 'utf-8')
+    await rememberDialogDir('save', result.filePath, 'file')
 
     // Track in macOS Dock recent items (renderer handles settingsStore tracking)
     app.addRecentDocument(result.filePath)
@@ -256,7 +334,7 @@ export function setupIpcHandlers(): void {
   // File: Export as plain text
   ipcMain.handle('file:exportTxt', async (_event, content: string, defaultFilename?: string) => {
     const result = await dialog.showSaveDialog({
-      defaultPath: defaultFilename,
+      defaultPath: await dialogDefaultPath('save', defaultFilename),
       filters: [
         { name: 'Text Files', extensions: ['txt'] }
       ]
@@ -267,13 +345,14 @@ export function setupIpcHandlers(): void {
     }
 
     await writeFile(result.filePath, content, 'utf-8')
+    await rememberDialogDir('save', result.filePath, 'file')
     return result.filePath
   })
 
   // File: Export as HTML
   ipcMain.handle('file:exportHtml', async (_event, content: string, defaultFilename?: string) => {
     const result = await dialog.showSaveDialog({
-      defaultPath: defaultFilename,
+      defaultPath: await dialogDefaultPath('save', defaultFilename),
       filters: [
         { name: 'HTML Files', extensions: ['html'] }
       ]
@@ -284,6 +363,7 @@ export function setupIpcHandlers(): void {
     }
 
     await writeFile(result.filePath, content, 'utf-8')
+    await rememberDialogDir('save', result.filePath, 'file')
     return result.filePath
   })
 
@@ -291,7 +371,7 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('file:selectFolder', async (_event, defaultPath?: string, message?: string) => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory'],
-      ...(defaultPath ? { defaultPath } : {}),
+      defaultPath: defaultPath ?? await dialogDefaultPath('folder'),
       ...(message ? { message } : {}),
       ...(IS_MAS_BUILD ? { securityScopedBookmarks: true } : {})
     })
@@ -301,6 +381,7 @@ export function setupIpcHandlers(): void {
     }
 
     const path = result.filePaths[0]
+    await rememberDialogDir('folder', path, 'directory')
     const bookmark = IS_MAS_BUILD ? (result.bookmarks?.[0] ?? null) : null
 
     // Activate bookmark access immediately for this session. Deliberately does
@@ -680,6 +761,24 @@ export function setupIpcHandlers(): void {
         }
       }
 
+      // Cleanup: drop the Google Docs account block (#1057). The integration
+      // was removed in 1.9.0, but the stored object carries the connected
+      // account's email and profile-picture URL — personal data for a feature
+      // that no longer exists. `Settings` no longer declares `google`, so
+      // nothing reads it; without this it would persist indefinitely, and the
+      // spread above would keep round-tripping it back to disk on every save.
+      if (rawSettings.google !== undefined) {
+        delete rawSettings.google
+        try {
+          await writeFile(getSettingsPath(), JSON.stringify(stripSecretsForDisk(rawSettings), null, 2), 'utf-8')
+          console.log('[settings:load] Removed the obsolete Google Docs account block')
+        } catch (err) {
+          // Non-fatal: the key is already stripped from what the renderer
+          // receives, so the only cost is retrying the write next launch.
+          console.error('[settings:load] Could not remove the Google Docs account block:', err)
+        }
+      }
+
       // Inject secrets from secure storage
       if (credentialStore.isAvailable()) {
         const storedKey = await credentialStore.get(LLM_API_KEY)
@@ -1042,24 +1141,39 @@ export function setupIpcHandlers(): void {
 
         // Extended thinking — adaptive mode, capability-gated by
         // supportsAdaptiveThinking() (THINKING_CAPABLE_PREFIXES in models.ts:
-        // Sonnet 4.6, Opus 4.6+, and Fable 5). Models outside that list (e.g.
-        // Haiku) return HTTP 400 if *any* thinking param is sent. `display:
-        // "summarized"` is mandatory — the default "omitted" yields an empty
-        // thinking string. Depth is controlled by output_config.effort, not a
-        // token budget.
+        // Sonnet 4.6+, Opus 4.6+, and Fable 5+). Models outside that list
+        // (e.g. Haiku) return HTTP 400 if *any* thinking param is sent.
+        // `display: "summarized"` is mandatory — the default "omitted" yields
+        // an empty thinking string. Depth is controlled by
+        // output_config.effort, not a token budget.
         //
-        // Disabling must be EXPLICIT: on adaptive-thinking models the param
-        // defaults to on, so simply omitting `thinking` leaves the model
-        // thinking anyway (the user toggling it off had no effect). We send
-        // { type: 'disabled' } to actually suppress it — but only for models
-        // that accept the param at all; non-capable models must omit it.
+        // Turning thinking OFF is model-specific — see getThinkingOffMode():
+        // Sonnet 5.5 takes { type: 'between_tools' }, Opus 5.5 and Fable 5.x
+        // reject every explicit off-switch and must omit the param entirely
+        // (thinking is on by default there, so effort is the only lever), and
+        // the 4.x generation still takes { type: 'disabled' }. Sending the
+        // wrong one is a hard 400 at request time.
         const modelSupportsThinking = supportsAdaptiveThinking(request.model)
         const thinkingEnabled = request.thinking !== false && modelSupportsThinking
+        const thinkingOffParam = (() => {
+          switch (getThinkingOffMode(request.model)) {
+            case 'disabled':
+              return { type: 'disabled' as const }
+            case 'between_tools':
+              return { type: 'between_tools' as const }
+            case 'omit':
+              return undefined
+          }
+        })()
         const thinkingParam = !modelSupportsThinking
           ? undefined
           : thinkingEnabled
             ? { type: 'adaptive' as const, display: 'summarized' as const }
-            : { type: 'disabled' as const }
+            : thinkingOffParam
+
+        // `between_tools` is accepted only at effort 'high' or below, so pin
+        // it rather than relying on the model's default staying there.
+        const sendEffort = thinkingEnabled || thinkingParam?.type === 'between_tools'
 
         const maxTokens = request.maxTokens || 16000
 
@@ -1070,7 +1184,7 @@ export function setupIpcHandlers(): void {
           messages: anthropicMessages,
           tools: anthropicTools,
           ...(thinkingParam ? { thinking: thinkingParam } : {}),
-          ...(thinkingEnabled ? { output_config: { effort: 'high' as const } } : {})
+          ...(sendEffort ? { output_config: { effort: 'high' as const } } : {})
         }
 
         const stream = client.messages.stream(streamParams)
@@ -1654,89 +1768,9 @@ export function setupIpcHandlers(): void {
     }
   })
 
-  // Google: Check if credentials are configured (env vars present)
-  ipcMain.handle('google:isConfigured', () => {
-    return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
-  })
-
-  // Google: Start OAuth flow
-  ipcMain.handle('google:startAuth', async () => {
-    if (IS_MAS_BUILD) {
-      return { success: false, error: 'Google Docs sync is not available in the Mac App Store version.' }
-    }
-    const { startOAuthFlow } = await import('./google/auth')
-    return await startOAuthFlow()
-  })
-
-  // Google: Disconnect (clear tokens)
-  ipcMain.handle('google:disconnect', async () => {
-    const { clearTokens } = await import('./google/auth')
-    await clearTokens()
-  })
-
-  // Google: Get connection status
-  ipcMain.handle('google:getConnectionStatus', async () => {
-    const { validateConnection } = await import('./google/auth')
-    return await validateConnection()
-  })
-
-  // Google: Unified sync (determines push/pull/create automatically)
-  ipcMain.handle('google:sync', async (_event, content: string, frontmatter: Record<string, unknown>, title: string) => {
-    const { syncDocument } = await import('./google/sync')
-    return await syncDocument(content, frontmatter, title)
-  })
-
-  // Google: Pull document from Google Docs
-  ipcMain.handle('google:pull', async (_event, docId: string) => {
-    const { pullFromGoogle } = await import('./google/sync')
-    return await pullFromGoogle(docId)
-  })
-
-  // Google: Import document from Google Docs
-  ipcMain.handle('google:import', async (_event, docId: string) => {
-    const { importFromGoogle } = await import('./google/sync')
-    return await importFromGoogle(docId)
-  })
-
-  // Google: Ensure ~/Documents/Google Docs/ folder exists
-  ipcMain.handle('google:ensureFolder', async () => {
-    const { ensureGoogleDocsFolder } = await import('./google/sync')
-    return await ensureGoogleDocsFolder()
-  })
-
-  // Google: Sync all Prose-linked docs to local folder
-  ipcMain.handle('google:syncAll', async (_event, syncDir: string) => {
-    const { syncAllGoogleDocs } = await import('./google/sync')
-    return await syncAllGoogleDocs(syncDir)
-  })
-
-  // Google: List recent docs
-  ipcMain.handle('google:listRecentDocs', async (_event, maxResults?: number) => {
-    const { listRecentDocs } = await import('./google/client')
-    return await listRecentDocs(maxResults)
-  })
-
-  // Google: Get sync metadata (with file-existence checks)
-  ipcMain.handle('google:getSyncMetadata', async () => {
-    const { getGoogleSyncMetadata } = await import('./google/sync')
-    return await getGoogleSyncMetadata()
-  })
-
-  // Google: Add/update a metadata entry
-  ipcMain.handle('google:updateSyncMetadataEntry', async (_event, entry: import('./google/sync').GoogleDocEntry) => {
-    const { updateGoogleSyncMetadataEntry } = await import('./google/sync')
-    await updateGoogleSyncMetadataEntry(entry)
-  })
-
-  // Google: Remove a metadata entry
-  ipcMain.handle('google:removeSyncMetadataEntry', async (_event, googleDocId: string) => {
-    const { removeGoogleSyncMetadataEntry } = await import('./google/sync')
-    await removeGoogleSyncMetadataEntry(googleDocId)
-  })
-
   // --- Share (#768): publish/re-publish/revoke + interim gateway sign-in ---
   // Gated in the renderer by the webPlatform flag (force-off on MAS); the
-  // MAS guard here is belt-and-braces, mirroring google:startAuth.
+  // MAS guard here is belt-and-braces.
 
   // Server row ids are Prisma-generated (cuid/uuid charset) — the strict
   // guard keeps a crafted id (e.g. '../../api/auth/x') out of the fetch
@@ -1991,6 +2025,20 @@ export function setupIpcHandlers(): void {
   })
 
   // MCP: Get installation status
+  //
+  // `needsUpdate` compares what is installed against what mcp:install would
+  // write, rather than comparing version markers. The old marker stored the
+  // *app* version, so every release flipped the flag and offered a reinstall
+  // that changed nothing. There is no MCP version to lean on either —
+  // serverInfo.version is a frozen '1.0.0' literal — so the honest signal is
+  // the content itself: the bundled mcp-stdio.cjs bytes (into which the whole
+  // tool surface compiles) and the config entry pointing at the installed
+  // server.
+  //
+  // Comparing directly also means no marker to migrate: an install carrying
+  // the legacy { version } shape is judged on its contents like any other, so
+  // it never shows one last spurious prompt. version.json survives as a
+  // display-only record of which release performed the install.
   ipcMain.handle('mcp:getStatus', async (): Promise<{
     installed: boolean
     version: string | null
@@ -2005,7 +2053,7 @@ export function setupIpcHandlers(): void {
     const MCP_SERVER_DIR = join(app.getPath('userData'), 'mcp-server')
     const MCP_SERVER_PATH = join(MCP_SERVER_DIR, 'mcp-stdio.cjs')
     const VERSION_PATH = join(MCP_SERVER_DIR, 'version.json')
-    const CONFIG_PATH = join(homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+    const CONFIG_PATH = claudeDesktopConfigPath()
     const appVersion = app.getVersion()
 
     let installed = false
@@ -2016,15 +2064,15 @@ export function setupIpcHandlers(): void {
       await access(MCP_SERVER_PATH)
       installed = true
 
-      // Check version
+      // Display only — which Prose release performed the install.
       try {
         const versionData = JSON.parse(await readFile(VERSION_PATH, 'utf-8'))
-        version = versionData.version
-        needsUpdate = version !== appVersion
+        version = typeof versionData.version === 'string' ? versionData.version : null
       } catch {
-        // No version file, needs update
-        needsUpdate = true
+        // No marker, or an unreadable one. Not an update signal by itself.
       }
+
+      needsUpdate = await mcpNeedsUpdate(MCP_SERVER_PATH, CONFIG_PATH)
     } catch {
       // Server not installed
     }
@@ -2047,7 +2095,7 @@ export function setupIpcHandlers(): void {
     const MCP_SERVER_DIR = join(app.getPath('userData'), 'mcp-server')
     const MCP_SERVER_PATH = join(MCP_SERVER_DIR, 'mcp-stdio.cjs')
     const VERSION_PATH = join(MCP_SERVER_DIR, 'version.json')
-    const CONFIG_PATH = join(homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+    const CONFIG_PATH = claudeDesktopConfigPath()
     const appVersion = app.getVersion()
 
     try {
@@ -2055,11 +2103,7 @@ export function setupIpcHandlers(): void {
       await mkdir(MCP_SERVER_DIR, { recursive: true })
 
       // Copy the mcp-stdio.cjs from app resources
-      const resourcePath = app.isPackaged
-        ? join(process.resourcesPath, 'mcp-stdio.cjs')
-        : join(__dirname, '../../out/mcp-stdio.cjs')
-
-      const serverCode = await readFile(resourcePath, 'utf-8')
+      const serverCode = await readFile(bundledMcpServerPath(), 'utf-8')
       await writeFile(MCP_SERVER_PATH, serverCode, 'utf-8')
 
       // Write version file
@@ -2109,13 +2153,13 @@ export function setupIpcHandlers(): void {
       }
 
       // Add Prose entry (capitalized key)
-      config.mcpServers.Prose = {
+      config.mcpServers[MCP_CONFIG_KEY] = {
         command: nodePath,
         args: [MCP_SERVER_PATH]
       }
 
       // Ensure Claude config directory exists
-      await mkdir(join(homedir(), 'Library', 'Application Support', 'Claude'), { recursive: true })
+      await mkdir(dirname(CONFIG_PATH), { recursive: true })
       await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8')
 
       return { success: true }
@@ -2134,7 +2178,7 @@ export function setupIpcHandlers(): void {
       return { success: false, error: 'MCP server uninstall is not available in the Mac App Store version.' }
     }
     const MCP_SERVER_DIR = join(app.getPath('userData'), 'mcp-server')
-    const CONFIG_PATH = join(homedir(), 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+    const CONFIG_PATH = claudeDesktopConfigPath()
 
     try {
       // Remove from Claude Desktop config
@@ -2177,30 +2221,43 @@ export function setupIpcHandlers(): void {
   })
 
   ipcMain.handle('clipboard:writeText', async (_event, text: string) => {
-    clipboard.writeText(text)
+    await clipboard.writeText(text)
   })
 
-  // Appearance: live dock icon swap (macOS only)
-  // VALID_ICON_IDS is an allowlist — iconId arrives from the untrusted renderer
-  // and must not be used in path construction without validation (path traversal).
-  const VALID_ICON_IDS = [
-    'pilcrow', 'fraunces-p', 'asterisk', 'hash', 'period', 'prompt', 'legacy',
-  ] as const
-  ipcMain.handle('appearance:set-icon', (_event, iconId: string) => {
+  // Appearance: pin the dock tile to Pilcrow (macOS only).
+  //
+  // Dev-only. In dev the dock otherwise shows Electron's own logo; a packaged
+  // build must be left alone. Takes no argument: the icon switcher was removed
+  // in 1.9.0 (#1052), so no renderer-supplied value reaches path construction.
+  ipcMain.handle('appearance:apply-dock-icon', () => {
     if (process.platform !== 'darwin') return
-    if (!(VALID_ICON_IDS as readonly string[]).includes(iconId)) return
+    // Packaged builds MUST NOT reach app.dock.setIcon (#1095). It pins the dock
+    // tile to a fixed bitmap, which overrides the bundle icon — and since #812
+    // the bundle icon is an Icon Composer bundle compiled to Assets.car, whose
+    // whole purpose is to re-render per macOS 26 appearance (Default, Dark,
+    // Clear, Tinted). Setting a PNG here defeats every one of those modes on
+    // the dock while Stage Manager, Finder and ⌘Tab — which read the bundle —
+    // keep switching correctly. The symptom is the correct icon flashing at
+    // launch and then reverting once the renderer loads settings and calls
+    // applyDockIcon (settingsStore.ts).
+    if (app.isPackaged) return
     // Use the 1024px PNG, not the .icns — nativeImage.createFromPath loads PNG
     // reliably for app.dock.setIcon, whereas .icns frequently loads empty
     // (the "doesn't actually switch" symptom).
-    const iconPath = app.isPackaged
-      ? join(process.resourcesPath, 'resources', 'icons', iconId, 'icon-1024.png')
-      : join(__dirname, '../../resources/icons', iconId, 'icon-1024.png')
+    const iconPath = join(__dirname, '../../resources/icons/pilcrow/icon-1024.png')
     const img = nativeImage.createFromPath(iconPath)
     if (img.isEmpty()) {
-      console.warn(`[appearance:set-icon] icon image failed to load: ${iconPath}`)
+      console.warn(`[appearance:apply-dock-icon] icon image failed to load: ${iconPath}`)
       return
     }
     app.dock.setIcon(img)
+  })
+
+  // The renderer owns the "has this version been seen" decision (it holds settings);
+  // main only answers "are there notes for this version, and what are they".
+  ipcMain.handle('releaseNotes:get', async (_e, version: string): Promise<ReleaseNotes | null> => {
+    if (typeof version !== 'string') return null
+    return readReleaseNotes(version)
   })
 
   ipcMain.handle('skill:download', async (): Promise<{ success: boolean; error?: string }> => {

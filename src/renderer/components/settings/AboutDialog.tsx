@@ -5,8 +5,7 @@ import {
   DialogTitle
 } from '../ui/dialog'
 import { Separator } from '../ui/separator'
-import iconDark from '../../assets/icon-dark.png'
-import iconLight from '../../assets/icon-light.png'
+import { ProseMark } from '../ProseMark'
 
 import { APP_VERSION, GIT_HASH } from '../../buildInfo.generated'
 
@@ -18,22 +17,16 @@ interface AboutDialogProps {
 export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
+      {/* Identified by testid, not by text: the release-notes modal (#1058) is
+          also a dialog whose title contains "Prose", so a text filter matches
+          both whenever they are open together. */}
+      <DialogContent className="max-w-sm" data-testid="about-dialog">
         <DialogHeader>
           <DialogTitle className="text-center">Prose</DialogTitle>
         </DialogHeader>
 
         <div className="flex flex-col items-center gap-4 py-4">
-          <img
-            src={iconDark}
-            alt="Prose"
-            className="h-16 w-16 hidden dark:block"
-          />
-          <img
-            src={iconLight}
-            alt="Prose"
-            className="h-16 w-16 block dark:hidden"
-          />
+          <ProseMark tile title="Prose" className="h-16 w-16 rounded-[22%]" />
 
           <div className="text-center space-y-1">
             <p className="text-sm text-muted-foreground">

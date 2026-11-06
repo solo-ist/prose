@@ -43,7 +43,6 @@ function sendMenuAction(action: string): void {
 export function createMenu(mainWindow: BrowserWindow): void {
   _menuWindow = mainWindow
   const isMac = process.platform === 'darwin'
-  const isGoogleConfigured = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
 
   // Build "Open Recent" submenu from persisted recent files
   const recentFiles = loadRecentFiles().slice(0, 10)
@@ -190,25 +189,6 @@ export function createMenu(mainWindow: BrowserWindow): void {
             sendMenuAction('convertToMarkdown')
           }
         },
-        ...(!IS_MAS_BUILD && isGoogleConfigured
-          ? [
-              { type: 'separator' as const },
-              {
-                label: 'Sync with Google Docs',
-                accelerator: 'CmdOrCtrl+Shift+G',
-                click: (): void => {
-                  sendMenuAction('googleSync')
-                }
-              },
-              {
-                label: 'Import from Google Docs...',
-                accelerator: 'CmdOrCtrl+Shift+I',
-                click: (): void => {
-                  sendMenuAction('googleImport')
-                }
-              }
-            ]
-          : []),
         ...(isMac
           ? []
           : [{ type: 'separator' as const }, { role: 'quit' as const }])
@@ -259,6 +239,19 @@ export function createMenu(mainWindow: BrowserWindow): void {
           accelerator: 'CmdOrCtrl+Shift+A',
           click: (): void => {
             sendMenuAction('addComment')
+          }
+        },
+        {
+          // Tables render and round-trip, but until #1060 there was no way to
+          // create one except typing the pipe syntax by hand.
+          //
+          // Deliberately no accelerator: every obvious binding is taken —
+          // CmdOrCtrl+Shift+T is Reopen Closed Tab (above), CmdOrCtrl+Alt+T is
+          // Convert to Plain Text — and a duplicate accelerator silently
+          // shadows one of the two commands rather than failing loudly.
+          label: 'Insert Table',
+          click: (): void => {
+            sendMenuAction('insertTable')
           }
         },
         { type: 'separator' },

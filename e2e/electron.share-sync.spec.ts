@@ -42,6 +42,7 @@ import {
   executeProseTool,
   switchExplorerTab,
   selectors,
+  seedSettings,
 } from './helpers'
 
 // ---------------------------------------------------------------------------
@@ -249,11 +250,8 @@ function readSyncEntry(publicationId: string): Record<string, unknown> | null {
 }
 
 function writeSettings(gatewayUrl: string): void {
-  writeFileSync(
-    join(userDataDir, 'settings.json'),
-    JSON.stringify(
-      {
-        appearance: { mode: 'dark', color: 'mono', icon: 'pilcrow', migrationToastShown: true },
+  seedSettings(userDataDir, {
+        appearance: { mode: 'dark', color: 'mono', icon: 'pilcrow' },
         fileAssociation: { hasBeenPrompted: true },
         aiConsent: { consented: false, consentedAt: new Date().toISOString(), version: 1 },
         recovery: { mode: 'silent' },
@@ -262,11 +260,7 @@ function writeSettings(gatewayUrl: string): void {
         // No featureFlags.webPlatform: sharing is on by default since 1.8.1
         // (#943), so the whole suite runs on the default.
         webPlatform: { gatewayUrl },
-      },
-      null,
-      2,
-    ),
-  )
+      })
 }
 
 // The preload bridge and the renderer test seams, reached untyped from the
@@ -876,7 +870,8 @@ test('the Shared view reconciles with the gateway list: server revocations, coun
   await expect(page.getByRole('menuitem', { name: 'Revoke', exact: true })).toBeVisible()
   await expect(page.getByRole('menuitem', { name: 'Copy link' })).toHaveCount(0)
   await expect(page.getByRole('menuitem', { name: 'Open', exact: true })).toHaveCount(0)
-  await page.locator('.prose-editor').click({ position: { x: 20, y: 20 }, force: true })
+  // Escape, not a click on the editor element, which is absent behind the home screen (#1188).
+  await page.keyboard.press('Escape')
   await expect(page.getByRole('menu')).toHaveCount(0)
 
   gateway.publications = []

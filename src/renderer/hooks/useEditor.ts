@@ -1,235 +1,79 @@
 import { useCallback, useEffect } from 'react'
 import { useEditorStore } from '../stores/editorStore'
-import { useChatStore, setCurrentDocumentId } from '../stores/chatStore'
+import { useChatStore } from '../stores/chatStore'
 import { useSettingsStore } from '../stores/settingsStore'
-import { useFileListStore } from '../stores/fileListStore'
 import { useNotificationStore } from '../stores/notificationStore'
-import { parseMarkdown, serializeMarkdown, extractFirstH1 } from '../lib/markdown'
-import { resolveOpenedFileContent } from '../lib/openDocument'
+import { extractFirstH1 } from '../lib/markdown'
 import { handleMissingPath, isMissingPathFileError } from '../lib/stalePath'
-import {
-  recordDiskBaseline,
-  clearDiskBaseline,
-  isDiskNewerThanBaseline,
-  useSaveConflictStore
-} from '../lib/diskSync'
-import {
-  generateId,
-  generateIdFromPath,
-  clearDraft,
-  saveConversations,
-  saveAnnotations
-} from '../lib/persistence'
-import { useAnnotationStore } from '../extensions/ai-annotations'
+import { isDiskNewerThanBaseline, useSaveConflictStore } from '../lib/diskSync'
+import { clearDraft } from '../lib/persistence'
+import { useTabStore } from '../stores/tabStore'
+import { openFile as openFileInTab, newTab, markActiveTabSaved } from '../tabs/actions'
+import { saveSnapshot, type SaveSnapshot } from '../document/session'
 
 // Sanitize filename by removing invalid characters
 function sanitizeFilename(name: string): string {
   return name.replace(/[/\\:*?"<>|]/g, '-').trim().slice(0, 100)
 }
 
-// Build save content — skip frontmatter for .txt files
-function buildSaveContent(
-  content: string,
-  frontmatter: Record<string, unknown>,
-  path?: string | null
-): string {
-  if (path?.endsWith('.txt')) {
-    return content
-  }
-  return serializeMarkdown(content, frontmatter)
-}
-
 function getPathFilename(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? 'document.md'
 }
 
+/**
+ * The active tab and what a save of it writes (#1151): the session lands its
+ * projection and serialises the body with the tab's frontmatter (the text
+ * verbatim in source mode). Null with no tab open.
+ */
+function activeSave(): { tabId: string; path: string | null; snapshot: SaveSnapshot } | null {
+  const tab = useTabStore.getState().getActiveTab()
+  if (!tab) return null
+  return { tabId: tab.id, path: tab.path, snapshot: saveSnapshot(tab.id) }
+}
+
 export function useEditor() {
-  const {
-    document,
-    cursorPosition,
-    setDocument,
-    setContent,
-    setPath,
-    setDirty,
-    setFrontmatter,
-    setCursorPosition,
-    setActiveChatId,
-    setEditing,
-    resetDocument
-  } = useEditorStore()
+  const { document, cursorPosition, setActiveChatId } = useEditorStore()
 
-  const {
-    loadForDocument,
-    saveCurrentConversation,
-    addConversation,
-    activeConversationId
-  } = useChatStore()
-
-  // Keep the current document ID in sync for auto-saving
-  useEffect(() => {
-    setCurrentDocumentId(document.documentId)
-  }, [document.documentId])
+  const { activeConversationId } = useChatStore()
 
   // Sync active chat ID to editor store for draft persistence
   useEffect(() => {
     setActiveChatId(activeConversationId)
   }, [activeConversationId, setActiveChatId])
 
-  const openFileFromPath = useCallback(async (filePath: string, isRemarkableOCR = false): Promise<boolean> => {
+  // Open a file by path. Opens a tab (or switches to the file's tab); the
+  // explorer's new-file dialog and the OS open event land here.
+  const openFileFromPath = useCallback(async (filePath: string): Promise<boolean> => {
     if (!window.api) return false
-
-    // Save current conversations before switching
-    await saveCurrentConversation(document.documentId)
-
     try {
-      const raw = await window.api.readFile(filePath)
-      const newDocumentId = await generateIdFromPath(filePath)
-      const resolved = await resolveOpenedFileContent(filePath, raw, newDocumentId)
-      if (resolved.content === null) {
-        console.warn('[useEditor] HTML file has no embedded Prose markdown:', filePath)
-        return false
-      }
-      const parsed = parseMarkdown(resolved.content)
-
-      setDocument({
-        documentId: newDocumentId,
-        path: filePath,
-        content: parsed.content,
-        frontmatter: parsed.frontmatter,
-        isDirty: false
-      })
-
-      // Clear reMarkable read-only state if this is a regular file open
-      // (reMarkable OCR files set this separately via setRemarkableReadOnly)
-      if (!isRemarkableOCR) {
-        useEditorStore.getState().setRemarkableReadOnly(false, null)
-      }
-
-      // In-memory content now agrees with disk (#843 external-edit tracking)
-      void recordDiskBaseline(filePath)
-
-      // Load conversations for the document
-      await loadForDocument(newDocumentId)
-
-      // Load annotations for the document
-      await useAnnotationStore.getState().loadAnnotations(newDocumentId)
-
-      // Clear draft since we opened a file
-      await clearDraft()
-
-      // Mark as editing so empty state doesn't show
-      setEditing(true)
-
-      // Add to recent files
-      useSettingsStore.getState().addRecentFile(filePath)
-
-      // Highlight file in sidebar
-      useFileListStore.getState().revealAndSelectPath(filePath)
-
-      // Return true if document has content but no chat history (for auto-prompt)
-      const conversations = useChatStore.getState().conversations
-      return parsed.content.trim().length > 0 && conversations.length === 0
+      return (await openFileInTab(filePath)).shouldDescribe
     } catch (error) {
-      if (isMissingPathFileError(error)) {
-        handleMissingPath(filePath, 'open')
-      }
       console.error('Failed to open file:', error)
       return false
     }
-  }, [setDocument, document.documentId, saveCurrentConversation, loadForDocument, setEditing])
+  }, [])
 
+  // File → Open dialog. The dialog returns the bytes, so the open skips the read.
   const openFile = useCallback(async (): Promise<boolean> => {
     if (!window.api) return false
-
-    // Save current conversations before switching
-    await saveCurrentConversation(document.documentId)
-
     const result = await window.api.openFile()
-    if (result) {
-      // Use path-based ID for saved files so chat history persists
-      const newDocumentId = await generateIdFromPath(result.path)
-      const resolved = await resolveOpenedFileContent(result.path, result.content, newDocumentId)
-      if (resolved.content === null) {
-        console.warn('[useEditor] HTML file has no embedded Prose markdown:', result.path)
-        return false
-      }
-      const parsed = parseMarkdown(resolved.content)
-
-      setDocument({
-        documentId: newDocumentId,
-        path: result.path,
-        content: parsed.content,
-        frontmatter: parsed.frontmatter,
-        isDirty: false
-      })
-
-      // Clear reMarkable read-only state when opening via file dialog
-      useEditorStore.getState().setRemarkableReadOnly(false, null)
-
-      // In-memory content now agrees with disk (#843 external-edit tracking)
-      void recordDiskBaseline(result.path)
-
-      // Load conversations for the document
-      await loadForDocument(newDocumentId)
-
-      // Load annotations for the document
-      await useAnnotationStore.getState().loadAnnotations(newDocumentId)
-
-      // Clear draft since we opened a file
-      await clearDraft()
-
-      // Mark as editing so empty state doesn't show
-      setEditing(true)
-
-      // Add to recent files
-      useSettingsStore.getState().addRecentFile(result.path)
-
-      // Highlight file in sidebar
-      useFileListStore.getState().revealAndSelectPath(result.path)
-
-      // Return true if document has content but no chat history (for auto-prompt)
-      const conversations = useChatStore.getState().conversations
-      return parsed.content.trim().length > 0 && conversations.length === 0
+    if (!result) return false
+    try {
+      return (await openFileInTab(result.path, { content: result.content })).shouldDescribe
+    } catch (error) {
+      console.error('Failed to open file:', error)
+      return false
     }
-    return false
-  }, [setDocument, document.documentId, saveCurrentConversation, loadForDocument, setEditing])
+  }, [])
 
-  const saveContentAs = useCallback(async (content: string, defaultFilename?: string | null) => {
+  const saveContentAs = useCallback(async (content: string, defaultFilename?: string | null, written?: SaveSnapshot) => {
     if (!window.api) return
     try {
       const path = await window.api.saveFileAs(content, defaultFilename ?? undefined)
       if (path) {
-        // Migrate chat history to path-based ID
-        const newDocumentId = await generateIdFromPath(path)
-        const conversations = useChatStore.getState().conversations
-
-        // Save conversations under new path-based ID
-        if (conversations.length > 0) {
-          const migratedConversations = conversations.map((c) => ({
-            ...c,
-            documentId: newDocumentId
-          }))
-          await saveConversations(newDocumentId, migratedConversations)
-          useChatStore.setState({ conversations: migratedConversations })
-        }
-
-        // Migrate annotations to path-based ID
-        const annotations = useAnnotationStore.getState().annotations
-        if (annotations.length > 0) {
-          const migratedAnnotations = annotations.map((a) => ({
-            ...a,
-            documentId: newDocumentId
-          }))
-          await saveAnnotations(newDocumentId, migratedAnnotations)
-          useAnnotationStore.setState({ annotations: migratedAnnotations, documentId: newDocumentId })
-        } else {
-          useAnnotationStore.getState().setDocumentId(newDocumentId)
-        }
-
-        setDocument({ documentId: newDocumentId, path })
-        setDirty(false)
-        setCurrentDocumentId(newDocumentId)
-        void recordDiskBaseline(path)
+        // The active tab adopts the path: identity, records and baseline follow.
+        await markActiveTabSaved(path, written)
+        await clearDraft()
       }
     } catch (error) {
       console.error('Failed to save file as:', error)
@@ -239,76 +83,62 @@ export function useEditor() {
         durationMs: 0
       })
     }
-  }, [setDocument, setDirty])
+  }, [])
 
   const saveFile = useCallback(async () => {
     if (!window.api) return
-    const content = buildSaveContent(document.content, document.frontmatter, document.path)
+    const current = activeSave()
+    if (!current) return
+    const { tabId, path, snapshot } = current
+    const content = snapshot.text
 
-    if (document.path) {
+    if (path) {
       // External-edit guard (#843): the file changed on disk after we loaded
       // or last saved it — hold the save and let the user decide via the
       // conflict dialog instead of silently overwriting the disk edits.
-      if (await isDiskNewerThanBaseline(document.path)) {
-        useSaveConflictStore.getState().setConflict({ path: document.path, content })
+      if (await isDiskNewerThanBaseline(path)) {
+        useSaveConflictStore.getState().setConflict({ path, content, tabId, snapshot })
         return
       }
       try {
-        await window.api.saveFile(document.path, content)
-        setDirty(false)
-        void recordDiskBaseline(document.path)
+        await window.api.saveFile(path, content)
+        await markActiveTabSaved(path, snapshot)
       } catch (error) {
         if (isMissingPathFileError(error)) {
-          handleMissingPath(document.path, 'save')
-          await saveContentAs(content, getPathFilename(document.path))
+          handleMissingPath(path, 'save')
+          await saveContentAs(content, getPathFilename(path), snapshot)
           return
         }
 
         console.error('Failed to save file:', error)
         useNotificationStore.getState().notify({
-          id: `save-failed:${document.path}`,
-          message: `Could not save "${getPathFilename(document.path)}". Use Save As to keep your edits.`,
+          id: `save-failed:${path}`,
+          message: `Could not save "${getPathFilename(path)}". Use Save As to keep your edits.`,
           durationMs: 0
         })
       }
     } else {
       // Pre-fill the Save As dialog with the H1 heading (sanitized) if available
-      const h1 = extractFirstH1(document.content)
+      const h1 = extractFirstH1(snapshot.body)
       const defaultFilename = h1 ? sanitizeFilename(h1) + '.md' : undefined
-      await saveContentAs(content, defaultFilename)
+      await saveContentAs(content, defaultFilename, snapshot)
     }
-  }, [document, saveContentAs, setDirty])
+  }, [saveContentAs])
 
   const saveFileAs = useCallback(async () => {
     if (!window.api) return
-    const content = buildSaveContent(document.content, document.frontmatter, document.path)
+    const current = activeSave()
+    if (!current) return
     // Pre-fill the Save As dialog with the H1 heading (sanitized) if the document is untitled
-    const h1 = !document.path ? extractFirstH1(document.content) : null
+    const h1 = !current.path ? extractFirstH1(current.snapshot.body) : null
     const defaultFilename = h1 ? sanitizeFilename(h1) + '.md' : undefined
-    await saveContentAs(content, defaultFilename)
-  }, [document, saveContentAs])
+    await saveContentAs(current.snapshot.text, defaultFilename, current.snapshot)
+  }, [saveContentAs])
 
+  // A new untitled tab (the empty state's "New Document").
   const newFile = useCallback(async () => {
-    // Save current conversations before switching
-    await saveCurrentConversation(document.documentId)
-
-    // Reset creates a new documentId
-    resetDocument()
-
-    // Clear conversations and context for the new document
-    useChatStore.setState({
-      conversations: [],
-      activeConversationId: null,
-      messages: [],
-      context: null
-    })
-
-    // Clear annotations for the new document
-    useAnnotationStore.getState().clearAnnotations()
-
-    // Mark as editing so empty state hides and editor shows
-    setEditing(true)
-  }, [resetDocument, document.documentId, saveCurrentConversation, setEditing])
+    await newTab()
+  }, [])
 
   const quickSaveWithTitle = useCallback(async (title: string): Promise<boolean> => {
     if (!window.api) return false
@@ -316,16 +146,18 @@ export function useEditor() {
     const sanitizedTitle = sanitizeFilename(title)
     if (!sanitizedTitle) return false
 
-    const content = buildSaveContent(document.content, document.frontmatter, document.path)
+    const current = activeSave()
+    if (!current) return false
+    const content = current.snapshot.text
     const settings = useSettingsStore.getState().settings
-    const currentExt = document.path?.endsWith('.txt') ? '.txt' : '.md'
+    const currentExt = current.path?.endsWith('.txt') ? '.txt' : '.md'
     const hasKnownExt = /\.(md|markdown|txt)$/.test(sanitizedTitle)
     const filename = hasKnownExt ? sanitizedTitle : `${sanitizedTitle}${currentExt}`
 
     let targetFolder: string
     let newPath: string
     let isRename = false
-    const oldPath = document.path
+    const oldPath = current.path
 
     if (oldPath) {
       // Existing file: check if we're renaming or just saving
@@ -377,39 +209,8 @@ export function useEditor() {
         await window.api.saveFile(finalPath, content)
       }
 
-      // Fresh write to finalPath — reset baselines (#843)
-      void recordDiskBaseline(finalPath)
-      if (isRename && oldPath && oldPath !== finalPath) clearDiskBaseline(oldPath)
-
-      // Migrate chat history to path-based ID
-      const newDocumentId = await generateIdFromPath(finalPath)
-      const conversations = useChatStore.getState().conversations
-
-      if (conversations.length > 0) {
-        const migratedConversations = conversations.map((c) => ({
-          ...c,
-          documentId: newDocumentId
-        }))
-        await saveConversations(newDocumentId, migratedConversations)
-        useChatStore.setState({ conversations: migratedConversations })
-      }
-
-      // Migrate annotations to path-based ID
-      const annotations = useAnnotationStore.getState().annotations
-      if (annotations.length > 0) {
-        const migratedAnnotations = annotations.map((a) => ({
-          ...a,
-          documentId: newDocumentId
-        }))
-        await saveAnnotations(newDocumentId, migratedAnnotations)
-        useAnnotationStore.setState({ annotations: migratedAnnotations, documentId: newDocumentId })
-      } else {
-        useAnnotationStore.getState().setDocumentId(newDocumentId)
-      }
-
-      setDocument({ documentId: newDocumentId, path: finalPath })
-      setDirty(false)
-      setCurrentDocumentId(newDocumentId)
+      // The active tab adopts the path: identity, records and baseline follow.
+      await markActiveTabSaved(finalPath, current.snapshot)
 
       // Clear draft since we saved
       await clearDraft()
@@ -418,20 +219,17 @@ export function useEditor() {
     } catch (error) {
       if (oldPath && isMissingPathFileError(error)) {
         handleMissingPath(oldPath, 'save')
-        await saveContentAs(content, getPathFilename(oldPath))
+        await saveContentAs(content, getPathFilename(oldPath), current.snapshot)
         return !useEditorStore.getState().document.isDirty
       }
       console.error('Failed to quick save:', error)
       return false
     }
-  }, [document, saveContentAs, setDocument, setDirty])
+  }, [saveContentAs])
 
   return {
     document,
     cursorPosition,
-    setContent,
-    setFrontmatter,
-    setCursorPosition,
     openFile,
     openFileFromPath,
     saveFile,

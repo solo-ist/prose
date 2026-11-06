@@ -7,8 +7,10 @@ import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useLinkHoverStore } from '../../stores/linkHoverStore'
 import { useReviewStore } from '../../stores/reviewStore'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
-import { useCommentStore, countOpenThreads } from '../../extensions/comments/store'
+import { selectOpenThreadCount } from '../../extensions/comments'
+import { useActiveSession, useActiveSource } from '../../document/useActiveSession'
 import { requestCommentReview } from '../editor/AIEditsHistoryPanel'
+import { toggleSourceMode } from '../../tabs/actions'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import {
   DropdownMenu,
@@ -74,8 +76,7 @@ export function StatusBar() {
     return () => clearTimeout(timer)
   }, [toolMode])
   const isAutosaving = useEditorStore((state) => state.isAutosaving)
-  const sourceMode = useEditorStore((state) => state.sourceMode)
-  const toggleSourceMode = useEditorStore((state) => state.toggleSourceMode)
+  const sourceMode = useActiveSource() !== null
   const hoveredUrl = useLinkHoverStore((state) => state.hoveredUrl)
   const editor = useEditorInstanceStore((state) => state.editor)
 
@@ -90,7 +91,7 @@ export function StatusBar() {
   // same selector the chat chips and Comment Review derive from, so the
   // surfaces can't render contradictory totals (#830). New marks mirror into
   // the store on creation, so this stays live without a doc subscription.
-  const commentCount = useCommentStore((s) => countOpenThreads(s.pendingComments))
+  const commentCount = useActiveSession(selectOpenThreadCount)
 
   // Clicking the count enters Comment Review (a top-level reviewMode takeover,
   // the peer of Quick Review). The App-level effect keyed on reviewMode opens
@@ -152,7 +153,10 @@ export function StatusBar() {
   }
 
   return (
-    <div className="flex h-6 items-center justify-between border-t border-border bg-muted/30 px-4 text-xs text-muted-foreground font-mono">
+    <div
+      data-testid="status-bar"
+      className="flex h-6 items-center justify-between border-t border-border bg-muted/30 px-4 text-xs text-muted-foreground font-mono"
+    >
       <div className="flex items-center gap-4 min-w-0">
         {hoveredUrl ? (
           <>

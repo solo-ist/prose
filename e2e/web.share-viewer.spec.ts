@@ -273,12 +273,12 @@ test.describe('artifact format', () => {
     expect(block!.comments[0].replies?.[0]?.authorName).toBe('Name')
   })
 
-  test('anchor-normalization parity tripwire: viewer norm matches restoreComments', () => {
+  test('anchor-normalization parity tripwire: viewer norm matches applyCommentMarks', () => {
     // The viewer computes anchors with the SAME normalization as the editor's
-    // restoreComments — ASCII space (U+0020) strip only. If either side
-    // changes, occurrence indexes desync and reviewer comments anchor to the
-    // wrong text. This tripwire fails if either site's normalization drifts;
-    // change both together.
+    // applyCommentMarks (the seed and reload path, #1145) — ASCII space
+    // (U+0020) strip only. If either side changes, occurrence indexes desync
+    // and reviewer comments anchor to the wrong text. This tripwire fails if
+    // either site's normalization drifts; change both together.
     const viewerSrc = readFileSync(
       join(process.cwd(), 'src/renderer/lib/viewerScript.ts'),
       'utf-8'
@@ -288,7 +288,7 @@ test.describe('artifact format', () => {
       'utf-8'
     )
     expect(viewerSrc).toContain("function norm(s) { return s.replace(/ /g, '') }")
-    // restoreComments normalizes both the stored markedText and docText the
+    // applyCommentMarks normalizes both the stored markedText and docText the
     // same way; both call sites must be present.
     expect((editorSrc.match(/\.replace\(\/ \/g, ''\)/g) ?? []).length).toBeGreaterThanOrEqual(2)
   })

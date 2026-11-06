@@ -1,6 +1,5 @@
 /**
- * share/metadata.ts — per-share sync metadata (#768), modeled on the Google
- * sync metadata pattern (main/google/sync.ts). Persisted to
+ * share/metadata.ts — per-share sync metadata (#768). Persisted to
  * `<userData>/share-sync.json`.
  *
  * SECURITY: the gateway SESSION is never in this file — it lives in

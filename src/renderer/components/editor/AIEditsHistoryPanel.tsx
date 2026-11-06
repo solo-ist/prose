@@ -2,9 +2,10 @@
  * AI Edits History Panel (Activity)
  *
  * A live view of the AI authorship annotations and comment threads on the
- * current document. Annotations derive from the annotation store; comment
- * activity (open / pending / resolved threads + replies) derives from the
- * comment store. Redesigned per the Claude Design "Comment Threads" handoff:
+ * current document. Annotations derive from the active document's state
+ * (the annotations plugin, #1146); comment activity (open / pending /
+ * resolved threads + replies) from the same state's comment threads plugin
+ * (#1147). Redesigned per the Claude Design "Comment Threads" handoff:
  * status-badged cards, expand/collapse, avatar reply previews, resolved threads
  * shown greyed (click to brighten for review), and a multi-category filter that
  * toggles any item type (open/pending/resolved threads, current/superseded
@@ -17,12 +18,11 @@
 
 import { useCallback, useMemo, useState } from 'react'
 import { Wand2, Crosshair, X, MessageSquare, CheckCheck, Clock, ArrowUpRight, User, Eye, EyeOff, Maximize2 } from 'lucide-react'
-import { useAnnotationStore } from '../../extensions/ai-annotations/store'
-import { useCommentStore } from '../../extensions/comments/store'
-import { OPEN_COMMENT_EVENT } from '../../extensions/comments'
+import { selectAnnotations } from '../../extensions/ai-annotations'
+import { useActiveSession } from '../../document/useActiveSession'
+import { OPEN_COMMENT_EVENT, selectThreads } from '../../extensions/comments'
 import { useReviewStore } from '../../stores/reviewStore'
 import { useShareStore } from '../../stores/shareStore'
-import { pushRemoveToShare } from '../../lib/sharePush'
 import { useEditorStore } from '../../stores/editorStore'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -108,11 +108,8 @@ interface AIEditsHistoryPanelProps {
 }
 
 export function AIEditsHistoryPanel({ filter, onShowAll, onReviewThread }: AIEditsHistoryPanelProps) {
-  const annotations = useAnnotationStore((s) => s.annotations)
-  const removeAnnotation = useAnnotationStore((s) => s.removeAnnotation)
-  const pendingComments = useCommentStore((s) => s.pendingComments)
-  const documentId = useCommentStore((s) => s.documentId)
-  const saveComments = useCommentStore((s) => s.saveComments)
+  const annotations = useActiveSession(selectAnnotations)
+  const pendingComments = useActiveSession(selectThreads)
   const editor = useEditorInstanceStore((s) => s.editor)
 
   // Build the unified, filtered feed (newest-first).
@@ -151,20 +148,20 @@ export function AIEditsHistoryPanel({ filter, onShowAll, onReviewThread }: AIEdi
     [editor]
   )
 
-  const handleRemoveAnnotation = useCallback((id: string) => removeAnnotation(id), [removeAnnotation])
+  const handleRemoveAnnotation = useCallback(
+    (id: string) => {
+      editor?.commands.removeAIAnnotation(id)
+    },
+    [editor]
+  )
 
+  // One transaction drops the thread and its marks; a shared thread comes
+  // off the shared page too (#903) through the push the transition records.
   const handleRemoveComment = useCallback(
     (id: string) => {
-      const { pendingComments: current } = useCommentStore.getState()
-      // Shared threads come off the shared page too (#903).
-      const removed = current.find((c) => c.id === id)
-      if (removed) pushRemoveToShare(removed)
-      const updated = current.filter((c) => c.id !== id)
-      useCommentStore.setState({ pendingComments: updated })
-      if (documentId) saveComments(documentId, updated)
-      editor?.commands.unsetComment(id)
+      editor?.commands.removeThread(id)
     },
-    [editor, documentId, saveComments]
+    [editor]
   )
 
   return (

@@ -3,6 +3,9 @@ import { subscribeWithSelector } from 'zustand/middleware'
 import { generateId, saveSession, loadSession, clearSession } from '../lib/persistence'
 import type { SessionState, TabDraft } from '../lib/persistence'
 import { useChatStore } from './chatStore'
+import { useEditorInstanceStore } from './editorInstanceStore'
+import { isRemarkableOcrPath } from '../lib/remarkablePath'
+import { captureEditorViewState, type EditorViewState } from '../lib/editorViewState'
 
 export interface Tab {
   id: string              // Unique tab ID
@@ -10,13 +13,23 @@ export interface Tab {
   path: string | null     // File path (null = untitled)
   title: string           // Display name (may be H1 text for untitled docs)
   baseTitle?: string      // Original 'Untitled N' title for untitled docs (for H1 revert)
-  isDirty: boolean        // Unsaved changes
+  /** Differs from the last save (or the load): one comparison in the projection (#1151). */
+  isDirty: boolean
   isPreview?: boolean     // Preview tab (transient, replaced on next single-click)
-  // Cached state for when tab is not active
+  /** A reMarkable OCR source: derived from the path by the store, never editable (#1151). */
+  readOnly?: boolean
+  /** The body as the projection last wrote it (never a frontmatter block). */
   content?: string
+  /** The frontmatter object, the truth for the frontmatter editor and the saves (#1151). */
   frontmatter?: Record<string, unknown>
   cursorPosition?: { line: number; column: number }
+  /** Selection and scroll offset to come back to (#1103) */
+  viewState?: EditorViewState
+  /** Source mode is per tab (#1150); absent means rich. */
+  mode?: TabMode
 }
+
+export type TabMode = 'rich' | 'source'
 
 /** Snapshot of a closed tab for session-only reopen history (max 10) */
 export interface ClosedTabSnapshot {
@@ -27,6 +40,8 @@ export interface ClosedTabSnapshot {
   content?: string
   frontmatter?: Record<string, unknown>
   cursorPosition?: { line: number; column: number }
+  viewState?: EditorViewState
+  mode?: TabMode
 }
 
 const CLOSED_TABS_MAX = 10
@@ -37,7 +52,8 @@ interface TabState {
   closedTabs: ClosedTabSnapshot[]
 
   // Tab actions
-  addTab: (tab: Omit<Tab, 'id'> & { id?: string }) => string
+  /** `activate: false` adds the tab without showing it (a background reopen, #1148). */
+  addTab: (tab: Omit<Tab, 'id'> & { id?: string }, opts?: { activate?: boolean }) => string
   removeTab: (tabId: string) => void
   setActiveTab: (tabId: string) => void
   updateTab: (tabId: string, updates: Partial<Tab>) => void
@@ -92,9 +108,12 @@ export const useTabStore = create<TabState>()(
         title: snapshot.title,
         baseTitle: snapshot.baseTitle,
         isDirty: snapshot.isDirty,
+        readOnly: isRemarkableOcrPath(snapshot.path),
         content: snapshot.content,
-        frontmatter: snapshot.frontmatter,
-        cursorPosition: snapshot.cursorPosition
+        frontmatter: snapshot.frontmatter ?? {},
+        cursorPosition: snapshot.cursorPosition,
+        viewState: snapshot.viewState,
+        mode: snapshot.mode
       }
 
       set((state) => ({
@@ -105,16 +124,18 @@ export const useTabStore = create<TabState>()(
       return tab.id
     },
 
-    addTab: (tabData) => {
+    addTab: (tabData, opts) => {
       const id = tabData.id ?? generateId()
       const tab: Tab = {
         ...tabData,
-        id
+        id,
+        frontmatter: tabData.frontmatter ?? {},
+        readOnly: isRemarkableOcrPath(tabData.path)
       }
 
       set((state) => ({
         tabs: [...state.tabs, tab],
-        activeTabId: id
+        activeTabId: opts?.activate === false ? state.activeTabId : id
       }))
 
       return id
@@ -158,9 +179,13 @@ export const useTabStore = create<TabState>()(
 
     updateTab: (tabId, updates) => {
       set((state) => ({
-        tabs: state.tabs.map(t =>
-          t.id === tabId ? { ...t, ...updates } : t
-        )
+        tabs: state.tabs.map((t) => {
+          if (t.id !== tabId) return t
+          const next = { ...t, ...updates }
+          // Read-only follows the path (a Save As out of the OCR folder, a rename).
+          if ('path' in updates) next.readOnly = isRemarkableOcrPath(next.path)
+          return next
+        })
       }))
     },
 
@@ -273,8 +298,24 @@ export function createTab(overrides: Partial<Tab> = {}): Omit<Tab, 'id'> {
     isDirty: overrides.isDirty ?? false,
     content: overrides.content,
     frontmatter: overrides.frontmatter,
-    cursorPosition: overrides.cursorPosition
+    cursorPosition: overrides.cursorPosition,
+    viewState: overrides.viewState,
+    mode: overrides.mode
   }
+}
+
+/** The active tab's record, or null (a selector for `useTabStore.subscribe` and `useActiveTab`). */
+export function activeTabOf(state: { tabs: Tab[]; activeTabId: string | null }): Tab | null {
+  return state.tabs.find((t) => t.id === state.activeTabId) ?? null
+}
+
+/**
+ * A React read of the active tab's record (#1151): select a field (or a
+ * reference-stable object such as `frontmatter`) so the component re-renders
+ * only when that changes.
+ */
+export function useActiveTab<T>(select: (tab: Tab | null) => T): T {
+  return useTabStore((state) => select(activeTabOf(state)))
 }
 
 // Session persistence helpers
@@ -285,6 +326,9 @@ export function createTab(overrides: Partial<Tab> = {}): Omit<Tab, 'id'> {
 export async function persistSession(): Promise<void> {
   const state = useTabStore.getState()
   const chatState = useChatStore.getState()
+  // The active tab's cached view is from the last time it was left; read the
+  // live one so a relaunch lands where the editor was (#1103).
+  const liveView = captureEditorViewState(useEditorInstanceStore.getState().editor)
 
   const tabs: TabDraft[] = state.tabs.map(tab => ({
     tabId: tab.id,
@@ -296,6 +340,8 @@ export async function persistSession(): Promise<void> {
     isDirty: tab.isDirty,
     frontmatter: tab.frontmatter,
     cursorPosition: tab.cursorPosition,
+    viewState: tab.id === state.activeTabId ? liveView ?? tab.viewState : tab.viewState,
+    mode: tab.mode,
     activeChatId: tab.documentId === chatState.currentDocumentId
       ? chatState.activeConversationId
       : null

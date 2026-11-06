@@ -23,15 +23,6 @@ import type {
   RemarkableSyncMetadata,
   RemarkableCloudNotebook,
   RemarkableSyncState,
-  GoogleAuthResult,
-  GoogleConnectionStatus,
-  GoogleSyncDocResult,
-  GooglePullResult,
-  GoogleImportResult,
-  GoogleSyncAllResult,
-  GoogleDocMetadata,
-  GoogleSyncMetadata,
-  GoogleDocEntry,
   McpStatus,
   TestApiKeyRequest,
   TestApiKeyResult,
@@ -62,7 +53,6 @@ const defaultSettings: Settings = {
     darkColor: 'prose',
     mode: 'dark',
     icon: 'pilcrow',
-    migrationToastShown: true,
   },
   llm: {
     provider: 'anthropic',
@@ -492,54 +482,6 @@ export function createMockApi(): ElectronAPI {
 
     onRemarkableSyncProgress: () => () => {},
 
-    // ---- Google Docs (stubs) ----------------------------------------------
-
-    googleIsConfigured: async (): Promise<boolean> => false,
-
-    googleStartAuth: async (): Promise<GoogleAuthResult> => ({
-      success: false,
-      error: 'Google Docs is not available in web mode',
-    }),
-
-    googleDisconnect: async (): Promise<void> => {},
-
-    googleGetConnectionStatus: async (): Promise<GoogleConnectionStatus> => ({
-      connected: false,
-      error: 'Google Docs is not available in web mode',
-    }),
-
-    googleSync: async (): Promise<GoogleSyncDocResult> => ({
-      success: false,
-      direction: 'push',
-      error: 'Google Docs is not available in web mode',
-    }),
-
-    googlePull: async (_docId: string): Promise<GooglePullResult> => ({
-      success: false,
-      error: 'Google Docs is not available in web mode',
-    }),
-
-    googleImport: async (_docId: string): Promise<GoogleImportResult> => ({
-      success: false,
-      error: 'Google Docs is not available in web mode',
-    }),
-
-    googleEnsureFolder: async (): Promise<string> => DOCUMENTS_ROOT,
-
-    googleSyncAll: async (_syncDir: string): Promise<GoogleSyncAllResult> => ({
-      synced: 0,
-      skipped: 0,
-      errors: ['Google Docs is not available in web mode'],
-    }),
-
-    googleListRecentDocs: async (_maxResults?: number): Promise<GoogleDocMetadata[]> => [],
-
-    googleGetSyncMetadata: async (): Promise<GoogleSyncMetadata | null> => null,
-
-    googleUpdateSyncMetadataEntry: async (_entry: GoogleDocEntry): Promise<void> => {},
-
-    googleRemoveSyncMetadataEntry: async (_googleDocId: string): Promise<void> => {},
-
     // ---- Emoji generation (stub) -----------------------------------------
 
     emojiGenerate: async (
@@ -595,6 +537,8 @@ export function createMockApi(): ElectronAPI {
     }),
     mcpInstall: async () => ({ success: false, error: 'MCP is not available in web mode.' }),
     mcpUninstall: async () => ({ success: false, error: 'MCP is not available in web mode.' }),
+    // No bundled resources in web mode, so there are never notes to show.
+    getReleaseNotes: async () => null,
 
     // Sharing needs the desktop main process — honest unavailable results.
     shareAuthStatus: async () => ({ ok: false as const, error: 'Sharing is not available in web mode.' }),
@@ -635,6 +579,6 @@ export function createMockApi(): ElectronAPI {
     updaterCheck: async () => ({ updateAvailable: false }),
     updaterDownload: async () => ({ success: false }),
     updaterInstall: async (): Promise<void> => {},
-    setAppIcon: async (): Promise<void> => {},
+    applyDockIcon: async (): Promise<void> => {},
   }
 }

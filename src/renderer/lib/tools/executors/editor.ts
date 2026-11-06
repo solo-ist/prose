@@ -2,20 +2,23 @@
  * Editor tool executors - tools for modifying document content.
  */
 
-import type { Editor } from '@tiptap/core'
+import type { Node as PMNode } from '@tiptap/pm/model'
+import type { DocumentHandle } from '../../../document/handle'
 import type { ToolResult } from '../../../../shared/tools/types'
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useEditorStore } from '../../../stores/editorStore'
-import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
-import { useSettingsStore } from '../../../stores/settingsStore'
-import { useAnnotationStore } from '../../../extensions/ai-annotations'
-import { createWordDiffAnnotations } from '../../diffUtils'
+import { useTabStore } from '../../../stores/tabStore'
+import { setTabFrontmatter } from '../../../tabs/actions'
+import type { ToolContext } from '../context'
+import type { ToolProvenance } from '../provenanceTypes'
+import { addAnnotationsTo, annotationsOf } from '../../../extensions/ai-annotations'
+import { buildWordDiffAnnotations } from '../../diffUtils'
 import { findNodeById, findNodeByContent, getNodesWithIds, flattenNodes } from '../../../extensions/node-ids'
 import { generateId } from '../../persistence'
 import { getAISuggestions, parseMarkdownToSlice, sliceVisibleText } from '../../../extensions/ai-suggestions'
-import { parseMarkdown, FRONTMATTER_REGEX } from '../../markdown'
+import { parseMarkdown, loadFrontmatterYaml, FRONTMATTER_REGEX } from '../../markdown'
 import { pipelineLog } from '../../aiPipelineLog'
-import { load as parseYaml } from 'js-yaml'
+import { AI_REPLACEMENT_META } from '../../../extensions/comments'
 
 /**
  * Target visible duration for a chunked streaming insertion. The number of
@@ -27,12 +30,12 @@ const STREAM_TARGET_FRAME_COUNT = 24
 
 /**
  * Decide whether the next agent insertion should stream chunk-by-chunk.
- * Falls back to instant apply when the user has disabled the setting or
- * has `prefers-reduced-motion: reduce` set at the OS level.
+ * Streams when the document is shown, except when the user has
+ * `prefers-reduced-motion: reduce` set at the OS level; a document that is
+ * not shown takes the insertion in one transaction (#1148).
  */
-function shouldStreamInsertion(): boolean {
-  const enabled = useSettingsStore.getState().settings.editor.streamingEdits
-  if (enabled === false) return false
+function shouldStreamInsertion(handle: DocumentHandle): boolean {
+  if (!handle.isActive) return false
   if (
     typeof window !== 'undefined' &&
     typeof window.matchMedia === 'function' &&
@@ -94,25 +97,62 @@ function nextFrame(): Promise<void> {
  * user clicks or keystrokes mid-stream can't redirect later chunks into
  * the user's cursor position.
  */
+/** What an insertion wrote: where it ends, and its text as rendered (the annotation's word diff indexes that). */
+interface Insertion {
+  end: number
+  text: string
+}
+
+/**
+ * The rendered text of a payload that has markdown structure, or `null` for
+ * plain text. Plain means the parse is one paragraph of unmarked text equal to
+ * the payload, so streaming it word by word changes nothing; anything else
+ * (inline marks, several blocks, a list, a heading, whitespace the parser
+ * would trim) must go in as one parsed transaction, because later stream
+ * chunks are raw text and would land the markup literally (#1119).
+ */
+function structuredText(handle: DocumentHandle, text: string): string | null {
+  const slice = parseMarkdownToSlice(handle.markdown, handle.state.schema, text)
+  if (!slice) return null
+  const block = slice.content.childCount === 1 ? slice.content.firstChild : null
+  if (block && block.type.name === 'paragraph') {
+    let plain = true
+    block.content.forEach((inline) => {
+      if (!inline.isText || inline.marks.length > 0) plain = false
+    })
+    if (plain && block.textContent === text) return null
+  }
+  return sliceVisibleText(slice)
+}
+
 async function applyInsertion(
-  editor: Editor,
+  handle: DocumentHandle,
   text: string,
   from: number,
   to?: number
-): Promise<void> {
+): Promise<Insertion> {
   const hasRange = to !== undefined && to !== from
   const selection = hasRange ? { from, to: to! } : from
+  // Tag the range replacement as an AI write so a comment it unanchors stays
+  // open rather than reading as the writer's delete (#1099). Plain text
+  // inherits the marks at the selection, so today the anchor survives; a
+  // parsed payload would not. Only this first transaction replaces anything.
+  // Returns where the inserted content ends. Measured across this one
+  // synchronous transaction, so nothing else can be in the size delta.
+  const insert = (content: string): number => {
+    const before = handle.state.doc.content.size
+    handle.chain().focus().setTextSelection(selection).setMeta(AI_REPLACEMENT_META, hasRange).insertContent(content).run()
+    return from + (handle.state.doc.content.size - before) + (hasRange ? to! - from : 0)
+  }
 
-  if (!shouldStreamInsertion()) {
-    editor.chain().focus().setTextSelection(selection).insertContent(text).run()
-    return
-  }
+  // Structure (marks, blocks) is parsed in one transaction: the path reduced
+  // motion already takes, now for every payload the stream cannot represent.
+  const rendered = structuredText(handle, text)
+  if (rendered !== null) return { end: insert(text), text: rendered }
+  if (!shouldStreamInsertion(handle)) return { end: insert(text), text }
   const chunks = buildStreamChunks(text)
-  if (chunks.length <= 1) {
-    editor.chain().focus().setTextSelection(selection).insertContent(text).run()
-    return
-  }
-  editor.chain().focus().setTextSelection(selection).insertContent(chunks[0]).run()
+  if (chunks.length <= 1) return { end: insert(text), text }
+  insert(chunks[0])
   // Anchor the running endpoint at end-of-insertion using TipTap's own
   // cursor placement (`selectionToInsertionEnd` in
   // `node_modules/@tiptap/core/src/commands/insertContentAt.ts`), which
@@ -131,34 +171,37 @@ async function applyInsertion(
   // away from our insertion endpoint, but the accumulator stays
   // independent — keeping later chunks landing at the running insertion
   // point instead of redirecting into the user's cursor.
-  let pos = editor.state.selection.from
+  let pos = handle.state.selection.from
   for (let i = 1; i < chunks.length; i++) {
     await nextFrame()
-    editor.view.dispatch(editor.state.tr.insertText(chunks[i], pos))
+    handle.apply(handle.state.tr.insertText(chunks[i], pos))
     pos += chunks[i].length
   }
+  // The running endpoint, not a whole-document size delta: the stream yields
+  // a frame per chunk, and anything else edited meanwhile (the writer typing
+  // below the node) would land in that delta and stretch the annotation over
+  // text the AI never wrote (#1101).
+  return { end: pos, text }
 }
 
 /**
- * Get the TipTap editor instance.
- * Returns null if editor is not available or source mode is active.
+ * Check if the handle's document is in a read-only mode (reMarkable OCR or a
+ * preview tab). AI tools should not mutate the document in these modes.
+ * Exported so that document-tool executors (add_comment, resolve_comment)
+ * can apply the same gate. Read from the tab the handle names, not the
+ * active tab (#1148).
  */
-function getEditor(): Editor | null {
-  if (useEditorStore.getState().sourceMode) {
-    return null
-  }
-  return useEditorInstanceStore.getState().editor
+export function isEditorReadOnly(handle: DocumentHandle): boolean {
+  const tab = useTabStore.getState().getTabById(handle.tabId)
+  if (!tab) return false
+  return tab.isPreview === true || tab.readOnly === true
 }
 
-/**
- * Check if the editor is in a read-only mode (reMarkable OCR or preview tab).
- * AI tools should not mutate the document in these modes. Exported so that
- * document-tool executors (add_comment, resolve_comment) can apply the same gate.
- */
-export function isEditorReadOnly(): boolean {
-  const state = useEditorStore.getState()
-  return state.isRemarkableReadOnly || state.isPreviewTab
-}
+/** The AI frontmatter overlay is the shown document's (`editorStore.pendingFrontmatter`); a direct `edit` lands on any tab. */
+const FRONTMATTER_BACKGROUND = toolError(
+  'A frontmatter suggestion needs the document in front of the user; switch to it first, or use edit to write the frontmatter directly.',
+  'FRONTMATTER_BACKGROUND'
+)
 
 /**
  * Strip markdown block-level prefix that matches the target node's type, so
@@ -193,18 +236,25 @@ function stripLeadingBlockMarkup(content: string, nodeType: string, level?: numb
   return trimmed
 }
 
-/**
- * True when the open document is a .txt file rendered in PlainTextMode.
- * PlainTextMode's appendTransaction flattens every structured node (headings,
- * blockquotes, lists) and strips all marks on every transaction — any
- * markdown formatting an AI edit produces would be silently destroyed.
- */
-function isPlainTextDocument(editor: Editor): boolean {
-  return editor.storage?.plainTextMode?.enabled === true
-}
-
 /** Node types whose internals suggest_edit cannot mark safely. */
 const TABLE_NODE_TYPES = new Set(['table', 'tableRow', 'tableHeader', 'tableCell'])
+
+/**
+ * The table enclosing `pos`, if any. Tables carry no nodeId
+ * (NODE_TYPES_WITH_IDS), so the only table targets a tool can name are the
+ * paragraphs inside cells; this lifts one of those to the table it sits in
+ * (#1100).
+ */
+function enclosingTable(
+  doc: PMNode,
+  pos: number
+): { node: PMNode; pos: number } | null {
+  const $pos = doc.resolve(pos)
+  for (let d = $pos.depth; d > 0; d--) {
+    if ($pos.node(d).type.name === 'table') return { node: $pos.node(d), pos: $pos.before(d) }
+  }
+  return null
+}
 
 /**
  * Detect a block-type conversion intent (#673): the suggestion's content
@@ -253,18 +303,17 @@ function detectBlockConversion(
  * so bottom-of-document edits don't shift positions of earlier edits.
  * Returns Infinity for tools that don't target a specific position.
  */
-export function resolveToolPosition(toolName: string, args: Record<string, unknown>): number {
-  const editor = getEditor()
-  if (!editor) return Infinity
+export function resolveToolPosition(toolName: string, args: Record<string, unknown>, handle: DocumentHandle | null): number {
+  if (!handle) return Infinity
 
   if (toolName === 'edit' || toolName === 'suggest_edit') {
     const nodeId = args.nodeId as string
     const search = args.search as string | undefined
     if (!nodeId) return Infinity
 
-    let found = findNodeById(editor.state.doc, nodeId)
+    let found = findNodeById(handle.state.doc, nodeId)
     if (!found && search) {
-      found = findNodeByContent(editor.state.doc, search)
+      found = findNodeByContent(handle.state.doc, search)
     }
     return found ? found.pos : Infinity
   }
@@ -273,21 +322,22 @@ export function resolveToolPosition(toolName: string, args: Record<string, unkno
     const position = (args.position as string) || 'cursor'
     switch (position) {
       case 'start': return 0
-      case 'end': return editor.state.doc.content.size
-      case 'cursor': return editor.state.selection.from
+      case 'end': return handle.state.doc.content.size
+      case 'cursor': return handle.state.selection.from
       case 'after_node':
       case 'before_node': {
         const nodeId = args.nodeId as string | undefined
         const search = args.search as string | undefined
         if (!nodeId) return Infinity
-        let found = findNodeById(editor.state.doc, nodeId)
+        let found = findNodeById(handle.state.doc, nodeId)
         if (!found && search) {
-          found = findNodeByContent(editor.state.doc, search)
+          found = findNodeByContent(handle.state.doc, search)
         }
         if (!found) return Infinity
+        const anchor = enclosingTable(handle.state.doc, found.pos) ?? found
         return position === 'after_node'
-          ? found.pos + found.node.nodeSize
-          : found.pos
+          ? anchor.pos + anchor.node.nodeSize
+          : anchor.pos
       }
       default: return Infinity
     }
@@ -298,9 +348,9 @@ export function resolveToolPosition(toolName: string, args: Record<string, unkno
     const search = args.search as string | undefined
     if (!nodeId) return Infinity
 
-    let found = findNodeById(editor.state.doc, nodeId)
+    let found = findNodeById(handle.state.doc, nodeId)
     if (!found && search) {
-      found = findNodeByContent(editor.state.doc, search)
+      found = findNodeByContent(handle.state.doc, search)
     }
     return found ? found.pos : Infinity
   }
@@ -319,15 +369,15 @@ export async function executeEdit(
     comment?: string
     search?: string
   },
-  provenance?: ToolProvenance
+  ctx: ToolContext
 ): Promise<ToolResult<{ applied: boolean; nodeId: string }>> {
-  const editor = getEditor()
+  const { handle, provenance } = ctx
 
-  if (!editor) {
+  if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
-  if (isEditorReadOnly()) {
+  if (isEditorReadOnly(handle)) {
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
@@ -336,10 +386,10 @@ export async function executeEdit(
   pipelineLog('edit:start', {
     nodeId,
     contentLength: content?.length ?? 0,
-    isPlainText: isPlainTextDocument(editor),
+    isPlainText: handle.plain,
   })
 
-  if (isPlainTextDocument(editor)) {
+  if (handle.plain) {
     pipelineLog('edit:result', { nodeId, blocked: 'PLAIN_TEXT_DOCUMENT' })
     return toolError(
       'This document is a plain-text (.txt) file — markdown formatting is ' +
@@ -352,7 +402,10 @@ export async function executeEdit(
   }
 
   if (!nodeId) {
-    return toolError('Node ID is required', 'INVALID_INPUT')
+    return toolError(
+      'Node ID is required. A table node in read_document has no id of its own: target one of its cell paragraphs (its children).',
+      'INVALID_INPUT'
+    )
   }
 
   // Special nodeId: 'frontmatter' — direct-write the frontmatter block via
@@ -365,19 +418,20 @@ export async function executeEdit(
     if (parsed.kind === 'error') {
       return toolError(parsed.message, 'INVALID_FRONTMATTER')
     }
-    useEditorStore.getState().setFrontmatter(parsed.frontmatter)
+    // The tab record is the truth, shown or not (#1151).
+    setTabFrontmatter(handle.tabId, parsed.frontmatter)
     return toolSuccess({ applied: true, nodeId })
   }
 
   // Find the node by ID, fall back to content matching if stale
-  let found = findNodeById(editor.state.doc, nodeId)
+  let found = findNodeById(handle.state.doc, nodeId)
 
   if (!found && search) {
-    found = findNodeByContent(editor.state.doc, search)
+    found = findNodeByContent(handle.state.doc, search)
   }
 
   if (!found) {
-    const available = flattenNodes(getNodesWithIds(editor.state.doc))
+    const available = flattenNodes(getNodesWithIds(handle.state.doc))
     const nodeList = available.map(n => `${n.nodeId} (${n.type}: "${n.textContent.substring(0, 40)}")`).join(', ')
     return toolError(
       `Node with ID "${nodeId}" not found. Available nodes: [${nodeList}]`,
@@ -387,49 +441,59 @@ export async function executeEdit(
 
   const { node, pos } = found
 
+  // A cell paragraph is the only handle on a table (#1100). A one-line payload
+  // edits that cell; a GFM table replaces the whole table; anything else
+  // multi-line would splice block markup into a cell and break the rows.
+  const table = enclosingTable(handle.state.doc, pos)
+  if (table && content.trim().includes('\n')) {
+    return replaceTable(handle, table, nodeId, content, comment, provenance)
+  }
+
   // Replace the node's content
   // For text-containing nodes, we replace from pos+1 to pos+node.nodeSize-1 (inside the node)
   // The node structure is: <node>[content]</node>, so content starts at pos+1
   const contentStart = pos + 1
   const contentEnd = pos + node.nodeSize - 1
 
+  // The records below are stamped by the annotation plugin with the document
+  // they enter (#1146); `provenance.documentId` is the chat's binding, which
+  // lags a rename, Save As or first save until PR 4 binds tool calls to it,
+  // and gates only whether the edit is annotated at all.
   // Snapshot existing annotations within this node's range BEFORE the edit.
   // applyInsertion issues a range-replace transaction; ProseMirror's position
   // mapping collapses all positions inside the deleted range to the insertion
-  // point, which causes updatePositions() to drop every annotation covering the
-  // old node content — including those on unchanged neighbour words.  By
-  // capturing them now we can restore them at their remapped positions after
-  // the edit (see createWordDiffAnnotations for the remap logic).
+  // point, which detaches every annotation covering the old node content —
+  // including those on unchanged neighbour words. By capturing them now we
+  // can restore them at their remapped positions after the edit (see
+  // buildWordDiffAnnotations for the remap logic).
   const priorAnnotations = provenance && provenance.documentId && content.length > 0
-    ? useAnnotationStore.getState().annotations.filter(
-        (a) => a.documentId === provenance.documentId && a.to > contentStart && a.from < contentEnd
-      )
+    ? annotationsOf(handle.state).filter((a) => !a.detached && a.to > contentStart && a.from < contentEnd)
     : []
 
-  const sizeBefore = editor.state.doc.content.size
   // Range-replace via applyInsertion: the selection delete + first chunk
   // insert run in the same chain (atomic transaction). Subsequent rAF chunks
   // fall inside the history plugin's newGroupDelay (500ms) and collapse into
   // a single undo step.
-  await applyInsertion(editor, content, contentStart, contentEnd)
-  const sizeAfter = editor.state.doc.content.size
+  const inserted = await applyInsertion(handle, content, contentStart, contentEnd)
 
-  // Create word-level AI annotations for provenance tracking
+  // Create word-level AI annotations for provenance tracking. `newText` is the
+  // text as rendered, so the word diff indexes the document, not the markdown.
   if (provenance && provenance.documentId && content.length > 0) {
-    createWordDiffAnnotations({
-      documentId: provenance.documentId,
-      originalText: node.textContent,
-      newText: content,
-      rangeFrom: contentStart,
-      rangeTo: contentEnd + (sizeAfter - sizeBefore),
-      provenance: {
-        model: provenance.model,
-        conversationId: provenance.conversationId,
-        messageId: provenance.messageId,
-      },
-      explanation: comment,
-      priorAnnotations,
-    })
+    handle.commands.addAIAnnotations(
+      buildWordDiffAnnotations({
+        originalText: node.textContent,
+        newText: inserted.text,
+        rangeFrom: contentStart,
+        rangeTo: inserted.end,
+        provenance: {
+          model: provenance.model,
+          conversationId: provenance.conversationId,
+          messageId: provenance.messageId,
+        },
+        explanation: comment,
+        priorAnnotations,
+      })
+    )
   }
 
   return toolSuccess({
@@ -453,7 +517,7 @@ function parseFrontmatterPayload(
 
   let loaded: unknown
   try {
-    loaded = parseYaml(yamlSource)
+    loaded = loadFrontmatterYaml(yamlSource)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     return { kind: 'error', message: `Frontmatter content failed to parse as YAML: ${message}` }
@@ -487,15 +551,15 @@ export async function executeInsert(
     comment?: string
     search?: string
   },
-  provenance?: ToolProvenance
+  ctx: ToolContext
 ): Promise<ToolResult<{ inserted: boolean; position: string }>> {
-  const editor = getEditor()
+  const { handle, provenance } = ctx
 
-  if (!editor) {
+  if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
-  if (isEditorReadOnly()) {
+  if (isEditorReadOnly(handle)) {
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
@@ -517,8 +581,8 @@ export async function executeInsert(
       insertTo = 0
       break
     case 'end':
-      insertFrom = editor.state.doc.content.size
-      insertTo = editor.state.doc.content.size
+      insertFrom = handle.state.doc.content.size
+      insertTo = handle.state.doc.content.size
       break
     case 'after_node':
     case 'before_node': {
@@ -528,12 +592,12 @@ export async function executeInsert(
           'INVALID_INPUT'
         )
       }
-      let found = findNodeById(editor.state.doc, nodeId)
+      let found = findNodeById(handle.state.doc, nodeId)
       if (!found && search) {
-        found = findNodeByContent(editor.state.doc, search)
+        found = findNodeByContent(handle.state.doc, search)
       }
       if (!found) {
-        const available = flattenNodes(getNodesWithIds(editor.state.doc))
+        const available = flattenNodes(getNodesWithIds(handle.state.doc))
         const nodeList = available
           .map(n => `${n.nodeId} (${n.type}: "${n.textContent.substring(0, 40)}")`)
           .join(', ')
@@ -542,8 +606,10 @@ export async function executeInsert(
           'NODE_NOT_FOUND'
         )
       }
+      // A cell paragraph anchors the table, not a spot inside its row (#1100).
+      const anchor = enclosingTable(handle.state.doc, found.pos) ?? found
       insertFrom =
-        position === 'after_node' ? found.pos + found.node.nodeSize : found.pos
+        position === 'after_node' ? anchor.pos + anchor.node.nodeSize : anchor.pos
       insertTo = insertFrom
 
       // Block-anchor insert: `insertFrom` is a between-block-nodes position at
@@ -563,31 +629,32 @@ export async function executeInsert(
       // When the parser is unavailable (tests / edge case), fall through to
       // applyInsertion so there is always a useful result.
       {
-        const slice = parseMarkdownToSlice(editor, editor.state.schema, text)
+        const slice = parseMarkdownToSlice(handle.markdown, handle.state.schema, text)
         if (slice) {
-          const sizeBefore = editor.state.doc.content.size
+          const sizeBefore = handle.state.doc.content.size
           try {
-            editor.view.dispatch(editor.state.tr.insert(insertFrom, slice.content))
+            handle.apply(handle.state.tr.insert(insertFrom, slice.content))
           } catch (e) {
             return toolError(`Failed to insert text: ${e}`, 'INSERT_FAILED')
           }
-          const sizeAfter = editor.state.doc.content.size
+          const sizeAfter = handle.state.doc.content.size
 
           if (provenance && provenance.documentId && text.length > 0) {
             const insertedSize = (sizeAfter - sizeBefore) + (insertTo - insertFrom)
-            createWordDiffAnnotations({
-              documentId: provenance.documentId,
-              originalText: '',
-              newText: text,
-              rangeFrom: insertFrom,
-              rangeTo: insertFrom + insertedSize,
-              provenance: {
-                model: provenance.model,
-                conversationId: provenance.conversationId,
-                messageId: provenance.messageId,
-              },
-              explanation: comment,
-            })
+            handle.commands.addAIAnnotations(
+              buildWordDiffAnnotations({
+                originalText: '',
+                newText: text,
+                rangeFrom: insertFrom,
+                rangeTo: insertFrom + insertedSize,
+                provenance: {
+                  model: provenance.model,
+                  conversationId: provenance.conversationId,
+                  messageId: provenance.messageId,
+                },
+                explanation: comment,
+              })
+            )
           }
 
           return toolSuccess({ inserted: true, position })
@@ -602,47 +669,39 @@ export async function executeInsert(
       // replaced by the inserted text. Matches the pre-#546 behavior
       // and is what users intuitively expect when they highlight a
       // span and ask the agent to write replacement prose.
-      insertFrom = editor.state.selection.from
-      insertTo = editor.state.selection.to
+      insertFrom = handle.state.selection.from
+      insertTo = handle.state.selection.to
       break
   }
 
   try {
-    const sizeBefore = editor.state.doc.content.size
     // Route through applyInsertion so the chunked-streaming path applies
     // uniformly, and so range replacement (cursor case with non-empty
-    // selection) is atomic with the first chunk's insert.
-    await applyInsertion(editor, text, insertFrom, insertTo)
-    const sizeAfter = editor.state.doc.content.size
+    // selection) is atomic with the first chunk's insert. It reports where
+    // the inserted content ends (#1101).
+    const inserted = await applyInsertion(handle, text, insertFrom, insertTo)
 
-    // Create AI annotation for provenance tracking.
-    // Inserted PM range = [insertFrom, insertFrom + insertedSize], where
-    // insertedSize accounts for both the doc-size delta and the original
-    // selection that got replaced. For a collapsed selection (the common
-    // case) this reduces to `sizeAfter - sizeBefore`.
+    // Create AI annotation for provenance tracking over [insertFrom, inserted.end].
     if (provenance && provenance.documentId && text.length > 0) {
-      // Use the actual PM size delta (plus any replaced range size) instead of
-      // string length: insertContent() may produce multi-paragraph nodes where
-      // string length != PM position delta, and the doc delta nets out any
-      // selection that was replaced.
-      const insertedSize = (sizeAfter - sizeBefore) + (insertTo - insertFrom)
-      // Route through createWordDiffAnnotations for visual consistency with
+      // Route through buildWordDiffAnnotations for visual consistency with
       // edit/suggest_edit-accept annotations (word-level underline, explanation
       // in tooltip). originalText is empty for pure insertions; the util
-      // promotes the type to 'insertion' automatically.
-      createWordDiffAnnotations({
-        documentId: provenance.documentId,
-        originalText: '',
-        newText: text,
-        rangeFrom: insertFrom,
-        rangeTo: insertFrom + insertedSize,
-        provenance: {
-          model: provenance.model,
-          conversationId: provenance.conversationId,
-          messageId: provenance.messageId,
-        },
-        explanation: comment,
-      })
+      // promotes the type to 'insertion' automatically. `newText` is the text
+      // as rendered (#1119).
+      handle.commands.addAIAnnotations(
+        buildWordDiffAnnotations({
+          originalText: '',
+          newText: inserted.text,
+          rangeFrom: insertFrom,
+          rangeTo: inserted.end,
+          provenance: {
+            model: provenance.model,
+            conversationId: provenance.conversationId,
+            messageId: provenance.messageId,
+          },
+          explanation: comment,
+        })
+      )
     }
 
     return toolSuccess({
@@ -655,11 +714,62 @@ export async function executeInsert(
 }
 
 /** Provenance context for AI-generated content tracking */
-interface ToolProvenance {
-  model: string
-  conversationId: string
-  messageId: string
-  documentId: string
+/**
+ * edit's whole-table path (#1100): parse a GFM table payload and swap it in for
+ * the table the targeted cell sits in. Parsed in one shot, not streamed — the
+ * streamed path inserts later chunks as raw text, which would land the pipes
+ * literally. Parsing GFM keeps the all-header first row the pipe serializer
+ * needs, so the result still saves as a pipe table.
+ */
+function replaceTable(
+  handle: DocumentHandle,
+  table: { node: PMNode; pos: number },
+  nodeId: string,
+  content: string,
+  comment: string | undefined,
+  provenance: ToolProvenance | undefined
+): ToolResult<{ applied: boolean; nodeId: string }> {
+  const slice = parseMarkdownToSlice(handle.markdown, handle.schema, content.trim())
+  const parsed = slice && slice.content.childCount === 1 ? slice.content.firstChild : null
+  if (!parsed || parsed.type.name !== 'table') {
+    pipelineLog('edit:result', { nodeId, blocked: 'TABLE_CELL_MULTILINE' })
+    return toolError(
+      'This node is a paragraph inside a table cell, and a cell holds a single ' +
+        "line. To change this cell's text, pass one line. To change the table's " +
+        'structure, pass ONLY the full updated GFM table (header row, delimiter ' +
+        'row, body rows) and it replaces the whole table. Put any other content ' +
+        'in a separate insert after the table.',
+      'TABLE_CELL_MULTILINE'
+    )
+  }
+
+  const from = table.pos
+  const tr = handle.state.tr
+    .replaceWith(from, from + table.node.nodeSize, parsed)
+    .setMeta(AI_REPLACEMENT_META, true)
+  if (provenance && provenance.documentId) {
+    // Row/cell structure breaks word-diff offsets — one full-range
+    // annotation over the new table, as wrapper block conversions do, on
+    // the same transaction as the replace.
+    addAnnotationsTo(tr, [
+      {
+        type: 'replacement',
+        from,
+        to: from + parsed.nodeSize,
+        content: parsed.textContent,
+        provenance: {
+          model: provenance.model,
+          conversationId: provenance.conversationId,
+          messageId: provenance.messageId,
+        },
+        explanation: comment,
+      },
+    ])
+  }
+  handle.apply(tr)
+  pipelineLog('edit:result', { nodeId, path: 'wholeTable' })
+
+  return toolSuccess({ applied: true, nodeId })
 }
 
 /**
@@ -674,15 +784,15 @@ export function executeSuggestEdit(
     comment?: string
     search?: string
   },
-  provenance?: ToolProvenance
+  ctx: ToolContext
 ): ToolResult<{ suggested: boolean; suggestionId: string }> {
-  const editor = getEditor()
+  const { handle, provenance } = ctx
 
-  if (!editor) {
+  if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
-  if (isEditorReadOnly()) {
+  if (isEditorReadOnly(handle)) {
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
@@ -693,10 +803,10 @@ export function executeSuggestEdit(
     nodeId,
     contentLength: content?.length ?? 0,
     contentPreview: content?.substring(0, 60),
-    isPlainText: isPlainTextDocument(editor),
+    isPlainText: handle.plain,
   })
 
-  if (isPlainTextDocument(editor)) {
+  if (handle.plain) {
     pipelineLog('suggest_edit:result', { nodeId, blocked: 'PLAIN_TEXT_DOCUMENT' })
     return toolError(
       'This document is a plain-text (.txt) file — markdown formatting is ' +
@@ -709,7 +819,10 @@ export function executeSuggestEdit(
   }
 
   if (!nodeId) {
-    return toolError('Node ID is required', 'INVALID_INPUT')
+    return toolError(
+      'Node ID is required. A table node in read_document has no id of its own: target one of its cell paragraphs (its children).',
+      'INVALID_INPUT'
+    )
   }
 
   // Special nodeId: 'frontmatter' targets the frontmatter block directly
@@ -720,6 +833,7 @@ export function executeSuggestEdit(
     if (parsed.kind === 'error') {
       return toolError(parsed.message, 'INVALID_FRONTMATTER')
     }
+    if (!handle.isActive) return FRONTMATTER_BACKGROUND
     useEditorStore.getState().setPendingFrontmatter(parsed.frontmatter)
     return toolSuccess({ suggested: true, suggestionId: generateId() })
   }
@@ -750,7 +864,7 @@ export function executeSuggestEdit(
       if (fenceMatch) {
         let yamlThrew = false
         try {
-          parseYaml(fenceMatch[1])
+          loadFrontmatterYaml(fenceMatch[1])
         } catch {
           yamlThrew = true
         }
@@ -780,9 +894,9 @@ export function executeSuggestEdit(
   // NODE_NOT_FOUND with guidance so the agent can correct its call.
   if (frontmatterToStage && !content.trim()) {
     if (nodeId !== 'frontmatter') {
-      const resolvedForFm = findNodeById(editor.state.doc, nodeId)
+      const resolvedForFm = findNodeById(handle.state.doc, nodeId)
       if (!resolvedForFm) {
-        const available = flattenNodes(getNodesWithIds(editor.state.doc))
+        const available = flattenNodes(getNodesWithIds(handle.state.doc))
         const nodeList = available.map(n => `${n.nodeId} (${n.type}: "${n.textContent.substring(0, 40)}")`).join(', ')
         return toolError(
           `Node with ID "${nodeId}" not found, and the content is frontmatter-only. ` +
@@ -792,19 +906,25 @@ export function executeSuggestEdit(
         )
       }
     }
+    if (!handle.isActive) return FRONTMATTER_BACKGROUND
     useEditorStore.getState().setPendingFrontmatter(frontmatterToStage)
     return toolSuccess({ suggested: true, suggestionId: generateId() })
   }
 
+  // Staged frontmatter needs the active document's overlay (PR 7 puts it on
+  // the tab); refuse before anything is applied so the model can resend
+  // the body on its own.
+  if (frontmatterToStage && !handle.isActive) return FRONTMATTER_BACKGROUND
+
   // Find the node by ID, fall back to content matching if stale
-  let found = findNodeById(editor.state.doc, nodeId)
+  let found = findNodeById(handle.state.doc, nodeId)
 
   if (!found && search) {
-    found = findNodeByContent(editor.state.doc, search)
+    found = findNodeByContent(handle.state.doc, search)
   }
 
   if (!found) {
-    const available = flattenNodes(getNodesWithIds(editor.state.doc))
+    const available = flattenNodes(getNodesWithIds(handle.state.doc))
     const nodeList = available.map(n => `${n.nodeId} (${n.type}: "${n.textContent.substring(0, 40)}")`).join(', ')
     return toolError(
       `Node with ID "${nodeId}" not found. Available nodes: [${nodeList}]`,
@@ -821,7 +941,7 @@ export function executeSuggestEdit(
   // serialization (#673). Note: table nodes themselves carry no nodeId
   // (NODE_TYPES_WITH_IDS) — the reachable targets are the PARAGRAPHS inside
   // cells, so the guard must check ancestors, not just the resolved node.
-  const $resolvedPos = editor.state.doc.resolve(pos)
+  const $resolvedPos = handle.state.doc.resolve(pos)
   let insideTable = TABLE_NODE_TYPES.has(node.type.name)
   for (let d = $resolvedPos.depth; d > 0 && !insideTable; d--) {
     if (TABLE_NODE_TYPES.has($resolvedPos.node(d).type.name)) insideTable = true
@@ -829,11 +949,12 @@ export function executeSuggestEdit(
   if (insideTable) {
     pipelineLog('suggest_edit:result', { nodeId, blocked: 'TABLE_NODE_NOT_SUPPORTED' })
     return toolError(
-      'suggest_edit cannot target table nodes — the suggestion mark cannot ' +
-        'represent table structure, and accepting it would corrupt the table. ' +
-        'To change a table, use the edit tool to replace the entire table ' +
-        '(pass the full updated GFM table as content), or insert a new table ' +
-        'with insert(position: "after_node").',
+      'suggest_edit cannot target table cells — a suggestion cannot represent ' +
+        'table structure, and accepting it would corrupt the table. Use the edit ' +
+        "tool instead: to change one cell's text, call edit with that cell's " +
+        'nodeId and the new single-line text; to change rows, columns or several ' +
+        "cells, call edit with any of the table's cell nodeIds and the full " +
+        'updated GFM table as content, which replaces the whole table.',
       'TABLE_NODE_NOT_SUPPORTED'
     )
   }
@@ -862,7 +983,7 @@ export function executeSuggestEdit(
   // converted content.
   let suggestedText: string
   if (blockConversionIntent) {
-    const slice = parseMarkdownToSlice(editor, editor.state.schema, blockConversionIntent)
+    const slice = parseMarkdownToSlice(handle.markdown, handle.state.schema, blockConversionIntent)
     if (slice) {
       suggestedText = sliceVisibleText(slice)
     } else {
@@ -925,7 +1046,7 @@ export function executeSuggestEdit(
   const contentStart = pos + 1
   const contentEnd = pos + node.nodeSize - 1
 
-  editor
+  handle
     .chain()
     .focus()
     .setTextSelection({ from: contentStart, to: contentEnd })
@@ -938,7 +1059,7 @@ export function executeSuggestEdit(
       provenanceModel: provenance?.model || '',
       provenanceConversationId: provenance?.conversationId || '',
       provenanceMessageId: provenance?.messageId || '',
-      documentId: provenance?.documentId || '',
+      documentId: handle.documentId,
       blockConversionIntent,
     })
     .run()
@@ -971,15 +1092,15 @@ interface SuggestionInfo {
  */
 export function executeAcceptDiff(args: {
   id?: string
-}): ToolResult<{ accepted: boolean; diffId?: string; count?: number }> {
-  const editor = getEditor()
+}, ctx: ToolContext): ToolResult<{ accepted: boolean; diffId?: string; count?: number }> {
+  const { handle } = ctx
 
-  if (!editor) {
+  if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
   const { id } = args
-  const suggestions = getAISuggestions(editor)
+  const suggestions = getAISuggestions(handle)
 
   if (suggestions.length === 0) {
     return toolError('No pending suggestions', 'NO_DIFFS')
@@ -992,7 +1113,7 @@ export function executeAcceptDiff(args: {
       return toolError(`Suggestion with id "${id}" not found`, 'DIFF_NOT_FOUND')
     }
 
-    const success = editor.commands.acceptAISuggestion(id)
+    const success = handle.commands.acceptAISuggestion(id)
     if (success) {
       return toolSuccess({ accepted: true, diffId: id, count: 1 })
     } else {
@@ -1002,7 +1123,7 @@ export function executeAcceptDiff(args: {
 
   // Accept all suggestions
   const count = suggestions.length
-  const success = editor.commands.acceptAllAISuggestions()
+  const success = handle.commands.acceptAllAISuggestions()
 
   if (success) {
     return toolSuccess({ accepted: true, count })
@@ -1017,15 +1138,15 @@ export function executeAcceptDiff(args: {
  */
 export function executeRejectDiff(args: {
   id?: string
-}): ToolResult<{ rejected: boolean; diffId?: string; count?: number }> {
-  const editor = getEditor()
+}, ctx: ToolContext): ToolResult<{ rejected: boolean; diffId?: string; count?: number }> {
+  const { handle } = ctx
 
-  if (!editor) {
+  if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
   const { id } = args
-  const suggestions = getAISuggestions(editor)
+  const suggestions = getAISuggestions(handle)
 
   if (suggestions.length === 0) {
     return toolError('No pending suggestions', 'NO_DIFFS')
@@ -1038,7 +1159,7 @@ export function executeRejectDiff(args: {
       return toolError(`Suggestion with id "${id}" not found`, 'DIFF_NOT_FOUND')
     }
 
-    const success = editor.commands.rejectAISuggestion(id)
+    const success = handle.commands.rejectAISuggestion(id)
     if (success) {
       return toolSuccess({ rejected: true, diffId: id, count: 1 })
     } else {
@@ -1048,7 +1169,7 @@ export function executeRejectDiff(args: {
 
   // Reject all suggestions
   const count = suggestions.length
-  const success = editor.commands.rejectAllAISuggestions()
+  const success = handle.commands.rejectAllAISuggestions()
 
   if (success) {
     return toolSuccess({ rejected: true, count })
@@ -1066,32 +1187,35 @@ export function executeDeleteNode(
     nodeId: string
     search?: string
   },
-  provenance?: ToolProvenance
+  ctx: ToolContext
 ): ToolResult<{ deleted: boolean; nodeId: string }> {
-  const editor = getEditor()
+  const { handle, provenance } = ctx
 
-  if (!editor) {
+  if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
-  if (isEditorReadOnly()) {
+  if (isEditorReadOnly(handle)) {
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
   const { nodeId, search } = args
 
   if (!nodeId) {
-    return toolError('Node ID is required', 'INVALID_INPUT')
+    return toolError(
+      'Node ID is required. A table node in read_document has no id of its own: target one of its cell paragraphs (its children).',
+      'INVALID_INPUT'
+    )
   }
 
-  let found = findNodeById(editor.state.doc, nodeId)
+  let found = findNodeById(handle.state.doc, nodeId)
 
   if (!found && search) {
-    found = findNodeByContent(editor.state.doc, search)
+    found = findNodeByContent(handle.state.doc, search)
   }
 
   if (!found) {
-    const available = flattenNodes(getNodesWithIds(editor.state.doc))
+    const available = flattenNodes(getNodesWithIds(handle.state.doc))
     const nodeList = available.map(n => `${n.nodeId} (${n.type}: "${n.textContent.substring(0, 40)}")`).join(', ')
     return toolError(
       `Node with ID "${nodeId}" not found. Available nodes: [${nodeList}]`,
@@ -1104,25 +1228,28 @@ export function executeDeleteNode(
   const from = pos
   const to = pos + node.nodeSize
 
-  editor.chain().focus().deleteRange({ from, to }).run()
-
-  // Log a deletion annotation for provenance. Range collapses to a single
-  // point at the deletion site so the annotation store treats it as a marker
-  // rather than highlighting text that no longer exists.
+  // A deletion marker rides on the same transaction as the delete: a
+  // zero-width record at the deletion site (the plugin maps the existing
+  // records through the delete first), a history entry rather than a
+  // highlight of text that no longer exists; it follows its position and
+  // never detaches (#1146).
+  const chain = handle.chain().focus().deleteRange({ from, to })
   if (provenance && provenance.documentId) {
-    useAnnotationStore.getState().addAnnotation({
-      documentId: provenance.documentId,
-      type: 'deletion',
-      from,
-      to: from,
-      content: deletedText,
-      provenance: {
-        model: provenance.model,
-        conversationId: provenance.conversationId,
-        messageId: provenance.messageId,
+    chain.addAIAnnotations([
+      {
+        type: 'deletion',
+        from,
+        to: from,
+        content: deletedText,
+        provenance: {
+          model: provenance.model,
+          conversationId: provenance.conversationId,
+          messageId: provenance.messageId,
+        },
       },
-    })
+    ])
   }
+  chain.run()
 
   return toolSuccess({ deleted: true, nodeId })
 }
@@ -1136,14 +1263,14 @@ export function executeMoveCursor(args: {
   nodeId: string
   position?: 'start' | 'end'
   search?: string
-}): ToolResult<{ moved: boolean; nodeId: string; position: 'start' | 'end' }> {
-  const editor = getEditor()
+}, ctx: ToolContext): ToolResult<{ moved: boolean; nodeId: string; position: 'start' | 'end' }> {
+  const { handle } = ctx
 
-  if (!editor) {
+  if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
-  if (isEditorReadOnly()) {
+  if (isEditorReadOnly(handle)) {
     return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   }
 
@@ -1151,17 +1278,20 @@ export function executeMoveCursor(args: {
   const position = args.position ?? 'start'
 
   if (!nodeId) {
-    return toolError('Node ID is required', 'INVALID_INPUT')
+    return toolError(
+      'Node ID is required. A table node in read_document has no id of its own: target one of its cell paragraphs (its children).',
+      'INVALID_INPUT'
+    )
   }
 
-  let found = findNodeById(editor.state.doc, nodeId)
+  let found = findNodeById(handle.state.doc, nodeId)
 
   if (!found && search) {
-    found = findNodeByContent(editor.state.doc, search)
+    found = findNodeByContent(handle.state.doc, search)
   }
 
   if (!found) {
-    const available = flattenNodes(getNodesWithIds(editor.state.doc))
+    const available = flattenNodes(getNodesWithIds(handle.state.doc))
     const nodeList = available.map(n => `${n.nodeId} (${n.type}: "${n.textContent.substring(0, 40)}")`).join(', ')
     return toolError(
       `Node with ID "${nodeId}" not found. Available nodes: [${nodeList}]`,
@@ -1173,7 +1303,7 @@ export function executeMoveCursor(args: {
   // Node-content positions live inside the open/close tokens.
   const target = position === 'end' ? pos + node.nodeSize - 1 : pos + 1
 
-  editor.chain().focus().setTextSelection(target).run()
+  handle.chain().focus().setTextSelection(target).run()
 
   return toolSuccess({ moved: true, nodeId, position })
 }
@@ -1181,14 +1311,14 @@ export function executeMoveCursor(args: {
 /**
  * List all pending AI suggestions.
  */
-export function executeListDiffs(): ToolResult<{ diffs: SuggestionInfo[] }> {
-  const editor = getEditor()
+export function executeListDiffs(ctx: ToolContext): ToolResult<{ diffs: SuggestionInfo[] }> {
+  const { handle } = ctx
 
-  if (!editor) {
+  if (!handle) {
     return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   }
 
-  const suggestions = getAISuggestions(editor)
+  const suggestions = getAISuggestions(handle)
   const diffs: SuggestionInfo[] = suggestions.map((s) => ({
     id: s.id,
     originalText: s.originalText,

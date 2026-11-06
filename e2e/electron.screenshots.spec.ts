@@ -21,6 +21,7 @@ import {
   dismissOverlay,
   waitForEditor,
   executeProseTool,
+  seedSettings,
 } from './helpers'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -67,7 +68,7 @@ async function suggest(marker: string, replace: (s: string) => string, comment: 
         'suggest_edit',
         { nodeId, content, search, comment },
         'create',
-        { model: 'claude-sonnet-4-6' },
+        { model: 'claude-sonnet-5-5' },
       ),
     { nodeId: node.id, content: replace(node.content ?? ''), search: node.content, comment },
   )
@@ -170,12 +171,10 @@ test.beforeAll(async () => {
   writeFileSync(join(notes, '2025 Reading.md'), '# 2025 Reading\n\n- ...\n')
   writeFileSync(join(notes, 'Ideas.md'), '# Ideas\n\n- ...\n')
 
-  writeFileSync(
-    join(profile, 'settings.json'),
-    JSON.stringify({
-      appearance: { color: 'prose', mode: 'light', icon: 'pilcrow', migrationToastShown: true },
+  seedSettings(profile, {
+      appearance: { color: 'prose', mode: 'light', icon: 'pilcrow' },
       aiConsent: { consented: true, consentedAt: '2025-01-01T00:00:00.000Z' },
-      llm: { provider: 'anthropic', apiKey: 'sk-ant-demo-screenshot-key', model: 'claude-sonnet-4-6' },
+      llm: { provider: 'anthropic', apiKey: 'sk-ant-demo-screenshot-key', model: 'claude-sonnet-5-5' },
       defaultSaveDirectory: essays,
       projects: [
         { id: uuid(1), name: 'Essays', path: essays, createdAt: '2025-01-01T00:00:00.000Z', lastOpenedAt: '2025-06-01T00:00:00.000Z' },
@@ -186,8 +185,7 @@ test.beforeAll(async () => {
         { id: uuid(3), name: HERO_NAME, path: join(essays, HERO_NAME), isDirectory: false, addedAt: '2025-01-01T00:00:00.000Z' },
         { id: uuid(5), name: LEVERAGE_NAME, path: join(essays, LEVERAGE_NAME), isDirectory: false, addedAt: '2025-02-01T00:00:00.000Z' },
       ],
-    }),
-  )
+    })
 
   app = await electron.launch({
     args: [join(REPO, 'out/main/index.js')],

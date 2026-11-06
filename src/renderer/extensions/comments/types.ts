@@ -1,12 +1,7 @@
 /**
- * Comment mark types for AI-assisted editing
+ * Comment thread types (#1147): the mark carries id, comment, createdAt and
+ * occurrenceIndex; `CommentData` is the thread the plugin state holds.
  */
-
-export interface CommentMark {
-  id: string
-  comment: string
-  createdAt: number
-}
 
 /** A single reply within a comment thread. */
 export interface CommentReply {
@@ -83,10 +78,6 @@ export interface CommentData {
 
 export interface CommentOptions {
   HTMLAttributes?: Record<string, unknown>
-  onCommentAdded?: (comment: CommentData) => void
-  onCommentRemoved?: (id: string) => void
-  onCommentResolved?: (id: string) => void
-  onCommentReplied?: (id: string, reply: CommentReply) => void
   /**
    * Fired when setComment refuses to add a comment because the target range
    * fully covers one or more existing comment marks (which setMark would

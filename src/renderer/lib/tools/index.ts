@@ -7,6 +7,16 @@ import type { ToolResult, ToolMode } from '../../../shared/tools/types'
 import { toolError } from '../../../shared/tools/types'
 import { getTool, allTools } from '../../../shared/tools/registry'
 import { checkToolAccess } from './modes'
+import {
+  isToolHandleError,
+  resolveDocumentHandle,
+  resolveToolHandle,
+  type DocumentHandle,
+  type ToolBinding
+} from '../../document/handle'
+import { useTabStore } from '../../stores/tabStore'
+import { pipelineLog } from '../aiPipelineLog'
+import type { ToolContext } from './context'
 
 // Document executors
 import {
@@ -55,16 +65,58 @@ import { executeRequestModeSwitch } from './executors/ui'
 
 import type { ToolProvenance } from './provenanceTypes'
 export type { ToolProvenance } from './provenanceTypes'
+export type { ToolContext } from './context'
+
+/** Tools that act on a document: `executeTool` resolves its handle before they run. */
+const DOCUMENT_TOOLS = new Set([
+  'read_document', 'read_selection', 'get_metadata', 'search_document', 'get_outline', 'outline',
+  'list_comments', 'add_comment', 'resolve_comment', 'reply_to_comment',
+  'edit', 'insert', 'suggest_edit', 'accept_diff', 'reject_diff', 'list_diffs', 'delete_node', 'move_cursor',
+  'save_file'
+])
+
+/** Tools that write: refused while the target document is open in source mode. */
+const WRITING_TOOLS = new Set([
+  'add_comment', 'resolve_comment', 'reply_to_comment',
+  'edit', 'insert', 'suggest_edit', 'accept_diff', 'reject_diff', 'delete_node', 'move_cursor', 'save_file'
+])
+
+/** Tools that put another document in front of the user: a bound turn follows them (#1148, decision 2). */
+const TAB_CHANGING_TOOLS = new Set(['open_file', 'new_file', 'create_and_open_file', 'select_tab'])
+
+/**
+ * The document a call acts on: a chat turn's binding (its tab, else the tab
+ * holding its document, else a background reopen, else closed), or the
+ * active tab for every other caller (MCP clients, slash commands, specs).
+ */
+async function resolveHandleFor(
+  toolName: string,
+  binding: ToolBinding | undefined
+): Promise<{ handle: DocumentHandle | null; error?: ToolResult }> {
+  if (!DOCUMENT_TOOLS.has(toolName)) return { handle: null }
+  const forWrite = WRITING_TOOLS.has(toolName)
+  if (binding) {
+    const resolved = await resolveToolHandle(binding, { forWrite })
+    if (isToolHandleError(resolved)) return { handle: null, error: toolError(resolved.error, resolved.code) }
+    return { handle: resolved }
+  }
+  const handle = resolveDocumentHandle({ forWrite })
+  if (!handle) return { handle: null, error: toolError('Editor not available', 'EDITOR_NOT_AVAILABLE') }
+  return { handle }
+}
 
 /**
  * Execute a tool by name with the given arguments.
- * Validates the tool exists and checks mode access before executing.
+ * Validates the tool exists and checks mode access before executing. A
+ * `binding` (a chat turn's) names the document the call acts on; without
+ * one the call acts on the active tab.
  */
 export async function executeTool(
   toolName: string,
   args: unknown,
   mode: ToolMode = 'create',
-  provenance?: ToolProvenance
+  provenance?: ToolProvenance,
+  binding?: ToolBinding
 ): Promise<ToolResult> {
   // Check if tool exists
   const tool = getTool(toolName)
@@ -89,71 +141,111 @@ export async function executeTool(
 
   const validatedArgs = parseResult.data
 
+  const resolved = await resolveHandleFor(toolName, binding)
+  if (resolved.error) return resolved.error
+  const ctx: ToolContext = { handle: resolved.handle, provenance, binding }
+  if (resolved.handle) {
+    pipelineLog('tool:call', {
+      tool: toolName,
+      conversationId: binding?.conversationId ?? provenance?.conversationId ?? null,
+      documentId: resolved.handle.documentId,
+      tabId: resolved.handle.tabId,
+      active: resolved.handle.isActive
+    })
+  }
+
   // Dispatch to appropriate executor
+  let result: ToolResult
   try {
     switch (toolName) {
       // Document tools
       case 'read_document':
-        return executeReadDocument()
+        result = executeReadDocument(ctx)
+        break
       case 'read_selection':
-        return executeReadSelection()
+        result = executeReadSelection(ctx)
+        break
       case 'get_metadata':
-        return await executeGetMetadata()
+        result = await executeGetMetadata(ctx)
+        break
       case 'search_document':
-        return executeSearchDocument(validatedArgs)
+        result = executeSearchDocument(validatedArgs, ctx)
+        break
       case 'get_outline':
       case 'outline':
-        return executeGetOutline()
+        result = executeGetOutline(ctx)
+        break
       case 'list_comments':
-        return executeListComments()
+        result = executeListComments(ctx)
+        break
       case 'add_comment':
-        return executeAddComment(validatedArgs)
+        result = executeAddComment(validatedArgs, ctx)
+        break
       case 'resolve_comment':
-        return executeResolveComment(validatedArgs)
+        result = executeResolveComment(validatedArgs, ctx)
+        break
       case 'reply_to_comment':
-        return executeReplyToComment(validatedArgs)
+        result = executeReplyToComment(validatedArgs, ctx)
+        break
 
       // Editor tools
       case 'edit':
-        return executeEdit(validatedArgs, provenance)
+        result = await executeEdit(validatedArgs, ctx)
+        break
       case 'insert':
-        return executeInsert(validatedArgs, provenance)
+        result = await executeInsert(validatedArgs, ctx)
+        break
       case 'suggest_edit':
-        return executeSuggestEdit(validatedArgs, provenance)
+        result = executeSuggestEdit(validatedArgs, ctx)
+        break
       case 'accept_diff':
-        return executeAcceptDiff(validatedArgs)
+        result = executeAcceptDiff(validatedArgs, ctx)
+        break
       case 'reject_diff':
-        return executeRejectDiff(validatedArgs)
+        result = executeRejectDiff(validatedArgs, ctx)
+        break
       case 'list_diffs':
-        return executeListDiffs()
+        result = executeListDiffs(ctx)
+        break
       case 'delete_node':
-        return executeDeleteNode(validatedArgs, provenance)
+        result = executeDeleteNode(validatedArgs, ctx)
+        break
       case 'move_cursor':
-        return executeMoveCursor(validatedArgs)
+        result = executeMoveCursor(validatedArgs, ctx)
+        break
 
       // File tools (async)
       case 'open_file':
-        return await executeOpenFile(validatedArgs)
+        result = await executeOpenFile(validatedArgs)
+        break
       case 'new_file':
-        return await executeNewFile(validatedArgs)
+        result = await executeNewFile(validatedArgs)
+        break
       case 'save_file':
-        return await executeSaveFile(validatedArgs)
+        result = await executeSaveFile(validatedArgs, ctx)
+        break
       case 'list_files':
-        return await executeListFiles(validatedArgs)
+        result = await executeListFiles(validatedArgs)
+        break
       case 'read_file':
-        return await executeReadFile(validatedArgs)
+        result = await executeReadFile(validatedArgs)
+        break
       case 'create_and_open_file':
-        return await executeCreateAndOpenFile(validatedArgs, provenance)
+        result = await executeCreateAndOpenFile(validatedArgs, ctx)
+        break
 
       // Tab tools
       case 'list_tabs':
-        return executeListTabs()
+        result = executeListTabs()
+        break
       case 'select_tab':
-        return await executeSelectTab(validatedArgs)
+        result = await executeSelectTab(validatedArgs)
+        break
 
       // UI-coordination tools
       case 'request_mode_switch':
-        return executeRequestModeSwitch(validatedArgs as Parameters<typeof executeRequestModeSwitch>[0])
+        result = executeRequestModeSwitch(validatedArgs as Parameters<typeof executeRequestModeSwitch>[0])
+        break
 
       default:
         return toolError(`Tool "${toolName}" not implemented`, 'NOT_IMPLEMENTED')
@@ -161,6 +253,19 @@ export async function executeTool(
   } catch (e) {
     return toolError(`Tool execution error: ${e}`, 'EXECUTION_ERROR')
   }
+
+  // A tool that put another document in front of the user moves the turn
+  // with it: "create a file and write into it" keeps working.
+  if (binding && result.success && TAB_CHANGING_TOOLS.has(toolName)) {
+    const active = useTabStore.getState().getActiveTab()
+    if (active) {
+      binding.tabId = active.id
+      binding.documentId = active.documentId
+      binding.path = active.path
+      pipelineLog('tool:rebind', { tool: toolName, conversationId: binding.conversationId, documentId: active.documentId, tabId: active.id })
+    }
+  }
+  return result
 }
 
 /**

@@ -15,7 +15,8 @@
 import { useEffect } from 'react'
 import { getApi } from './browserApi'
 import { mergeCommentThreads, cleanString } from './commentMerge'
-import { useCommentStore } from '../extensions/comments/store'
+import { getActiveSession, mergeThreads, readThreads } from '../document/session'
+import { getIdentity } from '../document/identity'
 import { useEditorStore } from '../stores/editorStore'
 import { useNotificationStore } from '../stores/notificationStore'
 import { useReviewStore } from '../stores/reviewStore'
@@ -187,19 +188,18 @@ function toThreads(pulled: SharePulledComment[], knownThreadIds: Set<string>): C
 export type ShareSyncOutcome = { ok: true; added: number } | { ok: false; error: string }
 
 /**
- * Pull new reviewer comments for `entry` and merge them into the OPEN
- * document's comment store. Only valid while `documentId` is the loaded
- * document (callers hold the ShareDialog / focus context that guarantees it).
+ * Pull new reviewer comments for `entry` and merge them into `documentId`'s
+ * threads: the session that owns the document (active or in a background
+ * tab) takes them in place, a closed document's stored rows are written
+ * (#1147). The toast and the unseen badge are for the active document only;
+ * a background merge is silent and shows when its tab is activated.
  */
 export async function syncShareComments(entry: ShareEntry, documentId: string): Promise<ShareSyncOutcome> {
   const res = await getApi().sharePullComments(entry.publicationId)
   if (!res.ok) return { ok: false, error: res.error }
   lastSyncAt.set(entry.publicationId, Date.now())
 
-  const store = useCommentStore.getState()
-  if (store.documentId !== documentId) {
-    return { ok: false, error: 'Document changed while syncing — open it and retry.' }
-  }
+  const current = [...(await readThreads(documentId))]
 
   // Author-deletion memory (#905 follow-up): pulls are cursor-less, so a
   // thread or reply the author deleted locally would come back as "new" on
@@ -210,7 +210,7 @@ export async function syncShareComments(entry: ShareEntry, documentId: string): 
   // revision adoption (edits/tombstones) fed.
   const seenRows = new Set(entry.seenRowIds ?? [])
   const localIds = new Set(
-    store.pendingComments.flatMap((c) => [
+    current.flatMap((c) => [
       c.id,
       ...(c.shareId ? [c.shareId] : []),
       ...(c.replies ?? []).flatMap((r) => [r.id, ...(r.shareId ? [r.shareId] : [])]),
@@ -220,7 +220,7 @@ export async function syncShareComments(entry: ShareEntry, documentId: string): 
 
   // Reviewer revisions land first: deletions remove the local copy, edits
   // update it (viewer-sourced rows only — author rows stay local-truth).
-  const { revised: existing, changes } = applyRevisions(store.pendingComments, rows)
+  const { revised: existing, changes } = applyRevisions(current, rows)
   // Reply counts before the merge — whichever thread is new or grew is the
   // one the toast click should land on.
   const beforeCounts = new Map(existing.map((c) => [c.id, (c.replies ?? []).length]))
@@ -234,19 +234,17 @@ export async function syncShareComments(entry: ShareEntry, documentId: string): 
   const { merged, added } = mergeCommentThreads(existing, incoming)
 
   if (added > 0 || changes > 0) {
-    // Land the merge in the LIVE store synchronously, before any await: every
-    // routine save (tab-switch, the comment-transaction mirror) reads
-    // pendingComments, and the old persist-then-reload order left a window
-    // where a concurrent save wrote the PRE-merge set straight over the
-    // just-persisted one — a pulled thread vanished, and the acked cursor
-    // made the drop permanent (observed live, 2026-09-12).
-    useCommentStore.setState({ pendingComments: merged })
-    await store.saveComments(documentId, merged)
-    // Reload → sets needsRestore → the Editor restore effect re-derives marks.
-    await store.loadComments(documentId)
+    // The merged set replaces the document's threads in one transaction on
+    // its session (the new threads' marks land in place, a tombstone's mark
+    // goes); IndexedDB is written in that same transition and awaited, so
+    // the ack below never outruns the persisted merge (#1145, #1147).
+    await mergeThreads(documentId, merged)
+    const active = getActiveSession()
+    const isActive = active !== null && getIdentity(active.state).documentId === documentId
     // Only NEW conversation is news — reviewer edits/deletions sync silently
-    // (they're revisions of things already seen).
-    if (added > 0) {
+    // (they're revisions of things already seen). A background document's
+    // news waits for its tab.
+    if (added > 0 && isActive) {
       const target = merged.find(
         (c) => !beforeCounts.has(c.id) || (c.replies?.length ?? 0) > (beforeCounts.get(c.id) ?? 0)
       )

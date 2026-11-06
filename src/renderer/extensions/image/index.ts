@@ -1,8 +1,9 @@
 import Image from '@tiptap/extension-image'
-import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { Plugin, PluginKey, type EditorState } from '@tiptap/pm/state'
 import type { Node } from '@tiptap/pm/model'
 import type { EditorView } from '@tiptap/pm/view'
 import { useEditorStore } from '../../stores/editorStore'
+import { getIdentity } from '../../document/identity'
 import { ImageNodeView } from './nodeView'
 
 const IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml']
@@ -35,27 +36,51 @@ function fileToBase64(file: File): Promise<string> {
   })
 }
 
-/**
- * Get the directory of the current document, or null if unsaved.
- */
-function getDocumentDir(): string | null {
-  const docPath = useEditorStore.getState().document.path
+/** The folder of `docPath`, or null for an unsaved document. */
+function dirOf(docPath: string | null | undefined): string | null {
   if (!docPath) return null
   const lastSlash = docPath.lastIndexOf('/')
   return lastSlash > 0 ? docPath.substring(0, lastSlash) : null
 }
 
 /**
- * Resolve a relative image path to a local-file:// URL for display.
- * Absolute URLs, data: URLs, and https: URLs pass through unchanged.
+ * The folder of the document `state` holds, from the state's own identity.
+ * Never the active-document mirror for anything built from a state: a tab
+ * switch rebuilds the node views before the mirror is updated, so the mirror
+ * still names the leaving document then (#1204).
  */
-export function resolveImageSrc(src: string): string {
+export function documentDirOf(state: EditorState): string | null {
+  return dirOf(getIdentity(state).path)
+}
+
+/** The active document's folder per the mirror, for callers with no state at hand. */
+function getDocumentDir(): string | null {
+  return dirOf(useEditorStore.getState().document.path)
+}
+
+/**
+ * Resolve a relative image path to a local-file:// URL for display, against
+ * `docDir` (the owning document's folder). Absolute URLs, data: URLs, and
+ * https: URLs pass through unchanged.
+ */
+export function resolveImageSrc(src: string, docDir: string | null = getDocumentDir()): string {
   if (/^(https?:|data:|local-file:)/i.test(src)) return src
-  const docDir = getDocumentDir()
   if (docDir) {
     return `local-file://${docDir}/${src}`
   }
   return src
+}
+
+/**
+ * Percent-encode what markdown-it cannot read in a raw link destination:
+ * whitespace (a pasted macOS screenshot has spaces and a narrow no-break
+ * space before "AM") and angle brackets (#1133). Nothing else is touched, so
+ * a source that is already encoded (every reload yields one, markdown-it
+ * normalizes the destination) is left as it is, and URLs keep their query
+ * strings.
+ */
+export function encodeImageSrc(src: string): string {
+  return src.replace(/[\s<>]/g, (ch) => encodeURIComponent(ch))
 }
 
 /**
@@ -74,8 +99,7 @@ function altFromFilename(name: string): string {
  * For saved documents: saves to the document directory and returns filename.
  * For unsaved documents: returns base64 data URL as fallback.
  */
-async function saveImageFile(file: File): Promise<{ src: string; alt: string }> {
-  const docDir = getDocumentDir()
+async function saveImageFile(file: File, docDir: string | null): Promise<{ src: string; alt: string }> {
   const alt = altFromFilename(file.name)
 
   if (docDir && window.api?.saveImage) {
@@ -96,7 +120,28 @@ export const ImageWithUpload = Image.extend({
   inline: true,
   group: 'inline',
 
-  // Resolve relative paths for display and set title for hover tooltip
+  // The default image serializer writes `src` raw, and markdown-it reads a
+  // destination with spaces as text, so a pasted screenshot became literal
+  // markdown on the next parse (#1133). Same output otherwise: escaped alt,
+  // backslash-escaped parentheses, the title in quotes. tiptap-markdown keeps
+  // its own parse hooks for the node under this spec.
+  addStorage() {
+    return {
+      ...this.parent?.(),
+      markdown: {
+        serialize(state: { write: (text: string) => void; esc: (text: string) => string }, node: Node) {
+          const src = encodeImageSrc(String(node.attrs.src ?? '')).replace(/[()]/g, '\\$&')
+          const title = node.attrs.title ? ` "${String(node.attrs.title).replace(/"/g, '\\"')}"` : ''
+          state.write(`![${state.esc(node.attrs.alt || '')}](${src}${title})`)
+        }
+      }
+    }
+  },
+
+  // Resolve relative paths for display and set title for hover tooltip. No
+  // editor state here (clipboard HTML, getHTML()), so the mirror's folder is
+  // the only one available; the node view, which is what the pane shows,
+  // resolves against its own state.
   renderHTML({ HTMLAttributes }) {
     const resolvedSrc = resolveImageSrc(HTMLAttributes.src || '')
     return ['img', {
@@ -119,7 +164,7 @@ export const ImageWithUpload = Image.extend({
       new Plugin({
         key: new PluginKey('image-upload'),
         props: {
-          handlePaste(_view, event) {
+          handlePaste(view, event) {
             const items = event.clipboardData?.items
             if (!items) return false
 
@@ -130,10 +175,11 @@ export const ImageWithUpload = Image.extend({
 
             event.preventDefault()
 
+            const docDir = documentDirOf(view.state)
             for (const item of imageItems) {
               const file = item.getAsFile()
               if (!file) continue
-              saveImageFile(file).then(({ src, alt }) => {
+              saveImageFile(file, docDir).then(({ src, alt }) => {
                 editor.chain().focus().setImage({ src, alt }).run()
               })
             }
@@ -153,9 +199,10 @@ export const ImageWithUpload = Image.extend({
             event.preventDefault()
 
             const coords = view.posAtCoords({ left: event.clientX, top: event.clientY })
+            const docDir = documentDirOf(view.state)
 
             for (const file of imageFiles) {
-              saveImageFile(file).then(({ src, alt }) => {
+              saveImageFile(file, docDir).then(({ src, alt }) => {
                 if (coords) {
                   editor.chain().focus().insertContentAt(coords.pos, {
                     type: 'image',

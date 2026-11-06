@@ -19,8 +19,8 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { X, ChevronLeft, ChevronRight, CheckCheck, Sparkles, ArrowRight, Send, Check } from 'lucide-react'
 import { motion, useMotionValue, useTransform, type PanInfo } from 'framer-motion'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
-import { useCommentStore } from '../../extensions/comments/store'
-import { getComments } from '../../extensions/comments'
+import { getComments, selectThreads } from '../../extensions/comments'
+import { useActiveSession } from '../../document/useActiveSession'
 import { scrollSelectionIntoCenter } from '../../lib/diffUtils'
 import { useChat } from '../../hooks/useChat'
 import { useAIConfigured } from '../../hooks/useAIConfigured'
@@ -28,7 +28,6 @@ import { aiUnavailableMessage } from '../../lib/llm'
 import type { CommentReply } from '../../extensions/comments/types'
 import { formatAge } from '../../types/annotations'
 import { generateId } from '../../lib/persistence'
-import { pushReplyToShare, pushResolveToShare } from '../../lib/sharePush'
 import { renderMarkdown } from '../chat/ChatMessage'
 import { PROSE_ICONS, IconThumb } from '../../lib/prose-icons'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -37,6 +36,8 @@ import { cn } from '../../lib/utils'
 interface CommentReviewPanelProps {
   /** Exit Review mode and return to the Activity list. */
   onExit: () => void
+  /** "Back to activity" on the done state; falls back to `onExit`. */
+  onDone?: () => void
   /** Open Review focused on this thread (from a card's expand icon); else start at 0. */
   initialThreadId?: string | null
   /** Bumped on every focus request so a repeat expand on the same thread (after
@@ -46,11 +47,9 @@ interface CommentReviewPanelProps {
 
 const SWIPE_THRESHOLD = 90
 
-export function CommentReviewPanel({ onExit, initialThreadId, focusSeq }: CommentReviewPanelProps) {
+export function CommentReviewPanel({ onExit, onDone, initialThreadId, focusSeq }: CommentReviewPanelProps) {
   const editor = useEditorInstanceStore((s) => s.editor)
-  const pendingComments = useCommentStore((s) => s.pendingComments)
-  const documentId = useCommentStore((s) => s.documentId)
-  const saveComments = useCommentStore((s) => s.saveComments)
+  const pendingComments = useActiveSession(selectThreads)
   const { processComment, isStreaming } = useChat()
   const ai = useAIConfigured()
 
@@ -119,16 +118,11 @@ export function CommentReviewPanel({ onExit, initialThreadId, focusSeq }: Commen
 
   const resolve = useCallback(() => {
     if (!current) return
-    const id = current.id
-    const { pendingComments: cur } = useCommentStore.getState()
-    const updated = cur.map((c) => (c.id === id ? { ...c, resolved: true } : c))
-    useCommentStore.setState({ pendingComments: updated })
-    if (documentId) saveComments(documentId, updated)
-    editor?.commands.unsetComment(id)
+    // One transaction: resolved, mark removed, persisted, pushed (#1147).
+    editor?.commands.resolveThread(current.id)
     setDraft('')
-    pushResolveToShare(id)
     // The set shrinks; the next open thread slides into this index (clamped).
-  }, [current, documentId, saveComments, editor])
+  }, [current, editor])
 
   const runProcess = useCallback(() => {
     if (!current || !ai.available) return
@@ -140,14 +134,10 @@ export function CommentReviewPanel({ onExit, initialThreadId, focusSeq }: Commen
     const text = draft.trim()
     if (!text || !current) return
     const reply: CommentReply = { id: generateId(), author: 'user', text, createdAt: Date.now() }
-    const { pendingComments: cur } = useCommentStore.getState()
-    const updated = cur.map((c) => (c.id === current.id ? { ...c, replies: [...(c.replies ?? []), reply] } : c))
-    useCommentStore.setState({ pendingComments: updated })
-    if (documentId) saveComments(documentId, updated)
+    editor?.commands.replyToThread(current.id, reply)
     setDraft('')
     composerRef.current?.focus()
-    pushReplyToShare(current.id, reply.id)
-  }, [draft, current, documentId, saveComments])
+  }, [draft, current, editor])
 
   const onDragEnd = useCallback(
     (_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
@@ -193,7 +183,7 @@ export function CommentReviewPanel({ onExit, initialThreadId, focusSeq }: Commen
     return () => window.removeEventListener('keydown', onKey)
   }, [onExit, sendReply, goNext, goPrev, resolve])
 
-  if (!current) return <DoneState onExit={onExit} />
+  if (!current) return <DoneState onExit={onExit} onDone={onDone ?? onExit} />
 
   const replies = current.replies ?? []
   const quote = current.markedText?.trim()
@@ -395,7 +385,7 @@ export function CommentReviewPanel({ onExit, initialThreadId, focusSeq }: Commen
 
 // ─── Done state ─────────────────────────────────────────────────────────────
 
-function DoneState({ onExit }: { onExit: () => void }) {
+function DoneState({ onExit, onDone }: { onExit: () => void; onDone: () => void }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 items-center justify-between border-b border-border py-2.5 pl-4 pr-2">
@@ -417,7 +407,7 @@ function DoneState({ onExit }: { onExit: () => void }) {
           Every thread is resolved. Resolved threads stay in the Activity list — nothing was deleted.
         </p>
         <button
-          onClick={onExit}
+          onClick={onDone}
           className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground"
         >
           <ChevronLeft className="h-3 w-3" />

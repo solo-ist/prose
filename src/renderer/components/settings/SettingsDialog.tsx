@@ -23,8 +23,8 @@ import { Slider } from '../ui/slider'
 import { Switch } from '../ui/switch'
 import { AppearancePane } from './AppearancePane'
 import { RemarkableIntegration } from './RemarkableIntegration'
-import { GoogleDocsIntegration } from './GoogleDocsIntegration'
 import { McpIntegration } from './McpIntegration'
+import { AccountSection } from '../account/AccountSection'
 import { ProseSkillIntegration } from './ProseSkillIntegration'
 import { isWebMode } from '../../lib/browserApi'
 import type { Settings } from '../../types'
@@ -69,7 +69,6 @@ export function SettingsDialog() {
     setRecoveryConfig,
     setDefaultSaveDirectory,
     setRemarkableConfig,
-    setGoogleConfig,
     setAutosaveConfig,
     saveSettings
   } = useSettings()
@@ -496,25 +495,6 @@ export function SettingsDialog() {
                 </SelectContent>
               </Select>
             </div>
-
-            <Separator />
-
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-1 flex-1">
-                <Label htmlFor="streamingEdits">Stream agent edits</Label>
-                <p className="text-xs text-muted-foreground">
-                  When the assistant writes into your document, reveal the text
-                  word-by-word over a fraction of a second instead of pasting it
-                  all at once. Automatically disabled if your system is set to
-                  reduce motion.
-                </p>
-              </div>
-              <Switch
-                id="streamingEdits"
-                checked={settings.editor.streamingEdits ?? true}
-                onCheckedChange={(checked) => setEditorConfig({ streamingEdits: checked })}
-              />
-            </div>
           </TabsContent>
 
           <TabsContent value="llm" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={llmTabRef}>
@@ -727,10 +707,7 @@ export function SettingsDialog() {
           </TabsContent>
 
           <TabsContent value="account" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={accountTabRef}>
-            <GoogleDocsIntegration
-              settings={settings}
-              setGoogleConfig={setGoogleConfig}
-            />
+            <AccountSection />
           </TabsContent>
         </Tabs>
 

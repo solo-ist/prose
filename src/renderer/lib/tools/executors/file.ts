@@ -7,24 +7,13 @@ import type { ToolResult, FileItem } from '../../../../shared/tools/types'
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { TOOL_FILE_ACCESS, type FileAccessOptions } from '../../../../shared/fileAccess'
 import { isFileOperationFailure } from '../../../../shared/fileOperationResult'
-import { useEditorStore } from '../../../stores/editorStore'
-import { useEditorInstanceStore } from '../../../stores/editorInstanceStore'
-import { useChatStore, setCurrentDocumentId } from '../../../stores/chatStore'
+import { resolveDocumentHandle } from '../../../document/handle'
 import { useSettingsStore } from '../../../stores/settingsStore'
-import { useFileListStore } from '../../../stores/fileListStore'
-import { useAnnotationStore } from '../../../extensions/ai-annotations'
-import { parseMarkdown, serializeMarkdown } from '../../markdown'
-import { resolveOpenedFileContent } from '../../openDocument'
-import {
-  generateId,
-  generateIdFromPath,
-  clearDraft,
-  saveConversations,
-  saveAnnotations
-} from '../../persistence'
-import { useTabStore, generateUntitledTitle } from '../../../stores/tabStore'
-import { useSuggestionStore } from '../../../extensions/ai-suggestions/store'
-import type { ToolProvenance } from '../provenanceTypes'
+import { generateIdFromPath } from '../../persistence'
+import { useTabStore } from '../../../stores/tabStore'
+import { openFile, newTab, markTabSaved } from '../../../tabs/actions'
+import { saveSnapshot } from '../../../document/session'
+import type { ToolContext } from '../context'
 
 /** Human-readable text for a thrown value, including structured file-operation failures. */
 function describeError(e: unknown): string {
@@ -44,16 +33,14 @@ async function waitForEditorDocumentContent(documentId: string, markdown: string
   const expected = markdown.trim()
 
   for (let attempt = 0; attempt < 10; attempt++) {
-    const editor = useEditorInstanceStore.getState().editor
-    const activeDocumentId = useEditorStore.getState().document.documentId
-    const currentMarkdown = editor?.storage.markdown?.getMarkdown?.()
+    const handle = resolveDocumentHandle()
 
     if (
-      editor &&
-      activeDocumentId === documentId &&
-      (!expected || currentMarkdown?.trim() === expected)
+      handle &&
+      handle.documentId === documentId &&
+      (!expected || handle.serialize().trim() === expected)
     ) {
-      return editor.state.doc.content.size
+      return handle.state.doc.content.size
     }
 
     await new Promise((resolve) => setTimeout(resolve, 16))
@@ -88,120 +75,10 @@ export async function executeOpenFile(
   }
 
   try {
-    const tabStore = useTabStore.getState()
-
-    // Check if file is already open in a tab — switch to it
-    const existingTab = tabStore.getTabByPath(path)
-    if (existingTab) {
-      tabStore.setActiveTab(existingTab.id)
-
-      // Load the document into editorStore for the active editor
-      const content = await api.readFile(path, access)
-      const docId = await generateIdFromPath(path)
-      // Prose artifacts resolve to their embedded markdown + import their
-      // travelling comments (#768); non-Prose HTML falls back to raw bytes.
-      const resolved = await resolveOpenedFileContent(path, content, docId)
-      const parsed = parseMarkdown(resolved.content ?? content)
-
-      useEditorStore.getState().setDocument({
-        documentId: docId,
-        path,
-        content: parsed.content,
-        frontmatter: parsed.frontmatter,
-        isDirty: false
-      })
-      setCurrentDocumentId(docId)
-      await useChatStore.getState().loadForDocument(docId)
-      await useAnnotationStore.getState().loadAnnotations(docId)
-      await useSuggestionStore.getState().loadSuggestions(docId)
-      useEditorStore.getState().setEditing(true)
-
-      return toolSuccess({ opened: true, path })
-    }
-
-    // Save current tab state before switching
-    const { document } = useEditorStore.getState()
-    await useChatStore.getState().saveCurrentConversation(document.documentId)
-
-    // Pause annotation position updates during document loading
-    useAnnotationStore.getState().setLoadingDocument(true)
-
-    // Read the file. TOOL_FILE_ACCESS: the path came from the model, so main
-    // contains it to text files under home, outside hidden folders (#918).
-    const content = await api.readFile(path, access)
-    const newDocumentId = await generateIdFromPath(path)
-    // Same artifact resolution as the tab-already-open branch above (#768).
-    const resolved = await resolveOpenedFileContent(path, content, newDocumentId)
-    const parsed = parseMarkdown(resolved.content ?? content)
-
-    // Extract title from path
-    const fullFileName = path.split('/').pop() || 'Untitled'
-    const hasExtension = fullFileName.includes('.')
-    const title = hasExtension
-      ? fullFileName.substring(0, fullFileName.lastIndexOf('.'))
-      : fullFileName
-
-    // Check if current tab is empty untitled — reuse it instead of creating new
-    const activeTab = tabStore.tabs.find(t => t.id === tabStore.activeTabId)
-    const isEmptyUntitled = activeTab && !activeTab.path &&
-      (!activeTab.content || activeTab.content.trim() === '' ||
-       activeTab.content.replace(/<[^>]*>/g, '').trim() === '')
-
-    if (isEmptyUntitled && activeTab) {
-      tabStore.updateTab(activeTab.id, {
-        documentId: newDocumentId,
-        path,
-        title,
-        isDirty: false,
-        content: parsed.content,
-        frontmatter: parsed.frontmatter
-      })
-    } else {
-      tabStore.addTab({
-        documentId: newDocumentId,
-        path,
-        title,
-        isDirty: false,
-        content: parsed.content,
-        frontmatter: parsed.frontmatter,
-        cursorPosition: { line: 1, column: 1 }
-      })
-    }
-
-    // Set up document in editorStore
-    useEditorStore.getState().setDocument({
-      documentId: newDocumentId,
-      path,
-      content: parsed.content,
-      frontmatter: parsed.frontmatter,
-      isDirty: false
-    })
-
-    useEditorStore.getState().setCursorPosition(1, 1)
-    setCurrentDocumentId(newDocumentId)
-
-    // Load conversations, annotations, and suggestions for the document
-    await useChatStore.getState().loadForDocument(newDocumentId)
-    await useAnnotationStore.getState().loadAnnotations(newDocumentId)
-    await useSuggestionStore.getState().loadSuggestions(newDocumentId)
-
-    // Clear reMarkable read-only state
-    useEditorStore.getState().setRemarkableReadOnly(false, null)
-
-    // Mark as editing
-    useEditorStore.getState().setEditing(true)
-
-    // Add to recent files
-    useSettingsStore.getState().addRecentFile(path)
-
-    // Highlight file in sidebar
-    useFileListStore.getState().revealAndSelectPath(path)
-
-    // Resume annotation position updates
-    setTimeout(() => {
-      useAnnotationStore.getState().setLoadingDocument(false)
-    }, 100)
-
+    // One implementation for every open (#1145): already open → switch,
+    // empty untitled active tab → replace in place, else a new tab. The
+    // leaving tab is flushed and its records persisted under its own id.
+    await openFile(path, { access })
     return toolSuccess({ opened: true, path })
   } catch (e) {
     return toolError(`Failed to open file: ${describeError(e)}`, 'OPEN_FAILED')
@@ -217,64 +94,13 @@ export async function executeNewFile(args: {
   const { content = '' } = args
 
   try {
-    // Save current conversations before switching
-    const { document } = useEditorStore.getState()
-    await useChatStore.getState().saveCurrentConversation(document.documentId)
-
-    // Pause annotation position updates during document loading
-    useAnnotationStore.getState().setLoadingDocument(true)
-
-    // Create a new tab
-    const newDocumentId = generateId()
-    const title = generateUntitledTitle()
-
-    useTabStore.getState().addTab({
-      documentId: newDocumentId,
-      path: null,
-      title,
-      isDirty: false,
-      content,
-      cursorPosition: { line: 1, column: 1 }
-    })
-
-    // Set up new document in editorStore
-    useEditorStore.getState().setDocument({
-      documentId: newDocumentId,
-      path: null,
-      content,
-      frontmatter: {},
-      isDirty: false
-    })
-
-    useEditorStore.getState().setCursorPosition(1, 1)
-    setCurrentDocumentId(newDocumentId)
-
-    // Clear chat state for new document
-    useChatStore.setState({
-      conversations: [],
-      activeConversationId: null,
-      messages: [],
-      context: null
-    })
-
-    // Clear annotations and suggestions
-    useAnnotationStore.getState().clearAnnotations()
-    useSuggestionStore.getState().setDocumentId(newDocumentId)
-
-    // Clear reMarkable read-only state
-    useEditorStore.getState().setRemarkableReadOnly(false, null)
-
-    // Mark as editing
-    useEditorStore.getState().setEditing(true)
-
-    // Resume annotation position updates
-    setTimeout(() => {
-      useAnnotationStore.getState().setLoadingDocument(false)
-    }, 100)
+    const tabId = await newTab({ content })
+    const tab = useTabStore.getState().getTabById(tabId)
+    if (!tab) return toolError('Failed to create new file: tab not found', 'CREATE_FAILED')
 
     return toolSuccess({
       created: true,
-      documentId: newDocumentId
+      documentId: tab.documentId
     })
   } catch (e) {
     return toolError(`Failed to create new file: ${describeError(e)}`, 'CREATE_FAILED')
@@ -286,15 +112,22 @@ export async function executeNewFile(args: {
  */
 export async function executeSaveFile(args: {
   path?: string
-}): Promise<ToolResult<{ saved: boolean; path: string }>> {
+}, ctx: ToolContext): Promise<ToolResult<{ saved: boolean; path: string }>> {
   const api = getApi()
 
   if (!api) {
     return toolError('File API not available', 'API_NOT_AVAILABLE')
   }
+  const { handle } = ctx
+  if (!handle) {
+    return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
+  }
 
-  const { document } = useEditorStore.getState()
-  const content = serializeMarkdown(document.content, document.frontmatter)
+  // The full text as a save writes it, pending projections landed, from the
+  // document the call is bound to (shown or not, #1148).
+  const document = { path: handle.path }
+  const snapshot = saveSnapshot(handle.tabId)
+  const content = snapshot.text
 
   try {
     let finalPath: string
@@ -316,42 +149,9 @@ export async function executeSaveFile(args: {
       finalPath = newPath
     }
 
-    // Update document state if path changed
-    if (finalPath !== document.path) {
-      const newDocumentId = await generateIdFromPath(finalPath)
-      const conversations = useChatStore.getState().conversations
-
-      // Migrate conversations
-      if (conversations.length > 0) {
-        const migratedConversations = conversations.map((c) => ({
-          ...c,
-          documentId: newDocumentId
-        }))
-        await saveConversations(newDocumentId, migratedConversations)
-        useChatStore.setState({ conversations: migratedConversations })
-      }
-
-      // Migrate annotations
-      const annotations = useAnnotationStore.getState().annotations
-      if (annotations.length > 0) {
-        const migratedAnnotations = annotations.map((a) => ({
-          ...a,
-          documentId: newDocumentId
-        }))
-        await saveAnnotations(newDocumentId, migratedAnnotations)
-        useAnnotationStore.setState({
-          annotations: migratedAnnotations,
-          documentId: newDocumentId
-        })
-      } else {
-        useAnnotationStore.getState().setDocumentId(newDocumentId)
-      }
-
-      useEditorStore.getState().setDocument({ documentId: newDocumentId, path: finalPath })
-      setCurrentDocumentId(newDocumentId)
-    }
-
-    useEditorStore.getState().setDirty(false)
+    // The tab adopts the path: identity, records (conversations,
+    // annotations, suggestions, comments) and the disk baseline follow.
+    await markTabSaved(handle.tabId, finalPath, snapshot)
 
     return toolSuccess({ saved: true, path: finalPath })
   } catch (e) {
@@ -461,7 +261,8 @@ export async function executeReadFile(args: {
 export async function executeCreateAndOpenFile(args: {
   filename?: string
   content?: string
-}, provenance?: ToolProvenance): Promise<ToolResult<{ path: string; opened: boolean }>> {
+}, ctx: ToolContext): Promise<ToolResult<{ path: string; opened: boolean }>> {
+  const { provenance } = ctx
   const api = getApi()
 
   if (!api) {
@@ -517,21 +318,24 @@ export async function executeCreateAndOpenFile(args: {
       const annotationTo = await waitForEditorDocumentContent(newDocumentId, content)
 
       // Skip the annotation if the editor isn't ready yet — annotationTo must be a
-      // ProseMirror position (doc.content.size), not a raw character count.
-      if (annotationTo !== null) {
-        useAnnotationStore.getState().addAnnotation({
-          documentId: newDocumentId,
-          type: 'insertion',
-          from: 0,
-          to: annotationTo,
-          content,
-          provenance: {
-            model: provenance.model,
-            conversationId: provenance.conversationId,
-            messageId: provenance.messageId,
+      // ProseMirror position (doc.content.size), not a raw character count. The
+      // record goes through the new document's own handle (#1146).
+      const created = annotationTo !== null ? resolveDocumentHandle() : null
+      if (annotationTo !== null && created && created.documentId === newDocumentId) {
+        created.commands.addAIAnnotations([
+          {
+            type: 'insertion',
+            from: 0,
+            to: annotationTo,
+            content,
+            provenance: {
+              model: provenance.model,
+              conversationId: provenance.conversationId,
+              messageId: provenance.messageId,
+            },
+            explanation: `Created ${attemptFilename}`,
           },
-          explanation: `Created ${attemptFilename}`,
-        })
+        ])
       }
     }
 

@@ -33,22 +33,18 @@ export interface Favorite {
 // the legacy `theme` field; the renderer's loadSettings migrates it.
 export type ColorTheme = 'prose' | 'mono' | 'termy'
 export type ThemeMode = 'light' | 'dark' | 'system'
-export type IconId =
-  | 'pilcrow'
-  | 'fraunces-p'
-  | 'asterisk'
-  | 'hash'
-  | 'period'
-  | 'prompt'
-  | 'legacy'
+/**
+ * The app icon. Pilcrow is the only one — the switcher was removed in 1.9.0
+ * (#1052). Kept as a named type (rather than inlined) because the stored
+ * `appearance.icon` field still exists and normalizes to this value.
+ */
+export type IconId = 'pilcrow'
 
 export interface Appearance {
   lightColor: ColorTheme
   darkColor: ColorTheme
   mode: ThemeMode
   icon: IconId
-  /** True on fresh installs and once the one-time post-migration toast has been dismissed. */
-  migrationToastShown: boolean
 }
 
 export type AppearanceOnDisk = Partial<Appearance> & {
@@ -67,23 +63,10 @@ interface SettingsBase {
     baseUrl?: string
     emojiIcons?: boolean
   }
-  google?: {
-    email: string        // Display only (token stored securely)
-    picture?: string     // Profile picture URL
-    connectedAt: string  // ISO timestamp
-    syncDirectory?: string   // ~/Documents/Google Docs/
-    lastSyncedAt?: string
-  }
   editor: {
     fontSize: number
     lineHeight: number
     fontFamily: string
-    /**
-     * Cosmetic chunked streaming for agent-driven insertions/edits — text
-     * arrives word-by-word over ~200–500ms instead of appearing instantly.
-     * Falls back to instant apply when the user prefers reduced motion.
-     */
-    streamingEdits?: boolean
     /**
      * Character used to prefix unordered list items when serializing to Markdown.
      * Defaults to '*' (asterisk); set to '-' (dash) if preferred. The default
@@ -122,8 +105,13 @@ interface SettingsBase {
     enabled: boolean
     enabledAt?: string      // ISO timestamp of when user enabled
   }
+  /**
+   * The APP_VERSION this profile last saw release notes for (#1058). Absent on a
+   * fresh install and on any profile predating 1.9.0; the renderer distinguishes
+   * those two by whether `aiConsent` is already recorded.
+   */
+  lastSeenVersion?: string
   featureFlags?: {
-    googleDocs?: boolean
     remarkable?: boolean
     /** AI edit pipeline debug logging (#672) — see lib/aiPipelineLog.ts. Default: off. */
     aiPipelineDebug?: boolean
@@ -318,83 +306,6 @@ export type RemarkableSyncPhase =
   | 'notebook-done'
   | 'skipped'
   | 'complete'
-
-// Google Docs integration types
-export interface GoogleAuthResult {
-  success: boolean
-  email?: string
-  picture?: string
-  error?: string
-}
-
-export interface GoogleConnectionStatus {
-  connected: boolean
-  email?: string
-  picture?: string
-  error?: string
-}
-
-export interface GooglePushResult {
-  success: boolean
-  docId?: string
-  webViewLink?: string
-  error?: string
-  isNew: boolean
-}
-
-export interface GooglePullResult {
-  success: boolean
-  content?: string
-  modifiedTime?: string
-  error?: string
-}
-
-export interface GoogleImportResult {
-  success: boolean
-  content?: string
-  title?: string
-  docId?: string
-  error?: string
-}
-
-export interface GoogleSyncDocResult {
-  success: boolean
-  direction: 'push' | 'pull' | 'create'
-  docId?: string
-  webViewLink?: string
-  content?: string
-  modifiedTime?: string
-  error?: string
-}
-
-export interface GoogleSyncAllResult {
-  synced: number
-  skipped: number
-  errors: string[]
-}
-
-export interface GoogleDocMetadata {
-  id: string
-  title: string
-  modifiedTime: string
-  webViewLink: string
-}
-
-export interface GoogleDocEntry {
-  title: string
-  googleDocId: string
-  localPath: string          // Absolute path to .md file (can be anywhere)
-  webViewLink: string        // Google Docs URL
-  syncedAt: string           // ISO timestamp of last sync
-  remoteModifiedTime: string // Last modified time from Google Drive
-  localModifiedAt?: string   // Local file mtime snapshot from last sync
-  status?: 'ok' | 'missing' // Set at load time after checking file exists
-}
-
-export interface GoogleSyncMetadata {
-  lastSyncedAt: string
-  documents: Record<string, GoogleDocEntry>  // Keyed by googleDocId
-}
 
 // Content block types for Anthropic API tool use
 export interface LLMTextBlock {
@@ -694,23 +605,11 @@ export interface ElectronAPI {
   }>
   mcpInstall: () => Promise<{ success: boolean; error?: string }>
   mcpUninstall: () => Promise<{ success: boolean; error?: string }>
+  // Release notes for the post-update modal (#1058); null when this version ships none
+  getReleaseNotes: (version: string) => Promise<{ version: string; markdown: string } | null>
   // File association (default markdown editor)
   // Returns: true (is default), false (not default), null (can't detect)
   fileAssociationIsDefault: () => Promise<boolean | null>
-  // Google Docs integration
-  googleIsConfigured: () => Promise<boolean>
-  googleStartAuth: () => Promise<GoogleAuthResult>
-  googleDisconnect: () => Promise<void>
-  googleGetConnectionStatus: () => Promise<GoogleConnectionStatus>
-  googleSync: (content: string, frontmatter: Record<string, unknown>, title: string) => Promise<GoogleSyncDocResult>
-  googlePull: (docId: string) => Promise<GooglePullResult>
-  googleImport: (docId: string) => Promise<GoogleImportResult>
-  googleEnsureFolder: () => Promise<string>
-  googleSyncAll: (syncDir: string) => Promise<GoogleSyncAllResult>
-  googleListRecentDocs: (maxResults?: number) => Promise<GoogleDocMetadata[]>
-  googleGetSyncMetadata: () => Promise<GoogleSyncMetadata | null>
-  googleUpdateSyncMetadataEntry: (entry: GoogleDocEntry) => Promise<void>
-  googleRemoveSyncMetadataEntry: (googleDocId: string) => Promise<void>
   // Share service (#768) — publish/re-publish/revoke + interim gateway sign-in
   shareAuthStatus: () => Promise<ShareOp<{ signedIn: boolean; email?: string; gatewayUrl: string }>>
   /** The signed-in user's standing in the sharing beta (#1018). */
@@ -773,7 +672,7 @@ export interface ElectronAPI {
   updaterInstall?: () => Promise<void>
   updaterCheck?: () => Promise<{ updateAvailable: boolean }>
   // Appearance: live dock icon swap (macOS only; no-op on other platforms)
-  setAppIcon?: (iconId: IconId) => Promise<void>
+  applyDockIcon?: () => Promise<void>
 }
 
 declare global {

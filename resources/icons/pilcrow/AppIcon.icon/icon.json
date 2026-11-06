@@ -1,0 +1,32 @@
+{
+  "fill": {
+    "solid": "srgb:0.05882,0.05882,0.05882,1.00000"
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "pilcrow.svg",
+          "name": "pilcrow",
+          "glass": true
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.25
+      },
+      "specular": true,
+      "name": "Mark"
+    }
+  ],
+  "supported-platforms": {
+    "circles": [
+      "watchOS"
+    ],
+    "squares": "shared"
+  }
+}

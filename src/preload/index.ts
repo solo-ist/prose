@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Settings, RemarkableSyncPhase, IconId } from '../renderer/types'
+import type { Settings, RemarkableSyncPhase } from '../renderer/types'
 import type { ToolResult } from '../shared/tools/types'
 import type { FileAccessOptions } from '../shared/fileAccess'
 import {
@@ -118,74 +118,6 @@ export interface TestApiKeyResult {
   message: string
 }
 
-export interface GoogleAuthResult {
-  success: boolean
-  email?: string
-  picture?: string
-  error?: string
-}
-
-export interface GoogleConnectionStatus {
-  connected: boolean
-  email?: string
-  picture?: string
-  error?: string
-}
-
-export interface GoogleSyncDocResult {
-  success: boolean
-  direction: 'push' | 'pull' | 'create'
-  docId?: string
-  webViewLink?: string
-  content?: string
-  modifiedTime?: string
-  error?: string
-}
-
-export interface GooglePullResult {
-  success: boolean
-  content?: string
-  modifiedTime?: string
-  error?: string
-}
-
-export interface GoogleImportResult {
-  success: boolean
-  content?: string
-  title?: string
-  docId?: string
-  error?: string
-}
-
-export interface GoogleSyncAllResult {
-  synced: number
-  skipped: number
-  errors: string[]
-}
-
-export interface GoogleDocMetadata {
-  id: string
-  title: string
-  modifiedTime: string
-  webViewLink: string
-}
-
-export interface GoogleDocEntry {
-  title: string
-  googleDocId: string
-  localPath: string
-  webViewLink: string
-  syncedAt: string
-  remoteModifiedTime: string
-  localModifiedAt?: string
-  status?: 'ok' | 'missing'
-}
-
-export interface GoogleSyncMetadata {
-  lastSyncedAt: string
-  documents: Record<string, GoogleDocEntry>
-}
-
 export interface McpServerStatus {
   installed: boolean
   version: string | null
@@ -193,6 +125,11 @@ export interface McpServerStatus {
   needsUpdate: boolean
   configPath: string
   serverPath: string
+}
+
+export interface ReleaseNotes {
+  version: string
+  markdown: string
 }
 
 export interface McpInstallResult {
@@ -282,20 +219,6 @@ export interface ElectronAPI {
   onMcpStatus: (callback: (status: McpStatus) => void) => () => void
   // File association (default markdown editor)
   fileAssociationIsDefault: () => Promise<boolean | null>
-  // Google Docs integration
-  googleIsConfigured: () => Promise<boolean>
-  googleStartAuth: () => Promise<GoogleAuthResult>
-  googleDisconnect: () => Promise<void>
-  googleGetConnectionStatus: () => Promise<GoogleConnectionStatus>
-  googleSync: (content: string, frontmatter: Record<string, unknown>, title: string) => Promise<GoogleSyncDocResult>
-  googlePull: (docId: string) => Promise<GooglePullResult>
-  googleImport: (docId: string) => Promise<GoogleImportResult>
-  googleEnsureFolder: () => Promise<string>
-  googleSyncAll: (syncDir: string) => Promise<GoogleSyncAllResult>
-  googleListRecentDocs: (maxResults?: number) => Promise<GoogleDocMetadata[]>
-  googleGetSyncMetadata: () => Promise<GoogleSyncMetadata | null>
-  googleUpdateSyncMetadataEntry: (entry: GoogleDocEntry) => Promise<void>
-  googleRemoveSyncMetadataEntry: (googleDocId: string) => Promise<void>
   // Share service (#768) — result shapes defined in renderer types (ShareOp/ShareEntry/SharePulledComment)
   shareAuthStatus: () => Promise<unknown>
   shareAccess: () => Promise<unknown>
@@ -323,6 +246,8 @@ export interface ElectronAPI {
   mcpGetStatus: () => Promise<McpServerStatus>
   mcpInstall: () => Promise<McpInstallResult>
   mcpUninstall: () => Promise<McpInstallResult>
+  // Release notes for the post-update modal (bundled per version)
+  getReleaseNotes: (version: string) => Promise<ReleaseNotes | null>
   // Emoji generation (runs in main process to avoid CORS)
   emojiGenerate: (title: string, contentPreview?: string) => Promise<{ emoji: string | null; error?: string }>
   // Window fullscreen state
@@ -348,7 +273,7 @@ export interface ElectronAPI {
   setWatchedExpandedFolders: (folderPaths: string[]) => Promise<void>
   onFileWatchEvent: (callback: (event: { type: 'created' | 'deleted' | 'changed'; path: string }) => void) => () => void
   // Appearance: live dock icon swap (macOS only; no-op on other platforms)
-  setAppIcon: (iconId: IconId) => Promise<void>
+  applyDockIcon: () => Promise<void>
 }
 
 export interface FileItem {
@@ -593,21 +518,6 @@ const api: ElectronAPI = {
   },
   // File association
   fileAssociationIsDefault: () => ipcRenderer.invoke('fileAssociation:isDefault'),
-  // Google Docs integration
-  googleIsConfigured: () => ipcRenderer.invoke('google:isConfigured'),
-  googleStartAuth: () => ipcRenderer.invoke('google:startAuth'),
-  googleDisconnect: () => ipcRenderer.invoke('google:disconnect'),
-  googleGetConnectionStatus: () => ipcRenderer.invoke('google:getConnectionStatus'),
-  googleSync: (content: string, frontmatter: Record<string, unknown>, title: string) =>
-    ipcRenderer.invoke('google:sync', content, frontmatter, title),
-  googlePull: (docId: string) => ipcRenderer.invoke('google:pull', docId),
-  googleImport: (docId: string) => ipcRenderer.invoke('google:import', docId),
-  googleEnsureFolder: () => ipcRenderer.invoke('google:ensureFolder'),
-  googleSyncAll: (syncDir: string) => ipcRenderer.invoke('google:syncAll', syncDir),
-  googleListRecentDocs: (maxResults?: number) => ipcRenderer.invoke('google:listRecentDocs', maxResults),
-  googleGetSyncMetadata: () => ipcRenderer.invoke('google:getSyncMetadata'),
-  googleUpdateSyncMetadataEntry: (entry: GoogleDocEntry) => ipcRenderer.invoke('google:updateSyncMetadataEntry', entry),
-  googleRemoveSyncMetadataEntry: (googleDocId: string) => ipcRenderer.invoke('google:removeSyncMetadataEntry', googleDocId),
   // Share service (#768)
   shareAuthStatus: () => ipcRenderer.invoke('share:authStatus'),
   shareAccess: () => ipcRenderer.invoke('share:access'),
@@ -653,6 +563,8 @@ const api: ElectronAPI = {
   mcpGetStatus: () => ipcRenderer.invoke('mcp:getStatus'),
   mcpInstall: () => ipcRenderer.invoke('mcp:install'),
   mcpUninstall: () => ipcRenderer.invoke('mcp:uninstall'),
+  // Release notes
+  getReleaseNotes: (version: string) => ipcRenderer.invoke('releaseNotes:get', version),
   // Emoji generation
   emojiGenerate: (title: string, contentPreview?: string) => ipcRenderer.invoke('emoji:generate', title, contentPreview),
   // Recent files
@@ -733,7 +645,7 @@ const api: ElectronAPI = {
   updaterInstall: () => ipcRenderer.invoke('updater:install'),
   updaterCheck: () => ipcRenderer.invoke('updater:check'),
   // Appearance: live dock icon swap
-  setAppIcon: (iconId: IconId) => ipcRenderer.invoke('appearance:set-icon', iconId),
+  applyDockIcon: () => ipcRenderer.invoke('appearance:apply-dock-icon'),
 }
 
 contextBridge.exposeInMainWorld('api', api)

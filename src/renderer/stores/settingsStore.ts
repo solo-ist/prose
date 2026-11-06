@@ -8,6 +8,12 @@ import type { ToolMode } from '../../shared/tools/types'
 
 const MAX_RECENT_FILES = 15
 
+/** Shared promise for concurrent `loadSettings` callers; see `loadSettings`. */
+let loadInFlight: Promise<void> | null = null
+
+/** Tail of the settings-write chain; see `saveSettings`. */
+let saveQueue: Promise<void> = Promise.resolve()
+
 type SettingsTab = 'general' | 'appearance' | 'editor' | 'llm' | 'integrations' | 'account'
 
 export const AI_CONSENT_VERSION = 1
@@ -17,33 +23,28 @@ const FRESH_INSTALL_APPEARANCE: Appearance = {
   darkColor: 'prose',
   mode: 'system',
   icon: 'pilcrow',
-  // Fresh installs never had a legacy theme to migrate from, so the v1.2
-  // migration toast must not fire for them.
-  migrationToastShown: true,
 }
 
 function appearanceFromSingleColor(
   color: ColorTheme,
   mode: Appearance['mode'],
-  migrationToastShown: boolean,
 ): Appearance {
   return {
     lightColor: color,
     darkColor: color,
     mode,
     icon: 'pilcrow',
-    migrationToastShown,
   }
 }
 
 // Migrated users keep their color/mode (derived from the legacy theme) but
 // adopt the new default Pilcrow icon.
 const LEGACY_THEME_TO_APPEARANCE: Record<LegacyTheme, Appearance> = {
-  light:               appearanceFromSingleColor('mono', 'light', false),
-  dark:                appearanceFromSingleColor('mono', 'dark', false),
-  system:              appearanceFromSingleColor('mono', 'system', false),
-  'termy-green-light': appearanceFromSingleColor('termy', 'light', false),
-  'termy-green-dark':  appearanceFromSingleColor('termy', 'dark', false),
+  light:               appearanceFromSingleColor('mono', 'light'),
+  dark:                appearanceFromSingleColor('mono', 'dark'),
+  system:              appearanceFromSingleColor('mono', 'system'),
+  'termy-green-light': appearanceFromSingleColor('termy', 'light'),
+  'termy-green-dark':  appearanceFromSingleColor('termy', 'dark'),
 }
 
 function resolveEffectiveMode(mode: Appearance['mode']): 'dark' | 'light' {
@@ -65,8 +66,10 @@ function normalizeAppearance(appearance: AppearanceOnDisk | undefined): Appearan
     lightColor: appearance.lightColor ?? fallbackColor,
     darkColor: appearance.darkColor ?? fallbackColor,
     mode: appearance.mode ?? FRESH_INSTALL_APPEARANCE.mode,
-    icon: appearance.icon ?? FRESH_INSTALL_APPEARANCE.icon,
-    migrationToastShown: appearance.migrationToastShown ?? FRESH_INSTALL_APPEARANCE.migrationToastShown,
+    // Pilcrow is the only icon as of 1.9.0 (#1052). Any other stored value —
+    // one of the six removed variants, or the nonexistent 'default' some test
+    // fixtures seeded — is coerced rather than carried forward.
+    icon: 'pilcrow',
   }
 }
 
@@ -114,13 +117,11 @@ interface SettingsState {
   setModelPickerOpen: (open: boolean) => void
   fetchModels: () => Promise<void>
   setAppearance: (patch: Partial<Appearance>) => void
-  markMigrationToastShown: () => void
   setLLMConfig: (config: Partial<Settings['llm']>) => void
   setEditorConfig: (config: Partial<Settings['editor']>) => void
   setRecoveryConfig: (config: Partial<NonNullable<Settings['recovery']>>) => void
   setDefaultSaveDirectory: (path: string) => void
   setRemarkableConfig: (config: Partial<NonNullable<Settings['remarkable']>>) => void
-  setGoogleConfig: (config: Partial<NonNullable<Settings['google']>> | undefined) => void
   setFileAssociationConfig: (config: Partial<NonNullable<Settings['fileAssociation']>>) => void
   setAutosaveConfig: (config: Partial<NonNullable<Settings['autosave']>>) => void
   toggleAutosaveActive: () => void
@@ -132,6 +133,10 @@ interface SettingsState {
   setAIConsent: (consented: boolean) => void
   isAIConsentDialogOpen: boolean
   setAIConsentDialogOpen: (open: boolean) => void
+  // Release notes modal (#1058)
+  isReleaseNotesOpen: boolean
+  setReleaseNotesOpen: (open: boolean) => void
+  setLastSeenVersion: (version: string) => void
   setPersistedToolMode: (mode: ToolMode) => void
   // Projects
   addProject: (project: Project) => void
@@ -266,96 +271,124 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
     })),
 
   loadSettings: async () => {
-    try {
-      // Guard for when running in browser without Electron
-      if (!window.api) {
-        console.warn('window.api not available - using default settings')
-        const effectiveTheme = resolveEffectiveMode(defaultSettings.appearance.mode)
-        applyAppearance(defaultSettings.appearance)
+    // Every component using `useSettings()` fires its own load while `isLoaded` is
+    // false, so a cold start issues ~7 concurrent reads. Each one ends by REPLACING
+    // `settings` with what it read, so the last to resolve wins — and silently
+    // discards anything written while it was in flight. That is how #1058's
+    // `lastSeenVersion` was lost on a fresh install: it was written, then a load
+    // that had read the file beforehand landed on top of it.
+    //
+    // Coalescing makes the concurrent callers share one read, so there is no stale
+    // snapshot to land late. A later, genuinely new load still runs normally.
+    if (loadInFlight) return loadInFlight
+    loadInFlight = (async () => {
+      try {
+        // Guard for when running in browser without Electron
+        if (!window.api) {
+          console.warn('window.api not available - using default settings')
+          const effectiveTheme = resolveEffectiveMode(defaultSettings.appearance.mode)
+          applyAppearance(defaultSettings.appearance)
+          set({
+            isLoaded: true,
+            effectiveTheme,
+            effectiveColor: resolveEffectiveColor(defaultSettings.appearance)
+          })
+          return
+        }
+        const raw = await window.api.loadSettings()
+
+        // Backwards compatibility: migrate old autosave.enabled to autosave.mode
+        if (raw.autosave && 'enabled' in raw.autosave) {
+          const oldAutosave = raw.autosave as { enabled: boolean; intervalSeconds: number }
+          raw.autosave = {
+            mode: oldAutosave.enabled ? 'custom' : 'off',
+            intervalSeconds: oldAutosave.intervalSeconds ?? 30
+          }
+        }
+
+        const migrated = migrateOnDiskSettings(raw)
+        const effectiveTheme = resolveEffectiveMode(migrated.appearance.mode)
+        const effectiveColor = resolveEffectiveColor(migrated.appearance)
+
         set({
+          settings: { ...defaultSettings, ...migrated },
           isLoaded: true,
           effectiveTheme,
-          effectiveColor: resolveEffectiveColor(defaultSettings.appearance)
+          effectiveColor
         })
-        return
-      }
-      const raw = await window.api.loadSettings()
 
-      // Backwards compatibility: migrate old autosave.enabled to autosave.mode
-      if (raw.autosave && 'enabled' in raw.autosave) {
-        const oldAutosave = raw.autosave as { enabled: boolean; intervalSeconds: number }
-        raw.autosave = {
-          mode: oldAutosave.enabled ? 'custom' : 'off',
-          intervalSeconds: oldAutosave.intervalSeconds ?? 30
+        // Apply appearance and (re)attach the system-mode listener
+        applyAppearance(migrated.appearance)
+        setupSystemModeListener(migrated.appearance, set)
+
+        // Pin the dock tile to Pilcrow on launch (macOS only; no-op elsewhere).
+        // Dev-only in effect: the main-side handler early-returns when packaged
+        // (#1095), because pinning a bitmap there overrides the Assets.car
+        // bundle icon and kills #812's appearance variants on the dock. Left as
+        // an unconditional call so the dev fix stays in one place — main owns
+        // the packaged/dev decision.
+        window.api.applyDockIcon?.()
+
+        // If we migrated a legacy theme field or healed a project-clobbered
+        // base root / bookmark slot, persist the cleaned shape so the next
+        // launch reads the new values and the migration code path becomes a
+        // no-op for this user.
+        if (
+          raw.theme ||
+          (raw.appearance && (
+            raw.appearance.color !== undefined ||
+            raw.appearance.lightColor === undefined ||
+            raw.appearance.darkColor === undefined
+          )) ||
+          raw.defaultSaveDirectory !== migrated.defaultSaveDirectory ||
+          raw.masDirectoryBookmark !== migrated.masDirectoryBookmark
+        ) {
+          get().saveSettings().catch((err) => {
+            console.warn('[settings] failed to persist migrated appearance:', err)
+          })
         }
+
+        // Hydrate chatStore toolMode from persisted settings (global, applies to all tabs).
+        // Import lazily to avoid a static top-level import that could cause sandbox issues.
+        // The persisted value takes priority; fall back to the store's in-memory default.
+        const persistedToolMode = migrated.toolMode ?? defaultSettings.toolMode ?? 'editor'
+        const { useChatStore } = await import('./chatStore')
+        useChatStore.getState().setToolMode(persistedToolMode)
+
+        // Initialize Sentry if user has opted in
+        initRendererSentry(raw?.errorTracking?.enabled === true)
+
+        // Refresh the live model list in the background if we have an API key
+        if (raw?.llm?.apiKey) {
+          get().fetchModels().catch(() => { /* surfaced via state, not a crash */ })
+        }
+      } catch (error) {
+        console.error('Failed to load settings:', error)
+        set({ isLoaded: true })
       }
-
-      const migrated = migrateOnDiskSettings(raw)
-      const effectiveTheme = resolveEffectiveMode(migrated.appearance.mode)
-      const effectiveColor = resolveEffectiveColor(migrated.appearance)
-
-      set({
-        settings: { ...defaultSettings, ...migrated },
-        isLoaded: true,
-        effectiveTheme,
-        effectiveColor
-      })
-
-      // Apply appearance and (re)attach the system-mode listener
-      applyAppearance(migrated.appearance)
-      setupSystemModeListener(migrated.appearance, set)
-
-      // Re-apply the saved dock icon on launch (macOS only; no-op elsewhere) —
-      // otherwise the dock reverts to the bundle default until the user next
-      // changes the icon. This is what makes the icon choice persist visually.
-      window.api.setAppIcon?.(migrated.appearance.icon)
-
-      // If we migrated a legacy theme field or healed a project-clobbered
-      // base root / bookmark slot, persist the cleaned shape so the next
-      // launch reads the new values and the migration code path becomes a
-      // no-op for this user.
-      if (
-        raw.theme ||
-        (raw.appearance && (
-          raw.appearance.color !== undefined ||
-          raw.appearance.lightColor === undefined ||
-          raw.appearance.darkColor === undefined
-        )) ||
-        raw.defaultSaveDirectory !== migrated.defaultSaveDirectory ||
-        raw.masDirectoryBookmark !== migrated.masDirectoryBookmark
-      ) {
-        get().saveSettings().catch((err) => {
-          console.warn('[settings] failed to persist migrated appearance:', err)
-        })
-      }
-
-      // Hydrate chatStore toolMode from persisted settings (global, applies to all tabs).
-      // Import lazily to avoid a static top-level import that could cause sandbox issues.
-      // The persisted value takes priority; fall back to the store's in-memory default.
-      const persistedToolMode = migrated.toolMode ?? defaultSettings.toolMode ?? 'editor'
-      const { useChatStore } = await import('./chatStore')
-      useChatStore.getState().setToolMode(persistedToolMode)
-
-      // Initialize Sentry if user has opted in
-      initRendererSentry(raw?.errorTracking?.enabled === true)
-
-      // Refresh the live model list in the background if we have an API key
-      if (raw?.llm?.apiKey) {
-        get().fetchModels().catch(() => { /* surfaced via state, not a crash */ })
-      }
-    } catch (error) {
-      console.error('Failed to load settings:', error)
-      set({ isLoaded: true })
-    }
+    })().finally(() => {
+      loadInFlight = null
+    })
+    return loadInFlight
   },
 
   saveSettings: async () => {
-    try {
-      if (!window.api) return
-      await window.api.saveSettings(get().settings)
-    } catch (error) {
-      console.error('Failed to save settings:', error)
-    }
+    // Serialized, and the snapshot is taken when the write runs rather than when
+    // it is queued. Concurrent callers are ordinary here — `loadSettings` persists
+    // a migrated shape while a component writes its own key — and two overlapping
+    // `writeFile`s have no defined completion order, so the earlier caller could
+    // land last and silently drop the later one's change. That cost the #1058
+    // `lastSeenVersion` write on every fresh install, which races the migration
+    // save exactly.
+    saveQueue = saveQueue.then(async () => {
+      try {
+        if (!window.api) return
+        await window.api.saveSettings(get().settings)
+      } catch (error) {
+        console.error('Failed to save settings:', error)
+      }
+    })
+    return saveQueue
   },
 
   setDialogOpen: (open, tab) => set({
@@ -394,7 +427,6 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
   },
 
   setAppearance: (patch) => {
-    const prevIcon = get().settings.appearance.icon
     const merged: Appearance = { ...get().settings.appearance, ...patch }
     const effectiveTheme = resolveEffectiveMode(merged.mode)
     const effectiveColor = resolveEffectiveColor(merged)
@@ -407,24 +439,7 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
     applyAppearance(merged)
     setupSystemModeListener(merged, set)
 
-    // Live dock icon swap when the icon preference changes (macOS only)
-    if (patch.icon !== undefined && patch.icon !== prevIcon) {
-      window.api?.setAppIcon?.(patch.icon)
-    }
 
-    get().saveSettings()
-  },
-
-  // One-time post-migration toast (#499 PR 4). Flips the persisted
-  // `migrationToastShown` sentinel so the toast never fires again.
-  markMigrationToastShown: () => {
-    if (get().settings.appearance.migrationToastShown) return
-    set((state) => ({
-      settings: {
-        ...state.settings,
-        appearance: { ...state.settings.appearance, migrationToastShown: true }
-      }
-    }))
     get().saveSettings()
   },
 
@@ -464,17 +479,6 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
         remarkable: { ...state.settings.remarkable, ...config } as Settings['remarkable']
       }
     })),
-
-  setGoogleConfig: (config) => {
-    set((state) => ({
-      settings: {
-        ...state.settings,
-        google: config === undefined ? undefined : { ...state.settings.google, ...config } as Settings['google']
-      }
-    }))
-    // Auto-save after updating Google config
-    get().saveSettings()
-  },
 
   setFileAssociationConfig: (config) => {
     set((state) => ({
@@ -598,6 +602,17 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
   },
 
   setAIConsentDialogOpen: (open) => set({ isAIConsentDialogOpen: open }),
+
+  isReleaseNotesOpen: false,
+
+  setReleaseNotesOpen: (open) => set({ isReleaseNotesOpen: open }),
+
+  setLastSeenVersion: (version) => {
+    set((state) => ({
+      settings: { ...state.settings, lastSeenVersion: version }
+    }))
+    get().saveSettings()
+  },
 
   setPersistedToolMode: (mode) => {
     set((state) => ({

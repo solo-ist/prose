@@ -879,6 +879,48 @@
   font-family: inherit;
 }
 
+/* Code block copy button (#1111): in the block's corner, shown on hover and
+   on focus, never on a read-only editor. */
+.prose-editor .code-block {
+  position: relative;
+}
+
+.prose-editor .code-copy {
+  position: absolute;
+  top: 0.5em;
+  right: 0.5em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35em;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.375em;
+  background: hsl(var(--background) / 0.85);
+  color: hsl(var(--muted-foreground));
+  font-size: 0.7em;
+  line-height: 0;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.prose-editor .code-copy[data-state='copied'] {
+  color: hsl(var(--foreground));
+}
+
+.prose-editor .code-block:hover .code-copy,
+.prose-editor .code-copy:focus-visible {
+  opacity: 1;
+}
+
+.prose-editor .code-copy:hover {
+  color: hsl(var(--foreground));
+}
+
+.ProseMirror[contenteditable='false'] .code-copy {
+  display: none;
+}
+
 .prose-editor hr {
   border: none;
   border-top: 1px solid hsl(var(--border));
@@ -975,7 +1017,11 @@
 .prose-editor .comment-mark {
   background: hsl(var(--comment-mark-bg) / 0.4);
   border-bottom: 2px solid hsl(var(--comment));
+  /* The bleed is padding cancelled by a negative margin, so a mark takes no
+     inline space: marks restore 100ms after a load, and padding alone
+     re-wrapped lines then, a visible shift on every tab switch (#1103). */
   padding: 0 0.1em;
+  margin: 0 -0.1em;
   border-radius: 0.125em;
   cursor: pointer;
   position: relative;

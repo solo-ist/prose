@@ -14,7 +14,7 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { waitForAppReady, dismissOnboarding, dismissOverlay, waitForEditor, executeProseTool } from './helpers'
+import { waitForAppReady, dismissOnboarding, dismissOverlay, waitForEditor, executeProseTool, seedSettings } from './helpers'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const REPO = resolve(__dirname, '..')
@@ -41,17 +41,14 @@ test('02 ai alongside you — mode-switch (dark)', async () => {
   const docs = mkdtempSync(join(tmpdir(), 'prose-shot-chat-docs-'))
   const heroPath = join(docs, 'A Chorus of Human Voices.md')
   writeFileSync(heroPath, readFileSync(FIXTURE, 'utf8').replace(/^---\n[\s\S]*?\n---\n+/, ''))
-  writeFileSync(
-    join(profile, 'settings.json'),
-    JSON.stringify({
-      appearance: { color: 'prose', mode: 'dark', icon: 'pilcrow', migrationToastShown: true },
+  seedSettings(profile, {
+      appearance: { color: 'prose', mode: 'dark', icon: 'pilcrow' },
       // Fake key so the chat renders configured (never sent — the exchange is injected).
       aiConsent: { consented: true, consentedAt: '2025-01-01T00:00:00.000Z' },
-      llm: { provider: 'anthropic', apiKey: 'sk-ant-demo-screenshot-key', model: 'claude-sonnet-4-6' },
+      llm: { provider: 'anthropic', apiKey: 'sk-ant-demo-screenshot-key', model: 'claude-sonnet-5-5' },
       toolMode: 'chat',
       defaultSaveDirectory: docs,
-    }),
-  )
+    })
 
   app = await electron.launch({
     args: [join(REPO, 'out/main/index.js')],

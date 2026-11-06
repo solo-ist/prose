@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import type { Document } from '../types'
 import { generateId, saveDraft, clearDraft } from '../lib/persistence'
-import type { DraftState, FileListState } from '../lib/persistence'
+import type { FileListState } from '../lib/persistence'
 import { useFileListStore } from './fileListStore'
 import { isRemarkableOcrPath, remarkableNotebookIdFromPath } from '../lib/remarkablePath'
 
@@ -22,11 +22,6 @@ function remarkableStateForPath(path: string | null): {
   }
 }
 
-interface ReadCache {
-  content: string | null
-  documentId: string | null
-}
-
 interface SelectionCache {
   text: string
   from: number
@@ -34,6 +29,11 @@ interface SelectionCache {
 }
 
 interface EditorState {
+  /**
+   * A mirror of the active tab's record (#1151): identity from activation and
+   * `setTabIdentity`, content / frontmatter / dirty from the session layer's
+   * projection. Nothing computes on it; the tab record is the truth.
+   */
   document: Document
   cursorPosition: { line: number; column: number }
   activeChatId: string | null
@@ -41,44 +41,24 @@ interface EditorState {
   // reMarkable read-only mode state
   isRemarkableReadOnly: boolean // True when viewing OCR output before transforming to editable
   remarkableNotebookId: string | null // Notebook ID for creating editable version
-  // Read cache for avoiding redundant read_document calls
-  readCache: ReadCache
   // Selection cache for read_selection when editor loses focus
   lastSelection: SelectionCache | null
   // Autosave in-progress flag (true only during the actual save call)
   isAutosaving: boolean
-  // Preview tab mode: single-click file opens as non-editable preview; clicking editor promotes to edit
-  isPreviewTab: boolean
   // AI annotation visibility toggle
   annotationsVisible: boolean
-  // Source view mode (CodeMirror raw markdown vs TipTap WYSIWYG)
-  sourceMode: boolean
   // Pending frontmatter suggestion from AI — shown as an overlay in FrontmatterEditor.
   // null means no pending suggestion; a Record means an AI-proposed frontmatter diff awaiting accept/reject.
   pendingFrontmatter: Record<string, unknown> | null
   setDocument: (doc: Partial<Document>) => void
-  setContent: (content: string) => void
-  setPath: (path: string | null) => void
-  setDirty: (isDirty: boolean) => void
-  setFrontmatter: (frontmatter: Record<string, unknown>) => void
   setCursorPosition: (line: number, column: number) => void
   setActiveChatId: (id: string | null) => void
   setEditing: (isEditing: boolean) => void
-  setRemarkableReadOnly: (isReadOnly: boolean, notebookId?: string | null) => void
-  resetDocument: () => void
-  hydrateFromDraft: (draft: DraftState) => void
-  // Read cache methods
-  getCachedRead: () => string | null
-  updateReadCache: (content: string) => void
-  invalidateReadCache: () => void
   // Selection cache methods
   setLastSelection: (sel: SelectionCache | null) => void
   getLastSelection: () => SelectionCache | null
   setAutosaving: (isAutosaving: boolean) => void
-  setPreviewTab: (val: boolean) => void
   toggleAnnotationsVisible: () => void
-  setSourceMode: (val: boolean) => void
-  toggleSourceMode: () => void
   // Pending frontmatter suggestion methods
   setPendingFrontmatter: (frontmatter: Record<string, unknown> | null) => void
   rejectPendingFrontmatter: () => void
@@ -102,12 +82,9 @@ export const useEditorStore = create<EditorState>()(
     isEditing: false,
     isRemarkableReadOnly: false,
     remarkableNotebookId: null,
-    readCache: { content: null, documentId: null },
     lastSelection: null,
     isAutosaving: false,
-    isPreviewTab: false,
     annotationsVisible: true,
-    sourceMode: false,
     pendingFrontmatter: null,
 
     setDocument: (doc) =>
@@ -117,48 +94,15 @@ export const useEditorStore = create<EditorState>()(
         const newDocument = { ...state.document, ...doc }
         return {
           document: newDocument,
-          // Invalidate cache when document changes
-          readCache: { content: null, documentId: null },
-          // Clear any pending frontmatter overlay when switching documents,
-          // so a Tab A suggestion can't get accepted into Tab B.
-          ...(documentIdChanged ? { pendingFrontmatter: null } : {}),
+          // A document change clears the per-document extras: the pending
+          // frontmatter overlay (so a Tab A suggestion can't get accepted into
+          // Tab B) and the cached selection (so read_selection on B never
+          // answers with A's text, #1152).
+          ...(documentIdChanged ? { pendingFrontmatter: null, lastSelection: null } : {}),
           // Read-only follows the resulting path (see remarkableStateForPath).
           ...remarkableStateForPath(newDocument.path)
         }
       }),
-
-    setContent: (content) =>
-      set((state) => {
-        const contentChanged = state.document.content !== content
-        // Only mark dirty if content actually changed
-        // Preserve existing dirty state if content is the same
-        const newDirty = contentChanged ? true : state.document.isDirty
-        return {
-          document: { ...state.document, content, isDirty: newDirty },
-          // Only invalidate cache when content actually changes
-          readCache: contentChanged
-            ? { content: null, documentId: null }
-            : state.readCache
-        }
-      }),
-
-    setPath: (path) =>
-      set((state) => ({
-        document: { ...state.document, path },
-        ...remarkableStateForPath(path)
-      })),
-
-    setDirty: (isDirty) =>
-      set((state) => ({
-        document: { ...state.document, isDirty },
-        // Invalidate cache when dirty flag is set to true
-        readCache: isDirty ? { content: null, documentId: null } : state.readCache
-      })),
-
-    setFrontmatter: (frontmatter) =>
-      set((state) => ({
-        document: { ...state.document, frontmatter, isDirty: true }
-      })),
 
     setCursorPosition: (line, column) =>
       set({ cursorPosition: { line, column } }),
@@ -167,81 +111,15 @@ export const useEditorStore = create<EditorState>()(
 
     setEditing: (isEditing) => set({ isEditing }),
 
-    setRemarkableReadOnly: (isReadOnly, notebookId = null) =>
-      set({
-        isRemarkableReadOnly: isReadOnly,
-        remarkableNotebookId: notebookId
-      }),
-
-    resetDocument: () =>
-      set({
-        document: createInitialDocument(),
-        cursorPosition: { line: 1, column: 1 },
-        activeChatId: null,
-        isEditing: true, // User explicitly created new document
-        isRemarkableReadOnly: false,
-        remarkableNotebookId: null,
-        readCache: { content: null, documentId: null },
-        lastSelection: null,
-        pendingFrontmatter: null
-      }),
-
-    hydrateFromDraft: (draft) =>
-      set({
-        document: draft.document,
-        cursorPosition: draft.cursorPosition ?? { line: 1, column: 1 },
-        activeChatId: draft.activeChatId,
-        isEditing: true, // Recovered from draft means user was editing
-        readCache: { content: null, documentId: null },
-        lastSelection: null,
-        // Restored drafts must honor read-only too (a restored OCR tab is read-only).
-        ...remarkableStateForPath(draft.document.path)
-      }),
-
-    // Read cache methods
-    getCachedRead: () => {
-      const state = get()
-      const { readCache, document } = state
-      // Return cached content only if:
-      // 1. Cache exists
-      // 2. Document ID matches
-      // 3. Document is not dirty
-      if (
-        readCache.content !== null &&
-        readCache.documentId === document.documentId &&
-        !document.isDirty
-      ) {
-        return readCache.content
-      }
-      return null
-    },
-
-    updateReadCache: (content: string) => {
-      const { document } = get()
-      set({
-        readCache: {
-          content,
-          documentId: document.documentId
-        }
-      })
-    },
-
-    invalidateReadCache: () =>
-      set({ readCache: { content: null, documentId: null } }),
-
     // Selection cache methods
     setLastSelection: (sel) => set({ lastSelection: sel }),
 
     getLastSelection: () => get().lastSelection,
 
     setAutosaving: (isAutosaving) => set({ isAutosaving }),
-    setPreviewTab: (val) => set({ isPreviewTab: val }),
 
     toggleAnnotationsVisible: () =>
       set((state) => ({ annotationsVisible: !state.annotationsVisible })),
-
-    setSourceMode: (val) => set({ sourceMode: val }),
-    toggleSourceMode: () => set((state) => ({ sourceMode: !state.sourceMode })),
 
     // Pending frontmatter suggestion methods
     setPendingFrontmatter: (frontmatter) => set({ pendingFrontmatter: frontmatter }),

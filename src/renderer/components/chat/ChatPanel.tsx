@@ -23,8 +23,9 @@ import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { ReviewContainer } from '../review/ReviewContainer'
 import { AIEditsHistoryPanel, activityItemVisible, DEFAULT_ACTIVITY_FILTER, requestCommentReview, type ActivityFilter } from '../editor/AIEditsHistoryPanel'
-import { useAnnotationStore } from '../../extensions/ai-annotations/store'
-import { useCommentStore, countOpenThreads } from '../../extensions/comments/store'
+import { selectAnnotations } from '../../extensions/ai-annotations'
+import { useActiveSession } from '../../document/useActiveSession'
+import { selectThreads, countOpenThreads } from '../../extensions/comments'
 import { MODE_SWITCH_RUN_EVENT } from './toolResultRenderers/RequestModeSwitchResult'
 import { cn } from '../../lib/utils'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -102,9 +103,10 @@ export function ChatPanel() {
     return () => window.removeEventListener(MODE_SWITCH_RUN_EVENT, handler)
   }, [sendMessage])
 
-  // Activity feed sources for the tab badge + filter affordance.
-  const annotations = useAnnotationStore((s) => s.annotations)
-  const pendingComments = useCommentStore((s) => s.pendingComments)
+  // Activity feed sources for the tab badge + filter affordance. The
+  // annotations are the active document's own records (#1146).
+  const annotations = useActiveSession(selectAnnotations)
+  const pendingComments = useActiveSession(selectThreads)
 
   // There's something to filter whenever any annotation or comment exists.
   const hasActivity = annotations.length > 0 || pendingComments.length > 0
@@ -252,7 +254,7 @@ export function ChatPanel() {
   if (reviewMode) {
     return (
       <div className="flex h-full flex-col bg-muted/20">
-        <ReviewContainer />
+        <ReviewContainer onReturnToActivity={() => setSidebarMode('activity')} />
       </div>
     )
   }

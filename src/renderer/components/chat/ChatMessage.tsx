@@ -475,22 +475,12 @@ export function ChatMessage({ message, isStreaming, onRetry }: ChatMessageProps)
             // The agent avatar is the selected app icon (IconThumb clips itself
             // to a circle), so it just needs the ring here.
             isUser
-              ? settings.google?.picture
-                ? 'rounded-full overflow-hidden ring-2 ring-primary/50'
-                : 'rounded-full bg-primary/10 ring-2 ring-primary/50'
+              ? 'rounded-full bg-primary/10 ring-2 ring-primary/50'
               : 'rounded-full ring-2 ring-primary/50'
           )}
         >
           {isUser ? (
-            settings.google?.picture ? (
-              <img
-                src={settings.google.picture}
-                alt="User"
-                className="h-8 w-8 rounded-full object-cover"
-              />
-            ) : (
-              <User className="h-4 w-4 text-primary" />
-            )
+            <User className="h-4 w-4 text-primary" />
           ) : (
             <IconThumb Component={selectedIcon.Component} size={32} circle />
           )}

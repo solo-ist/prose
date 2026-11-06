@@ -444,41 +444,6 @@ export const browserApi: ElectronAPI = {
     return () => {}
   },
 
-  // Google Docs integration - not available in browser mode
-  googleIsConfigured: async () => false,
-  googleStartAuth: async () => ({
-    success: false,
-    error: 'Google Docs sync is not available in browser mode. Please use the Electron app.'
-  }),
-  googleDisconnect: async () => {},
-  googleGetConnectionStatus: async () => ({
-    connected: false,
-    error: 'Google Docs sync is not available in browser mode.'
-  }),
-  googleSync: async () => ({
-    success: false,
-    direction: 'push' as const,
-    error: 'Google Docs sync is not available in browser mode.'
-  }),
-  googlePull: async () => ({
-    success: false,
-    error: 'Google Docs sync is not available in browser mode.'
-  }),
-  googleImport: async () => ({
-    success: false,
-    error: 'Google Docs sync is not available in browser mode.'
-  }),
-  googleEnsureFolder: async () => '',
-  googleSyncAll: async () => ({
-    synced: 0,
-    skipped: 0,
-    errors: ['Google Docs sync is not available in browser mode.']
-  }),
-  googleListRecentDocs: async () => [],
-  googleGetSyncMetadata: async () => null,
-  googleUpdateSyncMetadataEntry: async () => {},
-  googleRemoveSyncMetadataEntry: async () => {},
-
   // Share service (#768) - not available in browser mode until the web
   // gateway client lands (#766); the desktop main process owns publish today.
   shareAuthStatus: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
@@ -529,6 +494,8 @@ export const browserApi: ElectronAPI = {
   }),
   mcpInstall: async () => ({ success: false, error: 'MCP is not available in the browser.' }),
   mcpUninstall: async () => ({ success: false, error: 'MCP is not available in the browser.' }),
+  // No bundled resources in the browser, so there are never notes to show.
+  getReleaseNotes: async () => null,
 
   // Clipboard - use browser API in web mode
   copyToClipboard: async (text: string): Promise<void> => { await navigator.clipboard.writeText(text) },
@@ -556,7 +523,7 @@ export const browserApi: ElectronAPI = {
   updaterInstall: async () => {},
   updaterCheck: async () => ({ updateAvailable: false }),
   // Appearance: no-op in browser mode (dock swap is macOS Electron only)
-  setAppIcon: async () => {},
+  applyDockIcon: async () => {},
 }
 
 /**

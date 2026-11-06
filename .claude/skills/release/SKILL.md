@@ -169,41 +169,44 @@ codesign --verify --deep --strict dist/mac-arm64/Prose.app
 codesign -d --entitlements - dist/mac-arm64/Prose.app 2>&1 | grep network.server
 ```
 
-### 4. Generate Release Notes
+### 4. Write the Release Notes
+
+**The notes live at `resources/release-notes/<version>.md` — one file per version, and
+the single source of truth (#1058).** That same file is bundled into the app (via
+`extraResources`) and shown in the post-update modal, *and* becomes the GitHub Release
+body: `release.yml` reads it by tag and appends the install/requirements boilerplate.
+Write it once, there, and commit it **before** tagging — the tag is what publishes it.
+
+There is no separate `RELEASE_NOTES.md`; it was removed in 1.9.0 after sitting stale at
+v1.2.0 for six releases, which is the exact drift this one-file rule prevents.
 
 ```bash
-# Commits since last release
+VERSION=$(node -p "require('./package.json').version")
+
+# Commits since last release, to write the notes from
 git log $(git tag --list 'v*' --sort=-v:refname | head -1)..HEAD --oneline --no-merges
+
+# Confirm the file the release will actually read
+test -f "resources/release-notes/${VERSION}.md" || echo "MISSING — write this first"
 ```
 
-Write release notes from commits. Template:
+Template — user-facing changes only. Do **not** include Installation or Requirements
+sections: `release.yml` appends those to the GitHub Release, and in the in-app modal
+they would be noise.
 
 ```markdown
 # Prose v<version>
 
 <One sentence description.>
 
-## What's New
+## <Grouping — e.g. Tables, Fixes, Removed>
 
-- <Feature or fix>
-
-## Installation
-
-### Mac App Store
-Available on the [Mac App Store](link).
-
-### Direct Download
-Download `Prose-<version>-arm64.dmg`, open, and drag to Applications.
-The app is signed and notarized — no security bypass needed.
-
-### Auto-Update
-Existing users will be prompted to update automatically.
-
-## Requirements
-
-- macOS (Apple Silicon)
-- Anthropic API key for AI features ([get one](https://console.anthropic.com/))
+- <Feature or fix, in user-facing terms>
 ```
+
+The modal renders a deliberately small markdown subset — `##`/`###` headings, bullets,
+paragraphs, and inline bold/italic/code/links. Anything else shows as literal text, so
+keep to those (see `components/releaseNotes/renderNotes.tsx`).
 
 ### 5. Tag and Publish
 
@@ -222,7 +225,7 @@ If CI is not available or you want to publish manually:
 ```bash
 gh release create "v${VERSION}" \
   --title "Prose v${VERSION}" \
-  --notes-file RELEASE_NOTES.md \
+  --notes-file "resources/release-notes/${VERSION}.md" \
   "dist/Prose-${VERSION}-arm64.dmg" \
   "dist/Prose-${VERSION}-arm64-mac.zip"
 ```

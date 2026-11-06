@@ -44,6 +44,8 @@ Prose talks to Anthropic directly with your key. No middleman, no markup, no sub
 - Code-block syntax highlighting, live word / character count, light + dark mode, multiple themes
 - Multi-tab editing with session restore and single-click preview
 - Autosave with debounce; standard markdown keyboard shortcuts
+- Tables you can actually edit — insert one from Edit → Insert Table, then add or
+  remove rows and columns from the hover rails; always saved back as a GFM pipe table
 
 **AI Three Ways** — All optional, all BYOK
 
@@ -71,7 +73,6 @@ Prose talks to Anthropic directly with your key. No middleman, no markup, no sub
 **Sync** — OSS builds, opt-in
 
 - reMarkable tablet sync via rmapi-js — handwritten notes → markdown via OCR
-- Google Docs bidirectional sync — feature-flagged, opt-in via Settings → Integrations
 
 ---
 
@@ -113,7 +114,7 @@ Prose stores settings at `~/Library/Application Support/Prose/settings.json` on 
   "theme": "dark",
   "llm": {
     "provider": "anthropic",
-    "model": "claude-sonnet-4-6"
+    "model": "claude-sonnet-5-5"
   },
   "editor": {
     "fontSize": 16,
@@ -205,7 +206,7 @@ Prose ships two builds from one codebase:
 
 **Mac App Store** — free, sandboxed, macOS Keychain for credentials, Apple's update mechanism. The `IS_MAS_BUILD` flag gates a few OSS-only features the sandbox can't allow.
 
-**OSS / Direct** — free, GitHub Releases, `electron-updater` for auto-updates, full feature set including reMarkable and Google Docs sync (opt-in).
+**OSS / Direct** — free, GitHub Releases, `electron-updater` for auto-updates, full feature set including reMarkable sync (opt-in).
 
 **Free everywhere · MIT-licensed · No subscription required to write.**
 
@@ -225,7 +226,7 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## Roadmap
 
-**Shipped** — core editor · AI chat with BYOK · Chat / Editor / Create modes · inline + side-by-side review · per-document Activity log and authorship highlighting · Projects & Favorites · HTML export · MCP server · reMarkable and Google Docs sync.
+**Shipped** — core editor · AI chat with BYOK · Chat / Editor / Create modes · inline + side-by-side review · per-document Activity log and authorship highlighting · Projects & Favorites · HTML export · MCP server · reMarkable sync.
 
 **Now — free on the Mac App Store.** Dropping the price, refreshing the branding, and hardening the sandboxed build.
 

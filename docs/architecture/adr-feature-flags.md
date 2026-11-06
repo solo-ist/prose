@@ -4,6 +4,12 @@
 **Date:** 2026-03-19
 **Deciders:** Angel (maintainer)
 
+> **Amendment (2026-10-17, #1057):** the `googleDocs` flag is gone — the Google
+> Docs integration it gated was removed entirely in 1.9.0, closing
+> [#368](https://github.com/solo-ist/prose/issues/368). Everything below about
+> that flag is kept as the record of the decision, not as current behavior; the
+> live flags are `remarkable`, `webPlatform` and `aiPipelineDebug`.
+
 > **v1.0 Decision:** Settings-persisted flags only. HMAC-signed access codes, CLI tooling, and remote config are deferred — the threat model (users unlocking features on their own app) doesn't warrant crypto infrastructure at this scale. Flags live in `~/.prose/settings.json` under `featureFlags` and are gated via reactive Zustand selectors in `src/renderer/lib/featureFlags.ts`. See the implementation for details.
 
 ## Context

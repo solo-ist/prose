@@ -3,10 +3,10 @@ import type { ReactNode } from 'react'
 import { useFileList } from '../../hooks/useFileList'
 import { useEditor } from '../../hooks/useEditor'
 import { useTabs } from '../../hooks/useTabs'
+import { relocateOpenTabs } from '../../tabs/actions'
 import { useSummaryStore } from '../../stores/summaryStore'
 import { useRemarkableSync } from '../../hooks/useRemarkableSync'
-import { useGoogleDocsSync } from '../../hooks/useGoogleDocsSync'
-import { useGoogleDocsEnabled, useRemarkableEnabled, useWebPlatformEnabled } from '../../lib/featureFlags'
+import { useRemarkableEnabled, useWebPlatformEnabled } from '../../lib/featureFlags'
 import { useExplorerActions } from '../../hooks/useExplorerActions'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useEditorStore } from '../../stores/editorStore'
@@ -44,7 +44,7 @@ import { getApi } from '../../lib/browserApi'
 import { pruneMissingRecentFiles } from '../../lib/stalePath'
 import { sanitizeEntryName } from '../../lib/fileNames'
 import { requestBugReport } from '../EnableLoggingDialog'
-import type { RemarkableNotebookMetadata, RemarkableCloudNotebook, GoogleDocEntry } from '../../types'
+import type { RemarkableNotebookMetadata, RemarkableCloudNotebook } from '../../types'
 import { ProjectsPanel } from './ProjectsPanel'
 import { SharedPanel } from './SharedPanel'
 import { useProjects, useFavorites, useProjectsStore } from '../../stores/projectsStore'
@@ -72,10 +72,8 @@ export function FileListPanel() {
     navigateToParent,
     toggleNotebookSync,
     loadFiles,
-    loadGoogleDocsMetadata,
     loadNotebooks,
     loadCloudNotebooks,
-    googleDocsMetadata,
     syncDirectory,
     deviceToken,
     removeRecentFile
@@ -84,13 +82,9 @@ export function FileListPanel() {
   const { openFileFromPath } = useEditor()
   const { openFileInTab, openFileInPreviewTab, forceCloseTab, createNewTab } = useTabs()
   const { isSyncing, sync, error: syncError, progress: syncProgress, lastSyncedAt } = useRemarkableSync()
-  const { isSyncing: isGoogleSyncing, sync: googleSync, error: googleSyncError } = useGoogleDocsSync()
   const { setDialogOpen } = useSettings()
   const remarkableFlag = useRemarkableEnabled()
-  const googleDocsFlag = useGoogleDocsEnabled()
   const remarkableEnabled = useSettingsStore((state) => remarkableFlag && state.settings.remarkable?.enabled && !!state.settings.remarkable?.deviceToken)
-  const googleConnected = useSettingsStore((state) => googleDocsFlag && !!state.settings.google)
-  const googleSyncDirectory = useSettingsStore((state) => state.settings.google?.syncDirectory)
   // Sharing (#1036): the Shared view + the ◎ tree indicator read one list store.
   const webPlatform = useWebPlatformEnabled()
   const refreshSharedList = useSharedListStore((s) => s.refresh)
@@ -154,13 +148,6 @@ export function FileListPanel() {
       // Clicking while already in this view reloads the list (parity with the sync toggles).
       onClick: () => viewMode === 'shared' ? void refreshSharedList() : setViewMode('shared'),
     }] : []),
-    ...(googleConnected ? [{
-      key: 'googledocs', Icon: Globe, label: 'Google Docs', active: viewMode === 'googledocs',
-      // Clicking while already in this view triggers a manual sync (parity with the folder/notebook toggles).
-      onClick: () => viewMode === 'googledocs'
-        ? googleSync().catch((err) => console.error('[FileListPanel] Manual Google sync failed:', err))
-        : setViewMode('googledocs'),
-    }] : []),
     ...(remarkableEnabled ? [{
       key: 'notebooks', Icon: BookOpen, label: 'reMarkable notebooks', active: viewMode === 'notebooks',
       onClick: () => viewMode === 'notebooks'
@@ -198,13 +185,6 @@ export function FileListPanel() {
     }
   }, [remarkableEnabled, viewMode, setViewMode])
 
-  // Switch away from Google Docs view if not connected/enabled
-  useEffect(() => {
-    if (!googleConnected && viewMode === 'googledocs') {
-      setViewMode('folder')
-    }
-  }, [googleConnected, viewMode, setViewMode])
-
   // Switch away from the Shared view if sharing is turned off (#1036)
   useEffect(() => {
     if (!webPlatform && viewMode === 'shared') {
@@ -236,9 +216,6 @@ export function FileListPanel() {
   const [newFileName, setNewFileName] = useState('')
 
   // Rename dialog state
-  const [renameDialogOpen, setRenameDialogOpen] = useState(false)
-  const [renameFilePath, setRenameFilePath] = useState<string | null>(null)
-  const [renameFileName, setRenameFileName] = useState('')
 
   // reMarkable cloud "Move to..." dialog state. moveTarget !== null drives
   // dialog visibility; selectedTargetParentId is the user's pick within the
@@ -283,6 +260,8 @@ export function FileListPanel() {
   const [newFileTargetDir, setNewFileTargetDir] = useState<string | null>(null)
   // Drop-over highlight for the ".." (root directory) drop target
   const [rootDropOver, setRootDropOver] = useState(false)
+  // The `..` row as a drop target (#1167): highlighted while a file is dragged over it.
+  const [parentDropOver, setParentDropOver] = useState(false)
   // Notebook folder expand/collapse state lives in fileListStore so it
   // survives panel unmount (Shift+Cmd+H). Synced folders default open,
   // unsynced default closed — membership in the Set means "toggled".
@@ -365,8 +344,6 @@ export function FileListPanel() {
     setIsDeleting(true)
     try {
       const single = deleteTarget.paths.length === 1
-      let googleChanged = false
-
       for (const p of deleteTarget.paths) {
         // If linked to a notebook, clear the markdown path first. Single-file
         // deletes reuse the link resolved for the dialog; bulk deletes look up
@@ -383,26 +360,11 @@ export function FileListPanel() {
         // Move to trash (recoverable)
         await window.api.trashFile(p)
 
-        // If this file is tracked in Google Docs metadata, remove its entry
-        if (googleDocsMetadata && window.api.googleRemoveSyncMetadataEntry) {
-          const trackedEntry = Object.values(googleDocsMetadata.documents).find(
-            (e) => e.localPath === p
-          )
-          if (trackedEntry) {
-            await window.api.googleRemoveSyncMetadataEntry(trackedEntry.googleDocId)
-            googleChanged = true
-          }
-        }
-
         // Close the tab if the trashed file was open (full close flow)
         const tab = useTabStore.getState().getTabByPath(p)
         if (tab) {
           await forceCloseTab(tab.id)
         }
-      }
-
-      if (googleChanged) {
-        await loadGoogleDocsMetadata()
       }
 
       // Refresh the list, then select the row that slid into the deleted slot
@@ -597,49 +559,18 @@ export function FileListPanel() {
 
       await api.renameFile(oldPath, newPath)
 
-      if (isMarkdownFile) {
-        // Tab sync: update tab if the file was open
-        const tab = useTabStore.getState().getTabByPath(oldPath)
-        if (tab) {
-          const newTitle = finalName.replace(/\.(md|markdown|txt)$/, '')
-          useTabStore.getState().updateTab(tab.id, { path: newPath, title: newTitle })
-        }
+      // Open tabs of the renamed file, or of files inside a renamed folder,
+      // follow it: path, title, document identity and stored records (#1145).
+      await relocateOpenTabs(oldPath, newPath)
 
-        // If tracked in Google Docs metadata, update its localPath
-        if (googleDocsMetadata && window.api?.googleUpdateSyncMetadataEntry) {
-          const trackedEntry = Object.values(googleDocsMetadata.documents).find(
-            (e) => e.localPath === oldPath
-          )
-          if (trackedEntry) {
-            const newTitle = finalName.replace(/\.(md|markdown|txt)$/, '')
-            await window.api.googleUpdateSyncMetadataEntry({
-              ...trackedEntry,
-              localPath: newPath,
-              title: newTitle
-            })
-            await loadGoogleDocsMetadata()
-          }
-        }
-      }
-
-      // Migrate every reference whose path is the renamed entry or lives under
-      // it. The markdown-file tab/title + Google-metadata sync above covers the
-      // renamed file itself; this also covers favorites, projects, and — for a
-      // directory rename — open tabs of files *inside* the folder. Without it
-      // those references orphan onto the now-dead path (#703 HITL: a folder
-      // rename dropped its favorite and could leave child tabs saving to a
-      // stale location).
+      // Migrate every other reference whose path is the renamed entry or lives
+      // under it: favorites and projects. Without it those references orphan
+      // onto the now-dead path (#703 HITL: a folder rename dropped its favorite
+      // and could leave child tabs saving to a stale location).
       const remapPath = (p: string): string | null => {
         if (p === oldPath) return newPath
         if (p.startsWith(`${oldPath}/`)) return `${newPath}${p.slice(oldPath.length)}`
         return null
-      }
-      for (const tab of useTabStore.getState().tabs) {
-        if (!tab.path) continue
-        const migrated = remapPath(tab.path)
-        if (migrated && migrated !== tab.path) {
-          useTabStore.getState().updateTab(tab.id, { path: migrated })
-        }
       }
       for (const fav of useSettingsStore.getState().settings.favorites ?? []) {
         const migrated = remapPath(fav.path)
@@ -667,7 +598,7 @@ export function FileListPanel() {
     } catch (error) {
       console.error('Error renaming:', error)
     }
-  }, [api, googleDocsMetadata, loadGoogleDocsMetadata, selectFile, setRenamingPath])
+  }, [api, selectFile, setRenamingPath])
 
   const handleRenameCancel = useCallback(() => {
     setRenamingPath(null)
@@ -691,71 +622,6 @@ export function FileListPanel() {
     const visibleFilePaths = collectVisible(files)
     rangeSelectTo(path, visibleFilePaths)
   }, [rangeSelectTo])
-
-  // Dialog-based rename (for Google Docs view where inline isn't available)
-  const handleFileRename = (path: string) => {
-    const fileName = path.split('/').pop() || ''
-    const nameWithoutExt = fileName.replace(/\.(md|markdown|txt)$/, '')
-    setRenameFilePath(path)
-    setRenameFileName(nameWithoutExt)
-    setOperationError(null)
-    setRenameDialogOpen(true)
-  }
-
-  const handleConfirmRename = async () => {
-    const typedName = sanitizeEntryName(renameFileName)
-    if (!renameFilePath || !typedName) return
-
-    setOperationError(null)
-    try {
-      const dir = renameFilePath.substring(0, renameFilePath.lastIndexOf('/'))
-      const oldExt = renameFilePath.match(/\.(md|markdown|txt)$/)?.[0] || '.md'
-      const newName = typedName.endsWith(oldExt) ? typedName : `${typedName}${oldExt}`
-      const newPath = `${dir}/${newName}`
-
-      if (newPath !== renameFilePath) {
-        const exists = await api.fileExists(newPath)
-        if (exists) {
-          setOperationError(`A file named "${newName}" already exists.`)
-          return
-        }
-      }
-
-      await api.renameFile(renameFilePath, newPath)
-
-      // Tab sync
-      const tab = useTabStore.getState().getTabByPath(renameFilePath)
-      if (tab) {
-        const newTitle = newName.replace(/\.(md|markdown|txt)$/, '')
-        useTabStore.getState().updateTab(tab.id, { path: newPath, title: newTitle })
-      }
-
-      if (googleDocsMetadata && window.api?.googleUpdateSyncMetadataEntry) {
-        const trackedEntry = Object.values(googleDocsMetadata.documents).find(
-          (e) => e.localPath === renameFilePath
-        )
-        if (trackedEntry) {
-          const newTitle = newName.replace(/\.(md|markdown|txt)$/, '')
-          await window.api.googleUpdateSyncMetadataEntry({
-            ...trackedEntry,
-            localPath: newPath,
-            title: newTitle
-          })
-          await loadGoogleDocsMetadata()
-        }
-      }
-
-      setRenameDialogOpen(false)
-      setRenameFilePath(null)
-      setRenameFileName('')
-
-      await loadFiles()
-      selectFile(newPath)
-    } catch (error) {
-      console.error('Error renaming file:', error)
-      setOperationError('Failed to rename file. Please try again.')
-    }
-  }
 
   // Drag-and-drop move handler
   const handleFileDrop = useCallback(async (sourcePath: string, targetDirPath: string) => {
@@ -792,12 +658,8 @@ export function FileListPanel() {
     try {
       await api.renameFile(sourcePath, destPath)
 
-      // Update tab if the moved file was open
-      const tab = useTabStore.getState().getTabByPath(sourcePath)
-      if (tab) {
-        const newTitle = destPath.split('/').pop()!.replace(/\.[^.]+$/, '')
-        useTabStore.getState().updateTab(tab.id, { path: destPath, title: newTitle })
-      }
+      // An open tab of the moved file follows it: identity and records too.
+      await relocateOpenTabs(sourcePath, destPath)
 
       await loadFiles()
       selectFile(destPath)
@@ -827,20 +689,6 @@ export function FileListPanel() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, remarkableEnabled, deviceToken])
-
-  // Load metadata and auto-sync when switching to Google Docs view
-  useEffect(() => {
-    if (viewMode === 'googledocs' && googleConnected) {
-      // Load metadata first for instant display
-      loadGoogleDocsMetadata()
-      // Then trigger a background sync (if not already syncing)
-      if (!isGoogleSyncing) {
-        googleSync().catch((err) => {
-          console.error('[FileListPanel] Google Docs auto-sync failed:', err)
-        })
-      }
-    }
-  }, [viewMode, googleConnected]) // Intentionally exclude googleSync and isGoogleSyncing to only trigger on view change
 
   useEffect(() => {
     if (viewMode !== 'recent' || recentFiles.length === 0) return
@@ -941,26 +789,6 @@ export function FileListPanel() {
       useNotificationStore.getState().notify({ id: 'file-duplicate-failed', message })
     }
   }, [api])
-
-  // Google Docs: open file in tab (avoids rootPath race condition)
-  const handleGoogleDocClick = useCallback(async (path: string) => {
-    selectFile(path)
-    await openFileInTab(path)
-  }, [selectFile, openFileInTab])
-
-  // Google Docs: open the linked Google Doc in the browser (using metadata)
-  const googleEmail = useSettingsStore((state) => state.settings.google?.email)
-  const handleGoogleDocLinkClick = useCallback((entry: GoogleDocEntry) => {
-    const authParam = googleEmail ? `?authuser=${encodeURIComponent(googleEmail)}` : ''
-    window.open(`${entry.webViewLink}${authParam}`, '_blank')
-  }, [googleEmail])
-
-  // Google Docs: remove a stale entry from metadata
-  const handleRemoveGoogleDocEntry = useCallback(async (googleDocId: string) => {
-    if (!window.api?.googleRemoveSyncMetadataEntry) return
-    await window.api.googleRemoveSyncMetadataEntry(googleDocId)
-    await loadGoogleDocsMetadata()
-  }, [loadGoogleDocsMetadata])
 
   // Get folder name from path for display
   const folderName = rootPath?.split('/').pop() || 'Files'
@@ -1363,7 +1191,6 @@ export function FileListPanel() {
             <h2 className="text-sm font-medium truncate" title={viewMode === 'folder' ? rootPath || undefined : undefined}>
               {viewMode === 'recent' ? 'Recent'
                 : viewMode === 'notebooks' ? 'Notebooks'
-                : viewMode === 'googledocs' ? 'Google Docs'
                 : viewMode === 'projects' ? 'Projects'
                 : viewMode === 'favorites' ? 'Favorites'
                 : viewMode === 'shared' ? 'Shared'
@@ -1398,27 +1225,6 @@ export function FileListPanel() {
               <TooltipContent>Sync notebooks</TooltipContent>
             </Tooltip>
           )}
-          {viewMode === 'googledocs' && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={() => googleSync().catch((err) => console.error('[FileListPanel] Manual Google sync failed:', err))}
-                  disabled={isGoogleSyncing}
-                  aria-label="Sync Google Docs"
-                >
-                  {isGoogleSyncing ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-3.5 w-3.5" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Sync Google Docs</TooltipContent>
-            </Tooltip>
-          )}
         </div>
         <div className="flex shrink-0 items-center">
           {/* View toggles — unified, customizable header + ⋯ overflow (#701).
@@ -1435,7 +1241,7 @@ export function FileListPanel() {
       </div>
 
       {/* Loading bar */}
-      {(isLoading || isSyncing || isGoogleSyncing) && (
+      {(isLoading || isSyncing) && (
         <div className="h-0.5 w-full overflow-hidden bg-muted/50">
           <div className="h-full w-1/3 animate-loading-bar bg-linear-to-r from-violet-500 via-fuchsia-500 to-violet-500" />
         </div>
@@ -1519,103 +1325,6 @@ export function FileListPanel() {
                   </ContextMenuContent>
                 </ContextMenu>
               ))}
-            </div>
-          )
-        ) : viewMode === 'googledocs' ? (
-          // Google Docs view — flat list from sync metadata
-          !googleConnected ? (
-            <div className="flex h-full flex-col p-4">
-              <p className="text-sm text-muted-foreground">
-                Connect your Google account to sync documents.
-              </p>
-              <Button
-                variant="ghost"
-                className="mt-6 w-full border border-dashed border-muted-foreground/30 text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground"
-                onClick={() => setDialogOpen(true, 'account')}
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-            </div>
-          ) : !googleDocsMetadata || Object.keys(googleDocsMetadata.documents).length === 0 ? (
-            <div className="p-4 text-sm text-muted-foreground">
-              {isLoading || isGoogleSyncing ? 'Syncing Google Docs...' : googleSyncError ? (
-                <span className="text-red-500">{googleSyncError}</span>
-              ) : 'No Google Docs found. Sync or import documents first.'}
-            </div>
-          ) : (
-            <div className={cn(
-              "p-2",
-              isGoogleSyncing && "opacity-50 pointer-events-none"
-            )}>
-              {Object.values(googleDocsMetadata.documents)
-                .sort((a, b) => new Date(b.syncedAt).getTime() - new Date(a.syncedAt).getTime())
-                .map((entry) => {
-                  const isMissing = entry.status === 'missing'
-                  return (
-                    <ContextMenu key={entry.googleDocId}>
-                      <ContextMenuTrigger asChild>
-                        <div className={cn("group flex items-center relative")}>
-                          <button
-                            className={cn(
-                              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50",
-                              selectedPath === entry.localPath && "bg-muted",
-                              isMissing && "opacity-50"
-                            )}
-                            onClick={() => {
-                              if (!isMissing) {
-                                handleGoogleDocClick(entry.localPath)
-                              }
-                            }}
-                            title={isMissing ? `${entry.localPath} (file missing)` : entry.localPath}
-                            disabled={isMissing}
-                          >
-                            <FileText className={cn(
-                              "h-4 w-4 shrink-0",
-                              isMissing ? "text-muted-foreground/50" : "text-muted-foreground"
-                            )} />
-                            <span className="truncate flex-1">{entry.title}</span>
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleGoogleDocLinkClick(entry)
-                            }}
-                            className="absolute right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-accent"
-                            title="Open in Google Docs"
-                          >
-                            <ExternalLink className="h-3 w-3 text-muted-foreground" />
-                          </button>
-                        </div>
-                      </ContextMenuTrigger>
-                      <ContextMenuContent>
-                        {isMissing ? (
-                          <ContextMenuItem onClick={() => handleRemoveGoogleDocEntry(entry.googleDocId)}>
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Remove from tracking
-                          </ContextMenuItem>
-                        ) : (
-                          <>
-                            <ContextMenuItem onClick={() => handleFileRename(entry.localPath)}>
-                              <Edit3 className="h-4 w-4 mr-2" />
-                              Rename
-                            </ContextMenuItem>
-                            <ContextMenuItem onClick={() => handleFileShowInFolder(entry.localPath)}>
-                              <ExternalLink className="h-4 w-4 mr-2" />
-                              Show in Folder
-                            </ContextMenuItem>
-                            <ContextMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onClick={() => handleFileDeleteRequest(entry.localPath)}
-                            >
-                              <Trash2 className="h-4 w-4 mr-2" />
-                              Delete
-                            </ContextMenuItem>
-                          </>
-                        )}
-                      </ContextMenuContent>
-                    </ContextMenu>
-                  )
-                })}
             </div>
           )
         ) : viewMode === 'notebooks' ? (
@@ -1721,9 +1430,43 @@ export function FileListPanel() {
                       which is the upward-traversal ceiling while in a project. */}
                   {!(currentProject && rootPath === currentProject.path) && (
                     <button
-                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50 text-muted-foreground mb-1"
+                      className={cn(
+                        'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50 text-muted-foreground mb-1',
+                        parentDropOver && 'ring-1 ring-primary bg-primary/10'
+                      )}
                       onClick={navigateToParent}
                       title="Go to parent folder"
+                      data-testid="file-list-parent"
+                      // A file dropped here moves up one folder (#1167). The events stop
+                      // here so the list container's own drop, into the shown folder,
+                      // does not run as well. The button is absent at a project's root,
+                      // so there is no drop target past the ceiling.
+                      onDragOver={(e) => {
+                        if (e.dataTransfer.types.includes('application/prose-file-path')) {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          e.dataTransfer.dropEffect = 'move'
+                        }
+                      }}
+                      onDragEnter={(e) => {
+                        if (e.dataTransfer.types.includes('application/prose-file-path')) {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setParentDropOver(true)
+                        }
+                      }}
+                      onDragLeave={(e) => {
+                        e.stopPropagation()
+                        setParentDropOver(false)
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setParentDropOver(false)
+                        const sourcePath = e.dataTransfer.getData('application/prose-file-path')
+                        const parentPath = rootPath?.split('/').slice(0, -1).join('/')
+                        if (sourcePath && parentPath) handleFileDrop(sourcePath, parentPath)
+                      }}
                     >
                       <ChevronUp className="h-4 w-4 shrink-0" />
                       <span className="truncate">..</span>
@@ -1732,7 +1475,7 @@ export function FileListPanel() {
                   {/* New untitled document */}
                   <button
                     className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/50 text-muted-foreground mb-1"
-                    onClick={createNewTab}
+                    onClick={() => createNewTab()}
                     title="Create new untitled document"
                   >
                     <Plus className="h-4 w-4 shrink-0" />
@@ -2044,53 +1787,6 @@ export function FileListPanel() {
             </Button>
             <Button onClick={handleCreateNewFolder} disabled={!newFolderName.trim()}>
               Create
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Rename File Dialog */}
-      <Dialog open={renameDialogOpen} onOpenChange={(open) => {
-        if (!open) {
-          setRenameDialogOpen(false)
-          setOperationError(null)
-        }
-      }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Rename File</DialogTitle>
-            <DialogDescription>
-              Enter a new name for the file.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="rename-filename">File name</Label>
-              <Input
-                id="rename-filename"
-                value={renameFileName}
-                onChange={(e) => {
-                  setRenameFileName(e.target.value)
-                  setOperationError(null)
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    handleConfirmRename()
-                  }
-                }}
-                autoFocus
-              />
-              {operationError && (
-                <p className="text-sm text-destructive">{operationError}</p>
-              )}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setRenameDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleConfirmRename} disabled={!renameFileName.trim()}>
-              Rename
             </Button>
           </DialogFooter>
         </DialogContent>

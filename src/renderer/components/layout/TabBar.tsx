@@ -3,6 +3,7 @@ import { Reorder } from 'framer-motion'
 import { X, FileText, Eye, Plus, Star, ExternalLink } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useTabStore, type Tab } from '../../stores/tabStore'
+import { promotePreview } from '../../tabs/actions'
 import { useEditorStore } from '../../stores/editorStore'
 import { extractFirstH1 } from '../../lib/markdown'
 import { Input } from '../ui/input'
@@ -83,7 +84,7 @@ export function TabBar({ onTabClick, onTabClose, onTabCloseOthers, onTabCloseAll
   const handleDoubleClick = (tab: Tab) => {
     // If preview tab, promote to permanent instead of renaming
     if (tab.isPreview) {
-      useTabStore.getState().promotePreviewTab(tab.id)
+      promotePreview()
       return
     }
 

@@ -75,10 +75,13 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - run: npm ci
+
+      - name: Run unit tests
+        run: npm run test:unit
 
       - name: Install Playwright system deps
         run: npx playwright install --with-deps

@@ -109,14 +109,17 @@ export function McpIntegration() {
           </span>
         ) : status?.installed ? (
           status.needsUpdate ? (
+            // Not a version comparison any more — the prompt appears when the
+            // installed MCP surface differs from the bundled one, so there is
+            // no "v1.8 → v1.9" to show.
             <span className="flex items-center gap-1 text-sm text-amber-600 dark:text-amber-400">
               <AlertTriangle className="h-4 w-4" />
-              Update available (v{status.version} → v{status.appVersion})
+              Update available
             </span>
           ) : (
             <span className="flex items-center gap-1 text-sm text-green-600 dark:text-green-400">
               <CheckCircle className="h-4 w-4" />
-              Installed (v{status.version})
+              {status.version ? `Installed (v${status.version})` : 'Installed'}
             </span>
           )
         ) : (

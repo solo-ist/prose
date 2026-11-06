@@ -55,7 +55,7 @@ test.beforeAll(async () => {
     join(qaUserDataDir, 'settings.json'),
     JSON.stringify(
       {
-        appearance: { mode: 'dark', icon: 'default' },
+        appearance: { mode: 'dark', icon: 'pilcrow' },
         defaultSaveDirectory: qaFilesDir,
       },
       null,
@@ -244,5 +244,94 @@ test.describe('Electron — explorer interactivity (#703)', () => {
     await page.keyboard.press('Meta+Shift+.')
     await page.waitForTimeout(300)
     await expect(panel.getByText('.hidden-config')).not.toBeVisible({ timeout: 5_000 })
+  })
+})
+
+// Paste lands in the folder being shown (#1166). Before, pasteFile() with no
+// target resolved to the clipboard path's own folder for a cut (so cut → open
+// another folder → paste did nothing) and duplicated beside the source for a
+// copy. Driven through the context menus, the second path the issue names.
+test.describe('paste after navigating (#1166)', () => {
+  const panel = () => page.locator(selectors.fileListPanel)
+
+  async function enterSubfolder(): Promise<void> {
+    await panel().locator('button[title]', { hasText: /^my-subfolder$/ }).dblclick()
+    await expect(panel().getByText('..')).toBeVisible({ timeout: 5_000 })
+  }
+
+  async function leaveSubfolder(): Promise<void> {
+    await panel().getByText('..').click()
+    await expect(panel().locator('button[title]', { hasText: /^my-subfolder$/ })).toBeVisible({ timeout: 5_000 })
+  }
+
+  async function pickMenuItem(item: RegExp): Promise<void> {
+    await page.waitForSelector(selectors.contextMenu, { timeout: 5_000 })
+    const menuItem = page.getByRole('menuitem', { name: item })
+    await menuItem.waitFor({ state: 'visible', timeout: 3_000 })
+    await menuItem.click()
+  }
+
+  /** Right-click a markdown row (shown without its extension) and pick a menu item. */
+  async function rowMenu(name: string, item: RegExp): Promise<void> {
+    await panel().getByText(name, { exact: true }).click({ button: 'right' })
+    await pickMenuItem(item)
+  }
+
+  /** Right-click the list's empty area and pick a menu item. */
+  async function listMenu(item: RegExp): Promise<void> {
+    await panel().locator('div.p-2.grow.shrink-0').click({ button: 'right', position: { x: 10, y: 10 } })
+    await pickMenuItem(item)
+  }
+
+  test('cut, open a subfolder, paste: the file moves there', async () => {
+    writeFileSync(join(qaFilesDir, 'cutme.md'), '# Cut me\n')
+    await expect(panel().getByText('cutme', { exact: true })).toBeVisible({ timeout: 8_000 })
+    await rowMenu('cutme', /^Cut/)
+    await enterSubfolder()
+    await listMenu(/^Paste/)
+    await expect.poll(() => existsSync(join(subfolderPath, 'cutme.md')), { timeout: 8_000 }).toBe(true)
+    expect(existsSync(join(qaFilesDir, 'cutme.md'))).toBe(false)
+    await leaveSubfolder()
+  })
+
+  test('copy, open a subfolder, paste: a copy lands there and the source stays', async () => {
+    writeFileSync(join(qaFilesDir, 'copyme.md'), '# Copy me\n')
+    await expect(panel().getByText('copyme', { exact: true })).toBeVisible({ timeout: 8_000 })
+    await rowMenu('copyme', /^Copy/)
+    await enterSubfolder()
+    await listMenu(/^Paste/)
+    await expect.poll(() => existsSync(join(subfolderPath, 'copyme.md')), { timeout: 8_000 }).toBe(true)
+    expect(existsSync(join(qaFilesDir, 'copyme.md'))).toBe(true)
+    await leaveSubfolder()
+  })
+})
+
+// The `..` row is a drop target (#1167): a file dropped on it moves up one
+// folder. Before, the row had no drag handling and the list container's drop
+// moved the file into the folder it was already in.
+test.describe('drop on .. (#1167)', () => {
+  const panel = () => page.locator(selectors.fileListPanel)
+
+  test('a file dropped on the parent row moves up a folder', async () => {
+    writeFileSync(join(subfolderPath, 'upme.md'), '# Up\n')
+    await panel().locator('button[title]', { hasText: /^my-subfolder$/ }).dblclick()
+    const parentRow = panel().getByText('..')
+    await expect(parentRow).toBeVisible({ timeout: 5_000 })
+    await expect(panel().getByText('upme', { exact: true })).toBeVisible({ timeout: 8_000 })
+
+    // The explorer's own drag payload, handed to the row the way a drag would.
+    const dataTransfer = await page.evaluateHandle((sourcePath) => {
+      const dt = new DataTransfer()
+      dt.setData('application/prose-file-path', sourcePath)
+      return dt
+    }, join(subfolderPath, 'upme.md'))
+    await parentRow.dispatchEvent('dragenter', { dataTransfer })
+    await expect(panel().locator('button[title="Go to parent folder"]')).toHaveClass(/ring-primary/)
+    await parentRow.dispatchEvent('drop', { dataTransfer })
+
+    await expect.poll(() => existsSync(join(qaFilesDir, 'upme.md')), { timeout: 8_000 }).toBe(true)
+    expect(existsSync(join(subfolderPath, 'upme.md'))).toBe(false)
+    await panel().getByText('..').click()
+    await expect(panel().locator('button[title]', { hasText: /^my-subfolder$/ })).toBeVisible({ timeout: 5_000 })
   })
 })

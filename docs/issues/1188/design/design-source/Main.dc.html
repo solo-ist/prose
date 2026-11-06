@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Prose first run</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@1,9..144,500&amp;family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#a1a1aa}a:hover{color:#fafafa}
+</style>
+</helmet>
+<div style="position: relative; width: 1120px; height: 760px; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column; background: #09090b; color: #fafafa; font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-size: 13px; line-height: 1.55; border-radius: 12px">
+
+<div style="flex: none; height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 16px 0 20px; border-bottom: 1px solid #27272a">
+<div aria-hidden="true" style="display: flex; gap: 8px; width: 68px">
+<span style="width: 12px; height: 12px; border-radius: 9999px; background: #3f3f46"></span>
+<span style="width: 12px; height: 12px; border-radius: 9999px; background: #3f3f46"></span>
+<span style="width: 12px; height: 12px; border-radius: 9999px; background: #3f3f46"></span>
+</div>
+<span style="flex: 1; text-align: center; color: #a1a1aa; font-size: 12px">Prose</span>
+<div style="width: 68px"></div>
+</div>
+
+<div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; text-align: center">
+<div aria-hidden="true" style="width: 48px; height: 48px; border-radius: 10px; background: #0f0f0f; border: 1px solid #27272a; display: flex; align-items: center; justify-content: center; font-family: 'Fraunces', Georgia, serif; font-style: italic; font-size: 28px; color: #e2d9cb; line-height: 1">¶</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 18px; font-weight: 600">Start writing</h1>
+<p style="margin: 0; color: #a1a1aa">Create a new document or open an existing markdown file.</p>
+</div>
+<div style="display: flex; gap: 8px">
+<button type="button" style="height: 36px; padding: 0 16px; font: inherit; font-weight: 500; color: #fafafa; background: transparent; border: 1px solid #27272a; border-radius: 6px">Open file</button>
+<button type="button" style="height: 36px; padding: 0 16px; font: inherit; font-weight: 500; color: #18181b; background: #fafafa; border: 0; border-radius: 6px">New document</button>
+</div>
+<sc-if value="{{finished}}" hint-placeholder-val="{{ false }}">
+<button type="button" onClick="{{restart}}" style="margin-top: 12px; height: 32px; padding: 0 12px; font: inherit; font-size: 12px; color: #a1a1aa; background: transparent; border: 1px dashed #3f3f46; border-radius: 6px; cursor: pointer">Replay onboarding</button>
+</sc-if>
+</div>
+
+<div style="flex: none; height: 24px; display: flex; align-items: center; justify-content: flex-end; gap: 16px; padding: 0 16px; border-top: 1px solid #27272a; color: #a1a1aa; font-size: 11px">
+<span>{{modeLabel}}</span>
+</div>
+
+<sc-if value="{{showModal}}" hint-placeholder-val="{{ true }}">
+<div style="position: absolute; inset: 0; background: rgba(0,0,0,0.62); display: flex; align-items: center; justify-content: center">
+<dc-import name="Onboarding" key="{{runKey}}" build="{{build}}" on-finish="{{finish}}" hint-size="520px,560px"></dc-import>
+</div>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"build":{"editor":"enum","options":["direct","appstore"],"default":"direct"},"$preview":{"width":1120,"height":760}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const s = this.state || {};
+    const finished = !!s.finished;
+    return {
+      build: this.props.build || 'direct',
+      showModal: !finished,
+      finished: finished,
+      runKey: 'run-' + (s.run || 0),
+      modeLabel: 'Editor',
+      finish: () => this.setState({ finished: true }),
+      restart: () => this.setState({ finished: false, run: (s.run || 0) + 1 })
+    };
+  }
+}
+</script>
+</body>
+</html>

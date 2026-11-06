@@ -8,6 +8,7 @@ import { toggleSourceMode } from '../../tabs/actions'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useTabStore, useActiveTab } from '../../stores/tabStore'
 import { useActiveSource } from '../../document/useActiveSession'
+import { landAllProjections } from '../../document/session'
 import { useFileListStore } from '../../stores/fileListStore'
 import { useSettings } from '../../hooks/useSettings'
 import { usePanelLayoutContext } from '../../hooks/usePanelLayout'
@@ -161,15 +162,10 @@ export function Toolbar() {
   }
 
   const handleTabClose = useCallback(async (tabId: string) => {
-    const tab = useTabStore.getState().getTabById(tabId)
-    if (!tab) return
-
-    if (tab.isDirty) {
-      // Show confirmation dialog
-      setPendingCloseTabId(tabId)
-    } else {
-      await closeTab(tabId)
-    }
+    // closeTab lands the pending projection and refuses a dirty tab; the
+    // dialog follows its answer rather than a flag read mid-delay (#885).
+    const closed = await closeTab(tabId)
+    if (!closed) setPendingCloseTabId(tabId)
   }, [closeTab])
 
   const handleSaveAndClose = async () => {
@@ -196,7 +192,8 @@ export function Toolbar() {
 
   const handleCloseOthers = async (tabId: string) => {
     // Confirm before discarding any unsaved tabs (the bulk close force-closes).
-    const dirtyTabs = tabs.filter(t => t.id !== tabId && t.isDirty)
+    landAllProjections()
+    const dirtyTabs = useTabStore.getState().tabs.filter(t => t.id !== tabId && t.isDirty)
     if (dirtyTabs.length > 0) {
       setPendingBulkClose({ kind: 'others', keepTabId: tabId, dirtyCount: dirtyTabs.length })
       return
@@ -205,7 +202,8 @@ export function Toolbar() {
   }
 
   const handleCloseAll = async () => {
-    const dirtyTabs = tabs.filter(t => t.isDirty)
+    landAllProjections()
+    const dirtyTabs = useTabStore.getState().tabs.filter(t => t.isDirty)
     if (dirtyTabs.length > 0) {
       setPendingBulkClose({ kind: 'all', dirtyCount: dirtyTabs.length })
       return

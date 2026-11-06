@@ -59,3 +59,12 @@ Design doc §4.9 (one sentence) and §11's "What waits" line; `CLAUDE.md` Editor
 ## Execution log
 
 - 2026-11-05: inventory (above); plan committed.
+- 2026-11-05, built: the change in one commit (`session.ts`: `SourceSession.saved`, the immediate flag in
+  `setSourceState`, the rule handed to `writeProjection`, `recordSaved` in source mode, `landProjections` /
+  `landAllProjections`; `tabs/actions.ts` close paths; `Toolbar.tsx` single and bulk close; `App.tsx` disk check).
+  Unit 159/159 (19 files; 3 new), `typecheck:renderer` 66 (= baseline), e2e tsc 6 (= baseline), build clean.
+  `electron.dirty-follows.spec.ts` 2/2 on the fix; **falsified on a build of the merge-base `55c8454`**: both
+  fail there (the close lands on a clean flag and the tab goes without a prompt; the source flag is still false
+  right after the keystroke). The close case had to pre-hover the × so the click lands inside the delay: with an
+  ordinary `click()` Playwright's actionability wait took longer than the projection delay and the base passed.
+  Bench (`@codemirror/state` `Text`): `eq` after one edit 0.000 ms at 1 MB, flatten + compare 0.3 ms.

@@ -43,6 +43,7 @@ import { useSummaryStore } from '../../stores/summaryStore'
 import { useEditor } from '../../hooks/useEditor'
 import { useTabs } from '../../hooks/useTabs'
 import { hydrateDraft, restoreTabs, convertTab, type RestoredTab, toggleSourceMode, markTabSaved } from '../../tabs/actions'
+import { landProjections } from '../../document/session'
 import { useSettings } from '../../hooks/useSettings'
 import { usePanelLayout, PanelLayoutProvider } from '../../hooks/usePanelLayout'
 import type { ImperativePanelHandle } from 'react-resizable-panels'
@@ -161,7 +162,11 @@ export function App() {
         for (const tab of tabs) {
           if (!tab.path) continue
           if (!(await isDiskNewerThanBaseline(tab.path))) continue
-          if (tab.isDirty) {
+          // Typing inside the projection delay must not be reloaded over (#885).
+          landProjections(tab.id)
+          const fresh = useTabStore.getState().getTabById(tab.id)
+          if (!fresh) continue
+          if (fresh.isDirty) {
             notifyExternalEditConflict(tab.id, tab.path)
           } else {
             await loadDiskVersionIntoTab(tab.id, tab.path)

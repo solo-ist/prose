@@ -58,6 +58,7 @@ import {
 } from './identity'
 import { parseMarkdown, serializeMarkdown } from '../lib/markdown'
 import { buildSourceState, sourceText, type SourceState } from '../extensions/source/state'
+import { Text } from '@codemirror/state'
 import { editorScrollContainer, selectionFromViewState, type EditorViewState } from '../lib/editorViewState'
 import {
   loadAnnotations,
@@ -154,6 +155,13 @@ export interface SourceSession {
   entryText: string
   /** The source surface's scroll offset, kept across a switch. */
   scrollTop: number
+  /**
+   * The document equal to the saved file (#885): the entry document when the
+   * tab was clean at entry, the document a save wrote, null while the tab is
+   * dirty at entry and unsaved since. `state.doc.eq(saved)` is the dirty rule
+   * in source mode; the two share their chunks, so it costs the changed region.
+   */
+  saved: Text | null
 }
 
 /** What performs the share pushes a comment transition records (registered by lib/sharePush.ts). */
@@ -441,13 +449,20 @@ function isDirtyAgainst(saved: SavedSnapshot | null, body: string, frontmatter: 
  * the dirty flag as one comparison against the saved snapshot, for the shown
  * tab and a background one alike. The editor store mirrors the active record.
  */
-function writeProjection(session: Session, body: string, frontmatter: Record<string, unknown> | null): void {
+function writeProjection(
+  session: Session,
+  body: string,
+  frontmatter: Record<string, unknown> | null,
+  dirty: boolean | null = null
+): void {
   const store = useTabStore.getState()
   const tab = store.getTabById(session.tabId)
   if (!tab) return
   const current = tab.frontmatter ?? EMPTY_FRONTMATTER
   const next = frontmatter && frontmatterKey(frontmatter) !== frontmatterKey(current) ? frontmatter : current
-  const isDirty = isDirtyAgainst(session.saved, body, next)
+  // Source mode hands in its own rule (the typed text against the saved text,
+  // #885); the rich projection compares the markdown.
+  const isDirty = dirty ?? isDirtyAgainst(session.saved, body, next)
   if (tab.content === body && tab.isDirty === isDirty && tab.frontmatter === next) return
   store.updateTab(session.tabId, { content: body, frontmatter: next, isDirty })
 }
@@ -513,6 +528,21 @@ function projectSuggestions(session: Session): void {
     return
   }
   void persistRecords('suggestions', documentId, live)
+}
+
+/**
+ * Land `tabId`'s pending projections before a decision reads the tab record
+ * (#885): the dirty flag otherwise trails the document by up to the projection
+ * delay, and a close or a disk reload inside that window read it as clean.
+ */
+export function landProjections(tabId: string): void {
+  const session = registry.sessions.get(tabId)
+  if (session) flushProjections(session)
+}
+
+/** Land every open session's pending projections (a bulk close). */
+export function landAllProjections(): void {
+  for (const session of registry.sessions.values()) flushProjections(session)
 }
 
 /** Land the session's pending projections now (the leaving step, a save). */
@@ -1193,6 +1223,12 @@ export function recordSaved(tabId: string, snapshot: SaveSnapshot): void {
   const session = registry.sessions.get(tabId)
   if (!session) return
   session.saved = { body: snapshot.body, frontmatter: frontmatterKey(snapshot.frontmatter) }
+  if (session.source) {
+    // The saved text as a document: the live one when nothing was typed during
+    // the write (later compares skip its chunks), else built from the text.
+    const doc = session.source.state.doc
+    session.source.saved = doc.toString() === snapshot.text ? doc : Text.of(snapshot.text.split(/\r\n?|\n/))
+  }
   projectNow(session)
 }
 
@@ -1252,7 +1288,11 @@ export function enterSource(tabId: string): SourceSession {
   const body = projectedContent(e, session)
   const frontmatter = useTabStore.getState().getTabById(tabId)?.frontmatter ?? EMPTY_FRONTMATTER
   const text = getIdentity(session.state).plain ? body : serializeMarkdown(body, frontmatter)
-  session.source = { state: buildSourceState(text), entryText: text, scrollTop: 0 }
+  const state = buildSourceState(text)
+  // Clean at entry: the entry document is the saved text, so from here the
+  // dirty rule is `doc.eq(saved)` on every transaction (#885).
+  const saved = isDirtyAgainst(session.saved, body, frontmatter) ? null : state.doc
+  session.source = { state, entryText: text, scrollTop: 0, saved }
   useTabStore.getState().updateTab(tabId, { mode: 'source' })
   if (tabId === registry.activeTabId) notifyActiveSession()
   pipelineLog('source:enter', { tabId })
@@ -1326,6 +1366,12 @@ export function setSourceState(tabId: string, state: SourceState): void {
   // re-renders it on enter and exit only; the view keeps the state itself.
   session.source.state = state
   if (!docChanged) return
+  // The dirty flag follows the document at once (#885); the content follows
+  // after the delay. A tab dirty at entry stays dirty until a save; typing it
+  // back to the saved text is caught by the delayed projection's compare.
+  const dirty = session.source.saved ? !state.doc.eq(session.source.saved) : true
+  const tab = useTabStore.getState().getTabById(tabId)
+  if (tab && tab.isDirty !== dirty) useTabStore.getState().updateTab(tabId, { isDirty: dirty })
   if (session.sourceTimer) clearTimeout(session.sourceTimer)
   session.sourceTimer = setTimeout(() => projectSource(session), PROJECTION_DELAY_MS)
 }
@@ -1348,6 +1394,7 @@ export function setActiveSourceScroll(scrollTop: number): void {
 function projectSource(session: Session): void {
   session.sourceTimer = null
   if (!session.source || !registry.sessions.has(session.tabId)) return
-  const { content: body, frontmatter } = parseMarkdown(sourceText(session.source.state))
-  writeProjection(session, body, frontmatter)
+  const source = session.source
+  const { content: body, frontmatter } = parseMarkdown(sourceText(source.state))
+  writeProjection(session, body, frontmatter, source.saved ? !source.state.doc.eq(source.saved) : null)
 }

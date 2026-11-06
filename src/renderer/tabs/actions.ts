@@ -66,6 +66,8 @@ import {
   enterSource,
   exitSource,
   getSession,
+  landProjections,
+  landAllProjections,
   type SaveSnapshot
 } from '../document/session'
 import { isPlainTextPath } from '../document/identity'
@@ -531,6 +533,8 @@ export async function switchToTab(tabId: string): Promise<void> {
  * with no leaving step of its own.
  */
 export async function closeTab(tabId: string, opts: { force?: boolean } = {}): Promise<boolean> {
+  // The dirty check reads the document, not a flag up to the projection delay behind it (#885).
+  landProjections(tabId)
   const tabStore = useTabStore.getState()
   let tab = tabStore.getTabById(tabId)
   if (!tab) return true
@@ -568,6 +572,7 @@ export async function closeTab(tabId: string, opts: { force?: boolean } = {}): P
 
 /** Close every tab but one (dirty tabs included; the caller confirms). */
 export async function closeOtherTabs(keepTabId: string): Promise<void> {
+  landAllProjections()
   const tabStore = useTabStore.getState()
   const keep = tabStore.getTabById(keepTabId)
   if (!keep) return
@@ -603,6 +608,7 @@ export async function closeOtherTabs(keepTabId: string): Promise<void> {
 
 /** Close every tab and open a fresh untitled one. */
 export async function closeAllTabs(): Promise<void> {
+  landAllProjections()
   const activeTab = useTabStore.getState().getActiveTab()
   if (activeTab) {
     await leaveTab(activeTab, { persist: !(activeTab.path === null && !activeTab.isDirty) })

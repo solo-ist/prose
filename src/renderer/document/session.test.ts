@@ -79,6 +79,7 @@ import {
   saveSnapshot,
   recordSaved,
   markFrontmatterChanged,
+  landProjections,
   type SharePushPerformer
 } from './session'
 import { resolveToolHandle, isToolHandleError } from './handle'
@@ -763,5 +764,111 @@ describe('frontmatter on the tab, one dirty rule, the saved snapshot (#1151)', (
     expect(editor.isEditable).toBe(false)
     useTabStore.getState().promotePreviewTab('tp')
     expect(editor.isEditable).toBe(true)
+  })
+})
+
+describe('the dirty flag follows the document (#885)', () => {
+  it('source mode: typing dirties at once, undo to the entry text cleans at once, and the delayed projection agrees', async () => {
+    vi.useFakeTimers()
+    try {
+      const content = '# Title\n\nSome text.\n'
+      const t = tab('t885a', 'doc-885a', '/docs/885a.md', content)
+      await openSession(t, content)
+      activateSession('t885a')
+      const isDirty = () => useTabStore.getState().getTabById('t885a')!.isDirty
+
+      const source = enterSource('t885a')
+      expect(isDirty()).toBe(false)
+      expect(getSourceSession('t885a')!.saved).toBe(source.state.doc)
+      const typed = source.state.update({ changes: { from: content.length, insert: 'More.' } }).state
+      setSourceState('t885a', typed)
+      // No timer has run: the flag followed the transaction, and the mirror with it.
+      expect(isDirty()).toBe(true)
+      expect(useEditorStore.getState().document.isDirty).toBe(true)
+      const back = typed.update({ changes: { from: content.length, to: content.length + 5, insert: '' } }).state
+      setSourceState('t885a', back)
+      expect(isDirty()).toBe(false)
+      expect(useEditorStore.getState().document.isDirty).toBe(false)
+
+      // The content still lands after the delay, with the same answer.
+      const again = back.update({ changes: { from: 0, insert: 'X' } }).state
+      setSourceState('t885a', again)
+      expect(isDirty()).toBe(true)
+      expect(useEditorStore.getState().document.content).not.toContain('X# Title')
+      await vi.advanceTimersByTimeAsync(600)
+      expect(isDirty()).toBe(true)
+      expect(useEditorStore.getState().document.content).toContain('X# Title')
+
+      setSourceState('t885a', again.update({ changes: { from: 0, to: 1, insert: '' } }).state)
+      expect(isDirty()).toBe(false)
+      await vi.advanceTimersByTimeAsync(600)
+      expect(isDirty()).toBe(false)
+      exitSource('t885a')
+      expect(isDirty()).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('source mode: a tab dirty at entry stays dirty, a save cleans it, and typing during the write keeps it dirty', async () => {
+    vi.useFakeTimers()
+    try {
+      const content = 'Some text.\n'
+      const t = tab('t885b', 'doc-885b', '/docs/885b.md', content)
+      await openSession(t, content)
+      activateSession('t885b')
+      const isDirty = () => useTabStore.getState().getTabById('t885b')!.isDirty
+      editor.commands.insertContentAt(1, 'Y')
+      await vi.advanceTimersByTimeAsync(600)
+      expect(isDirty()).toBe(true)
+
+      // Dirty at entry: no saved document to compare against, so every change is dirty.
+      const source = enterSource('t885b')
+      expect(getSourceSession('t885b')!.saved).toBeNull()
+      setSourceState('t885b', source.state.update({ changes: { from: 0, insert: 'Z' } }).state)
+      expect(isDirty()).toBe(true)
+
+      // A save in source mode: the live document becomes the saved one.
+      recordSaved('t885b', saveSnapshot('t885b'))
+      expect(isDirty()).toBe(false)
+      const afterSave = getSourceSession('t885b')!
+      expect(afterSave.saved).toBe(afterSave.state.doc)
+      const more = afterSave.state.update({ changes: { from: 0, insert: 'W' } }).state
+      setSourceState('t885b', more)
+      expect(isDirty()).toBe(true)
+      setSourceState('t885b', more.update({ changes: { from: 0, to: 1, insert: '' } }).state)
+      expect(isDirty()).toBe(false)
+
+      // Typing during the write: the saved document is built from the snapshot's text.
+      const snapshot = saveSnapshot('t885b')
+      const during = getSourceSession('t885b')!.state.update({ changes: { from: 0, insert: 'Q' } }).state
+      setSourceState('t885b', during)
+      recordSaved('t885b', snapshot)
+      expect(isDirty()).toBe(true)
+      expect(getSourceSession('t885b')!.saved).not.toBe(during.doc)
+      setSourceState('t885b', during.update({ changes: { from: 0, to: 1, insert: '' } }).state)
+      expect(isDirty()).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('rich mode: a decision inside the projection delay lands the flag first', async () => {
+    vi.useFakeTimers()
+    try {
+      const content = 'Some text.\n'
+      const t = tab('t885c', 'doc-885c', '/docs/885c.md', content)
+      await openSession(t, content)
+      activateSession('t885c')
+      editor.commands.insertContentAt(1, 'X')
+      expect(useTabStore.getState().getTabById('t885c')!.isDirty).toBe(false)
+      landProjections('t885c')
+      expect(useTabStore.getState().getTabById('t885c')!.isDirty).toBe(true)
+      expect(useEditorStore.getState().document.content).toBe('XSome text.')
+      // A tab with no session is a no-op.
+      landProjections('t885-none')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

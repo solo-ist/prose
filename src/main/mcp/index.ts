@@ -3,5 +3,6 @@
  */
 
 export { getMcpBridge, McpBridge } from './bridge'
-export { getMcpHttpServer, McpHttpServer, MCP_HTTP_PORT } from './http-server'
+export { getMcpHttpServer, McpHttpServer, mcpHttpPort } from './http-server'
 export { getMcpSocketServer, McpSocketServer } from './socket-server'
+export { proseVersion } from './version'

@@ -19,6 +19,7 @@ import * as crypto from 'crypto'
 import { app } from 'electron'
 import { getToolsForMCP } from '../../shared/tools/registry'
 import type { ToolResult } from '../../shared/tools/types'
+import { toCallToolResult } from '../../shared/mcp/server'
 
 /** The socket's path under the profile in force when it is asked for. */
 function socketPath(): string {
@@ -220,14 +221,7 @@ export class McpSocketServer {
     try {
       if (method === 'tools/list') {
         // Return tool definitions
-        const tools = getToolsForMCP()
-        this.sendResult(socket, id, {
-          tools: tools.map((tool) => ({
-            name: tool.name,
-            description: tool.description,
-            inputSchema: tool.inputSchema
-          }))
-        })
+        this.sendResult(socket, id, { tools: getToolsForMCP() })
       } else if (method === 'tools/call') {
         // Execute tool
         const { name, arguments: args } = params as { name: string; arguments?: unknown }
@@ -237,28 +231,10 @@ export class McpSocketServer {
           return
         }
 
+        // The MCP result shape (text + structuredContent): the stdio bridge
+        // passes it through unchanged, so older installed bridges keep working.
         const result = await this.onToolInvoke(name, args ?? {})
-
-        if (result.success) {
-          this.sendResult(socket, id, {
-            content: [
-              {
-                type: 'text',
-                text: typeof result.data === 'string' ? result.data : JSON.stringify(result.data, null, 2)
-              }
-            ]
-          })
-        } else {
-          this.sendResult(socket, id, {
-            content: [
-              {
-                type: 'text',
-                text: `Error: ${result.error}${result.code ? ` (${result.code})` : ''}`
-              }
-            ],
-            isError: true
-          })
-        }
+        this.sendResult(socket, id, toCallToolResult(result))
       } else {
         this.sendError(socket, id, -32601, `Method not found: ${method}`)
       }

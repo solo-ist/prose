@@ -124,6 +124,44 @@ export function isMcpToolName(name: string): boolean {
   return (mcpToolNames as readonly string[]).includes(name)
 }
 
+/**
+ * MCP document tools that take an optional `document` target (#1237): a
+ * documentId or path from `list_tabs`, resolved to an open tab by the
+ * renderer's MCP handler. MCP-only: the in-app chat is already bound to its
+ * conversation's document (#1148).
+ */
+const mcpDocumentToolNames = [
+  'read_document',
+  'get_outline',
+  'suggest_edit',
+  'list_comments',
+  'add_comment',
+  'resolve_comment',
+] as const
+
+export const MCP_DOCUMENT_ARG = 'document'
+export const MCP_DOCUMENT_ARG_MAX_LENGTH = 4096
+
+export function isMcpDocumentTool(name: string): boolean {
+  return (mcpDocumentToolNames as readonly string[]).includes(name)
+}
+
+const MCP_DOCUMENT_PROPERTY = {
+  type: 'string',
+  maxLength: MCP_DOCUMENT_ARG_MAX_LENGTH,
+  description:
+    'Optional. The document to act on: its documentId or path, as list_tabs reports them. It must be open in Prose ' +
+    '(open_file opens it). Omit it to act on the active tab. Targeting a document never switches the tab the writer sees.',
+}
+
+/** A tool's MCP input schema: its own, plus `document` on the document tools. */
+function mcpInputSchema(tool: ToolConfig): Record<string, unknown> {
+  const schema = zodToJsonSchema(tool.schema)
+  if (!isMcpDocumentTool(tool.name)) return schema
+  const properties = (schema.properties as Record<string, unknown> | undefined) ?? {}
+  return { ...schema, properties: { ...properties, [MCP_DOCUMENT_ARG]: MCP_DOCUMENT_PROPERTY } }
+}
+
 /** One tool as `tools/list` advertises it over MCP. */
 export interface McpToolDefinition {
   name: string
@@ -138,7 +176,8 @@ export interface McpToolDefinition {
 /**
  * Get tools formatted for the MCP servers (stdio bridge and HTTP): the MCP
  * subset, with the MCP description where one exists, a display title, the
- * behaviour annotations and the output schema of a successful result.
+ * input schema (plus `document` on the document tools), the behaviour
+ * annotations and the output schema of a successful result.
  */
 export function getToolsForMCP(): McpToolDefinition[] {
   return allTools
@@ -149,7 +188,7 @@ export function getToolsForMCP(): McpToolDefinition[] {
         name: tool.name,
         title: meta.annotations.title,
         description: meta.description ?? tool.description,
-        inputSchema: zodToJsonSchema(tool.schema),
+        inputSchema: mcpInputSchema(tool),
         outputSchema: meta.outputSchema,
         annotations: meta.annotations
       }

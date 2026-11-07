@@ -78,6 +78,15 @@ interface SettingsBase {
   recovery?: {
     mode: 'silent' | 'prompt'
   }
+  /**
+   * The writer's identity on their own records (#1232). The name labels "you"
+   * in comments and Activity; the email stays on this Mac (it is in no record,
+   * MCP result, share push or relay call). Both optional.
+   */
+  user?: {
+    name?: string
+    email?: string
+  }
   defaultSaveDirectory?: string
   masDirectoryBookmark?: string
   remarkable?: {

@@ -26,6 +26,8 @@ import { aiUnavailableMessage } from '../lib/llm'
 import { selectThreads } from '../extensions/comments'
 import { useActiveSession } from '../document/useActiveSession'
 import type { CommentData, CommentReply } from '../extensions/comments/types'
+import { SELF, actorLabel, actorOfComment, isAgentActor } from '../../shared/review/actor'
+import { useSelfName } from '../hooks/useSelfName'
 import { formatAge } from '../types/annotations'
 import { generateId } from '../lib/persistence'
 import { renderMarkdown } from './chat/ChatMessage'
@@ -276,6 +278,7 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
     const reply: CommentReply = {
       id: generateId(),
       author: 'user',
+      actor: SELF,
       text,
       createdAt: Date.now(),
     }
@@ -294,6 +297,8 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
     [handleAddReply]
   )
 
+  // Read before the early return: a hook after it would change the hook order when the popover opens.
+  const selfName = useSelfName()
   if (!popover.isOpen) return null
 
   const replies = currentComment?.replies ?? []
@@ -302,9 +307,10 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
   const quote = currentComment?.markedText?.trim()
   const commentText = currentComment?.comment || popover.commentText
   const commentAge = currentComment?.createdAt ? formatAge(currentComment.createdAt) : ''
-  // The top-level comment can be AI-authored (left via add_comment) — render it
-  // under the Prose identity, like a reply, instead of "You".
-  const commentIsAI = currentComment?.author === 'ai'
+  // The top-level comment can be agent-authored (left via add_comment) — name
+  // its actor (#1232) and render it as markdown, like an agent reply.
+  const commentActor = currentComment ? actorOfComment(currentComment) : SELF
+  const commentIsAI = isAgentActor(commentActor)
   const isThinking = processingId !== null && processingId === popover.commentId && isStreaming
   // Resolved threads collapse their reply list until the user expands it.
   const repliesVisible = !isResolved || showResolvedThread
@@ -421,10 +427,8 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
             <Avatar kind={commentIsAI ? 'ai' : 'user'} />
             <div className="min-w-0 flex-1">
               <div className="mb-0.5 flex items-baseline gap-2">
-                <span className="text-xs font-semibold text-foreground">
-                  {commentIsAI
-                    ? 'Prose'
-                    : currentComment?.authorName || 'You'}
+                <span className="text-xs font-semibold text-foreground" data-testid="comment-actor">
+                  {actorLabel(commentActor, { selfName })}
                 </span>
                 {commentAge && <span className="text-[11px] text-muted-foreground">{commentAge}</span>}
               </div>
@@ -603,13 +607,15 @@ function Avatar({ kind }: { kind: 'ai' | 'user' }) {
 }
 
 function ReplyRow({ reply, editor }: { reply: CommentReply; editor: Editor }) {
-  const isAI = reply.author === 'ai'
+  const selfName = useSelfName()
+  const actor = actorOfComment(reply)
+  const isAI = isAgentActor(actor)
   return (
     <div className="flex items-start gap-2.5 border-t border-border/50 py-2.5">
       <Avatar kind={isAI ? 'ai' : 'user'} />
       <div className="min-w-0 flex-1">
         <div className="mb-0.5 flex items-baseline gap-2">
-          <span className="text-xs font-semibold text-foreground">{isAI ? 'Prose' : reply.authorName || 'You'}</span>
+          <span className="text-xs font-semibold text-foreground" data-testid="reply-actor">{actorLabel(actor, { selfName })}</span>
           <span className="text-[11px] text-muted-foreground">{formatAge(reply.createdAt)}</span>
         </div>
         {/* AI replies are markdown (rendered like chat); user replies stay literal. */}

@@ -70,13 +70,14 @@ const tabSummary = object(
 export const MCP_TOOL_METADATA: Record<string, McpToolMetadata> = {
   read_document: {
     description:
-      'Get the active document as a structured node tree, each node with a unique ID. Returns { nodes: DocumentNode[], markdown }. ' +
+      'Get a document as a structured node tree, each node with a unique ID: the active tab, or the open document `document` ' +
+      'names. Returns { nodes: DocumentNode[], markdown }. ' +
       'DocumentNode shape: { id, type, content, children?: DocumentNode[] }. Container nodes (blockquote, bulletList, orderedList, ' +
       'listItem, taskItem) carry a children array with their nested nodes; their content is the concatenated text of all descendants. ' +
       'Leaf nodes (paragraph, heading, codeBlock) have no children. A table appears as one node of type \'table\' with an empty id: its ' +
       'content is the whole table as GFM, and its children are the paragraphs inside its cells. Tables cannot take suggestions; ' +
       'comment on them instead. Node IDs are required for suggest_edit and add_comment — always target the most specific (innermost) ' +
-      'node, not a container. If the document has frontmatter, a synthetic node with id: \'frontmatter\', type: \'frontmatter\' is ' +
+      'node, not a container, and pass the same `document` you read. If the document has frontmatter, a synthetic node with id: \'frontmatter\', type: \'frontmatter\' is ' +
       'prepended to the nodes array — call suggest_edit with nodeId: \'frontmatter\' and the COMPLETE new YAML (with or without --- ' +
       'fences) to propose frontmatter changes; do not try to address individual fields.',
     annotations: { title: 'Read document', readOnlyHint: true, openWorldHint: false },

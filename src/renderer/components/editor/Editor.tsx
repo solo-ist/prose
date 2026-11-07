@@ -753,7 +753,7 @@ export function Editor() {
           from: pendingPasteAnnotation.from,
           to: annotationTo,
           content: pendingPasteAnnotation.text,
-          provenance: { model: 'External AI', conversationId: 'paste', messageId },
+          provenance: { model: 'External AI', conversationId: 'paste', messageId, actor: { kind: 'unattributed', label: 'External AI' } },
           explanation: 'Marked pasted text as AI-authored',
         },
       ])

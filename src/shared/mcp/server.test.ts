@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { fromJsonSchema } from '@modelcontextprotocol/server'
-import { allTools, getToolsForMCP, mcpToolNames } from '../tools/registry'
+import { allTools, getToolsForMCP, isMcpDocumentTool, mcpToolNames } from '../tools/registry'
 import { MCP_TOOL_METADATA } from '../tools/mcpMetadata'
 import { PROSE_MCP_INSTRUCTIONS } from './instructions'
 import { toCallToolResult } from './server'
@@ -60,6 +60,13 @@ describe('MCP tool metadata', () => {
     expect(tool.outputSchema.type).toBe('object')
     for (const payload of SUCCESS_PAYLOADS[name]) {
       expect(await accepts(tool.outputSchema, payload)).toBe(true)
+    }
+  })
+
+  it('document tools keep their `document` target (#1237) beside the output schema', () => {
+    for (const tool of getToolsForMCP()) {
+      const properties = (tool.inputSchema.properties ?? {}) as Record<string, unknown>
+      expect({ tool: tool.name, document: 'document' in properties }).toEqual({ tool: tool.name, document: isMcpDocumentTool(tool.name) })
     }
   })
 

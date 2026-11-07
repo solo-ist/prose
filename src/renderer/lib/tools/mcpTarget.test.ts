@@ -73,6 +73,17 @@ describe('the MCP tool list', () => {
       .filter((t) => (t.inputSchema.properties as Record<string, unknown> | undefined)?.document)
       .map((t) => t.name)
       .sort()
-    expect(withTarget).toEqual(['add_comment', 'get_outline', 'list_comments', 'read_document', 'resolve_comment', 'suggest_edit'])
+    expect(withTarget).toEqual([
+      'add_comment', 'get_outline', 'get_review_status', 'list_comments', 'list_review_events', 'list_suggestions',
+      'read_document', 'reopen_comment', 'reply_to_comment', 'reply_to_suggestion', 'resolve_comment', 'revise_suggestion',
+      'suggest_edit',
+    ])
+  })
+
+  it('keeps accept and reject off the MCP surface: the writer decides (#607)', () => {
+    const names = getToolsForMCP().map((t) => t.name)
+    expect(names).not.toContain('accept_diff')
+    expect(names).not.toContain('reject_diff')
+    expect(names).toEqual(expect.arrayContaining(['list_suggestions', 'reply_to_suggestion', 'revise_suggestion', 'get_review_status', 'list_review_events', 'reply_to_comment', 'reopen_comment']))
   })
 })

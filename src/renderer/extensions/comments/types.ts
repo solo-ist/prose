@@ -3,11 +3,19 @@
  * occurrenceIndex; `CommentData` is the thread the plugin state holds.
  */
 
+import type { Actor } from '../../../shared/review/actor'
+
 /** A single reply within a comment thread. */
 export interface CommentReply {
   id: string
   /** 'user' for human replies, 'ai' for AI-generated replies. */
   author: 'user' | 'ai'
+  /**
+   * Who wrote the reply (#1232). Missing on rows from before 1.9.1 and on share
+   * pulls: read it through `actorOfComment`, which derives it from `author` and
+   * `authorName`. `author` stays written for the share wire format.
+   */
+  actor?: Actor
   text: string
   createdAt: number
   /**
@@ -38,6 +46,8 @@ export interface CommentData {
    * older data → treated as 'user'.
    */
   author?: 'user' | 'ai'
+  /** Who wrote the comment (#1232); read through `actorOfComment`, as for replies. */
+  actor?: Actor
   /**
    * Display name for threads that arrived from a share reviewer (#768/#769) —
    * via the gateway or an annotated-artifact import. Missing → the thread was

@@ -20,6 +20,7 @@ import type { Transaction } from '@tiptap/pm/state'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import type { AIAnnotation, AIAnnotationOptions } from '../../types/annotations'
+import { actorLabel, actorOfProvenance } from '../../../shared/review/actor'
 import { calculateOpacity, formatAge, ANNOTATION_CONSTANTS } from '../../types/annotations'
 import { getIdentity, IDENTITY_META, RELOAD_META } from '../../document/identity'
 import { pipelineLog } from '../../lib/aiPipelineLog'
@@ -73,7 +74,8 @@ function showTooltip(annotation: AIAnnotation, event: MouseEvent) {
 
   const model = document.createElement('div')
   model.className = 'ai-annotation-tooltip-model'
-  model.textContent = annotation.provenance.model
+  // Who proposed the text (#1232), not a bare model id.
+  model.textContent = actorLabel(actorOfProvenance(annotation.provenance.model, annotation.provenance.actor))
 
   const time = document.createElement('div')
   time.className = 'ai-annotation-tooltip-time'

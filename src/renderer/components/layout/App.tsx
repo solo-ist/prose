@@ -801,6 +801,9 @@ export function App() {
             conversationId: requestId,
             messageId: requestId,
             documentId: documentId ?? '',
+            // Until connections (#1236) let main name the client, every MCP
+            // call is the bundled bridge's (#1232).
+            actor: { kind: 'mcp-agent', connectionId: 'launch', connectionLabel: 'MCP client' },
           },
           target.binding,
           { preserveView: true }

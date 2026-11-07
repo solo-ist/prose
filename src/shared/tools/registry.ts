@@ -9,6 +9,7 @@ import { fileTools } from './schemas/file'
 import { uiTools } from './schemas/ui'
 import { tabTools } from './schemas/tabs'
 import { zodToJsonSchema } from './utils'
+import { MCP_TOOL_METADATA, type McpToolAnnotations } from './mcpMetadata'
 
 /**
  * All registered tools.
@@ -97,10 +98,11 @@ export function getToolsForClaudeAPI(mode: ToolMode = 'create'): Array<{
 }
 
 /**
- * Tools exposed via MCP server.
- * Focused subset for Claude Desktop integration.
+ * Tools exposed via MCP server: the focused subset every MCP client sees
+ * (stdio, HTTP). `MCP_TOOL_METADATA` (mcpMetadata.ts) carries each one's
+ * title, annotations, output schema and any MCP-specific description.
  */
-const mcpToolNames = [
+export const mcpToolNames = [
   'read_document',
   'get_outline',
   'open_file',
@@ -160,20 +162,35 @@ function mcpInputSchema(tool: ToolConfig): Record<string, unknown> {
   return { ...schema, properties: { ...properties, [MCP_DOCUMENT_ARG]: MCP_DOCUMENT_PROPERTY } }
 }
 
-/**
- * Get tools formatted for MCP server.
- * Returns a focused subset of tools for Claude Desktop integration.
- */
-export function getToolsForMCP(): Array<{
+/** One tool as `tools/list` advertises it over MCP. */
+export interface McpToolDefinition {
   name: string
+  title: string
   description: string
   inputSchema: Record<string, unknown>
-}> {
+  outputSchema: Record<string, unknown>
+  /** `title` repeats here for clients older than the top-level tool title (2025-06-18). */
+  annotations: McpToolAnnotations
+}
+
+/**
+ * Get tools formatted for the MCP servers (stdio bridge and HTTP): the MCP
+ * subset, with the MCP description where one exists, a display title, the
+ * input schema (plus `document` on the document tools), the behaviour
+ * annotations and the output schema of a successful result.
+ */
+export function getToolsForMCP(): McpToolDefinition[] {
   return allTools
     .filter((tool) => (mcpToolNames as readonly string[]).includes(tool.name))
-    .map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      inputSchema: mcpInputSchema(tool)
-    }))
+    .map((tool) => {
+      const meta = MCP_TOOL_METADATA[tool.name]
+      return {
+        name: tool.name,
+        title: meta.annotations.title,
+        description: meta.description ?? tool.description,
+        inputSchema: mcpInputSchema(tool),
+        outputSchema: meta.outputSchema,
+        annotations: meta.annotations
+      }
+    })
 }

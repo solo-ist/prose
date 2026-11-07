@@ -61,7 +61,7 @@ if (process.env.PROSE_USER_DATA_DIR || is.dev) {
 }
 import { setupIpcHandlers } from './ipc'
 import { createMenu } from './menu'
-import { getMcpHttpServer, getMcpBridge, getMcpSocketServer, MCP_HTTP_PORT } from './mcp'
+import { getMcpHttpServer, getMcpBridge, getMcpSocketServer, mcpHttpPort, proseVersion } from './mcp'
 import { initializeSpellcheck, setupContextMenu } from './spellcheck'
 import { initAutoUpdater } from './updater'
 import { IS_MAS_BUILD } from './env'
@@ -546,16 +546,18 @@ app.whenReady().then(async () => {
     console.warn('[Main] Failed to write MCP auth token:', err)
   }
 
-  // Start HTTP/SSE server for MCP communication (Claude Desktop connects here)
+  // Start the Streamable HTTP MCP endpoint (clients that connect by URL;
+  // Claude Desktop's stdio bridge uses the socket below). The installed app
+  // and unpackaged runs default to different ports (mcpHttpPort).
   // MAS builds use sandbox, which prohibits network.server — skip HTTP server
   const isMAS = IS_MAS_BUILD
   const mcpServer = isMAS ? null : getMcpHttpServer()
-  const MCP_PORT = MCP_HTTP_PORT
+  const MCP_PORT = mcpHttpPort(app.isPackaged)
   let mcpStarted = false
   if (mcpServer) {
     mcpServer.setAuthToken(mcpAuthToken)
     try {
-      await mcpServer.start()
+      await mcpServer.start({ port: MCP_PORT, version: proseVersion() })
       mcpStarted = true
       console.log(`[Main] MCP HTTP server started on port ${MCP_PORT}`)
     } catch (err) {

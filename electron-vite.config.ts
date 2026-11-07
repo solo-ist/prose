@@ -31,7 +31,7 @@ export default defineConfig(async () => {
         sourcemap: true,
         rollupOptions: {
           external: [
-            /^@modelcontextprotocol\/sdk/,
+            /^@modelcontextprotocol\//,
             'zod-to-json-schema'
           ]
         }

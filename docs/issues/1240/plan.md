@@ -107,3 +107,7 @@ settings object); `webApi` stubs the three calls.
 - **Review 2** (issues-found): `testApiKey` and `fetchModels` switch on the transport with no `default`; a second
   transport would have fallen through to `undefined`. Both now end in an exhaustive `never` default (checked: widening
   `ProviderTransport` fails to compile at both). `browserApi.setLlmKey` takes main's 4096-character ceiling.
+- **Review 3** (issues-found, none blocking): `llm:chat`, `llm:stream` and `emoji:generate` also speak Anthropic
+  whatever the transport, so each now refuses a non-Anthropic transport through the same `never` check (widening
+  `ProviderTransport` fails to compile at all five sites); `llm:stream` returns early for an unknown provider; the
+  `llm:clearKey` comment names the invariant (the plaintext `llm.apiKey` field only ever held the Anthropic key).

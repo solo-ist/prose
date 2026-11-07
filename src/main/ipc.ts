@@ -962,7 +962,9 @@ export function setupIpcHandlers(): void {
       console.error('[llm:clearKey] Could not clear the key:', err)
     }
     // A plaintext key still in settings.json (secure storage unavailable, no
-    // write since launch) would come back at the next load; drop it now.
+    // write since launch) would come back at the next load; drop it now. The
+    // plaintext `llm.apiKey` field only ever held the Anthropic key (the only
+    // provider before 1.9.1); no other provider's key is ever written there.
     try {
       const onDisk = JSON.parse(await readFile(getSettingsPath(), 'utf-8')) as Settings & { llm?: { apiKey?: string } }
       if (provider === 'anthropic' && onDisk.llm?.apiKey) {
@@ -1095,6 +1097,12 @@ export function setupIpcHandlers(): void {
     if (!isProvider(request.provider)) throw new Error(`Unknown provider: ${request.provider}`)
     const apiKey = await resolveProviderKey(request.provider)
     if (!apiKey) throw new Error('No API key configured. Add one in Settings.')
+    const transport = getProvider(request.provider).transport
+    if (transport !== 'anthropic') {
+      // A transport added to ProviderTransport without a path here fails to compile.
+      const unhandled: never = transport
+      throw new Error(`Unhandled transport: ${unhandled as string}`)
+    }
 
     const { createAnthropic } = await import('@ai-sdk/anthropic')
     const { streamText } = await import('ai')
@@ -1154,23 +1162,30 @@ export function setupIpcHandlers(): void {
     const { streamId, tools: toolDefinitions } = request
     console.log('[LLM:stream] Starting stream:', streamId, 'tools:', toolDefinitions?.length || 0)
     // The key is main's to read (#1240); the request names only the provider.
-    const apiKey = isProvider(request.provider) ? await resolveProviderKey(request.provider) : null
+    if (!isProvider(request.provider)) {
+      event.sender.send('llm:stream:error', { streamId, error: `Unknown provider: ${request.provider}` })
+      return { success: false }
+    }
+    const apiKey = await resolveProviderKey(request.provider)
     if (!apiKey) {
-      event.sender.send('llm:stream:error', {
-        streamId,
-        error: isProvider(request.provider)
-          ? 'No API key configured. Add one in Settings.'
-          : `Unknown provider: ${request.provider}`
-      })
+      event.sender.send('llm:stream:error', { streamId, error: 'No API key configured. Add one in Settings.' })
       return { success: false }
     }
     const provider = getProvider(request.provider)
+    const transport = provider.transport
+    if (transport !== 'anthropic') {
+      // Both paths below speak Anthropic. A transport added to
+      // ProviderTransport without its own path here fails to compile.
+      const unhandled: never = transport
+      event.sender.send('llm:stream:error', { streamId, error: `Unhandled transport: ${unhandled as string}` })
+      return { success: false }
+    }
 
     const abortController = new AbortController()
     activeStreams.set(streamId, abortController)
 
     // For Anthropic with tools, use the Anthropic SDK directly to avoid AI SDK tool format issues
-    if (provider.transport === 'anthropic' && toolDefinitions && toolDefinitions.length > 0) {
+    if (toolDefinitions && toolDefinitions.length > 0) {
       console.log('[LLM:stream] Using direct Anthropic SDK for tool support')
       try {
         const Anthropic = (await import('@anthropic-ai/sdk')).default
@@ -1715,6 +1730,12 @@ export function setupIpcHandlers(): void {
 
       if (!apiKey) {
         return { emoji: null, error: 'no-api-key' }
+      }
+      const transport = provider.transport
+      if (transport !== 'anthropic') {
+        // A transport added to ProviderTransport without a path here fails to compile.
+        const unhandled: never = transport
+        return { emoji: null, error: `Unhandled transport: ${unhandled as string}` }
       }
 
       const Anthropic = (await import('@anthropic-ai/sdk')).default

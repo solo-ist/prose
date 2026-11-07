@@ -29,6 +29,7 @@ import { ProseSkillIntegration } from './ProseSkillIntegration'
 import { isWebMode } from '../../lib/browserApi'
 import { cn } from '../../lib/utils'
 import { isMasBuild } from '../../lib/featureFlags'
+import { AppStoreImportSettingsRow } from '../appStoreImport/AppStoreImportDialogs'
 import type { Settings } from '../../types'
 import { Eye, EyeOff, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
 import { getModelsForProvider, getDefaultModel, type LLMProvider } from '../../../shared/llm/models'
@@ -408,6 +409,8 @@ export function SettingsDialog() {
                 }}
               />
             </div>
+
+            <AppStoreImportSettingsRow />
           </TabsContent>
 
           <TabsContent value="appearance" className="mt-4 overflow-y-auto flex-1 min-h-0 flex flex-col px-0 mx-0" ref={appearanceTabRef}>

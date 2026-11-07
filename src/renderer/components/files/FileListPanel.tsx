@@ -262,6 +262,31 @@ export function FileListPanel() {
   const [rootDropOver, setRootDropOver] = useState(false)
   // The `..` row as a drop target (#1167): highlighted while a file is dragged over it.
   const [parentDropOver, setParentDropOver] = useState(false)
+  // Whether the `..` row can take a drop. Under the App Store sandbox the parent of
+  // the granted base folder is outside the grant, so a move there fails; probe it the
+  // way `navigateToParent` does and refuse the drop instead (#1222). The direct
+  // build can always reach the parent, so it never probes.
+  const [parentDroppable, setParentDroppable] = useState(true)
+  useEffect(() => {
+    if (!api.isMasBuild) return
+    const parentPath = rootPath?.split('/').slice(0, -1).join('/')
+    if (!parentPath) {
+      setParentDroppable(false)
+      return
+    }
+    let cancelled = false
+    setParentDroppable(false)
+    void Promise.resolve(api.listDirectory(parentPath, 1))
+      .then((files) => {
+        if (!cancelled) setParentDroppable(Array.isArray(files) && files.length > 0)
+      })
+      .catch(() => {
+        if (!cancelled) setParentDroppable(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [api, rootPath])
   // Notebook folder expand/collapse state lives in fileListStore so it
   // survives panel unmount (Shift+Cmd+H). Synced folders default open,
   // unsynced default closed — membership in the Set means "toggled".
@@ -1440,18 +1465,22 @@ export function FileListPanel() {
                       // A file dropped here moves up one folder (#1167). The events stop
                       // here so the list container's own drop, into the shown folder,
                       // does not run as well. The button is absent at a project's root,
-                      // so there is no drop target past the ceiling.
+                      // so there is no drop target past the ceiling. A parent the app
+                      // cannot reach (the MAS sandbox) takes no drop: the events still
+                      // stop here, but without preventDefault the drop is not allowed.
                       onDragOver={(e) => {
                         if (e.dataTransfer.types.includes('application/prose-file-path')) {
-                          e.preventDefault()
                           e.stopPropagation()
+                          if (!parentDroppable) return
+                          e.preventDefault()
                           e.dataTransfer.dropEffect = 'move'
                         }
                       }}
                       onDragEnter={(e) => {
                         if (e.dataTransfer.types.includes('application/prose-file-path')) {
-                          e.preventDefault()
                           e.stopPropagation()
+                          if (!parentDroppable) return
+                          e.preventDefault()
                           setParentDropOver(true)
                         }
                       }}
@@ -1465,7 +1494,7 @@ export function FileListPanel() {
                         setParentDropOver(false)
                         const sourcePath = e.dataTransfer.getData('application/prose-file-path')
                         const parentPath = rootPath?.split('/').slice(0, -1).join('/')
-                        if (sourcePath && parentPath) handleFileDrop(sourcePath, parentPath)
+                        if (sourcePath && parentPath && parentDroppable) handleFileDrop(sourcePath, parentPath)
                       }}
                     >
                       <ChevronUp className="h-4 w-4 shrink-0" />

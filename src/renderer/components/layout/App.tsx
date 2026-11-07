@@ -18,6 +18,7 @@ import { ModelPickerDialog } from '../ModelPickerDialog'
 import { APP_VERSION } from '../../buildInfo.generated'
 import { OnboardingDialog } from '../onboarding/OnboardingDialog'
 import { ReleaseNotesDialog } from '../releaseNotes/ReleaseNotesDialog'
+import { releaseNotesIds } from '../releaseNotes/notesId'
 import { EnableLoggingDialog } from '../EnableLoggingDialog'
 import { Notifications } from './Notifications'
 import {
@@ -489,7 +490,11 @@ export function App() {
     void (async () => {
       // No notes bundled for this build (a local build, a hotfix tag) is a normal
       // outcome: record the version and stay quiet rather than show an empty modal.
-      const notes = await getApi().getReleaseNotes?.(APP_VERSION).catch(() => null)
+      let notes: { markdown: string } | null = null
+      for (const id of releaseNotesIds(APP_VERSION, getApi().isMasBuild === true)) {
+        notes = (await getApi().getReleaseNotes?.(id).catch(() => null)) ?? null
+        if (notes?.markdown) break
+      }
       if (cancelled) return
       if (!notes?.markdown) {
         setLastSeenVersion(APP_VERSION)
@@ -807,7 +812,8 @@ export function App() {
         data-color={effectiveColor}
       >
         <Toolbar />
-        <UpdateBanner />
+        {/* The App Store updates the MAS build; its updater never starts (#1222). */}
+        {!getApi().isMasBuild && <UpdateBanner />}
 
         <div className="flex-1 overflow-hidden">
           <ResizablePanelGroup

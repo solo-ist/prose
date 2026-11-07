@@ -27,6 +27,8 @@ import { McpIntegration } from './McpIntegration'
 import { AccountSection } from '../account/AccountSection'
 import { ProseSkillIntegration } from './ProseSkillIntegration'
 import { isWebMode } from '../../lib/browserApi'
+import { cn } from '../../lib/utils'
+import { isMasBuild } from '../../lib/featureFlags'
 import type { Settings } from '../../types'
 import { Eye, EyeOff, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
 import { getModelsForProvider, getDefaultModel, type LLMProvider } from '../../../shared/llm/models'
@@ -173,6 +175,13 @@ export function SettingsDialog() {
     }
   }, [isDialogOpen])
 
+  // The App Store build has no account (sharing is direct-download only) and no
+  // integrations (MCP, the Claude skill and reMarkable are all off there), so it is
+  // not offered those tabs at all rather than shown them empty (#1222). A request
+  // for one of them (a stale `dialogTab`, a caller naming it) renders General.
+  const isMas = isMasBuild()
+  const activeTab = isMas && (dialogTab === 'integrations' || dialogTab === 'account') ? 'general' : dialogTab
+
   const handleSave = async () => {
     await saveSettings()
     setDialogOpen(false)
@@ -192,7 +201,7 @@ export function SettingsDialog() {
       account: accountTabRef
     }
 
-    const outgoingRef = tabRefs[dialogTab]
+    const outgoingRef = tabRefs[activeTab]
     if (outgoingRef?.current) {
       outgoingRef.current.scrollTop = 0
     }
@@ -247,14 +256,14 @@ export function SettingsDialog() {
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
 
-        <Tabs value={dialogTab} onValueChange={handleTabChange} className="mt-4 flex-1 min-h-0 flex flex-col">
-          <TabsList className="grid w-full grid-cols-6 shrink-0">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="mt-4 flex-1 min-h-0 flex flex-col">
+          <TabsList className={cn('grid w-full shrink-0', isMas ? 'grid-cols-4' : 'grid-cols-6')} data-testid="settings-tabs">
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="appearance">Appearance</TabsTrigger>
             <TabsTrigger value="editor">Editor</TabsTrigger>
             <TabsTrigger value="llm">LLM</TabsTrigger>
-            <TabsTrigger value="integrations">Integrations</TabsTrigger>
-            <TabsTrigger value="account">Account</TabsTrigger>
+            {!isMas && <TabsTrigger value="integrations">Integrations</TabsTrigger>}
+            {!isMas && <TabsTrigger value="account">Account</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="general" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={generalTabRef}>
@@ -684,31 +693,35 @@ export function SettingsDialog() {
 
           </TabsContent>
 
+          {!isMas && (
           <TabsContent value="integrations" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={integrationsTabRef}>
-            {!isWebMode() && !window.api?.isMasBuild && <McpIntegration />}
-            {!isWebMode() && !window.api?.isMasBuild && <Separator />}
-            {!isWebMode() && !window.api?.isMasBuild && <ProseSkillIntegration />}
-            {!isWebMode() && !window.api?.isMasBuild && <Separator />}
-            {!isWebMode() && !window.api?.isMasBuild && (
+            {!isWebMode() && <McpIntegration />}
+            {!isWebMode() && <Separator />}
+            {!isWebMode() && <ProseSkillIntegration />}
+            {!isWebMode() && <Separator />}
+            {!isWebMode() && (
               <RemarkableIntegration
                 settings={settings}
                 setRemarkableConfig={setRemarkableConfig}
               />
             )}
-            {/* All three integrations (Mcp, ProseSkill, Remarkable) are gated
-                to desktop, non-MAS builds — without this fallback, web and MAS
-                users land on a completely empty Integrations tab with no
-                explanation when they click into it. */}
-            {(isWebMode() || window.api?.isMasBuild) && (
+            {/* All three integrations (Mcp, ProseSkill, Remarkable) are desktop
+                only — without this fallback, web users land on a completely empty
+                Integrations tab with no explanation. MAS builds get no
+                Integrations tab at all (#1222). */}
+            {isWebMode() && (
               <p className="text-sm text-muted-foreground">
                 No integrations are available in this build.
               </p>
             )}
           </TabsContent>
+          )}
 
+          {!isMas && (
           <TabsContent value="account" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={accountTabRef}>
             <AccountSection />
           </TabsContent>
+          )}
         </Tabs>
 
         <Separator className="my-4 shrink-0" />

@@ -17,7 +17,7 @@ import { buildProseHtml } from '../../lib/htmlExport'
 import { mergeCommentsForPersistence, threadsOf } from '../../extensions/comments'
 import { extractFirstH1 } from '../../lib/markdown'
 import { useTabTier } from '../../hooks/useTabTier'
-import { useWebPlatformEnabled } from '../../lib/featureFlags'
+import { MAS_SUPPORT_URL, useWebPlatformEnabled } from '../../lib/featureFlags'
 import { ShareDialog } from '../share/ShareDialog'
 import { useShareStore } from '../../stores/shareStore'
 import { Button } from '../ui/button'
@@ -302,7 +302,7 @@ export function Toolbar() {
         ? [{ id: 'download-skill', label: 'Download Skill', icon: <Sparkles />, onSelect: () => downloadSkillWithAlert() }]
         : []),
       ...(isMas
-        ? [{ id: 'support', label: 'Request Support', icon: <LifeBuoy />, separatorBefore: true, onSelect: () => window.open('https://solo.ist/prose/support', '_blank', 'noopener,noreferrer') }]
+        ? [{ id: 'support', label: 'Request Support', icon: <LifeBuoy />, separatorBefore: true, onSelect: () => window.open(MAS_SUPPORT_URL, '_blank', 'noopener,noreferrer') }]
         : [{ id: 'report-bug', label: 'Report a Bug', icon: <Bug />, separatorBefore: true, onSelect: () => requestBugReport('https://github.com/solo-ist/prose/issues/new?template=bug-report.yml') }]),
       { id: 'request-feature', label: 'Request a Feature', icon: <MessageSquarePlus />, onSelect: () => window.open('https://github.com/solo-ist/prose/issues/new?template=feature-request.yml', '_blank', 'noopener,noreferrer') },
       { id: 'discuss-ideas', label: 'Discuss Ideas', icon: <MessagesSquare />, onSelect: () => window.open('https://github.com/solo-ist/prose/discussions/categories/ideas', '_blank', 'noopener,noreferrer') },

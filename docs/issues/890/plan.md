@@ -41,3 +41,12 @@ e2e `electron.mcp-review.spec.ts` (port 9235), with calls delivered as the bridg
 10. A second `suggest_edit` on a node supersedes the first instead of rejecting it.
 
 The spec is falsified on the merge-base. Unit tests cover the tool list and modes (registry).
+
+## Execution log
+
+- **2026-11-07.** `1dcc32f` plan, then the change and spec, stacked on P2's branch.
+- **Checks:**
+  - `typecheck:renderer` 66 and `typecheck:e2e` 6, both the same as the base.
+  - Unit tests: 209.
+  - `electron.mcp-review.spec.ts` passes 3/3 on the branch and **fails 3/3 on the P2 base**: the tools are unknown there, and a second suggestion replaced the first as a rejection.
+  - Regression set: path containment, MCP targeting, socket and status, suggestions and the popover, review log, provenance, AI provenance, Activity, sessions and comments. 67 passed.

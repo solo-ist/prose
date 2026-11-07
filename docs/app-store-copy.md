@@ -80,15 +80,23 @@ markdown,editor,writing,AI,Claude,plain text,distraction free,notes,open source,
 
 ## What's New
 
-Prose is now 100% **free**. This release also brings:
+Version 1.9.0, the first App Store update since 1.6.5, so it covers 1.7.0 through 1.9.0. App Store Connect shows
+this field as plain text (4000 characters at most): paste the block below as is. Nothing in it may name a feature
+the App Store build gates off (sharing, sign-in, Claude Desktop, reMarkable, auto-update) or another edition of
+the app. The in-app "What's new" window reads `resources/release-notes/1.9.0-mas.md`, the longer version.
 
-- **New Chat Modes** — Three modes: chat, editor, and create, each putting you in control without letting AI take over your writing.
-- **Improved AI tracking** — Keep track of every AI edit with clean visual highlights.
-- **AI edits history** — A permanent per-document ledger of every accepted AI change, including the reason for the change and the AI model that made it.
-- **Suggestion Review Redesign** — Speed through AI suggestions with Quick Review mode, or dig in with a full side-by-side diff.
-- **Projects & Favorites** — Pin the folders and files you work in most.
-- **Export to HTML** — Need an easy way to share what you've got? Export to a self-contained HTML file with the markdown embedded for round-trip editing.
-- **UI Tweaks Galore** — Code-block syntax highlighting, refreshed selection styling, live word/character count, sharper comment placement, and a batch of editor and stability fixes.
+```text
+Prose 1.9.0 is a big polish release, and the first App Store update since 1.6.5.
+
+• Tables — Insert and edit tables right in the editor: add, move and delete rows and columns, or type a pipe table to create one. Tables always save as plain markdown.
+• Tabs keep your place — Every tab keeps its own caret, scroll position, undo history, comments and AI highlights. Source mode is per tab, too, and an untouched toggle changes nothing.
+• Your files are safer — Prose notices when an open file changes on disk. Clean tabs reload, and unsaved work gets a conflict prompt instead of being overwritten.
+• Markdown stays as written — Pipes in table cells, code blocks inside lists, superscript and subscript, and images with spaces in their names all survive a save.
+• Comments stay put — Comments and AI highlights stay on their text through edits, tab switches, source mode and relaunches.
+• A guided first run — New installs set up AI, an API key that is verified before it is saved, and the default app in one short walkthrough.
+• Smaller things — A copy button on code blocks, a blockquote button, a choice of bullet style, Duplicate and move in the file explorer, open and save dialogs that remember their folder, and a "What's new" window after each update.
+• Under the hood — Electron 45 and a full security update. Prose now requires macOS 13 or later.
+```
 
 ---
 

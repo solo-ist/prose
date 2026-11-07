@@ -88,3 +88,19 @@ settings object); `webApi` stubs the three calls.
 - Must stay green: onboarding, settings-account, document-sessions (the chat cases seed a plaintext key),
   ai-provenance, ai-edit-lifecycle, screenshot-chat, web.chat-llm.
 - Baselines: `typecheck:renderer` 69, `tsc -p tsconfig.node.json` 24, `typecheck:e2e` 6.
+
+## Execution log
+
+- **2026-11-07.** `48ca3eb` plan · `3fe1ced` the change + tests · `8caffeb` CLAUDE.md + QA block A1
+  (`docs/qa/v1.9.1.md`). `typecheck:renderer` 69 = base (same error set); `tsc -p tsconfig.node.json` 23 (base 24);
+  unit 176 passed; `electron.llm-keys.spec.ts` 3/3 on the branch, **3/3 failing on a build of `84ba7bd`**; related
+  specs green (onboarding and document-sessions cases 11/12 from temporary copies on spare debug ports).
+  PR [#1247](https://github.com/solo-ist/prose/pull/1247). CI e2e green on the first run.
+- **Review 1** (issues-found, none blocking) → the follow-up commit:
+  - `clearProviderKey`'s unguarded `credentialStore.delete` is deliberate (it only unlinks, never throws, and must
+    remove a key saved while secure storage was available): documented, tested, and the IPC handler and the
+    store actions now catch;
+  - the `getProvider` fallback is documented as display-only (it keeps a newer build's settings rendering), with
+    every key-using path gated by `isProvider`; `emoji:generate` now gates too;
+  - `llm:setKey` reads the status once.
+  Unit 177 passed; the key and settings-account specs 8 passed.

@@ -471,14 +471,23 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
     if (typeof window === 'undefined' || !window.api?.setLlmKey) {
       return { ok: false, error: 'Keys cannot be saved in this build' }
     }
-    const result = await window.api.setLlmKey({ provider, key })
-    applyKeyStatus(set, result.status)
-    return result.ok ? { ok: true } : { ok: false, error: result.error }
+    try {
+      const result = await window.api.setLlmKey({ provider, key })
+      applyKeyStatus(set, result.status)
+      return result.ok ? { ok: true } : { ok: false, error: result.error }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'The key could not be saved' }
+    }
   },
 
   clearLlmKey: async (provider) => {
     if (typeof window === 'undefined' || !window.api?.clearLlmKey) return
-    applyKeyStatus(set, await window.api.clearLlmKey(provider))
+    try {
+      applyKeyStatus(set, await window.api.clearLlmKey(provider))
+    } catch (err) {
+      console.warn('[settings] clearLlmKey failed:', err)
+      return
+    }
     if (provider === get().settings.llm.provider) set({ fetchedModels: null, fetchedModelsAt: null })
   },
 

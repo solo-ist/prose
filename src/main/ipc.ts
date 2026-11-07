@@ -941,19 +941,26 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('llm:keyStatus', async () => keyStatusAll())
 
   ipcMain.handle('llm:setKey', async (_event, request: { provider?: unknown; key?: unknown }) => {
-    if (!isProvider(request?.provider)) return { ok: false, error: 'Unknown provider', status: await keyStatusAll() }
-    if (typeof request.key !== 'string') return { ok: false, error: 'API key is empty', status: await keyStatusAll() }
-    try {
-      await setProviderKey(request.provider, request.key)
-      return { ok: true, status: await keyStatusAll() }
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : 'Could not save the key', status: await keyStatusAll() }
+    let error: string | undefined
+    if (!isProvider(request?.provider)) error = 'Unknown provider'
+    else if (typeof request.key !== 'string') error = 'API key is empty'
+    else {
+      try {
+        await setProviderKey(request.provider, request.key)
+      } catch (err) {
+        error = err instanceof Error ? err.message : 'Could not save the key'
+      }
     }
+    return { ok: error === undefined, ...(error ? { error } : {}), status: await keyStatusAll() }
   })
 
   ipcMain.handle('llm:clearKey', async (_event, provider: unknown) => {
     if (!isProvider(provider)) return keyStatusAll()
-    await clearProviderKey(provider)
+    try {
+      await clearProviderKey(provider)
+    } catch (err) {
+      console.error('[llm:clearKey] Could not clear the key:', err)
+    }
     // A plaintext key still in settings.json (secure storage unavailable, no
     // write since launch) would come back at the next load; drop it now.
     try {
@@ -1686,7 +1693,11 @@ export function setupIpcHandlers(): void {
         settings = defaultSettings
       }
 
-      // The provider's key, read in main (#1240)
+      // The provider's key, read in main (#1240). A provider this build
+      // doesn't know (settings from a newer version) has no key here.
+      if (!isProvider(settings.llm.provider)) {
+        return { emoji: null, error: 'no-api-key' }
+      }
       const provider = getProvider(settings.llm.provider)
       const apiKey = await resolveProviderKey(provider.id)
 

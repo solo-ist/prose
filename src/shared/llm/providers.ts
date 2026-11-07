@@ -80,7 +80,15 @@ export function isProvider(id: unknown): id is LLMProvider {
   return typeof id === 'string' && Object.prototype.hasOwnProperty.call(PROVIDERS, id)
 }
 
-/** The provider's entry; an unknown id falls back to Anthropic, the default provider. */
+/**
+ * The provider's entry. An unknown id falls back to Anthropic, the default
+ * provider, so a settings file written by a newer build (naming a provider this
+ * one doesn't know) still renders instead of crashing. That makes the fallback
+ * a display convenience only: **any path that uses a key or calls a provider
+ * must gate with `isProvider` first**, as every main-process handler does, so
+ * an unknown id is refused rather than sent to Anthropic's base URL with
+ * Anthropic's key.
+ */
 export function getProvider(id: string): ProviderInfo {
   return isProvider(id) ? PROVIDERS[id] : PROVIDERS.anthropic
 }

@@ -58,6 +58,15 @@ describe('llmKeys (#1240)', () => {
     expect(await keyStatusAll()).toEqual({})
   })
 
+  it('clear runs without secure storage, and removes a key saved while it was available', async () => {
+    await setProviderKey('anthropic', KEY)
+    h.available = false
+    await expect(clearProviderKey('anthropic')).resolves.toBeUndefined()
+    expect(h.stored.has('llm-api-key')).toBe(false)
+    h.available = true
+    expect(await resolveProviderKey('anthropic')).toBeNull()
+  })
+
   it('clear forgets the key in both places', async () => {
     await setProviderKey('anthropic', KEY)
     h.available = false

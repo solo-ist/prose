@@ -47,7 +47,12 @@ export async function setProviderKey(provider: LLMProvider, key: string): Promis
   }
 }
 
-/** Forget a key everywhere it may live. */
+/**
+ * Forget a key everywhere it may live. The `credentialStore.delete` runs even
+ * when secure storage is unavailable, on purpose: it only unlinks the
+ * encrypted file (errors ignored, no safeStorage call, never throws), and a
+ * key saved while secure storage was available must still go.
+ */
 export async function clearProviderKey(provider: LLMProvider): Promise<void> {
   sessionKeys.delete(provider)
   await credentialStore.delete(getProvider(provider).credentialKey)

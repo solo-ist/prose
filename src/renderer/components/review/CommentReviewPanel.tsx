@@ -28,6 +28,8 @@ import { aiUnavailableMessage } from '../../lib/llm'
 import type { CommentReply } from '../../extensions/comments/types'
 import { formatAge } from '../../types/annotations'
 import { generateId } from '../../lib/persistence'
+import { SELF, actorLabel, actorOfComment, isAgentActor } from '../../../shared/review/actor'
+import { useSelfName } from '../../hooks/useSelfName'
 import { renderMarkdown } from '../chat/ChatMessage'
 import { PROSE_ICONS, IconThumb } from '../../lib/prose-icons'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -65,6 +67,9 @@ export function CommentReviewPanel({ onExit, onDone, initialThreadId, focusSeq }
   )
   const total = openThreads.length
   const current = total > 0 ? openThreads[Math.min(index, total - 1)] : undefined
+  const selfName = useSelfName()
+  const currentActor = current ? actorOfComment(current) : SELF
+  const currentIsAI = isAgentActor(currentActor)
 
   // Jump to a specific thread when entered (or re-targeted) via a card/popover
   // expand icon. Keyed on focusSeq — which bumps on every request — so clicking
@@ -133,7 +138,7 @@ export function CommentReviewPanel({ onExit, onDone, initialThreadId, focusSeq }
   const sendReply = useCallback(() => {
     const text = draft.trim()
     if (!text || !current) return
-    const reply: CommentReply = { id: generateId(), author: 'user', text, createdAt: Date.now() }
+    const reply: CommentReply = { id: generateId(), author: 'user', actor: SELF, text, createdAt: Date.now() }
     editor?.commands.replyToThread(current.id, reply)
     setDraft('')
     composerRef.current?.focus()
@@ -298,17 +303,15 @@ export function CommentReviewPanel({ onExit, onDone, initialThreadId, focusSeq }
             {/* Original comment — may be AI-authored (left via add_comment). */}
             <div className="px-4 pt-3.5 pb-1.5">
               <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/20 border-l-[3px] border-l-amber-500 bg-amber-500/[0.07] px-3 py-2.5">
-                <ReviewAvatar kind={current.author === 'ai' ? 'ai' : 'user'} />
+                <ReviewAvatar kind={currentIsAI ? 'ai' : 'user'} />
                 <div className="min-w-0 flex-1">
                   <div className="mb-0.5 flex items-baseline gap-2">
-                    <span className="text-xs font-semibold text-foreground">
-                      {current.author === 'ai'
-                        ? 'Prose'
-                        : current.authorName || 'You'}
+                    <span className="text-xs font-semibold text-foreground" data-testid="comment-review-actor">
+                      {actorLabel(currentActor, { selfName })}
                     </span>
                     <span className="text-[11px] text-muted-foreground">{formatAge(current.createdAt)}</span>
                   </div>
-                  {current.author === 'ai' ? (
+                  {currentIsAI ? (
                     <div className="prose-chat wrap-break-word text-[13px] leading-relaxed text-foreground/90">
                       {renderMarkdown(current.comment, editor)}
                     </div>
@@ -441,13 +444,15 @@ function ReviewAvatar({ kind }: { kind: 'ai' | 'user' }) {
 }
 
 function ReviewReplyRow({ reply, editor }: { reply: CommentReply; editor: ReturnType<typeof useEditorInstanceStore.getState>['editor'] }) {
-  const isAI = reply.author === 'ai'
+  const selfName = useSelfName()
+  const actor = actorOfComment(reply)
+  const isAI = isAgentActor(actor)
   return (
     <div className="flex items-start gap-2.5 border-t border-border/50 py-2.5">
       <ReviewAvatar kind={isAI ? 'ai' : 'user'} />
       <div className="min-w-0 flex-1">
         <div className="mb-0.5 flex items-baseline gap-2">
-          <span className="text-xs font-semibold text-foreground">{isAI ? 'Prose' : reply.authorName || 'You'}</span>
+          <span className="text-xs font-semibold text-foreground">{actorLabel(actor, { selfName })}</span>
           <span className="text-[11px] text-muted-foreground">{formatAge(reply.createdAt)}</span>
         </div>
         {isAI ? (

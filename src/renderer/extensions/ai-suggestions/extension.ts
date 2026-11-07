@@ -12,6 +12,7 @@ import { DOMParser as ProseMirrorDOMParser, Slice } from '@tiptap/pm/model'
 import type { Transaction } from '@tiptap/pm/state'
 import type { MarkSerializerSpec } from 'prosemirror-markdown'
 import type { AISuggestionOptions, AISuggestionData, SuggestionType } from './types'
+import type { Actor } from '../../../shared/review/actor'
 import { addAnnotationsTo, annotationsOf } from '../ai-annotations/transactions'
 import { buildWordDiffAnnotations } from '../../lib/diffUtils'
 import { pipelineLog } from '../../lib/aiPipelineLog'
@@ -212,6 +213,8 @@ declare module '@tiptap/core' {
         provenanceModel?: string
         provenanceConversationId?: string
         provenanceMessageId?: string
+        /** Who proposed it (#1232) */
+        actor?: Actor | null
         documentId?: string
         /** Raw markdown for a block-type conversion (#673); null/absent = text replacement */
         blockConversionIntent?: string | null
@@ -341,6 +344,14 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           return { 'data-provenance-message': attributes.provenanceMessageId }
         },
       },
+      // Who proposed it (#1232). State only: never rendered to the DOM (so it
+      // doesn't ride the clipboard) and never read back from HTML (so pasted
+      // markup can't claim an actor). The popover reads it from the state.
+      actor: {
+        default: null,
+        parseHTML: () => null,
+        renderHTML: () => ({}),
+      },
       documentId: {
         default: '',
         parseHTML: (element) => element.getAttribute('data-document-id'),
@@ -398,6 +409,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             createdAt: Date.now(),
             from,
             to,
+            actor: attrs.actor ?? null,
             blockConversionIntent: attrs.blockConversionIntent ?? null,
           }
 
@@ -411,6 +423,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             provenanceModel: attrs.provenanceModel || '',
             provenanceConversationId: attrs.provenanceConversationId || '',
             provenanceMessageId: attrs.provenanceMessageId || '',
+            actor: attrs.actor ?? null,
             documentId: attrs.documentId || '',
             blockConversionIntent: attrs.blockConversionIntent ?? null,
           })
@@ -570,6 +583,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             provenanceModel?: string
             provenanceConversationId?: string
             provenanceMessageId?: string
+            actor?: Actor | null
             documentId?: string
             originalText?: string
             explanation?: string
@@ -604,6 +618,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
               model,
               conversationId: attrs.provenanceConversationId || '',
               messageId: attrs.provenanceMessageId || '',
+              ...(attrs.actor ? { actor: attrs.actor } : {}),
             }
             if (conversion && conversion.singleTextblock) {
               // Converted node sits at its pre-replace position (nothing
@@ -726,6 +741,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             provenanceModel: string
             provenanceConversationId: string
             provenanceMessageId: string
+            actor: Actor | null
             documentId: string
           }> = []
 
@@ -762,6 +778,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
                     provenanceModel: mark.attrs.provenanceModel || '',
                     provenanceConversationId: mark.attrs.provenanceConversationId || '',
                     provenanceMessageId: mark.attrs.provenanceMessageId || '',
+                    actor: mark.attrs.actor ?? null,
                     documentId: mark.attrs.documentId || ''
                   })
                 }
@@ -853,6 +870,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
               model: suggestion.provenanceModel || 'unknown',
               conversationId: suggestion.provenanceConversationId,
               messageId: suggestion.provenanceMessageId,
+              ...(suggestion.actor ? { actor: suggestion.actor } : {}),
             }
             if (conversion && conversion.singleTextblock) {
               const base = tr.mapping.map(conversion.insertedAt, -1)
@@ -1000,6 +1018,7 @@ export function applySuggestionMarks(tr: Transaction, suggestions: AISuggestionD
       provenanceModel: suggestion.provenanceModel || '',
       provenanceConversationId: suggestion.provenanceConversationId || '',
       provenanceMessageId: suggestion.provenanceMessageId || '',
+      actor: suggestion.actor ?? null,
       documentId: suggestion.documentId || '',
       blockConversionIntent: suggestion.blockConversionIntent ?? null,
     })
@@ -1032,6 +1051,7 @@ export function getAISuggestions(editor: { state: { doc: PMNode } }): AISuggesti
           provenanceModel: mark.attrs.provenanceModel || undefined,
           provenanceConversationId: mark.attrs.provenanceConversationId || undefined,
           provenanceMessageId: mark.attrs.provenanceMessageId || undefined,
+          actor: mark.attrs.actor ?? undefined,
           documentId: mark.attrs.documentId || undefined,
           blockConversionIntent: mark.attrs.blockConversionIntent ?? null,
         })

@@ -10,7 +10,7 @@ import { useEditorStore } from '../../../stores/editorStore'
 import { useTabStore } from '../../../stores/tabStore'
 import { setTabFrontmatter } from '../../../tabs/actions'
 import type { ToolContext } from '../context'
-import type { ToolProvenance } from '../provenanceTypes'
+import { annotationProvenance, type ToolProvenance } from '../provenanceTypes'
 import { addAnnotationsTo, annotationsOf } from '../../../extensions/ai-annotations'
 import { buildWordDiffAnnotations } from '../../diffUtils'
 import { findNodeById, findNodeByContent, getNodesWithIds, flattenNodes } from '../../../extensions/node-ids'
@@ -485,11 +485,7 @@ export async function executeEdit(
         newText: inserted.text,
         rangeFrom: contentStart,
         rangeTo: inserted.end,
-        provenance: {
-          model: provenance.model,
-          conversationId: provenance.conversationId,
-          messageId: provenance.messageId,
-        },
+        provenance: annotationProvenance(provenance),
         explanation: comment,
         priorAnnotations,
       })
@@ -647,11 +643,7 @@ export async function executeInsert(
                 newText: text,
                 rangeFrom: insertFrom,
                 rangeTo: insertFrom + insertedSize,
-                provenance: {
-                  model: provenance.model,
-                  conversationId: provenance.conversationId,
-                  messageId: provenance.messageId,
-                },
+                provenance: annotationProvenance(provenance),
                 explanation: comment,
               })
             )
@@ -694,11 +686,7 @@ export async function executeInsert(
           newText: inserted.text,
           rangeFrom: insertFrom,
           rangeTo: inserted.end,
-          provenance: {
-            model: provenance.model,
-            conversationId: provenance.conversationId,
-            messageId: provenance.messageId,
-          },
+          provenance: annotationProvenance(provenance),
           explanation: comment,
         })
       )
@@ -757,11 +745,7 @@ function replaceTable(
         from,
         to: from + parsed.nodeSize,
         content: parsed.textContent,
-        provenance: {
-          model: provenance.model,
-          conversationId: provenance.conversationId,
-          messageId: provenance.messageId,
-        },
+        provenance: annotationProvenance(provenance),
         explanation: comment,
       },
     ])
@@ -1057,6 +1041,7 @@ export function executeSuggestEdit(
       suggestedText,
       explanation: comment || '',
       provenanceModel: provenance?.model || '',
+      actor: provenance?.actor ?? null,
       provenanceConversationId: provenance?.conversationId || '',
       provenanceMessageId: provenance?.messageId || '',
       documentId: handle.documentId,
@@ -1241,11 +1226,7 @@ export function executeDeleteNode(
         from,
         to: from,
         content: deletedText,
-        provenance: {
-          model: provenance.model,
-          conversationId: provenance.conversationId,
-          messageId: provenance.messageId,
-        },
+        provenance: annotationProvenance(provenance),
       },
     ])
   }

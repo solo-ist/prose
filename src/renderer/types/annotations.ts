@@ -5,6 +5,8 @@
  * with time-fading gradient visuals.
  */
 
+import type { Actor } from '../../shared/review/actor'
+
 /**
  * Type of AI text modification
  */
@@ -20,6 +22,11 @@ export interface AIProvenance {
   conversationId: string
   /** The specific message ID that contained the edit */
   messageId: string
+  /**
+   * Who proposed the text (#1232). Missing on rows from before 1.9.1: read it
+   * through `actorOfProvenance(model, actor)`.
+   */
+  actor?: Actor
 }
 
 /**

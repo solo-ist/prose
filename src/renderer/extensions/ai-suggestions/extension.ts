@@ -12,7 +12,9 @@ import { DOMParser as ProseMirrorDOMParser, Slice } from '@tiptap/pm/model'
 import type { Transaction } from '@tiptap/pm/state'
 import type { MarkSerializerSpec } from 'prosemirror-markdown'
 import type { AISuggestionOptions, AISuggestionData, SuggestionType } from './types'
-import type { Actor } from '../../../shared/review/actor'
+import { SELF, type Actor } from '../../../shared/review/actor'
+import { decideSuggestionsIn, feedbackIn, reviseSuggestionIn } from '../review-log/transactions'
+import { generateId } from '../../lib/persistence'
 import { addAnnotationsTo, annotationsOf } from '../ai-annotations/transactions'
 import { buildWordDiffAnnotations } from '../../lib/diffUtils'
 import { pipelineLog } from '../../lib/aiPipelineLog'
@@ -222,23 +224,29 @@ declare module '@tiptap/core' {
       /**
        * Set user reply on an AI suggestion by ID
        */
-      setAISuggestionReply: (id: string, reply: string) => ReturnType
+      setAISuggestionReply: (id: string, reply: string, by?: Actor) => ReturnType
+      /**
+       * Revise a pending suggestion (#1233): its mark is replaced, over the same
+       * range, by a new suggestion that links back to it; the old one is
+       * superseded in the review log.
+       */
+      reviseAISuggestion: (id: string, revision: { suggestedText: string; explanation?: string; by: Actor; newId?: string }) => ReturnType
       /**
        * Accept an AI suggestion by ID - replaces text with suggested text
        */
-      acceptAISuggestion: (id: string) => ReturnType
+      acceptAISuggestion: (id: string, by?: Actor) => ReturnType
       /**
        * Reject an AI suggestion by ID - removes the mark
        */
-      rejectAISuggestion: (id: string) => ReturnType
+      rejectAISuggestion: (id: string, by?: Actor) => ReturnType
       /**
        * Accept all AI suggestions
        */
-      acceptAllAISuggestions: () => ReturnType
+      acceptAllAISuggestions: (by?: Actor) => ReturnType
       /**
        * Reject all AI suggestions
        */
-      rejectAllAISuggestions: () => ReturnType
+      rejectAllAISuggestions: (by?: Actor) => ReturnType
     }
   }
 }
@@ -436,7 +444,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
         },
 
       setAISuggestionReply:
-        (id, reply) =>
+        (id, reply, by) =>
         ({ tr, state, dispatch }) => {
           if (!dispatch) return false
 
@@ -473,13 +481,55 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
               userReply: reply
             })
           )
+          // The review log keeps every reply, with who gave it (#1233); the
+          // attribute keeps the latest for the in-app chat.
+          if (reply.trim()) {
+            feedbackIn(tr, id, { id: generateId(), actor: by ?? SELF, text: reply.trim(), createdAt: Date.now() })
+          }
 
           dispatch(tr)
           return true
         },
 
+      reviseAISuggestion:
+        (id, revision) =>
+        ({ tr, state, dispatch }) => {
+          let existingAttrs: Record<string, unknown> | null = null
+          let markFrom = -1
+          let markTo = -1
+          state.doc.descendants((node, pos) => {
+            node.marks.forEach((mark) => {
+              if (mark.type.name === this.name && mark.attrs.id === id) {
+                if (!existingAttrs) existingAttrs = mark.attrs
+                if (markFrom === -1) markFrom = pos
+                markTo = pos + node.nodeSize
+              }
+            })
+          })
+          if (!existingAttrs || markFrom === -1) return false
+          if (!dispatch) return true
+          const newId = revision.newId ?? generateId()
+          tr.removeMark(markFrom, markTo, state.schema.marks.aiSuggestion)
+          tr.addMark(
+            markFrom,
+            markTo,
+            state.schema.marks.aiSuggestion.create({
+              ...(existingAttrs as Record<string, unknown>),
+              id: newId,
+              suggestedText: revision.suggestedText,
+              explanation: revision.explanation ?? (existingAttrs as Record<string, unknown>).explanation ?? '',
+              createdAt: Date.now(),
+              userReply: null,
+              actor: revision.by,
+            })
+          )
+          reviseSuggestionIn(tr, id, newId, revision.by)
+          dispatch(tr)
+          return true
+        },
+
       acceptAISuggestion:
-        (id) =>
+        (id, by) =>
         ({ tr, state, dispatch, editor }) => {
           if (!dispatch) return false
 
@@ -674,6 +724,8 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
               )
             }
           }
+          // Who decided, for the review log (#1233); the writer unless a tool says otherwise.
+          decideSuggestionsIn(tr, [id], 'accepted', by ?? SELF)
           dispatch(tr)
 
           if (this.options.onSuggestionAccepted) {
@@ -684,7 +736,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
         },
 
       rejectAISuggestion:
-        (id) =>
+        (id, by) =>
         ({ tr, state, dispatch }) => {
           if (!dispatch) return false
 
@@ -712,6 +764,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           tr.removeMark(markFrom, markTo, state.schema.marks.aiSuggestion)
 
           tr.setMeta(AI_SUGGESTION_RESOLVED_META, true)
+          decideSuggestionsIn(tr, [id], 'rejected', by ?? SELF)
           dispatch(tr)
 
           if (this.options.onSuggestionRejected) {
@@ -722,7 +775,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
         },
 
       acceptAllAISuggestions:
-        () =>
+        (by) =>
         ({ tr, state, dispatch, editor }) => {
           if (!dispatch) return false
 
@@ -911,24 +964,27 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
               )
             }
           }
+          decideSuggestionsIn(tr, applied.map(({ suggestion }) => suggestion.id), 'accepted', by ?? SELF)
           dispatch(tr)
 
           return true
         },
 
       rejectAllAISuggestions:
-        () =>
+        (by) =>
         ({ tr, state, dispatch }) => {
           if (!dispatch) return false
 
           const { doc } = state
           let removed = false
+          const rejectedIds = new Set<string>()
 
           doc.descendants((node, pos) => {
             node.marks.forEach((mark) => {
               if (mark.type.name === this.name) {
                 tr.removeMark(pos, pos + node.nodeSize, mark.type)
                 removed = true
+                if (mark.attrs.id) rejectedIds.add(mark.attrs.id as string)
 
                 if (this.options.onSuggestionRejected && mark.attrs.id) {
                   this.options.onSuggestionRejected(mark.attrs.id)
@@ -939,6 +995,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
 
           if (removed) {
             tr.setMeta(AI_SUGGESTION_RESOLVED_META, true)
+            decideSuggestionsIn(tr, [...rejectedIds], 'rejected', by ?? SELF)
             dispatch(tr)
             return true
           }

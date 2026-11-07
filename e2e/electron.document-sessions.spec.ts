@@ -1108,7 +1108,7 @@ test.describe('session tripwires', () => {
   const files = rendererFiles().map((file) => ({ file: rel(file), source: stripComments(readFileSync(file, 'utf8')) }))
 
   test('the record writers in lib/persistence are imported only by document/session.ts', () => {
-    const writers = ['saveAnnotations', 'saveComments', 'saveSuggestions', 'deleteAnnotations', 'deleteComments', 'deleteSuggestions']
+    const writers = ['saveAnnotations', 'saveComments', 'saveSuggestions', 'saveReviewLog', 'deleteAnnotations', 'deleteComments', 'deleteSuggestions', 'deleteReviewLog']
     for (const { file, source } of files) {
       if (file === 'src/renderer/document/session.ts' || file === 'src/renderer/lib/persistence.ts') continue
       for (const block of source.match(/import\s*\{[^}]*\}\s*from\s*'[^']*persistence'/g) ?? []) {

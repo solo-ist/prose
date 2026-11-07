@@ -610,7 +610,7 @@ export function executeResolveComment(args: {
 
   // Resolved and unmarked together; the session persists the thread and
   // pushes the resolve to a share (#769).
-  handle.commands.resolveThread(id)
+  handle.commands.resolveThread(id, ctx.provenance?.actor)
 
   return toolSuccess({ resolved: true })
 }

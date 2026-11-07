@@ -141,7 +141,7 @@ interface ReviewEvent {
 }
 ```
 
-Rule 3 holds by construction: a producer adds the log meta to the transaction that creates the record (the suggestion mark, the accept, the reply), so a record and its event enter the state together. `apply` never infers events from diffs, with one exception: a suggestion mark that disappears without an accept, reject or revise meta (the writer deleted the text it covered) is logged as `rejected` with `decidedBy` the writer, which is what it was.
+*(Shipped in P2: the log is derived from the suggestion marks and threads each transaction leaves behind, with intent metas only for what the document can't show; see `extensions/review-log/log.ts`.)* Rule 3 holds by construction: a producer adds the log meta to the transaction that creates the record (the suggestion mark, the accept, the reply), so a record and its event enter the state together. `apply` never infers events from diffs, with one exception: a suggestion mark that disappears without an accept, reject or revise meta (the writer deleted the text it covered) is logged as `rejected` with `decidedBy` the writer, which is what it was.
 
 Undo is history, not erasure. Undoing an accept or a reject puts the mark back: the history row returns to `pending` and the plugin logs `suggestion:reopened` with the writer as actor. Events are never removed.
 
@@ -160,7 +160,7 @@ Undo is history, not erasure. Undoing an accept or a reject puts the mark back: 
 - **Store:** `review_log` in IndexedDB, keyed by `documentId`, value `{ suggestions, events, nextSeq }`. `DB_VERSION` 9 → 10, with the fresh-install and upgrade cases tested separately.
 - **Writer:** `saveReviewLog` / `deleteReviewLog` in `lib/persistence.ts`, imported only by `document/session.ts` (rule 1). The tripwire in `e2e/electron.document-sessions.spec.ts` gains them.
 - **When:** `afterTransaction` writes when the log's `revision` moves (at once: every log change is a decision or a message, so there is no debounced class), and `closeSession` writes the final state. `setSessionIdentity` copies the row to the new id with the other three kinds; deleting an untitled document deletes it.
-- **Size:** events are capped at the last 5,000 per document and a decided history row older than a year keeps its text but drops its feedback beyond the last 20 entries. Both caps are applied in the pure transition, so the persisted value is always the state's.
+- **Size:** events are capped at the last 5,000 per document and feedback at the last 200 entries per suggestion *(P2 replaced the "older than a year" rule with a plain size bound)*. Both caps are applied in the pure transition, so the persisted value is always the state's.
 
 ## 6. Who stamps what
 

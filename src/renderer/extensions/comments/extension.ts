@@ -9,6 +9,7 @@
  */
 
 import { SELF, type Actor } from '../../../shared/review/actor'
+import { threadActorIn } from '../review-log/transactions'
 import { Mark, mergeAttributes } from '@tiptap/core'
 import type { Transaction } from '@tiptap/pm/state'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
@@ -46,9 +47,9 @@ declare module '@tiptap/core' {
        */
       unsetAllComments: () => ReturnType
       /** Resolve a thread: `resolved: true` and its marks removed, one transaction. */
-      resolveThread: (id: string) => ReturnType
+      resolveThread: (id: string, by?: Actor) => ReturnType
       /** Reopen a resolved thread and put its mark back on its text (by markedText + occurrence). */
-      reopenThread: (id: string) => ReturnType
+      reopenThread: (id: string, by?: Actor) => ReturnType
       /** Append a reply to a thread. */
       replyToThread: (id: string, reply: CommentReply) => ReturnType
       /** Drop a thread and its marks. `push: false` skips the share removal (the e2e seam). */
@@ -243,11 +244,12 @@ export const Comment = Mark.create<CommentOptions>({
         },
 
       resolveThread:
-        (id) =>
+        (id, by) =>
         ({ tr, state, dispatch }) => {
           const thread = threadsOf(state).find((c) => c.id === id)
           if (!thread) return false
           if (dispatch) {
+            threadActorIn(tr, by ?? SELF)
             updateThreadIn(tr, id, { resolved: true })
             removeMarksOf(tr, id)
           }
@@ -255,11 +257,12 @@ export const Comment = Mark.create<CommentOptions>({
         },
 
       reopenThread:
-        (id) =>
+        (id, by) =>
         ({ tr, state, dispatch }) => {
           const thread = threadsOf(state).find((c) => c.id === id)
           if (!thread) return false
           if (dispatch) {
+            threadActorIn(tr, by ?? SELF)
             updateThreadIn(tr, id, { resolved: false })
             // Re-anchor the mark that resolving removed; the plugin reads the
             // outcome from the marks (anchorLost when the text is gone).

@@ -47,6 +47,8 @@ import {
   AI_SUGGESTION_RESOLVED_META
 } from '../extensions/ai-suggestions/extension'
 import { annotationsOf, annotationPluginState, loadAnnotationsInto } from '../extensions/ai-annotations/transactions'
+import { loadReviewLogInto, reviewLogOf, reviewLogPluginState } from '../extensions/review-log/transactions'
+import type { StoredReviewLog } from '../extensions/review-log/log'
 import {
   getIdentity,
   isPlainTextPath,
@@ -70,6 +72,9 @@ import {
   loadSuggestions,
   saveSuggestions,
   deleteSuggestions,
+  loadReviewLog,
+  saveReviewLog,
+  deleteReviewLog,
   deleteConversations
 } from '../lib/persistence'
 import type { AIAnnotation } from '../types/annotations'
@@ -81,12 +86,13 @@ import { pipelineLog } from '../lib/aiPipelineLog'
 // Types
 // ---------------------------------------------------------------------------
 
-export type RecordKind = 'annotations' | 'comments' | 'suggestions'
+export type RecordKind = 'annotations' | 'comments' | 'suggestions' | 'reviewLog'
 
 export interface SessionRecords {
   annotations: AIAnnotation[]
   comments: CommentData[]
   suggestions: AISuggestionData[]
+  reviewLog: StoredReviewLog
 }
 
 export interface Session {
@@ -121,6 +127,10 @@ export interface Session {
   commentWrite: Promise<void> | null
   /** The comment plugin state's `pushRevision` whose pushes were handed to the share module. */
   pushesPerformed: number
+  /** The review log's revision last written to IndexedDB (#1233). */
+  reviewLogPersisted: number
+  /** The in-flight review-log write; an identity change awaits it. */
+  reviewLogWrite: Promise<void> | null
   /** Source mode: the CodeMirror state and what it opened on; null in rich mode (#1150). */
   source: SourceSession | null
   /** A pending projection of the source text into the tab record. */
@@ -294,9 +304,11 @@ function rebuildForSchema(session: Session, next: Editor): void {
   const tr = state.tr.setMeta(IDENTITY_META, identity).setMeta(BUILD_META, true).setMeta('addToHistory', false)
   loadAnnotationsInto(tr, annotationsOf(session.state))
   loadThreadsInto(tr, threadsOf(session.state))
+  loadReviewLogInto(tr, reviewLogOf(session.state))
   state = state.applyTransaction(tr).state
   session.state = state
   session.annotationsPersisted = annotationPluginState(state)?.revision ?? 0
+  session.reviewLogPersisted = reviewLogPluginState(state)?.revision ?? 0
   const threads = threadPluginState(state)
   session.commentsPersisted = threads?.revision ?? 0
   session.pushesPerformed = threads?.pushRevision ?? 0
@@ -595,13 +607,16 @@ export async function persistRecords<K extends RecordKind>(
   switch (kind) {
     case 'annotations':
       await saveAnnotations(documentId, records as AIAnnotation[])
-      pipelineLog('annotation:save', { documentId, count: records.length })
+      pipelineLog('annotation:save', { documentId, count: (records as AIAnnotation[]).length })
       break
     case 'comments':
       await saveComments(documentId, records as CommentData[])
       break
     case 'suggestions':
       await saveSuggestions(documentId, records as AISuggestionData[])
+      break
+    case 'reviewLog':
+      await saveReviewLog(documentId, records as StoredReviewLog)
       break
   }
 }
@@ -617,6 +632,9 @@ export async function deleteRecords(kind: RecordKind, documentId: string): Promi
     case 'suggestions':
       await deleteSuggestions(documentId)
       break
+    case 'reviewLog':
+      await deleteReviewLog(documentId)
+      break
   }
 }
 
@@ -626,6 +644,7 @@ export async function deleteDocumentRecords(documentId: string): Promise<void> {
   await deleteRecords('annotations', documentId)
   await deleteRecords('suggestions', documentId)
   await deleteRecords('comments', documentId)
+  await deleteRecords('reviewLog', documentId)
 }
 
 /**
@@ -660,6 +679,11 @@ async function persistSession(session: Session, opts: { allowEmptySuggestions?: 
   if (suggestions.length > 0 || opts.allowEmptySuggestions) {
     await persistRecords('suggestions', documentId, suggestions)
   }
+  const log = reviewLogPluginState(session.state)
+  if (log && log.revision !== session.reviewLogPersisted) {
+    session.reviewLogPersisted = log.revision
+    await persistRecords('reviewLog', documentId, log.log)
+  }
 }
 
 /**
@@ -674,6 +698,31 @@ async function persistSession(session: Session, opts: { allowEmptySuggestions?: 
 function afterTransaction(session: Session, prev: EditorState): void {
   afterAnnotationTransaction(session, prev)
   afterCommentTransaction(session, prev)
+  afterReviewLogTransaction(session, prev)
+}
+
+/**
+ * Every review-log change is a decision, a revision or a message, so it is
+ * written at once, from the state that produced it (#1233). A seed or a
+ * remount marks its revision persisted itself.
+ */
+function afterReviewLogTransaction(session: Session, prev: EditorState): void {
+  const next = reviewLogPluginState(session.state)
+  if (!next) return
+  if (next.revision === (reviewLogPluginState(prev)?.revision ?? 0)) return
+  if (next.revision === session.reviewLogPersisted) return
+  persistReviewLogNow(session)
+}
+
+function persistReviewLogNow(session: Session): void {
+  const pluginState = reviewLogPluginState(session.state)
+  if (!pluginState) return
+  const { documentId } = getIdentity(session.state)
+  session.reviewLogPersisted = pluginState.revision
+  const write = persistRecords('reviewLog', documentId, pluginState.log).finally(() => {
+    if (session.reviewLogWrite === write) session.reviewLogWrite = null
+  })
+  session.reviewLogWrite = write
 }
 
 function afterAnnotationTransaction(session: Session, prev: EditorState): void {
@@ -839,10 +888,11 @@ async function openSessionNow(
 ): Promise<Session> {
   const e = await whenEditorAttached()
   const documentId = tab.documentId
-  const [annotations, comments, suggestions] = await Promise.all([
+  const [annotations, comments, suggestions, reviewLog] = await Promise.all([
     loadAnnotations(documentId),
     loadComments(documentId),
-    loadSuggestions(documentId)
+    loadSuggestions(documentId),
+    loadReviewLog(documentId)
   ])
   const raced = registry.sessions.get(tab.id)
   if (raced) return raced
@@ -872,6 +922,9 @@ async function openSessionNow(
   // the state and the next leave, close or save writes them (the revision
   // counts as unpersisted); otherwise the seed's revision counts as written.
   loadAnnotationsInto(seed, annotations)
+  // The stored review log (#1233); the seed derives no events, and marks with
+  // no history row (from before 1.9.1) are backfilled as pending.
+  loadReviewLogInto(seed, reviewLog)
   state = state.applyTransaction(seed).state
   const seeded = annotationPluginState(state)
   const loaded = seeded?.records ?? []
@@ -897,6 +950,9 @@ async function openSessionNow(
     commentsPersisted: threads?.revision ?? 0,
     commentWrite: null,
     pushesPerformed: threads?.pushRevision ?? 0,
+    // The seed's log counts as written: a backfill is derivable from the marks.
+    reviewLogPersisted: reviewLogPluginState(state)?.revision ?? 0,
+    reviewLogWrite: null,
     source: null,
     sourceTimer: null
   }
@@ -1164,11 +1220,15 @@ export async function setSessionIdentity(tabId: string, identity: IdentityState)
     const editorLike = { state: session.state }
     const comments = mergeCommentsForPersistence(editorLike, threadsOf(session.state))
     const suggestions = getAISuggestions(editorLike)
+    const log = reviewLogOf(session.state)
+    const hasLog = log.suggestions.length > 0 || log.events.length > 0
     await Promise.all([
       session.annotationWrite ?? Promise.resolve(),
       session.commentWrite ?? Promise.resolve(),
+      session.reviewLogWrite ?? Promise.resolve(),
       comments.length > 0 ? persistRecords('comments', identity.documentId, comments) : Promise.resolve(),
-      suggestions.length > 0 ? persistRecords('suggestions', identity.documentId, suggestions) : Promise.resolve()
+      suggestions.length > 0 ? persistRecords('suggestions', identity.documentId, suggestions) : Promise.resolve(),
+      hasLog ? persistRecords('reviewLog', identity.documentId, log) : Promise.resolve()
     ])
   }
   pipelineLog('session:identity', { tabId, from: previous.documentId, to: identity.documentId })

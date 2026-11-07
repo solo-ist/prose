@@ -153,4 +153,21 @@ test('Settings → Integrations shows a new token once and lists the connection'
   await page.getByRole('alertdialog').getByRole('button', { name: 'Revoke' }).click()
   await expect(panel.getByTestId('mcp-connection-row')).toHaveCount(0)
   expect(await rawStatus(token)).toBe(401)
+
+  // A revoke that fails keeps the dialog open and says so (here: revoked meanwhile from elsewhere).
+  await panel.getByTestId('mcp-connection-name').fill('Open WebUI')
+  await panel.getByTestId('mcp-connection-add').click()
+  await expect(panel.getByTestId('mcp-connection-row')).toHaveCount(1)
+  await panel.getByRole('button', { name: 'Revoke Open WebUI' }).click()
+  await page.evaluate(async () => {
+    const api = (window as any).api
+    const listed = await api.mcpListConnections()
+    await api.mcpRevokeConnection(listed.value[0].id)
+  })
+  const dialog = page.getByRole('alertdialog')
+  await dialog.getByRole('button', { name: 'Revoke' }).click()
+  await expect(dialog.getByRole('alert')).toHaveText('Not revoked: No such connection')
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog).toHaveCount(0)
 })

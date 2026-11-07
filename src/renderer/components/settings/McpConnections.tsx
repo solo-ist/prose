@@ -42,6 +42,7 @@ export function McpConnections() {
   const [created, setCreated] = useState<{ connection: McpConnection; token: string } | null>(null)
   const [renaming, setRenaming] = useState<{ id: string; label: string } | null>(null)
   const [revoking, setRevoking] = useState<McpConnection | null>(null)
+  const [revokeError, setRevokeError] = useState<string | null>(null)
   const [client, setClient] = useState<McpSetupClient>('claude-code')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -91,15 +92,20 @@ export function McpConnections() {
 
   const revoke = async () => {
     if (!revoking || !window.api?.mcpRevokeConnection) return
-    setError(null)
+    setRevokeError(null)
     const result = await window.api.mcpRevokeConnection(revoking.id)
-    if (!result.ok) setError(result.error)
+    if (!result.ok) {
+      // Keep the dialog open on the failure: the connection still works.
+      setRevokeError(result.error)
+      return
+    }
     if (created?.connection.id === revoking.id) setCreated(null)
     setRevoking(null)
     await load()
   }
 
-  const url = endpoint?.url || 'http://localhost:9877/mcp'
+  // Before the endpoint answers (or when it isn't running), a placeholder rather than a guessed port.
+  const url = endpoint?.url || 'http://localhost:<port>/mcp'
 
   return (
     <div className="space-y-4" data-testid="mcp-connections">
@@ -243,7 +249,14 @@ export function McpConnections() {
         </Tabs>
       </div>
 
-      <AlertDialog open={revoking !== null} onOpenChange={(open) => !open && setRevoking(null)}>
+      <AlertDialog
+        open={revoking !== null}
+        onOpenChange={(open) => {
+          if (open) return
+          setRevoking(null)
+          setRevokeError(null)
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Revoke {revoking?.label}?</AlertDialogTitle>
@@ -252,9 +265,22 @@ export function McpConnections() {
               attributed to it.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {revokeError && (
+            <p className="text-sm text-destructive" role="alert">
+              Not revoked: {revokeError}
+            </p>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void revoke()}>Revoke</AlertDialogAction>
+            <AlertDialogAction
+              onClick={(e) => {
+                // Close only once the revoke has succeeded (revoke() does it).
+                e.preventDefault()
+                void revoke()
+              }}
+            >
+              Revoke
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

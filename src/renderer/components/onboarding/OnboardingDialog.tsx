@@ -318,7 +318,6 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
             >
               {idx + 1} / {total} · {STEP_LABELS[current]}
             </span>
-            {!direct && <span className="text-[11px] text-muted-foreground">App Store build</span>}
           </div>
           <div aria-hidden="true" className="flex gap-1">
             {seq.map((id, i) => (

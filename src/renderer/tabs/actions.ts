@@ -28,6 +28,7 @@ import { useFileListStore } from '../stores/fileListStore'
 import { parseMarkdown, prepareTextContent, serializeMarkdown } from '../lib/markdown'
 import { resolveOpenedFileContent } from '../lib/openDocument'
 import { getApi } from '../lib/browserApi'
+import { isWebPlatformEnabled } from '../lib/featureFlags'
 import { pipelineLog } from '../lib/aiPipelineLog'
 import { handleMissingPath, isMissingPathFileError } from '../lib/stalePath'
 import {
@@ -755,9 +756,10 @@ export async function setTabIdentity(tabId: string, next: IdentityChange): Promi
   if (oldPath && oldPath !== next.path) {
     if (next.path && next.baseline === 'transfer') transferDiskBaseline(oldPath, next.path)
     else clearDiskBaseline(oldPath)
-    if (next.path) {
+    if (next.path && isWebPlatformEnabled()) {
       // Keep share-sync metadata pointing at the renamed file (#768). A miss
       // only means the ShareDialog loses the association until the next publish.
+      // With sharing off (and always on MAS, #1222) there is nothing to point.
       void getApi().shareUpdateLocalPath(oldPath, next.path, documentId).catch(() => {})
     }
   }

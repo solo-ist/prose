@@ -34,6 +34,7 @@ import { PROSE_ICONS, IconThumb } from '../lib/prose-icons'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useReviewMode } from '../stores/reviewStore'
 import { cn } from '../lib/utils'
+import { isWebPlatformEnabled } from '../lib/featureFlags'
 
 const NAV_BAR_HEIGHT = 48
 const VIEWPORT_PADDING = 16
@@ -83,7 +84,7 @@ export function CommentPopover({ editor }: CommentPopoverProps) {
   const currentComment: CommentData | undefined = popover.commentId
     ? pendingComments.find((c) => c.id === popover.commentId)
     : undefined
-  const removeLabel = currentComment?.shareId
+  const removeLabel = currentComment?.shareId && isWebPlatformEnabled()
     ? 'Delete thread (also removes it from the shared page)'
     : 'Delete thread'
 

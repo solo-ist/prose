@@ -16,9 +16,16 @@
 
 import { useSettingsStore } from '../stores/settingsStore'
 
-function isMasBuild(): boolean {
+export function isMasBuild(): boolean {
   return typeof window !== 'undefined' && window.api?.isMasBuild === true
 }
+
+/**
+ * Where a Mac App Store user asks for help. MAS builds route every "report a bug"
+ * surface here (the Help menu's Request Support item in `src/main/menu.ts` uses the
+ * same URL), since the GitHub bug template is for the direct-download build.
+ */
+export const MAS_SUPPORT_URL = 'https://solo.ist/prose/support'
 
 // --- React hooks (for use in components) ---
 

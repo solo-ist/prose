@@ -28,3 +28,11 @@ Part of epic #1230. Stacked on P2 (#1252), then retargeted to `main`. Renderer o
 - the actor filter narrows to the MCP connection's items, and the badge follows;
 - clicking a pending row opens Quick Review on it;
 - the spec is falsified on the merge-base.
+
+## Execution log
+
+- **2026-11-07.** `a748bd6` plan; then the change and spec; then the Activity spec's badge counts, which grow by the accepted suggestions by design. P2 merged as `0c22d7e` meanwhile, so the PR targets `main`.
+- **Checks:**
+  - `typecheck:renderer` is 66 and `typecheck:e2e` is 6, both the same as the base.
+  - `electron.activity-review.spec.ts` passes on the branch. **On `0c22d7e`, P2 without this PR, it fails: Activity has no suggestion rows.**
+  - Activity, provenance, review log, comment threading and review exit, suggestions and the suggestion popover: 22 passed after the badge update.

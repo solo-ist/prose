@@ -49,3 +49,19 @@ renderer surfaces still reaching a MAS user:
 - Direct build stays green: settings, release-notes, onboarding, explorer, chat specs.
 
 ## Execution log
+
+- **2026-11-06, built** (`85d561b` change, `f66cbd8` spec tightening). `typecheck:renderer` 66 (baseline), e2e
+  tsc 6 (baseline), unit 166 in 21 files (+7: ids and the editions guard). The guard was falsified both ways: with
+  `1.9.0-mas.md` hidden, `1.9.0.md` fails for naming five direct-only lines; with "Sharing works too." appended to
+  the MAS file, that file fails.
+- **MAS-flagged run** (`MAS_BUILD=1 npm run build` in the worktree): `electron.mas-gates.spec.ts` 3/3 pass. **On the
+  merge-base's MAS build all three fail**: the onboarding shows "App Store build", the upgrade opens the shared
+  notes (no "Since the last App Store version", with the Claude Desktop, sharing and MCP lines), Settings shows six
+  tabs. The first falsification run passed the onboarding case on the base. The caption renders flush against
+  "Welcome", so a `\b`-anchored regex never matched it. It is now asserted with `getByText`, and the tabs are located
+  by role so the base fails on their content.
+- **Direct build restored** (`npm run build`; `env.ts` back to `false`): settings-account, release-notes,
+  onboarding, explorer-interactivity, customizable-menus, comment-threading, mas-bookmarks, document-sessions and
+  mas-gates: 58 passed, 3 skipped (the MAS file on a direct build).
+- Not covered by an automated check: the `..` drop refusal (the parent is reachable outside the sandbox) and the
+  `/help` text (no chat-input spec drives slash commands). Both are in the TestFlight script, `docs/qa/v1.9.0-mas.md`.

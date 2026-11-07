@@ -211,13 +211,13 @@ When running as Electron:
 
 ### IPC Channels
 
-Most handlers live in `src/main/ipc.ts` (86 across 14 namespaces). A few sit closer to their feature: `sentry:setEnabled` and `renderer:ready` in `src/main/index.ts`, `updater:*` (3) in `src/main/updater.ts`, `file:watch:start` and `file:watch:stop` in `src/main/fileWatcher.ts`, and `mcp:tool:result` (via `ipcMain.on`, not `handle`) in `src/main/mcp/bridge.ts`.
+Most handlers live in `src/main/ipc.ts` (86 across 14 namespaces). A few sit closer to their feature: `sentry:setEnabled` and `renderer:ready` in `src/main/index.ts`, `updater:*` (3) in `src/main/updater.ts`, `file:watch:start` and `file:watch:stop` in `src/main/fileWatcher.ts`, `mcp:tool:result` (via `ipcMain.on`, not `handle`) in `src/main/mcp/bridge.ts`, and `mcp:connections:*` (4) and `mcp:endpoint` in `src/main/mcp/connectionsIpc.ts`.
 
 - `file:*` (22) - File operations (open, save, read, rename, delete, trash, duplicate, watch, export HTML, MAS bookmark activation, etc.) — 20 handlers in `ipc.ts`, plus `file:watch:start` and `file:watch:stop` in `fileWatcher.ts`
 - `settings:*` (4) - Settings persistence, secure storage check, API key test
 - `llm:chat`, `llm:fetchModels`, `llm:stream`, `llm:stream:abort` - LLM API calls (streaming via Anthropic SDK)
 - `remarkable:*` (20) - reMarkable tablet sync (register, validate, sync, sync:abort, OCR, folder move, etc.)
-- `mcp:*` (3) - MCP server status, install, uninstall for Claude Desktop
+- `mcp:*` (8) - MCP server status, install, uninstall for Claude Desktop; connections (list, create, rename, revoke) and the HTTP endpoint's URL (#1236)
 - `share:*` (21) - Gateway sharing: sign-in, access, publish/republish/revoke, local list + `share:listRemote` gateway reconcile (#1037), comments pull/push, path updates. Only the two local reads (`share:list`, `share:getForPath`) are callable on MAS builds
 - `sentry:setEnabled` - Toggle Sentry error tracking from renderer
 - `updater:*` (3) - Auto-update check, download, install (Electron auto-updater)
@@ -357,7 +357,8 @@ Syncs handwritten notebooks **and typed-text documents** (Type Folio keyboard in
 ### MCP Server
 
 Prose is an MCP server for any client (Claude Desktop, Claude Code, Codex, Open WebUI, LibreChat). One server definition (`src/shared/mcp/server.ts`, on the v2 SDK `@modelcontextprotocol/server`) serves protocol revisions 2025-11-25 (the `initialize` handshake) and 2026-07-28 (`server/discover`, the per-request envelope), with client-neutral `instructions` (`src/shared/mcp/instructions.ts`). Two components:
-- `src/main/mcp/` - Inside the Electron main process: the Streamable HTTP endpoint on loopback (`/mcp`; port 9877 for the installed app, 9878 unpackaged, `PROSE_MCP_PORT` overrides; Host and Origin checks, then the bearer token from `<userData>/mcp-auth-token`), the Unix socket the stdio bridge uses, and the IPC bridge that relays tool calls to the renderer.
+- `src/main/mcp/` - Inside the Electron main process: the Streamable HTTP endpoint on loopback (`/mcp`; port 9877 for the installed app, 9878 unpackaged, `PROSE_MCP_PORT` overrides; Host and Origin checks, then a bearer token: a **connection's** token or the per-launch one in `<userData>/mcp-auth-token`), the Unix socket the stdio bridge uses, and the IPC bridge that relays tool calls to the renderer.
+- **Connections** (#1236, `src/main/mcp/connections.ts`): one named, revocable token per client, created in Settings → Integrations → Connections, stored as a SHA-256 hash in `<userData>/mcp-connections.json` (0600); the token is shown once. **Main builds the actor** for every MCP call — the connection (HTTP), or the stdio client's `clientInfo` — and sends it beside the call (`mcp:tool:invoke`'s fourth argument); the renderer accepts it only through `mcpActorFrom` (`src/shared/mcp/actor.ts`) and never reads identity from tool arguments.
 - `src/mcp-stdio/` - Standalone stdio server that clients launch. Relays to the socket of the profile it was installed into (`profile.ts`; `PROSE_USER_DATA_DIR` overrides); auto-launches only the installed app.
 
 Exposes 10 tools (the `mcpToolNames` subset in `src/shared/tools/registry.ts`): `read_document`, `get_outline`, `open_file`, `suggest_edit`, `create_and_open_file`, `list_comments`, `add_comment`, `resolve_comment`, `list_tabs`, `select_tab`. Their titles, annotations, output schemas and MCP-specific descriptions live in `src/shared/tools/mcpMetadata.ts`; results carry `structuredContent` beside the text. `zod` is a direct 3.x dependency on purpose: the app's tool schemas are zod 3, and the v2 SDK brings its own zod 4 (the migration is #1216).

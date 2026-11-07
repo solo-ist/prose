@@ -10,14 +10,21 @@
  * (`serveStdio`), so it must stay cheap and hold no state.
  */
 
-import { Server } from '@modelcontextprotocol/server'
-import type { CallToolResult, Tool } from '@modelcontextprotocol/server'
+import { CLIENT_INFO_META_KEY, Server } from '@modelcontextprotocol/server'
+import type { CallToolResult, ServerContext, Tool } from '@modelcontextprotocol/server'
 import { getToolsForMCP } from '../tools/registry'
 import type { ToolResult } from '../tools/types'
 import { PROSE_MCP_INSTRUCTIONS } from './instructions'
+import type { McpClientInfo } from './actor'
+
+/** What the server knows about a call beyond its arguments. */
+export interface McpCallContext {
+  /** The client's self-reported `clientInfo`, when it sent one. Untrusted. */
+  client?: McpClientInfo
+}
 
 /** Runs one MCP tool call and answers with the MCP result shape. */
-export type McpToolCaller = (name: string, args: Record<string, unknown>) => Promise<CallToolResult>
+export type McpToolCaller = (name: string, args: Record<string, unknown>, context: McpCallContext) => Promise<CallToolResult>
 
 export interface ProseMcpServerOptions {
   /** The app version, reported as `serverInfo.version`. */
@@ -54,6 +61,18 @@ export function toolCallFailure(error: unknown): CallToolResult {
   }
 }
 
+/**
+ * The client's `clientInfo`: carried by every 2026-07-28 request's envelope,
+ * or by the connection's `initialize` in the 2025 era (stdio; over stateless
+ * HTTP the `initialize` was a different request, so there is none).
+ */
+function clientInfoOf(server: Server, ctx: ServerContext | undefined): McpClientInfo | undefined {
+  const fromEnvelope = (ctx?.mcpReq.envelope as Record<string, unknown> | undefined)?.[CLIENT_INFO_META_KEY]
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- the 2025-era source of clientInfo
+  const info = (fromEnvelope ?? server.getClientVersion()) as McpClientInfo | undefined
+  return info && typeof info === 'object' ? { name: info.name, version: info.version } : undefined
+}
+
 export function createProseMcpServer({ version, callTool }: ProseMcpServerOptions): Server {
   const server = new Server(
     { name: 'Prose', title: 'Prose', version },
@@ -69,11 +88,11 @@ export function createProseMcpServer({ version, callTool }: ProseMcpServerOption
 
   server.setRequestHandler('tools/list', async () => ({ tools }))
 
-  server.setRequestHandler('tools/call', async (request) => {
+  server.setRequestHandler('tools/call', async (request, ctx) => {
     const { name, arguments: args } = request.params
     let result: CallToolResult
     try {
-      result = await callTool(name, (args ?? {}) as Record<string, unknown>)
+      result = await callTool(name, (args ?? {}) as Record<string, unknown>, { client: clientInfoOf(server, ctx) })
     } catch (error) {
       result = toolCallFailure(error)
     }

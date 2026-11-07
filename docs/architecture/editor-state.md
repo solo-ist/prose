@@ -284,9 +284,11 @@ Shipped in PR 4 (#1148), with these corrections to the paragraphs above. The `re
 
 ### 4.15 Targets for MCP clients
 
-MCP clients keep addressing the active tab unless they say otherwise. The handle makes an explicit `target` (tab id, path or document id) on the tool schemas in `src/shared/tools/registry.ts` a small addition, with `select_tab` kept as the fallback for clients that do not pass one. It is deferred to the next epic (section 13); nothing in 1.9.0 depends on it.
+MCP clients keep addressing the active tab unless they say otherwise. The handle makes an explicit `target` (tab id, path or document id) on the tool schemas in `src/shared/tools/registry.ts` a small addition, with `select_tab` kept as the fallback for clients that do not pass one. It is deferred to the next epic (section 13); nothing in 1.9.0 depends on it. *(1.9.1: M3, #1237, adds it.)*
 
 ## 5. The three annotation kinds
+
+Who made each record, and what happens to a suggestion after its mark goes (feedback, revisions, decisions, the review log that MCP agents read), is designed in [`review-provenance.md`](review-provenance.md) for 1.9.1. It adds fields and one plugin under the same four rules.
 
 ### 5.1 Comments
 

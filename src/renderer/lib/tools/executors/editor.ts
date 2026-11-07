@@ -10,7 +10,7 @@ import { useEditorStore } from '../../../stores/editorStore'
 import { useTabStore } from '../../../stores/tabStore'
 import { setTabFrontmatter } from '../../../tabs/actions'
 import type { ToolContext } from '../context'
-import type { ToolProvenance } from '../provenanceTypes'
+import { annotationProvenance, type ToolProvenance } from '../provenanceTypes'
 import { addAnnotationsTo, annotationsOf } from '../../../extensions/ai-annotations'
 import { buildWordDiffAnnotations } from '../../diffUtils'
 import { findNodeById, findNodeByContent, getNodesWithIds, flattenNodes } from '../../../extensions/node-ids'
@@ -485,11 +485,7 @@ export async function executeEdit(
         newText: inserted.text,
         rangeFrom: contentStart,
         rangeTo: inserted.end,
-        provenance: {
-          model: provenance.model,
-          conversationId: provenance.conversationId,
-          messageId: provenance.messageId,
-        },
+        provenance: annotationProvenance(provenance),
         explanation: comment,
         priorAnnotations,
       })
@@ -647,11 +643,7 @@ export async function executeInsert(
                 newText: text,
                 rangeFrom: insertFrom,
                 rangeTo: insertFrom + insertedSize,
-                provenance: {
-                  model: provenance.model,
-                  conversationId: provenance.conversationId,
-                  messageId: provenance.messageId,
-                },
+                provenance: annotationProvenance(provenance),
                 explanation: comment,
               })
             )
@@ -694,11 +686,7 @@ export async function executeInsert(
           newText: inserted.text,
           rangeFrom: insertFrom,
           rangeTo: inserted.end,
-          provenance: {
-            model: provenance.model,
-            conversationId: provenance.conversationId,
-            messageId: provenance.messageId,
-          },
+          provenance: annotationProvenance(provenance),
           explanation: comment,
         })
       )
@@ -757,11 +745,7 @@ function replaceTable(
         from,
         to: from + parsed.nodeSize,
         content: parsed.textContent,
-        provenance: {
-          model: provenance.model,
-          conversationId: provenance.conversationId,
-          messageId: provenance.messageId,
-        },
+        provenance: annotationProvenance(provenance),
         explanation: comment,
       },
     ])
@@ -1046,9 +1030,13 @@ export function executeSuggestEdit(
   const contentStart = pos + 1
   const contentEnd = pos + node.nodeSize - 1
 
-  handle
-    .chain()
-    .focus()
+  // An MCP call (#1237) marks the node without moving the writer's caret or
+  // taking focus: select, mark and restore in one transaction. The mark adds
+  // no content, so the saved positions still hold.
+  const { from: keptFrom, to: keptTo } = handle.state.selection
+  let chain = handle.chain()
+  if (!ctx.preserveView) chain = chain.focus()
+  chain = chain
     .setTextSelection({ from: contentStart, to: contentEnd })
     .setAISuggestion({
       id: suggestionId,
@@ -1057,12 +1045,14 @@ export function executeSuggestEdit(
       suggestedText,
       explanation: comment || '',
       provenanceModel: provenance?.model || '',
+      actor: provenance?.actor ?? null,
       provenanceConversationId: provenance?.conversationId || '',
       provenanceMessageId: provenance?.messageId || '',
       documentId: handle.documentId,
       blockConversionIntent,
     })
-    .run()
+  if (ctx.preserveView) chain = chain.setTextSelection({ from: keptFrom, to: keptTo })
+  chain.run()
 
   pipelineLog('suggest_edit:result', {
     suggestionId,
@@ -1241,11 +1231,7 @@ export function executeDeleteNode(
         from,
         to: from,
         content: deletedText,
-        provenance: {
-          model: provenance.model,
-          conversationId: provenance.conversationId,
-          messageId: provenance.messageId,
-        },
+        provenance: annotationProvenance(provenance),
       },
     ])
   }

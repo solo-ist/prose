@@ -6,6 +6,9 @@ import { useEffect, useRef, useState, useCallback, useLayoutEffect } from 'react
 import { createPortal } from 'react-dom'
 import type { Editor } from '@tiptap/core'
 import { Check, X, MessageSquare } from 'lucide-react'
+import { getAISuggestions } from '../extensions/ai-suggestions'
+import { actorLabel, actorOfProvenance } from '../../shared/review/actor'
+import { useSelfName } from '../hooks/useSelfName'
 
 interface AISuggestionPopoverProps {
   editor: Editor
@@ -17,6 +20,8 @@ interface PopoverState {
   suggestedText: string
   explanation: string
   userReply: string
+  /** Who proposed it (#1232), read from the state by id. */
+  by: string
   position: { x: number; y: number }
 }
 
@@ -27,8 +32,10 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
     suggestedText: '',
     explanation: '',
     userReply: '',
+    by: '',
     position: { x: 0, y: 0 },
   })
+  const selfName = useSelfName()
   const [feedbackInput, setFeedbackInput] = useState('')
   const [showFeedbackForm, setShowFeedbackForm] = useState(false)
   const [adjustedPosition, setAdjustedPosition] = useState<{ x: number; y: number } | null>(null)
@@ -52,6 +59,8 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
         const userReply = suggestionMark.getAttribute('data-ai-user-reply') || ''
 
         if (id) {
+          const record = getAISuggestions(editor).find((s) => s.id === id)
+          const by = record ? actorLabel(actorOfProvenance(record.provenanceModel, record.actor), { selfName }) : ''
           const rect = suggestionMark.getBoundingClientRect()
           setFeedbackInput(userReply) // Pre-fill with existing feedback
           setShowFeedbackForm(false) // Always start in view mode, user can click Edit
@@ -61,6 +70,7 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
             suggestedText,
             explanation,
             userReply,
+            by,
             position: {
               x: rect.left + rect.width / 2,
               y: rect.bottom + 8,
@@ -80,7 +90,7 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
 
     document.addEventListener('click', handleClick, true)
     return () => document.removeEventListener('click', handleClick, true)
-  }, [])
+  }, [editor, selfName])
 
   // Handle escape key
   useEffect(() => {
@@ -234,6 +244,9 @@ export function AISuggestionPopover({ editor }: AISuggestionPopoverProps) {
         visibility: adjustedPosition ? 'visible' : 'hidden',
       }}
     >
+      {popover.by && (
+        <div className="suggested-label" data-testid="suggestion-actor">By {popover.by}</div>
+      )}
       <div className="suggested-label">Suggested:</div>
       <div className="suggested-text">{popover.suggestedText}</div>
 

@@ -305,6 +305,39 @@ export function SettingsDialog() {
 
           <TabsContent value="general" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={generalTabRef}>
             <div className="space-y-2">
+              <Label htmlFor="userName">Your Name</Label>
+              <Input
+                id="userName"
+                value={settings.user?.name ?? ''}
+                onChange={(e) => useSettingsStore.getState().setUserIdentity({ name: e.target.value })}
+                placeholder="You"
+                maxLength={100}
+                autoComplete="name"
+              />
+              <p className="text-xs text-muted-foreground">
+                Shown on your comments, replies and decisions, beside the agents and reviewers who also leave them
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="userEmail">Email (optional)</Label>
+              <Input
+                id="userEmail"
+                type="email"
+                value={settings.user?.email ?? ''}
+                onChange={(e) => useSettingsStore.getState().setUserIdentity({ email: e.target.value })}
+                placeholder="you@example.com"
+                maxLength={254}
+                autoComplete="email"
+              />
+              <p className="text-xs text-muted-foreground">
+                Stays on this Mac: it is never stored on your comments or sent to agents or share viewers
+              </p>
+            </div>
+
+            <Separator />
+
+            <div className="space-y-2">
               <Label htmlFor="recovery">Draft Recovery</Label>
               <Select
                 value={settings.recovery?.mode ?? 'silent'}

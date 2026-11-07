@@ -12,6 +12,7 @@ import { getComments, threadsOf, countOpenThreads } from '../extensions/comments
 import { isToolHandleError, resolveToolHandle, type ToolBinding } from '../document/handle'
 import { useTabStore } from '../stores/tabStore'
 import type { CommentData } from '../extensions/comments/types'
+import type { ToolProvenance } from '../lib/tools/provenanceTypes'
 import { getSuggestionsWithFeedback } from '../extensions/ai-suggestions'
 import { executeTool, resolveToolPosition } from '../lib/tools'
 import { getToolsForClaudeAPI } from '../../shared/tools/registry'
@@ -322,12 +323,15 @@ export function useChat() {
 
         // Provenance for AI annotation tracking: the turn's conversation and
         // the document it is bound to, never the tab on screen (#1148).
-        const model = useSettingsStore.getState().settings.llm.model || 'unknown'
-        const provenance = {
+        const llm = useSettingsStore.getState().settings.llm
+        const model = llm.model || 'unknown'
+        const provenance: ToolProvenance = {
           model,
           conversationId,
           messageId: assistantMsgId,
           documentId: binding.documentId,
+          // A Prose Agent (#1232): the provider and model this turn ran on.
+          actor: { kind: 'prose-agent', provider: llm.provider, model },
         }
         // Positions are read on the bound document (a read: no source-mode refusal).
         const sortTarget = await resolveToolHandle(binding)

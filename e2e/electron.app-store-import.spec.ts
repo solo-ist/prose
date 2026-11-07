@@ -116,7 +116,9 @@ test.describe('Electron — import from the App Store edition (#1243)', () => {
     await launch(profile)
     await expect(offer()).toBeVisible()
     const exited = app!.waitForEvent('close')
-    await offer().getByRole('button', { name: 'Import and restart' }).click()
+    // The click quits the app, which can close the page under the click's own
+    // post-action wait (it did on the Linux runner); the exit is the assertion.
+    await offer().getByRole('button', { name: 'Import and restart' }).click().catch(() => {})
     await exited
     app = undefined
     expect(existsSync(join(profile, 'app-store-import.pending.json'))).toBe(true)

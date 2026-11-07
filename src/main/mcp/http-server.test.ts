@@ -9,6 +9,7 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { McpHttpServer, mcpHttpPort } from './http-server'
 import { mcpToolNames } from '../../shared/tools/registry'
 import type { ToolResult } from '../../shared/tools/types'
+import type { McpAgentActor } from '../../shared/review/actor'
 
 const TOKEN = 'a'.repeat(64)
 const VERSION = '9.8.7'
@@ -24,13 +25,16 @@ const PAYLOADS: Record<string, ToolResult> = {
 
 let server: McpHttpServer
 let baseUrl: URL
-const calls: Array<{ name: string; args: unknown }> = []
+const calls: Array<{ name: string; args: unknown; actor: McpAgentActor }> = []
+/** Connection tokens this test's resolver knows (#1236); deleting one revokes it. */
+const CONNECTIONS = new Map<string, { id: string; label: string }>([['prose_mcp_codex', { id: 'c-codex', label: 'Codex' }]])
 
 beforeAll(async () => {
   server = new McpHttpServer()
   server.setAuthToken(TOKEN)
-  server.setToolInvokeHandler(async (name, args) => {
-    calls.push({ name, args })
+  server.setConnectionResolver((token) => CONNECTIONS.get(token) ?? null)
+  server.setToolInvokeHandler(async (name, args, actor) => {
+    calls.push({ name, args, actor })
     const payload = PAYLOADS[name]
     if (!payload) throw new Error(`Tool "${name}" is not available over MCP`)
     return payload
@@ -46,14 +50,14 @@ afterAll(async () => {
 /** What the client put on the wire: each JSON-RPC method and its protocol-version header. */
 type Sent = { method: string; protocolHeader: string | null }
 
-async function connect(pin?: string): Promise<{ client: Client; sent: Sent[] }> {
+async function connect(pin?: string, token = TOKEN): Promise<{ client: Client; sent: Sent[] }> {
   const sent: Sent[] = []
   const client = new Client(
     { name: 'prose-test', version: '1.0.0' },
     pin ? { versionNegotiation: { mode: { pin } } } : {}
   )
   const transport = new StreamableHTTPClientTransport(baseUrl, {
-    requestInit: { headers: { Authorization: `Bearer ${TOKEN}` } },
+    requestInit: { headers: { Authorization: `Bearer ${token}` } },
     fetch: async (input, init) => {
       if (typeof init?.body === 'string') {
         const headers = new Headers(init.headers)
@@ -161,6 +165,35 @@ describe.each([
     const result = await client.callTool({ name: 'read_file', arguments: { path: '/etc/hosts' } })
     expect(result.isError).toBe(true)
     expect(JSON.stringify(result.content)).toContain('not available over MCP')
+  })
+})
+
+describe('MCP HTTP connections (#1236)', () => {
+  it('the per-launch token calls as the launch connection, over HTTP', async () => {
+    const { client } = await connect()
+    await client.callTool({ name: 'read_document', arguments: {} })
+    await client.close()
+    expect(calls.at(-1)?.actor).toEqual({ kind: 'mcp-agent', connectionId: 'launch', connectionLabel: 'MCP client', via: 'http' })
+  })
+
+  it.each([
+    ['2025-era', undefined, {}],
+    ['2026-07-28', '2026-07-28', { client: 'prose-test', clientVersion: '1.0.0' }]
+  ])('a connection token calls as that connection, %s', async (_label, pin, reported) => {
+    const { client } = await connect(pin, 'prose_mcp_codex')
+    const result = await client.callTool({ name: 'read_document', arguments: { connectionLabel: 'Spoofed', actor: { kind: 'human' } } })
+    await client.close()
+    expect(result.isError).toBeFalsy()
+    // Identity comes from the token, never from the arguments; what the client reports sits beside it.
+    expect(calls.at(-1)?.actor).toEqual({ kind: 'mcp-agent', connectionId: 'c-codex', connectionLabel: 'Codex', via: 'http', ...reported })
+  })
+
+  it('a revoked connection token fails at once', async () => {
+    CONNECTIONS.set('prose_mcp_gone', { id: 'c-gone', label: 'Gone' })
+    const body = { jsonrpc: '2.0', id: 1, method: 'tools/list' }
+    expect((await raw('POST', '/mcp', { Authorization: 'Bearer prose_mcp_gone' }, body)).status).toBe(200)
+    CONNECTIONS.delete('prose_mcp_gone')
+    expect((await raw('POST', '/mcp', { Authorization: 'Bearer prose_mcp_gone' }, body)).status).toBe(401)
   })
 })
 

@@ -61,7 +61,8 @@ if (process.env.PROSE_USER_DATA_DIR || is.dev) {
 }
 import { setupIpcHandlers } from './ipc'
 import { createMenu } from './menu'
-import { getMcpHttpServer, getMcpBridge, getMcpSocketServer, mcpHttpPort, proseVersion } from './mcp'
+import { getMcpHttpServer, getMcpBridge, getMcpSocketServer, mcpHttpPort, proseVersion, getMcpConnectionStore, flushMcpConnectionStore } from './mcp'
+import { setupMcpConnectionHandlers } from './mcp/connectionsIpc'
 import { initializeSpellcheck, setupContextMenu } from './spellcheck'
 import { initAutoUpdater } from './updater'
 import { IS_MAS_BUILD } from './env'
@@ -585,6 +586,7 @@ app.whenReady().then(async () => {
 
   const mainWindow = createWindow()
   setupIpcHandlers()
+  setupMcpConnectionHandlers()
   setupFileWatcherHandlers()
   createMenu(mainWindow)
   initAutoUpdater(mainWindow)
@@ -599,8 +601,9 @@ app.whenReady().then(async () => {
 
   // Connect HTTP MCP server to bridge for tool execution
   if (mcpServer) {
-    mcpServer.setToolInvokeHandler(async (name, args) => {
-      return bridge.executeTool(name, args)
+    mcpServer.setConnectionResolver((token) => getMcpConnectionStore().resolve(token))
+    mcpServer.setToolInvokeHandler(async (name, args, actor) => {
+      return bridge.executeTool(name, args, actor)
     })
   }
 
@@ -656,7 +659,7 @@ app.whenReady().then(async () => {
     // All MCP tools require renderer, so we can only start after this point
     const socketServer = getMcpSocketServer()
     socketServer.setAuthToken(mcpAuthToken)
-    socketServer.setToolInvokeHandler((name, args) => bridge.executeTool(name, args))
+    socketServer.setToolInvokeHandler((name, args, actor) => bridge.executeTool(name, args, actor))
     try {
       await socketServer.start()
       console.log('[Main] MCP socket server started')
@@ -722,6 +725,8 @@ app.on('will-quit', async () => {
   await teardownFileWatcher()
   const socketServer = getMcpSocketServer()
   await socketServer.stop()
+  // Connections' last-use times held in memory (#1236).
+  flushMcpConnectionStore()
 
   // Clean up MCP auth token file
   try {

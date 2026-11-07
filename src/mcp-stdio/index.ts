@@ -26,7 +26,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import { spawn } from 'child_process'
-import { createProseMcpServer } from '../shared/mcp/server'
+import { createProseMcpServer, type McpCallContext } from '../shared/mcp/server'
 import { resolveProfile } from './profile'
 
 /** Injected by the build (`build:mcp-stdio`): the app version this bridge shipped with. */
@@ -331,12 +331,15 @@ async function sendRequest(
 /**
  * Execute a tool via Prose.
  */
-async function executeTool(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
+async function executeTool(name: string, args: Record<string, unknown>, context: McpCallContext): Promise<CallToolResult> {
   const timeout = TOOL_TIMEOUTS[name] || DEFAULT_TIMEOUT
+  // The client's self-reported name and version: the app labels the call with
+  // them (cleaned), as "who" for a bridge that has no connection of its own.
+  const client = context.client ? { name: context.client.name, version: context.client.version } : undefined
 
   try {
     // The app answers in the MCP result shape already (socket-server.ts).
-    const result = await sendRequest('tools/call', { name, arguments: args }, timeout)
+    const result = await sendRequest('tools/call', { name, arguments: args, ...(client ? { client } : {}) }, timeout)
     return result as CallToolResult
   } catch (err) {
     return {

@@ -24,6 +24,7 @@ import { Switch } from '../ui/switch'
 import { AppearancePane } from './AppearancePane'
 import { RemarkableIntegration } from './RemarkableIntegration'
 import { McpIntegration } from './McpIntegration'
+import { McpConnections } from './McpConnections'
 import { AccountSection } from '../account/AccountSection'
 import { ProseSkillIntegration } from './ProseSkillIntegration'
 import { isWebMode } from '../../lib/browserApi'
@@ -729,6 +730,8 @@ export function SettingsDialog() {
           {!isMas && (
           <TabsContent value="integrations" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={integrationsTabRef}>
             {!isWebMode() && <McpIntegration />}
+            {!isWebMode() && <Separator />}
+            {!isWebMode() && <McpConnections />}
             {!isWebMode() && <Separator />}
             {!isWebMode() && <ProseSkillIntegration />}
             {!isWebMode() && <Separator />}

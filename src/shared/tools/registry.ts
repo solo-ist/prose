@@ -123,6 +123,44 @@ export function isMcpToolName(name: string): boolean {
 }
 
 /**
+ * MCP document tools that take an optional `document` target (#1237): a
+ * documentId or path from `list_tabs`, resolved to an open tab by the
+ * renderer's MCP handler. MCP-only: the in-app chat is already bound to its
+ * conversation's document (#1148).
+ */
+const mcpDocumentToolNames = [
+  'read_document',
+  'get_outline',
+  'suggest_edit',
+  'list_comments',
+  'add_comment',
+  'resolve_comment',
+] as const
+
+export const MCP_DOCUMENT_ARG = 'document'
+export const MCP_DOCUMENT_ARG_MAX_LENGTH = 4096
+
+export function isMcpDocumentTool(name: string): boolean {
+  return (mcpDocumentToolNames as readonly string[]).includes(name)
+}
+
+const MCP_DOCUMENT_PROPERTY = {
+  type: 'string',
+  maxLength: MCP_DOCUMENT_ARG_MAX_LENGTH,
+  description:
+    'Optional. The document to act on: its documentId or path, as list_tabs reports them. It must be open in Prose ' +
+    '(open_file opens it). Omit it to act on the active tab. Targeting a document never switches the tab the writer sees.',
+}
+
+/** A tool's MCP input schema: its own, plus `document` on the document tools. */
+function mcpInputSchema(tool: ToolConfig): Record<string, unknown> {
+  const schema = zodToJsonSchema(tool.schema)
+  if (!isMcpDocumentTool(tool.name)) return schema
+  const properties = (schema.properties as Record<string, unknown> | undefined) ?? {}
+  return { ...schema, properties: { ...properties, [MCP_DOCUMENT_ARG]: MCP_DOCUMENT_PROPERTY } }
+}
+
+/**
  * Get tools formatted for MCP server.
  * Returns a focused subset of tools for Claude Desktop integration.
  */
@@ -136,6 +174,6 @@ export function getToolsForMCP(): Array<{
     .map((tool) => ({
       name: tool.name,
       description: tool.description,
-      inputSchema: zodToJsonSchema(tool.schema)
+      inputSchema: mcpInputSchema(tool)
     }))
 }

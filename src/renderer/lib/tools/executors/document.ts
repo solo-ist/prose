@@ -540,12 +540,14 @@ export function executeAddComment(args: {
 
   const id = generateId()
 
-  const success = handle
-    .chain()
-    .focus()
-    .setTextSelection({ from, to })
-    .setComment({ id, comment, author: 'ai' })
-    .run()
+  // An MCP call (#1237) leaves the writer's caret and focus where they were:
+  // select, mark and restore in one transaction (a mark adds no content).
+  const { from: keptFrom, to: keptTo } = handle.state.selection
+  let chain = handle.chain()
+  if (!ctx.preserveView) chain = chain.focus()
+  chain = chain.setTextSelection({ from, to }).setComment({ id, comment, author: 'ai' })
+  if (ctx.preserveView) chain = chain.setTextSelection({ from: keptFrom, to: keptTo })
+  const success = chain.run()
 
   if (!success) {
     return toolError('Failed to apply comment mark — the range may not contain markable content', 'COMMENT_FAILED')

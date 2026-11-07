@@ -5,10 +5,11 @@
  * instead of computing paths independently.
  */
 import { join, normalize, resolve, sep, dirname, basename } from 'path'
-import { homedir } from 'os'
+import { homedir, userInfo } from 'os'
 import { copyFileSync, cpSync, existsSync, mkdirSync, renameSync, rmSync } from 'fs'
 import { realpath, stat, readFile } from 'fs/promises'
 import { app } from 'electron'
+import { IS_MAS_BUILD } from './env'
 
 /**
  * Legacy settings directory (~/.prose/).
@@ -131,13 +132,39 @@ export function validatePathConsistency(): void {
 // Two very different tools live here. Read both docblocks before picking one.
 // ---------------------------------------------------------------------------
 
-/** Expand a leading `~` to the user's home directory. */
+/**
+ * The user's real home folder (#1223).
+ *
+ * Under the App Store sandbox `HOME`, and with it `homedir()` and
+ * `app.getPath('home' | 'documents')`, is the app's container
+ * (`~/Library/Containers/ist.solo.prose/Data`). `userInfo()` reads the password
+ * database and returns the real home. Use this wherever a path names a place the
+ * user means: a containment root for content paths, a dialog's starting folder,
+ * a typed `~/…`. The app's own data (`getUserDataPath`, the settings directory)
+ * stays in the container. The sandbox still decides what can be read; a root or a
+ * starting folder grants nothing.
+ */
+export function userHomeDir(): string {
+  if (!IS_MAS_BUILD) return homedir()
+  try {
+    return userInfo().homedir || homedir()
+  } catch {
+    return homedir()
+  }
+}
+
+/** The user's Documents folder; on MAS the real one, not the container's (#1223). */
+export function userDocumentsDir(): string {
+  return IS_MAS_BUILD ? join(userHomeDir(), 'Documents') : app.getPath('documents')
+}
+
+/** Expand a leading `~` to the user's home directory (the real one on MAS, #1223). */
 export function expandPath(path: string): string {
   if (path.startsWith('~/')) {
-    return join(homedir(), path.slice(2))
+    return join(userHomeDir(), path.slice(2))
   }
   if (path === '~') {
-    return homedir()
+    return userHomeDir()
   }
   return path
 }
@@ -334,7 +361,7 @@ export async function resolveWithinAny(
  * settings.json on each call: cheap, and always current.
  */
 export async function getToolRoots(): Promise<string[]> {
-  const roots = [homedir()]
+  const roots = [userHomeDir()]
   try {
     const raw = await readFile(join(getSettingsDir(), 'settings.json'), 'utf-8')
     const settings = JSON.parse(raw) as {

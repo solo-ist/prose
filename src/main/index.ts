@@ -3,7 +3,6 @@ import { join } from 'path'
 import { writeFileSync, unlinkSync, existsSync, readFileSync } from 'fs'
 import { readFile as readFileAsync } from 'fs/promises'
 import { randomBytes } from 'crypto'
-import { homedir } from 'os'
 
 // Load environment variables from .env file
 // Use explicit path since Electron's CWD may differ from project root
@@ -28,7 +27,7 @@ const IS_HEADLESS_TEST = process.env.PROSE_HEADLESS === '1'
 
 // Initialize Sentry early (before app.whenReady) if user has opted in
 import { initSentry, setSentryEnabled } from './sentry'
-import { getUserDataPath, LEGACY_SETTINGS_DIR, seedDevProfile, validatePathConsistency, resolveWithin, IMAGE_EXTENSIONS } from './paths'
+import { getUserDataPath, LEGACY_SETTINGS_DIR, seedDevProfile, validatePathConsistency, resolveWithin, IMAGE_EXTENSIONS, userHomeDir } from './paths'
 import { migrateFromLegacyDir, purgeGoogleCredentials } from './migrate'
 seedDevProfile()
 try {
@@ -465,10 +464,12 @@ app.whenReady().then(async () => {
     // Path source: B — every <img> src in document content (markdown images,
     // raw local-file: URLs, prose:// deep-link payloads) arrives here. Confine
     // to the home directory and image extensions on the REAL path: a symlink
-    // inside home must not reach a file outside it (#918, shared helper).
+    // inside home must not reach a file outside it (#918, shared helper). The
+    // user's real home on MAS, where `homedir()` is the sandbox container and
+    // would refuse every image outside it (#1223); the sandbox still applies.
     let normalized: string
     try {
-      normalized = await resolveWithin(homedir(), filePath, {
+      normalized = await resolveWithin(userHomeDir(), filePath, {
         extensions: IMAGE_EXTENSIONS,
         kind: 'image',
         label: 'the home directory'
@@ -651,15 +652,19 @@ app.whenReady().then(async () => {
     pendingFileOpens.length = 0
 
     // Start MCP socket server now that renderer bridge is ready
-    // All MCP tools require renderer, so we can only start after this point
-    const socketServer = getMcpSocketServer()
-    socketServer.setAuthToken(mcpAuthToken)
-    socketServer.setToolInvokeHandler((name, args) => bridge.executeTool(name, args))
-    try {
-      await socketServer.start()
-      console.log('[Main] MCP socket server started')
-    } catch (err) {
-      console.warn('[Main] MCP socket server failed to start:', err instanceof Error ? err.message : err)
+    // All MCP tools require renderer, so we can only start after this point.
+    // Not on MAS: the stdio bridge is never installed there and `mcp:*` is
+    // blocked, so nothing could connect (#1223).
+    if (!IS_MAS_BUILD) {
+      const socketServer = getMcpSocketServer()
+      socketServer.setAuthToken(mcpAuthToken)
+      socketServer.setToolInvokeHandler((name, args) => bridge.executeTool(name, args))
+      try {
+        await socketServer.start()
+        console.log('[Main] MCP socket server started')
+      } catch (err) {
+        console.warn('[Main] MCP socket server failed to start:', err instanceof Error ? err.message : err)
+      }
     }
 
     return { success: true }

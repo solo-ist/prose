@@ -28,6 +28,7 @@ import { AccountSection } from '../account/AccountSection'
 import { ProseSkillIntegration } from './ProseSkillIntegration'
 import { isWebMode } from '../../lib/browserApi'
 import { cn } from '../../lib/utils'
+import { isMasBuild } from '../../lib/featureFlags'
 import type { Settings } from '../../types'
 import { Eye, EyeOff, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
 import { getModelsForProvider, getDefaultModel, type LLMProvider } from '../../../shared/llm/models'
@@ -178,7 +179,7 @@ export function SettingsDialog() {
   // integrations (MCP, the Claude skill and reMarkable are all off there), so it is
   // not offered those tabs at all rather than shown them empty (#1222). A request
   // for one of them (a stale `dialogTab`, a caller naming it) renders General.
-  const isMas = window.api?.isMasBuild === true
+  const isMas = isMasBuild()
   const activeTab = isMas && (dialogTab === 'integrations' || dialogTab === 'account') ? 'general' : dialogTab
 
   const handleSave = async () => {

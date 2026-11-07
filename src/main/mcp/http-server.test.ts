@@ -177,9 +177,12 @@ describe('MCP HTTP guards', () => {
     expect(res.status).toBe(403)
   })
 
-  it('accepts host.docker.internal for Docker-hosted clients', async () => {
-    const res = await raw('POST', '/mcp', { Host: `host.docker.internal:${server.port}`, Authorization: `Bearer ${TOKEN}` }, { jsonrpc: '2.0', id: 1, method: 'tools/list' })
+  it('accepts host.docker.internal for Docker-hosted clients, still behind the token', async () => {
+    const host = `host.docker.internal:${server.port}`
+    const res = await raw('POST', '/mcp', { Host: host, Authorization: `Bearer ${TOKEN}` }, { jsonrpc: '2.0', id: 1, method: 'tools/list' })
     expect(res.status).toBe(200)
+    const anonymous = await raw('POST', '/mcp', { Host: host }, { jsonrpc: '2.0', id: 1, method: 'tools/list' })
+    expect(anonymous.status).toBe(401)
   })
 
   it('refuses a foreign Origin before the token is even checked', async () => {

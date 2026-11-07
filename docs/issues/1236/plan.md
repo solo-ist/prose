@@ -59,3 +59,25 @@ main from it — never from anything the client sends as tool arguments.
   connection.
 - Falsified on the merge-base (M1's head): the new specs fail there.
 - `typecheck:renderer` 66, `typecheck:e2e` 6, unit, build; MCP e2e (M1's, targeting, provenance) stay green.
+
+## Execution log
+
+- **2026-11-07.** Plan `06ba9de`; change `a25c240`, on M1's head `83d2b7c` (main's P2 #1252 is not in this stack;
+  nothing here overlaps it).
+  - Steps 1–4 built as designed. The `.mcpb` (step 5) is filed as **#1257** with the findings: manifest 0.3 format
+    from the extensions installed on this machine, a dependency-free zip writer on `zlib.crc32`, the per-profile
+    `env` a dev build needs, the GUI-only install step, and two open questions (Claude Desktop's built-in Node
+    against the bridge's Node 20 target; extensions vs plugins as the long-term route).
+  - The SDK's pass-through `authInfo` carries the caller from the bearer check to the per-request server factory
+    (`toNodeHandler` forwards `req.auth`), so no request state is shared between calls.
+  - Tests: vitest 255/255 (new: `connections.test.ts` 6, `actor.test.ts` 3, `clientInfo.test.ts` 2 — both eras over
+    a stdio-style connection, `mcpSetupSnippets.test.ts` 3; `http-server.test.ts` +4 — the launch token's actor, a
+    connection token's actor at both eras with a spoofed `actor` argument ignored, revocation → 401). e2e
+    `electron.mcp-connections.spec.ts` 2 (create via the preload API → HTTP `add_comment` with the token →
+    `list_comments` `by` and the stored row's actor carry the connection → revoke → 401; the Settings UI shows the
+    token once, fills the snippets, lists, revokes). With M1's MCP specs, targeting, provenance and settings-account:
+    28 passed.
+  - **Falsified** against M1's head (`git checkout 83d2b7c -- src`, rebuilt): the e2e fails
+    (`mcpCreateConnection is not a function`; the UI case finds no panel), the new `http-server.test.ts` fails at
+    setup (`setConnectionResolver` missing), and `clientInfo.test.ts` fails 2/2 (no context reaches `callTool`).
+  - `typecheck:renderer` 66, `typecheck:e2e` 6; no main-project errors in the touched files.

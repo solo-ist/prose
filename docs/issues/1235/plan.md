@@ -71,3 +71,30 @@ Connections and long-lived tokens (M2, #1236), document targeting (M3, #1237), n
   structured results).
 - `typecheck:renderer` at its baseline; `npm run test:unit`; `npm run build`; e2e `path-containment` (MCP
   allowlist over HTTP, default port updated to 9878), `mcp-status`, `mcp-socket-path`.
+
+## Execution log
+
+- **2026-11-07.** Plan `19191fa`; change `03e04c0`.
+  - Built on `@modelcontextprotocol/server` 2.4.0 + `@modelcontextprotocol/node` 2.1.2 (client 2.4.0 as a dev
+    dependency); v1 removed. Installing v2 first hoisted zod 4.6.7 to the root, under the app's zod-3 schemas and
+    the AI SDK: caught in `npm ls zod`, fixed by the direct `zod ^3.25.76` pin (root back to 3.25.76; zod 4 nested
+    under the MCP packages only).
+  - `app.getVersion()` reports Electron's version when unpackaged (the e2e caught `45.2.3`): an electron-vite
+    `define` did not reach the SSR main build, so `src/main/mcp/version.ts` reads `package.json` when unpackaged.
+  - `path-containment`'s MCP allowlist test now pins `PROSE_MCP_PORT` for its launch (with the unpackaged default
+    moving to 9878 it would otherwise have skipped itself silently).
+  - Tests: vitest 206/206 (new: `http-server.test.ts` 20 — both eras through the v2 client, wire-level proof of each
+    era, Host/Origin/bearer guards, CORS, ports; `shared/mcp/server.test.ts` 16 — every output schema against its
+    executor's payload, a schema that rejects, the description/instructions tripwire, `toCallToolResult`;
+    `profile.test.ts` 4). e2e: `electron.mcp-protocol.spec.ts` 5 (HTTP and stdio at both eras against the built app,
+    structured results validated by the client, the bridge with no app on its profile), plus `mcp-status`,
+    `mcp-socket-path`, `path-containment`, `onboarding`, `tab-caret`: 24 passed.
+  - **Falsified** on a build of the merge-base (`84ba7bd`, its own worktree and `node_modules`): all five new e2e cases
+    fail there — version `1.0.0`, no instructions, `server/discover` not offered for 2026-07-28 (HTTP and stdio), and
+    the base bridge ignored `PROSE_USER_DATA_DIR` (its `list_tabs` reached the installed app's socket instead of
+    failing; read-only). The unit tests target modules the base lacks.
+  - `typecheck:renderer` 69 = base; `typecheck:e2e` 6 = base; `tsconfig.node.json` 24 = base. `npm audit --omit=dev`
+    unchanged (47; `@hono/node-server` now arrives via `@modelcontextprotocol/node`, the root override still pins it
+    below 2).
+  - Note for M2: the bridge targets Node 20 (v2's floor), and Claude Desktop runs it with the system `node`; the
+    `.mcpb` in M2 removes that dependency.

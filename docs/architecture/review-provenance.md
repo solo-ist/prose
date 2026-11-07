@@ -43,7 +43,8 @@ export interface McpAgentActor {
   client?: string
   clientVersion?: string
   model?: string
-  via: 'stdio' | 'http' | 'relay'
+  /** How the call arrived; filled in by main from M2 (#1236) on, optional until then. */
+  via?: 'stdio' | 'http' | 'relay'
 }
 
 /** AI text whose origin is unknown: rows from before 1.9.1, and text the writer marks as AI-written (the selection toggle, "Imported"). */
@@ -76,7 +77,7 @@ All new fields are optional and JSON-compatible: no store changes shape, and onl
 
 ## 4. Reading records written before 1.9.1
 
-One pure function per record kind in `actor.ts`, applied when a record is read into plugin state (the seed `load`, a share merge, an artifact import). Rows are not rewritten at load; a row gains its actor the next time its document persists, which is the existing policy for `anchorText`.
+One pure function per record kind in `actor.ts` (`actorOfComment`, `actorOfProvenance`), applied wherever a record is read for display or a tool result. *(Shipped in P1: rows are derived on read and never rewritten, so there is no migration to get wrong; `author` and `authorName` stay written beside `actor` for the share wire format.)*
 
 | Old shape | Actor |
 |---|---|
@@ -85,6 +86,7 @@ One pure function per record kind in `actor.ts`, applied when a record is read i
 | comment / reply `author: 'ai'` | `{ kind: 'unattributed', label: 'AI' }` (in-app chat and MCP both wrote `'ai'`; it can't be told apart) |
 | suggestion / annotation `provenanceModel: 'Claude (MCP)'` | `{ kind: 'mcp-agent', connectionId: 'legacy', connectionLabel: 'MCP client', via: 'stdio' }` |
 | suggestion / annotation `provenanceModel: 'Imported'` | `{ kind: 'unattributed', label: 'Imported' }` |
+| annotation `provenanceModel: 'External AI'` (pasted AI text) | `{ kind: 'unattributed', label: 'External AI' }` |
 | suggestion / annotation with any other `provenanceModel` | `{ kind: 'prose-agent', provider: 'anthropic', model: provenanceModel }` (before 1.9.1 the in-app chat was Anthropic-only) |
 | suggestion / annotation with no model | `{ kind: 'unattributed', label: 'AI' }` |
 

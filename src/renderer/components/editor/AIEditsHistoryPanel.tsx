@@ -33,6 +33,8 @@ import { PROSE_ICONS, IconThumb } from '../../lib/prose-icons'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { renderMarkdown } from '../chat/ChatMessage'
 import { cn } from '../../lib/utils'
+import { actorAvatarKind, actorLabel, actorOfComment, actorOfProvenance, isAgentActor } from '../../../shared/review/actor'
+import { useSelfName } from '../../hooks/useSelfName'
 
 /** Which activity categories are visible. Every category defaults to shown. */
 export interface ActivityFilter {
@@ -279,6 +281,7 @@ interface HistoryEntryRowProps {
 }
 
 function HistoryEntryRow({ annotation, onJump, onRemove }: HistoryEntryRowProps) {
+  const selfName = useSelfName()
   const snippet = annotation.content.slice(0, 200).replace(/\n/g, ' ')
   const isLong = annotation.content.length > 200
   const detached = annotation.detached === true
@@ -310,8 +313,8 @@ function HistoryEntryRow({ annotation, onJump, onRemove }: HistoryEntryRowProps)
             superseded
           </span>
         )}
-        <span className="min-w-0 truncate text-xs text-muted-foreground">
-          {formatModelName(annotation.provenance.model)}
+        <span className="min-w-0 truncate text-xs text-muted-foreground" data-testid="annotation-actor">
+          {actorLabel(actorOfProvenance(annotation.provenance.model, annotation.provenance.actor), { selfName })}
         </span>
         <span className="ml-auto shrink-0 text-xs text-muted-foreground/60">{formatAge(annotation.createdAt)}</span>
         {!detached && (
@@ -373,14 +376,18 @@ interface CommentActivityRowProps {
 }
 
 function CommentActivityRow({ comment, onRemove, onReview }: CommentActivityRowProps) {
+  const selfName = useSelfName()
   const [expanded, setExpanded] = useState(false)
   const replies = comment.replies ?? []
   const category = commentCategory(comment)
   const isResolved = category === 'resolved'
   const last = replies.length > 0 ? replies[replies.length - 1] : null
   const hasMark = !isResolved // resolved threads remove their mark from the doc
-  // The top-level comment may be AI-authored (left via add_comment).
-  const commentIsAI = comment.author === 'ai'
+  // The top-level comment may be agent-authored (left via add_comment); name
+  // every actor (#1232).
+  const commentActor = actorOfComment(comment)
+  const commentIsAI = isAgentActor(commentActor)
+  const lastActor = last ? actorOfComment(last) : null
 
   const openInDocument = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -389,6 +396,7 @@ function CommentActivityRow({ comment, onRemove, onReview }: CommentActivityRowP
 
   return (
     <div
+      data-testid="comment-activity-row"
       onClick={() => setExpanded((v) => !v)}
       className={cn(
         'group cursor-pointer rounded-[10px] border border-border bg-muted/50 px-3 py-3 transition-all hover:border-muted-foreground/30 hover:bg-muted/85',
@@ -446,7 +454,7 @@ function CommentActivityRow({ comment, onRemove, onReview }: CommentActivityRowP
         <div className="flex flex-col gap-1.5">
           <PreviewRow kind={commentIsAI ? 'ai' : 'user'} text={comment.comment} clamp={1} markdown={commentIsAI} />
           {last ? (
-            <PreviewRow kind={last.author === 'ai' ? 'ai' : 'user'} text={last.text} clamp={2} markdown={last.author === 'ai'} />
+            <PreviewRow kind={actorAvatarKind(lastActor!)} text={last.text} clamp={2} markdown={isAgentActor(lastActor!)} />
           ) : !isResolved ? (
             <PreviewRow kind="pending" text="Awaiting reply…" clamp={1} />
           ) : null}
@@ -456,21 +464,24 @@ function CommentActivityRow({ comment, onRemove, onReview }: CommentActivityRowP
         <div className="flex flex-col gap-2.5">
           <FullRow
             kind={commentIsAI ? 'ai' : 'user'}
-            name={commentIsAI ? 'Prose' : 'you'}
+            name={actorLabel(commentActor, { selfName })}
             time={formatAge(comment.createdAt)}
             text={comment.comment}
             markdown={commentIsAI}
           />
-          {replies.map((r) => (
-            <FullRow
-              key={r.id}
-              kind={r.author === 'ai' ? 'ai' : 'user'}
-              name={r.author === 'ai' ? 'Prose' : 'you'}
-              time={formatAge(r.createdAt)}
-              text={r.text}
-              markdown={r.author === 'ai'}
-            />
-          ))}
+          {replies.map((r) => {
+            const actor = actorOfComment(r)
+            return (
+              <FullRow
+                key={r.id}
+                kind={actorAvatarKind(actor)}
+                name={actorLabel(actor, { selfName })}
+                time={formatAge(r.createdAt)}
+                text={r.text}
+                markdown={isAgentActor(actor)}
+              />
+            )
+          })}
           {hasMark && (
             <button
               onClick={openInDocument}
@@ -584,7 +595,7 @@ function FullRow({
       <MiniAvatar kind={kind} />
       <div className="min-w-0 flex-1">
         <div className="mb-0.5 text-[11px] text-muted-foreground">
-          {name} · {time}
+          <span data-testid="activity-actor">{name}</span> · {time}
         </div>
         {markdown ? (
           <div className="prose-chat wrap-break-word text-[12.5px] leading-relaxed text-foreground/85">
@@ -648,17 +659,4 @@ function formatGroupLabel(timestamp: number): string {
   if (diffDays === 1) return 'Yesterday'
   if (diffDays < 7) return date.toLocaleDateString('en-US', { weekday: 'long' })
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: diffDays > 365 ? 'numeric' : undefined })
-}
-
-function formatModelName(model: string): string {
-  if (!model || model === 'external') return 'External'
-  const tokens = model
-    .replace(/^claude[-/]?/, '')
-    .replace(/[-\s]?\d{6,}$/, '')
-    .split('-')
-    .filter(Boolean)
-  if (tokens.length === 0) return model
-  const name = tokens[0].charAt(0).toUpperCase() + tokens[0].slice(1)
-  const version = tokens.slice(1).join('.')
-  return version ? `${name} ${version}` : name
 }

@@ -8,7 +8,7 @@
 import type { EditorState } from '@tiptap/pm/state'
 import type { EditorView } from '@tiptap/pm/view'
 import type { AnnotationInput } from '../extensions/ai-annotations/transactions'
-import type { AnnotationType } from '../types/annotations'
+import type { AIProvenance, AnnotationType } from '../types/annotations'
 
 /**
  * Scroll the editor so the current selection is centered in the viewport.
@@ -172,7 +172,7 @@ export function buildWordDiffAnnotations(params: {
   newText: string
   rangeFrom: number
   rangeTo: number
-  provenance: { model: string; conversationId: string; messageId: string }
+  provenance: AIProvenance
   explanation?: string
   priorAnnotations?: readonly import('../types/annotations').AIAnnotation[]
 }): AnnotationInput[] {

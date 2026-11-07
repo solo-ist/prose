@@ -121,6 +121,8 @@ interface SettingsState {
   setEditorConfig: (config: Partial<Settings['editor']>) => void
   setRecoveryConfig: (config: Partial<NonNullable<Settings['recovery']>>) => void
   setDefaultSaveDirectory: (path: string) => void
+  /** The writer's name and optional email (#1232); saved with the dialog's Save Changes. */
+  setUserIdentity: (patch: Partial<NonNullable<Settings['user']>>) => void
   setRemarkableConfig: (config: Partial<NonNullable<Settings['remarkable']>>) => void
   setFileAssociationConfig: (config: Partial<NonNullable<Settings['fileAssociation']>>) => void
   setAutosaveConfig: (config: Partial<NonNullable<Settings['autosave']>>) => void
@@ -470,6 +472,11 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
   setDefaultSaveDirectory: (path) =>
     set((state) => ({
       settings: { ...state.settings, defaultSaveDirectory: path }
+    })),
+
+  setUserIdentity: (patch) =>
+    set((state) => ({
+      settings: { ...state.settings, user: { ...state.settings.user, ...patch } }
     })),
 
   setRemarkableConfig: (config) =>

@@ -8,6 +8,7 @@
  * changes mark and thread in one transaction.
  */
 
+import { SELF, type Actor } from '../../../shared/review/actor'
 import { Mark, mergeAttributes } from '@tiptap/core'
 import type { Transaction } from '@tiptap/pm/state'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
@@ -35,7 +36,7 @@ declare module '@tiptap/core' {
       /**
        * Add a comment to the current selection
        */
-      setComment: (attrs: { id: string; comment: string; author?: 'user' | 'ai' }) => ReturnType
+      setComment: (attrs: { id: string; comment: string; author?: 'user' | 'ai'; actor?: Actor }) => ReturnType
       /**
        * Remove a comment by ID
        */
@@ -186,6 +187,9 @@ export const Comment = Mark.create<CommentOptions>({
             // Default to a human author; `add_comment` passes 'ai' so the thread
             // renders under the Prose identity instead of "You".
             author: attrs.author ?? 'user',
+            // Who wrote it (#1232): the caller's actor, else the writer for a
+            // human comment. An 'ai' comment with no actor reads as unattributed.
+            ...(attrs.actor ? { actor: attrs.actor } : attrs.author === 'ai' ? {} : { actor: SELF }),
             occurrenceIndex,
             from,
             to,

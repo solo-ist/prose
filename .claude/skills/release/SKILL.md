@@ -76,7 +76,18 @@ git branch --show-current          # Must be on release branch or main
 git status --porcelain             # Must be clean
 node -p "require('./package.json').version"   # Current marketing version
 grep buildVersion electron-builder.yml        # Current build number
+
+# What the App Store serves today. App Store users jump from this version, so the
+# App Store notes (below) cover everything since it, not just the last release.
+curl -s "https://itunes.apple.com/lookup?bundleId=ist.solo.prose&entity=desktopSoftware" \
+  | python3 -c "import json,sys; r=json.load(sys.stdin)['results'][0]; print(r['version'], r['currentVersionReleaseDate'])"
 ```
+
+**Build number:** strictly above the last App Store Connect upload (`git log -S'buildVersion' -- electron-builder.yml`).
+**Release notes:** the App Store build reads `resources/release-notes/<version>-mas.md` first, then `<version>.md`
+(#1222). If the shared notes name anything the App Store build gates off (sharing, sign-in, Claude Desktop / MCP,
+the skill, reMarkable, auto-update), a `-mas` file must exist and name none of it; `npm run test:unit` enforces
+both (`notesFiles.test.ts`). Never mention another edition of the app in App Store copy.
 
 ### 2. Build
 
@@ -84,9 +95,21 @@ grep buildVersion electron-builder.yml        # Current build number
 # Clean previous builds
 rm -rf dist/mas-arm64
 
-# Build with MAS_BUILD flag (gates HTTP MCP server, auto-updater)
+# Build with MAS_BUILD flag (gates sharing and sign-in, MCP and the skill, reMarkable,
+# the auto-updater and the update banner; roots user paths at the real home, #1223)
 npm run build:mas
 ```
+
+### 2b. Gate checks (the `out/` that `build:mas` just made is MAS-flagged)
+
+```bash
+PROSE_DEBUG_PORT=9229 npx playwright test e2e/electron.mas-gates.spec.ts e2e/electron.mas-home.spec.ts
+npm run build    # afterwards: restores the direct build (src/main/env.ts stays `true` until then)
+```
+
+Both files skip on a direct build, so a run that reports only skips means the build was not MAS-flagged. They run
+the MAS code on the regular Electron binary without the sandbox. What the sandbox allows (images, dialog folders,
+bookmarks) is checked on the TestFlight install: `docs/qa/v<version>-mas.md` when one exists.
 
 ### 3. Verify
 
@@ -111,14 +134,19 @@ codesign -d --entitlements - dist/mas-arm64/Prose.app 2>&1 | head -20
 ### 4. Upload to App Store Connect
 
 ```bash
-xcrun altool --upload-app \
-  --type macos \
-  --file dist/mas-arm64/Prose-1.0.0-arm64.pkg \
-  --apiKey 73DLM4525G \
-  --apiIssuer f46c81a3-3264-4e9d-9b2f-93de6a302175
+# `altool` is deprecated for App Store delivery: use Transporter (the app, or its CLI).
+# Key ID and Issuer UUID come from the environment, never from this file; the .p8 lives
+# under ~/.appstoreconnect/private_keys/ (a default lookup path). The package name
+# carries the marketing version and the arch.
+VERSION=$(node -p "require('./package.json').version")
+xcrun iTMSTransporter -m upload \
+  -assetFile "dist/mas-arm64/Prose-${VERSION}-arm64.pkg" \
+  -apiKey "$ASC_KEY_ID" \
+  -apiIssuer "$ASC_ISSUER_ID"
 ```
 
-The API key `.p8` file lives at `~/.appstoreconnect/private_keys/AuthKey_73DLM4525G.p8`.
+This step needs the signing identities, the provisioning profiles (`build/*.provisionprofile`, gitignored) and the
+App Store Connect key, which live on the operator's signing machine, not on the agent account.
 
 ### 5. Report
 
@@ -436,11 +464,11 @@ git push origin <branch>
 ### 5. Upload
 
 ```bash
-xcrun altool --upload-app \
-  --type macos \
-  --file dist/mas-arm64/Prose-1.0.0-arm64.pkg \
-  --apiKey 73DLM4525G \
-  --apiIssuer f46c81a3-3264-4e9d-9b2f-93de6a302175
+VERSION=$(node -p "require('./package.json').version")
+xcrun iTMSTransporter -m upload \
+  -assetFile "dist/mas-arm64/Prose-${VERSION}-arm64.pkg" \
+  -apiKey "$ASC_KEY_ID" \
+  -apiIssuer "$ASC_ISSUER_ID"
 ```
 
 Report the delivery UUID and wait for App Store Connect processing.
@@ -492,9 +520,12 @@ Run through this before any release:
 - [ ] Body does not scroll off screen
 
 ### MAS-specific
-- [ ] HTTP MCP server disabled (check console for log message)
+- [ ] `e2e/electron.mas-gates.spec.ts` and `electron.mas-home.spec.ts` pass on the `build:mas` output (step 2b)
+- [ ] `<version>-mas.md` notes exist when the shared notes name a gated feature (`npm run test:unit`)
+- [ ] HTTP MCP server and MCP socket server disabled (check console for log message)
 - [ ] MCP install returns error in MAS build
 - [ ] Auto-updater disabled in MAS build
+- [ ] App Store Connect "What's New" pasted from `docs/app-store-copy.md`, covering every version since the one the App Store serves
 
 ### Security
 - [ ] No plaintext secrets in ~/.prose/settings.json

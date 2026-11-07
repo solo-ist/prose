@@ -24,3 +24,16 @@ Every MCP call acts on whichever tab the writer has in front of them. An agent c
 - Falsified on a build of the merge-base.
 
 Unit: `mcpTarget.test.ts` covers documentId match, path match, no match, and an empty or oversized target.
+
+## Execution log
+
+- **2026-11-07.** `f86e999` plan, then the change and specs. The bridge timeout moved to M2 (#1236) as planned, so this PR stays renderer and shared only.
+- **Checks:**
+  - `typecheck:renderer`: 66, same as the base. `typecheck:e2e`: 6, same as the base.
+  - Unit tests: 175, with `mcpTarget.test.ts` adding 9.
+  - Build clean.
+  - `electron.mcp-targeting.spec.ts`: 3/3 on the branch. **All 3 fail on a build of `54aa64b`**, for the intended reasons:
+    1. the targeted read returns the shown document;
+    2. the closed target falls through to `NODE_NOT_FOUND` on the active tab;
+    3. the untargeted comment moves the caret.
+  - The comment, suggestion, provenance, document-sessions, MCP and Activity specs: 65 passed.

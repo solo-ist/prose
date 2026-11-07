@@ -470,7 +470,6 @@ export function useChat() {
           await api.llmChatStream({
             provider: settingsState.settings.llm.provider,
             model: settingsState.settings.llm.model,
-            apiKey: settingsState.settings.llm.apiKey,
             baseUrl: settingsState.settings.llm.baseUrl,
             messages: updatedMessages,
             system: buildSystemPrompt(
@@ -696,7 +695,6 @@ export function useChat() {
         await api.llmChatStream({
           provider: settings.llm.provider,
           model: settings.llm.model,
-          apiKey: settings.llm.apiKey,
           baseUrl: settings.llm.baseUrl,
           messages: apiMessages,
           system: buildSystemPrompt(

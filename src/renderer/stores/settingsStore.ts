@@ -4,6 +4,8 @@ import type { Appearance, AppearanceOnDisk, ColorTheme, Favorite, LegacyTheme, P
 import { initRendererSentry, setRendererSentryEnabled } from '../lib/sentry'
 import { getDefaultModel } from '../../shared/llm/models'
 import type { ModelInfo } from '../../shared/llm/models'
+import type { LLMKeyStatusMap, LLMProvider } from '../../shared/llm/providers'
+import { hasProviderKey } from '../lib/llm'
 import type { ToolMode } from '../../shared/tools/types'
 
 const MAX_RECENT_FILES = 15
@@ -116,6 +118,12 @@ interface SettingsState {
   setAboutDialogOpen: (open: boolean) => void
   setModelPickerOpen: (open: boolean) => void
   fetchModels: () => Promise<void>
+  /**
+   * Hand a provider's key to main, which stores it (#1240). The store keeps
+   * only the status main answers with. Resolves with main's error, if any.
+   */
+  setLlmKey: (provider: LLMProvider, key: string) => Promise<{ ok: boolean; error?: string }>
+  clearLlmKey: (provider: LLMProvider) => Promise<void>
   setAppearance: (patch: Partial<Appearance>) => void
   setLLMConfig: (config: Partial<Settings['llm']>) => void
   setEditorConfig: (config: Partial<Settings['editor']>) => void
@@ -156,7 +164,6 @@ const defaultSettings: Settings = {
   llm: {
     provider: 'anthropic',
     model: getDefaultModel('anthropic'),
-    apiKey: '',
     emojiIcons: false
   },
   editor: {
@@ -176,6 +183,17 @@ const defaultSettings: Settings = {
 // Drives the v1.1 → v1.2 migration. If the on-disk file has a `theme` field,
 // it predates v1.2 and we derive `appearance` from it. The default-merged
 // `appearance` (which carries fresh-install values) is discarded in that case.
+/**
+ * Write main's key status into the in-memory settings. Never persisted: main
+ * drops `keyStatus` on save and rebuilds it on every load (#1240).
+ */
+function applyKeyStatus(
+  set: (fn: (state: SettingsState) => Partial<SettingsState>) => void,
+  status: LLMKeyStatusMap
+): void {
+  set((state) => ({ settings: { ...state.settings, llm: { ...state.settings.llm, keyStatus: status } } }))
+}
+
 function migrateOnDiskSettings(raw: SettingsOnDisk): Settings {
   // Strip the legacy `theme` field so it can't leak into in-memory Settings —
   // every consumer should see the migrated `appearance` instead.
@@ -359,7 +377,7 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
         initRendererSentry(raw?.errorTracking?.enabled === true)
 
         // Refresh the live model list in the background if we have an API key
-        if (raw?.llm?.apiKey) {
+        if (raw?.llm && hasProviderKey(raw.llm)) {
           get().fetchModels().catch(() => { /* surfaced via state, not a crash */ })
         }
       } catch (error) {
@@ -407,15 +425,13 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
   fetchModels: async () => {
     const { settings, isFetchingModels } = get()
     if (isFetchingModels) return
-    if (!settings.llm.apiKey) return
+    if (!hasProviderKey(settings.llm)) return
     if (typeof window === 'undefined' || !window.api?.fetchModels) return
 
     set({ isFetchingModels: true })
     try {
-      const result = await window.api.fetchModels({
-        provider: settings.llm.provider,
-        apiKey: settings.llm.apiKey
-      })
+      // Main reads the provider's saved key.
+      const result = await window.api.fetchModels({ provider: settings.llm.provider })
       if (result.models && result.models.length > 0) {
         set({ fetchedModels: result.models, fetchedModelsAt: Date.now() })
       }
@@ -450,6 +466,21 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
         llm: { ...state.settings.llm, ...config }
       }
     })),
+
+  setLlmKey: async (provider, key) => {
+    if (typeof window === 'undefined' || !window.api?.setLlmKey) {
+      return { ok: false, error: 'Keys cannot be saved in this build' }
+    }
+    const result = await window.api.setLlmKey({ provider, key })
+    applyKeyStatus(set, result.status)
+    return result.ok ? { ok: true } : { ok: false, error: result.error }
+  },
+
+  clearLlmKey: async (provider) => {
+    if (typeof window === 'undefined' || !window.api?.clearLlmKey) return
+    applyKeyStatus(set, await window.api.clearLlmKey(provider))
+    if (provider === get().settings.llm.provider) set({ fetchedModels: null, fetchedModelsAt: null })
+  },
 
   setEditorConfig: (config) =>
     set((state) => ({

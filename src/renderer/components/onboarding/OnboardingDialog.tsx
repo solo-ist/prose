@@ -100,6 +100,7 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
   const setErrorTracking = useSettingsStore((s) => s.setErrorTracking)
   const setFileAssociationConfig = useSettingsStore((s) => s.setFileAssociationConfig)
   const setLLMConfig = useSettingsStore((s) => s.setLLMConfig)
+  const setLlmKey = useSettingsStore((s) => s.setLlmKey)
   const saveSettings = useSettingsStore((s) => s.saveSettings)
 
   const [probe, setProbe] = useState<Probe | null>(null)
@@ -122,7 +123,7 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    const hasKey = !!settings.llm.apiKey
+    const hasKey = !!settings.llm.keyStatus?.anthropic
     setProbe(null)
     setStep(startAt)
     setAi(null)
@@ -192,12 +193,23 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
         setKeyMessage(result.message || 'Anthropic did not accept this key.')
         return
       }
-      // The Settings path: the store holds it until settings:save moves it to the Keychain.
-      setLLMConfig({ provider: 'anthropic', apiKey: value })
+      // Main stores it (the Keychain when available); the renderer keeps no copy (#1240).
+      const saved = await setLlmKey('anthropic', value)
+      if (!saved.ok) {
+        setKeyState('invalid')
+        setKeyMessage(saved.error || 'The key could not be saved.')
+        return
+      }
+      setLLMConfig({ provider: 'anthropic' })
       await saveSettings()
+      setKeyInput('')
       setKeyState('valid')
       setKeySaved(true)
-      setKeyMessage('Key works. Saved to Keychain.')
+      setKeyMessage(
+        useSettingsStore.getState().settings.llm.keyStatus?.anthropic?.persisted === false
+          ? 'Key works. Saved for this session (secure storage is unavailable).'
+          : 'Key works. Saved to Keychain.'
+      )
     } catch (e) {
       setKeyState('invalid')
       setKeyMessage(e instanceof Error ? e.message : 'The key check failed.')

@@ -32,7 +32,7 @@ import { isMasBuild } from '../../lib/featureFlags'
 import type { Settings } from '../../types'
 import { Eye, EyeOff, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
 import { getModelsForProvider, getDefaultModel, type LLMProvider } from '../../../shared/llm/models'
-import { validateApiKeyFormat, validateUrl, maskApiKey } from '../../lib/llm'
+import { validateApiKeyFormat, validateUrl, maskKeyHint, hasProviderKey } from '../../lib/llm'
 
 /** Extract the primary font name from a CSS font-family stack */
 function extractPrimaryFont(fontFamily: string): string {
@@ -93,10 +93,17 @@ export function SettingsDialog() {
   const [isDefaultHandler, setIsDefaultHandler] = useState<boolean | null>(null)
   const [checkingDefault, setCheckingDefault] = useState(false)
 
-  // API key visibility and testing
+  // API key. Main holds the saved key (#1240); the dialog sees its status and
+  // keeps a typed key only as a local draft until Save Changes hands it over.
+  const setLlmKey = useSettingsStore((s) => s.setLlmKey)
+  const clearLlmKey = useSettingsStore((s) => s.clearLlmKey)
+  const [keyDraft, setKeyDraft] = useState('')
+  const [replacingKey, setReplacingKey] = useState(false)
   const [showApiKey, setShowApiKey] = useState(false)
   const [testingApiKey, setTestingApiKey] = useState(false)
   const [apiKeyTestResult, setApiKeyTestResult] = useState<{ success: boolean; message: string } | null>(null)
+  const savedKey = settings.llm.keyStatus?.[settings.llm.provider]
+  const showKeyInput = !savedKey || replacingKey
 
   // Secure storage availability
   const [secureStorageAvailable, setSecureStorageAvailable] = useState<boolean | null>(null)
@@ -130,10 +137,13 @@ export function SettingsDialog() {
     [availableModels, settings.llm.model]
   )
 
-  // Validation errors
+  // Validation errors — of the typed draft; a saved key was checked when typed.
+  // With no key saved, an empty draft reads "API key is required".
   const apiKeyFormatError = useMemo(
-    () => validateApiKeyFormat(settings.llm.provider as LLMProvider, settings.llm.apiKey),
-    [settings.llm.provider, settings.llm.apiKey]
+    () => !showKeyInput || (!keyDraft && savedKey)
+      ? null
+      : validateApiKeyFormat(settings.llm.provider as LLMProvider, keyDraft),
+    [showKeyInput, keyDraft, savedKey, settings.llm.provider]
   )
 
   const baseUrlError = useMemo(
@@ -144,7 +154,14 @@ export function SettingsDialog() {
   // Reset API key test result when key changes
   useEffect(() => {
     setApiKeyTestResult(null)
-  }, [settings.llm.apiKey, settings.llm.provider])
+  }, [keyDraft, savedKey, settings.llm.provider])
+
+  // A draft never outlives the dialog, and belongs to one provider.
+  useEffect(() => {
+    setKeyDraft('')
+    setReplacingKey(false)
+    setShowApiKey(false)
+  }, [isDialogOpen, settings.llm.provider])
 
   // Reset custom model state when provider changes
   useEffect(() => {
@@ -159,11 +176,12 @@ export function SettingsDialog() {
   }, [isDialogOpen])
 
   // Refresh the live model list when the dialog opens (if API key is set)
+  const hasKey = hasProviderKey(settings.llm)
   useEffect(() => {
-    if (isDialogOpen && settings.llm.apiKey) {
+    if (isDialogOpen && hasKey) {
       fetchModels()
     }
-  }, [isDialogOpen, settings.llm.apiKey, fetchModels])
+  }, [isDialogOpen, hasKey, fetchModels])
 
   // Check if we're the default handler when dialog opens
   useEffect(() => {
@@ -183,8 +201,25 @@ export function SettingsDialog() {
   const activeTab = isMas && (dialogTab === 'integrations' || dialogTab === 'account') ? 'general' : dialogTab
 
   const handleSave = async () => {
+    // A typed key goes to main, which stores it; then the rest of the settings.
+    const draft = keyDraft.trim()
+    if (showKeyInput && draft && !apiKeyFormatError) {
+      const result = await setLlmKey(settings.llm.provider as LLMProvider, draft)
+      if (!result.ok) {
+        setApiKeyTestResult({ success: false, message: result.error || 'The key could not be saved' })
+        return
+      }
+      setKeyDraft('')
+      setReplacingKey(false)
+    }
     await saveSettings()
     setDialogOpen(false)
+  }
+
+  const handleClearKey = async () => {
+    await clearLlmKey(settings.llm.provider as LLMProvider)
+    setKeyDraft('')
+    setReplacingKey(false)
   }
 
   const handleTabChange = (value: string) => {
@@ -218,7 +253,9 @@ export function SettingsDialog() {
   }
 
   const handleTestApiKey = async () => {
-    if (!settings.llm.apiKey || apiKeyFormatError) return
+    // The draft when one is typed, else main tests the saved key.
+    const draft = showKeyInput ? keyDraft.trim() : ''
+    if (showKeyInput && (!draft || apiKeyFormatError)) return
 
     setTestingApiKey(true)
     setApiKeyTestResult(null)
@@ -228,7 +265,7 @@ export function SettingsDialog() {
       if (window.api?.testApiKey) {
         const result = await window.api.testApiKey({
           provider: settings.llm.provider,
-          apiKey: settings.llm.apiKey,
+          ...(draft ? { apiKey: draft } : {}),
           baseUrl: settings.llm.baseUrl
         })
         setApiKeyTestResult(result)
@@ -637,14 +674,17 @@ export function SettingsDialog() {
             {/* API Key */}
               <div className="space-y-2">
                 <Label htmlFor="apiKey">API Key</Label>
+                {showKeyInput ? (
                 <div className="flex gap-2">
                   <div className="relative flex-1">
                     <Input
                       id="apiKey"
                       type={showApiKey ? 'text' : 'password'}
-                      value={settings.llm.apiKey}
-                      onChange={(e) => setLLMConfig({ apiKey: e.target.value })}
-                      placeholder="Enter your API key"
+                      value={keyDraft}
+                      onChange={(e) => setKeyDraft(e.target.value)}
+                      placeholder={savedKey ? 'Enter a new API key' : 'Enter your API key'}
+                      autoComplete="off"
+                      spellCheck={false}
                       className={apiKeyFormatError ? 'border-amber-500 pr-10' : 'pr-10'}
                     />
                     <button
@@ -664,7 +704,7 @@ export function SettingsDialog() {
                     variant="outline"
                     size="sm"
                     onClick={handleTestApiKey}
-                    disabled={!settings.llm.apiKey || !!apiKeyFormatError || testingApiKey}
+                    disabled={!keyDraft.trim() || !!apiKeyFormatError || testingApiKey}
                   >
                     {testingApiKey ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -672,7 +712,42 @@ export function SettingsDialog() {
                       'Test'
                     )}
                   </Button>
+                  {replacingKey && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setReplacingKey(false); setKeyDraft('') }}
+                    >
+                      Keep saved key
+                    </Button>
+                  )}
                 </div>
+                ) : (
+                <div className="flex items-center gap-2" data-testid="llm-key-saved">
+                  <p className="flex-1 text-sm text-muted-foreground">
+                    Key saved {maskKeyHint(savedKey?.hint)}
+                    {savedKey?.persisted === false && ' (this session only)'}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleTestApiKey}
+                    disabled={testingApiKey}
+                  >
+                    {testingApiKey ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      'Test'
+                    )}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setReplacingKey(true)}>
+                    Replace
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={handleClearKey}>
+                    Clear
+                  </Button>
+                </div>
+                )}
                 {apiKeyFormatError && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
                     <AlertCircle className="h-3 w-3" />
@@ -693,9 +768,9 @@ export function SettingsDialog() {
                     {apiKeyTestResult.message}
                   </p>
                 )}
-                {settings.llm.apiKey && !showApiKey && !apiKeyFormatError && (
+                {showKeyInput && keyDraft.trim() && !apiKeyFormatError && (
                   <p className="text-xs text-muted-foreground">
-                    Current key: {maskApiKey(settings.llm.apiKey)}
+                    Saved when you click Save Changes.
                   </p>
                 )}
                 {secureStorageAvailable === false && (
@@ -719,7 +794,7 @@ export function SettingsDialog() {
                 id="emojiIcons"
                 checked={settings.llm.emojiIcons ?? false}
                 onCheckedChange={(checked) => setLLMConfig({ emojiIcons: checked })}
-                disabled={!settings.llm.apiKey}
+                disabled={!hasKey}
               />
             </div>
             </div>{/* end AI features wrapper */}
@@ -763,7 +838,7 @@ export function SettingsDialog() {
           <Button variant="outline" onClick={() => setDialogOpen(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={!!apiKeyFormatError && !!settings.llm.apiKey?.trim()}>Save Changes</Button>
+          <Button onClick={handleSave} disabled={!!apiKeyFormatError && !!keyDraft.trim()}>Save Changes</Button>
         </div>
       </DialogContent>
     </Dialog>

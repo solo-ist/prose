@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { Settings, RemarkableSyncPhase } from '../renderer/types'
 import type { ToolResult } from '../shared/tools/types'
 import type { FileAccessOptions } from '../shared/fileAccess'
+import type { LLMKeyStatusMap } from '../shared/llm/providers'
 import {
   unwrapReadFileResult,
   unwrapSaveFileResult,
@@ -29,7 +30,6 @@ export interface LLMToolDefinition {
 export interface LLMRequest {
   provider: string
   model: string
-  apiKey: string
   baseUrl?: string
   messages: LLMMessage[]
   system: string
@@ -109,8 +109,16 @@ export interface McpStatus {
 
 export interface TestApiKeyRequest {
   provider: string
-  apiKey: string
+  /** A typed key not yet saved; without one, main tests the provider's saved key. */
+  apiKey?: string
   baseUrl?: string
+}
+
+/** What `llm:setKey` answers: the key status map, never a key (#1240). */
+export interface SetLlmKeyResult {
+  ok: boolean
+  error?: string
+  status: LLMKeyStatusMap
 }
 
 export interface TestApiKeyResult {
@@ -148,10 +156,13 @@ export interface ElectronAPI {
   loadSettings: () => Promise<Settings>
   saveSettings: (settings: Settings) => Promise<void>
   testApiKey: (request: TestApiKeyRequest) => Promise<TestApiKeyResult>
-  fetchModels: (request: { provider: string; apiKey: string }) => Promise<{
+  fetchModels: (request: { provider: string; apiKey?: string }) => Promise<{
     models?: Array<{ id: string; name: string; description?: string }>
     error?: string
   }>
+  getLlmKeyStatus: () => Promise<LLMKeyStatusMap>
+  setLlmKey: (request: { provider: string; key: string }) => Promise<SetLlmKeyResult>
+  clearLlmKey: (provider: string) => Promise<LLMKeyStatusMap>
   onMenuAction: (callback: (action: string) => void) => () => void
   onFileOpenExternal: (callback: (path: string) => void) => () => void
   llmChat: (request: LLMRequest) => Promise<LLMResponse>
@@ -342,7 +353,10 @@ const api: ElectronAPI = {
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (settings: Settings) => ipcRenderer.invoke('settings:save', settings),
   testApiKey: (request: TestApiKeyRequest) => ipcRenderer.invoke('settings:testApiKey', request),
-  fetchModels: (request: { provider: string; apiKey: string }) => ipcRenderer.invoke('llm:fetchModels', request),
+  fetchModels: (request: { provider: string; apiKey?: string }) => ipcRenderer.invoke('llm:fetchModels', request),
+  getLlmKeyStatus: () => ipcRenderer.invoke('llm:keyStatus'),
+  setLlmKey: (request: { provider: string; key: string }) => ipcRenderer.invoke('llm:setKey', request),
+  clearLlmKey: (provider: string) => ipcRenderer.invoke('llm:clearKey', provider),
   isSecureStorageAvailable: () => ipcRenderer.invoke('settings:isSecureStorageAvailable'),
   onMenuAction: (callback: (action: string) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, action: string): void => {

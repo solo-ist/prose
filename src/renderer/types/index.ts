@@ -1,5 +1,6 @@
 import type { ToolResult } from '../../shared/tools/types'
 import type { FileAccessOptions } from '../../shared/fileAccess'
+import type { AppStoreImportKeysResult, AppStoreImportStart, AppStoreImportStatus } from '../../shared/appStoreImport'
 
 /**
  * A named project — a root-folder workspace. Think Obsidian vaults or
@@ -659,6 +660,15 @@ export interface ElectronAPI {
   downloadSkill?: () => Promise<{ success: boolean; error?: string }>
   // Build info
   isMasBuild?: boolean
+  // Import from the App Store edition (#1243); direct Electron builds only
+  appStoreImport?: {
+    status: () => Promise<AppStoreImportStatus>
+    start: () => Promise<AppStoreImportStart>
+    decline: () => Promise<void>
+    acknowledge: () => Promise<void>
+    importKeys: () => Promise<AppStoreImportKeysResult>
+    discardKeys: () => Promise<void>
+  }
   // File watcher — Electron-only live reload support for the File Explorer
   startWatchingDirectory?: (dirPath: string) => Promise<void>
   stopWatchingDirectory?: () => Promise<void>

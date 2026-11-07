@@ -34,8 +34,10 @@ An **allowlist**, not a denylist: anything not named in the first five rows is l
 
 `settings.json` is transformed on the way in: `masDirectoryBookmark` and each project's and favorite's
 `bookmark` are dropped (security-scoped bookmarks mean nothing outside the sandbox); `llm.apiKey` and
-`remarkable.deviceToken` are blanked; `lastSeenVersion` is set to the running version, so the post-update
-notes modal does not stack on the import summary. Recent files whose path lies inside the App Store
+`remarkable.deviceToken` are blanked. (The renderer records the running version quietly after an import, as
+it does on a fresh install, so the post-update notes do not stack on the import summary; main's
+`app.getVersion()` is Electron's own version in an unpackaged run, so this is decided where `APP_VERSION`
+lives.) Recent files whose path lies inside the App Store
 container are listed in the summary (they are files only that edition can see), not rewritten.
 
 ## Mechanism

@@ -74,6 +74,7 @@ import { handleMissingPath } from '../../lib/stalePath'
 import { useNotificationStore } from '../../stores/notificationStore'
 import type { DraftState, SessionState } from '../../lib/persistence'
 import { executeTool } from '../../lib/tools'
+import { splitMcpTarget } from '../../lib/tools/mcpTarget'
 import { useReviewMode, useWasChatOpenBeforeReview, usePreviousChatWidth, useReviewStore, type ReviewMode } from '../../stores/reviewStore'
 import { chatOpenDefaultPct, reviewChatWidthPct } from '../../hooks/usePanelLayout'
 
@@ -782,16 +783,31 @@ export function App() {
     if (!window.api?.onMcpToolInvoke) return
     const unsubscribe = window.api.onMcpToolInvoke(async (requestId, toolName, args) => {
       try {
-        const documentId = useEditorStore.getState().document.documentId
-        const result = await executeTool(toolName, args, 'create', {
-          model: 'Claude (MCP)',
-          conversationId: requestId,
-          messageId: requestId,
-          documentId: documentId ?? '',
-          // Until connections (#1236) let main name the client, every MCP
-          // call is the bundled bridge's (#1232).
-          actor: { kind: 'mcp-agent', connectionId: 'launch', connectionLabel: 'MCP client' },
-        })
+        // A `document` argument targets an open tab (#1237); without one the
+        // call acts on the active tab. Either way it keeps the writer's
+        // selection and focus, and only tab-changing tools change the tab.
+        const target = splitMcpTarget(toolName, args, requestId)
+        if ('error' in target) {
+          window.api.sendMcpToolResult(requestId, target.error)
+          return
+        }
+        const documentId = target.binding?.documentId ?? useEditorStore.getState().document.documentId
+        const result = await executeTool(
+          toolName,
+          target.args,
+          'create',
+          {
+            model: 'Claude (MCP)',
+            conversationId: requestId,
+            messageId: requestId,
+            documentId: documentId ?? '',
+            // Until connections (#1236) let main name the client, every MCP
+            // call is the bundled bridge's (#1232).
+            actor: { kind: 'mcp-agent', connectionId: 'launch', connectionLabel: 'MCP client' },
+          },
+          target.binding,
+          { preserveView: true }
+        )
         window.api.sendMcpToolResult(requestId, result)
       } catch (error) {
         window.api.sendMcpToolResult(requestId, {

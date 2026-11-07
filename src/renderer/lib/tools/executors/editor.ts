@@ -1030,9 +1030,13 @@ export function executeSuggestEdit(
   const contentStart = pos + 1
   const contentEnd = pos + node.nodeSize - 1
 
-  handle
-    .chain()
-    .focus()
+  // An MCP call (#1237) marks the node without moving the writer's caret or
+  // taking focus: select, mark and restore in one transaction. The mark adds
+  // no content, so the saved positions still hold.
+  const { from: keptFrom, to: keptTo } = handle.state.selection
+  let chain = handle.chain()
+  if (!ctx.preserveView) chain = chain.focus()
+  chain = chain
     .setTextSelection({ from: contentStart, to: contentEnd })
     .setAISuggestion({
       id: suggestionId,
@@ -1047,7 +1051,8 @@ export function executeSuggestEdit(
       documentId: handle.documentId,
       blockConversionIntent,
     })
-    .run()
+  if (ctx.preserveView) chain = chain.setTextSelection({ from: keptFrom, to: keptTo })
+  chain.run()
 
   pipelineLog('suggest_edit:result', {
     suggestionId,

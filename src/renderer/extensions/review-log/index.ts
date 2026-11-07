@@ -3,6 +3,7 @@ export {
   reviewLogPluginKey,
   reviewLogPluginState,
   reviewLogOf,
+  selectReviewLog,
   decideSuggestionsIn,
   reviseSuggestionIn,
   feedbackIn,

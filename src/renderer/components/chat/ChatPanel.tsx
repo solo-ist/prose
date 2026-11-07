@@ -22,7 +22,10 @@ import { useSummaryStore } from '../../stores/summaryStore'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { ReviewContainer } from '../review/ReviewContainer'
-import { AIEditsHistoryPanel, activityItemVisible, DEFAULT_ACTIVITY_FILTER, requestCommentReview, type ActivityFilter } from '../editor/AIEditsHistoryPanel'
+import { AIEditsHistoryPanel, activityItemVisible, activityActors, ALL_ACTORS, DEFAULT_ACTIVITY_FILTER, requestCommentReview, type ActivityFilter } from '../editor/AIEditsHistoryPanel'
+import { selectReviewLog } from '../../extensions/review-log'
+import { actorLabel } from '../../../shared/review/actor'
+import { useSelfName } from '../../hooks/useSelfName'
 import { selectAnnotations } from '../../extensions/ai-annotations'
 import { useActiveSession } from '../../document/useActiveSession'
 import { selectThreads, countOpenThreads } from '../../extensions/comments'
@@ -47,6 +50,9 @@ export function ChatPanel() {
     (key: keyof ActivityFilter) => setActivityFilter((f) => ({ ...f, [key]: !f[key] })),
     []
   )
+  // Whose activity to show (#1234): everyone, or one actor label (you, a
+  // reviewer, a Prose Agent model, an MCP connection).
+  const [actorFilter, setActorFilter] = useState<string>(ALL_ACTORS)
   // Comment Review is now a top-level takeover (reviewMode === 'comments',
   // rendered by ReviewContainer via the early return below), not a child of this
   // Activity tab — so it and Quick Review toggle through one mode slot.
@@ -107,21 +113,37 @@ export function ChatPanel() {
   // annotations are the active document's own records (#1146).
   const annotations = useActiveSession(selectAnnotations)
   const pendingComments = useActiveSession(selectThreads)
+  const reviewLog = useActiveSession(selectReviewLog)
+  const selfName = useSelfName()
 
-  // There's something to filter whenever any annotation or comment exists.
-  const hasActivity = annotations.length > 0 || pendingComments.length > 0
+  // There's something to filter whenever any annotation, comment or suggestion exists.
+  const hasActivity = annotations.length > 0 || pendingComments.length > 0 || reviewLog.suggestions.length > 0
+
+  // Everyone who appears in this document's activity, by label, for the actor filter.
+  const actorOptions = useMemo(() => {
+    const labels = new Set<string>()
+    const add = (subject: Parameters<typeof activityActors>[0]) => {
+      for (const a of activityActors(subject)) labels.add(actorLabel(a, { selfName }))
+    }
+    annotations.forEach((annotation) => add({ kind: 'annotation', annotation }))
+    pendingComments.forEach((comment) => add({ kind: 'comment', comment }))
+    reviewLog.suggestions.forEach((suggestion) => add({ kind: 'suggestion', suggestion }))
+    return [...labels].sort((a, b) => a.localeCompare(b))
+  }, [annotations, pendingComments, reviewLog, selfName])
   // Open (unresolved) threads are the Review set — same selector as the status
   // bar and Comment Review, so the surfaces can't disagree (#830).
   const openThreadCount = useMemo(() => countOpenThreads(pendingComments), [pendingComments])
   // Any category turned off means the filter is engaged (tints the funnel).
-  const isFiltering = Object.values(activityFilter).some((v) => !v)
+  const isFiltering = Object.values(activityFilter).some((v) => !v) || actorFilter !== ALL_ACTORS
 
   // Badge reflects what's currently shown under the active filter.
   const activityCount = useMemo(() => {
-    const a = annotations.filter((an) => activityItemVisible({ kind: 'annotation', annotation: an }, activityFilter)).length
-    const c = pendingComments.filter((cm) => activityItemVisible({ kind: 'comment', comment: cm }, activityFilter)).length
-    return a + c
-  }, [annotations, pendingComments, activityFilter])
+    const actor = { label: actorFilter, selfName }
+    const a = annotations.filter((an) => activityItemVisible({ kind: 'annotation', annotation: an }, activityFilter, actor)).length
+    const c = pendingComments.filter((cm) => activityItemVisible({ kind: 'comment', comment: cm }, activityFilter, actor)).length
+    const sg = reviewLog.suggestions.filter((suggestion) => activityItemVisible({ kind: 'suggestion', suggestion }, activityFilter, actor)).length
+    return a + c + sg
+  }, [annotations, pendingComments, reviewLog, activityFilter, actorFilter, selfName])
 
   // Track pending suggestion count
   const suggestionCount = useMemo(() => {
@@ -347,9 +369,30 @@ export function ChatPanel() {
                 <FilterRow label="Current" active={activityFilter.edits} onClick={() => toggleFilter('edits')} />
                 <FilterRow label="Superseded" active={activityFilter.superseded} onClick={() => toggleFilter('superseded')} />
                 <DropdownMenuSeparator />
+                <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  Suggestions
+                </div>
+                <FilterRow label="Pending" active={activityFilter.pendingSuggestions} onClick={() => toggleFilter('pendingSuggestions')} />
+                <FilterRow label="Decided" active={activityFilter.decidedSuggestions} onClick={() => toggleFilter('decidedSuggestions')} />
+                {actorOptions.length > 1 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                      People and agents
+                    </div>
+                    <FilterRow label="Everyone" active={actorFilter === ALL_ACTORS} onClick={() => setActorFilter(ALL_ACTORS)} />
+                    {actorOptions.map((label) => (
+                      <FilterRow key={label} label={label} active={actorFilter === label} onClick={() => setActorFilter(label)} />
+                    ))}
+                  </>
+                )}
+                <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="cursor-pointer text-xs"
-                  onClick={() => setActivityFilter(DEFAULT_ACTIVITY_FILTER)}
+                  onClick={() => {
+                    setActivityFilter(DEFAULT_ACTIVITY_FILTER)
+                    setActorFilter(ALL_ACTORS)
+                  }}
                 >
                   Show all
                 </DropdownMenuItem>
@@ -563,7 +606,11 @@ export function ChatPanel() {
         {sidebarMode === 'activity' ? (
           <AIEditsHistoryPanel
             filter={activityFilter}
-            onShowAll={() => setActivityFilter(DEFAULT_ACTIVITY_FILTER)}
+            actorFilter={actorFilter}
+            onShowAll={() => {
+              setActivityFilter(DEFAULT_ACTIVITY_FILTER)
+              setActorFilter(ALL_ACTORS)
+            }}
             onReviewThread={requestCommentReview}
           />
         ) : (

@@ -448,6 +448,15 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
         ({ tr, state, dispatch }) => {
           if (!dispatch) return false
 
+          // An agent's feedback goes to the review log only (#890): the mark's
+          // `userReply` is the writer's feedback, which the in-app chat reads.
+          if (by && by.kind !== 'human') {
+            if (!reply.trim()) return false
+            feedbackIn(tr, id, { id: generateId(), actor: by, text: reply.trim(), createdAt: Date.now() })
+            dispatch(tr)
+            return true
+          }
+
           const { doc } = state
           const positions: Array<{ pos: number; nodeSize: number; mark: typeof state.schema.marks.aiSuggestion }> = []
           let existingAttrs: Record<string, unknown> | null = null

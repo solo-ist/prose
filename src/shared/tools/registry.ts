@@ -8,12 +8,13 @@ import { editorTools } from './schemas/editor'
 import { fileTools } from './schemas/file'
 import { uiTools } from './schemas/ui'
 import { tabTools } from './schemas/tabs'
+import { reviewTools } from './schemas/review'
 import { zodToJsonSchema } from './utils'
 
 /**
  * All registered tools.
  */
-export const allTools = [...documentTools, ...editorTools, ...fileTools, ...tabTools, ...uiTools] as const
+export const allTools = [...documentTools, ...editorTools, ...reviewTools, ...fileTools, ...tabTools, ...uiTools] as const
 
 /**
  * Tool name type (union of all tool names).
@@ -110,7 +111,16 @@ const mcpToolNames = [
   'add_comment',
   'resolve_comment',
   'list_tabs',
-  'select_tab'
+  'select_tab',
+  // The review lifecycle (#890). Accept and reject stay off this list: the
+  // writer decides (#607).
+  'reply_to_comment',
+  'reopen_comment',
+  'list_suggestions',
+  'reply_to_suggestion',
+  'revise_suggestion',
+  'get_review_status',
+  'list_review_events'
 ] as const
 
 /**
@@ -135,6 +145,13 @@ const mcpDocumentToolNames = [
   'list_comments',
   'add_comment',
   'resolve_comment',
+  'reply_to_comment',
+  'reopen_comment',
+  'list_suggestions',
+  'reply_to_suggestion',
+  'revise_suggestion',
+  'get_review_status',
+  'list_review_events',
 ] as const
 
 export const MCP_DOCUMENT_ARG = 'document'

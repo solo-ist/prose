@@ -227,6 +227,8 @@ export const browserApi: ElectronAPI = {
 
   setLlmKey: async ({ provider, key }) => {
     if (!key.trim()) return { ok: false, error: 'API key is empty', status: keyStatus() }
+    // The same ceiling main enforces (src/main/llmKeys.ts MAX_KEY_LENGTH).
+    if (key.trim().length > 4096) return { ok: false, error: 'API key is too long', status: keyStatus() }
     writeKeys({ ...readKeys(), [provider]: key.trim() })
     return { ok: true, status: keyStatus() }
   },

@@ -990,7 +990,8 @@ export function setupIpcHandlers(): void {
     }
 
     try {
-      switch (getProvider(provider).transport) {
+      const transport = getProvider(provider).transport
+      switch (transport) {
         case 'anthropic': {
           const Anthropic = (await import('@anthropic-ai/sdk')).default
           const client = new Anthropic({ apiKey })
@@ -1001,6 +1002,11 @@ export function setupIpcHandlers(): void {
             messages: [{ role: 'user', content: 'Hi' }]
           })
           return { success: true, message: 'API key is valid' }
+        }
+        default: {
+          // A transport added to ProviderTransport without a case here fails to compile.
+          const unhandled: never = transport
+          return { success: false, message: `Unhandled transport: ${unhandled as string}` }
         }
       }
     } catch (error) {
@@ -1049,7 +1055,8 @@ export function setupIpcHandlers(): void {
     }
 
     try {
-      switch (getProvider(provider).transport) {
+      const transport = getProvider(provider).transport
+      switch (transport) {
         case 'anthropic': {
           const res = await fetch(`${getProvider(provider).baseURL}/models`, {
             headers: {
@@ -1070,6 +1077,11 @@ export function setupIpcHandlers(): void {
               name: m.display_name || m.id
             }))
           return { models }
+        }
+        default: {
+          // A transport added to ProviderTransport without a case here fails to compile.
+          const unhandled: never = transport
+          return { error: `Unhandled transport: ${unhandled as string}` }
         }
       }
     } catch (error) {

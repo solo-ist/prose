@@ -104,3 +104,6 @@ settings object); `webApi` stubs the three calls.
     every key-using path gated by `isProvider`; `emoji:generate` now gates too;
   - `llm:setKey` reads the status once.
   Unit 177 passed; the key and settings-account specs 8 passed.
+- **Review 2** (issues-found): `testApiKey` and `fetchModels` switch on the transport with no `default`; a second
+  transport would have fallen through to `undefined`. Both now end in an exhaustive `never` default (checked: widening
+  `ProviderTransport` fails to compile at both). `browserApi.setLlmKey` takes main's 4096-character ceiling.

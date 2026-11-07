@@ -1098,7 +1098,7 @@ export function executeAcceptDiff(args: {
       return toolError(`Suggestion with id "${id}" not found`, 'DIFF_NOT_FOUND')
     }
 
-    const success = handle.commands.acceptAISuggestion(id)
+    const success = handle.commands.acceptAISuggestion(id, ctx.provenance?.actor)
     if (success) {
       return toolSuccess({ accepted: true, diffId: id, count: 1 })
     } else {
@@ -1108,7 +1108,7 @@ export function executeAcceptDiff(args: {
 
   // Accept all suggestions
   const count = suggestions.length
-  const success = handle.commands.acceptAllAISuggestions()
+  const success = handle.commands.acceptAllAISuggestions(ctx.provenance?.actor)
 
   if (success) {
     return toolSuccess({ accepted: true, count })
@@ -1144,7 +1144,7 @@ export function executeRejectDiff(args: {
       return toolError(`Suggestion with id "${id}" not found`, 'DIFF_NOT_FOUND')
     }
 
-    const success = handle.commands.rejectAISuggestion(id)
+    const success = handle.commands.rejectAISuggestion(id, ctx.provenance?.actor)
     if (success) {
       return toolSuccess({ rejected: true, diffId: id, count: 1 })
     } else {
@@ -1154,7 +1154,7 @@ export function executeRejectDiff(args: {
 
   // Reject all suggestions
   const count = suggestions.length
-  const success = handle.commands.rejectAllAISuggestions()
+  const success = handle.commands.rejectAllAISuggestions(ctx.provenance?.actor)
 
   if (success) {
     return toolSuccess({ rejected: true, count })

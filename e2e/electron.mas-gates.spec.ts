@@ -34,7 +34,7 @@ const MAS_FLAGGED = existsSync(envFile) && /IS_MAS_BUILD = true/.test(readFileSy
 const TOOLBAR_MORE = '[data-testid="main-toolbar"] [aria-label="More options"]'
 const FILES_MORE = '[data-testid="file-list-panel"] [aria-label="More options"]'
 /** What the App Store build gates off; none of it may reach its UI. */
-const DIRECT_ONLY = /\b(shar(e|ed|ing)|sign(ed)?[- ]in|claude desktop|mcp|remarkable|auto-?update|direct[- ]download|app store build)\b/i
+const DIRECT_ONLY = /\b(shar(e|ed|ing)|sign(ed)?[- ]in|claude desktop|mcp|remarkable|auto-?update|direct[- ]download)\b/i
 
 let app: ElectronApplication | undefined
 let page: Page
@@ -78,6 +78,8 @@ test.describe('Electron — Mac App Store gates (#1222)', () => {
 
     await expect(progress).toHaveText(/^1 \/ 5 · Welcome$/i)
     await expect(modal).not.toContainText(DIRECT_ONLY)
+    // The design canvas's edition label is not shown to App Store users.
+    await expect(modal.getByText('App Store build')).toHaveCount(0)
     await primary.click()
     await page.getByRole('radio', { name: 'Use AI' }).click()
     await primary.click()
@@ -130,7 +132,7 @@ test.describe('Electron — Mac App Store gates (#1222)', () => {
 
     // Settings: four tabs, and a request for a hidden tab lands on General.
     await page.evaluate(() => (window as any).__prose_account.openSettings())
-    const tabs = page.getByTestId('settings-tabs').getByRole('tab')
+    const tabs = page.getByRole('dialog').getByRole('tablist').getByRole('tab')
     await expect(tabs).toHaveText(['General', 'Appearance', 'Editor', 'LLM'])
     await expect(page.getByRole('tab', { name: 'General' })).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByRole('dialog')).not.toContainText(DIRECT_ONLY)

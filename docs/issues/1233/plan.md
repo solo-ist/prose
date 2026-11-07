@@ -41,3 +41,16 @@ Part of epic #1230. Design of record: `docs/architecture/review-provenance.md` Â
 
   Also: a seed derives no events and backfills old marks, and the caps hold.
 - **e2e** `electron.review-log.spec.ts` (port 9234): a Prose Agent suggests, the writer gives feedback, the suggestion is revised, and the agent's `accept_diff` accepts it. After a relaunch the history and events read back intact from IndexedDB and from the state. Falsified on a build of the merge-base.
+
+## Execution log
+
+- **2026-11-07.** `34787a3` plan, then the change and spec, stacked on P1's branch (P1 merged as `f0863df` meanwhile, so the PR targets `main`).
+- **Design refinements**, written back into `review-provenance.md`:
+  - the log is derived from the marks and threads each transaction leaves, with intent metas only for what the document can't show;
+  - undo reopens a decided suggestion;
+  - the caps are 5,000 events and 200 feedback entries per suggestion, not the "year" rule.
+- **Checks:**
+  - `typecheck:renderer` is 66, the same as the base.
+  - Unit tests: 199 (12 new in `log.test.ts`). The build is clean.
+  - `electron.review-log.spec.ts` passes on the branch and fails on a build of the merge-base (`e1341a3`, where `reviseAISuggestion` doesn't exist).
+  - The regression set passed 84 tests: sessions with the extended tripwire, suggestions, comments, source-mode authority, AI provenance and lifecycle, Activity, provenance, edit-markdown and tab-switch flush.

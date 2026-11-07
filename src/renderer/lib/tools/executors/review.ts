@@ -106,7 +106,7 @@ export function executeReviseSuggestion(args: { id: string; content: string; com
     { revises: args.id }
   )
   if (!result.success) return result
-  return toolSuccess({ suggestionId: result.data.suggestionId, supersedes: args.id })
+  return toolSuccess({ suggestionId: result.data.suggestionId, revises: args.id })
 }
 
 export function executeGetReviewStatus(ctx: ToolContext): ToolResult {
@@ -121,7 +121,7 @@ export function executeGetReviewStatus(ctx: ToolContext): ToolResult {
     pending: pendingSuggestions(handle.state).map((s) => s.id),
     ...counts,
     openComments: threadsOf(handle.state).filter((t) => !t.resolved).length,
-    lastSeq: log.nextSeq - 1,
+    lastSeq: Math.max(0, log.nextSeq - 1),
   })
 }
 

@@ -772,7 +772,7 @@ export function executeSuggestEdit(
   },
   ctx: ToolContext,
   opts: { revises?: string } = {}
-): ToolResult<{ suggested: boolean; suggestionId: string; supersedes?: string[] }> {
+): ToolResult<{ suggested: boolean; suggestionId: string; revises?: string }> {
   const { handle, provenance } = ctx
 
   if (!handle) {
@@ -1082,7 +1082,8 @@ export function executeSuggestEdit(
   return toolSuccess({
     suggested: true,
     suggestionId,
-    ...(replaced.length > 0 ? { supersedes: replaced } : {})
+    // The pending suggestion this one replaced, named as list_suggestions names it.
+    ...(replaced.length > 0 ? { revises: replaced[0] } : {})
   })
 }
 

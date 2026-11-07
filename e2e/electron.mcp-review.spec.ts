@@ -114,7 +114,7 @@ test.describe('MCP review tools', () => {
     }, first)).toBe('Keep the number.')
 
     const revised = await ok('revise_suggestion', { id: first, content: 'Bravo two, improved.' })
-    expect(revised.supersedes).toBe(first)
+    expect(revised.revises).toBe(first)
     const second = revised.suggestionId as string
 
     await writer('acceptAISuggestion', second)
@@ -158,7 +158,7 @@ test.describe('MCP review tools', () => {
     const alpha = await nodeIdOf('Alpha one.')
     const a1 = (await ok('suggest_edit', { nodeId: alpha, content: 'Alpha, first try.' })).suggestionId
     const again = await ok('suggest_edit', { nodeId: alpha, content: 'Alpha one, second try.' })
-    expect(again.supersedes).toEqual([a1])
+    expect(again.revises).toBe(a1)
     const all = await ok('list_suggestions', { include: 'all' })
     expect(all.suggestions.find((s: any) => s.id === a1)).toMatchObject({ status: 'superseded', supersededBy: again.suggestionId })
 

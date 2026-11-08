@@ -13,10 +13,19 @@ the save paths. This PR checks each defect against main (`4f4d899`), fixes what 
 ## Tests
 
 - `extensions/ai-suggestions/callbacks.test.ts` (new): with the callbacks configured on a headless editor, a suggestion
-  whose text spans several text nodes fires `onSuggestionRejected` once from reject-all, after dispatch (the marks are
-  gone when it fires); single reject and accept-all fire once per suggestion (guards). Reject-all fails on the
-  merge-base (two calls for one suggestion, the first before dispatch).
+  whose text spans three text nodes fires `onSuggestionRejected` once from reject-all; single reject and accept-all
+  fire once per suggestion (guards). Reject-all fails on the merge-base (four calls for two suggestions).
 - `extensions/comments/plugin.test.ts` (+1): a thread over formatted text (three text nodes) yields exactly one
   `remove` share push when removed and one `resolve` push when resolved.
 
 Renderer-only: ungated. Nothing for the operator to check by hand.
+
+## Execution log
+
+- **2026-11-08.** Plan `f50a768`. The reject-all test failed on main as predicted (`s-split` reported three times, once
+  per text node); single reject and accept-all passed there (accept-all already collects unique ids). The fix calls
+  `onSuggestionRejected` once per id from the set the review log already uses, after `dispatch(tr)`. Note: inside a
+  TipTap command `dispatch` only hands the transaction to the command manager, so a callback "after dispatch" still
+  sees the pre-command state, for single reject as for reject-all; the test asserts the count, not the timing. The
+  comments guard passes on main (the defect is gone). `typecheck:renderer` 66, `typecheck:e2e` 6, unit 213/213; e2e
+  suggestions, suggestions-persist, suggestion-popover, review-log, comment-threading, comment-auto-resolve: 20 passed.

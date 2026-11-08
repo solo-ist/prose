@@ -17,6 +17,7 @@ import { AboutDialog } from '../settings/AboutDialog'
 import { ModelPickerDialog } from '../ModelPickerDialog'
 import { APP_VERSION } from '../../buildInfo.generated'
 import { OnboardingDialog } from '../onboarding/OnboardingDialog'
+import { AppStoreImportConfirm, AppStoreImportOffer, AppStoreImportSummary, useAppStoreImportStore, useAppStoreImportSummaryDue } from '../appStoreImport/AppStoreImportDialogs'
 import { ReleaseNotesDialog } from '../releaseNotes/ReleaseNotesDialog'
 import { releaseNotesIds } from '../releaseNotes/notesId'
 import { EnableLoggingDialog } from '../EnableLoggingDialog'
@@ -445,6 +446,12 @@ export function App() {
   // default-editor prompt ("Remind me later") runs only then, so it never
   // stacks on onboarding nor follows it in the same session.
   const [consentCurrentAtLoad, setConsentCurrentAtLoad] = useState<boolean | null>(null)
+  // The App Store edition import (#1243): its first-launch offer comes before
+  // onboarding (an import brings the consent along), and its one-time summary
+  // holds back the later-launch default-editor prompt.
+  useEffect(() => { void useAppStoreImportStore.getState().load() }, [])
+  const importOfferPending = useAppStoreImportStore((s) => !s.loaded || s.offerOpen)
+  const importSummaryDue = useAppStoreImportSummaryDue()
   useEffect(() => {
     if (!settingsLoaded) return
     const aiConsent = settings.aiConsent
@@ -452,8 +459,8 @@ export function App() {
     // current (e2e seeds one), only a missing record or a lower version is due.
     const current = !(!aiConsent || aiConsent.version < AI_CONSENT_VERSION)
     setConsentCurrentAtLoad((known) => (known === null ? current : known))
-    if (!current) setAIConsentDialogOpen(true)
-  }, [settingsLoaded, settings.aiConsent, setAIConsentDialogOpen])
+    if (!current && !importOfferPending) setAIConsentDialogOpen(true)
+  }, [settingsLoaded, settings.aiConsent, setAIConsentDialogOpen, importOfferPending])
   // Done closes the modal onto the home screen: the blank launch tab shows the
   // empty state (mark, shortcuts, New Document / Open File).
   const handleOnboardingFinish = useCallback(() => setAIConsentDialogOpen(false), [setAIConsentDialogOpen])
@@ -470,8 +477,12 @@ export function App() {
   // and re-opens the dialog under the user's cursor, detaching the button they are
   // mid-click on.
   const releaseNotesChecked = useRef(false)
+  const importStatusLoaded = useAppStoreImportStore((s) => s.loaded)
   useEffect(() => {
     if (!settingsLoaded) return
+    // Wait for the App Store import status: an import is welcomed by its own
+    // summary (#1243), not by this build's notes.
+    if (!importStatusLoaded) return
     if (releaseNotesChecked.current) return
     releaseNotesChecked.current = true
 
@@ -483,7 +494,10 @@ export function App() {
     // the effect above tests. Record the version silently so the next real update
     // is the first one that shows notes.
     const consentDue = !settings.aiConsent || settings.aiConsent.version < AI_CONSENT_VERSION
-    if (consentDue) {
+    // The same for a profile just imported from the App Store edition (#1243).
+    const imported = useAppStoreImportStore.getState().status?.result
+    const justImported = imported?.state === 'imported' && !imported.acknowledged
+    if (consentDue || justImported) {
       setLastSeenVersion(APP_VERSION)
       return
     }
@@ -510,7 +524,7 @@ export function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reads settings once,
     // behind the latch above; adding them back re-opens the dialog mid-click.
-  }, [settingsLoaded, setReleaseNotesOpen, setLastSeenVersion])
+  }, [settingsLoaded, importStatusLoaded, setReleaseNotesOpen, setLastSeenVersion])
 
   // Check for session/draft recovery after settings are loaded
   useEffect(() => {
@@ -897,7 +911,10 @@ export function App() {
           open={isModelPickerOpen}
           onOpenChange={setModelPickerOpen}
         />
-        {consentCurrentAtLoad === true && <DefaultHandlerPrompt />}
+        {consentCurrentAtLoad === true && !importSummaryDue && <DefaultHandlerPrompt />}
+        <AppStoreImportOffer />
+        <AppStoreImportConfirm />
+        <AppStoreImportSummary blocked={isOnboardingOpen} />
         <OnboardingDialog
           open={isOnboardingOpen}
           startAt={settings.aiConsent ? 'ai' : 'welcome'}

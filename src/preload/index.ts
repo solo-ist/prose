@@ -3,6 +3,8 @@ import type { Settings, RemarkableSyncPhase } from '../renderer/types'
 import type { ToolResult } from '../shared/tools/types'
 import type { FileAccessOptions } from '../shared/fileAccess'
 import type { LLMKeyStatusMap } from '../shared/llm/providers'
+
+import type { AppStoreImportKeysResult, AppStoreImportStart, AppStoreImportStatus } from '../shared/appStoreImport'
 import {
   unwrapReadFileResult,
   unwrapSaveFileResult,
@@ -278,6 +280,15 @@ export interface ElectronAPI {
   downloadSkill: () => Promise<{ success: boolean; error?: string }>
   // Build info
   isMasBuild: boolean
+  // Import from the App Store edition (#1243); direct builds only
+  appStoreImport: {
+    status: () => Promise<AppStoreImportStatus>
+    start: () => Promise<AppStoreImportStart>
+    decline: () => Promise<void>
+    acknowledge: () => Promise<void>
+    importKeys: () => Promise<AppStoreImportKeysResult>
+    discardKeys: () => Promise<void>
+  }
   // File watcher — subscribe to filesystem events for the File Explorer
   startWatchingDirectory: (dirPath: string) => Promise<void>
   stopWatchingDirectory: () => Promise<void>
@@ -604,6 +615,15 @@ const api: ElectronAPI = {
   downloadSkill: () => ipcRenderer.invoke('skill:download'),
   // Build info
   isMasBuild: process.env.MAS_BUILD === '1',
+  // Import from the App Store edition (#1243)
+  appStoreImport: {
+    status: () => ipcRenderer.invoke('appStoreImport:status'),
+    start: () => ipcRenderer.invoke('appStoreImport:start'),
+    decline: () => ipcRenderer.invoke('appStoreImport:decline'),
+    acknowledge: () => ipcRenderer.invoke('appStoreImport:acknowledge'),
+    importKeys: () => ipcRenderer.invoke('appStoreImport:importKeys'),
+    discardKeys: () => ipcRenderer.invoke('appStoreImport:discardKeys')
+  },
   // File watcher — subscribe to filesystem events for the File Explorer
   startWatchingDirectory: (dirPath: string) => ipcRenderer.invoke('file:watch:start', dirPath),
   stopWatchingDirectory: () => ipcRenderer.invoke('file:watch:stop'),

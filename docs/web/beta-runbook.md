@@ -101,7 +101,9 @@ Rows with `grantedBy = 'opencollective'` belong to the Open Collective reconcile
 
 To take down a **single comment** instead of the whole link, the invitee deletes that thread in Prose (the trash icon on the comment). For a shared thread this also removes it, with its replies, from the shared page. This is the answer when a reader asks for a comment carried over from an earlier version of the link to be removed: those comments can't be edited or deleted from the page.
 
-The invitee can revoke any of their own publications from the Prose desktop app: open the share popover (◎) and click **Revoke**. The gateway sets `revokedAt`, deletes the R2 object, and serves `410 Gone` with a styled takedown page to anyone who opens the old link.
+The invitee can revoke any of their own publications from the Prose desktop app: open the share popover (◎) and click **Revoke**. The gateway sets `revokedAt`, deletes the artifact's encryption keys and its R2 object, and serves `410 Gone` with a styled takedown page to anyone who opens the old link.
+
+Stored artifacts are encrypted to their link (`gateway/src/artifacts/crypto.ts`): neither the database nor the R2 bucket shows their content. To see what a reported link shows, open the link.
 
 ### Operator-side publication takedown
 
@@ -116,10 +118,12 @@ The invitee can revoke any of their own publications from the Prose desktop app:
    ```bash
    echo "BEGIN;
    DELETE FROM share_comments WHERE \"publicationId\" = '<publication-uuid>';
-   UPDATE publications SET \"revokedAt\" = NOW(), \"artifactHtml\" = NULL WHERE id = '<publication-uuid>';
+   UPDATE publications SET \"revokedAt\" = NOW(), \"artifactHtml\" = NULL, \"artifactCipher\" = NULL,
+     \"encPublicKey\" = NULL, \"encWrappedKey\" = NULL WHERE id = '<publication-uuid>';
    COMMIT;" | npx prisma db execute --stdin
    ```
-3. **If `storage` was `r2`,** delete the object `shares/<publication-uuid>/artifact.html` from the bucket in the Cloudflare R2 dashboard.
+   Clearing the two key columns makes the stored artifact unreadable for good, wherever a copy sits.
+3. **If `storage` was `r2`,** delete the object named in `r2Key` (`shares/<publication-uuid>/….enc`, or `artifact.html` for a row from before encryption) from the bucket in the Cloudflare R2 dashboard. For an `.enc` object this is cleanup: step 2 already made it unreadable.
 
 ---
 
@@ -191,10 +195,10 @@ This must return an empty array. B's origin cannot read A's localStorage.
 
 After publishing, confirm the publication row has `storage = 'r2'` (not `'db'`) by querying in `psql` (see §4 for how to connect):
 ```sql
-SELECT storage, "r2Key" FROM publications ORDER BY "publishedAt" DESC LIMIT 5;
+SELECT storage, "r2Key", "encPublicKey" IS NOT NULL AS sealed FROM publications ORDER BY "publishedAt" DESC LIMIT 5;
 ```
 
-If R2 env vars are set correctly, all new rows should show `storage = 'r2'`.
+If R2 env vars are set correctly, all new rows should show `storage = 'r2'`, an `r2Key` ending in `.enc`, and `sealed = true`. The boot log line `[share] N live artifact(s) stored before encryption` counts rows still waiting for their first view to seal them.
 
 ### Revoke → 410
 

@@ -106,7 +106,17 @@ model Publication {
   hostLabel          String?   @unique
   storage            String    @default("db") // 'r2' | 'db'
   r2Key              String?
+  /// Plaintext artifact of a row published before encryption, until its
+  /// first view seals it. New rows never set it.
   artifactHtml       String?
+  /// The sealed artifact when storage = 'db' (artifacts/crypto.ts).
+  artifactCipher     Bytes?
+  /// Link-bound encryption keys (artifacts/crypto.ts): the X25519 public key
+  /// artifacts are sealed to, and its private key sealed under a key derived
+  /// from the share token. NULL on rows published before encryption until
+  /// their first view; cleared on revoke, which makes the ciphertext unreadable.
+  encPublicKey       String?
+  encWrappedKey      String?
   publishedAt        DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   revokedAt          DateTime?

@@ -63,8 +63,16 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      - name: Artifact encryption unit checks
+        run: npm run test:crypto
+
       - name: Share integration suite
         run: npm run test:share
+
+      - name: Share R2 storage suite
+        # Production's storage path: a mock S3 server stands in for R2
+        # (R2_ENDPOINT); it checks that only sealed bytes reach the bucket.
+        run: npm run test:share:r2
 
       - name: Mail integration suite
         # test-mail.mjs spawns its own gateway on :4020 with a mock Resend

@@ -9,6 +9,7 @@ import { config, port } from './config.js'
 import { createApp } from './app.js'
 import { prisma } from './db/index.js'
 import { hashShareToken } from './routes/share/common.js'
+import { countUnsealedArtifacts } from './artifacts/index.js'
 
 const app = createApp()
 
@@ -36,6 +37,16 @@ void (async () => {
     console.error('[share] legacy editToken sweep failed (will retry next boot)', err)
   }
 })()
+
+// Artifacts published before link-bound encryption stay plaintext until their
+// first view seals them (artifacts/index.ts), and the server can't seal them
+// any sooner: it never holds their tokens. Count them on each boot so the
+// at-rest posture shows in the log.
+void countUnsealedArtifacts()
+  .then((n) => {
+    if (n > 0) console.log(`[share] ${n} live artifact(s) stored before encryption; each is sealed on its next view`)
+  })
+  .catch((err) => console.error('[share] unsealed-artifact count failed', err))
 
 const server = serve({ fetch: app.fetch, port }, (info) => {
   console.log(`[gateway] listening on http://localhost:${info.port} (env=${config.NODE_ENV})`)

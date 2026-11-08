@@ -96,8 +96,19 @@ serves the artifact (no-store, no-referrer, strict CSP), `POST
 /s/:token/comments` + `POST /s/:token/comments/:id/replies` take anonymous
 reviewer comments (~10 writes/min/IP). The raw capability token exists only in
 the share URL; rows store its SHA-256. Artifacts go to R2 when configured,
-else the `artifactHtml` column (`storage` records which — provisioning R2
+else the `artifactCipher` column (`storage` records which — provisioning R2
 later strands nothing).
+
+**Encrypted at rest, to the link** (`src/artifacts/crypto.ts`). Each
+publication has an X25519 key pair: the public key is stored as is, the
+private key sealed under a key derived from the share token. Every revision
+is sealed to the public key (AES-256-GCM), so re-publish needs no token, and
+only a request carrying the link can open it. R2, Postgres and backups hold
+ciphertext only; revoke deletes the keys, so no leftover copy can be read.
+Rows published before this stay plaintext (`artifactHtml`, or a `.html`
+object) until their first view seals them; the boot log counts any left.
+In transit, `/s/*` and `/api/*` are HTTPS-only (HSTS), and only sealed bytes
+travel from the gateway to R2 or Postgres.
 
 Integration test (self-contained — boots its own gateway on :4010, harvests
 the sign-in code from stdout): `npm run test:share` (needs `npm run dev:db`).

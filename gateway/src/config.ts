@@ -89,6 +89,10 @@ const EnvSchema = z.object({
   R2_ACCESS_KEY_ID: z.string().optional(),
   R2_SECRET_ACCESS_KEY: z.string().optional(),
   R2_BUCKET: z.string().optional(),
+  // Test-only: point the R2 client at a local mock S3 server (path-style)
+  // instead of <account>.r2.cloudflarestorage.com. Never set this in
+  // production — it is documented only for the test suite.
+  R2_ENDPOINT: z.string().url().optional(),
 }).superRefine((env, ctx) => {
   // The .optional() markers above keep the dev bootstrap loose (mock upstream,
   // no DB). Everything else (production, staging, previews) gets no such

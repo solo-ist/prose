@@ -128,6 +128,10 @@ test('a chat turn over OpenAI: a suggest_edit call split across chunks leaves a 
   expect(first.body.tools.map((t: any) => t.type)).toEqual(first.body.tools.map(() => 'function'))
   expect(first.body.tools.some((t: any) => t.function.name === 'suggest_edit')).toBe(true)
   expect(first.body).not.toHaveProperty('thinking')
+  // gpt-5 reasons: low effort on every step, with room for the reasoning in the limit (#1271).
+  expect(first.body.reasoning_effort).toBe('low')
+  expect(second.body.reasoning_effort).toBe('low')
+  expect(first.body.max_completion_tokens).toBe(24000)
 
   const assistant = second.body.messages.find((m: any) => m.role === 'assistant' && m.tool_calls)
   expect(assistant.tool_calls).toEqual([{ id: 'call_1', type: 'function', function: { name: 'suggest_edit', arguments: args } }])
@@ -184,4 +188,34 @@ test('an account with no credits (HTTP 429 insufficient_quota): one request, the
   await page.waitForTimeout(1_500)
   const streamed = (await requests()).filter((r) => r.url.endsWith('/chat/completions') && r.body?.stream === true)
   expect(streamed).toHaveLength(1)
+})
+
+test("a model that doesn't reason (gpt-4.1) gets no reasoning_effort and the plain limit (#1271)", async () => {
+  await app.close()
+  rmSync(userDataDir, { recursive: true, force: true })
+  userDataDir = mkdtempSync(join(tmpdir(), 'prose-1271-'))
+  // OpenAI's remembered model is gpt-4.1, so choosing OpenAI selects it.
+  seedSettings(userDataDir, {
+    toolMode: 'editor',
+    llm: { provider: 'anthropic', model: 'claude-sonnet-5-5', modelByProvider: { openai: 'gpt-4.1' } },
+  })
+  const launched = await launchApp({ env: { PROSE_USER_DATA_DIR: userDataDir, PROSE_DEBUG_PORT: '9244' } })
+  app = launched.app
+  page = launched.page
+  await waitForAppReady(page)
+  await dismissOnboarding(page).catch(() => {})
+  await dismissOverlay(page).catch(() => {})
+  await stub([[sseChunk({ content: 'Hello.' }), sseChunk({}, 'stop'), 'data: [DONE]\n\n']])
+  await configureOpenAI()
+
+  await waitForEditor(page)
+  await openChat(page)
+  await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent('prose:mode-switch-and-run', { detail: { prompt: 'Hi.' } }))
+  })
+  await expect(page.getByText('Hello.')).toBeVisible({ timeout: 15_000 })
+  const [turn] = (await requests()).filter((r) => r.url.endsWith('/chat/completions') && r.body?.stream === true)
+  expect(turn.body.model).toBe('gpt-4.1')
+  expect(turn.body).not.toHaveProperty('reasoning_effort')
+  expect(turn.body.max_completion_tokens).toBe(16000)
 })

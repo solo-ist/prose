@@ -52,8 +52,21 @@ export interface ProviderInfo {
    * `/v1/models` also lists embeddings, audio, image and Responses-only models.
    */
   liveModels?: { include?: RegExp; exclude?: RegExp }
-  /** Chat Completions request options the provider needs (A3 sets `reasoningEffort: 'none'` for the co-op). */
-  chatCompletions?: { reasoningEffort?: string }
+  /** Chat Completions request tuning; read through `chatCompletionsTuning`. */
+  chatCompletions?: {
+    /**
+     * The `reasoning_effort` to send for a model, or undefined to send none:
+     * per model, since non-reasoning models (gpt-4.1) reject the parameter
+     * (#1271). A3's co-op answers 'none' for every model.
+     */
+    reasoningEffortFor?: (model: string) => string | undefined
+    /**
+     * Extra `max_completion_tokens` for a model that reasons: its hidden
+     * reasoning counts against the limit, so without room a long tool call
+     * could be cut off.
+     */
+    reasoningHeadroom?: number
+  }
 }
 
 /**
@@ -115,6 +128,13 @@ export const PROVIDERS: Record<LLMProvider, ProviderInfo> = {
     keyFormat: { prefix: 'sk-', minLength: 20 },
     keysUrl: 'https://platform.openai.com/api-keys',
     billingHint: 'platform.openai.com → Settings → Billing',
+    chatCompletions: {
+      // gpt-5 defaults to medium reasoning, which Chat Completions does not
+      // stream: dead air before every tool step's first token. Low keeps the
+      // tool loop responsive (#1271).
+      reasoningEffortFor: (model) => (isOpenAIReasoningModel(model) ? 'low' : undefined),
+      reasoningHeadroom: 8000,
+    },
     liveModels: {
       include: /^(gpt-|o\d|chatgpt-)/,
       exclude: /(audio|realtime|transcribe|tts|image|embedding|search|instruct|moderation|codex|computer-use|deep-research|-pro\b)/,
@@ -123,6 +143,33 @@ export const PROVIDERS: Record<LLMProvider, ProviderInfo> = {
 }
 
 export const PROVIDER_IDS = Object.keys(PROVIDERS) as LLMProvider[]
+
+/**
+ * OpenAI models that take `reasoning_effort`: the gpt-5 family and the
+ * o-series, but not the chat-tuned `gpt-5-chat` aliases or the gpt-4 line.
+ */
+export function isOpenAIReasoningModel(model: string): boolean {
+  return /^(gpt-5|o\d)/.test(model) && !/-chat\b/.test(model)
+}
+
+/**
+ * What a Chat Completions request for `model` sends beyond the messages
+ * (#1271): the provider's reasoning effort for that model (none for a model
+ * that doesn't reason), and the completion-token limit with room for the
+ * reasoning when it does.
+ */
+export function chatCompletionsTuning(
+  provider: ProviderInfo,
+  model: string,
+  maxTokens?: number
+): { reasoningEffort?: string; maxTokens?: number } {
+  const reasoningEffort = provider.chatCompletions?.reasoningEffortFor?.(model)
+  const headroom = reasoningEffort && reasoningEffort !== 'none' ? provider.chatCompletions?.reasoningHeadroom ?? 0 : 0
+  return {
+    ...(reasoningEffort ? { reasoningEffort } : {}),
+    ...(maxTokens ? { maxTokens: maxTokens + headroom } : {}),
+  }
+}
 
 export function isProvider(id: unknown): id is LLMProvider {
   return typeof id === 'string' && Object.prototype.hasOwnProperty.call(PROVIDERS, id)

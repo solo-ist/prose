@@ -8,7 +8,7 @@ import type { Settings } from '../renderer/types'
 import { withRetry } from '../shared/utils/retry'
 import { classifyLlmError, llmErrorMessage, type LlmErrorKind } from '../shared/llm/errors'
 import { getDefaultModel, getSmallModel, supportsAdaptiveThinking, getThinkingOffMode } from '../shared/llm/models'
-import { getProvider, isProvider } from '../shared/llm/providers'
+import { chatCompletionsTuning, getProvider, isProvider } from '../shared/llm/providers'
 import { buildChatBody, listChatModels, probeChatQuota, streamChatCompletion } from './chatCompletions'
 import { getSettingsDir, LEGACY_SETTINGS_DIR, normalizePath, resolveWithin, resolveToolPath, IMAGE_EXTENSIONS } from './paths'
 import type { FileAccessOptions } from '../shared/fileAccess'
@@ -1141,7 +1141,7 @@ export function setupIpcHandlers(): void {
           model: request.model,
           system: request.system,
           messages: request.messages,
-          reasoningEffort: info.chatCompletions?.reasoningEffort
+          ...chatCompletionsTuning(info, request.model)
         })
         const { content } = await withRetry(
           () => streamChatCompletion({ baseURL: info.baseURL, apiKey }, body),
@@ -1243,8 +1243,8 @@ export function setupIpcHandlers(): void {
           system: request.system,
           messages: request.messages,
           tools: toolDefinitions,
-          maxTokens: request.maxTokens,
-          reasoningEffort: provider.chatCompletions?.reasoningEffort
+          // Low reasoning per model for OpenAI, room for it in the limit (#1271).
+          ...chatCompletionsTuning(provider, request.model, request.maxTokens)
         })
         const { content, toolCalls } = await streamChatCompletion(
           { baseURL: provider.baseURL, apiKey },

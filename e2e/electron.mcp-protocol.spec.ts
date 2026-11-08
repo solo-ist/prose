@@ -33,6 +33,21 @@ function newClient(pin: string | undefined): Client {
   return new Client({ name: 'prose-e2e', version: '1.0.0' }, pin ? { versionNegotiation: { mode: { pin } } } : {})
 }
 
+/** The tool names the app's own HTTP endpoint lists: the bridge must list the same. */
+async function httpToolNames(): Promise<string[]> {
+  const client = newClient(undefined)
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${MCP_PORT}/mcp`), {
+      requestInit: { headers: { Authorization: `Bearer ${token}` } }
+    })
+  )
+  try {
+    return (await client.listTools()).tools.map((t) => t.name).sort()
+  } finally {
+    await client.close()
+  }
+}
+
 function stdioEnv(profile: string): Record<string, string> {
   return { ...(process.env as Record<string, string>), PROSE_USER_DATA_DIR: profile }
 }
@@ -91,7 +106,8 @@ for (const [label, pin] of ERAS) {
     try {
       expect(client.getServerVersion()).toMatchObject({ name: 'Prose', version: VERSION })
       const { tools } = await client.listTools()
-      expect(tools).toHaveLength(10)
+      expect(tools.map((t) => t.name).sort()).toEqual(await httpToolNames())
+      expect(tools.map((t) => t.name)).toEqual(expect.arrayContaining(['read_document', 'list_review_events']))
 
       const tabs = await client.callTool({ name: 'list_tabs', arguments: {} })
       expect(tabs.isError).toBeFalsy()
@@ -107,7 +123,7 @@ test('stdio: with no app on its profile, tools still list and calls fail plainly
   const client = newClient(undefined)
   await client.connect(new StdioClientTransport({ command: process.execPath, args: [BRIDGE], env: stdioEnv(empty), stderr: 'ignore' }))
   try {
-    expect((await client.listTools()).tools).toHaveLength(10)
+    expect((await client.listTools()).tools.map((t) => t.name).sort()).toEqual(await httpToolNames())
     const result = await client.callTool({ name: 'list_tabs', arguments: {} })
     expect(result.isError).toBe(true)
     expect(JSON.stringify(result.content)).toContain('Prose is not running')

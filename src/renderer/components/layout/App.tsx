@@ -76,6 +76,7 @@ import type { DraftState, SessionState } from '../../lib/persistence'
 import { executeTool } from '../../lib/tools'
 import { splitMcpTarget } from '../../lib/tools/mcpTarget'
 import { mcpActorFrom, LAUNCH_CONNECTION_ID, DEFAULT_CONNECTION_LABEL } from '../../../shared/mcp/actor'
+import { isMcpToolName } from '../../../shared/tools/registry'
 import { useReviewMode, useWasChatOpenBeforeReview, usePreviousChatWidth, useReviewStore, type ReviewMode } from '../../stores/reviewStore'
 import { chatOpenDefaultPct, reviewChatWidthPct } from '../../hooks/usePanelLayout'
 
@@ -787,6 +788,13 @@ export function App() {
         // A `document` argument targets an open tab (#1237); without one the
         // call acts on the active tab. Either way it keeps the writer's
         // selection and focus, and only tab-changing tools change the tab.
+        // The bridge checks the allowlist in main; check it here too, so a call
+        // that reaches the renderer some other way can't run an unlisted tool
+        // (accept_diff and reject_diff stay the writer's, #607).
+        if (!isMcpToolName(toolName)) {
+          window.api.sendMcpToolResult(requestId, { success: false, error: `Unknown tool: ${toolName}`, code: 'UNKNOWN_TOOL' })
+          return
+        }
         const target = splitMcpTarget(toolName, args, requestId)
         if ('error' in target) {
           window.api.sendMcpToolResult(requestId, target.error)

@@ -41,7 +41,41 @@ const SUCCESS_PAYLOADS: Record<string, unknown[]> = {
   list_tabs: [
     { tabs: [{ tabId: 't1', title: 'Draft', path: null, isActive: true, isDirty: true, isPreview: false, documentId: 'd1' }] }
   ],
-  select_tab: [{ selected: true, tabId: 't1', title: 'Draft', path: null }, { selected: true, tabId: 't2', title: 'A', path: '/a.md' }]
+  select_tab: [{ selected: true, tabId: 't1', title: 'Draft', path: null }, { selected: true, tabId: 't2', title: 'A', path: '/a.md' }],
+  reply_to_comment: [{ replyId: 'r1' }],
+  reopen_comment: [{ reopened: true }],
+  list_suggestions: [
+    {
+      suggestions: [
+        {
+          id: 's1', status: 'pending', originalText: 'Hello', suggestedText: 'Hi', explanation: 'shorter', createdAt: 1,
+          by: 'Codex', byKind: 'mcp-agent', feedback: [{ text: 'why?', createdAt: 2, by: 'the writer', byKind: 'human' }], revises: 's0'
+        },
+        {
+          id: 's0', status: 'superseded', originalText: 'Hello', suggestedText: 'Hey', createdAt: 0, by: 'Codex', byKind: 'mcp-agent',
+          feedback: [], supersededBy: 's1'
+        },
+        {
+          id: 's9', status: 'rejected', originalText: 'A', suggestedText: 'B', createdAt: 0, by: 'Prose · Sonnet 5.5', byKind: 'prose-agent',
+          feedback: [], decidedBy: 'the writer', decidedAt: 5
+        }
+      ]
+    },
+    { suggestions: [] }
+  ],
+  reply_to_suggestion: [{ suggestionId: 's1' }],
+  revise_suggestion: [{ suggestionId: 's2', revises: 's1' }],
+  get_review_status: [{ pending: ['s1'], accepted: 1, rejected: 0, superseded: 2, openComments: 3, lastSeq: 7 }],
+  list_review_events: [
+    {
+      events: [
+        { seq: 1, at: 1, kind: 'suggestion:proposed', by: 'Codex', byKind: 'mcp-agent', suggestionId: 's1' },
+        { seq: 2, at: 2, kind: 'comment:replied', by: 'the writer', byKind: 'human', threadId: 'c1', replyId: 'r1' }
+      ],
+      nextSeq: 3,
+      more: false
+    }
+  ]
 }
 
 async function accepts(schema: Record<string, unknown>, value: unknown): Promise<boolean> {

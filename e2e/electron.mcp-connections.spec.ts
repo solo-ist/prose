@@ -101,9 +101,37 @@ test('a connection token attributes calls to the connection, and revoking it sto
       (c) => c.comment === 'From the connection'
     )
     expect(comment).toMatchObject({ by: LABEL, byKind: 'mcp-agent' })
+
+    // The review tools (#890) record the same connection, never a placeholder: reply to and reopen
+    // the thread, then propose, give feedback on and revise a suggestion.
+    const commentId = (added.structuredContent as { id: string }).id
+    const call = async (name: string, args: Record<string, unknown>) => {
+      const result = await client.callTool({ name, arguments: args })
+      expect(result.isError, `${name}: ${JSON.stringify(result.content)}`).toBeFalsy()
+      return result.structuredContent as Record<string, unknown>
+    }
+    await call('reply_to_comment', { id: commentId, text: 'A reply from the connection' })
+    await call('resolve_comment', { id: commentId })
+    await call('reopen_comment', { id: commentId })
+    const proposed = await call('suggest_edit', { nodeId, content: 'A sentence for the connection to improve.', search: 'A sentence for the connection to comment on.' })
+    await call('reply_to_suggestion', { id: proposed.suggestionId, text: 'Shorter reads better here.' })
+    await call('revise_suggestion', { id: proposed.suggestionId, content: 'A sentence the connection improved.' })
+
+    const events = (await call('list_review_events', {})).events as Array<{ kind: string; by: string; byKind: string }>
+    for (const kind of ['comment:replied', 'comment:reopened', 'suggestion:proposed', 'suggestion:feedback', 'suggestion:revised']) {
+      expect(events.find((e) => e.kind === kind), kind).toMatchObject({ by: LABEL, byKind: 'mcp-agent' })
+    }
   } finally {
     await client.close()
   }
+
+  // The thread's reply is stored with the connection too.
+  const replyActor = async () => {
+    const id = await page.evaluate(() => (window as any).__prose_tools.getAnnotationDocId())
+    const rows = (await page.evaluate((docId) => (window as any).__prose_tools.loadCommentsFromDB(docId), id)) as any[]
+    return rows.find((r) => r.comment === 'From the connection')?.replies?.[0]?.actor
+  }
+  await expect.poll(replyActor).toEqual({ kind: 'mcp-agent', connectionId: expect.any(String), connectionLabel: LABEL, via: 'http' })
 
   // The stored record carries the connection.
   const documentId = await page.evaluate(() => (window as any).__prose_tools.getAnnotationDocId())

@@ -81,3 +81,11 @@ main from it — never from anything the client sends as tool arguments.
     (`mcpCreateConnection is not a function`; the UI case finds no panel), the new `http-server.test.ts` fails at
     setup (`setConnectionResolver` missing), and `clientInfo.test.ts` fails 2/2 (no context reaches `callTool`).
   - `typecheck:renderer` 66, `typecheck:e2e` 6; no main-project errors in the touched files.
+- **2026-11-08, after M4 (#890).** Merged the updated M1 branch (which carries `origin/main` at `4f4d899`). `App.tsx`:
+  M4's renderer-side allowlist re-check stays, and main's actor (`mcpActorFrom`) replaces the placeholder for every
+  MCP call. The connections e2e now drives the review tools over HTTP with the connection's token
+  (`reply_to_comment`, `resolve_comment` + `reopen_comment`, `suggest_edit`, `reply_to_suggestion`,
+  `revise_suggestion`) and checks that `list_review_events` names the connection for each event and that the stored
+  reply carries it; with the placeholder actor forced back in, the test fails. Unit 275/275; `typecheck:renderer`
+  66, `typecheck:e2e` 6; M4's `mcp-review` (port 9246) with the MCP, targeting, provenance, review-log and
+  settings-account specs: 32 passed.

@@ -610,7 +610,7 @@ export function executeResolveComment(args: {
 
   // Resolved and unmarked together; the session persists the thread and
   // pushes the resolve to a share (#769).
-  handle.commands.resolveThread(id)
+  handle.commands.resolveThread(id, ctx.provenance?.actor)
 
   return toolSuccess({ resolved: true })
 }
@@ -618,6 +618,21 @@ export function executeResolveComment(args: {
 /**
  * reply_to_comment - Append an AI reply to a comment thread.
  */
+/**
+ * reopen_comment (#890): a resolved thread becomes active again, its mark back
+ * on its text when the text is still there; logged with the caller as actor.
+ */
+export function executeReopenComment(args: { id: string }, ctx: ToolContext): ToolResult<{ reopened: true }> {
+  const { handle } = ctx
+  if (!handle) return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
+  if (isEditorReadOnly(handle)) return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
+  const thread = threadsOf(handle.state).find((c) => c.id === args.id)
+  if (!thread) return toolError(`Comment with ID "${args.id}" not found`, 'COMMENT_NOT_FOUND')
+  if (!thread.resolved) return toolError(`Comment "${args.id}" is already open`, 'COMMENT_OPEN')
+  handle.commands.reopenThread(args.id, ctx.provenance?.actor)
+  return toolSuccess({ reopened: true })
+}
+
 export function executeReplyToComment(args: {
   id: string
   text: string

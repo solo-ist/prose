@@ -28,7 +28,8 @@ import {
   executeListComments,
   executeAddComment,
   executeResolveComment,
-  executeReplyToComment
+  executeReplyToComment,
+  executeReopenComment
 } from './executors/document'
 
 // Editor executors
@@ -60,6 +61,15 @@ import {
   executeSelectTab
 } from './executors/tabs'
 
+// Review executors (#890)
+import {
+  executeListSuggestions,
+  executeReplyToSuggestion,
+  executeReviseSuggestion,
+  executeGetReviewStatus,
+  executeListReviewEvents
+} from './executors/review'
+
 // UI-coordination executors
 import { executeRequestModeSwitch } from './executors/ui'
 
@@ -70,14 +80,15 @@ export type { ToolContext } from './context'
 /** Tools that act on a document: `executeTool` resolves its handle before they run. */
 const DOCUMENT_TOOLS = new Set([
   'read_document', 'read_selection', 'get_metadata', 'search_document', 'get_outline', 'outline',
-  'list_comments', 'add_comment', 'resolve_comment', 'reply_to_comment',
+  'list_comments', 'add_comment', 'resolve_comment', 'reply_to_comment', 'reopen_comment',
+  'list_suggestions', 'reply_to_suggestion', 'revise_suggestion', 'get_review_status', 'list_review_events',
   'edit', 'insert', 'suggest_edit', 'accept_diff', 'reject_diff', 'list_diffs', 'delete_node', 'move_cursor',
   'save_file'
 ])
 
 /** Tools that write: refused while the target document is open in source mode. */
 const WRITING_TOOLS = new Set([
-  'add_comment', 'resolve_comment', 'reply_to_comment',
+  'add_comment', 'resolve_comment', 'reply_to_comment', 'reopen_comment', 'reply_to_suggestion', 'revise_suggestion',
   'edit', 'insert', 'suggest_edit', 'accept_diff', 'reject_diff', 'delete_node', 'move_cursor', 'save_file'
 ])
 
@@ -188,6 +199,26 @@ export async function executeTool(
         break
       case 'reply_to_comment':
         result = executeReplyToComment(validatedArgs, ctx)
+        break
+      case 'reopen_comment':
+        result = executeReopenComment(validatedArgs, ctx)
+        break
+
+      // Review tools (#890)
+      case 'list_suggestions':
+        result = executeListSuggestions(validatedArgs, ctx)
+        break
+      case 'reply_to_suggestion':
+        result = executeReplyToSuggestion(validatedArgs, ctx)
+        break
+      case 'revise_suggestion':
+        result = executeReviseSuggestion(validatedArgs, ctx)
+        break
+      case 'get_review_status':
+        result = executeGetReviewStatus(ctx)
+        break
+      case 'list_review_events':
+        result = executeListReviewEvents(validatedArgs, ctx)
         break
 
       // Editor tools

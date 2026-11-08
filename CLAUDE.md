@@ -211,7 +211,7 @@ When running as Electron:
 
 ### IPC Channels
 
-Most handlers live in `src/main/ipc.ts` (86 across 14 namespaces). A few sit closer to their feature: `sentry:setEnabled` and `renderer:ready` in `src/main/index.ts`, `updater:*` (3) in `src/main/updater.ts`, `file:watch:start` and `file:watch:stop` in `src/main/fileWatcher.ts`, and `mcp:tool:result` (via `ipcMain.on`, not `handle`) in `src/main/mcp/bridge.ts`.
+Most handlers live in `src/main/ipc.ts` (86 across 14 namespaces). A few sit closer to their feature: `sentry:setEnabled` and `renderer:ready` in `src/main/index.ts`, `updater:*` (3) in `src/main/updater.ts`, `file:watch:start` and `file:watch:stop` in `src/main/fileWatcher.ts`, `appStoreImport:*` (6) in `src/main/appStoreImportIpc.ts`, and `mcp:tool:result` (via `ipcMain.on`, not `handle`) in `src/main/mcp/bridge.ts`.
 
 - `file:*` (22) - File operations (open, save, read, rename, delete, trash, duplicate, watch, export HTML, MAS bookmark activation, etc.) — 20 handlers in `ipc.ts`, plus `file:watch:start` and `file:watch:stop` in `fileWatcher.ts`
 - `settings:*` (4) - Settings persistence, secure storage check, API key test
@@ -222,6 +222,7 @@ Most handlers live in `src/main/ipc.ts` (86 across 14 namespaces). A few sit clo
 - `share:*` (21) - Gateway sharing: sign-in, access, publish/republish/revoke, local list + `share:listRemote` gateway reconcile (#1037), comments pull/push, path updates. Only the two local reads (`share:list`, `share:getForPath`) are callable on MAS builds
 - `sentry:setEnabled` - Toggle Sentry error tracking from renderer
 - `updater:*` (3) - Auto-update check, download, install (Electron auto-updater)
+- `appStoreImport:*` (6) - Import the App Store edition's profile into the direct build (#1243): status, start (stages the import and relaunches; the copy runs in `runPendingImport` at the next launch, before anything opens the profile), decline, acknowledge, importKeys / discardKeys. Every handler reports unavailable on MAS builds
 - `skill:download` - Download an external skill for use inside Prose
 - `clipboard:*` (1) - Write text to system clipboard
 - `appearance:*` (1) - Pin the macOS dock tile to the Prose icon
@@ -361,7 +362,7 @@ Prose exposes itself as an MCP server to Claude Desktop via two components:
 - `src/main/mcp/` - Socket server + HTTP bridge inside the Electron main process. Relays tool calls to the renderer via IPC.
 - `src/mcp-stdio/` - Standalone stdio server that Claude Desktop launches. Connects to the running app via Unix socket; auto-launches Prose if not running.
 
-Exposes 10 tools (the `mcpToolNames` subset in `src/shared/tools/registry.ts`): `read_document`, `get_outline`, `open_file`, `suggest_edit`, `create_and_open_file`, `list_comments`, `add_comment`, `resolve_comment`, `list_tabs`, `select_tab`.
+Exposes 17 tools (the `mcpToolNames` subset in `src/shared/tools/registry.ts`): `read_document`, `get_outline`, `open_file`, `suggest_edit`, `create_and_open_file`, `list_comments`, `add_comment`, `resolve_comment`, `reply_to_comment`, `reopen_comment`, `list_tabs`, `select_tab`, and the review lifecycle (#890) `list_suggestions`, `reply_to_suggestion`, `revise_suggestion`, `get_review_status`, `list_review_events`. Accept and reject are never on the list: the writer decides (#607), and agents follow decisions through `list_review_events`. The document tools take an optional `document` (a documentId or path from `list_tabs`) that must name an open tab (#1237). MCP calls never move the writer's caret, focus or tab (tab-changing tools aside), and the renderer re-checks the allowlist the main-process bridge enforces. Every record an MCP call makes carries an `Actor` (`src/shared/review/actor.ts`, #1232), and the review log (`extensions/review-log/`, #1233) keeps each suggestion's history and the events.
 
 ### Shared Code
 

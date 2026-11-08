@@ -31,10 +31,12 @@ import { cn } from '../../lib/utils'
 import { isMasBuild } from '../../lib/featureFlags'
 import { AppStoreImportSettingsRow } from '../appStoreImport/AppStoreImportDialogs'
 import type { Settings } from '../../types'
-import { Eye, EyeOff, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
-import { getModelsForProvider, getDefaultModel, type LLMProvider } from '../../../shared/llm/models'
-import { PROVIDERS, PROVIDER_IDS, getProvider } from '../../../shared/llm/providers'
-import { validateApiKeyFormat, validateUrl, maskKeyHint, hasProviderKey } from '../../lib/llm'
+import { AlertCircle } from 'lucide-react'
+import { getDefaultModel, type LLMProvider } from '../../../shared/llm/models'
+import { PROVIDERS, PROVIDER_IDS } from '../../../shared/llm/providers'
+import { ProviderKeys, draftFormatError, type KeyDrafts } from './ProviderKeys'
+import { useAvailableModels } from '../../hooks/useAvailableModels'
+import { validateUrl, hasProviderKey } from '../../lib/llm'
 
 /** Extract the primary font name from a CSS font-family stack */
 function extractPrimaryFont(fontFamily: string): string {
@@ -95,17 +97,14 @@ export function SettingsDialog() {
   const [isDefaultHandler, setIsDefaultHandler] = useState<boolean | null>(null)
   const [checkingDefault, setCheckingDefault] = useState(false)
 
-  // API key. Main holds the saved key (#1240); the dialog sees its status and
-  // keeps a typed key only as a local draft until Save Changes hands it over.
+  // API keys, one per provider. Main holds the saved keys (#1240); the dialog
+  // sees each one's status and keeps a typed key only as a local draft until
+  // Save Changes hands it over (#1242).
   const setLlmKey = useSettingsStore((s) => s.setLlmKey)
-  const clearLlmKey = useSettingsStore((s) => s.clearLlmKey)
-  const [keyDraft, setKeyDraft] = useState('')
-  const [replacingKey, setReplacingKey] = useState(false)
-  const [showApiKey, setShowApiKey] = useState(false)
-  const [testingApiKey, setTestingApiKey] = useState(false)
-  const [apiKeyTestResult, setApiKeyTestResult] = useState<{ success: boolean; message: string } | null>(null)
-  const savedKey = settings.llm.keyStatus?.[settings.llm.provider]
-  const showKeyInput = !savedKey || replacingKey
+  const setActiveProvider = useSettingsStore((s) => s.setActiveProvider)
+  const [keyDrafts, setKeyDrafts] = useState<KeyDrafts>({})
+  const [keySaveErrors, setKeySaveErrors] = useState<Partial<Record<LLMProvider, string>>>({})
+  const anyDraftInvalid = PROVIDER_IDS.some((p) => draftFormatError(p, keyDrafts) !== null)
 
   // Secure storage availability
   const [secureStorageAvailable, setSecureStorageAvailable] = useState<boolean | null>(null)
@@ -121,17 +120,10 @@ export function SettingsDialog() {
   const integrationsTabRef = useRef<HTMLDivElement>(null)
   const accountTabRef = useRef<HTMLDivElement>(null)
 
-  // Get models for current provider — prefer the live-fetched list from the
-  // provider, fall back to the static seed list when offline / no API key.
-  const fetchedModels = useSettingsStore((s) => s.fetchedModels)
+  // The provider in use's models: its live list once fetched, else its seed.
   const isFetchingModels = useSettingsStore((s) => s.isFetchingModels)
   const fetchModels = useSettingsStore((s) => s.fetchModels)
-  const availableModels = useMemo(
-    () => fetchedModels && fetchedModels.length > 0
-      ? fetchedModels
-      : getModelsForProvider(settings.llm.provider as LLMProvider),
-    [fetchedModels, settings.llm.provider]
-  )
+  const availableModels = useAvailableModels()
 
   // Check if current model is in the list
   const isCustomModel = useMemo(
@@ -139,31 +131,16 @@ export function SettingsDialog() {
     [availableModels, settings.llm.model]
   )
 
-  // Validation errors — of the typed draft; a saved key was checked when typed.
-  // With no key saved, an empty draft reads "API key is required".
-  const apiKeyFormatError = useMemo(
-    () => !showKeyInput || (!keyDraft && savedKey)
-      ? null
-      : validateApiKeyFormat(settings.llm.provider as LLMProvider, keyDraft),
-    [showKeyInput, keyDraft, savedKey, settings.llm.provider]
-  )
-
   const baseUrlError = useMemo(
     () => validateUrl(settings.llm.baseUrl || ''),
     [settings.llm.baseUrl]
   )
 
-  // Reset API key test result when key changes
+  // A draft never outlives the dialog.
   useEffect(() => {
-    setApiKeyTestResult(null)
-  }, [keyDraft, savedKey, settings.llm.provider])
-
-  // A draft never outlives the dialog, and belongs to one provider.
-  useEffect(() => {
-    setKeyDraft('')
-    setReplacingKey(false)
-    setShowApiKey(false)
-  }, [isDialogOpen, settings.llm.provider])
+    setKeyDrafts({})
+    setKeySaveErrors({})
+  }, [isDialogOpen])
 
   // Reset custom model state when provider changes
   useEffect(() => {
@@ -203,25 +180,22 @@ export function SettingsDialog() {
   const activeTab = isMas && (dialogTab === 'integrations' || dialogTab === 'account') ? 'general' : dialogTab
 
   const handleSave = async () => {
-    // A typed key goes to main, which stores it; then the rest of the settings.
-    const draft = keyDraft.trim()
-    if (showKeyInput && draft && !apiKeyFormatError) {
-      const result = await setLlmKey(settings.llm.provider as LLMProvider, draft)
-      if (!result.ok) {
-        setApiKeyTestResult({ success: false, message: result.error || 'The key could not be saved' })
-        return
+    // Each typed key goes to main, which stores it; then the rest of the settings.
+    const errors: Partial<Record<LLMProvider, string>> = {}
+    for (const provider of PROVIDER_IDS) {
+      const draft = keyDrafts[provider]?.trim()
+      if (!draft || draftFormatError(provider, keyDrafts)) continue
+      const result = await setLlmKey(provider, draft)
+      if (result.ok) {
+        setKeyDrafts((d) => ({ ...d, [provider]: undefined }))
+      } else {
+        errors[provider] = result.error || 'The key could not be saved'
       }
-      setKeyDraft('')
-      setReplacingKey(false)
     }
+    setKeySaveErrors(errors)
+    if (Object.keys(errors).length > 0) return
     await saveSettings()
     setDialogOpen(false)
-  }
-
-  const handleClearKey = async () => {
-    await clearLlmKey(settings.llm.provider as LLMProvider)
-    setKeyDraft('')
-    setReplacingKey(false)
   }
 
   const handleTabChange = (value: string) => {
@@ -247,46 +221,13 @@ export function SettingsDialog() {
   }
 
   const handleProviderChange = (provider: LLMProvider) => {
-    // When provider changes, set the default model for that provider
-    const defaultModel = getDefaultModel(provider)
-    setLLMConfig({ provider, model: defaultModel })
+    // The provider in use changes; every key stays where it is, and the model
+    // last used with this provider comes back (else its default).
+    setActiveProvider(provider)
     setCustomModel(false)
-    setApiKeyTestResult(null)
   }
 
-  const handleTestApiKey = async () => {
-    // The draft when one is typed, else main tests the saved key.
-    const draft = showKeyInput ? keyDraft.trim() : ''
-    if (showKeyInput && (!draft || apiKeyFormatError)) return
 
-    setTestingApiKey(true)
-    setApiKeyTestResult(null)
-
-    try {
-      // Use the window.api if available, otherwise show error
-      if (window.api?.testApiKey) {
-        const result = await window.api.testApiKey({
-          provider: settings.llm.provider,
-          ...(draft ? { apiKey: draft } : {}),
-          baseUrl: settings.llm.baseUrl
-        })
-        setApiKeyTestResult(result)
-      } else {
-        // Fallback: do a simple validation check
-        setApiKeyTestResult({
-          success: true,
-          message: 'API key format is valid (connection test not available in browser)'
-        })
-      }
-    } catch (error) {
-      setApiKeyTestResult({
-        success: false,
-        message: error instanceof Error ? error.message : 'Failed to test API key'
-      })
-    } finally {
-      setTestingApiKey(false)
-    }
-  }
 
   return (
     <Dialog open={isDialogOpen} onOpenChange={setDialogOpen}>
@@ -677,112 +618,27 @@ export function SettingsDialog() {
               )}
             </div>
 
-            {/* API Key */}
+            {/* API keys: one per provider, all visible (#1242) */}
               <div className="space-y-2">
-                <Label htmlFor="apiKey">API Key</Label>
-                {showKeyInput ? (
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <Input
-                      id="apiKey"
-                      type={showApiKey ? 'text' : 'password'}
-                      value={keyDraft}
-                      onChange={(e) => setKeyDraft(e.target.value)}
-                      placeholder={`${savedKey ? 'Enter a new' : 'Enter your'} ${getProvider(settings.llm.provider).label} API key`}
-                      autoComplete="off"
-                      spellCheck={false}
-                      className={apiKeyFormatError ? 'border-amber-500 pr-10' : 'pr-10'}
-                    />
-                    <button
-                      type="button"
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                      onClick={() => setShowApiKey(!showApiKey)}
-                      tabIndex={-1}
-                    >
-                      {showApiKey ? (
-                        <EyeOff className="h-4 w-4" />
-                      ) : (
-                        <Eye className="h-4 w-4" />
-                      )}
-                    </button>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleTestApiKey}
-                    disabled={!keyDraft.trim() || !!apiKeyFormatError || testingApiKey}
-                  >
-                    {testingApiKey ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      'Test'
-                    )}
-                  </Button>
-                  {replacingKey && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => { setReplacingKey(false); setKeyDraft('') }}
-                    >
-                      Keep saved key
-                    </Button>
-                  )}
-                </div>
-                ) : (
-                <div className="flex items-center gap-2" data-testid="llm-key-saved">
-                  <p className="flex-1 text-sm text-muted-foreground">
-                    Key saved {maskKeyHint(savedKey?.hint)}
-                    {savedKey?.persisted === false && ' (this session only)'}
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleTestApiKey}
-                    disabled={testingApiKey}
-                  >
-                    {testingApiKey ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      'Test'
-                    )}
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => setReplacingKey(true)}>
-                    Replace
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={handleClearKey}>
-                    Clear
-                  </Button>
-                </div>
-                )}
-                {apiKeyFormatError && (
-                  <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" />
-                    {apiKeyFormatError}
-                  </p>
-                )}
-                {apiKeyTestResult && (
-                  <p className={`text-xs flex items-center gap-1 ${
-                    apiKeyTestResult.success
-                      ? 'text-green-600 dark:text-green-400'
-                      : 'text-red-600 dark:text-red-400'
-                  }`}>
-                    {apiKeyTestResult.success ? (
-                      <CheckCircle2 className="h-3 w-3" />
-                    ) : (
-                      <AlertCircle className="h-3 w-3" />
-                    )}
-                    {apiKeyTestResult.message}
-                  </p>
-                )}
-                {showKeyInput && keyDraft.trim() && !apiKeyFormatError && (
-                  <p className="text-xs text-muted-foreground">
-                    Saved when you click Save Changes.
-                  </p>
-                )}
+                <Label>API Keys</Label>
+                <p className="text-xs text-muted-foreground">
+                  Each provider keeps its own key; switching the provider in use never removes one. Keys stay in the
+                  macOS Keychain and are only ever sent to their provider.
+                </p>
+                <ProviderKeys
+                  active={settings.llm.provider as LLMProvider}
+                  keyStatus={settings.llm.keyStatus}
+                  drafts={keyDrafts}
+                  onDraftChange={(provider, draft) => {
+                    setKeyDrafts((d) => ({ ...d, [provider]: draft }))
+                    setKeySaveErrors((e) => ({ ...e, [provider]: undefined }))
+                  }}
+                  saveErrors={keySaveErrors}
+                />
                 {secureStorageAvailable === false && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
                     <AlertCircle className="h-3 w-3 shrink-0" />
-                    Secure storage is unavailable on this system. Your API key cannot be saved and will need to be re-entered each session.
+                    Secure storage is unavailable on this system. Your API keys cannot be saved and will need to be re-entered each session.
                   </p>
                 )}
               </div>
@@ -844,7 +700,7 @@ export function SettingsDialog() {
           <Button variant="outline" onClick={() => setDialogOpen(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={!!apiKeyFormatError && !!keyDraft.trim()}>Save Changes</Button>
+          <Button onClick={handleSave} disabled={anyDraftInvalid}>Save Changes</Button>
         </div>
       </DialogContent>
     </Dialog>

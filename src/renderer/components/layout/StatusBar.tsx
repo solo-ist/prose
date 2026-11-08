@@ -23,7 +23,9 @@ import {
 import { Brain } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useChatStore, type ToolMode } from '../../stores/chatStore'
-import { getModelsForProvider, supportsAdaptiveThinking, type LLMProvider } from '../../../shared/llm/models'
+import { supportsAdaptiveThinking } from '../../../shared/llm/models'
+import { useAvailableModels } from '../../hooks/useAvailableModels'
+import { getProvider } from '../../../shared/llm/providers'
 
 // Detect Mac for keyboard-hint copy. Works in both Electron and web mode,
 // unlike browserApi's isMacOS() which gates on isElectron().
@@ -138,8 +140,8 @@ export function StatusBar() {
 
   const currentMode = modeConfig[toolMode]
 
-  // Get available models for current provider
-  const availableModels = getModelsForProvider(settings.llm.provider as LLMProvider)
+  // The provider in use's models: live when fetched, else its seed (#1242)
+  const availableModels = useAvailableModels()
   const currentModel = availableModels.find(m => m.id === settings.llm.model)
   // Compact display for the status bar — drop the "Claude " prefix (e.g. "Sonnet 4.6").
   const modelDisplayName = (currentModel?.name || settings.llm.model.split('/').pop() || settings.llm.model).replace(/^Claude\s+/, '')
@@ -246,18 +248,21 @@ export function StatusBar() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <DropdownMenuTrigger asChild>
-                    <button className="hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden transition-colors cursor-pointer max-w-[120px] truncate">
+                    <button
+                      data-testid="status-model"
+                      className="hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden transition-colors cursor-pointer max-w-[120px] truncate"
+                    >
                       {modelDisplayName}
                     </button>
                   </DropdownMenuTrigger>
                 </TooltipTrigger>
                 <TooltipContent side="top">
-                  <p>{settings.llm.provider} / {settings.llm.model}</p>
+                  <p>{getProvider(settings.llm.provider).label} / {settings.llm.model}</p>
                 </TooltipContent>
               </Tooltip>
               <DropdownMenuContent align="end" className="max-h-[300px] overflow-y-auto">
                 <DropdownMenuLabel className="text-xs text-muted-foreground">
-                  {settings.llm.provider}
+                  {getProvider(settings.llm.provider).label}
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {availableModels.map((model) => (

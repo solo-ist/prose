@@ -18,6 +18,7 @@ import { Input } from '../ui/input'
 import { ProseMark } from '../ProseMark'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { validateApiKeyFormat } from '../../lib/llm'
+import { PROVIDERS, PROVIDER_IDS, type LLMProvider } from '../../../shared/llm/providers'
 import { cn } from '../../lib/utils'
 import {
   STEP_LABELS,
@@ -41,7 +42,6 @@ const ACCEPT = 'hsl(140 60% 55%)'
 const REJECT = 'hsl(0 70% 62%)'
 const AI_VIOLET = 'hsl(270 70% 60%)'
 const SERIF = { fontFamily: "'Fraunces', Georgia, serif", fontStyle: 'italic', fontWeight: 500 } as const
-const KEYS_URL = 'https://console.anthropic.com/settings/keys'
 
 type KeyState = 'empty' | 'checking' | 'valid' | 'invalid'
 
@@ -99,7 +99,7 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
   const setAIConsent = useSettingsStore((s) => s.setAIConsent)
   const setErrorTracking = useSettingsStore((s) => s.setErrorTracking)
   const setFileAssociationConfig = useSettingsStore((s) => s.setFileAssociationConfig)
-  const setLLMConfig = useSettingsStore((s) => s.setLLMConfig)
+  const setActiveProvider = useSettingsStore((s) => s.setActiveProvider)
   const setLlmKey = useSettingsStore((s) => s.setLlmKey)
   const saveSettings = useSettingsStore((s) => s.saveSettings)
 
@@ -107,6 +107,8 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
   const [step, setStep] = useState<StepId>(startAt)
   const [ai, setAi] = useState<AiChoice>(null)
   const [crash, setCrash] = useState(false)
+  // The key step's provider (#1242): the one in use, Anthropic by default.
+  const [keyProvider, setKeyProvider] = useState<LLMProvider>('anthropic')
   const [keyInput, setKeyInput] = useState('')
   const [keyState, setKeyState] = useState<KeyState>('empty')
   const [keyMessage, setKeyMessage] = useState<string | null>(null)
@@ -123,7 +125,8 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    const hasKey = !!settings.llm.keyStatus?.anthropic
+    const hasKey = !!settings.llm.keyStatus?.[settings.llm.provider]
+    setKeyProvider(settings.llm.provider)
     setProbe(null)
     setStep(startAt)
     setAi(null)
@@ -174,9 +177,24 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
     onFinish()
   }, [ai, crash, def, defaultAlready, setAIConsent, setErrorTracking, setFileAssociationConfig, onFinish])
 
+  /** Pick the key step's provider; its own saved key (if any) shows as the starting state. */
+  const chooseKeyProvider = (provider: LLMProvider) => {
+    if (provider === keyProvider) return
+    const has = !!useSettingsStore.getState().settings.llm.keyStatus?.[provider]
+    setKeyProvider(provider)
+    setKeyInput('')
+    setKeyState(has ? 'valid' : 'empty')
+    setKeySaved(has)
+    setKeyMessage(has ? 'A key is already in the Keychain.' : null)
+    // A provider that already has a key is ready to use as it is.
+    if (has) setActiveProvider(provider)
+  }
+
   const verifyKey = async () => {
     const value = keyInput.trim()
-    const formatError = validateApiKeyFormat('anthropic', value)
+    const provider = keyProvider
+    const { label } = PROVIDERS[provider]
+    const formatError = validateApiKeyFormat(provider, value)
     if (formatError) {
       setKeyState('invalid')
       setKeyMessage(formatError)
@@ -186,27 +204,28 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
     setKeyMessage(null)
     try {
       const result = window.api?.testApiKey
-        ? await window.api.testApiKey({ provider: 'anthropic', apiKey: value })
+        ? await window.api.testApiKey({ provider, apiKey: value })
         : { success: false, message: 'The key check is unavailable in this build.' }
       if (!result.success) {
         setKeyState('invalid')
-        setKeyMessage(result.message || 'Anthropic did not accept this key.')
+        setKeyMessage(result.message || `${label} did not accept this key.`)
         return
       }
       // Main stores it (the Keychain when available); the renderer keeps no copy (#1240).
-      const saved = await setLlmKey('anthropic', value)
+      const saved = await setLlmKey(provider, value)
       if (!saved.ok) {
         setKeyState('invalid')
         setKeyMessage(saved.error || 'The key could not be saved.')
         return
       }
-      setLLMConfig({ provider: 'anthropic' })
+      // The verified provider is the one Prose Agents use, with its model.
+      setActiveProvider(provider)
       await saveSettings()
       setKeyInput('')
       setKeyState('valid')
       setKeySaved(true)
       setKeyMessage(
-        useSettingsStore.getState().settings.llm.keyStatus?.anthropic?.persisted === false
+        useSettingsStore.getState().settings.llm.keyStatus?.[provider]?.persisted === false
           ? 'Key works. Saved for this session (secure storage is unavailable).'
           : 'Key works. Saved to Keychain.'
       )
@@ -296,7 +315,7 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
       break
   }
 
-  const summary = summaryRows({ ai, keySaved, crash, direct, skill, mcp, def, defaultAlready })
+  const summary = summaryRows({ ai, keySaved, keyProvider: PROVIDERS[keyProvider].label, crash, direct, skill, mcp, def, defaultAlready })
   const sideEffectLabel = (state: SideEffect, idle: string, working: string, done: string) =>
     state === 'done' ? done : state === 'working' ? working : state === 'error' ? 'Retry' : idle
 
@@ -392,7 +411,7 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
                       value: 'ai' as const,
                       icon: <Sparkles className="h-4 w-4" style={{ color: AI_VIOLET }} aria-hidden="true" />,
                       name: 'Use AI',
-                      text: 'When you ask, selected text and document content go to Anthropic on your own key. Directly, no middleman.'
+                      text: `When you ask, selected text and document content go to the provider you choose (${PROVIDER_IDS.map((p) => PROVIDERS[p].label).join(' or ')}) on your own key. Directly, no middleman.`
                     },
                     {
                       value: 'none' as const,
@@ -455,10 +474,39 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
           {current === 'key' && (
             <div className="flex flex-col gap-5">
               <div className="flex flex-col gap-1.5">
-                {title('Add your Anthropic key')}
+                {title(`Add your ${PROVIDERS[keyProvider].label} key`)}
                 <p className="m-0 text-muted-foreground">
-                  Prose uses your own key. It's kept in the macOS Keychain and only ever sent to Anthropic.
+                  Prose uses your own key. It's kept in the macOS Keychain and only ever sent to {PROVIDERS[keyProvider].label}.
                 </p>
+              </div>
+              <div role="radiogroup" aria-label="AI provider" className="flex gap-2" data-testid="onboarding-provider">
+                {PROVIDER_IDS.map((provider) => {
+                  const checked = keyProvider === provider
+                  return (
+                    <button
+                      key={provider}
+                      type="button"
+                      role="radio"
+                      aria-checked={checked}
+                      onClick={() => chooseKeyProvider(provider)}
+                      className={cn(
+                        'flex flex-1 items-center justify-between gap-2 rounded-lg border px-3.5 py-2.5 text-left text-sm transition-colors',
+                        checked ? 'border-foreground bg-muted/40' : 'border-border hover:bg-muted/20'
+                      )}
+                    >
+                      <span className="font-medium">{PROVIDERS[provider].label}</span>
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          'flex h-4 w-4 flex-none items-center justify-center rounded-full border',
+                          checked ? 'border-foreground' : 'border-muted-foreground/60'
+                        )}
+                      >
+                        {checked && <span className="h-2 w-2 rounded-full bg-foreground" />}
+                      </span>
+                    </button>
+                  )
+                })}
               </div>
               <div className="flex flex-col gap-2">
                 <label htmlFor="onboarding-key" className="text-xs font-medium">
@@ -470,7 +518,7 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
                     type="password"
                     autoComplete="off"
                     spellCheck={false}
-                    placeholder={keySaved && !keyInput ? '•••• key in Keychain' : 'sk-ant-…'}
+                    placeholder={keySaved && !keyInput ? '•••• key in Keychain' : `${PROVIDERS[keyProvider].keyFormat?.prefix ?? ''}…`}
                     value={keyInput}
                     onChange={(e) => {
                       setKeyInput(e.target.value)
@@ -496,7 +544,7 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
                   </Button>
                 </div>
                 <div aria-live="polite" className="flex min-h-5 items-start gap-2 text-xs">
-                  {keyState === 'checking' && <span className="text-muted-foreground">Checking with Anthropic…</span>}
+                  {keyState === 'checking' && <span className="text-muted-foreground">Checking with {PROVIDERS[keyProvider].label}…</span>}
                   {keyState === 'valid' && (
                     <>
                       <Check className="mt-px h-3.5 w-3.5 flex-none" style={{ color: ACCEPT }} aria-hidden="true" />
@@ -506,13 +554,16 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
                   {keyState === 'invalid' && <span style={{ color: REJECT }}>{keyMessage}</span>}
                   {keyState === 'empty' && (
                     <span className="text-muted-foreground">
-                      Starts with <Code>sk-ant-</Code>. Create one at{' '}
+                      {PROVIDERS[keyProvider].keyFormat && (
+                        <>Starts with <Code>{PROVIDERS[keyProvider].keyFormat?.prefix}</Code>. </>
+                      )}
+                      Create one at{' '}
                       <button
                         type="button"
                         className="underline underline-offset-2 hover:text-foreground"
-                        onClick={() => void window.api?.openExternal?.(KEYS_URL)}
+                        onClick={() => void window.api?.openExternal?.(PROVIDERS[keyProvider].keysUrl)}
                       >
-                        console.anthropic.com
+                        {new URL(PROVIDERS[keyProvider].keysUrl).host}
                       </button>
                       .
                     </span>

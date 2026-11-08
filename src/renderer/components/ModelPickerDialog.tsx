@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import {
   CommandDialog,
   CommandEmpty,
@@ -8,7 +8,8 @@ import {
   CommandList
 } from './ui/command'
 import { useSettings } from '../hooks/useSettings'
-import { getModelsForProvider, type LLMProvider, type ModelInfo } from '../../shared/llm/models'
+import type { ModelInfo } from '../../shared/llm/models'
+import { useAvailableModels } from '../hooks/useAvailableModels'
 
 interface ModelPickerDialogProps {
   open: boolean
@@ -19,11 +20,8 @@ export function ModelPickerDialog({ open, onOpenChange }: ModelPickerDialogProps
   const { settings, setLLMConfig, saveSettings } = useSettings()
   const [search, setSearch] = useState('')
 
-  // Get available models for current provider
-  const availableModels = useMemo(
-    () => getModelsForProvider(settings.llm.provider as LLMProvider),
-    [settings.llm.provider]
-  )
+  // The provider in use's models: live when fetched, else its seed (#1242)
+  const availableModels = useAvailableModels()
 
   // Reset search when dialog opens
   useEffect(() => {

@@ -98,11 +98,15 @@ export function providerName(provider: ProseAgentProvider): string {
 }
 
 /**
- * A compact model name: `claude-sonnet-5-5` → "Sonnet 5.5" (dated suffixes
- * dropped); any other provider's id is shown as given.
+ * A compact model name: `claude-sonnet-5-5` → "Sonnet 5.5", `gpt-5-mini` →
+ * "GPT-5 mini" (dated suffixes dropped); any other id is shown as given.
  */
 export function shortModelName(model: string | null | undefined): string {
   const m = cleanActorText(model)
+  if (/^gpt-/i.test(m)) {
+    const [version, ...words] = m.slice(4).replace(/-\d{4}-\d{2}-\d{2}$/, '').split('-').filter(Boolean)
+    return version ? ['GPT-' + version, ...words].join(' ') : m
+  }
   if (!/^claude[-/]/.test(m)) return m
   const tokens = m.replace(/^claude[-/]?/, '').replace(/[-\s]?\d{6,}$/, '').split('-').filter(Boolean)
   if (tokens.length === 0) return m

@@ -13,6 +13,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { dismissOnboarding, dismissOverlay, launchApp, openChat, seedSettings, typeInEditor, waitForAppReady, waitForEditor } from './helpers'
+import { openAIRequests, sseChunk, stubOpenAI, type OpenAIStep } from './openai-stub'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -22,41 +23,8 @@ let app: ElectronApplication
 let page: Page
 let userDataDir: string
 
-/** One stubbed /chat/completions response: SSE `data:` payloads, each sent as its own body chunk. */
-type Step = string[]
-
-const sseChunk = (d: Record<string, unknown>, finish: string | null = null) =>
-  `data: ${JSON.stringify({ choices: [{ index: 0, delta: d, finish_reason: finish }] })}\n\n`
-
-async function stubOpenAI(steps: Step[]): Promise<void> {
-  await app.evaluate((_electron, steps) => {
-    const g = globalThis as any
-    g.__oai = { requests: [] as Array<{ url: string; auth: string | null; body: unknown }>, steps, n: 0 }
-    const realFetch = g.__realFetch ?? globalThis.fetch
-    g.__realFetch = realFetch
-    globalThis.fetch = (async (input: any, init?: any) => {
-      const url = typeof input === 'string' ? input : input.url
-      if (!url.startsWith('https://api.openai.com/')) return realFetch(input, init)
-      const headers = new Headers(init?.headers)
-      g.__oai.requests.push({ url, auth: headers.get('authorization'), body: init?.body ? JSON.parse(init.body) : null })
-      if (url.endsWith('/models')) {
-        const data = ['gpt-5', 'gpt-5-mini', 'text-embedding-3-small', 'whisper-1'].map((id) => ({ id, object: 'model' }))
-        return new Response(JSON.stringify({ object: 'list', data }), { status: 200, headers: { 'content-type': 'application/json' } })
-      }
-      const parts: string[] = g.__oai.steps[g.__oai.n++] ?? ['data: [DONE]\n\n']
-      const enc = new TextEncoder()
-      const body = new ReadableStream({
-        start(c) {
-          for (const p of parts) c.enqueue(enc.encode(p))
-          c.close()
-        },
-      })
-      return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } })
-    }) as typeof fetch
-  }, steps)
-}
-
-const requests = () => app.evaluate(() => (globalThis as any).__oai.requests as Array<{ url: string; auth: string | null; body: any }>)
+const requests = () => openAIRequests(app)
+const stub = (steps: OpenAIStep[]) => stubOpenAI(app, steps)
 
 test.beforeEach(async () => {
   userDataDir = mkdtempSync(join(tmpdir(), 'prose-1241-'))
@@ -81,15 +49,17 @@ async function configureOpenAI(): Promise<void> {
   await dialog.getByRole('tab', { name: 'LLM' }).click()
   await dialog.locator('#provider').click()
   await page.getByRole('option', { name: 'OpenAI' }).click()
-  await dialog.locator('#apiKey').fill(OPENAI_KEY)
-  await dialog.getByRole('button', { name: 'Test' }).click()
-  await expect(dialog.getByText('API key is valid')).toBeVisible()
+  // OpenAI is now in use and has no key, so its row opens on the field (#1242).
+  const row = dialog.getByTestId('llm-key-row-openai')
+  await dialog.locator('#apiKey-openai').fill(OPENAI_KEY)
+  await row.getByRole('button', { name: 'Test' }).click()
+  await expect(row.getByText('API key is valid')).toBeVisible()
   await dialog.getByRole('button', { name: 'Save Changes' }).click()
   await expect(dialog).toHaveCount(0)
 }
 
 test('Settings: OpenAI is a provider; its key tests against /models, saves in main, and the model list keeps chat models only', async () => {
-  await stubOpenAI([])
+  await stub([])
   await configureOpenAI()
 
   const [test1] = await requests()
@@ -107,7 +77,7 @@ test('Settings: OpenAI is a provider; its key tests against /models, saves in ma
   await page.evaluate(() => (window as any).__prose_account.openSettings())
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('tab', { name: 'LLM' }).click()
-  await expect(dialog.getByTestId('llm-key-saved')).toContainText('••••••••OAIK')
+  await expect(dialog.getByTestId('llm-key-status-openai')).toContainText('••••••••OAIK')
   await expect.poll(async () => (await requests()).filter((r) => r.url.endsWith('/models')).length).toBeGreaterThanOrEqual(2)
   await dialog.locator('#model').click()
   const options = page.getByRole('option')
@@ -121,7 +91,7 @@ test('Settings: OpenAI is a provider; its key tests against /models, saves in ma
 
 test('a chat turn over OpenAI: a suggest_edit call split across chunks leaves a suggestion, and its result goes back as a tool message', async () => {
   const args = JSON.stringify({ nodeId: 'stale', search: 'The quick fox.', content: 'The quick brown fox.' })
-  await stubOpenAI([
+  await stub([
     // Roundtrip 1: a little text, then the tool call in pieces.
     [
       sseChunk({ role: 'assistant', content: 'Let me ' }),

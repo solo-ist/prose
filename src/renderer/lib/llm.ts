@@ -1,6 +1,6 @@
 import type { Settings } from '../types'
-import { isKnownModel, type LLMProvider as LLMProviderType } from '../../shared/llm/models'
-import { getProvider } from '../../shared/llm/providers'
+import { getModelsForProvider, isKnownModel, type LLMProvider as LLMProviderType } from '../../shared/llm/models'
+import { getProvider, type ModelInfo } from '../../shared/llm/providers'
 
 export interface LLMMessage {
   role: 'user' | 'assistant' | 'system'
@@ -41,6 +41,19 @@ export function validateApiKeyFormat(provider: LLMProviderType, apiKey: string):
     }
   }
   return null
+}
+
+/**
+ * The models to offer for `provider`: the live list when it was fetched for
+ * that provider, else the provider's seed. Every model picker (Settings, the
+ * status bar, the model dialog) reads this, through `useAvailableModels()`.
+ */
+export function availableModelsFor(
+  provider: LLMProviderType,
+  fetched: ModelInfo[] | null,
+  fetchedFor: string | null
+): ModelInfo[] {
+  return fetched && fetched.length > 0 && fetchedFor === provider ? fetched : getModelsForProvider(provider)
 }
 
 /**

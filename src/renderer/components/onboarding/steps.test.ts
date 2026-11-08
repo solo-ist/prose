@@ -46,6 +46,8 @@ describe('onboarding summary (#1188)', () => {
   it('reflects the choices and side effects', () => {
     const rows = summaryRows({ ...base, keySaved: true, crash: true, skill: 'done', def: 'done' })
     expect(rows[0]).toEqual({ label: 'AI assistance', value: 'On · key in Keychain', tone: 'accept' })
+    // The provider whose key was saved is named (#1242).
+    expect(summaryRows({ ...base, keySaved: true, keyProvider: 'OpenAI' })[0].value).toBe('On · OpenAI key in Keychain')
     expect(rows[1]).toEqual({ label: 'Crash reports', value: 'On', tone: 'foreground' })
     expect(rows[2]).toEqual({ label: 'Claude Skill', value: 'Downloaded', tone: 'accept' })
     expect(rows[3]).toEqual({ label: 'Claude Desktop', value: 'Skipped', tone: 'muted' })

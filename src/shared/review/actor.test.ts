@@ -70,6 +70,7 @@ describe('actorLabel', () => {
   })
   it('names a Prose Agent by its model', () => {
     expect(actorLabel({ kind: 'prose-agent', provider: 'anthropic', model: 'claude-sonnet-5-5' })).toBe('Prose · Sonnet 5.5')
+    expect(actorLabel({ kind: 'prose-agent', provider: 'openai', model: 'gpt-5-mini' })).toBe('Prose · GPT-5 mini')
     expect(actorLabel({ kind: 'prose-agent', provider: 'inference-coop', model: 'tinfoil/glm-5.3' })).toBe('Prose · tinfoil/glm-5.3')
     expect(actorLabel({ kind: 'prose-agent', provider: 'openai', model: '' })).toBe('Prose · OpenAI')
   })
@@ -94,10 +95,15 @@ describe('helpers', () => {
     expect(cleanActorText('z'.repeat(150))).toHaveLength(100)
     expect(cleanActorText(undefined)).toBe('')
   })
-  it('shortModelName compacts Claude ids and leaves others as given', () => {
+  it('shortModelName compacts Claude and OpenAI GPT ids and leaves others as given', () => {
     expect(shortModelName('claude-opus-5-5')).toBe('Opus 5.5')
     expect(shortModelName('claude-haiku-4-5-20251001')).toBe('Haiku 4.5')
-    expect(shortModelName('gpt-5.1')).toBe('gpt-5.1')
+    expect(shortModelName('gpt-5.1')).toBe('GPT-5.1')
+    expect(shortModelName('gpt-5-mini')).toBe('GPT-5 mini')
+    expect(shortModelName('gpt-5-mini-2025-08-07')).toBe('GPT-5 mini')
+    expect(shortModelName('gpt-4o-mini')).toBe('GPT-4o mini')
+    expect(shortModelName('o4-mini')).toBe('o4-mini')
+    expect(shortModelName('tinfoil/glm-5.3')).toBe('tinfoil/glm-5.3')
   })
   it('people are not agents; everything else is', () => {
     expect(isAgentActor(SELF)).toBe(false)

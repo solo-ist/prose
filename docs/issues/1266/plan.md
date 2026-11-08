@@ -40,3 +40,11 @@ A rejected suggestion has no mark, and the log row stores no node today.
 - Baselines: `typecheck:renderer` 66, `tsc -p tsconfig.node.json` 18, `typecheck:e2e` 6, none may grow; `test:unit` green. Specs run locally: this one, `mcp-review`, `review-log`, `activity-review`, `mcp-protocol`, `mcp-connections`.
 
 ## Execution log
+
+- **2026-11-08.** `b920b58` plan; `ff35459` the change, the unit tests and the e2e cases. `release/v1.9.1` moved meanwhile (#1264, `6907393`); merged in as `dfe521c`, the only conflict `docs/qa/v1.9.1.md` (both blocks kept, #1266's last).
+- **Checks** (after a build: without one, the generated `src/main/env.ts` is missing and both base and branch show 3 more renderer and 7 more node errors):
+  - `typecheck:renderer` 66, `tsc -p tsconfig.node.json` 18, `typecheck:e2e` 6: the same as `6907393`.
+  - `test:unit`: 39 files, 340 tests, green (`review-log/log.test.ts` +2, `executors/review.test.ts` 9).
+  - e2e, `--retries 0`: `mcp-review` (4), `activity-review` (2), `review-log`, `mcp-protocol`, `mcp-connections`: 14 passed. `activity-panel` and `document-sessions` (the tripwires): 28 passed.
+  - **Falsified:** the base's `src` (`6907393`) built with the branch's specs: both #1266 cases fail with `No pending suggestion "…". Call list_suggestions for the pending ones. (SUGGESTION_NOT_FOUND)`, the error the acceptance run hit.
+- **Choices against the brief:** the ambiguity code is the existing `AMBIGUOUS_MATCH` (from `document` targeting) rather than a new `AMBIGUOUS`; the errors point at `read_document`, because `get_outline` lists headings without node ids.

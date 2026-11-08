@@ -7,7 +7,10 @@
 
 import type { ToolResult } from '../../../../shared/tools/types'
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
+import type { Node as PMNode } from '@tiptap/pm/model'
 import type { ToolContext } from '../context'
+import type { DocumentHandle } from '../../../document/handle'
+import { findNodeById } from '../../../extensions/node-ids'
 import { getAISuggestions } from '../../../extensions/ai-suggestions'
 import { reviewLogOf, eventsSince, type SuggestionHistory } from '../../../extensions/review-log'
 import { threadsOf } from '../../../extensions/comments/transactions'
@@ -85,13 +88,82 @@ export function executeReplyToSuggestion(args: { id: string; text: string }, ctx
   return toolSuccess({ suggestionId: args.id })
 }
 
-export function executeReviseSuggestion(args: { id: string; content: string; comment?: string }, ctx: ToolContext): ToolResult {
+const NODE_HINT = 'Call read_document, then pass nodeId: the node the revision belongs on.'
+
+/** The ids of the innermost nodes whose text is exactly `text` (a list item and its paragraph count once). */
+function nodesWithText(doc: PMNode, text: string): string[] {
+  const found: Array<{ id: string; from: number; to: number }> = []
+  doc.descendants((node, pos) => {
+    const id = node.attrs?.nodeId
+    if (typeof id === 'string' && id && node.textContent === text) found.push({ id, from: pos, to: pos + node.nodeSize })
+    return true
+  })
+  return found
+    .filter((outer) => !found.some((inner) => inner !== outer && inner.from > outer.from && inner.to < outer.to))
+    .map((n) => n.id)
+}
+
+/**
+ * The node a revision of the rejected suggestion `row` goes on (#1266): the
+ * node the caller names, else the one the log saw it on if it still exists,
+ * else the one node whose text is still the suggestion's original text.
+ */
+function revisionNode(row: SuggestionHistory, explicit: string | undefined, doc: PMNode): { nodeId: string } | { error: ToolResult } {
+  if (explicit) {
+    if (findNodeById(doc, explicit)) return { nodeId: explicit }
+    return { error: toolError(`Node "${explicit}" is not in the document. ${NODE_HINT}`, 'NODE_NOT_FOUND') }
+  }
+  if (row.nodeId && findNodeById(doc, row.nodeId)) return { nodeId: row.nodeId }
+  const matches = row.originalText ? nodesWithText(doc, row.originalText) : []
+  if (matches.length === 1) return { nodeId: matches[0] }
+  if (matches.length > 1) {
+    return { error: toolError(`The text suggestion "${row.id}" was on appears in ${matches.length} places. ${NODE_HINT}`, 'AMBIGUOUS_MATCH') }
+  }
+  return { error: toolError(`The text suggestion "${row.id}" was on has changed or is gone. ${NODE_HINT}`, 'NODE_NOT_FOUND') }
+}
+
+/**
+ * Revise a suggestion that has left the document (#1266). A rejected one gets
+ * a new pending suggestion on its node, linked to it; the rejection stands.
+ * An accepted one is in the text now, and a superseded one already has a
+ * revision, so both are refused with what to do instead.
+ */
+function reviseDecided(args: { id: string; content: string; comment?: string; nodeId?: string }, ctx: ToolContext, handle: DocumentHandle): ToolResult {
+  const row = reviewLogOf(handle.state).suggestions.find((s) => s.id === args.id)
+  if (!row || row.status === 'pending') {
+    return toolError(`No suggestion "${args.id}" in this document. Call list_suggestions with include: "all" for every suggestion and its status.`, 'SUGGESTION_NOT_FOUND')
+  }
+  if (row.status === 'accepted') {
+    return toolError(
+      `Suggestion "${args.id}" was accepted, so its text is in the document now. To change it further, call suggest_edit on that node.`,
+      'SUGGESTION_ACCEPTED'
+    )
+  }
+  if (row.status === 'superseded' || row.supersededBy) {
+    const next = row.supersededBy ? `"${row.supersededBy}"` : 'a newer suggestion'
+    return toolError(
+      `Suggestion "${args.id}" was already revised as ${next}. Revise that one instead; list_suggestions with include: "all" shows its status.`,
+      'SUGGESTION_SUPERSEDED'
+    )
+  }
+  if (isEditorReadOnly(handle)) return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
+  const node = revisionNode(row, args.nodeId, handle.state.doc)
+  if ('error' in node) return node.error
+  const result = executeSuggestEdit(
+    { nodeId: node.nodeId, content: args.content, comment: args.comment ?? row.explanation },
+    ctx,
+    { follows: args.id }
+  )
+  if (!result.success) return result
+  return toolSuccess({ suggestionId: result.data.suggestionId, revises: args.id })
+}
+
+export function executeReviseSuggestion(args: { id: string; content: string; comment?: string; nodeId?: string }, ctx: ToolContext): ToolResult {
   const { handle } = ctx
   if (!handle) return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   const target = pendingSuggestions(handle.state).find((s) => s.id === args.id)
-  if (!target) {
-    return toolError(`No pending suggestion "${args.id}". Call list_suggestions for the pending ones.`, 'SUGGESTION_NOT_FOUND')
-  }
+  // No mark: the writer decided it, or a revision replaced it.
+  if (!target) return reviseDecided(args, ctx, handle)
   // The node the suggestion covers: the nearest ancestor of its start with an id.
   const $from = handle.state.doc.resolve(target.from)
   let nodeId: string | null = null

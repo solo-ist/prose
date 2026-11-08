@@ -17,7 +17,7 @@ export const listSuggestionsSchema = z.object({
 export const listSuggestionsConfig: ToolConfig<typeof listSuggestionsSchema> = {
   name: 'list_suggestions',
   description:
-    'List the suggestions in the document: id, status, original and suggested text, explanation, who proposed it (by), the feedback on it and the suggestion it revises. The writer accepts or rejects suggestions in Prose; follow their decisions with list_review_events.',
+    'List the suggestions in the document: id, status, original and suggested text, explanation, who proposed it (by), the feedback on it, the suggestion it revises (revises) and the revision that followed it (supersededBy). The writer accepts or rejects suggestions in Prose; follow their decisions with list_review_events.',
   schema: listSuggestionsSchema,
   category: 'editor',
   requiresMode: null,
@@ -40,15 +40,25 @@ export const replyToSuggestionConfig: ToolConfig<typeof replyToSuggestionSchema>
 }
 
 export const reviseSuggestionSchema = z.object({
-  id: z.string().describe('ID of the pending suggestion to revise.'),
+  id: z.string().describe('ID of the suggestion to revise: a pending one, or one the writer rejected (from list_suggestions with include: "all").'),
   content: z.string().describe('The new suggested content for the same node, in the form suggest_edit takes.'),
-  comment: z.string().optional().describe('Why it changed. Defaults to the original explanation.')
+  comment: z.string().optional().describe('Why it changed. Defaults to the original explanation.'),
+  nodeId: z
+    .string()
+    .optional()
+    .describe(
+      'For a rejected suggestion only: the node to put the revision on, from read_document. Needed only when the call fails because its text appears in several places (AMBIGUOUS_MATCH) or has changed (NODE_NOT_FOUND).'
+    )
 })
 
 export const reviseSuggestionConfig: ToolConfig<typeof reviseSuggestionSchema> = {
   name: 'revise_suggestion',
   description:
-    'Replace a pending suggestion with a revised one on the same node. The old suggestion is kept in the history as superseded and linked to the new one; returns the new suggestion id. Typical use: after the writer leaves feedback (see list_review_events).',
+    'Propose a revised version of a suggestion, on the same node; returns the new suggestion id. ' +
+    'A pending suggestion is replaced: it stays in the history as superseded, linked to the new one. ' +
+    'A suggestion the writer rejected stays rejected (their decision is kept); the new pending suggestion is linked to it. ' +
+    'An accepted suggestion cannot be revised (SUGGESTION_ACCEPTED): its text is in the document, so call suggest_edit for a further change. ' +
+    'Typical use: after the writer leaves feedback or rejects (see list_review_events).',
   schema: reviseSuggestionSchema,
   category: 'editor',
   requiresMode: 'editor',

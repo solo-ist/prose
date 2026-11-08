@@ -35,9 +35,19 @@ export interface SuggestionHistory {
   decidedBy?: Actor
   /** The suggestion this one revised. */
   supersedes?: string
-  /** The revision that replaced this one. */
+  /**
+   * The revision that followed this one: it replaced it (`superseded`), or the
+   * agent revised it after the writer rejected it (`rejected` stays, #1266).
+   */
   supersededBy?: string
   feedback: FeedbackEntry[]
+  /**
+   * The node the suggestion was on when the log first saw it (#1266), so a
+   * rejected suggestion, which has no mark, can still be revised in place.
+   * Node ids are regenerated when a document is reopened: a stale one is a
+   * hint, not an address. Absent on rows from before 1.9.1.
+   */
+  nodeId?: string
 }
 
 export type ReviewEventKind =
@@ -81,6 +91,8 @@ export interface SuggestionMarkInfo {
   createdAt: number
   provenanceModel: string
   actor: Actor | null
+  /** The id of the node the mark is in (its nearest ancestor with one). */
+  nodeId: string | null
 }
 
 /**
@@ -104,10 +116,22 @@ export const EMPTY_STORED: StoredReviewLog = Object.freeze({ suggestions: [], ev
 
 export const SUGGESTION_MARK = 'aiSuggestion'
 
+/** The id of the nearest node at or above `parent` that has one. */
+function hostNodeId(doc: PMNode, pos: number, parent: PMNode | null): string | null {
+  const direct = parent?.attrs?.nodeId
+  if (typeof direct === 'string' && direct) return direct
+  const $pos = doc.resolve(pos)
+  for (let depth = $pos.depth; depth >= 0; depth--) {
+    const id = $pos.node(depth).attrs?.nodeId
+    if (typeof id === 'string' && id) return id
+  }
+  return null
+}
+
 /** Every suggestion mark in `doc`, by id (the first occurrence's attributes). */
 export function scanSuggestionMarks(doc: PMNode): Map<string, SuggestionMarkInfo> {
   const found = new Map<string, SuggestionMarkInfo>()
-  doc.descendants((node) => {
+  doc.descendants((node, pos, parent) => {
     for (const mark of node.marks) {
       if (mark.type.name !== SUGGESTION_MARK) continue
       const id = mark.attrs.id as string | null
@@ -121,6 +145,7 @@ export function scanSuggestionMarks(doc: PMNode): Map<string, SuggestionMarkInfo
         createdAt: (mark.attrs.createdAt as number) || Date.now(),
         provenanceModel: (mark.attrs.provenanceModel as string) || '',
         actor: (mark.attrs.actor as Actor | null) ?? null,
+        nodeId: hostNodeId(doc, pos, parent),
       })
     }
     return true
@@ -159,6 +184,7 @@ function historyFromMark(info: SuggestionMarkInfo): SuggestionHistory {
     createdAt: info.createdAt,
     status: 'pending',
     feedback: [],
+    ...(info.nodeId ? { nodeId: info.nodeId } : {}),
   }
 }
 
@@ -242,6 +268,17 @@ export function nextLog(input: LogInput): StoredReviewLog {
       const decision = decidedBy.get(id) ?? { status: 'rejected' as const, by: SELF }
       rows().set(id, { ...existing, status: decision.status, decidedAt: now, decidedBy: decision.by })
       emit({ kind: decision.status === 'accepted' ? 'suggestion:accepted' : 'suggestion:rejected', actor: decision.by, suggestionId: id })
+    }
+
+    // A revision of a suggestion the writer rejected (#1266): it has no mark,
+    // so nothing above touched its row. The rejection stands (status, when and
+    // by whom); the row only gains the forward link. The new row's backward
+    // link and its `suggestion:revised` event came from the loop above.
+    for (const r of intent?.revised ?? []) {
+      if (input.marksBefore.has(r.from) || input.marksBefore.has(r.to) || !input.marksAfter.has(r.to)) continue
+      const existing = get(r.from)
+      if (!existing || existing.status !== 'rejected' || existing.supersededBy) continue
+      rows().set(r.from, { ...existing, supersededBy: r.to })
     }
   }
 

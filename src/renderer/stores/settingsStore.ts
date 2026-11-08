@@ -466,7 +466,11 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
       settings: {
         ...state.settings,
         llm: { ...state.settings.llm, ...config }
-      }
+      },
+      // A fetched model list belongs to the provider it came from.
+      ...(config.provider && config.provider !== state.settings.llm.provider
+        ? { fetchedModels: null, fetchedModelsAt: null }
+        : {})
     })),
 
   setLlmKey: async (provider, key) => {

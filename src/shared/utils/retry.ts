@@ -3,6 +3,8 @@
  * Used for handling transient network errors in LLM API calls.
  */
 
+import { classifyLlmError, isRetryableLlmError, llmErrorMessage, type LlmErrorProvider } from '../llm/errors'
+
 export interface RetryOptions {
   /** Maximum number of retry attempts (default: 3) */
   maxRetries?: number
@@ -27,35 +29,14 @@ const DEFAULT_OPTIONS: Required<Omit<RetryOptions, 'onRetry'>> = {
 }
 
 /**
- * Check if an error is retryable (transient network error).
+ * Check if an error is retryable: a rate limit or transient trouble (network,
+ * timeouts, 5xx, overloaded). Never quota (an account with no credits answers
+ * 429 at OpenAI), auth or anything else. The one classification is
+ * `classifyLlmError` (#1268).
  */
 export function isRetryableError(error: unknown): boolean {
   if (!(error instanceof Error)) return false
-
-  const message = error.message.toLowerCase()
-
-  // Network connectivity errors
-  if (message.includes('econnrefused')) return true
-  if (message.includes('econnreset')) return true
-  if (message.includes('etimedout')) return true
-  if (message.includes('enotfound')) return true
-  if (message.includes('network')) return true
-  if (message.includes('fetch failed')) return true
-
-  // Rate limiting (429)
-  if (message.includes('429') || message.includes('rate_limit') || message.includes('rate limit')) return true
-
-  // Server errors (5xx) - these might be transient
-  if (message.includes('500') || message.includes('502') || message.includes('503') || message.includes('504')) return true
-  if (message.includes('internal server error')) return true
-  if (message.includes('bad gateway')) return true
-  if (message.includes('service unavailable')) return true
-  if (message.includes('gateway timeout')) return true
-
-  // Overloaded
-  if (message.includes('overloaded')) return true
-
-  return false
+  return isRetryableLlmError(classifyLlmError(error))
 }
 
 /**
@@ -147,43 +128,11 @@ export function enhanceErrorMessage(error: Error, retriesAttempted: number): Err
 }
 
 /**
- * Get a user-friendly error message for network errors.
+ * A user-facing message for an LLM or network error, naming the provider when
+ * given. One classification, `classifyLlmError` (#1268): quota is told to add
+ * credits, a rate limit passes the provider's wording through.
  */
-export function getNetworkErrorMessage(error: unknown): string {
+export function getNetworkErrorMessage(error: unknown, provider?: LlmErrorProvider): string {
   if (!(error instanceof Error)) return 'Unknown error'
-
-  const message = error.message.toLowerCase()
-
-  if (message.includes('econnrefused')) {
-    return 'Could not connect to the server. Please check that the service is running.'
-  }
-  if (message.includes('etimedout') || message.includes('timeout')) {
-    return 'Request timed out. The server may be overloaded or unreachable.'
-  }
-  if (message.includes('enotfound')) {
-    return 'Could not resolve server address. Please check your internet connection.'
-  }
-  if (message.includes('429') || message.includes('rate_limit')) {
-    return 'Rate limited by the API. Please wait a moment and try again.'
-  }
-  if (message.includes('401') || message.includes('unauthorized')) {
-    return 'Invalid API key. Please check your settings.'
-  }
-  if (message.includes('403') || message.includes('forbidden')) {
-    return 'Access denied. Your API key may not have the required permissions.'
-  }
-  if (message.includes('500') || message.includes('internal server error')) {
-    return 'The server encountered an error. Please try again later.'
-  }
-  if (message.includes('502') || message.includes('bad gateway')) {
-    return 'Server temporarily unavailable. Please try again later.'
-  }
-  if (message.includes('503') || message.includes('service unavailable')) {
-    return 'Service temporarily unavailable. Please try again later.'
-  }
-  if (message.includes('overloaded')) {
-    return 'The API is currently overloaded. Please try again in a few moments.'
-  }
-
-  return error.message
+  return llmErrorMessage(classifyLlmError(error), provider)
 }

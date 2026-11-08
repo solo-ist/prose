@@ -5,10 +5,11 @@ import { join, dirname, isAbsolute, basename } from 'path'
 import { randomUUID, createHash } from 'crypto'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
-import { withRetry, getNetworkErrorMessage } from '../shared/utils/retry'
+import { withRetry } from '../shared/utils/retry'
+import { classifyLlmError, llmErrorMessage, type LlmErrorKind } from '../shared/llm/errors'
 import { getDefaultModel, getSmallModel, supportsAdaptiveThinking, getThinkingOffMode } from '../shared/llm/models'
 import { getProvider, isProvider } from '../shared/llm/providers'
-import { buildChatBody, listChatModels, streamChatCompletion } from './chatCompletions'
+import { buildChatBody, listChatModels, probeChatQuota, streamChatCompletion } from './chatCompletions'
 import { getSettingsDir, LEGACY_SETTINGS_DIR, normalizePath, resolveWithin, resolveToolPath, IMAGE_EXTENSIONS } from './paths'
 import type { FileAccessOptions } from '../shared/fileAccess'
 import { clearRecentFiles } from './recentFiles'
@@ -80,6 +81,15 @@ interface LLMStreamRequest extends LLMRequest {
 
 // Track active streams for abort support
 const activeStreams = new Map<string, AbortController>()
+
+/**
+ * An LLM failure as the writer sees it: one classification (#1268), a plain
+ * message naming the provider, and the kind the renderer's hint keys on.
+ */
+function llmFailure(error: unknown, providerId: string): { error: string; kind: LlmErrorKind } {
+  const info = classifyLlmError(error)
+  return { error: llmErrorMessage(info, isProvider(providerId) ? getProvider(providerId) : undefined), kind: info.kind }
+}
 
 // Security-scoped bookmark stop function (MAS sandbox) — single bookmark for
 // the legacy `masDirectoryBookmark` / `defaultSaveDirectory` path.
@@ -982,7 +992,7 @@ export function setupIpcHandlers(): void {
     provider: string
     apiKey?: string
     baseUrl?: string
-  }): Promise<{ success: boolean; message: string }> => {
+  }): Promise<{ success: boolean; message: string; warning?: boolean }> => {
     const { provider } = request
     if (!isProvider(provider)) {
       return { success: false, message: `Unknown provider: ${provider}` }
@@ -991,6 +1001,12 @@ export function setupIpcHandlers(): void {
     if (!apiKey) {
       return { success: false, message: 'No API key saved' }
     }
+    // The key works but its account can't be used: it saves, with a warning (#1268).
+    const noCredits = () => ({
+      success: true,
+      warning: true,
+      message: `Key is valid, but the ${getProvider(provider).label} account has no credits. Add credits at ${getProvider(provider).billingHint}.`
+    })
 
     try {
       const transport = getProvider(provider).transport
@@ -1007,8 +1023,11 @@ export function setupIpcHandlers(): void {
           return { success: true, message: 'API key is valid' }
         }
         case 'chat-completions': {
-          // Listing models validates the key without spending tokens.
-          await listChatModels({ baseURL: getProvider(provider).baseURL, apiKey })
+          // Listing models validates the key; it works on an empty account,
+          // so the smallest completion checks for credits (#1268).
+          const target = { baseURL: getProvider(provider).baseURL, apiKey }
+          await listChatModels(target)
+          if (await probeChatQuota(target, getSmallModel(provider))) return noCredits()
           return { success: true, message: 'API key is valid' }
         }
         default: {
@@ -1020,26 +1039,27 @@ export function setupIpcHandlers(): void {
     } catch (error) {
       console.error('[testApiKey] Error:', error)
 
-      // Parse error messages for better user feedback
+      // One classification (#1268): an empty account (OpenAI answers 429
+      // insufficient_quota, Anthropic a 400 about the credit balance) is not
+      // a rate limit, and the key itself is valid.
+      const info = classifyLlmError(error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-
-      if (errorMessage.includes('401') || errorMessage.includes('Unauthorized') || errorMessage.includes('invalid_api_key')) {
-        return { success: false, message: 'Invalid API key' }
+      switch (info.kind) {
+        case 'quota':
+          return noCredits()
+        case 'auth':
+          return info.status === 403
+            ? { success: false, message: 'API key does not have required permissions' }
+            : { success: false, message: 'Invalid API key' }
+        case 'rate_limit':
+          return { success: false, message: 'Rate limited - but API key is valid' }
+        case 'transient':
+          if (/ECONNREFUSED|fetch failed/i.test(errorMessage)) return { success: false, message: 'Could not connect to server' }
+          if (/ETIMEDOUT|timeout/i.test(errorMessage)) return { success: false, message: 'Connection timed out' }
+          return { success: false, message: llmErrorMessage(info, getProvider(provider)) }
+        case 'other':
+          return { success: false, message: info.providerMessage || errorMessage }
       }
-      if (errorMessage.includes('403') || errorMessage.includes('Forbidden')) {
-        return { success: false, message: 'API key does not have required permissions' }
-      }
-      if (errorMessage.includes('429') || errorMessage.includes('rate_limit')) {
-        return { success: false, message: 'Rate limited - but API key is valid' }
-      }
-      if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('fetch failed')) {
-        return { success: false, message: 'Could not connect to server' }
-      }
-      if (errorMessage.includes('ETIMEDOUT') || errorMessage.includes('timeout')) {
-        return { success: false, message: 'Connection timed out' }
-      }
-
-      return { success: false, message: errorMessage }
     }
   })
 
@@ -1130,7 +1150,7 @@ export function setupIpcHandlers(): void {
         return { content }
       } catch (error) {
         console.error('[LLM] Error:', error)
-        if (error instanceof Error) error.message = getNetworkErrorMessage(error)
+        if (error instanceof Error) error.message = llmFailure(error, request.provider).error
         throw error
       }
     }
@@ -1186,7 +1206,7 @@ export function setupIpcHandlers(): void {
       console.error('[LLM] Error:', error)
       // Enhance error message for user
       if (error instanceof Error) {
-        error.message = getNetworkErrorMessage(error)
+        error.message = llmFailure(error, request.provider).error
       }
       throw error
     }
@@ -1260,7 +1280,7 @@ export function setupIpcHandlers(): void {
           return { success: true }
         }
         console.error('[LLM:stream] Chat Completions error:', error)
-        event.sender.send('llm:stream:error', { streamId, error: getNetworkErrorMessage(error) })
+        event.sender.send('llm:stream:error', { streamId, ...llmFailure(error, request.provider) })
         return { success: false }
       } finally {
         activeStreams.delete(streamId)
@@ -1472,7 +1492,7 @@ export function setupIpcHandlers(): void {
         console.error('[LLM:stream] Anthropic direct error:', error)
         event.sender.send('llm:stream:error', {
           streamId,
-          error: getNetworkErrorMessage(error)
+          ...llmFailure(error, request.provider)
         })
         return { success: false }
       } finally {
@@ -1527,7 +1547,7 @@ export function setupIpcHandlers(): void {
       } else {
         event.sender.send('llm:stream:error', {
           streamId,
-          error: getNetworkErrorMessage(error)
+          ...llmFailure(error, request.provider)
         })
       }
       return { success: false }

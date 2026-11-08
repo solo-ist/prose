@@ -17,6 +17,7 @@ import { getSuggestionsWithFeedback } from '../extensions/ai-suggestions'
 import { executeTool, resolveToolPosition } from '../lib/tools'
 import { getToolsForClaudeAPI } from '../../shared/tools/registry'
 import { resolveModelName } from '../../shared/llm/models'
+import { classifyLlmError, llmErrorGuidance } from '../../shared/llm/errors'
 import type { LLMMessage, LLMStreamToolCall, LLMStreamToolCallStart, LLMContentBlock, LLMThinkingBlock } from '../types'
 
 // Chat Mode gets a read-only tool subset rather than the full read+write
@@ -510,16 +511,10 @@ export function useChat() {
         // Append error to the streaming message with actionable guidance
         {
           const currentMsg = state.messageOf(found.conversationId, found.turn.messageId)
-          // Provide actionable guidance based on error type
-          const lowerError = error.error.toLowerCase()
-          let guidance = ''
-          if (lowerError.includes('api key') || lowerError.includes('unauthorized') || lowerError.includes('invalid')) {
-            guidance = ' Check your API key in Settings.'
-          } else if (lowerError.includes('rate limit') || lowerError.includes('overloaded')) {
-            guidance = ' Wait a moment and try again.'
-          } else if (lowerError.includes('connect') || lowerError.includes('network') || lowerError.includes('timeout')) {
-            guidance = ' Check your internet connection.'
-          }
+          // Guidance from main's one classification of the failure (#1268);
+          // an older main without `kind` gets the same classifier on the text.
+          const hint = llmErrorGuidance({ kind: error.kind ?? classifyLlmError(error.error).kind }, error.error)
+          const guidance = hint ? ` ${hint}` : ''
           // Strip any orphan <tool-drafting> tags. They're normally cleared in
           // onLLMStreamComplete's tool-result loop, but a stream error between
           // content_block_start and that loop would leave them dangling.
@@ -724,24 +719,18 @@ export function useChat() {
         const errorMessage =
           error instanceof Error ? error.message : 'Unknown error'
 
-        // Provide actionable guidance based on error type
-        let guidance = ''
-        const lowerError = errorMessage.toLowerCase()
-        if (lowerError.includes('api key') || lowerError.includes('unauthorized') || lowerError.includes('401')) {
-          guidance = 'Please check your API key in Settings (Cmd+,).'
-        } else if (lowerError.includes('rate limit') || lowerError.includes('429')) {
-          guidance = 'Please wait a moment and try again.'
-        } else if (lowerError.includes('connect') || lowerError.includes('network') || lowerError.includes('timeout')) {
-          guidance = 'Please check your internet connection and try again.'
-        } else if (lowerError.includes('model') || lowerError.includes('not found')) {
-          guidance = 'Please verify the model name in Settings (Cmd+,).'
-        } else {
-          guidance = 'Please check your settings (Cmd+,) and try again.'
+        // Guidance from the one classification of the failure (#1268)
+        const info = classifyLlmError(error)
+        let guidance = llmErrorGuidance(info, errorMessage)
+        if (!guidance && info.kind === 'other') {
+          guidance = /model|not found/i.test(errorMessage)
+            ? 'Please verify the model name in Settings (⌘,).'
+            : 'Please check your settings (⌘,) and try again.'
         }
 
         // Update the assistant message with error and guidance
         useChatStore.getState().updateMessageIn(conversationId, assistantMsgId, {
-          content: `Error: ${errorMessage}. ${guidance}`,
+          content: `Error: ${errorMessage}${guidance ? ` ${guidance}` : ''}`,
           isError: true
         })
         completeStreaming(conversationId)

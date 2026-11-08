@@ -24,7 +24,8 @@ let page: Page
 let userDataDir: string
 
 const requests = () => openAIRequests(app)
-const stub = (steps: OpenAIStep[]) => stubOpenAI(app, steps)
+const stub = (steps: OpenAIStep[], options: { probe?: { status: number; json: unknown } } = {}) =>
+  stubOpenAI(app, steps, undefined, options)
 
 test.beforeEach(async () => {
   userDataDir = mkdtempSync(join(tmpdir(), 'prose-1241-'))
@@ -43,7 +44,7 @@ test.afterEach(async () => {
 })
 
 /** Settings → LLM: choose OpenAI, type the key, Test it, Save Changes. */
-async function configureOpenAI(): Promise<void> {
+async function configureOpenAI(testSays: string | RegExp = 'API key is valid'): Promise<void> {
   await page.evaluate(() => (window as any).__prose_account.openSettings())
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('tab', { name: 'LLM' }).click()
@@ -53,7 +54,7 @@ async function configureOpenAI(): Promise<void> {
   const row = dialog.getByTestId('llm-key-row-openai')
   await dialog.locator('#apiKey-openai').fill(OPENAI_KEY)
   await row.getByRole('button', { name: 'Test' }).click()
-  await expect(row.getByText('API key is valid')).toBeVisible()
+  await expect(row.getByText(testSays)).toBeVisible()
   await dialog.getByRole('button', { name: 'Save Changes' }).click()
   await expect(dialog).toHaveCount(0)
 }
@@ -114,8 +115,10 @@ test('a chat turn over OpenAI: a suggest_edit call split across chunks leaves a 
     window.dispatchEvent(new CustomEvent('prose:mode-switch-and-run', { detail: { prompt: 'Add a colour.' } }))
   })
 
-  await expect.poll(async () => (await requests()).filter((r) => r.url.endsWith('/chat/completions')).length, { timeout: 15_000 }).toBe(2)
-  const [first, second] = (await requests()).filter((r) => r.url.endsWith('/chat/completions'))
+  // Streamed requests are the chat's; the key test's credits probe is not streamed (#1268).
+  const chatRequests = async () => (await requests()).filter((r) => r.url.endsWith('/chat/completions') && r.body?.stream === true)
+  await expect.poll(async () => (await chatRequests()).length, { timeout: 15_000 }).toBe(2)
+  const [first, second] = await chatRequests()
 
   expect(first.auth).toBe(`Bearer ${OPENAI_KEY}`)
   expect(first.body.model).toBe('gpt-5')
@@ -146,4 +149,39 @@ test('a chat turn over OpenAI: a suggest_edit call split across chunks leaves a 
     )
     .toContain('The quick fox.')
   await expect(page.getByText('Suggested a change.')).toBeVisible()
+})
+
+test('an account with no credits (HTTP 429 insufficient_quota): one request, the credits message, nothing about waiting (#1268)', async () => {
+  const noCredits = {
+    status: 429,
+    json: {
+      error: {
+        message: 'You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.',
+        type: 'insufficient_quota',
+        param: null,
+        code: 'insufficient_quota',
+      },
+    },
+  }
+  // The chat turn and the key test's credits probe both meet the empty account.
+  await stub([noCredits, noCredits, noCredits], { probe: noCredits })
+  // The key is valid, so it saves; the test says the account has no credits.
+  await configureOpenAI(/Key is valid, but the OpenAI account has no credits/)
+
+  await waitForEditor(page)
+  await typeInEditor(page, 'The quick fox.')
+  await openChat(page)
+  await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent('prose:mode-switch-and-run', { detail: { prompt: 'Add a colour.' } }))
+  })
+
+  const error = page.getByText("OpenAI says this key's account has no credits left.")
+  await expect(error).toBeVisible({ timeout: 15_000 })
+  await expect(error).toContainText('platform.openai.com → Settings → Billing')
+  await expect(page.getByText(/wait a moment/i)).toHaveCount(0)
+  await expect(page.getByText(/rate limit/i)).toHaveCount(0)
+  // Not retried: exactly one streamed request reached OpenAI.
+  await page.waitForTimeout(1_500)
+  const streamed = (await requests()).filter((r) => r.url.endsWith('/chat/completions') && r.body?.stream === true)
+  expect(streamed).toHaveLength(1)
 })

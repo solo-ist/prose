@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { Settings, RemarkableSyncPhase } from '../renderer/types'
 import type { ToolResult } from '../shared/tools/types'
 import type { FileAccessOptions } from '../shared/fileAccess'
+import type { LlmErrorKind } from '../shared/llm/errors'
 import type { LLMKeyStatusMap } from '../shared/llm/providers'
 
 import type { AppStoreImportKeysResult, AppStoreImportStart, AppStoreImportStatus } from '../shared/appStoreImport'
@@ -101,6 +102,8 @@ export interface LLMStreamComplete {
 export interface LLMStreamError {
   streamId: string
   error: string
+  /** The one classification of the failure (#1268); the chat's hint keys on it. */
+  kind?: LlmErrorKind
 }
 
 export interface McpStatus {
@@ -126,6 +129,8 @@ export interface SetLlmKeyResult {
 export interface TestApiKeyResult {
   success: boolean
   message: string
+  /** The key is valid but can't be used yet (its account has no credits, #1268): shown, not refused. */
+  warning?: boolean
 }
 
 export interface McpServerStatus {

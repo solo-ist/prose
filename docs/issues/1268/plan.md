@@ -75,3 +75,13 @@ The same module adds:
 - **e2e, in `openai-provider.spec.ts`:** the stub answers 429 `insufficient_quota`. The chat shows the credits
   message and no "wait a moment", and the stub sees exactly one streamed request. Falsified on `6907393`.
 - **Baselines:** 66 / 18 / 6.
+
+## Execution log
+
+- **2026-11-08.** `src/shared/llm/errors.ts` (the classifier, the message, the hint); `retry.ts` delegates;
+  `ChatCompletionsError` carries `code`/`type`; every LLM error in `ipc.ts` goes through `llmFailure` (message + `kind`);
+  `settings:testApiKey` classifies and probes credits for Chat Completions (quota → valid with a warning); `useChat`
+  guidance from `kind`; the warning shown in amber in Settings and onboarding; `billingHint` per provider.
+- Unit 341 (`errors.test.ts` 9 on real bodies and the Anthropic / AI SDK error classes; `chatCompletions.test.ts`
+  +3). e2e: the no-credits case in `openai-provider.spec.ts`; the tool-loop case now counts only streamed requests
+  (the key test's probe is not streamed); the stub answers HTTP-error steps and probes. Typecheck 66 / 18 / 6.

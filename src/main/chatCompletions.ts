@@ -15,6 +15,7 @@
  * and goes only into the Authorization header.
  */
 import type { LLMContentBlock, LLMMessage, LLMToolDefinition } from '../renderer/types'
+import { classifyLlmError } from '../shared/llm/errors'
 
 // ---------------------------------------------------------------------------
 // Wire types (the subset Prose sends and reads)
@@ -145,10 +146,34 @@ export function buildChatBody(opts: {
 // Back
 // ---------------------------------------------------------------------------
 
+/**
+ * A provider error, with the provider's `code` and `type` when its body had
+ * them (OpenAI: `insufficient_quota`, `rate_limit_exceeded`; LiteLLM:
+ * `budget_exceeded`), so `classifyLlmError` (#1268) reads them rather than
+ * guessing from the status.
+ */
 export class ChatCompletionsError extends Error {
-  constructor(message: string, readonly status?: number) {
+  constructor(
+    message: string,
+    readonly status?: number,
+    readonly code?: string,
+    readonly type?: string
+  ) {
     super(message)
     this.name = 'ChatCompletionsError'
+  }
+}
+
+type ErrorBody = { error?: { message?: string; type?: string; code?: string | number } | string; message?: string }
+
+/** The provider's message, code and type from an error body. */
+function errorParts(json: ErrorBody): { message?: string; code?: string; type?: string } {
+  if (typeof json.error === 'string') return { message: json.error }
+  const e = json.error
+  return {
+    message: e?.message || json.message,
+    code: e?.code !== undefined && e?.code !== null ? String(e.code) : undefined,
+    type: e?.type || undefined,
   }
 }
 
@@ -203,7 +228,7 @@ export class ChatStreamAccumulator {
       return
     }
     let chunk: {
-      error?: { message?: string; code?: string | number } | string
+      error?: { message?: string; code?: string | number; type?: string } | string
       choices?: Array<{
         delta?: {
           content?: string | null
@@ -220,8 +245,8 @@ export class ChatStreamAccumulator {
       return // a keep-alive or a line this reader doesn't know; the stream goes on
     }
     if (chunk.error) {
-      const message = typeof chunk.error === 'string' ? chunk.error : chunk.error.message || 'The provider returned an error'
-      throw new ChatCompletionsError(message)
+      const parts = errorParts(chunk as ErrorBody)
+      throw new ChatCompletionsError(parts.message || 'The provider returned an error', undefined, parts.code, parts.type)
     }
     const choice = chunk.choices?.[0]
     if (!choice) return // e.g. the usage chunk
@@ -289,16 +314,20 @@ export function parseArguments(raw: string): unknown {
 
 async function errorFromResponse(res: Response): Promise<ChatCompletionsError> {
   let detail = res.statusText
+  let code: string | undefined
+  let type: string | undefined
   try {
     const text = await res.text()
     try {
-      const json = JSON.parse(text) as { error?: { message?: string } | string; message?: string }
-      detail = (typeof json.error === 'string' ? json.error : json.error?.message) || json.message || text || detail
+      const parts = errorParts(JSON.parse(text) as ErrorBody)
+      detail = parts.message || text || detail
+      code = parts.code
+      type = parts.type
     } catch {
       detail = text || detail
     }
   } catch { /* body unreadable */ }
-  return new ChatCompletionsError(`HTTP ${res.status}: ${detail}`, res.status)
+  return new ChatCompletionsError(`HTTP ${res.status}: ${detail}`, res.status, code, type)
 }
 
 // ---------------------------------------------------------------------------
@@ -341,6 +370,30 @@ export async function streamChatCompletion(
   acc.push(decoder.decode())
   const { content, toolCalls } = acc.finish()
   return { content, toolCalls, finishReason: acc.finishReason }
+}
+
+/**
+ * Whether the account behind a key has run out of credits (#1268). Listing
+ * models works on an empty account, so the key test also sends the smallest
+ * completion; only a quota answer counts (resolves with that error). Anything
+ * else, success or failure, resolves null: `/models` already proved the key.
+ */
+export async function probeChatQuota(target: ChatTarget, model: string): Promise<ChatCompletionsError | null> {
+  try {
+    const res = await fetch(`${target.baseURL.replace(/\/$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${target.apiKey}` },
+      body: JSON.stringify({ model, messages: [{ role: 'user', content: 'Hi' }], max_completion_tokens: 16 }),
+    })
+    if (res.ok) {
+      await res.body?.cancel()
+      return null
+    }
+    const error = await errorFromResponse(res)
+    return classifyLlmError(error).kind === 'quota' ? error : null
+  } catch {
+    return null
+  }
 }
 
 /**

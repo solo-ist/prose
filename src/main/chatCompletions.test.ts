@@ -1,8 +1,10 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  ChatCompletionsError,
   ChatStreamAccumulator,
   buildChatBody,
+  probeChatQuota,
   listChatModels,
   parseArguments,
   streamChatCompletion,
@@ -192,6 +194,33 @@ describe('calls (#1241)', () => {
     expect(calls[0].url).toBe('https://api.openai.com/v1/chat/completions')
     expect((calls[0].init.headers as Record<string, string>).Authorization).toBe('Bearer sk-test')
     expect(JSON.parse(calls[0].init.body as string)).toEqual(body)
+  })
+
+  it("a non-2xx response carries the provider's code and type (#1268)", async () => {
+    stubFetch([], { status: 429, json: { error: { message: 'You have no credits remaining.', type: 'insufficient_quota', param: null, code: 'insufficient_quota' } } })
+    const error = await streamChatCompletion({ baseURL: 'https://api.openai.com/v1', apiKey: 'k' }, buildChatBody({ model: 'm', system: '', messages: [] })).catch((e) => e)
+    expect(error).toBeInstanceOf(ChatCompletionsError)
+    expect(error).toMatchObject({ status: 429, code: 'insufficient_quota', type: 'insufficient_quota', message: 'HTTP 429: You have no credits remaining.' })
+  })
+
+  it('an error object in the stream carries its code and type', () => {
+    const acc = new ChatStreamAccumulator()
+    let thrown: unknown
+    try {
+      acc.push(sse({ error: { message: 'Budget has been exceeded!', type: 'budget_exceeded', code: '400' } }))
+    } catch (e) {
+      thrown = e
+    }
+    expect(thrown).toMatchObject({ code: '400', type: 'budget_exceeded', message: 'Budget has been exceeded!' })
+  })
+
+  it('probeChatQuota reports only a quota answer', async () => {
+    stubFetch([], { status: 429, json: { error: { message: 'You exceeded your current quota', type: 'insufficient_quota', code: 'insufficient_quota' } } })
+    expect(await probeChatQuota({ baseURL: 'https://api.openai.com/v1', apiKey: 'k' }, 'gpt-5-mini')).toBeInstanceOf(ChatCompletionsError)
+    stubFetch([], { status: 400, json: { error: { message: 'max_completion_tokens is too small', type: 'invalid_request_error', code: null } } })
+    expect(await probeChatQuota({ baseURL: 'https://api.openai.com/v1', apiKey: 'k' }, 'gpt-5-mini')).toBeNull()
+    stubFetch([], { json: { id: 'x', choices: [] } })
+    expect(await probeChatQuota({ baseURL: 'https://api.openai.com/v1', apiKey: 'k' }, 'gpt-5-mini')).toBeNull()
   })
 
   it('a non-2xx response throws the provider message with its status', async () => {

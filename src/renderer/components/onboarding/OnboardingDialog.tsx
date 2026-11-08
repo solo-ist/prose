@@ -39,6 +39,8 @@ interface OnboardingDialogProps {
 }
 
 const ACCEPT = 'hsl(140 60% 55%)'
+/** A key that works but can't be used yet (no credits, #1268). */
+const WARN = 'hsl(38 92% 50%)'
 const REJECT = 'hsl(0 70% 62%)'
 const AI_VIOLET = 'hsl(270 70% 60%)'
 const SERIF = { fontFamily: "'Fraunces', Georgia, serif", fontStyle: 'italic', fontWeight: 500 } as const
@@ -113,6 +115,7 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
   const [keyState, setKeyState] = useState<KeyState>('empty')
   const [keyMessage, setKeyMessage] = useState<string | null>(null)
   const [keySaved, setKeySaved] = useState(false)
+  const [keyWarning, setKeyWarning] = useState(false)
   const [skill, setSkill] = useState<SideEffect>('idle')
   const [skillError, setSkillError] = useState<string | null>(null)
   const [mcp, setMcp] = useState<SideEffect>('idle')
@@ -132,6 +135,7 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
     setAi(null)
     setCrash(settings.errorTracking?.enabled === true)
     setKeyInput('')
+    setKeyWarning(false)
     setKeyState(hasKey ? 'valid' : 'empty')
     setKeySaved(hasKey)
     setKeyMessage(hasKey ? 'A key is already in the Keychain.' : null)
@@ -183,6 +187,7 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
     const has = !!useSettingsStore.getState().settings.llm.keyStatus?.[provider]
     setKeyProvider(provider)
     setKeyInput('')
+    setKeyWarning(false)
     setKeyState(has ? 'valid' : 'empty')
     setKeySaved(has)
     setKeyMessage(has ? 'A key is already in the Keychain.' : null)
@@ -224,11 +229,13 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
       setKeyInput('')
       setKeyState('valid')
       setKeySaved(true)
-      setKeyMessage(
+      const where =
         useSettingsStore.getState().settings.llm.keyStatus?.[provider]?.persisted === false
-          ? 'Key works. Saved for this session (secure storage is unavailable).'
-          : 'Key works. Saved to Keychain.'
-      )
+          ? 'Saved for this session (secure storage is unavailable).'
+          : 'Saved to Keychain.'
+      // A valid key on an account with no credits saves, and says so (#1268).
+      setKeyMessage(result.warning ? `${result.message} ${where}` : `Key works. ${where}`)
+      setKeyWarning(result.warning === true)
     } catch (e) {
       setKeyState('invalid')
       setKeyMessage(e instanceof Error ? e.message : 'The key check failed.')
@@ -522,6 +529,7 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
                     value={keyInput}
                     onChange={(e) => {
                       setKeyInput(e.target.value)
+                      setKeyWarning(false)
                       setKeyState('empty')
                       setKeyMessage(null)
                     }}
@@ -547,8 +555,8 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
                   {keyState === 'checking' && <span className="text-muted-foreground">Checking with {PROVIDERS[keyProvider].label}…</span>}
                   {keyState === 'valid' && (
                     <>
-                      <Check className="mt-px h-3.5 w-3.5 flex-none" style={{ color: ACCEPT }} aria-hidden="true" />
-                      <span style={{ color: ACCEPT }}>{keyMessage ?? 'Key works. Saved to Keychain.'}</span>
+                      <Check className="mt-px h-3.5 w-3.5 flex-none" style={{ color: keyWarning ? WARN : ACCEPT }} aria-hidden="true" />
+                      <span style={{ color: keyWarning ? WARN : ACCEPT }}>{keyMessage ?? 'Key works. Saved to Keychain.'}</span>
                     </>
                   )}
                   {keyState === 'invalid' && <span style={{ color: REJECT }}>{keyMessage}</span>}

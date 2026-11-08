@@ -45,6 +45,8 @@ export interface ProviderInfo {
   keyFormat?: { prefix: string; minLength: number }
   /** Where a writer creates a key (onboarding and Settings link to it). */
   keysUrl: string
+  /** Where the account's credits are managed, named when the provider says it has none (#1268). */
+  billingHint: string
   /**
    * Which ids from the provider's live model list are chat models. OpenAI's
    * `/v1/models` also lists embeddings, audio, image and Responses-only models.
@@ -97,6 +99,7 @@ export const PROVIDERS: Record<LLMProvider, ProviderInfo> = {
     thinking: true,
     keyFormat: { prefix: 'sk-ant-', minLength: 40 },
     keysUrl: 'https://console.anthropic.com/settings/keys',
+    billingHint: 'console.anthropic.com → Settings → Billing',
   },
   openai: {
     id: 'openai',
@@ -111,6 +114,7 @@ export const PROVIDERS: Record<LLMProvider, ProviderInfo> = {
     thinking: false,
     keyFormat: { prefix: 'sk-', minLength: 20 },
     keysUrl: 'https://platform.openai.com/api-keys',
+    billingHint: 'platform.openai.com → Settings → Billing',
     liveModels: {
       include: /^(gpt-|o\d|chatgpt-)/,
       exclude: /(audio|realtime|transcribe|tts|image|embedding|search|instruct|moderation|codex|computer-use|deep-research|-pro\b)/,

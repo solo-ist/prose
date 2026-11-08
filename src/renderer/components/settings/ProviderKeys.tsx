@@ -62,7 +62,7 @@ function ProviderKeyRow({ provider, active, saved, draft, formatError, onDraftCh
   const clearLlmKey = useSettingsStore((s) => s.clearLlmKey)
   const [showKey, setShowKey] = useState(false)
   const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string; warning?: boolean } | null>(null)
   const { label } = PROVIDERS[provider]
 
   // The provider in use with no key opens straight onto its field.
@@ -104,7 +104,7 @@ function ProviderKeyRow({ provider, active, saved, draft, formatError, onDraftCh
     </Button>
   )
 
-  const message = saveError
+  const message: { success: boolean; message: string; warning?: boolean } | null = saveError
     ? { success: false, message: saveError }
     : testResult
 
@@ -171,9 +171,11 @@ function ProviderKeyRow({ provider, active, saved, draft, formatError, onDraftCh
       )}
       {message && (
         <p className={`text-xs flex items-center gap-1 ${
-          message.success ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+          message.warning
+            ? 'text-amber-600 dark:text-amber-400'
+            : message.success ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
         }`}>
-          {message.success ? <CheckCircle2 className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+          {message.success && !message.warning ? <CheckCircle2 className="h-3 w-3 shrink-0" /> : <AlertCircle className="h-3 w-3 shrink-0" />}
           {message.message}
         </p>
       )}

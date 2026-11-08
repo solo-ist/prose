@@ -42,3 +42,12 @@ In `extensions/persistent-selection/index.ts`:
   3. `pointerup` then the next task clears it;
   4. a focus with no press clears it at once.
 - **Baselines:** `typecheck:renderer` 66, `tsc -p tsconfig.node.json` 18, `typecheck:e2e` 6.
+
+## Execution log
+
+- **2026-11-08.** The fix and tests. With the fix, the probe's first real click reads `pointerdown`, `mousedown`,
+  `pointerup`, `mouseup` and `click`, all on `SPAN.persistent-selection` inside the mark, and the card opens.
+  A4's label case, back on a real click, fails on a build of `519c74d` and passes. The new vitest (5 cases) fails its
+  press case on the original extension. Unit 329; `typecheck:renderer` 66, `tsc -p tsconfig.node.json` 18,
+  `typecheck:e2e` 6. provider-settings, suggestion-popover, comment-threading, openai-provider and provenance: 14
+  passed. QA block in `docs/qa/v1.9.1.md`.

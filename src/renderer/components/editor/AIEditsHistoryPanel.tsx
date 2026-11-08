@@ -178,6 +178,9 @@ export function AIEditsHistoryPanel({ filter, actorFilter, onShowAll, onReviewTh
     return [...annotationItems, ...suggestionItems, ...commentItems].sort((a, b) => b.createdAt - a.createdAt)
   }, [annotations, pendingComments, reviewLog, filter, actorFilter, selfName])
 
+  // A rejected row names the revision that followed it (#1266).
+  const suggestionsById = useMemo(() => new Map(reviewLog.suggestions.map((sg) => [sg.id, sg])), [reviewLog])
+
   const hasAnyActivity = annotations.length > 0 || pendingComments.length > 0 || reviewLog.suggestions.length > 0
   const nothingVisible = items.length === 0
   const groups = useMemo(() => groupActivityByDate(items), [items])
@@ -244,6 +247,7 @@ export function AIEditsHistoryPanel({ filter, actorFilter, onShowAll, onReviewTh
                 onRemoveComment={handleRemoveComment}
                 onReviewThread={onReviewThread}
                 onReviewSuggestion={handleReviewSuggestion}
+                suggestionsById={suggestionsById}
               />
             ))}
           </div>
@@ -293,6 +297,7 @@ interface ActivityDateGroupProps {
   onRemoveComment: (id: string) => void
   onReviewThread: (id: string) => void
   onReviewSuggestion: (id: string) => void
+  suggestionsById: ReadonlyMap<string, SuggestionHistory>
 }
 
 function ActivityDateGroupView({
@@ -303,6 +308,7 @@ function ActivityDateGroupView({
   onRemoveComment,
   onReviewThread,
   onReviewSuggestion,
+  suggestionsById,
 }: ActivityDateGroupProps) {
   return (
     <div>
@@ -324,6 +330,7 @@ function ActivityDateGroupView({
             <SuggestionActivityRow
               key={`suggestion-${item.suggestion.id}`}
               suggestion={item.suggestion}
+              revision={item.suggestion.supersededBy ? suggestionsById.get(item.suggestion.supersededBy) : undefined}
               onReview={onReviewSuggestion}
             />
           ) : (
@@ -349,7 +356,16 @@ const SUGGESTION_STATUS: Record<SuggestionHistory['status'], { label: string; cl
   superseded: { label: 'Superseded', className: 'bg-muted text-muted-foreground' },
 }
 
-function SuggestionActivityRow({ suggestion, onReview }: { suggestion: SuggestionHistory; onReview: (id: string) => void }) {
+function SuggestionActivityRow({
+  suggestion,
+  revision,
+  onReview,
+}: {
+  suggestion: SuggestionHistory
+  /** The suggestion that followed this one, when the log has it. */
+  revision?: SuggestionHistory
+  onReview: (id: string) => void
+}) {
   const selfName = useSelfName()
   const [expanded, setExpanded] = useState(false)
   const status = SUGGESTION_STATUS[suggestion.status]
@@ -382,6 +398,30 @@ function SuggestionActivityRow({ suggestion, onReview }: { suggestion: Suggestio
       {suggestion.decidedBy && suggestion.status !== 'pending' && (
         <p className="mt-1 text-[11px] text-muted-foreground" data-testid="suggestion-decided-by">
           {suggestion.status === 'superseded' ? 'Revised by' : `${status.label} by`} {name(suggestion.decidedBy)}
+        </p>
+      )}
+      {/* Rejected, then revised by an agent (#1266): the rejection stands, and the row names what followed. */}
+      {suggestion.status === 'rejected' && suggestion.supersededBy && (
+        <p className="mt-0.5 flex flex-wrap items-center gap-x-1 text-[11px] text-muted-foreground" data-testid="suggestion-revised-after">
+          <span>Then revised{revision ? ` by ${name(revision.actor)}` : ''}</span>
+          {revision && revision.status !== 'pending' && <span>· {SUGGESTION_STATUS[revision.status].label.toLowerCase()}</span>}
+          {revision?.status === 'pending' && (
+            <>
+              <span aria-hidden>·</span>
+              <button
+                type="button"
+                data-testid="suggestion-open-revision"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onReview(revision.id)
+                }}
+                className="inline-flex items-center gap-0.5 underline-offset-2 hover:text-foreground hover:underline"
+              >
+                View revision
+                <ArrowUpRight className="h-3 w-3" />
+              </button>
+            </>
+          )}
         </p>
       )}
       {suggestion.feedback.length > 0 && (

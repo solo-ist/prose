@@ -57,7 +57,6 @@ const defaultSettings: Settings = {
   llm: {
     provider: 'anthropic',
     model: getDefaultModel('anthropic'),
-    apiKey: '',
   },
   editor: {
     fontSize: 16,
@@ -513,6 +512,10 @@ export function createMockApi(): ElectronAPI {
     readFileBase64: async (): Promise<string> => '',
     fetchModels: async (): Promise<{ models?: Array<{ id: string; name: string; description?: string }>; error?: string }> => ({ models: [] }),
     isSecureStorageAvailable: async (): Promise<boolean> => false,
+    // Web mode has no key storage: its AI goes through the gateway, not a key.
+    getLlmKeyStatus: async () => ({}),
+    setLlmKey: async () => ({ ok: false, error: 'Not available in web mode', status: {} }),
+    clearLlmKey: async () => ({}),
     onLLMStreamToolCallStart: () => () => {},
     onLLMStreamThinkingDelta: () => () => {},
     saveImage: async (): Promise<{ relativePath: string; localFileUrl: string }> => {

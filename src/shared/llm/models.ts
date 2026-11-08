@@ -1,46 +1,42 @@
 /**
- * Known models for the LLM provider.
- * These are used for the model picker dropdown and validation.
+ * Model helpers for the LLM providers.
+ * The model lists themselves live in each provider's entry (`./providers`).
  */
 
-export interface ModelInfo {
-  id: string
-  name: string
-  description?: string
-}
+import { getProvider, PROVIDERS, ANTHROPIC_MODELS, type LLMProvider, type ModelInfo } from './providers'
 
-export const ANTHROPIC_MODELS: ModelInfo[] = [
-  { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', description: 'Fastest, most economical' },
-  { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', description: 'Best balance of speed and intelligence' },
-  { id: 'claude-opus-5-5', name: 'Claude Opus 5.5', description: 'Most capable model' },
-]
+export { ANTHROPIC_MODELS }
+export type { LLMProvider, ModelInfo }
 
-export type LLMProvider = 'anthropic'
-
-export function getModelsForProvider(_provider: LLMProvider): ModelInfo[] {
-  return ANTHROPIC_MODELS
+export function getModelsForProvider(provider: LLMProvider): ModelInfo[] {
+  return getProvider(provider).models
 }
 
 /**
  * Check if a model ID is a known model.
  */
-export function isKnownModel(_provider: LLMProvider, modelId: string): boolean {
-  return ANTHROPIC_MODELS.some(m => m.id === modelId)
+export function isKnownModel(provider: LLMProvider, modelId: string): boolean {
+  return getProvider(provider).models.some(m => m.id === modelId)
 }
 
 /**
  * Get default model
  */
-export function getDefaultModel(_provider: LLMProvider): string {
-  return 'claude-sonnet-5-5'
+export function getDefaultModel(provider: LLMProvider): string {
+  return getProvider(provider).defaultModel
 }
 
 /**
- * Get default Haiku model (used for internal lightweight calls such as
- * API key validation and emoji generation where exact version doesn't matter).
+ * The provider's model for lightweight internal calls (API key validation,
+ * summaries, emoji generation) where the exact version doesn't matter.
  */
+export function getSmallModel(provider: LLMProvider): string {
+  return getProvider(provider).smallModel
+}
+
+/** Anthropic's small model. Kept for the call sites that predate other providers. */
 export function getDefaultHaikuModel(): string {
-  return 'claude-haiku-4-5'
+  return getSmallModel('anthropic')
 }
 
 /**
@@ -136,6 +132,8 @@ export function resolveModelName(
 ): string {
   const fromFetched = fetched?.find((m) => m.id === modelId)?.name
   if (fromFetched) return fromFetched
-  const fromStatic = ANTHROPIC_MODELS.find((m) => m.id === modelId)?.name
+  const fromStatic = Object.values(PROVIDERS)
+    .flatMap((p) => p.models)
+    .find((m) => m.id === modelId)?.name
   return fromStatic || modelId
 }

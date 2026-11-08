@@ -42,6 +42,10 @@ const TINY_PNG = Buffer.from(
   'base64',
 )
 const SECRET = 'SECRET-OUTSIDE-BYTES'
+// The MCP HTTP port, pinned for this launch: the default differs between the
+// installed app (9877) and unpackaged runs (9878), and either may be taken by
+// another Prose instance on a developer machine.
+const MCP_PORT = process.env.PROSE_MCP_PORT ?? '9894'
 
 // Refusal wording differs by handler: file:read/save return the sanitized
 // FileOperationFailure message, file:listDirectory surfaces the helper's own.
@@ -87,7 +91,7 @@ test.beforeAll(async () => {
       })
 
   console.log('[918] launching')
-  const launched = await launchApp({ env: { PROSE_USER_DATA_DIR: userDataDir } })
+  const launched = await launchApp({ env: { PROSE_USER_DATA_DIR: userDataDir, PROSE_MCP_PORT: MCP_PORT } })
   app = launched.app
   page = launched.page
   console.log('[918] first window')
@@ -248,8 +252,7 @@ test('local-file: serves in-home images and refuses symlink escapes and non-imag
 
 test('MCP tools/call refuses tools outside the allowlist', async () => {
   const token = readFileSync(join(userDataDir, 'mcp-auth-token'), 'utf-8').trim()
-  // PROSE_MCP_PORT mirrors the app's override (local runs beside another Prose instance).
-  const mcpPort = process.env.PROSE_MCP_PORT ?? '9877'
+  const mcpPort = MCP_PORT
 
   type RpcReply =
     | { ok: true; json: Record<string, unknown> }

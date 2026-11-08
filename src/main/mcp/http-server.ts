@@ -1,38 +1,59 @@
 /**
- * HTTP/SSE MCP Server for Prose.
+ * MCP over Streamable HTTP on loopback, for clients that connect by URL
+ * (Claude Code, Codex, Open WebUI, LibreChat, ...): http://localhost:<port>/mcp.
  *
- * @deprecated This HTTP server is being replaced by Unix socket IPC (see socket-server.ts).
- * The socket approach allows mcp-stdio to communicate with Prose directly, enabling
- * on-demand launching and better integration with Claude Desktop. This HTTP server
- * will be removed in a future release.
+ * Serves both protocol eras from the shared server definition
+ * (src/shared/mcp/server.ts): 2026-07-28 requests per request, and 2025-era
+ * requests (2025-11-25 and earlier) through the SDK's stateless fallback, the
+ * same stateless shape this endpoint served before.
  *
- * Exposes MCP tools via HTTP with SSE transport, allowing Claude Desktop
- * to connect directly via URL: http://localhost:9877/mcp
+ * Every request passes, in order: the Host check (DNS-rebinding defence: a
+ * page on another site can't reach this port by pointing its own hostname at
+ * 127.0.0.1), the Origin check (browser callers), then the bearer token.
+ * The stdio bridge that Claude Desktop launches doesn't use this endpoint; it
+ * reaches the app over the Unix socket (socket-server.ts).
  */
 
 import { createServer, IncomingMessage, ServerResponse } from 'http'
+import type { AddressInfo } from 'net'
 import { timingSafeEqual } from 'crypto'
-import { Server } from '@modelcontextprotocol/sdk/server/index.js'
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema
-} from '@modelcontextprotocol/sdk/types.js'
-import { getToolsForMCP } from '../../shared/tools/registry'
+import { createMcpHandler, type McpHttpHandler } from '@modelcontextprotocol/server'
+import { hostHeaderValidation, originValidation, toNodeHandler } from '@modelcontextprotocol/node'
+import { createProseMcpServer, toCallToolResult } from '../../shared/mcp/server'
 import type { ToolResult } from '../../shared/tools/types'
 
-// PROSE_MCP_PORT overrides the default so concurrent agent/QA sessions on one
-// machine don't collide (mirrors PROSE_DEBUG_PORT).
-const HTTP_PORT = Number(process.env.PROSE_MCP_PORT) || 9877
-export const MCP_HTTP_PORT = HTTP_PORT
+/**
+ * Hostnames this endpoint answers to, for both `Host` and `Origin`.
+ * host.docker.internal is how Docker-hosted clients (Open WebUI, LibreChat)
+ * reach a server on the host.
+ */
+export const MCP_ALLOWED_HOSTNAMES = ['localhost', '127.0.0.1', '[::1]', 'host.docker.internal']
+
+/** The two protocol revisions this endpoint is tested against. */
+export const MCP_PROTOCOL_REVISIONS = ['2026-07-28', '2025-11-25']
 
 /**
- * HTTP MCP Server for direct Claude Desktop connection.
+ * The port for this instance: PROSE_MCP_PORT when set, else 9877 for the
+ * installed app and 9878 for unpackaged runs (dev, e2e), so a dev window
+ * never takes the installed app's port.
  */
+export function mcpHttpPort(isPackaged: boolean, env: NodeJS.ProcessEnv = process.env): number {
+  return Number(env.PROSE_MCP_PORT) || (isPackaged ? 9877 : 9878)
+}
+
+export interface McpHttpServerStartOptions {
+  /** 0 picks a free port (tests); read it back from `port`. */
+  port: number
+  /** The app version, reported as `serverInfo.version`. */
+  version: string
+}
+
 export class McpHttpServer {
   private httpServer: ReturnType<typeof createServer> | null = null
+  private mcpHandler: McpHttpHandler | null = null
   private onToolInvoke: ((name: string, args: unknown) => Promise<ToolResult>) | null = null
   private authToken: string | null = null
+  private listeningPort = 0
 
   /**
    * Set the authentication token for bearer auth.
@@ -49,108 +70,59 @@ export class McpHttpServer {
     this.onToolInvoke = handler
   }
 
-  /**
-   * Build a fresh MCP Server for ONE request.
-   *
-   * The endpoint runs the Streamable HTTP transport in stateless mode (a new
-   * transport per POST). The SDK's Protocol.connect() throws "Already connected"
-   * when a Server still holds a transport, so a single shared Server only ever
-   * answered the FIRST request — every later tools/list or tools/call threw
-   * inside the request handler and the response was never ended (the client
-   * hung or saw a reset). One Server per request is the documented stateless
-   * pattern and also makes concurrent requests safe.
-   */
-  private buildMcpServer(): Server {
-    const server = new Server(
-      {
-        name: 'Prose',
-        version: '1.0.0'
-      },
-      {
-        capabilities: {
-          tools: {}
-        }
-      }
-    )
-
-    server.setRequestHandler(ListToolsRequestSchema, async () => {
-      const tools = getToolsForMCP()
-      return {
-        tools: tools.map((tool) => ({
-          name: tool.name,
-          description: tool.description,
-          inputSchema: tool.inputSchema
-        }))
-      }
-    })
-
-    server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params
-
-      if (!this.onToolInvoke) {
-        return {
-          content: [{ type: 'text', text: 'No tool handler registered' }],
-          isError: true
-        }
-      }
-
-      try {
-        const result = await this.onToolInvoke(name, args ?? {})
-
-        if (result.success) {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: typeof result.data === 'string' ? result.data : JSON.stringify(result.data, null, 2)
-              }
-            ]
-          }
-        } else {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: `Error: ${result.error}${result.code ? ` (${result.code})` : ''}`
-              }
-            ],
-            isError: true
-          }
-        }
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`
-            }
-          ],
-          isError: true
-        }
-      }
-    })
-
-    return server
+  /** The port the server is listening on (0 before start). */
+  get port(): number {
+    return this.listeningPort
   }
 
   /**
    * Start the HTTP server.
    * Requires setAuthToken() to be called first.
    */
-  async start(): Promise<void> {
+  async start({ port, version }: McpHttpServerStartOptions): Promise<void> {
     if (!this.authToken) {
       throw new Error('Auth token must be set before starting HTTP server')
     }
-    // Create HTTP server
-    this.httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-      // Restrict CORS to localhost origins only
-      const origin = req.headers.origin
-      if (origin && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
-        res.setHeader('Access-Control-Allow-Origin', origin)
+    const authToken = this.authToken
+
+    // One stateless server instance per request, for either era.
+    this.mcpHandler = createMcpHandler(
+      () =>
+        createProseMcpServer({
+          version,
+          callTool: async (name, args) => {
+            if (!this.onToolInvoke) {
+              return { content: [{ type: 'text', text: 'No tool handler registered' }], isError: true }
+            }
+            return toCallToolResult(await this.onToolInvoke(name, args))
+          }
+        }),
+      {
+        legacy: 'stateless',
+        onerror: (err) => console.error('[MCP HTTP] Request failed:', err.message)
       }
+    )
+    const handleMcp = toNodeHandler(this.mcpHandler, {
+      onerror: (err) => console.error('[MCP HTTP] Adapter error:', err.message)
+    })
+    const validateHost = hostHeaderValidation(MCP_ALLOWED_HOSTNAMES)
+    const validateOrigin = originValidation(MCP_ALLOWED_HOSTNAMES)
+
+    this.httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+      // Both guards answer 403 themselves when they refuse.
+      if (!validateHost(req, res)) return
+      if (!validateOrigin(req, res)) return
+
+      // Only an allowed Origin gets this far, so reflecting it is safe.
+      const origin = req.headers.origin
+      if (origin) res.setHeader('Access-Control-Allow-Origin', origin)
       res.setHeader('Vary', 'Origin')
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, mcp-session-id, Authorization')
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Content-Type, Accept, Authorization, MCP-Protocol-Version, Mcp-Session-Id, Last-Event-ID'
+      )
+      res.setHeader('Access-Control-Expose-Headers', 'MCP-Protocol-Version, Mcp-Session-Id')
 
       if (req.method === 'OPTIONS') {
         res.writeHead(204)
@@ -158,7 +130,7 @@ export class McpHttpServer {
         return
       }
 
-      const url = new URL(req.url || '/', `http://localhost:${HTTP_PORT}`)
+      const url = new URL(req.url || '/', 'http://localhost')
 
       // Health check endpoint (no auth required)
       if (url.pathname === '/health') {
@@ -168,41 +140,19 @@ export class McpHttpServer {
       }
 
       // Verify bearer token authentication on all other endpoints
-      // (authToken is guaranteed set — start() throws without it)
       const authHeader = req.headers.authorization
-      const expected = `Bearer ${this.authToken}`
+      const expected = `Bearer ${authToken}`
       const valid = authHeader
         && authHeader.length === expected.length
         && timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
       if (!valid) {
-        res.writeHead(401, { 'Content-Type': 'application/json' })
+        res.writeHead(401, { 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer realm="Prose"' })
         res.end(JSON.stringify({ error: 'Unauthorized' }))
         return
       }
 
-      // MCP endpoint
       if (url.pathname === '/mcp') {
-        // Stateless mode: a fresh Server + transport per request (see buildMcpServer).
-        const server = this.buildMcpServer()
-        const transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: undefined
-        })
-        res.on('close', () => {
-          transport.close().catch(() => {})
-          server.close().catch(() => {})
-        })
-        try {
-          await server.connect(transport)
-          await transport.handleRequest(req, res)
-        } catch (err) {
-          console.error('[MCP HTTP] Request failed:', err)
-          if (!res.headersSent) {
-            res.writeHead(500, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ error: 'MCP request failed' }))
-          } else {
-            res.end()
-          }
-        }
+        await handleMcp(req, res)
         return
       }
 
@@ -211,9 +161,10 @@ export class McpHttpServer {
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({
           name: 'Prose MCP Server',
-          version: '1.0.0',
+          version,
           endpoint: '/mcp',
-          instructions: `Add http://localhost:${HTTP_PORT}/mcp as a Remote MCP server URL in Claude Desktop`
+          protocolRevisions: MCP_PROTOCOL_REVISIONS,
+          auth: 'Bearer token'
         }))
         return
       }
@@ -227,14 +178,14 @@ export class McpHttpServer {
     await new Promise<void>((resolve, reject) => {
       this.httpServer!.on('error', (err: NodeJS.ErrnoException) => {
         if (err.code === 'EADDRINUSE') {
-          console.error(`[MCP HTTP] Port ${HTTP_PORT} is already in use`)
+          console.error(`[MCP HTTP] Port ${port} is already in use`)
         }
         reject(err)
       })
 
-      this.httpServer!.listen(HTTP_PORT, '127.0.0.1', () => {
-        console.log(`[MCP HTTP] Server listening on http://127.0.0.1:${HTTP_PORT}`)
-        console.log(`[MCP HTTP] Claude Desktop URL: http://localhost:${HTTP_PORT}/mcp`)
+      this.httpServer!.listen(port, '127.0.0.1', () => {
+        this.listeningPort = (this.httpServer!.address() as AddressInfo).port
+        console.log(`[MCP HTTP] Server listening on http://127.0.0.1:${this.listeningPort}/mcp`)
         resolve()
       })
     })
@@ -244,12 +195,17 @@ export class McpHttpServer {
    * Stop the HTTP server.
    */
   async stop(): Promise<void> {
+    await this.mcpHandler?.close().catch(() => {})
+    this.mcpHandler = null
     if (this.httpServer) {
+      const server = this.httpServer
       await new Promise<void>((resolve) => {
-        this.httpServer!.close(() => resolve())
+        server.close(() => resolve())
+        server.closeAllConnections?.()
       })
       this.httpServer = null
     }
+    this.listeningPort = 0
 
     console.log('[MCP HTTP] Server stopped')
   }

@@ -2,8 +2,11 @@
 /**
  * MCP Server for Prose.
  *
- * This is a full MCP server that communicates with Claude Desktop via stdio
- * and with Prose via Unix socket. It can launch Prose on-demand if not running.
+ * The stdio bridge MCP clients launch (Claude Desktop, and any client that
+ * takes a command: Claude Code, Codex, LibreChat). It speaks MCP on stdio —
+ * both protocol eras, from the shared server definition
+ * (src/shared/mcp/server.ts) — and relays tool calls to the running app over
+ * its Unix socket. It can launch the installed app on demand.
  *
  * Usage in Claude Desktop config:
  * {
@@ -16,39 +19,25 @@
  * }
  */
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js'
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema
-} from '@modelcontextprotocol/sdk/types.js'
+import { serveStdio } from '@modelcontextprotocol/server/stdio'
+import type { CallToolResult } from '@modelcontextprotocol/server'
 import * as net from 'net'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import { spawn } from 'child_process'
-import { getToolsForMCP } from '../shared/tools/registry'
+import { createProseMcpServer } from '../shared/mcp/server'
+import { resolveProfile } from './profile'
 
-// Platform-aware userData path (must match Electron's app.getPath('userData')).
-// Always the installed app's profile: `npm run dev` uses "Prose Dev" (#971),
-// so Claude Desktop keeps talking to the installed app while dev runs.
-function getUserDataPath(): string {
-  switch (process.platform) {
-    case 'darwin':
-      return path.join(os.homedir(), 'Library', 'Application Support', 'Prose')
-    case 'win32':
-      return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Prose')
-    default: // linux, freebsd, etc.
-      return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'Prose')
-  }
-}
+/** Injected by the build (`build:mcp-stdio`): the app version this bridge shipped with. */
+declare const __PROSE_VERSION__: string | undefined
+const VERSION = typeof __PROSE_VERSION__ === 'string' ? __PROSE_VERSION__ : '0.0.0'
 
-const USER_DATA_PATH = getUserDataPath()
-const SOCKET_PATH = path.join(USER_DATA_PATH, 'prose.sock')
-const AUTH_TOKEN_PATH = path.join(USER_DATA_PATH, 'mcp-auth-token')
-
-// Tool definitions from shared registry (works without Prose running)
-const TOOLS = getToolsForMCP()
+// The profile this bridge serves (see profile.ts): the socket and the auth
+// token live in its folder.
+const PROFILE = resolveProfile({ env: process.env, scriptDir: __dirname, platform: process.platform, home: os.homedir() })
+const SOCKET_PATH = path.join(PROFILE.dir, 'prose.sock')
+const AUTH_TOKEN_PATH = path.join(PROFILE.dir, 'mcp-auth-token')
 
 // Per-tool execution timeouts (milliseconds)
 const TOOL_TIMEOUTS: Record<string, number> = {
@@ -165,6 +154,11 @@ async function ensureConnection(): Promise<net.Socket> {
 
   // Check if Prose is running
   if (!await canConnectToSocket()) {
+    // Only the installed app can be launched for its own profile; a dev or
+    // test profile belongs to an instance this bridge can't start.
+    if (!PROFILE.isInstalledApp) {
+      throw new Error(`Prose is not running (profile ${PROFILE.dir}). Start it and try again.`)
+    }
     console.error('[Prose MCP] Prose not running, launching...')
     launchProse()
 
@@ -337,15 +331,13 @@ async function sendRequest(
 /**
  * Execute a tool via Prose.
  */
-async function executeTool(
-  name: string,
-  args: Record<string, unknown>
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+async function executeTool(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
   const timeout = TOOL_TIMEOUTS[name] || DEFAULT_TIMEOUT
 
   try {
+    // The app answers in the MCP result shape already (socket-server.ts).
     const result = await sendRequest('tools/call', { name, arguments: args }, timeout)
-    return result as { content: Array<{ type: string; text: string }>; isError?: boolean }
+    return result as CallToolResult
   } catch (err) {
     return {
       content: [
@@ -360,45 +352,21 @@ async function executeTool(
 }
 
 /**
- * Main entry point.
+ * Main entry point: serve MCP on stdio. The opening exchange picks the
+ * protocol era for the connection; tools/list works without Prose running.
  */
-async function main(): Promise<void> {
-  console.error('[Prose MCP] Starting MCP server...')
-
-  // Create MCP server
-  const server = new Server(
-    {
-      name: 'Prose',
-      version: '1.0.0'
-    },
-    {
-      capabilities: {
-        tools: {}
-      }
-    }
-  )
-
-  // Register tools/list handler (works without Prose running)
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return { tools: TOOLS }
+function main(): void {
+  console.error(`[Prose MCP] Starting MCP server ${VERSION} for profile ${PROFILE.dir}`)
+  serveStdio(() => createProseMcpServer({ version: VERSION, callTool: executeTool }), {
+    onerror: (err) => console.error('[Prose MCP] Protocol error:', err.message)
   })
-
-  // Register tools/call handler
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params
-    return executeTool(name, (args ?? {}) as Record<string, unknown>)
-  })
-
-  // Create stdio transport
-  const transport = new StdioServerTransport()
-
-  // Connect server to transport
-  await server.connect(transport)
-
   console.error('[Prose MCP] MCP server running')
 }
 
-main().catch((err) => {
+// A failure while starting is fatal and must say why: the client only sees the process exit.
+try {
+  main()
+} catch (err) {
   console.error('[Prose MCP] Fatal error:', err)
   process.exit(1)
-})
+}

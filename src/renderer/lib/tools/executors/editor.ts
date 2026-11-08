@@ -19,6 +19,8 @@ import { getAISuggestions, parseMarkdownToSlice, sliceVisibleText } from '../../
 import { parseMarkdown, loadFrontmatterYaml, FRONTMATTER_REGEX } from '../../markdown'
 import { pipelineLog } from '../../aiPipelineLog'
 import { AI_REPLACEMENT_META } from '../../../extensions/comments'
+import { reviseSuggestionIn } from '../../../extensions/review-log/transactions'
+import { actorOfProvenance } from '../../../../shared/review/actor'
 
 /**
  * Target visible duration for a chunked streaming insertion. The number of
@@ -768,8 +770,9 @@ export function executeSuggestEdit(
     comment?: string
     search?: string
   },
-  ctx: ToolContext
-): ToolResult<{ suggested: boolean; suggestionId: string }> {
+  ctx: ToolContext,
+  opts: { revises?: string } = {}
+): ToolResult<{ suggested: boolean; suggestionId: string; revises?: string }> {
   const { handle, provenance } = ctx
 
   if (!handle) {
@@ -1030,6 +1033,16 @@ export function executeSuggestEdit(
   const contentStart = pos + 1
   const contentEnd = pos + node.nodeSize - 1
 
+  // A pending suggestion on this node is superseded by the new one, in the
+  // same transaction (#890): the mark would replace it anyway, and the review
+  // log must read that as a revision by the caller, not a rejection by the
+  // writer. `revise_suggestion` is this path aimed at one suggestion.
+  const replaced = suggestionIdsIn(handle.state.doc, contentStart, contentEnd)
+  if (opts.revises && !replaced.includes(opts.revises)) {
+    return toolError(`Suggestion "${opts.revises}" is not pending on this node`, 'SUGGESTION_NOT_FOUND')
+  }
+  const revisedBy = provenance?.actor ?? actorOfProvenance(provenance?.model)
+
   // An MCP call (#1237) marks the node without moving the writer's caret or
   // taking focus: select, mark and restore in one transaction. The mark adds
   // no content, so the saved positions still hold.
@@ -1037,6 +1050,10 @@ export function executeSuggestEdit(
   let chain = handle.chain()
   if (!ctx.preserveView) chain = chain.focus()
   chain = chain
+    .command(({ tr }) => {
+      for (const old of replaced) reviseSuggestionIn(tr, old, suggestionId, revisedBy)
+      return true
+    })
     .setTextSelection({ from: contentStart, to: contentEnd })
     .setAISuggestion({
       id: suggestionId,
@@ -1064,8 +1081,23 @@ export function executeSuggestEdit(
 
   return toolSuccess({
     suggested: true,
-    suggestionId
+    suggestionId,
+    // The pending suggestion this one replaced, named as list_suggestions names it.
+    ...(replaced.length > 0 ? { revises: replaced[0] } : {})
   })
+}
+
+/** The ids of the suggestion marks in a range of `doc`, first-seen order. */
+export function suggestionIdsIn(doc: PMNode, from: number, to: number): string[] {
+  const ids: string[] = []
+  doc.nodesBetween(from, to, (node) => {
+    for (const mark of node.marks) {
+      const id = mark.type.name === 'aiSuggestion' ? (mark.attrs.id as string | null) : null
+      if (id && !ids.includes(id)) ids.push(id)
+    }
+    return true
+  })
+  return ids
 }
 
 /** Suggestion data returned by list_diffs */
@@ -1103,7 +1135,7 @@ export function executeAcceptDiff(args: {
       return toolError(`Suggestion with id "${id}" not found`, 'DIFF_NOT_FOUND')
     }
 
-    const success = handle.commands.acceptAISuggestion(id)
+    const success = handle.commands.acceptAISuggestion(id, ctx.provenance?.actor)
     if (success) {
       return toolSuccess({ accepted: true, diffId: id, count: 1 })
     } else {
@@ -1113,7 +1145,7 @@ export function executeAcceptDiff(args: {
 
   // Accept all suggestions
   const count = suggestions.length
-  const success = handle.commands.acceptAllAISuggestions()
+  const success = handle.commands.acceptAllAISuggestions(ctx.provenance?.actor)
 
   if (success) {
     return toolSuccess({ accepted: true, count })
@@ -1149,7 +1181,7 @@ export function executeRejectDiff(args: {
       return toolError(`Suggestion with id "${id}" not found`, 'DIFF_NOT_FOUND')
     }
 
-    const success = handle.commands.rejectAISuggestion(id)
+    const success = handle.commands.rejectAISuggestion(id, ctx.provenance?.actor)
     if (success) {
       return toolSuccess({ rejected: true, diffId: id, count: 1 })
     } else {
@@ -1159,7 +1191,7 @@ export function executeRejectDiff(args: {
 
   // Reject all suggestions
   const count = suggestions.length
-  const success = handle.commands.rejectAllAISuggestions()
+  const success = handle.commands.rejectAllAISuggestions(ctx.provenance?.actor)
 
   if (success) {
     return toolSuccess({ rejected: true, count })

@@ -34,6 +34,7 @@ import { Comment } from '../../extensions/comments'
 import type { CommentOptions } from '../../extensions/comments/types'
 import { AISuggestion } from '../../extensions/ai-suggestions'
 import { AIAnnotations } from '../../extensions/ai-annotations'
+import { ReviewLog } from '../../extensions/review-log'
 import { NodeIds } from '../../extensions/node-ids'
 import { SearchHighlight } from '../../extensions/search-highlight'
 import { LinkHover } from '../../extensions/link-hover'
@@ -179,6 +180,8 @@ export function createEditorExtensions(options: EditorExtensionOptions = {}): Ex
       onCommentBlocked: options.onCommentBlocked
     }),
     AISuggestion,
+    // The review log (#1233): priority 10, after the record plugins it reads.
+    ReviewLog,
     AIAnnotations.configure({
       showTooltip: true
     }),

@@ -98,3 +98,13 @@ Connections and long-lived tokens (M2, #1236), document targeting (M3, #1237), n
     below 2).
   - Note for M2: the bridge targets Node 20 (v2's floor), and Claude Desktop runs it with the system `node`; the
     `.mcpb` in M2 removes that dependency.
+- **2026-11-07, after M4 (#890, `4f4d899`).** Merged `origin/main`. M4's seven tools (`reply_to_comment`,
+  `reopen_comment`, `list_suggestions`, `reply_to_suggestion`, `revise_suggestion`, `get_review_status`,
+  `list_review_events`) get titles, annotations (the three readers read-only; the others not destructive) and output
+  schemas from their executors' payloads, so they answer with `structuredContent` too; their shared descriptions were
+  already client-neutral. The server instructions now describe the review lifecycle (propose, revise, discuss; the
+  writer decides; outcomes through `list_review_events`). The tests that every MCP tool has metadata and an output
+  schema accepting its payload, and that the document tools keep `document`, cover the new tools through
+  `mcpToolNames`; `mcp-protocol` compares the bridge's tool list with the app's instead of a fixed 10. Unit 257/257;
+  `typecheck:renderer` 66, `typecheck:e2e` 6; M4's `mcp-review` (on port 9246) with the MCP, targeting, provenance
+  and review-log specs: all passed.

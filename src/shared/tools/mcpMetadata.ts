@@ -67,6 +67,42 @@ const tabSummary = object(
   ['tabId', 'title', 'isActive']
 )
 
+const optionalText = { type: ['string', 'null'] }
+
+const suggestionEntry = object(
+  {
+    id: string,
+    status: string,
+    originalText: optionalText,
+    suggestedText: optionalText,
+    explanation: optionalText,
+    createdAt: number,
+    by: string,
+    byKind: string,
+    feedback: { type: 'array', items: { type: 'object' } },
+    revises: string,
+    supersededBy: string,
+    decidedBy: string,
+    decidedAt: number
+  },
+  ['id', 'status']
+)
+
+const reviewEvent = object(
+  {
+    seq: number,
+    at: number,
+    kind: string,
+    by: string,
+    byKind: string,
+    suggestionId: string,
+    previousId: string,
+    threadId: string,
+    replyId: string
+  },
+  ['seq', 'kind']
+)
+
 export const MCP_TOOL_METADATA: Record<string, McpToolMetadata> = {
   read_document: {
     description:
@@ -132,5 +168,44 @@ export const MCP_TOOL_METADATA: Record<string, McpToolMetadata> = {
   select_tab: {
     annotations: { title: 'Select tab', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     outputSchema: object({ selected: boolean, tabId: string, title: string, path: { type: ['string', 'null'] } }, ['selected', 'tabId'])
+  },
+  // The review lifecycle (#890): agents propose, revise and discuss; the writer decides in Prose.
+  reply_to_comment: {
+    annotations: { title: 'Reply to comment', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    outputSchema: object({ replyId: string }, ['replyId'])
+  },
+  reopen_comment: {
+    annotations: { title: 'Reopen comment', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    outputSchema: object({ reopened: boolean }, ['reopened'])
+  },
+  list_suggestions: {
+    annotations: { title: 'List suggestions', readOnlyHint: true, openWorldHint: false },
+    outputSchema: object({ suggestions: { type: 'array', items: suggestionEntry } }, ['suggestions'])
+  },
+  reply_to_suggestion: {
+    annotations: { title: 'Reply to suggestion', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    outputSchema: object({ suggestionId: string }, ['suggestionId'])
+  },
+  revise_suggestion: {
+    annotations: { title: 'Revise suggestion', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    outputSchema: object({ suggestionId: string, revises: string }, ['suggestionId', 'revises'])
+  },
+  get_review_status: {
+    annotations: { title: 'Get review status', readOnlyHint: true, openWorldHint: false },
+    outputSchema: object(
+      {
+        pending: { type: 'array', items: string },
+        accepted: number,
+        rejected: number,
+        superseded: number,
+        openComments: number,
+        lastSeq: number
+      },
+      ['pending', 'lastSeq']
+    )
+  },
+  list_review_events: {
+    annotations: { title: 'List review events', readOnlyHint: true, openWorldHint: false },
+    outputSchema: object({ events: { type: 'array', items: reviewEvent }, nextSeq: number, more: boolean }, ['events', 'nextSeq'])
   }
 }

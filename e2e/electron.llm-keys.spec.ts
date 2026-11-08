@@ -82,16 +82,18 @@ test('Settings → LLM: the saved key shows by its last four; Clear, then a type
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('tab', { name: 'LLM' }).click()
 
-  const saved = dialog.getByTestId('llm-key-saved')
-  await expect(saved).toContainText('••••••••SEED')
-  await expect(dialog.locator('#apiKey')).toHaveCount(0)
+  // One row per provider (#1242); Anthropic's holds the seeded key.
+  const row = dialog.getByTestId('llm-key-row-anthropic')
+  const status = dialog.getByTestId('llm-key-status-anthropic')
+  await expect(status).toContainText('••••••••SEED')
+  await expect(dialog.locator('#apiKey-anthropic')).toHaveCount(0)
 
-  await saved.getByRole('button', { name: 'Clear' }).click()
-  await expect(saved).toHaveCount(0)
+  await row.getByRole('button', { name: 'Clear' }).click()
+  await expect(status).toHaveText('No key')
   await expect.poll(async () => (await loadSettings()).llm.keyStatus?.anthropic ?? null).toBeNull()
   expect(settingsOnDisk()).not.toContain(SEEDED)
 
-  await dialog.locator('#apiKey').fill(TYPED)
+  await dialog.locator('#apiKey-anthropic').fill(TYPED)
   await dialog.getByRole('button', { name: 'Save Changes' }).click()
   await expect(dialog).toHaveCount(0)
 
@@ -102,5 +104,5 @@ test('Settings → LLM: the saved key shows by its last four; Clear, then a type
 
   await page.evaluate(() => (window as any).__prose_account.openSettings())
   await page.getByRole('dialog').getByRole('tab', { name: 'LLM' }).click()
-  await expect(page.getByRole('dialog').getByTestId('llm-key-saved')).toContainText('••••••••TYPD')
+  await expect(page.getByRole('dialog').getByTestId('llm-key-status-anthropic')).toContainText('••••••••TYPD')
 })

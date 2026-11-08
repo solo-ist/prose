@@ -68,6 +68,8 @@ interface SettingsBase {
      * main (#1240), and `settings:save` drops this field.
      */
     keyStatus?: LLMKeyStatusMap
+    /** The model last used with each provider, restored when the writer switches back to it. */
+    modelByProvider?: Partial<Record<LLMProvider, string>>
     baseUrl?: string
     emojiIcons?: boolean
   }

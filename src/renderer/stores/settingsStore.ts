@@ -16,6 +16,9 @@ let loadInFlight: Promise<void> | null = null
 /** Tail of the settings-write chain; see `saveSettings`. */
 let saveQueue: Promise<void> = Promise.resolve()
 
+/** The provider whose live model list is being fetched, if any; see `fetchModels`. */
+let fetchingModelsFor: string | null = null
+
 type SettingsTab = 'general' | 'appearance' | 'editor' | 'llm' | 'integrations' | 'account'
 
 export const AI_CONSENT_VERSION = 1
@@ -103,6 +106,8 @@ interface SettingsState {
   // Live model list fetched from provider, cached in memory until next launch
   fetchedModels: ModelInfo[] | null
   fetchedModelsAt: number | null
+  /** The provider `fetchedModels` came from; read models through `useAvailableModels()`. */
+  fetchedModelsProvider: LLMProvider | null
   isFetchingModels: boolean
   dialogTab: SettingsTab
   effectiveTheme: 'dark' | 'light'
@@ -118,6 +123,12 @@ interface SettingsState {
   setAboutDialogOpen: (open: boolean) => void
   setModelPickerOpen: (open: boolean) => void
   fetchModels: () => Promise<void>
+  /**
+   * Make `provider` the one Prose Agents use. The model in use is remembered
+   * for the provider being left, and the new provider's remembered model (else
+   * its default) comes back. Keys are untouched: each provider keeps its own.
+   */
+  setActiveProvider: (provider: LLMProvider) => void
   /**
    * Hand a provider's key to main, which stores it (#1240). The store keeps
    * only the status main answers with. Resolves with main's error, if any.
@@ -278,6 +289,7 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
   isModelPickerOpen: false,
   fetchedModels: null,
   fetchedModelsAt: null,
+  fetchedModelsProvider: null,
   isFetchingModels: false,
   isAIConsentDialogOpen: false,
   dialogTab: 'general' as SettingsTab,
@@ -425,23 +437,40 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
   setModelPickerOpen: (open) => set({ isModelPickerOpen: open }),
 
   fetchModels: async () => {
-    const { settings, isFetchingModels } = get()
-    if (isFetchingModels) return
+    const { settings } = get()
+    const provider = settings.llm.provider
+    // One fetch per provider at a time; a switch mid-fetch starts the new provider's.
+    if (fetchingModelsFor === provider) return
     if (!hasProviderKey(settings.llm)) return
     if (typeof window === 'undefined' || !window.api?.fetchModels) return
 
+    fetchingModelsFor = provider
     set({ isFetchingModels: true })
     try {
       // Main reads the provider's saved key.
-      const result = await window.api.fetchModels({ provider: settings.llm.provider })
-      if (result.models && result.models.length > 0) {
-        set({ fetchedModels: result.models, fetchedModelsAt: Date.now() })
+      const result = await window.api.fetchModels({ provider })
+      // A list that arrives after the writer moved on belongs to the old provider.
+      if (result.models && result.models.length > 0 && get().settings.llm.provider === provider) {
+        set({ fetchedModels: result.models, fetchedModelsAt: Date.now(), fetchedModelsProvider: provider })
       }
     } catch (err) {
       console.warn('[settings] fetchModels failed:', err)
     } finally {
-      set({ isFetchingModels: false })
+      if (fetchingModelsFor === provider) fetchingModelsFor = null
+      set({ isFetchingModels: fetchingModelsFor !== null })
     }
+  },
+
+  setActiveProvider: (provider) => {
+    const llm = get().settings.llm
+    if (provider === llm.provider) return
+    const modelByProvider = { ...(llm.modelByProvider ?? {}), [llm.provider]: llm.model }
+    get().setLLMConfig({
+      provider,
+      model: modelByProvider[provider] ?? getDefaultModel(provider),
+      modelByProvider
+    })
+    if (hasProviderKey(get().settings.llm)) void get().fetchModels()
   },
 
   setAppearance: (patch) => {
@@ -469,7 +498,7 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
       },
       // A fetched model list belongs to the provider it came from.
       ...(config.provider && config.provider !== state.settings.llm.provider
-        ? { fetchedModels: null, fetchedModelsAt: null }
+        ? { fetchedModels: null, fetchedModelsAt: null, fetchedModelsProvider: null }
         : {})
     })),
 
@@ -480,6 +509,8 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
     try {
       const result = await window.api.setLlmKey({ provider, key })
       applyKeyStatus(set, result.status)
+      // A new key for the provider in use brings its live model list.
+      if (result.ok && provider === get().settings.llm.provider) void get().fetchModels()
       return result.ok ? { ok: true } : { ok: false, error: result.error }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : 'The key could not be saved' }
@@ -494,7 +525,7 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
       console.warn('[settings] clearLlmKey failed:', err)
       return
     }
-    if (provider === get().settings.llm.provider) set({ fetchedModels: null, fetchedModelsAt: null })
+    if (provider === get().settings.llm.provider) set({ fetchedModels: null, fetchedModelsAt: null, fetchedModelsProvider: null })
   },
 
   setEditorConfig: (config) =>

@@ -17,11 +17,12 @@ interface Props {
 }
 
 /**
- * Check if the user has an Anthropic API key from their LLM settings (main
- * reports which providers have a key; the renderer never holds one)
+ * Check if the user has an Anthropic API key in their LLM settings (main
+ * reports which providers have a key; the renderer never holds one). OCR is
+ * Claude vision, so main uses that key whichever provider chat uses (#1242).
  */
 function hasAnthropicLLMKey(settings: Settings): boolean {
-  return settings.llm?.provider === 'anthropic' && !!settings.llm?.keyStatus?.anthropic
+  return !!settings.llm?.keyStatus?.anthropic
 }
 
 export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) {
@@ -376,7 +377,7 @@ function RemarkableSettings({ settings, setRemarkableConfig }: Props) {
 
           {hasAnthropicLLMKey(settings) ? (
             <p className="text-xs text-muted-foreground">
-              Handwriting recognition uses your Anthropic API key from LLM settings.
+              Handwriting recognition uses your Anthropic API key from LLM settings, whichever provider chat uses.
             </p>
           ) : (
             <div className="space-y-2">

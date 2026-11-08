@@ -53,6 +53,8 @@ export function resolveStep(seq: readonly StepId[], step: StepId): StepId {
 export interface SummaryInput {
   ai: AiChoice
   keySaved: boolean
+  /** The provider whose key was saved (its label), named in the summary. */
+  keyProvider?: string
   crash: boolean
   direct: boolean
   skill: SideEffect
@@ -70,7 +72,7 @@ export interface SummaryRow {
 export function summaryRows(i: SummaryInput): SummaryRow[] {
   const rows: SummaryRow[] = []
   if (i.ai === 'none') rows.push({ label: 'AI assistance', value: 'Off', tone: 'muted' })
-  else if (i.keySaved) rows.push({ label: 'AI assistance', value: 'On · key in Keychain', tone: 'accept' })
+  else if (i.keySaved) rows.push({ label: 'AI assistance', value: `On · ${i.keyProvider ? `${i.keyProvider} key` : 'key'} in Keychain`, tone: 'accept' })
   else rows.push({ label: 'AI assistance', value: 'On · add a key in Settings', tone: 'foreground' })
   rows.push({ label: 'Crash reports', value: i.crash ? 'On' : 'Off', tone: i.crash ? 'foreground' : 'muted' })
   if (i.direct) {

@@ -43,6 +43,8 @@ export interface ProviderInfo {
   thinking: boolean
   /** A format check for a typed key, before it is tested against the provider. */
   keyFormat?: { prefix: string; minLength: number }
+  /** Where a writer creates a key (onboarding and Settings link to it). */
+  keysUrl: string
   /**
    * Which ids from the provider's live model list are chat models. OpenAI's
    * `/v1/models` also lists embeddings, audio, image and Responses-only models.
@@ -94,6 +96,7 @@ export const PROVIDERS: Record<LLMProvider, ProviderInfo> = {
     smallModel: 'claude-haiku-4-5',
     thinking: true,
     keyFormat: { prefix: 'sk-ant-', minLength: 40 },
+    keysUrl: 'https://console.anthropic.com/settings/keys',
   },
   openai: {
     id: 'openai',
@@ -107,6 +110,7 @@ export const PROVIDERS: Record<LLMProvider, ProviderInfo> = {
     smallModel: 'gpt-5-mini',
     thinking: false,
     keyFormat: { prefix: 'sk-', minLength: 20 },
+    keysUrl: 'https://platform.openai.com/api-keys',
     liveModels: {
       include: /^(gpt-|o\d|chatgpt-)/,
       exclude: /(audio|realtime|transcribe|tts|image|embedding|search|instruct|moderation|codex|computer-use|deep-research|-pro\b)/,

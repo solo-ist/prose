@@ -60,3 +60,14 @@ writer start on either provider, and Prose Agent records that read well for Open
   on OpenAI verifies and saves the key and makes OpenAI active; (4) an OpenAI turn's suggestion reads "By Prose ·
   GPT-5". A1's and A2's specs move to the per-provider field ids.
 - Baselines: `typecheck:renderer` 66, `typecheck:e2e` 6 (`tsc -p tsconfig.node.json` 18 if shared changes touch it).
+
+## Execution log
+
+- **2026-11-08.** `ed33071` plan · `ded51d1` the change + tests. Unit 257 passed (new `llm.test.ts` 3, actor and
+  summary cases). `electron.provider-settings.spec.ts` 4/4 on the branch, **4/4 failing on a build of `18b2ab6`**;
+  related specs green (llm-keys, openai-provider, settings-account, onboarding from a copy on port 9245,
+  suggestion-popover, provenance, app-store-import). `typecheck:renderer` 66, `tsc -p tsconfig.node.json` 18,
+  `typecheck:e2e` 6, all at base. Renderer + shared only (not gated).
+- Found on the way: a real mouse click on a suggestion mark right after the chat's tool turn fired no `click`
+  event in the spec (the popover listens for `click`), while a dispatched click opens it. The label case dispatches
+  the click; `electron.suggestion-popover.spec.ts` keeps covering pointer handling.

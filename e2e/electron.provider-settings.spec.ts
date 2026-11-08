@@ -202,8 +202,8 @@ test("an OpenAI turn's suggestion reads \"By Prose · GPT-5\"", async () => {
 
   const mark = page.locator('.ai-suggestion-mark').first()
   await expect(mark).toBeVisible({ timeout: 15_000 })
-  // The popover opens from a click on the mark; dispatched, since this case
-  // checks the label, not pointer handling (electron.suggestion-popover covers that).
-  await mark.dispatchEvent('click')
+  // A real click, with focus still in the chat input: the blurred editor's
+  // selection highlight sits over the mark and must not swallow the click (#1264).
+  await mark.click()
   await expect(page.getByTestId('suggestion-actor')).toHaveText('By Prose · GPT-5')
 })

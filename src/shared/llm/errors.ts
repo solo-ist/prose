@@ -35,10 +35,20 @@ export interface LlmErrorProvider {
   billingHint?: string
 }
 
-const QUOTA_CODES = new Set(['insufficient_quota', 'billing_hard_limit_reached', 'budget_exceeded', 'billing_not_active'])
+/**
+ * Codes (or types) meaning the account can't be billed for the request:
+ * - `insufficient_quota`: OpenAI, no credits left (sent with HTTP 429);
+ * - `billing_hard_limit_reached`: OpenAI, the account's spend limit is hit;
+ * - `billing_not_active`: OpenAI, no active billing on the account ("Your
+ *   account is not active, please check your billing details"), also a 429;
+ * - `budget_exceeded`: LiteLLM (Inference Coop, A3), the key's budget is spent.
+ * All need the writer to act on the account; none clears by waiting.
+ */
+const QUOTA_CODES = new Set(['insufficient_quota', 'billing_hard_limit_reached', 'billing_not_active', 'budget_exceeded'])
 const RATE_LIMIT_CODES = new Set(['rate_limit_exceeded', 'rate_limit_error', 'requests', 'tokens'])
 const AUTH_CODES = new Set(['invalid_api_key', 'authentication_error', 'permission_error', 'invalid_request_error_auth'])
-const QUOTA_TEXT = /insufficient[_ ]quota|no credits|credit balance is too low|exceeded your current quota|billing|budget (has been )?exceeded|budget_exceeded|out of credits/i
+// Specific phrases only: a bare "billing" would also catch e.g. "Billing address required".
+const QUOTA_TEXT = /insufficient[_ ]quota|no credits|credit balance is too low|exceeded your current quota|billing[_ ](hard[_ ])?limit|budget (has been )?exceeded|budget_exceeded|out of credits/i
 
 type Loose = Record<string, unknown>
 

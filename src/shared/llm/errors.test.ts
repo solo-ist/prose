@@ -61,6 +61,16 @@ describe('classifyLlmError (#1268)', () => {
     expect(message).not.toMatch(/wait/i)
   })
 
+  it("OpenAI's billing_not_active (an account without active billing, HTTP 429) is quota too", () => {
+    const inactive = openaiError(429, {
+      message: 'Your account is not active, please check your billing details on our website.',
+      type: 'billing_not_active',
+      code: 'billing_not_active',
+    })
+    expect(classifyLlmError(inactive).kind).toBe('quota')
+    expect(isRetryableError(inactive)).toBe(false)
+  })
+
   it("OpenAI's rate_limit_exceeded stays a retried rate limit, with OpenAI's own wording", () => {
     const info = classifyLlmError(RATE_LIMITED)
     expect(info.kind).toBe('rate_limit')
@@ -111,6 +121,11 @@ describe('classifyLlmError (#1268)', () => {
     expect(other.kind).toBe('other')
     expect(llmErrorMessage(other)).toBe('The model `gpt-9` does not exist')
     expect(isRetryableLlmError(other)).toBe(false)
+  })
+
+  it('only specific billing phrases count as quota, not any mention of billing', () => {
+    expect(classifyLlmError(new ChatCompletionsError('HTTP 400: Billing address required for this region', 400)).kind).toBe('other')
+    expect(classifyLlmError(new Error('You have reached your billing hard limit')).kind).toBe('quota')
   })
 
   it('a bare message (an older main, the send-catch path) classifies the same way', () => {

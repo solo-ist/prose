@@ -13,6 +13,8 @@ export const PROSE_MCP_INSTRUCTIONS = [
   '- Follow the outcome through list_review_events: get_review_status gives the latest seq, and list_review_events with ' +
     '`since` returns what happened after it (accepted, rejected, feedback, replies). Decisions take as long as the writer ' +
     'needs, so poll later instead of waiting inside a call.',
+  '- After a rejection, revise_suggestion on the rejected id proposes again on the same paragraph and links the two; the ' +
+    'rejection stays in the history. An accepted suggestion is final: use suggest_edit for any further change.',
   '- Read before you suggest: call read_document for node ids (get_outline for just the headings), then suggest_edit with the ' +
     'innermost nodeId and the original text in search.',
   "- Document tools act on the active tab unless you pass `document` (a documentId or path from list_tabs) to work on another " +

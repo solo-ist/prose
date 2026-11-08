@@ -152,11 +152,12 @@ describe('back: the SSE stream as text, reasoning and tool calls (#1241)', () =>
     expect(acc.finish().toolCalls).toEqual([{ id: 'c', name: 'read_document', args: {} }])
   })
 
-  it('a name some gateways repeat whole in later chunks is not doubled', () => {
+  it('the first name wins: a repeat, or a different name on the same index, is ignored', () => {
     const acc = new ChatStreamAccumulator()
     acc.push(sse(delta({ tool_calls: [{ index: 0, id: 'c', function: { name: 'read_document', arguments: '{' } }] })))
-    acc.push(sse(delta({ tool_calls: [{ index: 0, function: { name: 'read_document', arguments: '}' } }] })))
-    expect(acc.finish().toolCalls[0].name).toBe('read_document')
+    acc.push(sse(delta({ tool_calls: [{ index: 0, function: { name: 'read_document', arguments: '' } }] })))
+    acc.push(sse(delta({ tool_calls: [{ index: 0, function: { name: 'get_outline', arguments: '}' } }] })))
+    expect(acc.finish().toolCalls).toEqual([{ id: 'c', name: 'read_document', args: {} }])
   })
 
   it('reasoning is reported cumulatively; usage chunks and comments are ignored', () => {

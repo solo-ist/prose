@@ -75,6 +75,9 @@ export function toChatMessages(system: string, messages: LLMMessage[]): ChatMess
   if (system) out.push({ role: 'system', content: system })
   for (const m of messages) {
     if (m.role === 'tool') {
+      // The tool loop always sets it; without one the model can't match the
+      // result to its call, so make a regression visible.
+      if (!m.tool_call_id) console.error('[chatCompletions] A tool result has no tool_call_id')
       out.push({ role: 'tool', tool_call_id: m.tool_call_id ?? '', content: textOf(m.content) })
       continue
     }
@@ -240,9 +243,11 @@ export class ChatStreamAccumulator {
         this.calls.set(index, call)
       }
       if (tc.id && !call.id) call.id = tc.id
-      // The name usually arrives once; some gateways repeat it whole in later chunks.
+      // The name arrives once; some gateways repeat it in later chunks. The
+      // first one wins, so a repeat (or a gateway bug sending another name for
+      // the same index) can't corrupt the call.
       const name = tc.function?.name
-      if (name) call.name = call.name && name !== call.name ? call.name + name : name
+      if (name && !call.name) call.name = name
       if (tc.function?.arguments) call.args += tc.function.arguments
       if (!call.started && call.id && call.name) {
         call.started = true

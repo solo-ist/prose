@@ -104,6 +104,16 @@ describe('MCP tool metadata', () => {
     }
   })
 
+  it('a tool missing its metadata fails with its name, not a bare TypeError', () => {
+    const saved = MCP_TOOL_METADATA.get_outline
+    delete MCP_TOOL_METADATA.get_outline
+    try {
+      expect(() => getToolsForMCP()).toThrow('MCP metadata missing for tool: get_outline')
+    } finally {
+      MCP_TOOL_METADATA.get_outline = saved
+    }
+  })
+
   it('output schemas really validate', async () => {
     const suggest = getToolsForMCP().find((t) => t.name === 'suggest_edit')!
     expect(await accepts(suggest.outputSchema, { suggested: true })).toBe(false)

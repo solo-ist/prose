@@ -8,6 +8,7 @@ import type { Settings } from '../renderer/types'
 import { withRetry, getNetworkErrorMessage } from '../shared/utils/retry'
 import { getDefaultModel, getSmallModel, supportsAdaptiveThinking, getThinkingOffMode } from '../shared/llm/models'
 import { getProvider, isProvider } from '../shared/llm/providers'
+import { buildChatBody, listChatModels, streamChatCompletion } from './chatCompletions'
 import { getSettingsDir, LEGACY_SETTINGS_DIR, normalizePath, resolveWithin, resolveToolPath, IMAGE_EXTENSIONS } from './paths'
 import type { FileAccessOptions } from '../shared/fileAccess'
 import { clearRecentFiles } from './recentFiles'
@@ -1005,6 +1006,11 @@ export function setupIpcHandlers(): void {
           })
           return { success: true, message: 'API key is valid' }
         }
+        case 'chat-completions': {
+          // Listing models validates the key without spending tokens.
+          await listChatModels({ baseURL: getProvider(provider).baseURL, apiKey })
+          return { success: true, message: 'API key is valid' }
+        }
         default: {
           // A transport added to ProviderTransport without a case here fails to compile.
           const unhandled: never = transport
@@ -1080,6 +1086,16 @@ export function setupIpcHandlers(): void {
             }))
           return { models }
         }
+        case 'chat-completions': {
+          // Live ids filtered to chat models; the seed's names where it knows them.
+          const info = getProvider(provider)
+          const ids = await listChatModels({ baseURL: info.baseURL, apiKey }, info.liveModels)
+          const models = ids.map((id) => {
+            const known = info.models.find((m) => m.id === id)
+            return known ? { id, name: known.name, description: known.description } : { id, name: id }
+          })
+          return { models }
+        }
         default: {
           // A transport added to ProviderTransport without a case here fails to compile.
           const unhandled: never = transport
@@ -1097,7 +1113,27 @@ export function setupIpcHandlers(): void {
     if (!isProvider(request.provider)) throw new Error(`Unknown provider: ${request.provider}`)
     const apiKey = await resolveProviderKey(request.provider)
     if (!apiKey) throw new Error('No API key configured. Add one in Settings.')
-    const transport = getProvider(request.provider).transport
+    const info = getProvider(request.provider)
+    const transport = info.transport
+    if (transport === 'chat-completions') {
+      try {
+        const body = buildChatBody({
+          model: request.model,
+          system: request.system,
+          messages: request.messages,
+          reasoningEffort: info.chatCompletions?.reasoningEffort
+        })
+        const { content } = await withRetry(
+          () => streamChatCompletion({ baseURL: info.baseURL, apiKey }, body),
+          { maxRetries: 2 }
+        )
+        return { content }
+      } catch (error) {
+        console.error('[LLM] Error:', error)
+        if (error instanceof Error) error.message = getNetworkErrorMessage(error)
+        throw error
+      }
+    }
     if (transport !== 'anthropic') {
       // A transport added to ProviderTransport without a path here fails to compile.
       const unhandled: never = transport
@@ -1173,16 +1209,71 @@ export function setupIpcHandlers(): void {
     }
     const provider = getProvider(request.provider)
     const transport = provider.transport
+
+    const abortController = new AbortController()
+    activeStreams.set(streamId, abortController)
+
+    // Chat Completions (OpenAI, OpenAI-compatible gateways): one adapter for
+    // the tool and non-tool cases, sending the same events as the Anthropic
+    // path so the renderer's loop can't tell them apart (#1241).
+    if (transport === 'chat-completions') {
+      try {
+        const body = buildChatBody({
+          model: request.model,
+          system: request.system,
+          messages: request.messages,
+          tools: toolDefinitions,
+          maxTokens: request.maxTokens,
+          reasoningEffort: provider.chatCompletions?.reasoningEffort
+        })
+        const { content, toolCalls } = await streamChatCompletion(
+          { baseURL: provider.baseURL, apiKey },
+          body,
+          {
+            onText: (delta) => {
+              if (abortController.signal.aborted) return
+              event.sender.send('llm:stream:chunk', { streamId, delta })
+            },
+            onReasoning: (snapshot) => {
+              if (abortController.signal.aborted) return
+              event.sender.send('llm:stream:thinking:delta', { streamId, thinking: snapshot })
+            },
+            onToolCallStart: (toolCallId, toolName) => {
+              if (abortController.signal.aborted) return
+              event.sender.send('llm:stream:tool-call:start', { streamId, toolCallId, toolName })
+            }
+          },
+          abortController.signal
+        )
+        for (const toolCall of toolCalls) {
+          event.sender.send('llm:stream:tool-call', { streamId, toolCall })
+        }
+        event.sender.send('llm:stream:complete', {
+          streamId,
+          content,
+          toolCalls: toolCalls.length > 0 ? toolCalls : undefined
+        })
+        return { success: true }
+      } catch (error) {
+        if (abortController.signal.aborted) {
+          event.sender.send('llm:stream:complete', { streamId, content: '' })
+          return { success: true }
+        }
+        console.error('[LLM:stream] Chat Completions error:', error)
+        event.sender.send('llm:stream:error', { streamId, error: getNetworkErrorMessage(error) })
+        return { success: false }
+      } finally {
+        activeStreams.delete(streamId)
+      }
+    }
     if (transport !== 'anthropic') {
       // Both paths below speak Anthropic. A transport added to
       // ProviderTransport without its own path here fails to compile.
       const unhandled: never = transport
+      activeStreams.delete(streamId)
       event.sender.send('llm:stream:error', { streamId, error: `Unhandled transport: ${unhandled as string}` })
       return { success: false }
     }
-
-    const abortController = new AbortController()
-    activeStreams.set(streamId, abortController)
 
     // For Anthropic with tools, use the Anthropic SDK directly to avoid AI SDK tool format issues
     if (toolDefinitions && toolDefinitions.length > 0) {
@@ -1711,31 +1802,14 @@ export function setupIpcHandlers(): void {
   // Emoji: Generate emoji for a tab title (runs in main process to avoid CORS)
   ipcMain.handle('emoji:generate', async (_event, title: string, contentPreview?: string): Promise<{ emoji: string | null; error?: string }> => {
     try {
-      // Read settings to check provider, then get API key from secure storage
-      let settings: Settings
-      try {
-        const content = await readFile(getSettingsPath(), 'utf-8')
-        settings = { ...defaultSettings, ...JSON.parse(content) }
-      } catch {
-        settings = defaultSettings
-      }
-
-      // The provider's key, read in main (#1240). A provider this build
-      // doesn't know (settings from a newer version) has no key here.
-      if (!isProvider(settings.llm.provider)) {
-        return { emoji: null, error: 'no-api-key' }
-      }
-      const provider = getProvider(settings.llm.provider)
+      // Tab emoji are Anthropic-only (Claude Haiku), whichever provider chat
+      // uses: the Anthropic key, read in main (#1240). Settings enables the
+      // switch only when that key is saved and says so (#1241).
+      const provider = getProvider('anthropic')
       const apiKey = await resolveProviderKey(provider.id)
 
       if (!apiKey) {
         return { emoji: null, error: 'no-api-key' }
-      }
-      const transport = provider.transport
-      if (transport !== 'anthropic') {
-        // A transport added to ProviderTransport without a path here fails to compile.
-        const unhandled: never = transport
-        return { emoji: null, error: `Unhandled transport: ${unhandled as string}` }
       }
 
       const Anthropic = (await import('@anthropic-ai/sdk')).default

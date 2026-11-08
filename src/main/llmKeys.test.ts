@@ -52,6 +52,20 @@ describe('llmKeys (#1240)', () => {
     expect(await keyStatusAll()).toEqual({ anthropic: { hint: 'WXYZ', persisted: false } })
   })
 
+  it("each provider has its own key: OpenAI's never resolves as Anthropic's (#1241)", async () => {
+    await setProviderKey('anthropic', KEY)
+    await setProviderKey('openai', 'sk-proj-' + 'o'.repeat(40) + 'OPEN')
+    expect(h.stored.get('llm-api-key')).toBe(KEY)
+    expect(h.stored.get('llm-api-key-openai')).toMatch(/OPEN$/)
+    expect(await keyStatusAll()).toEqual({
+      anthropic: { hint: 'WXYZ', persisted: true },
+      openai: { hint: 'OPEN', persisted: true },
+    })
+    await clearProviderKey('openai')
+    expect(await resolveProviderKey('openai')).toBeNull()
+    expect(await resolveProviderKey('anthropic')).toBe(KEY)
+  })
+
   it('refuses an empty or oversized key', async () => {
     await expect(setProviderKey('anthropic', '   ')).rejects.toThrow(/empty/)
     await expect(setProviderKey('anthropic', 'k'.repeat(5000))).rejects.toThrow(/too long/)
@@ -108,6 +122,6 @@ describe('llmKeys (#1240)', () => {
     const disk = stripLlmSecretsForDisk(settings)
     expect(JSON.stringify(disk)).not.toContain(KEY)
     expect(disk.llm).toEqual({ provider: 'anthropic', model: 'm' })
-    expect(stripLlmSecretsForDisk({ theme: 'dark' })).toEqual({ theme: 'dark' })
+    expect(stripLlmSecretsForDisk({ theme: 'dark' } as { llm?: Record<string, unknown> })).toEqual({ theme: 'dark' })
   })
 })

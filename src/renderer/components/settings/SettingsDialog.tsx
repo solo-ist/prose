@@ -33,6 +33,7 @@ import { AppStoreImportSettingsRow } from '../appStoreImport/AppStoreImportDialo
 import type { Settings } from '../../types'
 import { Eye, EyeOff, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
 import { getModelsForProvider, getDefaultModel, type LLMProvider } from '../../../shared/llm/models'
+import { PROVIDERS, PROVIDER_IDS, getProvider } from '../../../shared/llm/providers'
 import { validateApiKeyFormat, validateUrl, maskKeyHint, hasProviderKey } from '../../lib/llm'
 
 /** Extract the primary font name from a CSS font-family stack */
@@ -182,7 +183,7 @@ export function SettingsDialog() {
     if (isDialogOpen && hasKey) {
       fetchModels()
     }
-  }, [isDialogOpen, hasKey, fetchModels])
+  }, [isDialogOpen, hasKey, settings.llm.provider, fetchModels])
 
   // Check if we're the default handler when dialog opens
   useEffect(() => {
@@ -608,7 +609,9 @@ export function SettingsDialog() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="anthropic">Anthropic</SelectItem>
+                  {PROVIDER_IDS.map((id) => (
+                    <SelectItem key={id} value={id}>{PROVIDERS[id].label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -646,7 +649,7 @@ export function SettingsDialog() {
                   id="model"
                   value={settings.llm.model}
                   onChange={(e) => setLLMConfig({ model: e.target.value })}
-                  placeholder={`e.g., ${getDefaultModel('anthropic')}`}
+                  placeholder={`e.g., ${getDefaultModel(settings.llm.provider as LLMProvider)}`}
                 />
               ) : (
                 <Select
@@ -685,7 +688,7 @@ export function SettingsDialog() {
                       type={showApiKey ? 'text' : 'password'}
                       value={keyDraft}
                       onChange={(e) => setKeyDraft(e.target.value)}
-                      placeholder={savedKey ? 'Enter a new API key' : 'Enter your API key'}
+                      placeholder={`${savedKey ? 'Enter a new' : 'Enter your'} ${getProvider(settings.llm.provider).label} API key`}
                       autoComplete="off"
                       spellCheck={false}
                       className={apiKeyFormatError ? 'border-amber-500 pr-10' : 'pr-10'}
@@ -790,14 +793,14 @@ export function SettingsDialog() {
               <div className="space-y-0.5">
                 <Label htmlFor="emojiIcons">Emoji Tab Icons</Label>
                 <p className="text-xs text-muted-foreground">
-                  Show AI-generated emoji icons on all tabs
+                  Show AI-generated emoji icons on all tabs. Uses your Anthropic key (Claude Haiku), whichever provider chat uses.
                 </p>
               </div>
               <Switch
                 id="emojiIcons"
                 checked={settings.llm.emojiIcons ?? false}
                 onCheckedChange={(checked) => setLLMConfig({ emojiIcons: checked })}
-                disabled={!hasKey}
+                disabled={!settings.llm.keyStatus?.anthropic}
               />
             </div>
             </div>{/* end AI features wrapper */}

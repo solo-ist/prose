@@ -201,6 +201,8 @@ export function getToolsForMCP(): McpToolDefinition[] {
     .filter((tool) => (mcpToolNames as readonly string[]).includes(tool.name))
     .map((tool) => {
       const meta = MCP_TOOL_METADATA[tool.name]
+      // A tool on the MCP list needs its metadata (mcpMetadata.ts); say which one, not a bare TypeError.
+      if (!meta) throw new Error(`MCP metadata missing for tool: ${tool.name}`)
       return {
         name: tool.name,
         title: meta.annotations.title,

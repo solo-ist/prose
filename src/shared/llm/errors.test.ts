@@ -61,6 +61,16 @@ describe('classifyLlmError (#1268)', () => {
     expect(message).not.toMatch(/wait/i)
   })
 
+  it("OpenAI's billing_not_active (an account without active billing, HTTP 429) is quota too", () => {
+    const inactive = openaiError(429, {
+      message: 'Your account is not active, please check your billing details on our website.',
+      type: 'billing_not_active',
+      code: 'billing_not_active',
+    })
+    expect(classifyLlmError(inactive).kind).toBe('quota')
+    expect(isRetryableError(inactive)).toBe(false)
+  })
+
   it("OpenAI's rate_limit_exceeded stays a retried rate limit, with OpenAI's own wording", () => {
     const info = classifyLlmError(RATE_LIMITED)
     expect(info.kind).toBe('rate_limit')

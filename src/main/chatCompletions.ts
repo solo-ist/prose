@@ -375,8 +375,9 @@ export async function streamChatCompletion(
 /**
  * Whether the account behind a key has run out of credits (#1268). Listing
  * models works on an empty account, so the key test also sends the smallest
- * completion; only a quota answer counts (resolves with that error). Anything
- * else, success or failure, resolves null: `/models` already proved the key.
+ * completion (a fixed "Hi", never the writer's text); only a quota answer
+ * counts (resolves with that error). Anything else, success or failure,
+ * resolves null: `/models` already proved the key.
  */
 export async function probeChatQuota(target: ChatTarget, model: string): Promise<ChatCompletionsError | null> {
   try {

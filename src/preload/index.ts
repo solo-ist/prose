@@ -147,6 +147,22 @@ export interface McpInstallResult {
   error?: string
 }
 
+/** An MCP connection (#1236): a client's named, revocable token. The token itself is never listed. */
+export interface McpConnection {
+  id: string
+  label: string
+  createdAt: number
+  lastUsedAt: number | null
+}
+
+export type McpConnectionResult<T> = { ok: true; value: T } | { ok: false; error: string }
+
+export interface McpEndpointInfo {
+  available: boolean
+  port: number
+  url: string
+}
+
 export interface ElectronAPI {
   openFile: () => Promise<FileResult | null>
   saveFile: (path: string, content: string, opts?: FileAccessOptions) => Promise<void>
@@ -225,7 +241,8 @@ export interface ElectronAPI {
   ) => () => void
   // MCP tool execution (only used in MCP server mode)
   onMcpToolInvoke: (
-    callback: (requestId: string, toolName: string, args: unknown) => void
+    // `actor`: who the call is from, built by main (#1236); the renderer re-validates it.
+    callback: (requestId: string, toolName: string, args: unknown, actor: unknown) => void
   ) => () => void
   sendMcpToolResult: (requestId: string, result: ToolResult) => void
   // MCP server status
@@ -259,6 +276,12 @@ export interface ElectronAPI {
   mcpGetStatus: () => Promise<McpServerStatus>
   mcpInstall: () => Promise<McpInstallResult>
   mcpUninstall: () => Promise<McpInstallResult>
+  // MCP connections (#1236)
+  mcpListConnections: () => Promise<McpConnectionResult<McpConnection[]>>
+  mcpCreateConnection: (label: string) => Promise<McpConnectionResult<{ connection: McpConnection; token: string }>>
+  mcpRenameConnection: (id: string, label: string) => Promise<McpConnectionResult<McpConnection>>
+  mcpRevokeConnection: (id: string) => Promise<McpConnectionResult<null>>
+  mcpEndpoint: () => Promise<McpEndpointInfo>
   // Release notes for the post-update modal (bundled per version)
   getReleaseNotes: (version: string) => Promise<ReleaseNotes | null>
   // Emoji generation (runs in main process to avoid CORS)
@@ -461,14 +484,15 @@ const api: ElectronAPI = {
     }
   },
   // MCP tool execution
-  onMcpToolInvoke: (callback: (requestId: string, toolName: string, args: unknown) => void) => {
+  onMcpToolInvoke: (callback: (requestId: string, toolName: string, args: unknown, actor: unknown) => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
       requestId: string,
       toolName: string,
-      args: unknown
+      args: unknown,
+      actor: unknown
     ): void => {
-      callback(requestId, toolName, args)
+      callback(requestId, toolName, args, actor)
     }
     ipcRenderer.on('mcp:tool:invoke', handler)
     return () => {
@@ -588,6 +612,11 @@ const api: ElectronAPI = {
   mcpGetStatus: () => ipcRenderer.invoke('mcp:getStatus'),
   mcpInstall: () => ipcRenderer.invoke('mcp:install'),
   mcpUninstall: () => ipcRenderer.invoke('mcp:uninstall'),
+  mcpListConnections: () => ipcRenderer.invoke('mcp:connections:list'),
+  mcpCreateConnection: (label: string) => ipcRenderer.invoke('mcp:connections:create', label),
+  mcpRenameConnection: (id: string, label: string) => ipcRenderer.invoke('mcp:connections:rename', id, label),
+  mcpRevokeConnection: (id: string) => ipcRenderer.invoke('mcp:connections:revoke', id),
+  mcpEndpoint: () => ipcRenderer.invoke('mcp:endpoint'),
   // Release notes
   getReleaseNotes: (version: string) => ipcRenderer.invoke('releaseNotes:get', version),
   // Emoji generation

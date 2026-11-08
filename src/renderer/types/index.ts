@@ -527,6 +527,16 @@ export interface SharePulledComment {
   createdAt: string
 }
 
+/** An MCP connection (#1236): a client's named, revocable token. The token itself is never listed. */
+export interface McpConnection {
+  id: string
+  label: string
+  createdAt: number
+  lastUsedAt: number | null
+}
+
+export type McpConnectionResult<T> = { ok: true; value: T } | { ok: false; error: string }
+
 export interface ElectronAPI {
   openFile: () => Promise<FileResult | null>
   saveFile: (path: string, content: string, opts?: FileAccessOptions) => Promise<void>
@@ -618,7 +628,8 @@ export interface ElectronAPI {
   ) => () => void
   // MCP tool execution (only used in MCP server mode)
   onMcpToolInvoke: (
-    callback: (requestId: string, toolName: string, args: unknown) => void
+    // `actor`: who the call is from, built by main (#1236). Untrusted here: read it through mcpActorFrom.
+    callback: (requestId: string, toolName: string, args: unknown, actor?: unknown) => void
   ) => () => void
   sendMcpToolResult: (requestId: string, result: ToolResult) => void
   // MCP server status
@@ -634,6 +645,12 @@ export interface ElectronAPI {
   }>
   mcpInstall: () => Promise<{ success: boolean; error?: string }>
   mcpUninstall: () => Promise<{ success: boolean; error?: string }>
+  // MCP connections (#1236): Settings → Integrations → Connections. The token is returned once, by create.
+  mcpListConnections?: () => Promise<McpConnectionResult<McpConnection[]>>
+  mcpCreateConnection?: (label: string) => Promise<McpConnectionResult<{ connection: McpConnection; token: string }>>
+  mcpRenameConnection?: (id: string, label: string) => Promise<McpConnectionResult<McpConnection>>
+  mcpRevokeConnection?: (id: string) => Promise<McpConnectionResult<null>>
+  mcpEndpoint?: () => Promise<{ available: boolean; port: number; url: string }>
   // Release notes for the post-update modal (#1058); null when this version ships none
   getReleaseNotes: (version: string) => Promise<{ version: string; markdown: string } | null>
   // File association (default markdown editor)

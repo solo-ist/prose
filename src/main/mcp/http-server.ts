@@ -9,7 +9,9 @@
  *
  * Every request passes, in order: the Host check (DNS-rebinding defence: a
  * page on another site can't reach this port by pointing its own hostname at
- * 127.0.0.1), the Origin check (browser callers), then the bearer token.
+ * 127.0.0.1), the Origin check (browser callers), then the bearer token: a
+ * connection's token (#1236; the connection is who the calls are from), or
+ * the per-launch token in `<userData>/mcp-auth-token`.
  * The stdio bridge that Claude Desktop launches doesn't use this endpoint; it
  * reaches the app over the Unix socket (socket-server.ts).
  */
@@ -17,9 +19,11 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http'
 import type { AddressInfo } from 'net'
 import { timingSafeEqual } from 'crypto'
-import { createMcpHandler, type McpHttpHandler } from '@modelcontextprotocol/server'
+import { createMcpHandler, type AuthInfo, type McpHttpHandler } from '@modelcontextprotocol/server'
 import { hostHeaderValidation, originValidation, toNodeHandler } from '@modelcontextprotocol/node'
 import { createProseMcpServer, toCallToolResult } from '../../shared/mcp/server'
+import { connectionActor, launchActor, LAUNCH_CONNECTION_ID } from '../../shared/mcp/actor'
+import type { McpAgentActor } from '../../shared/review/actor'
 import type { ToolResult } from '../../shared/tools/types'
 
 /**
@@ -41,6 +45,18 @@ export function mcpHttpPort(isPackaged: boolean, env: NodeJS.ProcessEnv = proces
   return Number(env.PROSE_MCP_PORT) || (isPackaged ? 9877 : 9878)
 }
 
+/** Runs a tool call from a client; `actor` is who it is from, built here, never from the arguments. */
+export type McpToolInvoker = (name: string, args: unknown, actor: McpAgentActor) => Promise<ToolResult>
+
+/** The connection a bearer token belongs to, or null. */
+export type McpConnectionResolver = (token: string) => { id: string; label: string } | null
+
+/** Who a request authenticated as; rides to the server factory as the SDK's pass-through `authInfo`. */
+interface Caller {
+  id: string
+  label: string
+}
+
 export interface McpHttpServerStartOptions {
   /** 0 picks a free port (tests); read it back from `port`. */
   port: number
@@ -51,7 +67,8 @@ export interface McpHttpServerStartOptions {
 export class McpHttpServer {
   private httpServer: ReturnType<typeof createServer> | null = null
   private mcpHandler: McpHttpHandler | null = null
-  private onToolInvoke: ((name: string, args: unknown) => Promise<ToolResult>) | null = null
+  private onToolInvoke: McpToolInvoker | null = null
+  private resolveConnection: McpConnectionResolver | null = null
   private authToken: string | null = null
   private listeningPort = 0
 
@@ -66,8 +83,24 @@ export class McpHttpServer {
   /**
    * Set the tool invocation handler.
    */
-  setToolInvokeHandler(handler: (name: string, args: unknown) => Promise<ToolResult>): void {
+  setToolInvokeHandler(handler: McpToolInvoker): void {
     this.onToolInvoke = handler
+  }
+
+  /** Accept connection tokens (#1236) besides the per-launch token. */
+  setConnectionResolver(resolve: McpConnectionResolver): void {
+    this.resolveConnection = resolve
+  }
+
+  /** Who a bearer header authenticates as: the launch token, else a connection's token. */
+  private authenticate(header: string | undefined, launchToken: string): Caller | null {
+    if (!header?.startsWith('Bearer ')) return null
+    const expected = `Bearer ${launchToken}`
+    if (header.length === expected.length && timingSafeEqual(Buffer.from(header), Buffer.from(expected))) {
+      return { id: LAUNCH_CONNECTION_ID, label: '' }
+    }
+    const connection = this.resolveConnection?.(header.slice('Bearer '.length).trim())
+    return connection ? { id: connection.id, label: connection.label } : null
   }
 
   /** The port the server is listening on (0 before start). */
@@ -85,18 +118,23 @@ export class McpHttpServer {
     }
     const authToken = this.authToken
 
-    // One stateless server instance per request, for either era.
+    // One stateless server instance per request, for either era; the caller
+    // authenticated below arrives as the SDK's pass-through authInfo.
     this.mcpHandler = createMcpHandler(
-      () =>
-        createProseMcpServer({
+      ({ authInfo }) => {
+        const caller = authInfo?.extra?.caller as Caller | undefined
+        return createProseMcpServer({
           version,
-          callTool: async (name, args) => {
-            if (!this.onToolInvoke) {
+          callTool: async (name, args, { client }) => {
+            if (!this.onToolInvoke || !caller) {
               return { content: [{ type: 'text', text: 'No tool handler registered' }], isError: true }
             }
-            return toCallToolResult(await this.onToolInvoke(name, args))
+            const actor =
+              caller.id === LAUNCH_CONNECTION_ID ? launchActor('http', client) : connectionActor(caller, 'http', client)
+            return toCallToolResult(await this.onToolInvoke(name, args, actor))
           }
-        }),
+        })
+      },
       {
         legacy: 'stateless',
         onerror: (err) => console.error('[MCP HTTP] Request failed:', err.message)
@@ -139,20 +177,18 @@ export class McpHttpServer {
         return
       }
 
-      // Verify bearer token authentication on all other endpoints
-      const authHeader = req.headers.authorization
-      const expected = `Bearer ${authToken}`
-      const valid = authHeader
-        && authHeader.length === expected.length
-        && timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
-      if (!valid) {
+      // Verify bearer token authentication on all other endpoints. A revoked
+      // connection's token no longer resolves, so it fails here at once.
+      const caller = this.authenticate(req.headers.authorization, authToken)
+      if (!caller) {
         res.writeHead(401, { 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer realm="Prose"' })
         res.end(JSON.stringify({ error: 'Unauthorized' }))
         return
       }
 
       if (url.pathname === '/mcp') {
-        await handleMcp(req, res)
+        const auth: AuthInfo = { token: 'redacted', clientId: caller.id, scopes: [], extra: { caller } }
+        await handleMcp(Object.assign(req, { auth }), res)
         return
       }
 

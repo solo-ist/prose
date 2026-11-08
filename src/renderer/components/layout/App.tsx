@@ -76,6 +76,7 @@ import { useNotificationStore } from '../../stores/notificationStore'
 import type { DraftState, SessionState } from '../../lib/persistence'
 import { executeTool } from '../../lib/tools'
 import { splitMcpTarget } from '../../lib/tools/mcpTarget'
+import { mcpActorFrom, LAUNCH_CONNECTION_ID, DEFAULT_CONNECTION_LABEL } from '../../../shared/mcp/actor'
 import { isMcpToolName } from '../../../shared/tools/registry'
 import { useReviewMode, useWasChatOpenBeforeReview, usePreviousChatWidth, useReviewStore, type ReviewMode } from '../../stores/reviewStore'
 import { chatOpenDefaultPct, reviewChatWidthPct } from '../../hooks/usePanelLayout'
@@ -796,7 +797,7 @@ export function App() {
   // Handle MCP tool invocations (only active in MCP server mode)
   useEffect(() => {
     if (!window.api?.onMcpToolInvoke) return
-    const unsubscribe = window.api.onMcpToolInvoke(async (requestId, toolName, args) => {
+    const unsubscribe = window.api.onMcpToolInvoke(async (requestId, toolName, args, sentActor) => {
       try {
         // A `document` argument targets an open tab (#1237); without one the
         // call acts on the active tab. Either way it keeps the writer's
@@ -823,9 +824,11 @@ export function App() {
             conversationId: requestId,
             messageId: requestId,
             documentId: documentId ?? '',
-            // Until connections (#1236) let main name the client, every MCP
-            // call is the bundled bridge's (#1232).
-            actor: { kind: 'mcp-agent', connectionId: 'launch', connectionLabel: 'MCP client' },
+            // Who the call is from: main builds it from the connection the
+            // token resolved to, or the stdio bridge's clientInfo (#1236).
+            // Never from the tool arguments; without one (a call sent by
+            // hand), the per-launch connection, as before.
+            actor: mcpActorFrom(sentActor) ?? { kind: 'mcp-agent', connectionId: LAUNCH_CONNECTION_ID, connectionLabel: DEFAULT_CONNECTION_LABEL },
           },
           target.binding,
           { preserveView: true }

@@ -59,3 +59,8 @@ export function reviewLogPluginState(state: EditorState): ReviewLogPluginState |
 export function reviewLogOf(state: EditorState): StoredReviewLog {
   return reviewLogPluginState(state)?.log ?? EMPTY_STORED
 }
+
+/** For `useActiveSession`: the active document's log, reference-stable between changes; empty with no document. */
+export function selectReviewLog(state: EditorState | null): StoredReviewLog {
+  return state ? reviewLogOf(state) : EMPTY_STORED
+}

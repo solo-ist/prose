@@ -110,9 +110,10 @@ test.describe('Electron — Activity panel', () => {
     await activityTab.waitFor({ state: 'visible', timeout: 5_000 })
     await activityTab.click()
 
-    // Badge shows the total (2) while superseded are included.
+    // Badge shows the total while superseded are included: the two AI edits
+    // and, since #1234, the two accepted suggestions that made them.
     const badge = page.getByTestId('activity-count-badge')
-    await expect(badge).toHaveText('2')
+    await expect(badge).toHaveText('4')
     await expect(page.getByTestId('annotation-detached-badge')).toBeVisible()
 
     // The filter is a funnel dropdown of per-category toggles (#685/#699).
@@ -124,14 +125,14 @@ test.describe('Electron — Activity panel', () => {
     await page.waitForSelector('[role="menu"]')
     await page.getByRole('menuitem', { name: 'Superseded' }).click()
 
-    // Superseded hidden → badge drops to current-only (1), detached row gone.
-    await expect(badge).toHaveText('1')
+    // Superseded hidden → badge drops by the detached edit (3), detached row gone.
+    await expect(badge).toHaveText('3')
     await expect(page.getByTestId('annotation-detached-badge')).toHaveCount(0)
 
     // "Show all" resets every category and closes the menu.
     await page.getByRole('menuitem', { name: 'Show all' }).click()
     await expect(page.locator('[role="menu"]')).not.toBeVisible()
-    await expect(badge).toHaveText('2')
+    await expect(badge).toHaveText('4')
     await expect(page.getByTestId('annotation-detached-badge')).toBeVisible()
   })
 

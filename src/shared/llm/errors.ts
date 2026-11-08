@@ -38,7 +38,8 @@ export interface LlmErrorProvider {
 const QUOTA_CODES = new Set(['insufficient_quota', 'billing_hard_limit_reached', 'budget_exceeded', 'billing_not_active'])
 const RATE_LIMIT_CODES = new Set(['rate_limit_exceeded', 'rate_limit_error', 'requests', 'tokens'])
 const AUTH_CODES = new Set(['invalid_api_key', 'authentication_error', 'permission_error', 'invalid_request_error_auth'])
-const QUOTA_TEXT = /insufficient[_ ]quota|no credits|credit balance is too low|exceeded your current quota|billing|budget (has been )?exceeded|budget_exceeded|out of credits/i
+// Specific phrases only: a bare "billing" would also catch e.g. "Billing address required".
+const QUOTA_TEXT = /insufficient[_ ]quota|no credits|credit balance is too low|exceeded your current quota|billing[_ ](hard[_ ])?limit|budget (has been )?exceeded|budget_exceeded|out of credits/i
 
 type Loose = Record<string, unknown>
 

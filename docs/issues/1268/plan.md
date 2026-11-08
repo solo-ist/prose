@@ -85,3 +85,5 @@ The same module adds:
 - Unit 341 (`errors.test.ts` 9 on real bodies and the Anthropic / AI SDK error classes; `chatCompletions.test.ts`
   +3). e2e: the no-credits case in `openai-provider.spec.ts`; the tool-loop case now counts only streamed requests
   (the key test's probe is not streamed); the stub answers HTTP-error steps and probes. Typecheck 66 / 18 / 6.
+- **Review 1** (one functional note): the quota text matched a bare "billing", which would also catch e.g. "Billing
+  address required". Tightened to the specific phrases; a test pins both sides.

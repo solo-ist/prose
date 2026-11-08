@@ -113,6 +113,11 @@ describe('classifyLlmError (#1268)', () => {
     expect(isRetryableLlmError(other)).toBe(false)
   })
 
+  it('only specific billing phrases count as quota, not any mention of billing', () => {
+    expect(classifyLlmError(new ChatCompletionsError('HTTP 400: Billing address required for this region', 400)).kind).toBe('other')
+    expect(classifyLlmError(new Error('You have reached your billing hard limit')).kind).toBe('quota')
+  })
+
   it('a bare message (an older main, the send-catch path) classifies the same way', () => {
     expect(classifyLlmError('HTTP 429: You have no credits remaining.').kind).toBe('quota')
     expect(classifyLlmError('OpenAI rate limit: Rate limit reached for gpt-5').kind).toBe('rate_limit')

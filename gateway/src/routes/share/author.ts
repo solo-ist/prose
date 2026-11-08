@@ -9,7 +9,8 @@
  */
 import { Hono } from 'hono'
 import { prisma } from '../../db/index.js'
-import { putArtifact, deleteArtifact } from '../../artifacts/index.js'
+import { putArtifact, deleteArtifact, discardObject, isSealed } from '../../artifacts/index.js'
+import { createArtifactKeys } from '../../artifacts/crypto.js'
 import type { AppEnv } from '../../middleware/session.js'
 import {
   MAX_ARTIFACT_BYTES,
@@ -83,8 +84,10 @@ shareAuthorRoutes.post('/publish', async (c) => {
       // are namespaced by publication id).
     },
   })
-  const stored = await putArtifact(pub.id, body.html)
-  await prisma.publication.update({ where: { id: pub.id }, data: stored })
+  // The token is in hand only here: seal the artifact to it (artifacts/crypto.ts).
+  const keys = createArtifactKeys(token, pub.id)
+  const stored = await putArtifact(pub.id, body.html, keys.encPublicKey)
+  await prisma.publication.update({ where: { id: pub.id }, data: { ...stored, ...keys } })
 
   return c.json(
     {
@@ -123,16 +126,34 @@ shareAuthorRoutes.put('/:pubId/publish', async (c) => {
     await prisma.publication.update({ where: { id: pub.id }, data: { hostLabel } })
   }
 
-  const stored = await putArtifact(pub.id, body.html)
-  const updated = await prisma.publication.update({
-    where: { id: pub.id },
-    data: {
-      ...stored,
-      title,
-      publishRev: extractPublishRev(body.html) ?? pub.publishRev,
-      revCount: { increment: 1 },
-    },
-  })
+  // Re-publish carries no token, so it seals to the stored public key. A row
+  // from before encryption has none and stays plaintext until its next view
+  // seals it. The key fields are written explicitly: if a view sealed the
+  // row after it was read here, its keys must not stay paired with these
+  // plaintext bytes.
+  const sealed = isSealed(pub)
+  const stored = await putArtifact(pub.id, body.html, sealed ? pub.encPublicKey : null)
+  let updated
+  try {
+    updated = await prisma.publication.update({
+      // revokedAt: a revoke that landed after the read above wins; this
+      // revision must not revive the bytes or keys it shredded.
+      where: { id: pub.id, revokedAt: null },
+      data: {
+        ...stored,
+        encPublicKey: sealed ? pub.encPublicKey : null,
+        encWrappedKey: sealed ? pub.encWrappedKey : null,
+        title,
+        publishRev: extractPublishRev(body.html) ?? pub.publishRev,
+        revCount: { increment: 1 },
+      },
+    })
+  } catch (err) {
+    await discardObject(stored.r2Key)
+    if ((err as { code?: string }).code === 'P2025') return c.json({ error: 'revoked' }, 409)
+    throw err
+  }
+  await discardObject(pub.storage === 'r2' ? pub.r2Key : null)
 
   // Return the publication's origin (#917) so the desktop can reconstruct the
   // canonical shareUrl after SHARE_SUBDOMAINS is enabled. We do NOT echo the

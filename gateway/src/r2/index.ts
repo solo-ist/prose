@@ -22,7 +22,9 @@ export const r2Configured = Boolean(
 export const r2: S3Client | null = r2Configured
   ? new S3Client({
       region: 'auto',
-      endpoint: `https://${config.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      endpoint: config.R2_ENDPOINT ?? `https://${config.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      // The test suite's mock S3 server serves /<bucket>/<key>.
+      forcePathStyle: Boolean(config.R2_ENDPOINT),
       credentials: {
         accessKeyId: config.R2_ACCESS_KEY_ID as string,
         secretAccessKey: config.R2_SECRET_ACCESS_KEY as string,

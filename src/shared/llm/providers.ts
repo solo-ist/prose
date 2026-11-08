@@ -3,8 +3,9 @@
  *
  * One entry per provider. Main reads it to call the provider and to find the
  * provider's key; the renderer reads it for the model picker and the key field.
- * Anthropic is the only entry today; OpenAI (#1241) and Inference Coop (#956)
- * add theirs.
+ * Anthropic speaks its own API; OpenAI speaks Chat Completions through one
+ * adapter in main (src/main/chatCompletions.ts), which Inference Coop (#956)
+ * reuses with its own base URL and models.
  */
 
 export interface ModelInfo {
@@ -13,10 +14,15 @@ export interface ModelInfo {
   description?: string
 }
 
-export type LLMProvider = 'anthropic'
+export type LLMProvider = 'anthropic' | 'openai'
 
-/** How main talks to the provider. */
-export type ProviderTransport = 'anthropic'
+/**
+ * How main talks to the provider: Anthropic's Messages API through its SDK, or
+ * the Chat Completions API (OpenAI and OpenAI-compatible gateways such as
+ * LiteLLM) through `src/main/chatCompletions.ts`. Every switch on it in main is
+ * exhaustive, so a new transport fails to compile until each path handles it.
+ */
+export type ProviderTransport = 'anthropic' | 'chat-completions'
 
 export interface ProviderInfo {
   id: LLMProvider
@@ -37,6 +43,13 @@ export interface ProviderInfo {
   thinking: boolean
   /** A format check for a typed key, before it is tested against the provider. */
   keyFormat?: { prefix: string; minLength: number }
+  /**
+   * Which ids from the provider's live model list are chat models. OpenAI's
+   * `/v1/models` also lists embeddings, audio, image and Responses-only models.
+   */
+  liveModels?: { include?: RegExp; exclude?: RegExp }
+  /** Chat Completions request options the provider needs (A3 sets `reasoningEffort: 'none'` for the co-op). */
+  chatCompletions?: { reasoningEffort?: string }
 }
 
 /**
@@ -57,6 +70,16 @@ export const ANTHROPIC_MODELS: ModelInfo[] = [
   { id: 'claude-opus-5-5', name: 'Claude Opus 5.5', description: 'Most capable model' },
 ]
 
+/**
+ * A seed shown until a key is saved and the live list replaces it. Checked
+ * against the live list at the first live smoke (the operator's key).
+ */
+export const OPENAI_MODELS: ModelInfo[] = [
+  { id: 'gpt-5', name: 'GPT-5', description: 'Most capable' },
+  { id: 'gpt-5-mini', name: 'GPT-5 mini', description: 'Faster, more economical' },
+  { id: 'gpt-4.1', name: 'GPT-4.1', description: 'Non-reasoning' },
+]
+
 export const PROVIDERS: Record<LLMProvider, ProviderInfo> = {
   anthropic: {
     id: 'anthropic',
@@ -71,6 +94,23 @@ export const PROVIDERS: Record<LLMProvider, ProviderInfo> = {
     smallModel: 'claude-haiku-4-5',
     thinking: true,
     keyFormat: { prefix: 'sk-ant-', minLength: 40 },
+  },
+  openai: {
+    id: 'openai',
+    label: 'OpenAI',
+    transport: 'chat-completions',
+    baseURL: 'https://api.openai.com/v1',
+    credentialKey: 'llm-api-key-openai',
+    models: OPENAI_MODELS,
+    modelsSource: 'live+static',
+    defaultModel: 'gpt-5',
+    smallModel: 'gpt-5-mini',
+    thinking: false,
+    keyFormat: { prefix: 'sk-', minLength: 20 },
+    liveModels: {
+      include: /^(gpt-|o\d|chatgpt-)/,
+      exclude: /(audio|realtime|transcribe|tts|image|embedding|search|instruct|moderation|codex|computer-use|deep-research|-pro\b)/,
+    },
   },
 }
 

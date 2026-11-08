@@ -215,7 +215,7 @@ Most handlers live in `src/main/ipc.ts` (86 across 14 namespaces). A few sit clo
 
 - `file:*` (22) - File operations (open, save, read, rename, delete, trash, duplicate, watch, export HTML, MAS bookmark activation, etc.) — 20 handlers in `ipc.ts`, plus `file:watch:start` and `file:watch:stop` in `fileWatcher.ts`
 - `settings:*` (4) - Settings persistence, secure storage check, API key test
-- `llm:chat`, `llm:fetchModels`, `llm:stream`, `llm:stream:abort` - LLM API calls (streaming via Anthropic SDK); the request names a provider and main reads its key
+- `llm:chat`, `llm:fetchModels`, `llm:stream`, `llm:stream:abort` - LLM API calls (the Anthropic SDK, or the Chat Completions adapter for OpenAI); the request names a provider and main reads its key
 - `llm:keyStatus`, `llm:setKey`, `llm:clearKey` - Per-provider API keys: the renderer sets or clears a key and reads back only its status (#1240)
 - `remarkable:*` (20) - reMarkable tablet sync (register, validate, sync, sync:abort, OCR, folder move, etc.)
 - `mcp:*` (3) - MCP server status, install, uninstall for Claude Desktop
@@ -299,9 +299,9 @@ convention (design: `docs/architecture/editor-state.md` §3.3; the tripwires in
 
 ### LLM Integration
 
-**Providers** are listed in `src/shared/llm/providers.ts` (transport, base URL, credential key, models, small model, thinking). Anthropic is the only entry today; OpenAI (#1241) and Inference Coop (#956) add theirs. **Keys stay in main** (`src/main/llmKeys.ts`): the renderer never holds one. It sees `settings.llm.keyStatus` (each provider's last four characters and whether the key persists), stores a key with `setLlmKey` and clears it with `clearLlmKey`; `settings:save` never stores a key.
+**Providers** are listed in `src/shared/llm/providers.ts` (transport, base URL, credential key, models, small model, thinking, live-model filter): Anthropic (`transport: 'anthropic'`, its SDK) and OpenAI (`transport: 'chat-completions'`). Every switch on the transport in main is exhaustive (a `never` default), so a new one fails to compile until each path handles it. Inference Coop (#956) is a Chat Completions entry with its own base URL. **Anthropic-only, whatever the chat provider:** tab emoji (Claude Haiku) and reMarkable OCR read the Anthropic key. **Keys stay in main** (`src/main/llmKeys.ts`): the renderer never holds one. It sees `settings.llm.keyStatus` (each provider's last four characters and whether the key persists), stores a key with `setLlmKey` and clears it with `clearLlmKey`; `settings:save` never stores a key.
 
-LLM calls flow: `useChat` hook → `getApi().llmChatStream()` → IPC → main process → Anthropic SDK (with tools) or Vercel AI SDK (without)
+LLM calls flow: `useChat` hook → `getApi().llmChatStream()` → IPC → main process → Anthropic SDK (with tools) or Vercel AI SDK (without), or for a Chat Completions provider `src/main/chatCompletions.ts` (tools or not). The adapter translates Prose's Anthropic-shaped messages and tools out and the SSE stream back into the same `llm:stream:*` events, so `useChat` never knows which API answered.
 
 **Gating AI entry points:** any UI or background path that triggers an LLM call must gate on the single source of truth in `lib/llm.ts` — `isAIConfigured(settings)` / `aiAvailability(settings)` (consent **and** valid config), or the `useAIConfigured()` hook in components. Disable user-initiated controls with an explanation when unavailable, fire `notifyAINotConfigured()` for blocked actions whose surface may be hidden, and silently no-op auto-fired calls (e.g. summaries). Never destroy user content (comments, suggestions) on a blocked call.
 

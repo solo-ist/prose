@@ -193,6 +193,24 @@ export const replyToCommentConfig: ToolConfig<typeof replyToCommentSchema> = {
 }
 
 // ============================================================================
+// reopen_comment (#890)
+// ============================================================================
+
+export const reopenCommentSchema = z.object({
+  id: z.string().describe('ID of a resolved comment thread, from list_comments.')
+})
+
+export const reopenCommentConfig: ToolConfig<typeof reopenCommentSchema> = {
+  name: 'reopen_comment',
+  description:
+    'Reopen a resolved comment thread: it becomes active again and its highlight returns when its text is still in the document. Use it when a resolved point needs more discussion.',
+  schema: reopenCommentSchema,
+  category: 'document',
+  requiresMode: 'editor',
+  dangerous: false
+}
+
+// ============================================================================
 // Export all document tools
 // ============================================================================
 
@@ -205,5 +223,6 @@ export const documentTools = [
   listCommentsConfig,
   addCommentConfig,
   resolveCommentConfig,
-  replyToCommentConfig
+  replyToCommentConfig,
+  reopenCommentConfig
 ] as const

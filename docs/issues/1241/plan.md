@@ -78,3 +78,12 @@ refetches for the new one.
   tool result back as a `tool` message. Falsified on a build of A1's head.
 - Live smoke (later, the operator's budget-capped key through the keychain prompt): the QA block's live checks.
 - Baselines (A1 head, after a build): `typecheck:renderer` 66, `tsc -p tsconfig.node.json` 19, `typecheck:e2e` 6.
+
+## Execution log
+
+- **2026-11-07.** `6732666` plan · `59992a2` the change + tests. Unit 223 passed (`chatCompletions.test.ts` 15,
+  provider and key cases for OpenAI). `electron.openai-provider.spec.ts` 2/2 on the branch, **2/2 failing on a build of
+  A1's head `c7f4e82`** (no OpenAI option). Related specs green: llm-keys, settings-account, ai-provenance,
+  ai-edit-lifecycle, seed-settings, onboarding and document-sessions cases 11/12 (temporary copies on port 9245).
+  `typecheck:renderer` 66 = base; `tsc -p tsconfig.node.json` 18 (base 19: A1's `llmKeys.test.ts` literal typed);
+  `typecheck:e2e` 6 = base. CLAUDE.md LLM section and the A2 QA block (live checks for the operator's key).

@@ -1,5 +1,8 @@
 import type { ToolResult } from '../../shared/tools/types'
 import type { FileAccessOptions } from '../../shared/fileAccess'
+import type { LLMKeyStatusMap, LLMProvider } from '../../shared/llm/providers'
+
+import type { AppStoreImportKeysResult, AppStoreImportStart, AppStoreImportStatus } from '../../shared/appStoreImport'
 
 /**
  * A named project — a root-folder workspace. Think Obsidian vaults or
@@ -57,9 +60,14 @@ export type LegacyTheme = 'light' | 'dark' | 'system' | 'termy-green-light' | 't
 
 interface SettingsBase {
   llm: {
-    provider: 'anthropic'
+    provider: LLMProvider
     model: string
-    apiKey: string
+    /**
+     * Which providers have a key, filled by main on every settings load and
+     * after `setLlmKey` / `clearLlmKey`. Never the key itself: keys stay in
+     * main (#1240), and `settings:save` drops this field.
+     */
+    keyStatus?: LLMKeyStatusMap
     baseUrl?: string
     emojiIcons?: boolean
   }
@@ -365,7 +373,6 @@ export interface LLMToolDefinition {
 export interface LLMRequest {
   provider: string
   model: string
-  apiKey: string
   baseUrl?: string
   messages: LLMMessage[]
   system: string
@@ -441,8 +448,16 @@ export interface McpStatus {
 
 export interface TestApiKeyRequest {
   provider: string
-  apiKey: string
+  /** A typed key not yet saved; without one, main tests the provider's saved key. */
+  apiKey?: string
   baseUrl?: string
+}
+
+/** What `setLlmKey` answers: the key status map, never a key (#1240). */
+export interface SetLlmKeyResult {
+  ok: boolean
+  error?: string
+  status: LLMKeyStatusMap
 }
 
 export interface TestApiKeyResult {
@@ -523,10 +538,15 @@ export interface ElectronAPI {
   loadSettings: () => Promise<SettingsOnDisk>
   saveSettings: (settings: Settings) => Promise<void>
   testApiKey: (request: TestApiKeyRequest) => Promise<TestApiKeyResult>
-  fetchModels: (request: { provider: string; apiKey: string }) => Promise<{
+  fetchModels: (request: { provider: string; apiKey?: string }) => Promise<{
     models?: Array<{ id: string; name: string; description?: string }>
     error?: string
   }>
+  /** Which providers have a key (last four characters, whether it persists). */
+  getLlmKeyStatus: () => Promise<LLMKeyStatusMap>
+  /** Hand a key to main, which stores it; the renderer keeps no copy. */
+  setLlmKey: (request: { provider: string; key: string }) => Promise<SetLlmKeyResult>
+  clearLlmKey: (provider: string) => Promise<LLMKeyStatusMap>
   isSecureStorageAvailable: () => Promise<boolean>
   onMenuAction: (callback: (action: string) => void) => () => void
   onFileOpenExternal: (callback: (path: string) => void) => () => void
@@ -668,6 +688,15 @@ export interface ElectronAPI {
   downloadSkill?: () => Promise<{ success: boolean; error?: string }>
   // Build info
   isMasBuild?: boolean
+  // Import from the App Store edition (#1243); direct Electron builds only
+  appStoreImport?: {
+    status: () => Promise<AppStoreImportStatus>
+    start: () => Promise<AppStoreImportStart>
+    decline: () => Promise<void>
+    acknowledge: () => Promise<void>
+    importKeys: () => Promise<AppStoreImportKeysResult>
+    discardKeys: () => Promise<void>
+  }
   // File watcher — Electron-only live reload support for the File Explorer
   startWatchingDirectory?: (dirPath: string) => Promise<void>
   stopWatchingDirectory?: () => Promise<void>

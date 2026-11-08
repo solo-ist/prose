@@ -203,6 +203,40 @@ describe('commands', () => {
     expect(markIds()).toEqual([])
     expect(state.pushRevision).toBe(pushRevision)
   })
+
+  it('a thread over formatted text (several text nodes) is removed, resolved or deleted with one push each (#888)', () => {
+    // #854 found the old unsetComment firing its removal callback once per text node.
+    const commentedNodes = (id: string): number => {
+      let count = 0
+      editor.state.doc.descendants((node) => {
+        if (node.isText && node.marks.some((m) => m.type.name === 'comment' && m.attrs.id === id)) count++
+      })
+      return count
+    }
+    editor.chain().setTextSelection(rangeOf('paragraph')).toggleBold().run()
+    editor.chain().setTextSelection(rangeOf('rewritten')).toggleItalic().run()
+    editor.chain().setTextSelection(rangeOf('Second')).toggleBold().run()
+    comment('Intro paragraph here', 'f1')
+    comment('Some rewritten text', 'f2')
+    comment('Second paragraph', 'f3')
+    expect([commentedNodes('f1'), commentedNodes('f2')]).toEqual([3, 3])
+    expect(commentedNodes('f3')).toBe(2)
+
+    expect(editor.commands.removeThread('f1')).toBe(true)
+    expect(threadPluginState(editor.state)!.pushes).toEqual([{ kind: 'remove', thread: expect.objectContaining({ id: 'f1' }) }])
+    expect(commentedNodes('f1')).toBe(0)
+
+    expect(editor.commands.resolveThread('f2')).toBe(true)
+    expect(threadPluginState(editor.state)!.pushes).toEqual([{ kind: 'resolve', threadId: 'f2' }])
+
+    const { from, to } = rangeOf('Second paragraph')
+    editor.chain().setTextSelection({ from, to }).deleteSelection().run()
+    expect(threadPluginState(editor.state)!.pushes).toEqual([{ kind: 'resolve', threadId: 'f3' }])
+    expect(threadsOf(editor.state).filter((c) => c.id.startsWith('f')).map((c) => [c.id, c.resolved])).toEqual([
+      ['f2', true],
+      ['f3', true]
+    ])
+  })
 })
 
 describe('load, merge and reload', () => {

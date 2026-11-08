@@ -17,10 +17,11 @@ interface Props {
 }
 
 /**
- * Check if the user has an Anthropic API key from their LLM settings
+ * Check if the user has an Anthropic API key from their LLM settings (main
+ * reports which providers have a key; the renderer never holds one)
  */
 function hasAnthropicLLMKey(settings: Settings): boolean {
-  return settings.llm?.provider === 'anthropic' && !!settings.llm?.apiKey
+  return settings.llm?.provider === 'anthropic' && !!settings.llm?.keyStatus?.anthropic
 }
 
 export function RemarkableIntegration({ settings, setRemarkableConfig }: Props) {

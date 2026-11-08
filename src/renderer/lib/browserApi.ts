@@ -19,16 +19,51 @@ import type {
   ElectronAPI
 } from '../types'
 import { getDefaultModel } from '../../shared/llm/models'
+import type { LLMKeyStatusMap } from '../../shared/llm/providers'
 import type { FileAccessOptions } from '../../shared/fileAccess'
 
 const SETTINGS_KEY = 'prose:settings'
+/**
+ * There is no main process here, so the browser fallback keeps keys itself, in
+ * their own localStorage entry rather than inside the settings object.
+ */
+const KEYS_KEY = 'prose:llm-keys'
+
+function readKeys(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(KEYS_KEY) || '{}') as Record<string, string>
+  } catch {
+    return {}
+  }
+}
+
+function writeKeys(keys: Record<string, string>): void {
+  try {
+    localStorage.setItem(KEYS_KEY, JSON.stringify(keys))
+  } catch (e) {
+    console.error('Error saving keys to localStorage:', e)
+  }
+}
+
+function keyStatus(): LLMKeyStatusMap {
+  const status: LLMKeyStatusMap = {}
+  for (const [provider, key] of Object.entries(readKeys())) {
+    if (key) status[provider as keyof LLMKeyStatusMap] = { hint: key.slice(-4), persisted: true }
+  }
+  return status
+}
+
+function withoutKeyFields(llm: Settings['llm']): Settings['llm'] {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { apiKey: _key, keyStatus: _status, ...rest } = llm as Settings['llm'] & { apiKey?: string }
+  return rest
+}
 
 const defaultSettings: Settings = {
   theme: 'dark',
   llm: {
     provider: 'anthropic',
-    model: getDefaultModel('anthropic'),
-    apiKey: ''
+    model: getDefaultModel('anthropic')
   },
   editor: {
     fontSize: 16,
@@ -165,17 +200,21 @@ export const browserApi: ElectronAPI = {
     try {
       const stored = localStorage.getItem(SETTINGS_KEY)
       if (stored) {
-        return { ...defaultSettings, ...JSON.parse(stored) }
+        const parsed = { ...defaultSettings, ...JSON.parse(stored) } as Settings
+        // A key saved inside the settings object by an older build moves to its own entry.
+        const legacy = (parsed.llm as Settings['llm'] & { apiKey?: string }).apiKey
+        if (legacy) writeKeys({ ...readKeys(), [parsed.llm.provider]: legacy })
+        return { ...parsed, llm: { ...withoutKeyFields(parsed.llm), keyStatus: keyStatus() } }
       }
     } catch (e) {
       console.error('Error loading settings from localStorage:', e)
     }
-    return defaultSettings
+    return { ...defaultSettings, llm: { ...defaultSettings.llm, keyStatus: keyStatus() } }
   },
 
   saveSettings: async (settings: Settings): Promise<void> => {
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...settings, llm: withoutKeyFields(settings.llm) }))
     } catch (e) {
       console.error('Error saving settings to localStorage:', e)
       throw e
@@ -183,6 +222,23 @@ export const browserApi: ElectronAPI = {
   },
 
   isSecureStorageAvailable: async (): Promise<boolean> => false,
+
+  getLlmKeyStatus: async () => keyStatus(),
+
+  setLlmKey: async ({ provider, key }) => {
+    if (!key.trim()) return { ok: false, error: 'API key is empty', status: keyStatus() }
+    // The same ceiling main enforces (src/main/llmKeys.ts MAX_KEY_LENGTH).
+    if (key.trim().length > 4096) return { ok: false, error: 'API key is too long', status: keyStatus() }
+    writeKeys({ ...readKeys(), [provider]: key.trim() })
+    return { ok: true, status: keyStatus() }
+  },
+
+  clearLlmKey: async (provider) => {
+    const keys = readKeys()
+    delete keys[provider]
+    writeKeys(keys)
+    return keyStatus()
+  },
 
   onMenuAction: (_callback: (action: string) => void) => {
     // No menu actions in browser mode
@@ -196,7 +252,7 @@ export const browserApi: ElectronAPI = {
 
   llmChat: async (request: LLMRequest): Promise<LLMResponse> => {
     const anthropic = createAnthropic({
-      apiKey: request.apiKey,
+      apiKey: readKeys()[request.provider] ?? '',
       baseURL: 'https://api.anthropic.com/v1'
     })
     const model = anthropic(request.model)
@@ -240,7 +296,7 @@ export const browserApi: ElectronAPI = {
     const { streamId } = request
 
     const anthropic = createAnthropic({
-      apiKey: request.apiKey,
+      apiKey: readKeys()[request.provider] ?? '',
       baseURL: 'https://api.anthropic.com/v1'
     })
     const model = anthropic(request.model)

@@ -363,4 +363,10 @@ function main(): void {
   console.error('[Prose MCP] MCP server running')
 }
 
-main()
+// A failure while starting is fatal and must say why: the client only sees the process exit.
+try {
+  main()
+} catch (err) {
+  console.error('[Prose MCP] Fatal error:', err)
+  process.exit(1)
+}

@@ -211,16 +211,18 @@ When running as Electron:
 
 ### IPC Channels
 
-Most handlers live in `src/main/ipc.ts` (86 across 14 namespaces). A few sit closer to their feature: `sentry:setEnabled` and `renderer:ready` in `src/main/index.ts`, `updater:*` (3) in `src/main/updater.ts`, `file:watch:start` and `file:watch:stop` in `src/main/fileWatcher.ts`, and `mcp:tool:result` (via `ipcMain.on`, not `handle`) in `src/main/mcp/bridge.ts`.
+Most handlers live in `src/main/ipc.ts` (86 across 14 namespaces). A few sit closer to their feature: `sentry:setEnabled` and `renderer:ready` in `src/main/index.ts`, `updater:*` (3) in `src/main/updater.ts`, `file:watch:start` and `file:watch:stop` in `src/main/fileWatcher.ts`, `appStoreImport:*` (6) in `src/main/appStoreImportIpc.ts`, and `mcp:tool:result` (via `ipcMain.on`, not `handle`) in `src/main/mcp/bridge.ts`.
 
 - `file:*` (22) - File operations (open, save, read, rename, delete, trash, duplicate, watch, export HTML, MAS bookmark activation, etc.) — 20 handlers in `ipc.ts`, plus `file:watch:start` and `file:watch:stop` in `fileWatcher.ts`
 - `settings:*` (4) - Settings persistence, secure storage check, API key test
-- `llm:chat`, `llm:fetchModels`, `llm:stream`, `llm:stream:abort` - LLM API calls (streaming via Anthropic SDK)
+- `llm:chat`, `llm:fetchModels`, `llm:stream`, `llm:stream:abort` - LLM API calls (streaming via Anthropic SDK); the request names a provider and main reads its key
+- `llm:keyStatus`, `llm:setKey`, `llm:clearKey` - Per-provider API keys: the renderer sets or clears a key and reads back only its status (#1240)
 - `remarkable:*` (20) - reMarkable tablet sync (register, validate, sync, sync:abort, OCR, folder move, etc.)
 - `mcp:*` (3) - MCP server status, install, uninstall for Claude Desktop
 - `share:*` (21) - Gateway sharing: sign-in, access, publish/republish/revoke, local list + `share:listRemote` gateway reconcile (#1037), comments pull/push, path updates. Only the two local reads (`share:list`, `share:getForPath`) are callable on MAS builds
 - `sentry:setEnabled` - Toggle Sentry error tracking from renderer
 - `updater:*` (3) - Auto-update check, download, install (Electron auto-updater)
+- `appStoreImport:*` (6) - Import the App Store edition's profile into the direct build (#1243): status, start (stages the import and relaunches; the copy runs in `runPendingImport` at the next launch, before anything opens the profile), decline, acknowledge, importKeys / discardKeys. Every handler reports unavailable on MAS builds
 - `skill:download` - Download an external skill for use inside Prose
 - `clipboard:*` (1) - Write text to system clipboard
 - `appearance:*` (1) - Pin the macOS dock tile to the Prose icon
@@ -297,7 +299,7 @@ convention (design: `docs/architecture/editor-state.md` §3.3; the tripwires in
 
 ### LLM Integration
 
-**Anthropic is the only provider.** All legacy multi-provider code (OpenAI, OpenRouter, Ollama) has been removed. The `Settings` type defines `provider: 'anthropic'` only.
+**Providers** are listed in `src/shared/llm/providers.ts` (transport, base URL, credential key, models, small model, thinking). Anthropic is the only entry today; OpenAI (#1241) and Inference Coop (#956) add theirs. **Keys stay in main** (`src/main/llmKeys.ts`): the renderer never holds one. It sees `settings.llm.keyStatus` (each provider's last four characters and whether the key persists), stores a key with `setLlmKey` and clears it with `clearLlmKey`; `settings:save` never stores a key.
 
 LLM calls flow: `useChat` hook → `getApi().llmChatStream()` → IPC → main process → Anthropic SDK (with tools) or Vercel AI SDK (without)
 
@@ -385,7 +387,7 @@ Step-by-step recipes for common extension tasks (settings tab, IPC channel, TipT
 ## Security Rules
 
 - **Path handling** — every filesystem IPC handler declares its **path source** in a comment (`// Path source: A|B|C …`, see `src/main/paths.ts`) and validates accordingly. **A (user-chosen: dialogs, explorer entries, the current tab, settings roots)** → `normalizePath()`. KNOW WHAT IT IS: a normalizer, NOT containment — `normalize()` resolves `..` before the traversal check, so `a/../../etc/x` passes clean. **B (content-derived: document text, image srcs, imported artifacts, `prose://` payloads, LLM/MCP tool arguments, sync metadata)** → `resolveWithin(root, path, …)` with an explicit containment root; it realpaths both sides and applies extension / hidden-folder rules (`file:readBase64` — audit H-03; tool paths use `resolveToolPath()`: text files under home or a user-chosen workspace root — default save directory, projects, favorites — never inside a hidden folder). **C (a user-chosen directory + a typed name)** → sanitize the name in the renderer with `sanitizeEntryName()` before joining. Never cite `normalizePath()` as a traversal defense. (#918)
-- **API keys** — store via `credentialStore` (OS `safeStorage`), never in plaintext. If `safeStorage` is unavailable, keys are stripped, not saved.
+- **API keys** — store via `credentialStore` (OS `safeStorage`), never in plaintext, and only from main: LLM keys go through `src/main/llmKeys.ts` and never cross to the renderer (#1240). If `safeStorage` is unavailable, a key is held in main's memory for the session and never written.
 - **No `innerHTML` with dynamic data** — use JSX or `textContent`. LLM-generated content must never be inserted as raw HTML.
 - **Sandbox settings** — `contextIsolation: true`, `nodeIntegration: false` — never change these.
 - **External URLs** — `shell.openExternal` only allows `http:` and `https:` protocols. All others are silently dropped.

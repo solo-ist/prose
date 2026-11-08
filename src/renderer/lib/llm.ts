@@ -1,5 +1,6 @@
 import type { Settings } from '../types'
 import { isKnownModel, type LLMProvider as LLMProviderType } from '../../shared/llm/models'
+import { getProvider } from '../../shared/llm/providers'
 
 export interface LLMMessage {
   role: 'user' | 'assistant' | 'system'
@@ -23,23 +24,31 @@ export interface ValidationResult {
 }
 
 /**
- * Validate API key format based on provider.
- * Returns null if valid, error message if invalid.
+ * Validate a typed API key's format for its provider, before it is tested or
+ * saved. Returns null if valid, error message if invalid.
  */
 export function validateApiKeyFormat(provider: LLMProviderType, apiKey: string): string | null {
-  // Anthropic requires an API key
-  if (provider === 'anthropic') {
-    if (!apiKey || !apiKey.trim()) {
-      return 'API key is required'
+  if (!apiKey || !apiKey.trim()) {
+    return 'API key is required'
+  }
+  const { label, keyFormat } = getProvider(provider)
+  if (keyFormat) {
+    if (!apiKey.startsWith(keyFormat.prefix)) {
+      return `${label} API keys should start with "${keyFormat.prefix}"`
     }
-    if (!apiKey.startsWith('sk-ant-')) {
-      return 'Anthropic API keys should start with "sk-ant-"'
-    }
-    if (apiKey.length < 40) {
-      return 'Anthropic API key appears to be incomplete'
+    if (apiKey.length < keyFormat.minLength) {
+      return `${label} API key appears to be incomplete`
     }
   }
   return null
+}
+
+/**
+ * Whether main holds a key for the configured provider. The renderer never
+ * sees the key (#1240), only the status main reports with the settings.
+ */
+export function hasProviderKey(config: Settings['llm']): boolean {
+  return !!config.keyStatus?.[config.provider]
 }
 
 /**
@@ -69,7 +78,7 @@ export function validateConfig(config: Settings['llm']): string | null {
     return 'No model specified'
   }
 
-  if (!config.apiKey) {
+  if (!hasProviderKey(config)) {
     return 'No API key configured'
   }
 
@@ -125,19 +134,13 @@ export function validateConfigFull(config: Settings['llm']): ValidationResult {
     return { valid: false, error: 'No model specified', warnings }
   }
 
-  // Required: API key
-  if (!config.apiKey) {
+  // Required: API key (its format was checked when it was typed)
+  if (!hasProviderKey(config)) {
     return {
       valid: false,
       error: 'No API key configured',
       warnings
     }
-  }
-
-  // Validate API key format
-  const apiKeyError = validateApiKeyFormat(config.provider, config.apiKey)
-  if (apiKeyError) {
-    return { valid: false, error: apiKeyError, warnings }
   }
 
   // Validate base URL if provided
@@ -156,12 +159,9 @@ export function validateConfigFull(config: Settings['llm']): ValidationResult {
   return { valid: true, error: null, warnings }
 }
 
-/**
- * Mask an API key for display, showing only the last 4 characters.
- */
-export function maskApiKey(apiKey: string): string {
-  if (!apiKey || apiKey.length < 8) return '••••••••'
-  return '••••••••' + apiKey.slice(-4)
+/** The saved key's display form, from the last-four hint main reports. */
+export function maskKeyHint(hint: string | undefined): string {
+  return '••••••••' + (hint ?? '')
 }
 
 // Stub implementation - will be fully implemented later

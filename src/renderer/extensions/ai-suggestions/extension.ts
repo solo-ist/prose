@@ -994,10 +994,6 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
                 tr.removeMark(pos, pos + node.nodeSize, mark.type)
                 removed = true
                 if (mark.attrs.id) rejectedIds.add(mark.attrs.id as string)
-
-                if (this.options.onSuggestionRejected && mark.attrs.id) {
-                  this.options.onSuggestionRejected(mark.attrs.id)
-                }
               }
             })
           })
@@ -1006,6 +1002,10 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             tr.setMeta(AI_SUGGESTION_RESOLVED_META, true)
             decideSuggestionsIn(tr, [...rejectedIds], 'rejected', by ?? SELF)
             dispatch(tr)
+            // One callback per suggestion, after dispatch as rejectAISuggestion
+            // does: a suggestion over formatted text spans several text nodes,
+            // and calling per node fired it once for each (#888, from #854).
+            for (const id of rejectedIds) this.options.onSuggestionRejected?.(id)
             return true
           }
 

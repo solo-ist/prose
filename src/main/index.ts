@@ -68,6 +68,8 @@ import { IS_MAS_BUILD } from './env'
 import { SIGN_IN_SCHEME, handleAuthDeepLink, isAuthDeepLink } from './share/deepLink'
 import { isQuitting } from './quitState'
 import { setupFileWatcherHandlers, teardownFileWatcher } from './fileWatcher'
+import { setupAppStoreImportHandlers } from './appStoreImportIpc'
+import { appStoreSource, runPendingImport } from './appStoreImport'
 
 console.log('[Main] Environment loaded. OCR URL:', process.env.REMARKABLE_OCR_URL ? 'set' : 'not set')
 
@@ -128,6 +130,17 @@ if (!gotTheLock) {
   // The file path (if any) will be passed to the existing instance via second-instance event
   app.quit()
 } else {
+  // An import from the App Store edition the renderer asked for (#1243) runs
+  // here: after the lock, so a second instance can never touch the live
+  // profile, and before anything opens IndexedDB.
+  if (!IS_MAS_BUILD) {
+    try {
+      runPendingImport(app.getPath('userData'), appStoreSource())
+    } catch (err) {
+      console.error('[AppStoreImport] Pending import crashed:', err)
+    }
+  }
+
   // Handle second instance launch (another instance tried to start)
   app.on('second-instance', (event, commandLine, workingDirectory) => {
     const mainWindow = BrowserWindow.getAllWindows()[0]
@@ -586,6 +599,7 @@ app.whenReady().then(async () => {
   const mainWindow = createWindow()
   setupIpcHandlers()
   setupFileWatcherHandlers()
+  setupAppStoreImportHandlers()
   createMenu(mainWindow)
   initAutoUpdater(mainWindow)
 

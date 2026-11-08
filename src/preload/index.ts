@@ -2,6 +2,9 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { Settings, RemarkableSyncPhase } from '../renderer/types'
 import type { ToolResult } from '../shared/tools/types'
 import type { FileAccessOptions } from '../shared/fileAccess'
+import type { LLMKeyStatusMap } from '../shared/llm/providers'
+
+import type { AppStoreImportKeysResult, AppStoreImportStart, AppStoreImportStatus } from '../shared/appStoreImport'
 import {
   unwrapReadFileResult,
   unwrapSaveFileResult,
@@ -29,7 +32,6 @@ export interface LLMToolDefinition {
 export interface LLMRequest {
   provider: string
   model: string
-  apiKey: string
   baseUrl?: string
   messages: LLMMessage[]
   system: string
@@ -109,8 +111,16 @@ export interface McpStatus {
 
 export interface TestApiKeyRequest {
   provider: string
-  apiKey: string
+  /** A typed key not yet saved; without one, main tests the provider's saved key. */
+  apiKey?: string
   baseUrl?: string
+}
+
+/** What `llm:setKey` answers: the key status map, never a key (#1240). */
+export interface SetLlmKeyResult {
+  ok: boolean
+  error?: string
+  status: LLMKeyStatusMap
 }
 
 export interface TestApiKeyResult {
@@ -148,10 +158,13 @@ export interface ElectronAPI {
   loadSettings: () => Promise<Settings>
   saveSettings: (settings: Settings) => Promise<void>
   testApiKey: (request: TestApiKeyRequest) => Promise<TestApiKeyResult>
-  fetchModels: (request: { provider: string; apiKey: string }) => Promise<{
+  fetchModels: (request: { provider: string; apiKey?: string }) => Promise<{
     models?: Array<{ id: string; name: string; description?: string }>
     error?: string
   }>
+  getLlmKeyStatus: () => Promise<LLMKeyStatusMap>
+  setLlmKey: (request: { provider: string; key: string }) => Promise<SetLlmKeyResult>
+  clearLlmKey: (provider: string) => Promise<LLMKeyStatusMap>
   onMenuAction: (callback: (action: string) => void) => () => void
   onFileOpenExternal: (callback: (path: string) => void) => () => void
   llmChat: (request: LLMRequest) => Promise<LLMResponse>
@@ -267,6 +280,15 @@ export interface ElectronAPI {
   downloadSkill: () => Promise<{ success: boolean; error?: string }>
   // Build info
   isMasBuild: boolean
+  // Import from the App Store edition (#1243); direct builds only
+  appStoreImport: {
+    status: () => Promise<AppStoreImportStatus>
+    start: () => Promise<AppStoreImportStart>
+    decline: () => Promise<void>
+    acknowledge: () => Promise<void>
+    importKeys: () => Promise<AppStoreImportKeysResult>
+    discardKeys: () => Promise<void>
+  }
   // File watcher — subscribe to filesystem events for the File Explorer
   startWatchingDirectory: (dirPath: string) => Promise<void>
   stopWatchingDirectory: () => Promise<void>
@@ -342,7 +364,10 @@ const api: ElectronAPI = {
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (settings: Settings) => ipcRenderer.invoke('settings:save', settings),
   testApiKey: (request: TestApiKeyRequest) => ipcRenderer.invoke('settings:testApiKey', request),
-  fetchModels: (request: { provider: string; apiKey: string }) => ipcRenderer.invoke('llm:fetchModels', request),
+  fetchModels: (request: { provider: string; apiKey?: string }) => ipcRenderer.invoke('llm:fetchModels', request),
+  getLlmKeyStatus: () => ipcRenderer.invoke('llm:keyStatus'),
+  setLlmKey: (request: { provider: string; key: string }) => ipcRenderer.invoke('llm:setKey', request),
+  clearLlmKey: (provider: string) => ipcRenderer.invoke('llm:clearKey', provider),
   isSecureStorageAvailable: () => ipcRenderer.invoke('settings:isSecureStorageAvailable'),
   onMenuAction: (callback: (action: string) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, action: string): void => {
@@ -590,6 +615,15 @@ const api: ElectronAPI = {
   downloadSkill: () => ipcRenderer.invoke('skill:download'),
   // Build info
   isMasBuild: process.env.MAS_BUILD === '1',
+  // Import from the App Store edition (#1243)
+  appStoreImport: {
+    status: () => ipcRenderer.invoke('appStoreImport:status'),
+    start: () => ipcRenderer.invoke('appStoreImport:start'),
+    decline: () => ipcRenderer.invoke('appStoreImport:decline'),
+    acknowledge: () => ipcRenderer.invoke('appStoreImport:acknowledge'),
+    importKeys: () => ipcRenderer.invoke('appStoreImport:importKeys'),
+    discardKeys: () => ipcRenderer.invoke('appStoreImport:discardKeys')
+  },
   // File watcher — subscribe to filesystem events for the File Explorer
   startWatchingDirectory: (dirPath: string) => ipcRenderer.invoke('file:watch:start', dirPath),
   stopWatchingDirectory: () => ipcRenderer.invoke('file:watch:stop'),

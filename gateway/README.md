@@ -83,6 +83,10 @@ Secrets (`ANTHROPIC_API_KEY`, `BETTER_AUTH_SECRET`, `DATABASE_URL`) come from Re
 env vars, never the repo. Migrations run via `prisma migrate deploy` in the start
 command before the server serves.
 
+**Merging to `main` deploys.** Render auto-deploys every commit on `main` that
+touches `gateway/`, live in about a minute; commits outside `gateway/` don't
+deploy. There is no manual step, so a gateway PR's merge is its release.
+
 ## Share service (#768)
 
 The embedded-artifact share layer (design: `docs/architecture/web-platform.md`

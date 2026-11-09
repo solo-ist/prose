@@ -94,6 +94,8 @@ Remote clients get **less than local ones**: they work on documents the writer h
 | `propose` | `read`, plus `suggest_edit`, `revise_suggestion`, `reply_to_suggestion` |
 | `comment` | `read`, plus `add_comment`, `reply_to_comment`, `resolve_comment`, `reopen_comment` |
 
+Scopes are cumulative grants of tools, not separate permissions: `propose` and `comment` each *include* every `read` tool, so a client approved for `comment` alone can still read. The writer can grant both `propose` and `comment`.
+
 **Never remote:**
 - `open_file`, `create_and_open_file` and `select_tab`, which would let a cloud client open local files or move the writer's view;
 - accept and reject, which the writer always decides (#607).
@@ -129,6 +131,23 @@ So Activity, the review log and `list_review_events` show who it was (P1, P2, P4
 | Cross-account routing | Calls route only to the token's own account; tested | — |
 | Denial of service | Per-account and per-client rate limits; payload caps; DCR rate-limited per IP | — |
 | CIMD fetch abuse (SSRF) | `@better-auth/cimd` fetches only `https` URLs, with a short timeout and a size cap; private address ranges are refused | — |
+
+## 7a. Settled at implementation (review of #1255; M5a #1280)
+
+- **The connector URL** is `https://api.prose.solo.ist/mcp`, the gateway's existing host (the OAuth resource must be the URL clients connect to). Serving it on `prose.solo.ist` would need a DNS or proxy change, which is the operator's; nothing here depends on it.
+- **"Device"** is a random id the desktop generates once per profile and keeps in its user-data folder, sent as the `device` query parameter when it opens `/relay`. It is not derived from the network: no IP or User-Agent. There is one socket per account and device; a newer socket from the same device replaces the older (close code 4000). Calls go to the **most recently active** device: the one that connected last, or that sent an `{type:'active'}` frame (the desktop sends one when its window gains focus). Settings → Connections shows whether this Mac is the one receiving remote calls ("Receiving remote calls" / "Another Mac is active"), so a writer with two signed-in Macs isn't surprised.
+- **Rate limits**, all overridable by environment variable, none required on Render:
+  - OAuth routes: 300 requests per IP per minute (`RELAY_OAUTH_IP_MAX`).
+  - DCR: 30 registrations per IP per hour (`RELAY_REGISTER_IP_MAX`); the vendors' servers share IPs, hence the generous figures.
+  - Relayed calls: 120 per account per minute (`RELAY_ACCOUNT_RATE_MAX`) and 60 per account and client per minute (`RELAY_CLIENT_RATE_MAX`).
+  - The call timeout is 60 s (`RELAY_CALL_TIMEOUT_S`).
+- **A call in flight when the desktop's socket drops** (a lid closed mid-`suggest_edit`) fails at once with JSON-RPC error -32004 ("disconnected"). The gateway doesn't wait for the timeout and doesn't queue or retry. The other relay errors are -32001 (Prose is not running), -32002 (timeout), -32003 (result too large, 10 MiB cap) and -32602 (a tool outside the token's scopes). The gateway suite covers each one.
+- **A pending client gets the writer's attention, not just the client's** (M5b). When a remote client is refused for lack of approval, the desktop shows an in-app notification naming the client, with **Review**, and keeps a count on Settings → Connections and on the Dock icon until the writer approves or denies it. The refusal message to the client stays as in §6.
+- **`docs/privacy.md`** gains:
+  - what the relay carries (calls and results, in memory, only while Remote access is on);
+  - that no document content is stored;
+  - the per-call metadata line it logs (account, client, method, tool name, duration, bytes in and out, outcome) and how long it is kept;
+  - that turning Remote access off, or revoking a client, ends access at once.
 
 ## 8. The operator's decisions (decided 2026-11-09)
 

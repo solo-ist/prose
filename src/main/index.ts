@@ -63,6 +63,7 @@ import { setupIpcHandlers } from './ipc'
 import { createMenu } from './menu'
 import { getMcpHttpServer, getMcpBridge, getMcpSocketServer, mcpHttpPort, proseVersion, getMcpConnectionStore, flushMcpConnectionStore } from './mcp'
 import { setupMcpConnectionHandlers } from './mcp/connectionsIpc'
+import { relayMarkActive, setupRemoteAccessHandlers, startRelay, stopRelay } from './mcp/relayService'
 import { initializeSpellcheck, setupContextMenu } from './spellcheck'
 import { initAutoUpdater } from './updater'
 import { IS_MAS_BUILD } from './env'
@@ -600,6 +601,7 @@ app.whenReady().then(async () => {
   const mainWindow = createWindow()
   setupIpcHandlers()
   setupMcpConnectionHandlers()
+  setupRemoteAccessHandlers()
   setupFileWatcherHandlers()
   setupAppStoreImportHandlers()
   createMenu(mainWindow)
@@ -681,6 +683,14 @@ app.whenReady().then(async () => {
       console.warn('[Main] MCP socket server failed to start:', err instanceof Error ? err.message : err)
     }
 
+    // Remote access (#1239): answer relayed calls from ChatGPT and claude.ai,
+    // and dial out to the gateway if the writer turned it on. Never on MAS.
+    try {
+      await startRelay({ window: mainWindow, invokeTool: (name, args, actor) => bridge.executeTool(name, args, actor), version: proseVersion() })
+    } catch (err) {
+      console.warn('[Main] MCP relay failed to start:', err instanceof Error ? err.message : err)
+    }
+
     return { success: true }
   })
 
@@ -698,6 +708,10 @@ app.whenReady().then(async () => {
     }
   })
 })
+
+// Remote access (#1239): the writer is here, so remote calls should come to
+// this desktop rather than another one signed in to the same account.
+app.on('browser-window-focus', () => relayMarkActive())
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -741,6 +755,8 @@ app.on('will-quit', async () => {
   await socketServer.stop()
   // Connections' last-use times held in memory (#1236).
   flushMcpConnectionStore()
+  // Close the relay socket (#1239); Remote access stays as the writer left it.
+  await stopRelay()
 
   // Clean up MCP auth token file
   try {

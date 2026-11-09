@@ -25,6 +25,7 @@ import { AppearancePane } from './AppearancePane'
 import { RemarkableIntegration } from './RemarkableIntegration'
 import { McpIntegration } from './McpIntegration'
 import { McpConnections } from './McpConnections'
+import { RemoteAccess } from './RemoteAccess'
 import { AccountSection } from '../account/AccountSection'
 import { ProseSkillIntegration } from './ProseSkillIntegration'
 import { isWebMode } from '../../lib/browserApi'
@@ -669,6 +670,8 @@ export function SettingsDialog() {
             {!isWebMode() && <McpIntegration />}
             {!isWebMode() && <Separator />}
             {!isWebMode() && <McpConnections />}
+            {!isWebMode() && <Separator />}
+            {!isWebMode() && <RemoteAccess />}
             {!isWebMode() && <Separator />}
             {!isWebMode() && <ProseSkillIntegration />}
             {!isWebMode() && <Separator />}

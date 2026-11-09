@@ -30,6 +30,12 @@ export interface ProseMcpServerOptions {
   /** The app version, reported as `serverInfo.version`. */
   version: string
   callTool: McpToolCaller
+  /**
+   * When set, the only tools this server lists or runs (the relay, #1239: a
+   * remote connection's approved scopes). A call for any other tool is an
+   * error before `callTool` is reached.
+   */
+  allowedTools?: ReadonlySet<string>
 }
 
 /**
@@ -73,23 +79,31 @@ function clientInfoOf(server: Server, ctx: ServerContext | undefined): McpClient
   return info && typeof info === 'object' ? { name: info.name, version: info.version } : undefined
 }
 
-export function createProseMcpServer({ version, callTool }: ProseMcpServerOptions): Server {
+export function createProseMcpServer({ version, callTool, allowedTools }: ProseMcpServerOptions): Server {
   const server = new Server(
     { name: 'Prose', title: 'Prose', version },
     { capabilities: { tools: {} }, instructions: PROSE_MCP_INSTRUCTIONS }
   )
   // The registry's schemas are plain JSON Schema objects with an object root.
-  const tools = getToolsForMCP().map((tool): Tool => ({
-    ...tool,
-    inputSchema: tool.inputSchema as Tool['inputSchema'],
-    outputSchema: tool.outputSchema as Tool['outputSchema']
-  }))
+  const tools = getToolsForMCP()
+    .filter((tool) => !allowedTools || allowedTools.has(tool.name))
+    .map((tool): Tool => ({
+      ...tool,
+      inputSchema: tool.inputSchema as Tool['inputSchema'],
+      outputSchema: tool.outputSchema as Tool['outputSchema']
+    }))
   const outputSchemas = new Map(tools.map((tool) => [tool.name, tool.outputSchema]))
 
   server.setRequestHandler('tools/list', async () => ({ tools }))
 
   server.setRequestHandler('tools/call', async (request, ctx) => {
     const { name, arguments: args } = request.params
+    if (allowedTools && !allowedTools.has(name)) {
+      return server.projectCallToolResult(
+        { content: [{ type: 'text', text: `Error: "${name}" is not available to this connection.` }], isError: true },
+        undefined
+      )
+    }
     let result: CallToolResult
     try {
       result = await callTool(name, (args ?? {}) as Record<string, unknown>, { client: clientInfoOf(server, ctx) })

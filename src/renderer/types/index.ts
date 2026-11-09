@@ -4,6 +4,7 @@ import type { LlmErrorKind } from '../../shared/llm/errors'
 import type { LLMKeyStatusMap, LLMProvider } from '../../shared/llm/providers'
 
 import type { AppStoreImportKeysResult, AppStoreImportStart, AppStoreImportStatus } from '../../shared/appStoreImport'
+import type { RemoteAccessStatus, RemoteChange, RemoteConnection, RemoteForgetResult, RemoteResult } from '../../shared/mcp/remoteAccess'
 
 /**
  * A named project — a root-folder workspace. Think Obsidian vaults or
@@ -658,6 +659,15 @@ export interface ElectronAPI {
   mcpRenameConnection?: (id: string, label: string) => Promise<McpConnectionResult<McpConnection>>
   mcpRevokeConnection?: (id: string) => Promise<McpConnectionResult<null>>
   mcpEndpoint?: () => Promise<{ available: boolean; port: number; url: string }>
+  // Remote access (#1239): the relay to ChatGPT and claude.ai, and its remote connections
+  mcpRemoteStatus?: () => Promise<RemoteAccessStatus>
+  mcpRemoteSetEnabled?: (enabled: boolean) => Promise<RemoteResult<RemoteAccessStatus>>
+  mcpRemoteList?: () => Promise<RemoteResult<RemoteConnection[]>>
+  mcpRemoteApprove?: (clientId: string, scopes: string[], label?: string) => Promise<RemoteResult<RemoteConnection>>
+  mcpRemoteUpdate?: (clientId: string, change: { scopes?: string[]; label?: string }) => Promise<RemoteResult<RemoteConnection>>
+  mcpRemoteDeny?: (clientId: string) => Promise<RemoteResult<RemoteForgetResult>>
+  mcpRemoteRemove?: (clientId: string) => Promise<RemoteResult<RemoteForgetResult>>
+  onMcpRemoteChanged?: (callback: (change: RemoteChange) => void) => () => void
   // Release notes for the post-update modal (#1058); null when this version ships none
   getReleaseNotes: (version: string) => Promise<{ version: string; markdown: string } | null>
   // File association (default markdown editor)

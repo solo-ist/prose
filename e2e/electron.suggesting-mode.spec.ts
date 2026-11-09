@@ -157,6 +157,44 @@ test.describe('Suggesting mode', () => {
     await expect.poll(() => readFileSync(path, 'utf8')).toBe('Alpha beta gamma delta.\n\nDelta epsilon zeta.')
   })
 
+  test('pending changes are counted while the tab stays clean, and Copy with changes shows only while there are some', async () => {
+    await openDoc('count.md')
+    const menuItem = () =>
+      app.evaluate(({ Menu }) => {
+        const item = Menu.getApplicationMenu()?.getMenuItemById('copy-with-changes')
+        return item ? { visible: item.visible } : null
+      })
+    await expect.poll(menuItem).toEqual({ visible: false })
+    await expect(page.locator('[data-testid="status-pending-changes"]')).toHaveCount(0)
+
+    await turnOnSuggesting()
+    await caretAfter('gamma')
+    await page.keyboard.type(' delta')
+    await selectText('epsilon ')
+    await page.keyboard.press('Backspace')
+    await expect(page.locator('[data-testid="status-pending-changes"]')).toHaveText('2 pending changes')
+    await expect(page.locator('[data-testid="suggesting-count"]')).toHaveText('2')
+    expect(await isDirty()).toBe(false)
+
+    // Turning Suggesting off doesn't hide them: the count is the tab's pending changes.
+    await page.locator('[data-testid="status-suggesting"]').click()
+    await expect(page.locator('[data-testid="status-suggesting"]')).toHaveText('Editing')
+    await expect(page.locator('[data-testid="status-pending-changes"]')).toHaveText('2 pending changes')
+
+    // The Edit menu's Copy with changes is there now, and copies the final text.
+    await expect.poll(menuItem).toEqual({ visible: true })
+    await app.evaluate(({ Menu, BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0].focus()
+      Menu.getApplicationMenu()!.getMenuItemById('copy-with-changes')!.click()
+    })
+    await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe('Alpha beta gamma delta.\n\nDelta zeta.')
+
+    // Decided, gone: the count and the menu item with them.
+    await page.evaluate(() => (window as any).__prose_editor.commands.rejectAllTrackedChanges())
+    await expect(page.locator('[data-testid="status-pending-changes"]')).toHaveCount(0)
+    await expect.poll(menuItem).toEqual({ visible: false })
+  })
+
   test('IME composition lands as one tracked insertion', async () => {
     await openDoc('ime.md')
     await turnOnSuggesting()

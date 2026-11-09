@@ -99,14 +99,15 @@ export function StatusBar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, editor?.state.doc])
 
-  // Suggesting mode and the tracked changes of the active tab (#891). Tracked
-  // changes count as suggestions: the same click reviews them.
+  // Suggesting mode and the tracked changes of the active tab (#891). The tab
+  // stays clean while changes are pending, so their count is shown on its own
+  // ("N pending changes", agents' included, mode on or off); a click reviews
+  // them in Quick Review beside the AI suggestions.
   const suggesting = useActiveSession(selectSuggesting)
   const trackedCount = useActiveSession(selectTrackedCount)
   const suggestingAvailable = useActiveTab((tab) => (tab ? canSuggest(tab.id) : false)) && !sourceMode
   const trackedDisplay = useTrackedDisplay()
   const setTrackedDisplay = useReviewStore((s) => s.setTrackedDisplay)
-  const pendingCount = suggestionCount + trackedCount
 
   // Open (unresolved) comment threads, counted from the comment store — the
   // same selector the chat chips and Comment Review derive from, so the
@@ -225,7 +226,10 @@ export function StatusBar() {
             </button>
           </TooltipTrigger>
           <TooltipContent side="top">
-            <p>{suggesting ? 'Your edits are tracked changes. Click to edit directly.' : 'Click to suggest: your edits become tracked changes.'}</p>
+            <p>
+              {suggesting ? 'Your edits are tracked changes. Click to edit directly.' : 'Click to suggest: your edits become tracked changes.'}{' '}
+              Formatting changes apply directly.
+            </p>
           </TooltipContent>
         </Tooltip>
         <span className="text-muted-foreground/40 mx-1">|</span>
@@ -281,7 +285,28 @@ export function StatusBar() {
         ) : null}
 
         {/* Suggestion count */}
-        {pendingCount > 0 && (
+        {/* Pending tracked changes (#891): the dirty dot can't show them. */}
+        {trackedCount > 0 && (
+          <>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  data-testid="status-pending-changes"
+                  onClick={() => useReviewStore.getState().setReviewMode('quick')}
+                  className="text-emerald-600 dark:text-emerald-400 hover:text-emerald-500 focus-visible:text-emerald-500 focus-visible:outline-hidden transition-colors cursor-pointer"
+                >
+                  {trackedCount} pending change{trackedCount !== 1 ? 's' : ''}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                <p>Tracked changes waiting for your decision. The file keeps the original until you accept.</p>
+              </TooltipContent>
+            </Tooltip>
+            <span className="text-muted-foreground/40 mx-1">|</span>
+          </>
+        )}
+
+        {suggestionCount > 0 && (
           <>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -289,7 +314,7 @@ export function StatusBar() {
                   onClick={() => useReviewStore.getState().setReviewMode('quick')}
                   className="text-violet-600 dark:text-violet-400 hover:text-violet-500 focus-visible:text-violet-500 focus-visible:outline-hidden transition-colors cursor-pointer"
                 >
-                  {pendingCount} suggestion{pendingCount !== 1 ? 's' : ''}
+                  {suggestionCount} suggestion{suggestionCount !== 1 ? 's' : ''}
                 </button>
               </TooltipTrigger>
               <TooltipContent side="top">

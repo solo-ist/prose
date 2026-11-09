@@ -15,6 +15,7 @@ import { useSettings } from '../../hooks/useSettings'
 import { usePanelLayoutContext } from '../../hooks/usePanelLayout'
 import { isMacOS, getApi } from '../../lib/browserApi'
 import { buildProseHtml } from '../../lib/htmlExport'
+import { cn } from '../../lib/utils'
 import { mergeCommentsForPersistence, threadsOf } from '../../extensions/comments'
 import { extractFirstH1 } from '../../lib/markdown'
 import { useTabTier } from '../../hooks/useTabTier'
@@ -300,7 +301,10 @@ export function Toolbar() {
       { id: 'save', label: 'Save', icon: <Save />, onSelect: saveFile },
       { id: 'save-as', label: 'Save as...', icon: <FileDown />, onSelect: saveFileAs },
       { id: 'export-html', label: 'Export HTML...', icon: <FileCode />, disabled: !document.content, onSelect: handleExportHtml },
-      { id: 'copy-with-changes', label: 'Copy with changes', icon: <ClipboardCopy />, disabled: trackedCount === 0, onSelect: handleCopyWithChanges },
+      // Only while the tab has pending tracked changes (#891, design §5).
+      ...(trackedCount > 0
+        ? [{ id: 'copy-with-changes', label: 'Copy with changes', icon: <ClipboardCopy />, onSelect: handleCopyWithChanges }]
+        : []),
       ...(webPlatformEnabled
         ? [{
             id: 'share',
@@ -416,7 +420,7 @@ export function Toolbar() {
     },
     {
       id: 'suggesting',
-      label: suggesting ? 'Stop suggesting' : 'Suggest changes',
+      label: `${suggesting ? 'Stop suggesting' : 'Suggest changes'}${trackedCount > 0 ? ` (${trackedCount} pending)` : ''}`,
       icon: <PenLine />,
       onSelect: () => toggleSuggesting(),
       disabled: !suggesting && !suggestingAvailable,
@@ -432,13 +436,23 @@ export function Toolbar() {
               aria-label={suggesting ? 'Stop suggesting' : 'Suggest changes'}
               aria-pressed={suggesting}
               data-testid="toolbar-suggesting"
-              className={suggesting ? 'bg-accent text-accent-foreground' : ''}
+              className={cn('relative', suggesting && 'bg-accent text-accent-foreground')}
             >
               <PenLine className="h-4 w-4" />
+              {/* The tab's pending tracked changes, agents' included, mode on or off (#891). */}
+              {trackedCount > 0 && (
+                <span
+                  data-testid="suggesting-count"
+                  className="absolute -right-0.5 -top-0.5 min-w-[1rem] rounded-full bg-emerald-600 px-1 text-center text-[10px] font-medium leading-4 text-white"
+                >
+                  {trackedCount}
+                </span>
+              )}
             </Button>
           </TooltipTrigger>
           <TooltipContent>
-            {suggesting ? 'Suggesting: your edits are tracked changes' : 'Suggest changes (track your edits)'}
+            {suggesting ? 'Suggesting: your edits are tracked changes.' : 'Suggest changes: your edits become tracked changes.'}
+            {trackedCount > 0 ? ` ${trackedCount} pending.` : ''} Formatting changes apply directly.
           </TooltipContent>
         </Tooltip>
       ),

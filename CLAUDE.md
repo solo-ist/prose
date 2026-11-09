@@ -225,6 +225,7 @@ Most handlers live in `src/main/ipc.ts` (86 across 14 namespaces). A few sit clo
 - `appStoreImport:*` (6) - Import the App Store edition's profile into the direct build (#1243): status, start (stages the import and relaunches; the copy runs in `runPendingImport` at the next launch, before anything opens the profile), decline, acknowledge, importKeys / discardKeys. Every handler reports unavailable on MAS builds
 - `skill:download` - Download an external skill for use inside Prose
 - `clipboard:*` (1) - Write text to system clipboard
+- `menu:*` (2) - The native menu's renderer-driven items: Reopen Closed Tab (enabled while the closed-tab stack has entries) and Copy with changes (shown in the Edit menu and the editor's context menu while the active tab has pending tracked changes, #891)
 - `appearance:*` (1) - Pin the macOS dock tile to the Prose icon
 - `window:*`, `shell:*`, `recentFiles:*`, `emoji:*`, `fileAssociation:*` - Utility handlers
 
@@ -377,7 +378,13 @@ with a notice. Undo, decisions and every tool write through a `DocumentHandle`
 suggestions), with `acceptTrackedChange` / `rejectTrackedChange` and the
 all-variants (decider in the review log; an accepted agent insertion becomes
 an AI annotation). Display (All changes / No deletions / Final) is CSS on the
-editor container, per tab, not persisted.
+editor container, per tab, not persisted. Because the tab stays clean while
+changes are pending, their count is shown on its own: a badge on the toolbar
+pen and "N pending changes" in the status bar (agents' changes included, mode
+on or off). "Copy with changes" (`serializeFinal`) sits beside Copy Markdown in
+the Edit menu and in the editor's context menu (main shows it through
+`menu:setCopyWithChangesAvailable`, driven by `App.tsx`), and in the toolbar's
+⋯ menu, only while there are pending changes.
 
 Managed by `reviewStore` and components in `src/renderer/components/review/`.
 

@@ -710,6 +710,8 @@ export interface ElectronAPI {
   refreshRecentMenu: () => Promise<void>
   // Native menu: enable/disable "Reopen Closed Tab" based on closed-tab stack
   setReopenClosedTabEnabled: (enabled: boolean) => Promise<void>
+  // Native menu: show "Copy with changes" while the active tab has pending tracked changes (#891)
+  setCopyWithChangesAvailable: (available: boolean) => Promise<void>
   // Clipboard
   copyToClipboard: (text: string) => Promise<void>
   // Sentry error tracking

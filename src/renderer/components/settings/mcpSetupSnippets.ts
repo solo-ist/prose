@@ -26,6 +26,15 @@ export function dockerUrl(url: string): string {
   return url.replace('//localhost:', '//host.docker.internal:').replace('//127.0.0.1:', '//host.docker.internal:')
 }
 
+/**
+ * The `host:port` of an endpoint URL. A string split rather than `new URL`:
+ * before the endpoint answers, the URL is a placeholder with `<port>`, which
+ * `new URL` rejects.
+ */
+export function hostPort(url: string): string {
+  return url.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').split('/')[0]
+}
+
 export function mcpSetupSnippet(client: McpSetupClient, url: string, token?: string): McpSetupSnippet {
   const secret = token || TOKEN_PLACEHOLDER
   switch (client) {
@@ -45,19 +54,25 @@ export function mcpSetupSnippet(client: McpSetupClient, url: string, token?: str
         note: `Admin Settings → External Tools → add a server. From Open WebUI in Docker, use ${dockerUrl(url)}.`
       }
     case 'librechat':
+      // The shape that worked on LibreChat 0.8.8 (#1278). requiresOAuth: false,
+      // because LibreChat probes without the header and reads Prose's 401
+      // challenge as "needs OAuth"; allowedAddresses entries must be host:port,
+      // or LibreChat rejects the whole config at startup.
       return {
         text: [
-          'mcpSettings:',
-          '  allowedAddresses:',
-          '    - host.docker.internal',
           'mcpServers:',
           '  prose:',
           '    type: streamable-http',
           `    url: ${dockerUrl(url)}`,
           '    headers:',
-          `      Authorization: "Bearer ${secret}"`
+          `      Authorization: "Bearer ${secret}"`,
+          '    requiresOAuth: false',
+          '    serverInstructions: true',
+          'mcpSettings:',
+          '  allowedAddresses:',
+          `    - "${hostPort(dockerUrl(url))}"`
         ].join('\n'),
-        note: `Add to librechat.yaml. Outside Docker, use ${url} and allow localhost instead.`
+        note: `Add to librechat.yaml. Outside Docker, use ${url} and allow "${hostPort(url)}" instead.`
       }
   }
 }

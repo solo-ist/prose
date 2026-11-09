@@ -10,12 +10,16 @@ import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import type { AISuggestionData } from '../../extensions/ai-suggestions/types'
 import { trackedChangesIn } from '../../extensions/tracked-changes/changes'
 
-export type ReviewItem = AISuggestionData & { tracked?: boolean }
+/** A card's data: a suggestion's, or a tracked change's with its own type (a pure deletion included). */
+export type ReviewItem = Omit<AISuggestionData, 'type'> & {
+  type: AISuggestionData['type'] | 'deletion'
+  tracked?: boolean
+}
 
 export function reviewItems(editor: Pick<Editor, 'state'>): ReviewItem[] {
   const tracked: ReviewItem[] = trackedChangesIn(editor.state.doc).map((c) => ({
     id: c.id,
-    type: c.type === 'insertion' ? 'insertion' : 'edit',
+    type: c.type,
     originalText: c.deletedText,
     suggestedText: c.insertedText,
     explanation: '',

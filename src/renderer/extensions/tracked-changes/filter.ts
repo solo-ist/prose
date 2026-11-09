@@ -196,7 +196,13 @@ function trackReplace(
   return { id: toMark.length > 0 ? id : null, caret: direction === 'backward' ? mappedFrom : mappedTo }
 }
 
-/** Map a position of `tr.docs[index]` back to the original document and forward onto `out.doc`. */
+/**
+ * Map a position of `tr.docs[index]` back to the original document and
+ * forward onto `out.doc`. The forward map leans right (assoc 1): a later step
+ * at the point where an earlier tracked step inserted lands after that
+ * insertion, which is where sequential typing in one transaction belongs.
+ * The caret is not derived from this mapping: `trackReplace` returns it.
+ */
 function rebase(pos: number, original: readonly Step[], index: number, out: Transaction, assoc: number): number {
   let p = pos
   for (let i = index - 1; i >= 0; i--) p = original[i].getMap().invert().map(p, assoc)

@@ -5,7 +5,6 @@ import { useReviewStore } from '../../stores/reviewStore'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { reviewItems, type ReviewItem } from './reviewItems'
 import { computeWordDiff, scrollSelectionIntoCenter, type DiffSegment } from '../../lib/diffUtils'
-import type { AISuggestionData } from '../../extensions/ai-suggestions/types'
 import { cn } from '../../lib/utils'
 
 /**
@@ -66,7 +65,9 @@ export function SideBySideDiffPanel() {
 
   const handleAcceptAll = useCallback(() => {
     if (!editor) return
-    // Process in reverse order to avoid position shifting issues
+    // Process in reverse order to avoid position shifting issues. AI
+    // suggestions only (getAISuggestions, not the list shown); the tracked
+    // changes go in one transaction below.
     const current = getAISuggestions(editor)
     for (let i = current.length - 1; i >= 0; i--) {
       editor.commands.acceptAISuggestion(current[i].id)
@@ -77,6 +78,7 @@ export function SideBySideDiffPanel() {
 
   const handleRejectAll = useCallback(() => {
     if (!editor) return
+    // AI suggestions only; the tracked changes go in one transaction below.
     const current = getAISuggestions(editor)
     for (let i = current.length - 1; i >= 0; i--) {
       editor.commands.rejectAISuggestion(current[i].id)
@@ -85,7 +87,7 @@ export function SideBySideDiffPanel() {
     setReviewMode(null)
   }, [editor, setReviewMode])
 
-  const scrollToSuggestion = useCallback((suggestion: AISuggestionData) => {
+  const scrollToSuggestion = useCallback((suggestion: ReviewItem) => {
     if (!editor) return
     editor.commands.focus()
     editor.commands.setTextSelection(suggestion.from)
@@ -185,7 +187,7 @@ function DiffHunk({
   onReject,
   onScrollTo,
 }: {
-  suggestion: AISuggestionData
+  suggestion: ReviewItem
   editor: ReturnType<typeof useEditorInstanceStore.getState>['editor']
   onAccept: () => void
   onReject: () => void
@@ -208,7 +210,7 @@ function DiffHunk({
 
   const handleSubmitFeedback = useCallback(() => {
     if (!editor || !feedbackInput.trim()) return
-    if ((suggestion as ReviewItem).tracked) editor.commands.replyToTrackedChange(suggestion.id, feedbackInput.trim())
+    if (suggestion.tracked) editor.commands.replyToTrackedChange(suggestion.id, feedbackInput.trim())
     else editor.commands.setAISuggestionReply(suggestion.id, feedbackInput.trim())
     setShowFeedbackForm(false)
   }, [editor, suggestion, feedbackInput])

@@ -65,6 +65,25 @@ export async function getShareConfig(): Promise<client.ShareClientConfig> {
   return { baseUrl: DEFAULT_GATEWAY_URL }
 }
 
+/**
+ * Listeners for a change of gateway session (sign-in completed, signed out):
+ * the relay (#1239) reconnects with the new session or stops.
+ */
+const sessionListeners = new Set<() => void>()
+export function onGatewaySessionChange(listener: () => void): () => void {
+  sessionListeners.add(listener)
+  return () => sessionListeners.delete(listener)
+}
+function sessionChanged(): void {
+  for (const listener of sessionListeners) {
+    try {
+      listener()
+    } catch (err) {
+      console.warn('[share] session listener failed:', err)
+    }
+  }
+}
+
 export type ShareResult<T> = { ok: true } & T | { ok: false; error: string; code?: string }
 
 function asError(err: unknown): { ok: false; error: string; code?: string } {
@@ -169,6 +188,7 @@ export async function completeSignIn(code: string): Promise<ShareResult<{ email?
       return { ok: false, error: 'Sign-in returned a different account. Send a new code.', code: 'session_mismatch' }
     }
     pendingSignIn = null
+    sessionChanged()
     return { ok: true, email: status.email }
   } catch (err) {
     return asError(err)
@@ -195,7 +215,43 @@ export async function completeSignInFromLink(
 
 export async function signOut(): Promise<ShareResult<object>> {
   await client.signOut(await getShareConfig())
+  sessionChanged()
   return { ok: true }
+}
+
+/** The relay's socket URL and session for the configured gateway, or null when signed out (#1239). */
+export async function relayEndpoint(deviceId: string): Promise<{ url: string; cookie: string } | null> {
+  const config = await getShareConfig()
+  const cookie = await client.relaySessionCookie(config)
+  if (!cookie) return null
+  const url = new URL('/relay', config.baseUrl)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  url.searchParams.set('device', deviceId)
+  return { url: url.toString(), cookie }
+}
+
+/** The URL writers paste into ChatGPT or claude.ai: the gateway's MCP resource (#1238). */
+export async function relayConnectorUrl(): Promise<string> {
+  return new URL('/mcp', (await getShareConfig()).baseUrl).toString()
+}
+
+/** Revoke a remote client's grants at the gateway (#1239). */
+export async function revokeRelayClient(clientId: string): Promise<ShareResult<object>> {
+  try {
+    await client.revokeRelayClient(await getShareConfig(), clientId)
+    return { ok: true }
+  } catch (err) {
+    return asError(err)
+  }
+}
+
+/** Whether the stored session is still accepted by the gateway. */
+export async function sessionValid(): Promise<boolean> {
+  try {
+    return (await client.checkSession(await getShareConfig())).signedIn
+  } catch {
+    return false
+  }
 }
 
 /**

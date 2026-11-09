@@ -79,6 +79,7 @@ import { executeTool } from '../../lib/tools'
 import { splitMcpTarget } from '../../lib/tools/mcpTarget'
 import { mcpActorFrom, LAUNCH_CONNECTION_ID, DEFAULT_CONNECTION_LABEL } from '../../../shared/mcp/actor'
 import { isMcpToolName } from '../../../shared/tools/registry'
+import { REMOTE_TOOL_NAMES } from '../../../shared/mcp/remoteScopes'
 import { useReviewMode, useWasChatOpenBeforeReview, usePreviousChatWidth, useReviewStore, type ReviewMode } from '../../stores/reviewStore'
 import { chatOpenDefaultPct, reviewChatWidthPct } from '../../hooks/usePanelLayout'
 
@@ -832,6 +833,14 @@ export function App() {
           window.api.sendMcpToolResult(requestId, { success: false, error: `Unknown tool: ${toolName}`, code: 'UNKNOWN_TOOL' })
           return
         }
+        // A remote client (the relay, #1239) only ever gets the remote tools:
+        // open documents, never files or the writer's view. Main enforces each
+        // connection's approved scopes; this is the floor beneath them.
+        const actor = mcpActorFrom(sentActor)
+        if (actor?.via === 'relay' && !REMOTE_TOOL_NAMES.has(toolName)) {
+          window.api.sendMcpToolResult(requestId, { success: false, error: `${toolName} is not available to remote clients`, code: 'UNKNOWN_TOOL' })
+          return
+        }
         const target = splitMcpTarget(toolName, args, requestId)
         if ('error' in target) {
           window.api.sendMcpToolResult(requestId, target.error)
@@ -851,7 +860,7 @@ export function App() {
             // token resolved to, or the stdio bridge's clientInfo (#1236).
             // Never from the tool arguments; without one (a call sent by
             // hand), the per-launch connection, as before.
-            actor: mcpActorFrom(sentActor) ?? { kind: 'mcp-agent', connectionId: LAUNCH_CONNECTION_ID, connectionLabel: DEFAULT_CONNECTION_LABEL },
+            actor: actor ?? { kind: 'mcp-agent', connectionId: LAUNCH_CONNECTION_ID, connectionLabel: DEFAULT_CONNECTION_LABEL },
           },
           target.binding,
           { preserveView: true }
@@ -866,6 +875,21 @@ export function App() {
       }
     })
     return unsubscribe
+  }, [])
+
+  // Remote access (#1239): an assistant asked to use Prose through the relay.
+  // Nothing reaches it until the writer approves it, so say where.
+  useEffect(() => {
+    return window.api?.onMcpRemoteChanged?.((change) => {
+      if (change.reason !== 'pending') return
+      useNotificationStore.getState().notify({
+        id: 'remote-access-pending',
+        message: `${change.clientName.slice(0, 80)} asked to use Prose. Approve it in Settings → Integrations → Connections.`,
+        actionLabel: 'Review',
+        onAction: () => useSettingsStore.getState().setDialogOpen(true, 'integrations'),
+        durationMs: 15000,
+      })
+    })
   }, [])
 
   return (

@@ -476,10 +476,13 @@ async function main() {
   await other.ready
   await mcp(accessA, 'ping')
   expect(other.calls().length === 1 && second.calls().length === 1, 'calls go to the most recently connected desktop')
+  const routing = (d) => d.frames.filter((f) => f.type === 'routing').at(-1)?.active
+  expect(routing(other) === true && routing(second) === false, 'each desktop is told whether calls come to it (routing frames)')
   second.ws.send(JSON.stringify({ type: 'active' }))
   await sleep(100)
   await mcp(accessA, 'ping')
   expect(second.calls().length === 2 && other.calls().length === 1, 'an {type:"active"} frame makes a desktop the most recently active')
+  expect(routing(second) === true && routing(other) === false, 'and both desktops are told the routing changed')
 
   // A result from a socket the call wasn't sent to is ignored.
   second.handler = () => undefined // stay silent
@@ -490,6 +493,21 @@ async function main() {
   expect(spoofed.body?.error?.code === -32002, "another socket can't answer a call (it times out instead)", JSON.stringify(spoofed.body))
   expect(/didn't answer within 3 seconds/.test(spoofed.body?.error?.message ?? ''), 'a silent desktop times out with a clear error')
   second.handler = defaultHandler
+
+  // A call in flight when its desktop's socket drops (a lid closed mid-call)
+  // fails at once with -32004, without waiting for the timeout.
+  const dropper = desktop(sessionA, { handler: () => undefined })
+  await dropper.ready
+  const startedDrop = Date.now()
+  const inFlight = mcp(accessA, 'tools/call', { name: 'read_document', arguments: {} })
+  await waitFor(async () => dropper.calls().length === 1, 'the call to reach the dropping desktop')
+  dropper.ws.terminate()
+  const dropped = await inFlight
+  expect(dropped.body?.error?.code === -32004, 'a call in flight when the socket drops fails with -32004 (disconnected)', JSON.stringify(dropped.body))
+  expect(Date.now() - startedDrop < 2000, 'at once, not after the 3 s timeout', `${Date.now() - startedDrop} ms`)
+  expect(/disconnected/i.test(dropped.body?.error?.message ?? ''), 'and says Prose disconnected', dropped.body?.error?.message)
+  await sleep(100)
+  expect(routing(second) === true, 'the remaining desktop is told calls come to it again')
 
   // --- Payload caps --------------------------------------------------------------------
   // On its own connection (another host name): the server answers 413

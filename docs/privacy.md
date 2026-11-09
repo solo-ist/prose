@@ -52,18 +52,18 @@ How it works: your Prose app opens a connection out to our server, `api.prose.so
 
 - **Two approvals.** You approve each assistant on our sign-in page, and again in Prose, where you choose what it may do (read; suggest edits; comment). An assistant you haven't approved in Prose gets nothing.
 - **Open documents only.** An assistant can't open, create, or list your files, and it never accepts or rejects suggestions: you decide.
-- **Nothing kept in transit.** Requests and answers are passed along in memory and never stored. If Prose isn't running, the assistant is told so and nothing waits for you.
+- **Nothing kept in transit.** The relay carries an assistant's requests (tool calls) and Prose's answers, in memory, and only while Remote access is on. No document content is ever stored on our server. If Prose isn't running, the assistant is told so and nothing waits for you.
 
 What we store for Remote access:
 
 - Each assistant's registration details, such as the name it gives and where to send you back after you approve it
 - Your approval of each assistant, and its access tokens, which we keep only as one-way hashes. Access tokens expire after an hour; the token an assistant uses to stay connected expires after 30 days
 
-What we log, for each request: your account identifier, which assistant, the tool it called, how long it took, its size in bytes, and whether it succeeded. Never the request's contents or the answer.
+What we log, one line per request: your account identifier, which assistant, the kind of request (for example a tool call), the name of the tool, how long it took, the size of the request and of the answer in bytes, and how it ended (answered, refused, timed out, Prose not running). Never the request's contents or the answer. These lines are kept in our host Render's logs for its retention period, between 7 and 30 days depending on our plan, then deleted.
 
 The assistant's own service sees what you let it read, under its provider's privacy policy (for example, [OpenAI's](https://openai.com/policies/privacy-policy) or [Anthropic's](https://www.anthropic.com/privacy)).
 
-To stop: turn off Remote access, which closes the connection at once. Removing an assistant in Prose revokes its tokens on our server, so it can't reconnect without your approval.
+To stop: turning off Remote access closes the connection at once, and removing (revoking) an assistant in Prose ends its access at once and revokes its tokens on our server, so it can't reconnect without your approval.
 
 ## Crash Reporting (Opt-In)
 

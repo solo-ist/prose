@@ -128,3 +128,14 @@ These fill gaps the design leaves open; none changes a §8 decision.
   new unit cases fail but the one `flatInline` case (54 fail); all 11 new e2e
   tests fail; the new tripwire fails; the review-log spec (now expecting DB
   11) fails. `src` restored to the branch afterwards. Next: PR, CI, review.
+- 2026-11-09 — PR #1283 opened; first CI green (e2e 12m32s, share-viewer).
+  The coordinator relayed the design review (#1256, 2b1e941, merged in):
+  DB 10 → 11 (already in, fresh + upgrade tested); a visible pending-changes
+  count (status bar "N pending changes", a badge on the toolbar pen, agents'
+  included, mode on or off); "Copy with changes" beside Copy Markdown in the
+  Edit menu and the editor's context menu, only while changes are pending
+  (**src/main + src/preload**: `menu:setCopyWithChangesAvailable`, the Reopen
+  Closed Tab pattern; the PR is security-gated now); the tooltip's
+  "Formatting changes apply directly". New e2e test for the count and the
+  menu item; it fails on the merge-base build. `customizable-menus` "hides a
+  menu item…" fails 2/3 on the release head's own build too (#1085's flake).

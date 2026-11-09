@@ -7,9 +7,9 @@
  * | `trackedInsert` | remove the mark         | delete the text         |
  * | `trackedDelete` | delete the text         | remove the mark         |
  *
- * A textblock whose whole text a decision deletes goes with it when its parent
- * keeps other blocks (accepting the deletion of a paragraph leaves no empty
- * paragraph behind).
+ * A textblock whose whole text an accepted deletion removes goes with it when
+ * its parent keeps other blocks (accepting the deletion of a paragraph leaves
+ * no empty paragraph behind).
  */
 
 import type { Node as PMNode } from '@tiptap/pm/model'
@@ -82,8 +82,10 @@ export function decideTrackedIn(tr: Transaction, ids: readonly string[], decisio
 
   for (const span of unmark) tr.removeMark(span.from, span.to, span.type)
   // Whole blocks first, then the remaining spans, last first: removing marks
-  // moved nothing, so the positions still hold until the first deletion.
-  const blocks = wholeBlocks(tr.doc, drop)
+  // moved nothing, so the positions still hold until the first deletion. Only
+  // an accepted deletion takes its paragraph along: a rejected insertion
+  // leaves the paragraph it was typed into, which the file holds.
+  const blocks = decision === 'accept' ? wholeBlocks(tr.doc, drop) : []
   const inBlock = (s: Span) => blocks.some((b) => b.from <= s.from && b.to >= s.to)
   const deletions = [...blocks, ...drop.filter((s) => !inBlock(s))].sort((a, b) => b.from - a.from)
   const start = tr.steps.length

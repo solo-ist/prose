@@ -106,6 +106,18 @@ describe('accepting and rejecting tracked changes', () => {
     expect(runs(editor.state.doc)).toEqual(['One.', 'Three.'])
   })
 
+  it('rejecting what was typed into an empty paragraph keeps the paragraph', () => {
+    const { editor } = makeEditor('One.\n\nTwo.', { suggesting: false })
+    // An empty paragraph between the two, as the file has it.
+    editor.view.dispatch(editor.state.tr.insert(after(editor, 'One.') + 1, editor.schema.nodes.paragraph.create()).setMeta('addToHistory', false))
+    editor.view.dispatch(editor.state.tr.setMeta('trackedSuggesting', { suggesting: true }))
+    cursor(editor, after(editor, 'One.') + 2)
+    type(editor, 'Typed.')
+    const id = trackedChangesIn(editor.state.doc)[0].id
+    editor.commands.rejectTrackedChange(id)
+    expect(runs(editor.state.doc)).toEqual(['One.', '', 'Two.'])
+  })
+
   it('a pending change grows in the log as the writer types', () => {
     const { editor } = makeEditor('Hello world.')
     cursor(editor, after(editor, 'world'))

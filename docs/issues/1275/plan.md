@@ -66,3 +66,21 @@ when available, else main's memory for the session (never written), as `llmKeys.
     neither, reports `connected: true` and `hasAnthropicKey: true`, and `remarkable:getApiKey` no longer exists;
   - Settings → Integrations shows the device as connected and the OCR key as saved.
 - **Baselines:** 66 / 18 / 6.
+
+## Execution log
+
+- **2026-11-09.**
+  - **Changes:**
+    - `src/main/remarkableCredentials.ts` is the only reader and writer of the device token and the OCR key.
+    - The handlers read the token in main.
+    - `register` answers `{ connected }`.
+    - `getApiKey` became `ocrKeyStatus`.
+    - The settings payload carries `connected` and `hasAnthropicKey`.
+    - Every renderer token reader moved to `connected`: `RemarkableIntegration`, `NotebookSelectionDialog`,
+      `useRemarkableSync`, `useFileList`, `FileListPanel` and `fileListStore`.
+  - **Tests:**
+    - Unit 363, including `remarkableCredentials.test.ts` (6).
+    - `electron.remarkable-credentials.spec.ts` passes. The reMarkable sync, path, llm-keys and settings-account
+      specs pass too: 14 in total.
+    - Typecheck 66 / 18 / 6.
+  - **QA:** item 12 under A1.

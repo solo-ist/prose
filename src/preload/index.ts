@@ -299,6 +299,8 @@ export interface ElectronAPI {
   mcpRemoteDeny: (clientId: string) => Promise<RemoteResult<RemoteForgetResult>>
   mcpRemoteRemove: (clientId: string) => Promise<RemoteResult<RemoteForgetResult>>
   onMcpRemoteChanged: (callback: (change: RemoteChange) => void) => () => void
+  // Claude Desktop extension (#1257): builds this profile's .mcpb and opens Claude Desktop's install dialog
+  mcpInstallExtension: () => Promise<{ success: boolean; path?: string; error?: string }>
   // Release notes for the post-update modal (bundled per version)
   getReleaseNotes: (version: string) => Promise<ReleaseNotes | null>
   // Emoji generation (runs in main process to avoid CORS)
@@ -651,6 +653,7 @@ const api: ElectronAPI = {
       ipcRenderer.removeListener('mcp:remote:changed', handler)
     }
   },
+  mcpInstallExtension: () => ipcRenderer.invoke('mcp:installExtension'),
   // Release notes
   getReleaseNotes: (version: string) => ipcRenderer.invoke('releaseNotes:get', version),
   // Emoji generation

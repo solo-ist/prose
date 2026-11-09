@@ -676,6 +676,8 @@ export interface ElectronAPI {
   mcpRemoteDeny?: (clientId: string) => Promise<RemoteResult<RemoteForgetResult>>
   mcpRemoteRemove?: (clientId: string) => Promise<RemoteResult<RemoteForgetResult>>
   onMcpRemoteChanged?: (callback: (change: RemoteChange) => void) => () => void
+  // Claude Desktop extension (#1257): builds this profile's .mcpb and opens Claude Desktop's install dialog
+  mcpInstallExtension?: () => Promise<{ success: boolean; path?: string; error?: string }>
   // Release notes for the post-update modal (#1058); null when this version ships none
   getReleaseNotes: (version: string) => Promise<{ version: string; markdown: string } | null>
   // File association (default markdown editor)

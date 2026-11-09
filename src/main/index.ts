@@ -64,6 +64,7 @@ import { createMenu } from './menu'
 import { getMcpHttpServer, getMcpBridge, getMcpSocketServer, mcpHttpPort, proseVersion, getMcpConnectionStore, flushMcpConnectionStore } from './mcp'
 import { setupMcpConnectionHandlers } from './mcp/connectionsIpc'
 import { relayMarkActive, setupRemoteAccessHandlers, startRelay, stopRelay } from './mcp/relayService'
+import { setupMcpExtensionHandlers } from './mcp/extensionIpc'
 import { initializeSpellcheck, setupContextMenu } from './spellcheck'
 import { initAutoUpdater } from './updater'
 import { IS_MAS_BUILD } from './env'
@@ -602,6 +603,7 @@ app.whenReady().then(async () => {
   setupIpcHandlers()
   setupMcpConnectionHandlers()
   setupRemoteAccessHandlers()
+  setupMcpExtensionHandlers()
   setupFileWatcherHandlers()
   setupAppStoreImportHandlers()
   createMenu(mainWindow)

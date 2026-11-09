@@ -310,8 +310,9 @@ Export HTML and a share publish use `originalHTML`. `finalOf` / `serializeFinal`
 (as if every change were accepted) serve "Copy with changes" only. The pending
 changes are the fifth record kind, `tracked` (`DB_VERSION` 11): each range with
 up to 32 characters of original text either side (within its paragraph),
-written by `session.ts` at once when a change appears, goes or is decided (an
-empty set included), put back by exact context in the seed and across a
+written by `session.ts` in every transaction that changes the set (no
+debounce: a crash loses nothing; an empty set included), put back by exact
+context in the seed (nearest the offset hint when it repeats) and across a
 source-mode exit, and **orphaned** (kept in the review log as `superseded`,
 `orphaned: true`, event `suggestion:orphaned`) when the context is gone. A
 tripwire forbids serializing the raw document anywhere in the renderer.
@@ -372,7 +373,9 @@ marked, deleted text is struck instead of removed, the writer's own pending
 insertion deletes for real, a deletion across another actor's insertion
 rejects that change; mark steps and node-type changes apply directly; a block
 boundary (Enter, a join, a multi-paragraph paste) or a code block is refused
-with a notice. Undo, decisions and every tool write through a `DocumentHandle`
+with a notice. Source mode is unavailable while the tab suggests or has
+pending tracked changes (`sourceBlockedBy` in `tabs/actions.ts`; the toggles
+say why). Undo, decisions and every tool write through a `DocumentHandle`
 (tagged `TRACK_SKIP_META`) pass untouched. The writer decides in Quick Review
 (`components/review/reviewItems.ts` merges tracked changes with AI
 suggestions), with `acceptTrackedChange` / `rejectTrackedChange` and the

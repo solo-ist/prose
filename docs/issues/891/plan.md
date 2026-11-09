@@ -139,3 +139,10 @@ These fill gaps the design leaves open; none changes a §8 decision.
   "Formatting changes apply directly". New e2e test for the count and the
   menu item; it fails on the merge-base build. `customizable-menus` "hides a
   menu item…" fails 2/3 on the release head's own build too (#1085's flake).
+- 2026-11-09 — Review round 1 (claude[bot]): a pure deletion keeps its type in
+  the review panels; comments on the side-by-side all-variants and the rebase
+  mapping. The design's second review (ba9476d, merged): source mode is
+  unavailable while Suggesting is on or changes are pending (the toggles say
+  why; e2e); every tracked change is written in its transaction (no
+  debounce; e2e kills the app with SIGKILL right after typing and finds it at
+  the relaunch); the QA block opens with what Suggesting doesn't track.

@@ -29,3 +29,14 @@ Run 2 also found that LibreChat passes a server's MCP `instructions` to the mode
   object has `requiresOAuth: false`, `serverInstructions: true`, a `host:port` `allowedAddresses` entry with the
   endpoint's port, and the Docker URL. Fails on the base.
 - `typecheck:renderer` 66, `tsconfig.node` 18, `typecheck:e2e` 6; unit.
+
+## Execution log
+
+- **2026-11-09.** Plan `158843a`, on `release/v1.9.1` at `3f70d26`.
+  - The new `mcpSetupSnippets.test.ts` case failed on the base snippet, then passed.
+  - **Checked against LibreChat 0.8.8's own `configSchema`** (`librechat-data-provider` inside the co-op chat
+    container, a read-only `safeParse` in a separate `node` process; nothing restarted or reconfigured). The base
+    snippet is rejected: "allowedAddresses entries must include a port, for example localhost:11434 or
+    [::1]:11434". The new one, and its outside-Docker variant (`localhost:<port>`), are valid, and the parsed entry
+    keeps `requiresOAuth: false` and `serverInstructions: true`.
+  - Open WebUI: no change; its fields match run 2's passing config, and the test pins them.

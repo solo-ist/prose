@@ -221,16 +221,18 @@ export interface ElectronAPI {
   exitFullScreen: () => Promise<void>
   listDirectory: (path: string, maxDepth?: number, showDotfiles?: boolean, opts?: FileAccessOptions) => Promise<FileItem[]>
   remarkableRegister: (code: string) => Promise<RemarkableRegisterResponse>
-  remarkableValidate: (deviceToken: string) => Promise<boolean>
-  remarkableSync: (deviceToken: string, syncDirectory: string) => Promise<RemarkableSyncResult>
+  /** Validate the device token main holds. */
+  remarkableValidate: () => Promise<boolean>
+  remarkableSync: (syncDirectory: string) => Promise<RemarkableSyncResult>
   remarkableDisconnect: (syncDirectory?: string) => Promise<void>
   remarkableGetMetadata: (syncDirectory: string) => Promise<RemarkableSyncMetadata | null>
-  remarkableListCloudNotebooks: (deviceToken: string) => Promise<RemarkableCloudNotebook[]>
+  remarkableListCloudNotebooks: () => Promise<RemarkableCloudNotebook[]>
   remarkableGetSyncState: (syncDirectory: string) => Promise<RemarkableSyncState | null>
   remarkableUpdateSyncSelection: (syncDirectory: string, selectedNotebooks: string[]) => Promise<void>
   // Secure API key storage for reMarkable OCR
   remarkableStoreApiKey: (apiKey: string) => Promise<void>
-  remarkableGetApiKey: () => Promise<string | null>
+  /** Whether a reMarkable OCR key is saved; the key never leaves main (#1275). */
+  remarkableOcrKeyStatus: () => Promise<boolean>
   remarkableClearApiKey: () => Promise<void>
   // reMarkable read-only/editable version paths
   remarkableGetOCRPath: (notebookId: string, syncDirectory: string) => Promise<string | null>
@@ -239,7 +241,7 @@ export interface ElectronAPI {
   remarkableFindNotebookByFilePath: (filePath: string, syncDirectory: string) => Promise<string | null>
   remarkableClearNotebookMarkdownPath: (notebookId: string, syncDirectory: string) => Promise<boolean>
   remarkableClearOcrSentinel: (notebookId: string, syncDirectory: string) => Promise<boolean>
-  remarkableMoveNotebook: (deviceToken: string, notebookHash: string, newParentId: string) => Promise<string>
+  remarkableMoveNotebook: (notebookHash: string, newParentId: string) => Promise<string>
   remarkableUpdateNotebookParent: (notebookId: string, newParentId: string, syncDirectory: string, newHash?: string) => Promise<boolean>
   remarkableCancelSync: () => Promise<void>
   onRemarkableSyncProgress: (
@@ -345,8 +347,9 @@ export interface FileItem {
   hasChildren?: boolean // For lazy loading - indicates folder has content without loading it
 }
 
+/** The device token stays in main (#1275); registration answers only that it worked. */
 export interface RemarkableRegisterResponse {
-  deviceToken: string
+  connected: boolean
 }
 
 export interface RemarkableSyncResult {
@@ -456,20 +459,20 @@ const api: ElectronAPI = {
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
   listDirectory: (path: string, maxDepth?: number, showDotfiles?: boolean, opts?: FileAccessOptions) => ipcRenderer.invoke('file:listDirectory', path, maxDepth, showDotfiles, opts),
   remarkableRegister: (code: string) => ipcRenderer.invoke('remarkable:register', code),
-  remarkableValidate: (deviceToken: string) => ipcRenderer.invoke('remarkable:validate', deviceToken),
-  remarkableSync: (deviceToken: string, syncDirectory: string) =>
-    ipcRenderer.invoke('remarkable:sync', deviceToken, syncDirectory),
+  remarkableValidate: () => ipcRenderer.invoke('remarkable:validate'),
+  remarkableSync: (syncDirectory: string) =>
+    ipcRenderer.invoke('remarkable:sync', syncDirectory),
   remarkableDisconnect: (syncDirectory?: string) => ipcRenderer.invoke('remarkable:disconnect', syncDirectory),
   remarkableGetMetadata: (syncDirectory: string) => ipcRenderer.invoke('remarkable:getMetadata', syncDirectory),
-  remarkableListCloudNotebooks: (deviceToken: string) =>
-    ipcRenderer.invoke('remarkable:listCloudNotebooks', deviceToken),
+  remarkableListCloudNotebooks: () =>
+    ipcRenderer.invoke('remarkable:listCloudNotebooks'),
   remarkableGetSyncState: (syncDirectory: string) =>
     ipcRenderer.invoke('remarkable:getSyncState', syncDirectory),
   remarkableUpdateSyncSelection: (syncDirectory: string, selectedNotebooks: string[]) =>
     ipcRenderer.invoke('remarkable:updateSyncSelection', syncDirectory, selectedNotebooks),
   // Secure API key storage for reMarkable OCR
   remarkableStoreApiKey: (apiKey: string) => ipcRenderer.invoke('remarkable:storeApiKey', apiKey),
-  remarkableGetApiKey: () => ipcRenderer.invoke('remarkable:getApiKey'),
+  remarkableOcrKeyStatus: () => ipcRenderer.invoke('remarkable:ocrKeyStatus'),
   remarkableClearApiKey: () => ipcRenderer.invoke('remarkable:clearApiKey'),
   // reMarkable read-only/editable version paths
   remarkableGetOCRPath: (notebookId: string, syncDirectory: string) =>
@@ -484,8 +487,8 @@ const api: ElectronAPI = {
     ipcRenderer.invoke('remarkable:clearNotebookMarkdownPath', notebookId, syncDirectory),
   remarkableClearOcrSentinel: (notebookId: string, syncDirectory: string) =>
     ipcRenderer.invoke('remarkable:clearOcrSentinel', notebookId, syncDirectory),
-  remarkableMoveNotebook: (deviceToken: string, notebookHash: string, newParentId: string) =>
-    ipcRenderer.invoke('remarkable:moveNotebook', deviceToken, notebookHash, newParentId),
+  remarkableMoveNotebook: (notebookHash: string, newParentId: string) =>
+    ipcRenderer.invoke('remarkable:moveNotebook', notebookHash, newParentId),
   remarkableUpdateNotebookParent: (notebookId: string, newParentId: string, syncDirectory: string, newHash?: string) =>
     ipcRenderer.invoke('remarkable:updateNotebookParent', notebookId, newParentId, syncDirectory, newHash),
   remarkableCancelSync: () => ipcRenderer.invoke('remarkable:sync:abort'),

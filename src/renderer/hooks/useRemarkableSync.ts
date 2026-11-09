@@ -167,7 +167,7 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
       return
     }
 
-    if (!remarkableSettings.deviceToken) {
+    if (!remarkableSettings.connected) {
       syncLockRef.current = false
       setRemarkableSyncError('Please connect your reMarkable device in Settings')
       return
@@ -195,14 +195,11 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
     // winning. In practice the eager fetch returns almost immediately (just a
     // cloud list) and the post-sync fetch happens much later, so collision is
     // unlikely. The side-effect (populating the tree) is idempotent either way.
-    loadCloudNotebooks(remarkableSettings.deviceToken, remarkableSettings.syncDirectory)
+    loadCloudNotebooks(remarkableSettings.syncDirectory)
       .catch((err) => console.warn('[reMarkable] Eager cloud list fetch failed:', err))
 
     try {
-      const result = await window.api.remarkableSync(
-        remarkableSettings.deviceToken,
-        remarkableSettings.syncDirectory
-      )
+      const result = await window.api.remarkableSync(remarkableSettings.syncDirectory)
 
       // Check for sync errors
       if (result.errors.length > 0) {
@@ -224,7 +221,7 @@ export function useRemarkableSync(): UseRemarkableSyncReturn {
       // Refresh the file list, notebooks, and cloud notebook tree (folder structure may have changed)
       await loadFiles()
       await loadNotebooks(remarkableSettings.syncDirectory)
-      await loadCloudNotebooks(remarkableSettings.deviceToken, remarkableSettings.syncDirectory)
+      await loadCloudNotebooks(remarkableSettings.syncDirectory)
     } catch (err) {
       console.error('reMarkable sync failed:', err)
       setRemarkableSyncError(err instanceof Error ? err.message : 'Sync failed')

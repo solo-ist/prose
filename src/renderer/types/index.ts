@@ -103,10 +103,15 @@ interface SettingsBase {
   masDirectoryBookmark?: string
   remarkable?: {
     enabled: boolean
-    deviceToken?: string
     syncDirectory: string
     lastSyncedAt?: string
-    /** Whether user has set an Anthropic API key (not the key itself - stored securely) */
+    /**
+     * Whether main holds a device token, filled by main on every settings load
+     * (#1275). The token itself never reaches the renderer; `settings:save`
+     * drops this field.
+     */
+    connected?: boolean
+    /** Whether a reMarkable OCR key is saved (main fills it; the key never leaves main) */
     hasAnthropicKey?: boolean
   }
   recentFiles?: string[]
@@ -257,8 +262,9 @@ export interface FileItem {
   isDotfile?: boolean
 }
 
+/** The device token stays in main (#1275); registration answers only that it worked. */
 export interface RemarkableRegisterResponse {
-  deviceToken: string
+  connected: boolean
 }
 
 export interface RemarkableStatusResponse {
@@ -610,16 +616,18 @@ export interface ElectronAPI {
   listDirectory: (path: string, maxDepth?: number, showDotfiles?: boolean, opts?: FileAccessOptions) => Promise<FileItem[]>
   // reMarkable sync
   remarkableRegister: (code: string) => Promise<RemarkableRegisterResponse>
-  remarkableValidate: (deviceToken: string) => Promise<boolean>
-  remarkableSync: (deviceToken: string, syncDirectory: string) => Promise<RemarkableSyncResult>
+  /** Validate the device token main holds. */
+  remarkableValidate: () => Promise<boolean>
+  remarkableSync: (syncDirectory: string) => Promise<RemarkableSyncResult>
   remarkableDisconnect: (syncDirectory?: string) => Promise<void>
   remarkableGetMetadata: (syncDirectory: string) => Promise<RemarkableSyncMetadata | null>
-  remarkableListCloudNotebooks: (deviceToken: string) => Promise<RemarkableCloudNotebook[]>
+  remarkableListCloudNotebooks: () => Promise<RemarkableCloudNotebook[]>
   remarkableGetSyncState: (syncDirectory: string) => Promise<RemarkableSyncState | null>
   remarkableUpdateSyncSelection: (syncDirectory: string, selectedNotebooks: string[]) => Promise<void>
   // Secure API key storage for reMarkable OCR
   remarkableStoreApiKey: (apiKey: string) => Promise<void>
-  remarkableGetApiKey: () => Promise<string | null>
+  /** Whether a reMarkable OCR key is saved; the key never leaves main (#1275). */
+  remarkableOcrKeyStatus: () => Promise<boolean>
   remarkableClearApiKey: () => Promise<void>
   // reMarkable read-only/editable version paths
   remarkableGetOCRPath: (notebookId: string, syncDirectory: string) => Promise<string | null>
@@ -628,7 +636,7 @@ export interface ElectronAPI {
   remarkableFindNotebookByFilePath: (filePath: string, syncDirectory: string) => Promise<string | null>
   remarkableClearNotebookMarkdownPath: (notebookId: string, syncDirectory: string) => Promise<boolean>
   remarkableClearOcrSentinel: (notebookId: string, syncDirectory: string) => Promise<boolean>
-  remarkableMoveNotebook: (deviceToken: string, notebookHash: string, newParentId: string) => Promise<string>
+  remarkableMoveNotebook: (notebookHash: string, newParentId: string) => Promise<string>
   remarkableUpdateNotebookParent: (notebookId: string, newParentId: string, syncDirectory: string, newHash?: string) => Promise<boolean>
   remarkableCancelSync: () => Promise<void>
   onRemarkableSyncProgress: (

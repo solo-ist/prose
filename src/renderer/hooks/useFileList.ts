@@ -55,14 +55,14 @@ export function useFileList() {
   // Phase B: cloud metadata on first view (~1-2s) to populate tree before sync completes
   const cloudNotebooksLoadedRef = useRef(false)
   useEffect(() => {
-    if (viewMode === 'notebooks' && settings.remarkable?.enabled && settings.remarkable?.deviceToken && syncDirectory) {
+    if (viewMode === 'notebooks' && settings.remarkable?.enabled && settings.remarkable?.connected && syncDirectory) {
       loadNotebooks(syncDirectory)
       if (!cloudNotebooksLoadedRef.current) {
         cloudNotebooksLoadedRef.current = true
-        loadCloudNotebooks(settings.remarkable.deviceToken, syncDirectory)
+        loadCloudNotebooks(syncDirectory)
       }
     }
-  }, [viewMode, settings.remarkable?.enabled, settings.remarkable?.deviceToken, syncDirectory, loadNotebooks, loadCloudNotebooks])
+  }, [viewMode, settings.remarkable?.enabled, settings.remarkable?.connected, syncDirectory, loadNotebooks, loadCloudNotebooks])
 
   // Auto-refresh files when switching to folder view
   useEffect(() => {
@@ -95,7 +95,8 @@ export function useFileList() {
     syncingNotebookIds,
     recentFiles,
     syncDirectory,
-    deviceToken: settings.remarkable?.deviceToken,
+    /** Main holds a reMarkable device token (#1275); the token itself stays there. */
+    remarkableConnected: !!settings.remarkable?.connected,
     togglePanel,
     setPanelOpen,
     setViewMode,

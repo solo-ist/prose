@@ -42,7 +42,7 @@ Two marks, each with the attributes `id`, `actor` (P1) and `createdAt`:
 - **A deletion inside the writer's own pending insertion** deletes for real: you can fix your own typo.
 - **A deletion across someone else's pending insertion** marks that insertion rejected by the writer.
 
-**The rewriting** is a transaction filter in one plugin, a pure function from a transaction to its tracked form, tested step by step. Formatting changes (marks and node types) are applied directly in P3 and never tracked; tracked formatting is out of scope.
+**The rewriting** is a transaction filter in one plugin, a pure function from a transaction to its tracked form, tested step by step. Formatting changes (marks and node types) are applied directly in P3 and never tracked; tracked formatting is out of scope. The Suggesting toggle's tooltip says so ("Formatting changes apply directly"), so a bolded paragraph that isn't tracked doesn't read as a bug.
 
 **Spike first.** `@handlewithcare/prosemirror-suggest-changes` (MIT, 0.1.8) implements this rewriting for ProseMirror. P3 starts with a one-day spike: wire it to Prose's schema and run the editor suite.
 - If it passes, P3 adopts it behind Prose's own marks and commands.
@@ -63,14 +63,15 @@ Both take the M3 `document` target. Both appear in `list_suggestions` with their
 - **Projection.** The session's markdown projection serializes a copy of the document with tracked insertions removed and deletion marks dropped. It's one pure function, `originalOf(doc)`, in `session.ts`.
 - **Dirty and save.** Typing in Suggesting mode leaves the original unchanged, so the tab stays clean and autosave writes nothing. An accept changes the original, so the tab goes dirty and saves as usual.
 - **Byte-exact saves.** The baseline rule (#1102) compares against `originalOf(doc)`, so an untouched file with pending changes still saves byte for byte.
-- **Where the changes live.** In IndexedDB, as a fifth record kind, `tracked`, keyed by `documentId` and written only by `session.ts` (rule 1). Each record holds the id, kind, actor, created time, text, and an anchor: up to 32 characters of original text on each side, plus a position hint.
+- **Where the changes live.** In IndexedDB, as a fifth record kind, `tracked`, keyed by `documentId` and written only by `session.ts` (rule 1). Each record holds the id, kind, actor, created time, text, and an anchor: up to 32 characters of original text on each side, plus a position hint. It is a new object store, so **`DB_VERSION` goes from 10 to 11** (`persistence.ts`); without the bump, existing installs never create the store and lose tracked changes on relaunch. A fresh install and an upgrade from 10 are both tested.
+- **Pending changes are visible, not just stored.** The tab stays clean, so the dirty dot can't signal them. Instead the Suggesting control shows a count of the tab's pending tracked changes, the status bar says "N pending changes", and Activity lists them. The count includes agents' tracked changes, whether or not Suggesting mode is on.
 - **Load.** A seed transaction re-anchors records into the document built from the file (rule 3):
   - a deletion is re-marked by its text and context;
   - an insertion is re-inserted, marked, at its context;
   - a record whose context is gone (the file changed outside Prose) is *orphaned*: kept in the review log as superseded by the external edit, never silently re-inserted somewhere wrong.
 
   A whole-document replace (a source exit, a disk reload) re-anchors the same way.
-- **Copy Markdown and export** use the original. A "Copy with changes" item uses the final text.
+- **Copy Markdown and export** use the original. A "Copy with changes" item uses the final text. It sits next to Copy Markdown in the Edit menu and the editor's context menu, and appears only when the tab has pending tracked changes.
 
 ## 6. Display controls
 
@@ -100,7 +101,7 @@ The control sits beside Suggesting mode, is per tab, and isn't persisted.
 
 The work is one PR after the spike:
 1. The marks, commands and log integration.
-2. `originalOf`, the `tracked` record kind, its writer and its re-anchoring.
+2. `originalOf`, the `tracked` record kind (a new store: `DB_VERSION` 10 → 11), its writer and its re-anchoring.
 3. The mode switch and the transaction filter.
 4. The display controls.
 5. `suggest_insert` and `suggest_delete`.

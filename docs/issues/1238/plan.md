@@ -102,8 +102,9 @@ desktop dials out. M5a is the gateway half; M5b (#1239) is the desktop half.
    session clears the binding (`ON DELETE SET NULL`), and `offline_access` refresh tokens outlive it by design. So
    the gateway deletes expired sessions before each refresh-token exchange and on an hourly sweep; without it,
    remote access would end when the consent session expires (7 days), not after 30.
-10. **Config** (all optional, defaults shown; none needs setting on Render): `RELAY_OAUTH_IP_MAX` (60 OAuth requests per
-    IP per minute), `RELAY_REGISTER_IP_MAX` (10 DCR registrations per IP per hour), `RELAY_ACCOUNT_RATE_MAX` (120 calls
+10. **Config** (all optional, defaults shown; none needs setting on Render): `RELAY_OAUTH_IP_MAX` (300 OAuth requests per
+    IP per minute), `RELAY_REGISTER_IP_MAX` (30 DCR registrations per IP per hour; token and registration calls come
+    from the vendors' servers, so one IP stands for many writers), `RELAY_ACCOUNT_RATE_MAX` (120 calls
     per account per minute), `RELAY_CLIENT_RATE_MAX` (60 per account + client per minute), `RELAY_CALL_TIMEOUT_S`
     (60). Test-only, refused outside development: `CIMD_TEST_ORIGIN` (sends CIMD fetches to a local stub server).
 11. **`docs/privacy.md`**: what the relay carries, that it stores no document content, what it logs, and how to turn

@@ -1,14 +1,15 @@
 /**
  * app.ts — the Hono application factory. Wiring order:
  *   secure headers → cors → sign-in code (/api/sign-in/*)
- *   → Better Auth (/api/auth/*) → health
+ *   → OAuth guards (/api/auth/oauth2/*) → Better Auth (/api/auth/*) → health
+ *   → the MCP relay (discovery, /oauth/* pages, /mcp, /relay, /api/relay/*)
  *   → gated LLM proxy (/api/llm/*) → gated share management (/api/share/*)
  *   → public share surface (/s/*)
  */
 import { createHash } from 'node:crypto'
 import { Hono } from 'hono'
 import { secureHeaders } from 'hono/secure-headers'
-import { config } from './config.js'
+import { config, mcpResourceUrl } from './config.js'
 import { bodyLimit } from 'hono/body-limit'
 import { corsMiddleware } from './middleware/cors.js'
 import { requireSession, type AppEnv } from './middleware/session.js'
@@ -24,6 +25,12 @@ import { shareAuthorRoutes } from './routes/share/author.js'
 import { sharePublicRoutes } from './routes/share/public.js'
 import { MAX_ARTIFACT_BYTES, buildShareUrl, hashShareToken } from './routes/share/common.js'
 import { prisma } from './db/index.js'
+import { relayWellKnownRoutes } from './relay/wellKnown.js'
+import { oauthErrorPage, relayPageRoutes } from './relay/pages.js'
+import { relayMcpRoutes } from './relay/mcp.js'
+import { relaySocketRoutes } from './relay/socket.js'
+import { relayRevokeRoutes } from './relay/revoke.js'
+import { deleteExpiredSessions } from './relay/sessions.js'
 
 // The sign-in email's "Open in Prose" page (#964). Reads code + state from
 // the URL fragment (never sent to a server), shows the code, and hands both
@@ -199,8 +206,56 @@ export function createApp() {
   app.route('/api/sign-in', signInCodeRoutes)
   app.use('/api/auth/sign-in/*', ipRateLimit(config.SIGN_IN_VERIFY_IP_MAX, 600))
 
-  // Better Auth owns all /api/auth/* routes (code sign-in, session, sign-out…).
+  // The relay's authorization server (#1238; auth/oauth.ts). Better Auth's
+  // limiter is off, so the OAuth routes get per-IP ceilings here, and open
+  // dynamic client registration a much tighter one.
+  app.use('/api/auth/oauth2/*', ipRateLimit(config.RELAY_OAUTH_IP_MAX, 60))
+  app.use('/api/auth/oauth2/register', ipRateLimit(config.RELAY_REGISTER_IP_MAX, 3600))
+  // RFC 8707: an authorization must name the relay's one resource, so no
+  // token is ever minted without its audience. Checked before the provider
+  // sees the request (and before any consent is asked for).
+  app.use('/api/auth/oauth2/authorize', async (c, next) => {
+    let resources = new URL(c.req.url).searchParams.getAll('resource')
+    if (c.req.method === 'POST' && c.req.header('content-type')?.startsWith('application/x-www-form-urlencoded')) {
+      resources = resources.concat(new URLSearchParams(await c.req.raw.clone().text()).getAll('resource'))
+    }
+    if (resources.length === 0 || resources.some((r) => r !== mcpResourceUrl)) {
+      return oauthErrorPage(
+        c,
+        'This app asked for the wrong thing',
+        `Prose can only authorize access to ${mcpResourceUrl}, and the app must ask for it by name (the "resource" parameter). Go back to the app and check its Prose server URL.`
+      )
+    }
+    await next()
+  })
+  // Keep refreshed tokens alive past the consent's browser session
+  // (relay/sessions.ts).
+  app.use('/api/auth/oauth2/token', async (_c, next) => {
+    await deleteExpiredSessions().catch((err) => {
+      console.error('[relay] expired-session sweep failed:', err instanceof Error ? err.message : 'unknown error')
+    })
+    await next()
+  })
+
+  // Better Auth owns all /api/auth/* routes (code sign-in, session, sign-out,
+  // the OAuth provider…).
   app.on(['GET', 'POST'], '/api/auth/*', (c) => auth.handler(c.req.raw))
+
+  // The MCP relay (#1238): discovery documents, the sign-in and consent
+  // pages, the protected resource, and the desktop's socket.
+  app.route('/', relayWellKnownRoutes)
+  app.route('/', relayPageRoutes)
+  app.route('/', relayMcpRoutes())
+  app.route('/', relaySocketRoutes())
+  // Revoke a client's grants for the signed-in account (the desktop, when
+  // the writer removes a remote connection).
+  app.use(
+    '/api/relay/*',
+    bodyLimit({ maxSize: 4 * 1024, onError: (c) => c.json({ error: 'body_too_large' }, 413) }),
+    requireSession,
+    userRateLimit(30, 60)
+  )
+  app.route('/api/relay', relayRevokeRoutes)
 
   // "Open in Prose" fallback page (#964). Mail clients often refuse custom
   // schemes in links, so the email links here (https) and this page opens

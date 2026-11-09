@@ -3,8 +3,10 @@
  * Credential = a 6-digit code emailed to the user (#964), via Better Auth's
  * emailOTP plugin. Do NOT hand-roll session/token crypto.
  *
- * Only one plugin route is live: POST /api/auth/sign-in/email-otp {email, otp}
- * (verifies, creates the user on first sign-in, sets the session cookie).
+ * The emailOTP plugin has one live route: POST /api/auth/sign-in/email-otp
+ * {email, otp} (verifies, creates the user on first sign-in, sets the
+ * session cookie). The OAuth provider's routes (/api/auth/oauth2/*, the
+ * relay's authorization server, #1238) are configured in auth/oauth.ts.
  * Codes are issued by the gateway's own POST /api/sign-in/code (auth/code.ts)
  * rather than the plugin's send route, because the plugin swallows delivery
  * errors — a Resend failure would read as "check your email" to a user whose
@@ -15,6 +17,7 @@ import { prismaAdapter } from 'better-auth/adapters/prisma'
 import { emailOTP } from 'better-auth/plugins'
 import { prisma } from '../db/index.js'
 import { config, corsOrigins } from '../config.js'
+import { oauthPlugins } from './oauth.js'
 
 /** Code lifetime. The email copy and the desktop's pending window match it. */
 export const SIGN_IN_CODE_TTL_S = 600
@@ -56,6 +59,8 @@ export const auth = betterAuth({
         console.warn(`[auth] unexpected emailOTP send (type=${type}); ignored`)
       },
     }),
+    // The MCP relay's authorization server (#1238): auth/oauth.ts.
+    ...oauthPlugins,
   ],
 })
 

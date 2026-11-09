@@ -63,6 +63,7 @@ import { setupIpcHandlers } from './ipc'
 import { createMenu } from './menu'
 import { getMcpHttpServer, getMcpBridge, getMcpSocketServer, mcpHttpPort, proseVersion, getMcpConnectionStore, flushMcpConnectionStore } from './mcp'
 import { setupMcpConnectionHandlers } from './mcp/connectionsIpc'
+import { setupMcpExtensionHandlers } from './mcp/extensionIpc'
 import { initializeSpellcheck, setupContextMenu } from './spellcheck'
 import { initAutoUpdater } from './updater'
 import { IS_MAS_BUILD } from './env'
@@ -600,6 +601,7 @@ app.whenReady().then(async () => {
   const mainWindow = createWindow()
   setupIpcHandlers()
   setupMcpConnectionHandlers()
+  setupMcpExtensionHandlers()
   setupFileWatcherHandlers()
   setupAppStoreImportHandlers()
   createMenu(mainWindow)

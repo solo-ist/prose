@@ -90,11 +90,12 @@ function RemarkableSettings({ settings, setRemarkableConfig }: Props) {
   // Validate existing token on mount
   useEffect(() => {
     async function validateExistingToken() {
-      if (!remarkableSettings?.deviceToken || !window.api) return
+      if (!remarkableSettings?.connected || !window.api) return
 
       setIsValidating(true)
       try {
-        const valid = await window.api.remarkableValidate(remarkableSettings.deviceToken)
+        // Main validates the token it holds (#1275).
+        const valid = await window.api.remarkableValidate()
         setIsConnected(valid)
         if (!valid) {
           setError('Device token expired. Please reconnect.')
@@ -109,7 +110,7 @@ function RemarkableSettings({ settings, setRemarkableConfig }: Props) {
     if (remarkableSettings?.enabled) {
       validateExistingToken()
     }
-  }, [remarkableSettings?.enabled, remarkableSettings?.deviceToken])
+  }, [remarkableSettings?.enabled, remarkableSettings?.connected])
 
   // Check if sync state exists
   useEffect(() => {
@@ -135,10 +136,11 @@ function RemarkableSettings({ settings, setRemarkableConfig }: Props) {
       if (!window.api) return
 
       try {
-        const key = await window.api.remarkableGetApiKey()
-        setHasStoredApiKey(!!key)
-        if (!!key !== remarkableSettings?.hasAnthropicKey) {
-          setRemarkableConfig({ hasAnthropicKey: !!key })
+        // Main answers whether a key is saved; the key stays there (#1275).
+        const saved = await window.api.remarkableOcrKeyStatus()
+        setHasStoredApiKey(saved)
+        if (saved !== remarkableSettings?.hasAnthropicKey) {
+          setRemarkableConfig({ hasAnthropicKey: saved })
         }
       } catch {
         setHasStoredApiKey(false)
@@ -157,9 +159,10 @@ function RemarkableSettings({ settings, setRemarkableConfig }: Props) {
     setError(null)
 
     try {
+      // Main keeps the device token; the renderer learns only that it's connected (#1275).
       const response = await window.api.remarkableRegister(code.trim())
       const config: Partial<NonNullable<Settings['remarkable']>> = {
-        deviceToken: response.deviceToken
+        connected: response.connected
       }
       if (!remarkableSettings?.syncDirectory) {
         config.syncDirectory = '~/Documents/reMarkable'
@@ -185,7 +188,7 @@ function RemarkableSettings({ settings, setRemarkableConfig }: Props) {
     }
 
     setRemarkableConfig({
-      deviceToken: undefined,
+      connected: false,
       lastSyncedAt: undefined,
       hasAnthropicKey: false,
     })
@@ -196,7 +199,7 @@ function RemarkableSettings({ settings, setRemarkableConfig }: Props) {
   }
 
   const handleSync = async () => {
-    if (!window.api || !remarkableSettings?.deviceToken) return
+    if (!window.api || !remarkableSettings?.connected) return
 
     if (!hasSyncState) {
       setShowSelectionDialog(true)
@@ -251,7 +254,7 @@ function RemarkableSettings({ settings, setRemarkableConfig }: Props) {
   }
 
   const isEnabled = remarkableSettings?.enabled ?? false
-  const hasToken = !!remarkableSettings?.deviceToken
+  const hasToken = !!remarkableSettings?.connected
 
   return (
     <>
@@ -521,11 +524,10 @@ function RemarkableSettings({ settings, setRemarkableConfig }: Props) {
         </>
       )}
 
-      {remarkableSettings?.deviceToken && (
+      {remarkableSettings?.connected && (
         <NotebookSelectionDialog
           open={showSelectionDialog}
           onOpenChange={setShowSelectionDialog}
-          deviceToken={remarkableSettings.deviceToken}
           syncDirectory={remarkableSettings.syncDirectory || '~/Documents/reMarkable'}
           onComplete={handleSelectionComplete}
         />

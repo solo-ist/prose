@@ -17,6 +17,19 @@ import { dialogDefaultPath, rememberDialogDir } from './dialogDirs'
 import { refreshMenu, setReopenClosedTabEnabled } from './menu'
 import { credentialStore } from './credentialStore'
 import {
+  REMARKABLE_DEVICE_TOKEN,
+  clearDeviceToken,
+  clearOcrKey,
+  hasOcrKey,
+  remarkableForRenderer,
+  resolveDeviceToken,
+  resolveOcrKey,
+  seedDeviceTokenFromDisk,
+  setDeviceToken,
+  setOcrKey,
+  stripRemarkableSecretsForDisk,
+} from './remarkableCredentials'
+import {
   resolveProviderKey,
   setProviderKey,
   clearProviderKey,
@@ -28,8 +41,8 @@ import {
 import { toFileOperationFailure, type ReadFileResult, type SaveFileResult } from '../shared/fileOperationResult'
 import { readReleaseNotes, type ReleaseNotes } from './releaseNotes'
 
-// Credential store keys. LLM keys are per provider and live in ./llmKeys (#1240).
-const REMARKABLE_DEVICE_TOKEN = 'remarkable-device-token'
+// Credential store keys: LLM keys live in ./llmKeys (#1240), the reMarkable
+// device token and OCR key in ./remarkableCredentials (#1275).
 
 // Tracks the in-flight reMarkable sync so remarkable:sync:abort can cancel it.
 // Only one sync runs at a time (the renderer hook has its own concurrent-call
@@ -133,13 +146,28 @@ function stripSecretsForDisk(settings: Settings): Settings {
   const stripped = stripLlmSecretsForDisk(settings)
   return {
     ...stripped,
-    ...(settings.remarkable ? { remarkable: { ...settings.remarkable, deviceToken: '' } } : {}),
+    ...(settings.remarkable ? { remarkable: stripRemarkableSecretsForDisk(settings.remarkable) as Settings['remarkable'] } : {}),
+  }
+}
+
+/**
+ * The settings for the renderer (#1240, #1275): no LLM key, no reMarkable
+ * device token or OCR key; each one's status instead.
+ */
+async function settingsForRenderer(settings: Settings): Promise<Settings> {
+  const withKeys = toRendererSettings(settings, await keyStatusAll())
+  if (!withKeys.remarkable) return withKeys
+  return {
+    ...withKeys,
+    remarkable: remarkableForRenderer(withKeys.remarkable, {
+      connected: (await resolveDeviceToken()) !== null,
+      hasAnthropicKey: await hasOcrKey(ANTHROPIC_KEY_PATH),
+    }) as Settings['remarkable'],
   }
 }
 
 function getSettingsPath(): string { return join(getSettingsDir(), 'settings.json') }
 const ANTHROPIC_KEY_PATH = join(LEGACY_SETTINGS_DIR, '.remarkable-anthropic-key') // Legacy path for migration
-const REMARKABLE_CREDENTIAL_KEY = 'remarkable-anthropic-key'
 
 /**
  * Refuse a final path segment that is empty, `.` or `..`. Used on the C-class
@@ -804,13 +832,9 @@ export function setupIpcHandlers(): void {
       // memory: the renderer never receives an LLM key (#1240).
       await seedSessionKeyFromDisk(rawSettings)
 
-      // Inject the reMarkable device token from secure storage
-      if (credentialStore.isAvailable()) {
-        const storedToken = await credentialStore.get(REMARKABLE_DEVICE_TOKEN)
-        if (storedToken && rawSettings.remarkable) {
-          rawSettings.remarkable = { ...rawSettings.remarkable, deviceToken: storedToken }
-        }
-      }
+      // Likewise a plaintext reMarkable device token: main keeps it, and the
+      // renderer learns only that one is held (#1275).
+      await seedDeviceTokenFromDisk(rawSettings)
 
       // Restore security-scoped bookmark for MAS sandbox directory access
       if (IS_MAS_BUILD && rawSettings.masDirectoryBookmark) {
@@ -893,9 +917,9 @@ export function setupIpcHandlers(): void {
         } catch { /* best effort */ }
       }
 
-      return toRendererSettings(rawSettings, await keyStatusAll())
+      return settingsForRenderer(rawSettings)
     } catch {
-      return toRendererSettings(defaultSettings, await keyStatusAll())
+      return settingsForRenderer(defaultSettings)
     }
   })
 
@@ -923,18 +947,9 @@ export function setupIpcHandlers(): void {
         }
       }
 
-      if (credentialStore.isAvailable()) {
-        // Store reMarkable device token securely
-        if (settings.remarkable?.deviceToken) {
-          await credentialStore.set(REMARKABLE_DEVICE_TOKEN, settings.remarkable.deviceToken)
-        }
-      } else {
-        // Secure storage unavailable — save settings but strip secrets
-        // to avoid storing credentials in plaintext on disk
-        console.warn('[settings:save] Secure storage unavailable, secrets will not be persisted')
-      }
-      // LLM keys never travel with settings: llm:setKey is their one way in
-      // (#1240). Anything key-shaped that arrives here is dropped, not stored.
+      // Credentials never travel with settings: llm:setKey and
+      // remarkable:register / storeApiKey are their ways in (#1240, #1275).
+      // Anything credential-shaped that arrives here is dropped, not stored.
       await writeFile(getSettingsPath(), JSON.stringify(stripSecretsForDisk(settings), null, 2), 'utf-8')
     } catch (error) {
       console.error('Failed to save settings:', error)
@@ -1567,14 +1582,17 @@ export function setupIpcHandlers(): void {
   })
 
   // reMarkable: Register device with one-time code
+  // The token stays in main (#1275); the renderer learns only that it holds one.
   ipcMain.handle('remarkable:register', async (_event, code: string) => {
     const { registerDevice } = await import('./remarkable/client')
-    const deviceToken = await registerDevice(code)
-    return { deviceToken }
+    await setDeviceToken(await registerDevice(code))
+    return { connected: true }
   })
 
-  // reMarkable: Validate existing device token
-  ipcMain.handle('remarkable:validate', async (_event, deviceToken: string) => {
+  // reMarkable: Validate the device token main holds
+  ipcMain.handle('remarkable:validate', async () => {
+    const deviceToken = await resolveDeviceToken()
+    if (!deviceToken) return false
     const { validateToken } = await import('./remarkable/client')
     return await validateToken(deviceToken)
   })
@@ -1582,24 +1600,15 @@ export function setupIpcHandlers(): void {
   // reMarkable: Sync notebooks to local directory
   ipcMain.handle(
     'remarkable:sync',
-    async (event, deviceToken: string, syncDirectory: string) => {
+    async (event, syncDirectory: string) => {
       const safeDir = normalizePath(syncDirectory)
+      const deviceToken = await resolveDeviceToken()
+      if (!deviceToken) throw new Error('reMarkable is not connected. Connect it in Settings → Integrations.')
       const { syncAll } = await import('./remarkable/sync')
 
-      // Get Anthropic API key - first the LLM settings' Anthropic key (secure
-      // storage, or this session's memory when it is unavailable), then fall
-      // back to the reMarkable-specific secure storage. OCR is Claude vision,
-      // so it is Anthropic's key whichever provider chat uses.
-      let anthropicApiKey: string | undefined = (await resolveProviderKey('anthropic')) ?? undefined
-
-      // If no key from LLM settings, try reMarkable-specific credential store
-      if (!anthropicApiKey) {
-        const remarkableKey = await credentialStore.get(REMARKABLE_CREDENTIAL_KEY)
-          ?? await credentialStore.migrateFromLegacyFile(ANTHROPIC_KEY_PATH, REMARKABLE_CREDENTIAL_KEY)
-        if (remarkableKey) {
-          anthropicApiKey = remarkableKey
-        }
-      }
+      // OCR is Claude vision: the LLM settings' Anthropic key, else the
+      // reMarkable-specific one, both read in main (#1240, #1275).
+      const anthropicApiKey = await resolveOcrKey(ANTHROPIC_KEY_PATH)
 
       // Abort any previous sync (shouldn't happen — hook has its own lock —
       // but harmless defensive cleanup).
@@ -1648,12 +1657,11 @@ export function setupIpcHandlers(): void {
     }
 
     // Clear BOTH credentials: the device token (for the reMarkable cloud
-    // connection) and the separate Anthropic key used for OCR. settings:load
-    // injects the device token back into memory from safeStorage if present,
-    // so leaving it would resurrect the connection on the next settings
-    // reload or app restart.
-    await credentialStore.delete(REMARKABLE_DEVICE_TOKEN)
-    await credentialStore.delete(REMARKABLE_CREDENTIAL_KEY)
+    // connection) and the separate Anthropic key used for OCR, in secure
+    // storage and in this session's memory. Leaving the token would resurrect
+    // the connection on the next settings reload or app restart.
+    await clearDeviceToken()
+    await clearOcrKey()
     // Also clean up legacy file if it exists
     try { await unlink(ANTHROPIC_KEY_PATH) } catch { /* ignore */ }
   })
@@ -1666,7 +1674,9 @@ export function setupIpcHandlers(): void {
   })
 
   // reMarkable: List cloud notebooks (for selection UI)
-  ipcMain.handle('remarkable:listCloudNotebooks', async (_event, deviceToken: string) => {
+  ipcMain.handle('remarkable:listCloudNotebooks', async () => {
+    const deviceToken = await resolveDeviceToken()
+    if (!deviceToken) throw new Error('reMarkable is not connected')
     const { listCloudNotebooks } = await import('./remarkable/sync')
     return await listCloudNotebooks(deviceToken)
   })
@@ -1689,17 +1699,16 @@ export function setupIpcHandlers(): void {
   )
 
   // reMarkable: Store Anthropic API key securely via credentialStore
-  ipcMain.handle('remarkable:storeApiKey', async (_event, apiKey: string) => {
-    await credentialStore.set(REMARKABLE_CREDENTIAL_KEY, apiKey)
+  ipcMain.handle('remarkable:storeApiKey', async (_event, apiKey: unknown) => {
+    if (typeof apiKey !== 'string') throw new Error('API key is empty')
+    await setOcrKey(apiKey)
   })
 
-  ipcMain.handle('remarkable:getApiKey', async () => {
-    return await credentialStore.get(REMARKABLE_CREDENTIAL_KEY)
-      ?? await credentialStore.migrateFromLegacyFile(ANTHROPIC_KEY_PATH, REMARKABLE_CREDENTIAL_KEY)
-  })
+  // Whether an OCR key is saved; the key itself never leaves main (#1275).
+  ipcMain.handle('remarkable:ocrKeyStatus', async () => hasOcrKey(ANTHROPIC_KEY_PATH))
 
   ipcMain.handle('remarkable:clearApiKey', async () => {
-    await credentialStore.delete(REMARKABLE_CREDENTIAL_KEY)
+    await clearOcrKey()
     // Also clean up legacy file if it exists
     try { await unlink(ANTHROPIC_KEY_PATH) } catch { /* ignore */ }
   })
@@ -1773,7 +1782,7 @@ export function setupIpcHandlers(): void {
   // reMarkable: Move a notebook to a new parent folder on the cloud
   ipcMain.handle(
     'remarkable:moveNotebook',
-    async (_event, deviceToken: string, notebookHash: string, newParentId: string) => {
+    async (_event, notebookHash: string, newParentId: string) => {
       // Bound the renderer-supplied identifiers at the IPC boundary. These
       // hit the rmapi-js cloud API and never touch the local filesystem, so
       // the validation is about catching obviously-malformed values fast
@@ -1785,6 +1794,8 @@ export function setupIpcHandlers(): void {
       if (notebookHash.length > 128) throw new Error('notebookHash is too long')
       if (typeof newParentId !== 'string') throw new Error('newParentId must be a string')
       if (newParentId.length > 128) throw new Error('newParentId is too long')
+      const deviceToken = await resolveDeviceToken()
+      if (!deviceToken) throw new Error('reMarkable is not connected')
       const { connect } = await import('./remarkable/client')
       const client = await connect(deviceToken)
       // Surface the new hash assigned by the cloud so the caller can persist

@@ -400,10 +400,9 @@ export function createMockApi(): ElectronAPI {
       throw new Error('reMarkable not available in web mode')
     },
 
-    remarkableValidate: async (_deviceToken: string): Promise<boolean> => false,
+    remarkableValidate: async (): Promise<boolean> => false,
 
     remarkableSync: async (
-      _deviceToken: string,
       _syncDirectory: string
     ): Promise<RemarkableSyncResult> => {
       throw new Error('reMarkable sync is not available in web mode')
@@ -415,9 +414,7 @@ export function createMockApi(): ElectronAPI {
       _syncDirectory: string
     ): Promise<RemarkableSyncMetadata | null> => null,
 
-    remarkableListCloudNotebooks: async (
-      _deviceToken: string
-    ): Promise<RemarkableCloudNotebook[]> => [],
+    remarkableListCloudNotebooks: async (): Promise<RemarkableCloudNotebook[]> => [],
 
     remarkableGetSyncState: async (
       _syncDirectory: string
@@ -430,7 +427,7 @@ export function createMockApi(): ElectronAPI {
 
     remarkableStoreApiKey: async (_apiKey: string): Promise<void> => {},
 
-    remarkableGetApiKey: async (): Promise<string | null> => null,
+    remarkableOcrKeyStatus: async (): Promise<boolean> => false,
 
     remarkableClearApiKey: async (): Promise<void> => {},
 
@@ -465,7 +462,6 @@ export function createMockApi(): ElectronAPI {
     ): Promise<boolean> => false,
 
     remarkableMoveNotebook: async (
-      _deviceToken: string,
       _notebookHash: string,
       _newParentId: string
     ): Promise<string> => '',

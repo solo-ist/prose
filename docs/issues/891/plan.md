@@ -117,3 +117,14 @@ These fill gaps the design leaves open; none changes a §8 decision.
   `electron.suggesting-mode` 10/10, `review-log` and the session tripwires
   green locally. Next: the editor suites, the falsification on the
   merge-base, the PR.
+- 2026-11-09 — Merged `origin/release/v1.9.1` (1737680: #1276, #1279, #1280;
+  the QA doc conflict resolved keeping both blocks). Side-by-side review lists
+  tracked changes; a rejected insertion keeps its paragraph. Numbers after the
+  merge: typecheck renderer 66, node 18, e2e 6 (all = baseline); unit 426
+  green (55 new). e2e on the branch build: 143 passed across 27 suites
+  (`clipboard` and `editor` need a private profile locally: the dev window
+  holds the default one; 19/19 on one), then 39/39 on the merged build.
+  **Falsification** (`git checkout <merge-base> -- src`, rebuild, run): the 55
+  new unit cases fail but the one `flatInline` case (54 fail); all 11 new e2e
+  tests fail; the new tripwire fails; the review-log spec (now expecting DB
+  11) fails. `src` restored to the branch afterwards. Next: PR, CI, review.

@@ -130,14 +130,12 @@ So Activity, the review log and `list_review_events` show who it was (P1, P2, P4
 | Denial of service | Per-account and per-client rate limits; payload caps; DCR rate-limited per IP | — |
 | CIMD fetch abuse (SSRF) | `@better-auth/cimd` fetches only `https` URLs, with a short timeout and a size cap; private address ranges are refused | — |
 
-## 8. The operator's decisions
+## 8. The operator's decisions (decided 2026-11-09)
 
-1. **Who gets Remote access.** The relay costs bandwidth and an always-on socket per writer.
-   - (a) Any signed-in writer, free (recommended for 1.9.1: usage will be small, and the metadata logs show the cost).
-   - (b) Members only, through the Open Collective entitlement (#953).
-2. **CIMD and DCR, or CIMD only.** Both is recommended: Claude still uses DCR in places. DCR is rate-limited.
-3. **Token lifetimes.** 1 hour and 30 days are proposed.
-4. **Whether a remote client may open files.** The proposal is no. Remote clients work on documents the writer already has open; a later scope could add it.
+1. **Who gets Remote access:** any signed-in writer, free, in 1.9.1. The metadata logs show the cost; the Open Collective entitlement (#953) can gate it later if usage calls for it.
+2. **Client registration:** CIMD and DCR both. DCR is rate-limited.
+3. **Token lifetimes:** access tokens 1 hour, refresh tokens 30 days. Revoking a remote client in Prose ends it at once, whatever its refresh token says.
+4. **Remote clients and files:** documents the writer already has open only. A remote client can't open, create or list files. A per-connection "may open files" scope is a possible later addition, not part of 1.9.1.
 
 ## 9. Delivery and tests
 

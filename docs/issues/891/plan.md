@@ -57,11 +57,15 @@ These fill gaps the design leaves open; none changes a §8 decision.
    once when a change appears, goes or is decided, otherwise after the
    projection delay. An empty set is always written when it is the truth: a
    stale set would re-insert changes at the next load.
-9. **Agents read the original.** `read_document`'s markdown and node text are
+9. **Context stays in its paragraph**: a record's up-to-32 characters each
+   side stop at the line break bounding its paragraph (included), so an edit
+   to the next paragraph doesn't orphan it; a change goes back whole or not
+   at all.
+10. **Agents read the original.** `read_document`'s markdown and node text are
    the original (what the file holds), as with node-level suggestions;
    `suggest_insert` / `suggest_delete` match `search` against a node's
    original text.
-10. **The writer decides** in Quick Review (tracked changes listed beside AI
+11. **The writer decides** in Quick Review (tracked changes listed beside AI
     suggestions, with the all-variants) and in Activity, which reads the log.
 
 ## Delivery (design §9)
@@ -104,3 +108,12 @@ These fill gaps the design leaves open; none changes a §8 decision.
   spaces in the text, formatting tracked, a heading toggle throwing, and
   typing in a code block going in untracked. Spike code removed; the library
   is not a dependency. Next: the marks and commands.
+- 2026-11-09 — **Build done** (commits f23725f, a4424f8, 0466161, a50f1f7 and
+  the docs): marks, filter, decisions, records, `originalOf` / `finalOf`, the
+  `tracked` store (DB 11), the toggle, display controls, Quick Review and
+  Activity, the two MCP tools, Copy with changes, export and share on the
+  original. Unit: 419 green (63 new across `extensions/tracked-changes/`,
+  `document/tracked-session.test.ts`, `executors/tracked.test.ts`). e2e
+  `electron.suggesting-mode` 10/10, `review-log` and the session tripwires
+  green locally. Next: the editor suites, the falsification on the
+  merge-base, the PR.

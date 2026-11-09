@@ -105,3 +105,16 @@ The work is one PR after the spike:
 4. The display controls.
 5. `suggest_insert` and `suggest_delete`.
 6. Specs: a unit test per rewrite rule; e2e for the save-reads-original check, typing, IME, paste, undo, a relaunch with re-anchoring, an orphaned change after an external edit, the display controls, and the agent tools over MCP.
+
+## 10. As built (#891, the P3 PR)
+
+Where the build fills in what the text above leaves open; the plan and its log are in `docs/issues/891/plan.md`, the spike in `docs/issues/891/spike.md`.
+
+- **Hand-rolled** (§3, §8.2): the library can't carry the actor on its marks, joins ids across authors, writes zero-width spaces into the text, tracks formatting and lets typing in a code block through untracked. Its step-rebasing approach is what `trackTransaction` (`extensions/tracked-changes/filter.ts`) copies.
+- **The filter rewrites before apply.** It sits in front of the view's dispatch (installed by `attachEditor`), so no plugin ever sees a transient untracked deletion (a comment would auto-resolve and push to a share, the log would record a rejection). Only the view's transactions are rewritten; undo and redo, decisions, the session's own transactions and every tool write through a `DocumentHandle` pass untouched.
+- **Structure is not tracked in P3.** In Suggesting mode an edit that adds or removes a block boundary (Enter, Backspace at a paragraph's start, a multi-paragraph paste or deletion, table rows) or changes text in a code block is refused with a notice, never applied untracked (§8.1). Formatting and node-type changes apply directly (§3). A plain-text document can't suggest.
+- **A deletion across another actor's pending insertion rejects that whole change** in the same transaction, decided by the writer.
+- **Context stays in its paragraph:** a record's up-to-32 characters each side stop at the line break that bounds its paragraph (included), so an edit to the next paragraph doesn't orphan it. A change goes back whole or not at all.
+- **Orphans** are `superseded` rows with `orphaned: true` and a `suggestion:orphaned` event (by the writer), logged even in the seed; the orphaning is idempotent until the next write drops the records. A plain-text document's stored changes are orphaned.
+- **Agents read the original**: `read_document`'s markdown and node text, and `suggest_insert` / `suggest_delete` match `search` against it. `suggest_delete` refuses a phrase that overlaps a pending change.
+- **The writer decides** in Quick Review (tracked changes beside AI suggestions), from the status bar's display menu (accept all, reject all) and through the commands; Activity reads the log.

@@ -58,7 +58,7 @@ import type { OrphanedChange, StoredReviewLog } from '../extensions/review-log/l
 import { trackedChangesIn } from '../extensions/tracked-changes/changes'
 import { trackedRecordsOf, applyTrackedRecords, type TrackedChangeRecord } from '../extensions/tracked-changes/records'
 import { installTrackedDispatch } from '../extensions/tracked-changes/extension'
-import { isSuggesting, setSuggestingIn, TRACKED_META, TRACKED_RESOLVED_META } from '../extensions/tracked-changes/transactions'
+import { isSuggesting, setSuggestingIn, TRACKED_RESOLVED_META } from '../extensions/tracked-changes/transactions'
 import { TRACKED_DELETE, TRACKED_INSERT } from '../extensions/tracked-changes/marks'
 import { Transform } from '@tiptap/pm/transform'
 import {
@@ -637,9 +637,7 @@ function trackedIdsKey(state: EditorState): string {
  */
 function scheduleTrackedProjection(session: Session, tr: Transaction, prev: EditorState | null): void {
   const urgent =
-    tr.getMeta(TRACKED_RESOLVED_META) === true ||
-    (tr.getMeta(TRACKED_META) === true && prev !== null && trackedIdsKey(prev) !== trackedIdsKey(session.state)) ||
-    (prev !== null && trackedChangesIn(prev.doc).length > 0 && trackedChangesIn(session.state.doc).length === 0)
+    tr.getMeta(TRACKED_RESOLVED_META) === true || (prev !== null && trackedIdsKey(prev) !== trackedIdsKey(session.state))
   if (session.trackedTimer) clearTimeout(session.trackedTimer)
   session.trackedTimer = null
   if (urgent) {
@@ -1081,7 +1079,9 @@ async function openSessionNow(
   // original, and every other record's text may sit on a change's text. A
   // change whose context is gone is orphaned, never put back elsewhere; the
   // review log keeps it as superseded.
-  const orphans = applyTrackedRecords(seed, tracked)
+  // A plain-text document holds no marks (plain mode strips them): its stored
+  // changes can't come back, and are set aside rather than lost silently.
+  const orphans = identity.plain ? [...tracked] : applyTrackedRecords(seed, tracked)
   orphanTrackedIn(seed, orphanedChanges(orphans))
   setSuggestingIn(seed, record.suggesting === true && !identity.plain)
   // The stored threads and their marks, in one transaction; the plugin sets

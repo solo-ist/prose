@@ -22,7 +22,7 @@ import { selectAnnotations } from '../../extensions/ai-annotations'
 import { useActiveSession } from '../../document/useActiveSession'
 import { OPEN_COMMENT_EVENT, selectThreads } from '../../extensions/comments'
 import { selectReviewLog, type SuggestionHistory } from '../../extensions/review-log'
-import { getAISuggestions } from '../../extensions/ai-suggestions'
+import { reviewItems } from '../review/reviewItems'
 import type { Actor } from '../../../shared/review/actor'
 import { useReviewStore } from '../../stores/reviewStore'
 import { useShareStore } from '../../stores/shareStore'
@@ -203,7 +203,8 @@ export function AIEditsHistoryPanel({ filter, actorFilter, onShowAll, onReviewTh
   const handleReviewSuggestion = useCallback(
     (id: string) => {
       if (!editor) return
-      const index = getAISuggestions(editor).findIndex((sg) => sg.id === id)
+      // Quick Review steps through suggestions and tracked changes together (#891).
+      const index = reviewItems(editor).findIndex((sg) => sg.id === id)
       if (index === -1) return
       const store = useReviewStore.getState()
       store.setReviewMode('quick')
@@ -395,6 +396,12 @@ function SuggestionActivityRow({
         {suggestion.originalText}
       </p>
       <p className="line-clamp-3 text-[12.5px] leading-relaxed text-foreground/90">{suggestion.suggestedText}</p>
+      {/* A tracked change the file no longer had room for (#891): set aside, never put back elsewhere. */}
+      {suggestion.orphaned && (
+        <p className="mt-1 text-[11px] text-muted-foreground" data-testid="suggestion-orphaned">
+          Set aside: the text around it changed outside Prose
+        </p>
+      )}
       {suggestion.decidedBy && suggestion.status !== 'pending' && (
         <p className="mt-1 text-[11px] text-muted-foreground" data-testid="suggestion-decided-by">
           {suggestion.status === 'superseded' ? 'Revised by' : `${status.label} by`} {name(suggestion.decidedBy)}

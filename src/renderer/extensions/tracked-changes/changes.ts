@@ -5,6 +5,7 @@
  */
 
 import type { Mark, Node as PMNode, Schema } from '@tiptap/pm/model'
+import type { EditorState } from '@tiptap/pm/state'
 import { SELF, type Actor } from '../../../shared/review/actor'
 import { TRACKED_DELETE, TRACKED_INSERT } from './marks'
 
@@ -135,3 +136,15 @@ export function trackedMarkTypes(schema: Schema) {
   if (!insert || !remove) throw new Error('[tracked-changes] marks missing from the schema')
   return { insert, remove }
 }
+
+/** For `useActiveSession`: how many tracked changes the active document holds. */
+export function selectTrackedCount(state: EditorState | null): number {
+  return state ? trackedChangesIn(state.doc).length : 0
+}
+
+/** For `useActiveSession`: the active document's tracked changes (reference-stable per document). */
+export function selectTrackedChanges(state: EditorState | null): TrackedChange[] {
+  return state ? trackedChangesIn(state.doc) : NO_CHANGES
+}
+
+const NO_CHANGES: TrackedChange[] = []

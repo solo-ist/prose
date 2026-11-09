@@ -5,12 +5,14 @@ import { useChat } from '../../hooks/useChat'
 import { useEditorStore } from '../../stores/editorStore'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useLinkHoverStore } from '../../stores/linkHoverStore'
-import { useReviewStore } from '../../stores/reviewStore'
+import { useReviewStore, useTrackedDisplay, type TrackedDisplay } from '../../stores/reviewStore'
+import { useActiveTab } from '../../stores/tabStore'
+import { selectSuggesting, selectTrackedCount } from '../../extensions/tracked-changes'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { selectOpenThreadCount } from '../../extensions/comments'
 import { useActiveSession, useActiveSource } from '../../document/useActiveSession'
 import { requestCommentReview } from '../editor/AIEditsHistoryPanel'
-import { toggleSourceMode } from '../../tabs/actions'
+import { toggleSourceMode, toggleSuggesting, canSuggest } from '../../tabs/actions'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import {
   DropdownMenu,
@@ -18,7 +20,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
-  DropdownMenuLabel
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem
 } from '../ui/dropdown-menu'
 import { Brain } from 'lucide-react'
 import { cn } from '../../lib/utils'
@@ -26,6 +30,12 @@ import { useChatStore, type ToolMode } from '../../stores/chatStore'
 import { supportsAdaptiveThinking } from '../../../shared/llm/models'
 import { useAvailableModels } from '../../hooks/useAvailableModels'
 import { getProvider } from '../../../shared/llm/providers'
+
+const TRACKED_DISPLAY_LABELS: Record<TrackedDisplay, string> = {
+  all: 'All changes',
+  'no-deletions': 'No deletions',
+  final: 'Final',
+}
 
 // Detect Mac for keyboard-hint copy. Works in both Electron and web mode,
 // unlike browserApi's isMacOS() which gates on isElectron().
@@ -88,6 +98,15 @@ export function StatusBar() {
     return getAISuggestions(editor).length
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, editor?.state.doc])
+
+  // Suggesting mode and the tracked changes of the active tab (#891). Tracked
+  // changes count as suggestions: the same click reviews them.
+  const suggesting = useActiveSession(selectSuggesting)
+  const trackedCount = useActiveSession(selectTrackedCount)
+  const suggestingAvailable = useActiveTab((tab) => (tab ? canSuggest(tab.id) : false)) && !sourceMode
+  const trackedDisplay = useTrackedDisplay()
+  const setTrackedDisplay = useReviewStore((s) => s.setTrackedDisplay)
+  const pendingCount = suggestionCount + trackedCount
 
   // Open (unresolved) comment threads, counted from the comment store — the
   // same selector the chat chips and Comment Review derive from, so the
@@ -189,6 +208,66 @@ export function StatusBar() {
         </button>
         <span className="text-muted-foreground/40 mx-1">|</span>
 
+        {/* Suggesting mode (#891): the writer's edits become tracked changes. */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => toggleSuggesting()}
+              disabled={!suggesting && !suggestingAvailable}
+              aria-pressed={suggesting}
+              data-testid="status-suggesting"
+              className={cn(
+                'hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden transition-colors cursor-pointer disabled:cursor-default disabled:opacity-50',
+                suggesting && 'text-emerald-600 dark:text-emerald-400'
+              )}
+            >
+              {suggesting ? 'Suggesting' : 'Editing'}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <p>{suggesting ? 'Your edits are tracked changes. Click to edit directly.' : 'Click to suggest: your edits become tracked changes.'}</p>
+          </TooltipContent>
+        </Tooltip>
+        <span className="text-muted-foreground/40 mx-1">|</span>
+
+        {/* How tracked changes show (design §6): CSS only, per tab, not persisted. */}
+        {(suggesting || trackedCount > 0) && (
+          <>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  data-testid="tracked-display"
+                  className="hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden transition-colors cursor-pointer"
+                >
+                  {TRACKED_DISPLAY_LABELS[trackedDisplay]}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="top" align="end">
+                <DropdownMenuLabel>Show tracked changes</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={trackedDisplay} onValueChange={(v) => setTrackedDisplay(v as TrackedDisplay)}>
+                  {(Object.keys(TRACKED_DISPLAY_LABELS) as TrackedDisplay[]).map((value) => (
+                    <DropdownMenuRadioItem key={value} value={value} data-testid={`tracked-display-${value}`}>
+                      {TRACKED_DISPLAY_LABELS[value]}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+                {trackedCount > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem data-testid="tracked-accept-all" onSelect={() => editor?.commands.acceptAllTrackedChanges()}>
+                      Accept all changes
+                    </DropdownMenuItem>
+                    <DropdownMenuItem data-testid="tracked-reject-all" onSelect={() => editor?.commands.rejectAllTrackedChanges()}>
+                      Reject all changes
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <span className="text-muted-foreground/40 mx-1">|</span>
+          </>
+        )}
+
         {isAutosaving ? (
           <>
             <span className="text-yellow-500">saving...</span>
@@ -202,7 +281,7 @@ export function StatusBar() {
         ) : null}
 
         {/* Suggestion count */}
-        {suggestionCount > 0 && (
+        {pendingCount > 0 && (
           <>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -210,7 +289,7 @@ export function StatusBar() {
                   onClick={() => useReviewStore.getState().setReviewMode('quick')}
                   className="text-violet-600 dark:text-violet-400 hover:text-violet-500 focus-visible:text-violet-500 focus-visible:outline-hidden transition-colors cursor-pointer"
                 >
-                  {suggestionCount} suggestion{suggestionCount !== 1 ? 's' : ''}
+                  {pendingCount} suggestion{pendingCount !== 1 ? 's' : ''}
                 </button>
               </TooltipTrigger>
               <TooltipContent side="top">

@@ -12,6 +12,8 @@ export {
   sameActor,
   trackedMarkOf,
   trackedMarkTypes,
+  selectTrackedCount,
+  selectTrackedChanges,
   ATOM,
 } from './changes'
 export type { TrackedChange, TrackedRange, TrackedKind } from './changes'
@@ -19,6 +21,7 @@ export {
   trackedChangesPluginKey,
   trackedChangesPluginState,
   isSuggesting,
+  selectSuggesting,
   setSuggestingIn,
   SUGGESTING_META,
   TRACK_SKIP_META,

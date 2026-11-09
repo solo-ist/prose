@@ -3,10 +3,9 @@ import { Check, X, ChevronLeft, ChevronRight, MessageSquare, ArrowLeftRight } fr
 import { motion, useMotionValue, useTransform, type PanInfo } from 'framer-motion'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useReviewStore, useCurrentSuggestionIndex } from '../../stores/reviewStore'
-import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { computeWordDiff, scrollSelectionIntoCenter, type DiffSegment } from '../../lib/diffUtils'
-import type { AISuggestionData } from '../../extensions/ai-suggestions/types'
 import { cn } from '../../lib/utils'
+import { reviewItems, type ReviewItem } from './reviewItems'
 
 /**
  * Card-based quick review component — redesigned (#385).
@@ -31,7 +30,7 @@ export function QuickReviewPanel() {
   const [feedbackInput, setFeedbackInput] = useState('')
   const [showFeedbackForm, setShowFeedbackForm] = useState(false)
   const feedbackInputRef = useRef<HTMLTextAreaElement>(null)
-  const [suggestions, setSuggestions] = useState<AISuggestionData[]>([])
+  const [suggestions, setSuggestions] = useState<ReviewItem[]>([])
 
   // Subscribe to editor transactions for reactive updates
   useEffect(() => {
@@ -39,8 +38,8 @@ export function QuickReviewPanel() {
       setSuggestions([])
       return
     }
-    setSuggestions(getAISuggestions(editor))
-    const handler = () => setSuggestions(getAISuggestions(editor))
+    setSuggestions(reviewItems(editor))
+    const handler = () => setSuggestions(reviewItems(editor))
     editor.on('transaction', handler)
     return () => { editor.off('transaction', handler) }
   }, [editor])
@@ -79,8 +78,9 @@ export function QuickReviewPanel() {
     setDirection('next')
     setAnimating(true)
     setTimeout(() => {
-      editor.commands.acceptAISuggestion(current.id)
-      const remaining = getAISuggestions(editor)
+      if (current.tracked) editor.commands.acceptTrackedChange(current.id)
+      else editor.commands.acceptAISuggestion(current.id)
+      const remaining = reviewItems(editor)
       if (remaining.length === 0) {
         setReviewMode(null)
       } else {
@@ -95,8 +95,9 @@ export function QuickReviewPanel() {
     setDirection('next')
     setAnimating(true)
     setTimeout(() => {
-      editor.commands.rejectAISuggestion(current.id)
-      const remaining = getAISuggestions(editor)
+      if (current.tracked) editor.commands.rejectTrackedChange(current.id)
+      else editor.commands.rejectAISuggestion(current.id)
+      const remaining = reviewItems(editor)
       if (remaining.length === 0) {
         setReviewMode(null)
       } else {
@@ -187,7 +188,8 @@ export function QuickReviewPanel() {
 
   const handleSubmitFeedback = useCallback(() => {
     if (!editor || !current || !feedbackInput.trim()) return
-    editor.commands.setAISuggestionReply(current.id, feedbackInput.trim())
+    if (current.tracked) editor.commands.replyToTrackedChange(current.id, feedbackInput.trim())
+    else editor.commands.setAISuggestionReply(current.id, feedbackInput.trim())
     setShowFeedbackForm(false)
   }, [editor, current, feedbackInput])
 

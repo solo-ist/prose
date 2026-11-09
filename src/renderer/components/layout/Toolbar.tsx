@@ -4,11 +4,12 @@ import { requestBugReport } from '../EnableLoggingDialog'
 import { useEditor } from '../../hooks/useEditor'
 import { useTabs } from '../../hooks/useTabs'
 import { useEditorStore } from '../../stores/editorStore'
-import { toggleSourceMode } from '../../tabs/actions'
+import { toggleSourceMode, toggleSuggesting, canSuggest } from '../../tabs/actions'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useTabStore, useActiveTab } from '../../stores/tabStore'
-import { useActiveSource } from '../../document/useActiveSession'
-import { landAllProjections, originalHTML } from '../../document/session'
+import { useActiveSession, useActiveSource } from '../../document/useActiveSession'
+import { landAllProjections, originalHTML, serializeFinal } from '../../document/session'
+import { selectSuggesting, selectTrackedCount } from '../../extensions/tracked-changes'
 import { useFileListStore } from '../../stores/fileListStore'
 import { useSettings } from '../../hooks/useSettings'
 import { usePanelLayoutContext } from '../../hooks/usePanelLayout'
@@ -68,7 +69,9 @@ import {
   Code,
   FileText,
   Sparkles,
-  Share2
+  Share2,
+  PenLine,
+  ClipboardCopy
 } from 'lucide-react'
 
 function extractTitle(content: string, path?: string | null): string {
@@ -103,6 +106,10 @@ export function Toolbar() {
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
   const isPreviewTab = useActiveTab((tab) => tab?.isPreview ?? false)
   const webPlatformEnabled = useWebPlatformEnabled()
+  // Suggesting mode is the active tab's (#891); so are its pending changes.
+  const suggesting = useActiveSession(selectSuggesting)
+  const trackedCount = useActiveSession(selectTrackedCount)
+  const suggestingAvailable = useActiveTab((tab) => (tab ? canSuggest(tab.id) : false)) && !sourceMode
 
   const [hasCopied, setHasCopied] = useState(false)
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
@@ -152,6 +159,18 @@ export function Toolbar() {
       setTimeout(() => setHasCopied(false), 2000)
     } catch (err) {
       console.error('Failed to copy:', err)
+    }
+  }
+
+  // The final text, as if every pending change were accepted (#891): the
+  // file and Copy Markdown keep the original.
+  const handleCopyWithChanges = async () => {
+    const tabId = useTabStore.getState().activeTabId
+    if (!tabId) return
+    try {
+      await getApi().copyToClipboard(serializeFinal(tabId))
+    } catch (err) {
+      console.error('Failed to copy with changes:', err)
     }
   }
 
@@ -281,6 +300,7 @@ export function Toolbar() {
       { id: 'save', label: 'Save', icon: <Save />, onSelect: saveFile },
       { id: 'save-as', label: 'Save as...', icon: <FileDown />, onSelect: saveFileAs },
       { id: 'export-html', label: 'Export HTML...', icon: <FileCode />, disabled: !document.content, onSelect: handleExportHtml },
+      { id: 'copy-with-changes', label: 'Copy with changes', icon: <ClipboardCopy />, disabled: trackedCount === 0, onSelect: handleCopyWithChanges },
       ...(webPlatformEnabled
         ? [{
             id: 'share',
@@ -311,7 +331,7 @@ export function Toolbar() {
       { id: 'close', label: 'Close', icon: <X />, onSelect: handleClose, pinned: true },
     ]
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [document.content, handleExportHtml, handleClose, openFile, saveFile, saveFileAs, setDialogOpen, webPlatformEnabled])
+  }, [document.content, handleExportHtml, handleClose, openFile, saveFile, saveFileAs, setDialogOpen, webPlatformEnabled, trackedCount])
 
   // Unified, customizable right-side action set: the stateful toggle buttons and
   // the document actions are ONE drag-reorderable, hide-able list (#701). Each
@@ -390,6 +410,35 @@ export function Toolbar() {
           </TooltipTrigger>
           <TooltipContent>
             {sourceMode ? 'WYSIWYG mode' : 'Source mode'} ({isMacOS() ? '⌘⇧E' : 'Ctrl+Shift+E'})
+          </TooltipContent>
+        </Tooltip>
+      ),
+    },
+    {
+      id: 'suggesting',
+      label: suggesting ? 'Stop suggesting' : 'Suggest changes',
+      icon: <PenLine />,
+      onSelect: () => toggleSuggesting(),
+      disabled: !suggesting && !suggestingAvailable,
+      active: suggesting,
+      renderBar: (key) => (
+        <Tooltip key={key}>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => toggleSuggesting()}
+              disabled={!suggesting && !suggestingAvailable}
+              aria-label={suggesting ? 'Stop suggesting' : 'Suggest changes'}
+              aria-pressed={suggesting}
+              data-testid="toolbar-suggesting"
+              className={suggesting ? 'bg-accent text-accent-foreground' : ''}
+            >
+              <PenLine className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {suggesting ? 'Suggesting: your edits are tracked changes' : 'Suggest changes (track your edits)'}
           </TooltipContent>
         </Tooltip>
       ),
@@ -486,7 +535,7 @@ export function Toolbar() {
   // Default bar/menu boundary (until the user drags it): the toggle actions sit
   // on the bar, document actions in the ⋯ menu. "chat" is pinned to the bar
   // separately and excluded from this count.
-  const TOGGLE_IDS = ['copy', 'autosave', 'source-mode', 'annotations', 'theme']
+  const TOGGLE_IDS = ['copy', 'autosave', 'source-mode', 'suggesting', 'annotations', 'theme']
   const defaultBarCount = toolbarActions.filter(
     (a) => TOGGLE_IDS.includes(a.id) && a.available !== false && !a.pinnedBar
   ).length

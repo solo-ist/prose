@@ -43,3 +43,8 @@ export function trackedChangesPluginState(state: EditorState): TrackedChangesPlu
 export function isSuggesting(state: EditorState | null | undefined): boolean {
   return state ? trackedChangesPluginState(state)?.suggesting === true : false
 }
+
+/** For `useActiveSession`: whether the active document is in Suggesting mode. */
+export function selectSuggesting(state: EditorState | null): boolean {
+  return isSuggesting(state)
+}

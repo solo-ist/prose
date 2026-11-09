@@ -69,6 +69,7 @@ import {
   getSession,
   landProjections,
   landAllProjections,
+  setSessionSuggesting,
   type SaveSnapshot
 } from '../document/session'
 import { isPlainTextPath } from '../document/identity'
@@ -964,6 +965,27 @@ export function toggleSourceMode(): void {
   if (!tabId) return
   if (getSession(tabId)?.source) exitSourceMode(tabId)
   else enterSourceMode(tabId)
+}
+
+// ---------------------------------------------------------------------------
+// Suggesting mode (#891)
+// ---------------------------------------------------------------------------
+
+/** Can this tab suggest? Not a preview, a read-only, a source-mode or a plain-text tab. */
+export function canSuggest(tabId: string | null = useTabStore.getState().activeTabId): boolean {
+  if (!tabId) return false
+  const tab = useTabStore.getState().getTabById(tabId)
+  if (!tab || tab.isPreview || tab.readOnly || tab.mode === 'source') return false
+  return !isPlainTextPath(tab.path)
+}
+
+/** The one toggle behind the toolbar and the status bar: the writer's edits become tracked changes, or stop. */
+export function toggleSuggesting(tabId: string | null = useTabStore.getState().activeTabId): boolean {
+  if (!tabId) return false
+  const tab = useTabStore.getState().getTabById(tabId)
+  if (!tab) return false
+  if (!tab.suggesting && !canSuggest(tabId)) return false
+  return setSessionSuggesting(tabId, !tab.suggesting)
 }
 
 // ---------------------------------------------------------------------------

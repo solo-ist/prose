@@ -4,6 +4,7 @@ import { TextSelection } from '@tiptap/pm/state'
 import type { Slice } from '@tiptap/pm/model'
 import type { EditorView } from '@tiptap/pm/view'
 import { useNotificationStore } from '../../stores/notificationStore'
+import { useTrackedDisplay } from '../../stores/reviewStore'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
@@ -161,6 +162,8 @@ export function Editor() {
   const isPreviewTab = useActiveTab((tab) => tab?.isPreview ?? false)
   const frontmatter = useActiveTab((tab) => tab?.frontmatter ?? EMPTY_FRONTMATTER)
   const annotationsVisible = useEditorStore((state) => state.annotationsVisible)
+  // How tracked changes show in this tab (#891): CSS only, per tab, not persisted.
+  const trackedDisplay = useTrackedDisplay()
   const toggleAnnotationsVisible = useEditorStore((state) => state.toggleAnnotationsVisible)
   // The active tab's source session (#1150): its CodeMirror state is the
   // surface's, kept by the session across switches.
@@ -903,7 +906,7 @@ export function Editor() {
             </div>
           )}
           <TransformAnimation isTransforming={isTransforming} onComplete={completeTransform}>
-            <div className={`max-w-3xl mx-auto prose-editor ${isRemarkableReadOnly && !isTransforming ? 'opacity-80 select-none' : ''} ${!annotationsVisible ? 'hide-annotations' : ''}`}>
+            <div className={`max-w-3xl mx-auto prose-editor tracked-display-${trackedDisplay} ${isRemarkableReadOnly && !isTransforming ? 'opacity-80 select-none' : ''} ${!annotationsVisible ? 'hide-annotations' : ''}`}>
               {showFrontmatter && (
                 isRemarkableReadOnly || isPreviewTab
                   ? <FrontmatterDisplay frontmatter={frontmatter} />

@@ -98,3 +98,9 @@ These fill gaps the design leaves open; none changes a §8 decision.
   Spike started: library wired behind a throwaway extension, vitest harness
   run on Prose's schema (13 cases), editor e2e suites running on a build
   with the library wired in.
+- 2026-11-09 — **Spike done: hand-roll** (`spike.md`). With the library
+  wired in and off, the 13 editor suites pass (92/92); with it on, the
+  harness shows ids joined across authors, no actor on the marks, zero-width
+  spaces in the text, formatting tracked, a heading toggle throwing, and
+  typing in a code block going in untracked. Spike code removed; the library
+  is not a dependency. Next: the marks and commands.

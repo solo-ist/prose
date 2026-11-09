@@ -40,6 +40,7 @@ import {
 } from './llmKeys'
 import { toFileOperationFailure, type ReadFileResult, type SaveFileResult } from '../shared/fileOperationResult'
 import { readReleaseNotes, type ReleaseNotes } from './releaseNotes'
+import { bundledMcpServerPath } from './mcp/bundledServer'
 
 // Credential store keys: LLM keys live in ./llmKeys (#1240), the reMarkable
 // device token and OCR key in ./remarkableCredentials (#1275).
@@ -194,12 +195,6 @@ function claudeDesktopConfigPath(): string {
   )
 }
 
-/** The mcp-stdio bundle this build would install. */
-function bundledMcpServerPath(): string {
-  return app.isPackaged
-    ? join(process.resourcesPath, 'mcp-stdio.cjs')
-    : join(__dirname, '../../out/mcp-stdio.cjs')
-}
 
 function sha256(content: string): string {
   return createHash('sha256').update(content).digest('hex')

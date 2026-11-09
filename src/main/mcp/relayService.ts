@@ -148,9 +148,15 @@ export function setupRemoteAccessHandlers(): void {
     return result
   })
 
-  ipcMain.handle('mcp:remote:deny', (_event, clientId: unknown) => forget(text(clientId), (s) => s.deny(text(clientId))))
+  ipcMain.handle('mcp:remote:deny', (_event, clientId: unknown) => {
+    const id = text(clientId)
+    return forget(id, (s) => s.deny(id))
+  })
 
-  ipcMain.handle('mcp:remote:remove', (_event, clientId: unknown) => forget(text(clientId), (s) => s.remove(text(clientId))))
+  ipcMain.handle('mcp:remote:remove', (_event, clientId: unknown) => {
+    const id = text(clientId)
+    return forget(id, (s) => s.remove(id))
+  })
 }
 
 /**

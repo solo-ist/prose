@@ -861,7 +861,7 @@ export function App() {
       if (change.reason !== 'pending') return
       useNotificationStore.getState().notify({
         id: 'remote-access-pending',
-        message: `${change.clientName} asked to use Prose. Approve it in Settings → Integrations → Connections.`,
+        message: `${change.clientName.slice(0, 80)} asked to use Prose. Approve it in Settings → Integrations → Connections.`,
         actionLabel: 'Review',
         onAction: () => useSettingsStore.getState().setDialogOpen(true, 'integrations'),
         durationMs: 15000,

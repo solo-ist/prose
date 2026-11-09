@@ -571,6 +571,11 @@ async function main() {
   expect(pathAndQuery(reconsent.location).path === '/oauth/consent', 'reconnecting a revoked client asks for consent again')
   expect(!!(await mcp(tokC.body.access_token, 'ping')).body?.result, "revoking one client leaves the account's other clients working")
 
+  // --- The provider's management routes are off -------------------------------
+  const mgmt = await Promise.all(['/oauth2/get-clients', '/oauth2/get-consents'].map((path) => fetch(`${BASE}/api/auth${path}`, { headers: { Cookie: sessionA } })))
+  const createClient = await fetch(`${BASE}/api/auth/oauth2/create-client`, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: sessionA, Origin: BASE }, body: JSON.stringify({ redirect_uris: [DCR_REDIRECT], client_name: 'Hand-made' }) })
+  expect(mgmt.every((r) => r.status === 404) && createClient.status === 404, "the provider's session-backed client and consent management routes are off", [...mgmt, createClient].map((r) => r.status).join(','))
+
   // --- Rate limits -----------------------------------------------------------------------
   let limited = null
   for (let i = 0; i < CLIENT_RATE_MAX + 5; i++) {

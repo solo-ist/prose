@@ -35,6 +35,31 @@ export const OAUTH_CONSENT_PATH = '/oauth/consent'
 /** Scopes the authorization server knows: the relay's three, plus refresh tokens. */
 export const OAUTH_SCOPES = [...RELAY_SCOPES, 'offline_access']
 
+/**
+ * The provider's session-backed management routes, which the relay doesn't
+ * use: a signed-in account creating, editing or listing OAuth clients by
+ * hand, managing its consents (revoking goes through /api/relay/revoke),
+ * OIDC logout, and the multi-step prompts. Off, so the surface is only what
+ * MCP clients need: authorize, token, register, revoke, introspect.
+ */
+export const OAUTH_DISABLED_PATHS = [
+  '/oauth2/create-client',
+  '/oauth2/get-client',
+  '/oauth2/get-clients',
+  '/oauth2/update-client',
+  '/oauth2/client/rotate-secret',
+  '/oauth2/delete-client',
+  '/oauth2/public-client',
+  '/oauth2/public-client-prelogin',
+  '/oauth2/get-consent',
+  '/oauth2/get-consents',
+  '/oauth2/update-consent',
+  '/oauth2/delete-consent',
+  '/oauth2/continue',
+  '/oauth2/end-session',
+  '/oauth2/userinfo',
+]
+
 const ACCESS_TOKEN_TTL_S = 60 * 60
 const REFRESH_TOKEN_TTL_S = 30 * 24 * 60 * 60
 

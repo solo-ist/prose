@@ -1,9 +1,11 @@
 name: Gateway Tests
 
-# The gateway's share integration suite (gateway/scripts/test-share.mjs):
+# The gateway's integration suites: share (gateway/scripts/test-share.mjs):
 # publish → serve → comment/reply → author pull → revoke, the #902 origin
-# partition, CORS, and the artifact security headers. It spawns its own
-# gateway (dev mode, magic links on stdout) against a real Postgres.
+# partition, CORS, and the artifact security headers; mail; subdomains; and
+# the MCP relay (test-relay.mjs, #1238): OAuth, /mcp, the desktop socket.
+# Each spawns its own gateway (dev mode, sign-in codes on stdout) against a
+# real Postgres.
 on:
   pull_request:
     paths:
@@ -76,3 +78,9 @@ jobs:
 
       - name: Share subdomain isolation suite
         run: npm run test:share:subdomains
+
+      - name: MCP relay suite
+        # test-relay.mjs (#1238) spawns its own gateway on :4040, a stub
+        # Client ID Metadata Document server on :4041, and fake desktop
+        # sockets; test-relay-hub.ts checks the heartbeat timers.
+        run: npm run test:relay

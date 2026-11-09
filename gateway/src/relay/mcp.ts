@@ -49,7 +49,7 @@ function challenge(c: Context, error?: 'invalid_token', description?: string) {
   if (error) parts.unshift(`error="${error}"`, `error_description="${description ?? 'The access token is invalid'}"`)
   c.header('WWW-Authenticate', `Bearer ${parts.join(', ')}`)
   c.header('Cache-Control', 'no-store')
-  return c.json({ jsonrpc: '2.0', id: null, error: { code: -32001, message: 'Unauthorized' } }, 401)
+  return c.json({ jsonrpc: '2.0', id: null, error: { code: -32000, message: 'Unauthorized' } }, 401)
 }
 
 /** Who a request is from, once its token checks out. */
@@ -87,7 +87,7 @@ async function authorize(c: Context): Promise<Verdict> {
       'WWW-Authenticate',
       `Bearer error="insufficient_scope", scope="read", resource_metadata="${protectedResourceMetadataUrl}"`
     )
-    return { ok: false, response: c.json({ jsonrpc: '2.0', id: null, error: { code: -32001, message: 'Insufficient scope' } }, 403) }
+    return { ok: false, response: c.json({ jsonrpc: '2.0', id: null, error: { code: -32000, message: 'Insufficient scope' } }, 403) }
   }
   const row = await prisma.oauthClient.findUnique({
     where: { clientId },

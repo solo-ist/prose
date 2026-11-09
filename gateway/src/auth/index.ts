@@ -17,7 +17,7 @@ import { prismaAdapter } from 'better-auth/adapters/prisma'
 import { emailOTP } from 'better-auth/plugins'
 import { prisma } from '../db/index.js'
 import { config, corsOrigins } from '../config.js'
-import { oauthPlugins } from './oauth.js'
+import { OAUTH_DISABLED_PATHS, oauthPlugins } from './oauth.js'
 
 /** Code lifetime. The email copy and the desktop's pending window match it. */
 export const SIGN_IN_CODE_TTL_S = 600
@@ -44,6 +44,8 @@ export const auth = betterAuth({
     '/email-otp/reset-password',
     '/email-otp/request-email-change',
     '/email-otp/change-email',
+    // The OAuth provider's routes the relay doesn't use (auth/oauth.ts).
+    ...OAUTH_DISABLED_PATHS,
   ],
   plugins: [
     emailOTP({

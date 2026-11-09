@@ -134,3 +134,27 @@ Postgres, a stub CIMD metadata server, and fake desktop sockets.
 
 Falsification: the suite run against the merge-base (the release branch head) fails (the routes don't exist); each
 check is also confirmed to fail when its guard is disabled, where that is cheap to do.
+
+## As built, and what the design left open
+
+- **The host.** The design says `prose.solo.ist/mcp`; the gateway is `api.prose.solo.ist` (render.yaml, the desktop's
+  `DEFAULT_GATEWAY_URL`), and the resource must be the URL clients connect to, so the connector URL is
+  **`https://api.prose.solo.ist/mcp`**. Serving it on `prose.solo.ist` would mean pointing that host (or its `/mcp`
+  and `/.well-known/*` paths) at the gateway and setting `BETTER_AUTH_URL` to match; not done here.
+- **Frames.** Two additions to §4: the call frame's `headers` (SEP-2243 standard headers, which the desktop's v2 SDK
+  handler requires on 2026-07-28 requests), and a `{type:'hello', heartbeatS}` frame on connect. Relay errors are
+  JSON-RPC errors in the server range: -32001 not running, -32002 timeout, -32003 too large, -32004 disconnected;
+  -32602 for a tool outside the token's scopes.
+- **The session sweep** (design item 9 above) is not in the design: without it the plugin's session binding would
+  end remote access when the consent's browser session expires.
+- **CIMD at call time.** The plugin re-fetches a CIMD client's metadata document when its cached copy is older than
+  an hour, on whatever request looks the client up, including a relayed call. If the client's metadata host is down
+  at that moment, the call fails with 401 until a fetch succeeds.
+- **The audience check at `/mcp`** is defence in depth: the plugin also refuses a token whose audience isn't a
+  configured resource, so disabling the gateway's own check doesn't fail the suite.
+- **Socket sessions.** The desktop's socket is authenticated at upgrade; the gateway re-checks its session every ten
+  minutes and closes the socket when it is gone or expired.
+- **Single instance.** Routing is in memory (§4 "Scaling").
+- **Unknowns until the real clients run** (QA checks 4–5): whether claude.ai registers by CIMD or DCR (with DCR, every
+  writer's registration comes from Anthropic's servers, so the per-IP registration ceiling is sized at 30 an hour and
+  env-tunable), and whether either client omits `resource` (refused by design).

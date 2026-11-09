@@ -42,7 +42,7 @@ Two marks, each with the attributes `id`, `actor` (P1) and `createdAt`:
 - **A deletion inside the writer's own pending insertion** deletes for real: you can fix your own typo.
 - **A deletion across someone else's pending insertion** marks that insertion rejected by the writer.
 
-**The rewriting** is a transaction filter in one plugin, a pure function from a transaction to its tracked form, tested step by step. Formatting changes (marks and node types) are applied directly in P3 and never tracked; tracked formatting is out of scope. The Suggesting toggle's tooltip says so ("Formatting changes apply directly"), so a bolded paragraph that isn't tracked doesn't read as a bug.
+**The rewriting** is a transaction filter in one plugin, a pure function from a transaction to its tracked form, tested step by step. Formatting changes (marks and node types) are applied directly in P3 and never tracked; tracked formatting is out of scope. Structural edits (splitting or joining paragraphs, and edits inside code blocks) aren't tracked either: Suggesting mode refuses them with a message saying to turn Suggesting off for them. The Suggesting toggle's tooltip says so ("Formatting changes apply directly"), so a bolded paragraph that isn't tracked doesn't read as a bug.
 
 **Spike first.** `@handlewithcare/prosemirror-suggest-changes` (MIT, 0.1.8) implements this rewriting for ProseMirror. P3 starts with a one-day spike: wire it to Prose's schema and run the editor suite.
 - If it passes, P3 adopts it behind Prose's own marks and commands.
@@ -51,7 +51,7 @@ Two marks, each with the attributes `id`, `actor` (P1) and `createdAt`:
 ## 4. Agents: `suggest_insert` and `suggest_delete`
 
 - **`suggest_insert`** `{ nodeId | search, text, position: 'before' | 'after' | 'start' | 'end' }` inserts `text` with `trackedInsert`, with the caller as actor. It never moves the writer's caret (M3).
-- **`suggest_delete`** `{ nodeId, search }` marks the matching text (a phrase inside the node) with `trackedDelete`.
+- **`suggest_delete`** `{ nodeId, search }` marks the matching text (a phrase inside the node) with `trackedDelete`. When `search` (for either tool) matches more than once in its scope, the tool refuses with `AMBIGUOUS_MATCH` and asks for a longer phrase; it never picks one silently.
 
 Both take the M3 `document` target. Both appear in `list_suggestions` with their type, and in `list_review_events`.
 
@@ -69,6 +69,7 @@ Both take the M3 `document` target. Both appear in `list_suggestions` with their
   - a deletion is re-marked by its text and context;
   - an insertion is re-inserted, marked, at its context;
   - a record whose context is gone (the file changed outside Prose) is *orphaned*: kept in the review log as superseded by the external edit, never silently re-inserted somewhere wrong.
+  - when the exact context matches in several places, the one nearest the record's position hint (its character offset in the original text) wins.
 
   A whole-document replace (a source exit, a disk reload) re-anchors the same way.
 - **Copy Markdown and export** use the original. A "Copy with changes" item uses the final text. It sits next to Copy Markdown in the Edit menu and the editor's context menu, and appears only when the tab has pending tracked changes.
@@ -89,6 +90,8 @@ The control sits beside Suggesting mode, is per tab, and isn't persisted.
 | The rewriting filter mangles an edit (IME, paste, undo, drag) | Spike first. Unit tests per step kind, and e2e for typing, IME composition, paste, ⌘Z and drag in Suggesting mode |
 | A tracked insertion reaches the disk | `originalOf` is the only serializer the projection uses. A tripwire forbids serializing the raw document in the save path, and an e2e saves with pending changes and reads the file |
 | Re-anchoring puts an insertion in the wrong place | Exact context match only, at load. Anything else is orphaned and reported |
+| Pending changes live only in IndexedDB (the file holds the original and autosave writes nothing while suggesting) | Each change is persisted in the transaction that makes it. A crash before acceptance leaves it in IndexedDB, and re-anchoring at relaunch is the recovery path: the same guarantee comments and AI suggestions already rely on |
+| Source mode would edit text that tracked changes are anchored in | Source mode is unavailable while Suggesting is on or the tab has pending tracked changes; the toggle says why. Accepting or rejecting the changes, or turning Suggesting off, makes it available again |
 | Interplay with comments, AI suggestions and annotations | Tracked marks are ordinary marks to the other plugins. The P2 log and the comment plugin's existing rules (a deleted range resolves its thread only when the text is really gone) cover them. The e2e covers a comment over a tracked deletion |
 
 ## 8. The operator's decisions (decided 2026-11-09)

@@ -110,7 +110,7 @@ function forwardedHeaders(headers: Headers): Record<string, string> {
   let params = 0
   headers.forEach((value, key) => {
     const name = key.toLowerCase()
-    if (value.length > MAX_HEADER_VALUE) return
+    if (Buffer.byteLength(value) > MAX_HEADER_VALUE) return
     if (FORWARDED_HEADERS.includes(name)) out[name] = value
     else if (name.startsWith(PARAM_HEADER_PREFIX) && params < MAX_PARAM_HEADERS) {
       params++

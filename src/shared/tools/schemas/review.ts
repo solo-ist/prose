@@ -17,7 +17,7 @@ export const listSuggestionsSchema = z.object({
 export const listSuggestionsConfig: ToolConfig<typeof listSuggestionsSchema> = {
   name: 'list_suggestions',
   description:
-    'List the suggestions in the document: id, status, original and suggested text, explanation, who proposed it (by), the feedback on it, the suggestion it revises (revises) and the revision that followed it (supersededBy). The writer accepts or rejects suggestions in Prose; follow their decisions with list_review_events.',
+    'List the suggestions in the document: id, type (a replacement, an insertion or a deletion), status, original and suggested text, explanation, who proposed it (by), the feedback on it, the suggestion it revises (revises) and the revision that followed it (supersededBy). Tracked changes (suggest_insert, suggest_delete, or the writer’s own in Suggesting mode) have tracked: true. The writer accepts or rejects suggestions in Prose; follow their decisions with list_review_events.',
   schema: listSuggestionsSchema,
   category: 'editor',
   requiresMode: null,
@@ -92,10 +92,59 @@ export const listReviewEventsConfig: ToolConfig<typeof listReviewEventsSchema> =
   dangerous: false
 }
 
+// Tracked changes (#891, carried from #890): a pure insertion or a pure
+// deletion inside a paragraph, proposed as marked text. The writer accepts
+// or rejects in Prose; the file keeps the original until they accept.
+
+export const suggestInsertSchema = z.object({
+  nodeId: z
+    .string()
+    .optional()
+    .describe('The paragraph or heading to insert into, from read_document. Give nodeId, search, or both.'),
+  search: z
+    .string()
+    .optional()
+    .describe('A phrase of the node’s current text to insert next to (with position before or after). Without nodeId, the one paragraph that contains it.'),
+  text: z.string().min(1).max(5000).describe('The text to insert: plain text within the paragraph, no line breaks.'),
+  position: z
+    .enum(['before', 'after', 'start', 'end'])
+    .optional()
+    .describe('Where: before or after the search phrase (default after), or at the start or end of the node (default end when there is no search).')
+})
+
+export const suggestInsertConfig: ToolConfig<typeof suggestInsertSchema> = {
+  name: 'suggest_insert',
+  description:
+    'Propose inserting text into a paragraph as a tracked change: the writer sees it underlined with your name and accepts or rejects it in Prose; the file keeps the original until they accept. ' +
+    'Inside one paragraph only: for a new paragraph or a rewrite, use suggest_edit. Returns the suggestion id; follow it with list_review_events.',
+  schema: suggestInsertSchema,
+  category: 'editor',
+  requiresMode: 'editor',
+  dangerous: false
+}
+
+export const suggestDeleteSchema = z.object({
+  nodeId: z.string().describe('The paragraph or heading that holds the text, from read_document.'),
+  search: z.string().min(1).max(5000).describe('The exact phrase to propose for deletion, as it appears once in the node’s current text.')
+})
+
+export const suggestDeleteConfig: ToolConfig<typeof suggestDeleteSchema> = {
+  name: 'suggest_delete',
+  description:
+    'Propose deleting a phrase as a tracked change: the writer sees it struck through with your name and accepts or rejects it in Prose; the file keeps the text until they accept. ' +
+    'The phrase must appear exactly once in the node. Returns the suggestion id; follow it with list_review_events.',
+  schema: suggestDeleteSchema,
+  category: 'editor',
+  requiresMode: 'editor',
+  dangerous: false
+}
+
 export const reviewTools = [
   listSuggestionsConfig,
   replyToSuggestionConfig,
   reviseSuggestionConfig,
   getReviewStatusConfig,
-  listReviewEventsConfig
+  listReviewEventsConfig,
+  suggestInsertConfig,
+  suggestDeleteConfig
 ] as const

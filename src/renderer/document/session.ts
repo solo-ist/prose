@@ -31,7 +31,7 @@
 
 import { flushSync } from 'react-dom'
 import type { Editor } from '@tiptap/core'
-import { createDocument } from '@tiptap/core'
+import { createDocument, getHTMLFromFragment } from '@tiptap/core'
 import { EditorState } from '@tiptap/pm/state'
 import type { Transaction } from '@tiptap/pm/state'
 import { Node as PMNode } from '@tiptap/pm/model'
@@ -490,6 +490,14 @@ export function finalOf(doc: PMNode): PMNode {
 /** What a file holds for `doc`: the one serializer every projection and save uses. */
 function serializeOriginal(e: Editor, doc: PMNode): string {
   return serializeDoc(e, originalOf(doc))
+}
+
+/**
+ * The HTML of a document as the file holds it (#891): what Export HTML and a
+ * share publish carry, never a pending change.
+ */
+export function originalHTML(doc: PMNode): string {
+  return getHTMLFromFragment(originalOf(doc).content, doc.type.schema)
 }
 
 /** The markdown of `tabId`'s document as if every pending change were accepted (body only). */

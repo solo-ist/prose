@@ -19,6 +19,8 @@ import { isEditorReadOnly } from './editor'
 import { getApi } from '../../browserApi'
 import { generateId } from '../../persistence'
 import { dumpFrontmatterYaml } from '../../markdown'
+import { originalTextOf } from '../../../extensions/tracked-changes/records'
+import { originalOf } from '../../../document/session'
 
 /**
  * Node representation with ID for AI targeting.
@@ -41,10 +43,13 @@ interface DocumentNode {
  * one that `edit` takes on any of its cells (#1100).
  */
 function toDocumentNode(n: NodeWithId, handle: DocumentHandle): DocumentNode {
+  // The original text, as the file holds it (#891): a pending tracked
+  // insertion is left out and a pending deletion kept, as in `markdown`.
+  const live = handle.state.doc.nodeAt(n.pos)
   const node: DocumentNode = {
     id: n.nodeId,
     type: n.type,
-    content: n.type === 'table' ? tableMarkdown(n, handle) : n.textContent,
+    content: n.type === 'table' ? tableMarkdown(n, handle) : live ? originalTextOf(live) : n.textContent,
   }
   if (n.children && n.children.length > 0) {
     node.children = n.children.map((child) => toDocumentNode(child, handle))
@@ -59,7 +64,7 @@ function tableMarkdown(n: NodeWithId, handle: DocumentHandle): string {
   // degrades to its text rather than failing the whole read.
   try {
     const doc = handle.schema.topNodeType.create(null, table)
-    return handle.markdown.serializer.serialize(doc).trim()
+    return handle.markdown.serializer.serialize(originalOf(doc)).trim()
   } catch {
     return n.textContent
   }

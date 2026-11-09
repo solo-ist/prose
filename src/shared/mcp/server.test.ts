@@ -64,6 +64,8 @@ const SUCCESS_PAYLOADS: Record<string, unknown[]> = {
     { suggestions: [] }
   ],
   reply_to_suggestion: [{ suggestionId: 's1' }],
+  suggest_insert: [{ suggested: true, suggestionId: 't1', type: 'insertion' }],
+  suggest_delete: [{ suggested: true, suggestionId: 't2', type: 'deletion' }],
   revise_suggestion: [{ suggestionId: 's2', revises: 's1' }],
   get_review_status: [{ pending: ['s1'], accepted: 1, rejected: 0, superseded: 2, openComments: 3, lastSeq: 7 }],
   list_review_events: [

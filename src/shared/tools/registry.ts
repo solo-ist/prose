@@ -122,7 +122,10 @@ export const mcpToolNames = [
   'reply_to_suggestion',
   'revise_suggestion',
   'get_review_status',
-  'list_review_events'
+  'list_review_events',
+  // Tracked changes (#891): proposals only; the writer decides.
+  'suggest_insert',
+  'suggest_delete'
 ] as const
 
 /**
@@ -154,6 +157,8 @@ const mcpDocumentToolNames = [
   'revise_suggestion',
   'get_review_status',
   'list_review_events',
+  'suggest_insert',
+  'suggest_delete',
 ] as const
 
 export const MCP_DOCUMENT_ARG = 'document'

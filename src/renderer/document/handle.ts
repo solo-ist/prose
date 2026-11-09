@@ -38,6 +38,7 @@ import {
   tabIdForDocument
 } from './session'
 import { openInBackground } from '../tabs/actions'
+import { TRACK_SKIP_META } from '../extensions/tracked-changes/transactions'
 
 export interface MarkdownCodec {
   parser: { parse: (content: string) => string }
@@ -174,6 +175,24 @@ function commandsOverState(editor: Editor, tabId: string) {
   return { chain, commands, can }
 }
 
+/**
+ * The shown editor's one-shot commands, each run as a chain tagged as a tool's
+ * write: Suggesting mode rewrites the writer's own input only (#891), and an
+ * agent's write keeps its own meaning (a direct edit, a proposal, a comment).
+ */
+function taggedCommands(editor: Editor): SingleCommands {
+  return new Proxy({} as SingleCommands, {
+    get: (_target, name: string) => {
+      return (...args: unknown[]) => {
+        const chain = editor.chain().setMeta(TRACK_SKIP_META, true) as unknown as Record<string, (...a: unknown[]) => ChainedCommands>
+        const command = chain[name]
+        if (typeof command !== 'function') throw new Error(`[handle] unknown command ${name}`)
+        return command(...args).run()
+      }
+    }
+  })
+}
+
 /** The handle of an open tab's document, active or not; null without an editor or a session. */
 export function handleForTab(tabId: string): DocumentHandle | null {
   const editor = getAttachedEditor()
@@ -207,14 +226,16 @@ export function handleForTab(tabId: string): DocumentHandle | null {
     // Getters: TipTap builds the commands' transaction from the state at
     // access time, so a snapshot taken here would dispatch a transaction
     // built before any earlier write through this handle (#1146).
+    // A tool's writes through the handle are tagged so Suggesting mode's
+    // filter passes them as they are (#891).
     get commands() {
-      return isActive() ? editor.commands : over.commands
+      return isActive() ? taggedCommands(editor) : over.commands
     },
-    chain: () => (isActive() ? editor.chain() : over.chain()),
+    chain: () => (isActive() ? editor.chain().setMeta(TRACK_SKIP_META, true) : over.chain()),
     can: () => (isActive() ? editor.can() : over.can()),
     markdown: editor.storage.markdown as MarkdownCodec,
     serialize: () => projectSessionContent(tabId),
-    apply: (tr) => applyToSession(tabId, () => tr)
+    apply: (tr) => applyToSession(tabId, () => tr.setMeta(TRACK_SKIP_META, true))
   }
 }
 

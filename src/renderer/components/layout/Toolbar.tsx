@@ -8,7 +8,7 @@ import { toggleSourceMode } from '../../tabs/actions'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useTabStore, useActiveTab } from '../../stores/tabStore'
 import { useActiveSource } from '../../document/useActiveSession'
-import { landAllProjections } from '../../document/session'
+import { landAllProjections, originalHTML } from '../../document/session'
 import { useFileListStore } from '../../stores/fileListStore'
 import { useSettings } from '../../hooks/useSettings'
 import { usePanelLayoutContext } from '../../hooks/usePanelLayout'
@@ -243,7 +243,8 @@ export function Toolbar() {
     const editor = useEditorInstanceStore.getState().editor
     if (!editor || !document.content) return
     try {
-      const editorHtml = editor.getHTML()
+      // The original, as the file holds it: a pending tracked change is not exported (#891).
+      const editorHtml = originalHTML(editor.state.doc)
       const title = extractTitle(document.content, document.path)
       const docDir = document.path ? document.path.substring(0, document.path.lastIndexOf('/')) || null : null
       // Comments travel with the export (#768): embed the full thread data

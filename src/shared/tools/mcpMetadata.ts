@@ -83,7 +83,11 @@ const suggestionEntry = object(
     revises: string,
     supersededBy: string,
     decidedBy: string,
-    decidedAt: number
+    decidedAt: number,
+    // Tracked changes (#891): the proposal's shape, and whether it is text marks rather than a node suggestion.
+    type: string,
+    tracked: boolean,
+    orphaned: boolean
   },
   ['id', 'status']
 )
@@ -207,5 +211,14 @@ export const MCP_TOOL_METADATA: Record<string, McpToolMetadata> = {
   list_review_events: {
     annotations: { title: 'List review events', readOnlyHint: true, openWorldHint: false },
     outputSchema: object({ events: { type: 'array', items: reviewEvent }, nextSeq: number, more: boolean }, ['events', 'nextSeq'])
+  },
+  // Tracked changes (#891): proposals the writer accepts or rejects in Prose.
+  suggest_insert: {
+    annotations: { title: 'Suggest insertion', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    outputSchema: object({ suggested: boolean, suggestionId: string, type: string }, ['suggested', 'suggestionId'])
+  },
+  suggest_delete: {
+    annotations: { title: 'Suggest deletion', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    outputSchema: object({ suggested: boolean, suggestionId: string, type: string }, ['suggested', 'suggestionId'])
   }
 }

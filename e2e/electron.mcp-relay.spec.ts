@@ -313,6 +313,7 @@ test('removing the connection revokes the client at the gateway', async () => {
 
   await panel.getByRole('button', { name: 'Remove Assistant on the web' }).click()
   await page.getByRole('alertdialog').getByRole('button', { name: 'Remove' }).click()
+  // The row goes as soon as the app refuses the client; the gateway's revoke follows.
   await expect(panel.getByTestId('remote-connection-row')).toHaveCount(0)
-  expect((await rawCall('ping', {})).status).toBe(401)
+  await expect.poll(async () => (await rawCall('ping', {})).status, { timeout: 10_000 }).toBe(401)
 })

@@ -73,3 +73,18 @@ the writer picks.
   the next call "Prose is not running"; removing the connection revokes the client at the gateway (401).
 - Baselines unchanged (`typecheck:renderer` 66, `tsconfig.node.json` 18, `typecheck:e2e` 6), `npm run test:unit` green.
 - Falsified on the merge-base (M5a's head): the new unit tests and the spec fail there.
+
+## As built
+
+- **Frames.** The desktop answers the gateway's `hello`, `ping` and `call` frames (M5a's plan lists the `headers` and
+  `hello` additions to the design's §4). A malformed call with an id gets a `-32600` answer; one without an id is
+  dropped. Desktop refusals are JSON-RPC errors after the gateway's range: -32010 not approved, -32011 declined,
+  -32012 no permissions; a tool outside the connection's scopes is an `isError` tool result from the shared server.
+- **Who gets the call.** The gateway routes to the most recently active desktop; the desktop marks itself active on
+  window focus. A newer socket from the same profile replaces the older, which then stays off ("Replaced") rather than
+  fight for it.
+- **A pending client** also raises a toast with a Review action that opens Settings → Integrations.
+- **The MAS gates spec** (`e2e/electron.mas-gates.spec.ts`) gains a Remote access check. Running it on a MAS build
+  locally showed an unrelated, pre-existing failure in its "Share, Shared, Account and Integrations are absent" test:
+  General's email hint ("… sent to agents or share viewers", from #1232) matches its direct-only pattern. CI never
+  runs that spec (it needs a MAS build), so it went unnoticed; not changed here.

@@ -24,6 +24,22 @@ jobs:
       )
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # The relay spec (e2e/electron.mcp-relay.spec.ts, #1239) runs the real
+    # gateway against this Postgres; every other spec ignores it.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: prose
+          POSTGRES_PASSWORD: prose
+          POSTGRES_DB: prose_gateway
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U prose -d prose_gateway"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - name: Check commenter permissions
         if: github.event_name == 'issue_comment'
@@ -77,8 +93,20 @@ jobs:
         with:
           node-version: 22
           cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            gateway/package-lock.json
 
       - run: npm ci
+
+      - name: Install the gateway for the relay spec
+        working-directory: gateway
+        env:
+          DATABASE_URL: postgresql://prose:prose@localhost:5432/prose_gateway?schema=public
+        run: |
+          npm ci
+          npx prisma generate
+          npx prisma migrate deploy
 
       - name: Run unit tests
         run: npm run test:unit
@@ -94,6 +122,10 @@ jobs:
         env:
           # CI Linux runners lack kernel namespace support for Chrome's sandbox
           ELECTRON_DISABLE_SANDBOX: 1
+          # The relay spec's local gateway (#1239). Test-only values for the
+          # throwaway CI database; never real credentials.
+          PROSE_E2E_GATEWAY_DATABASE_URL: postgresql://prose:prose@localhost:5432/prose_gateway?schema=public
+          BETTER_AUTH_SECRET: ci-only-secret-not-for-production-0123456789
         with:
           run: npx playwright test
           options: -screen 0 1280x1024x24

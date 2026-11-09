@@ -40,3 +40,8 @@ Run 2 also found that LibreChat passes a server's MCP `instructions` to the mode
     [::1]:11434". The new one, and its outside-Docker variant (`localhost:<port>`), are valid, and the parsed entry
     keeps `requiresOAuth: false` and `serverInstructions: true`.
   - Open WebUI: no change; its fields match run 2's passing config, and the test pins them.
+  - **CI caught a crash in the first push** (`709d0cc`). `e2e/electron.mcp-connections.spec.ts` closed the page in
+    Settings → Integrations. Until the endpoint answers, the Connections panel renders every snippet with
+    `http://localhost:<port>/mcp`, and `new URL(...)` threw "Invalid URL" on `<port>`. The fix is `hostPort()`, a
+    string split. A new unit case renders every snippet with that placeholder; it fails on `709d0cc`. The connections
+    and status e2e now pass locally (7/7).

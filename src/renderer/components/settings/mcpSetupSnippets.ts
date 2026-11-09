@@ -26,6 +26,15 @@ export function dockerUrl(url: string): string {
   return url.replace('//localhost:', '//host.docker.internal:').replace('//127.0.0.1:', '//host.docker.internal:')
 }
 
+/**
+ * The `host:port` of an endpoint URL. A string split rather than `new URL`:
+ * before the endpoint answers, the URL is a placeholder with `<port>`, which
+ * `new URL` rejects.
+ */
+export function hostPort(url: string): string {
+  return url.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').split('/')[0]
+}
+
 export function mcpSetupSnippet(client: McpSetupClient, url: string, token?: string): McpSetupSnippet {
   const secret = token || TOKEN_PLACEHOLDER
   switch (client) {
@@ -61,9 +70,9 @@ export function mcpSetupSnippet(client: McpSetupClient, url: string, token?: str
           '    serverInstructions: true',
           'mcpSettings:',
           '  allowedAddresses:',
-          `    - "${new URL(dockerUrl(url)).host}"`
+          `    - "${hostPort(dockerUrl(url))}"`
         ].join('\n'),
-        note: `Add to librechat.yaml. Outside Docker, use ${url} and allow "${new URL(url).host}" instead.`
+        note: `Add to librechat.yaml. Outside Docker, use ${url} and allow "${hostPort(url)}" instead.`
       }
   }
 }

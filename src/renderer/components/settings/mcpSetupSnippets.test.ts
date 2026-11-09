@@ -1,7 +1,7 @@
 /** The per-client setup snippets (#1236). */
 import { describe, expect, it } from 'vitest'
 import { load } from 'js-yaml'
-import { dockerUrl, mcpSetupSnippet, MCP_SETUP_CLIENTS, TOKEN_PLACEHOLDER } from './mcpSetupSnippets'
+import { dockerUrl, hostPort, mcpSetupSnippet, MCP_SETUP_CLIENTS, TOKEN_PLACEHOLDER } from './mcpSetupSnippets'
 
 const URL = 'http://localhost:9877/mcp'
 
@@ -48,6 +48,14 @@ describe('MCP setup snippets', () => {
     // 0.8.8's schema rejects a bare host, and an invalid config stops LibreChat at startup.
     expect(parsed.mcpSettings.allowedAddresses).toEqual(['host.docker.internal:9898'])
     expect(mcpSetupSnippet('librechat', URL, 't').note).toContain('localhost:9877')
+  })
+
+  // Settings renders every snippet with a placeholder URL until the endpoint answers.
+  it('render with the placeholder URL, before the endpoint is known', () => {
+    const placeholder = 'http://localhost:<port>/mcp'
+    for (const { id } of MCP_SETUP_CLIENTS) expect(() => mcpSetupSnippet(id, placeholder)).not.toThrow()
+    expect(mcpSetupSnippet('librechat', placeholder).text).toContain('- "host.docker.internal:<port>"')
+    expect(hostPort('http://[::1]:9877/mcp')).toBe('[::1]:9877')
   })
 
   it('maps loopback to the Docker host name', () => {

@@ -289,6 +289,8 @@ export interface ElectronAPI {
   mcpRenameConnection: (id: string, label: string) => Promise<McpConnectionResult<McpConnection>>
   mcpRevokeConnection: (id: string) => Promise<McpConnectionResult<null>>
   mcpEndpoint: () => Promise<McpEndpointInfo>
+  // Claude Desktop extension (#1257): builds this profile's .mcpb and opens Claude Desktop's install dialog
+  mcpInstallExtension: () => Promise<{ success: boolean; path?: string; error?: string }>
   // Release notes for the post-update modal (bundled per version)
   getReleaseNotes: (version: string) => Promise<ReleaseNotes | null>
   // Emoji generation (runs in main process to avoid CORS)
@@ -625,6 +627,7 @@ const api: ElectronAPI = {
   mcpRenameConnection: (id: string, label: string) => ipcRenderer.invoke('mcp:connections:rename', id, label),
   mcpRevokeConnection: (id: string) => ipcRenderer.invoke('mcp:connections:revoke', id),
   mcpEndpoint: () => ipcRenderer.invoke('mcp:endpoint'),
+  mcpInstallExtension: () => ipcRenderer.invoke('mcp:installExtension'),
   // Release notes
   getReleaseNotes: (version: string) => ipcRenderer.invoke('releaseNotes:get', version),
   // Emoji generation

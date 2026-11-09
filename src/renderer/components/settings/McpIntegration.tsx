@@ -19,6 +19,8 @@ export function McpIntegration() {
   const [isUninstalling, setIsUninstalling] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [isInstallingExtension, setIsInstallingExtension] = useState(false)
+  const [extensionMessage, setExtensionMessage] = useState<{ ok: boolean; text: string } | null>(null)
 
   // Load status on mount
   useEffect(() => {
@@ -85,6 +87,26 @@ export function McpIntegration() {
     }
   }
 
+  // The Claude Desktop extension (#1257): main builds this profile's .mcpb and
+  // hands it to Claude Desktop, which shows its own install dialog.
+  const handleInstallExtension = async () => {
+    if (!window.api?.mcpInstallExtension) return
+    setIsInstallingExtension(true)
+    setExtensionMessage(null)
+    try {
+      const result = await window.api.mcpInstallExtension()
+      setExtensionMessage(
+        result.success
+          ? { ok: true, text: 'Claude Desktop opened its install dialog. Choose Install there, then start a new chat.' }
+          : { ok: false, text: result.error || 'The extension could not be installed' }
+      )
+    } catch (err) {
+      setExtensionMessage({ ok: false, text: err instanceof Error ? err.message : 'The extension could not be installed' })
+    } finally {
+      setIsInstallingExtension(false)
+    }
+  }
+
   const handleUpdate = async () => {
     // Update is just reinstall
     await handleInstall()
@@ -97,6 +119,37 @@ export function McpIntegration() {
         <p className="text-xs text-muted-foreground">
           Enable Claude Desktop to read and edit documents in Prose using MCP tools
         </p>
+      </div>
+
+      {/* The extension: Claude Desktop runs it on its own Node (#1257). */}
+      <div className="space-y-2" data-testid="mcp-extension">
+        <p className="text-sm">
+          Add Prose to Claude Desktop as an extension. Claude Desktop runs it with its own Node.js, so nothing else needs
+          installing.
+        </p>
+        <Button onClick={handleInstallExtension} disabled={isInstallingExtension}>
+          {isInstallingExtension ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              Preparing...
+            </>
+          ) : (
+            <>
+              <Download className="h-4 w-4 mr-2" />
+              Install Claude Desktop Extension
+            </>
+          )}
+        </Button>
+        {extensionMessage && (
+          <p className={extensionMessage.ok ? 'text-sm text-green-600 dark:text-green-400' : 'text-sm text-destructive'}>
+            {extensionMessage.text}
+          </p>
+        )}
+      </div>
+
+      <div className="space-y-0.5 pt-2">
+        <Label>Or use Claude Desktop's config file</Label>
+        <p className="text-xs text-muted-foreground">Needs Node.js 20 or later on this Mac.</p>
       </div>
 
       {/* Status display */}

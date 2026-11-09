@@ -43,7 +43,7 @@ let docsDir: string
 
 async function launch(): Promise<void> {
   const result = await launchApp({
-    env: { PROSE_USER_DATA_DIR: userDataDir, PROSE_DOCS_DIR: docsDir, PROSE_DEBUG_PORT: '9229' },
+    env: { PROSE_USER_DATA_DIR: userDataDir, PROSE_DOCS_DIR: docsDir, PROSE_DEBUG_PORT: process.env.PROSE_DEBUG_PORT ?? '9229' },
   })
   app = result.app
   page = result.page
@@ -136,5 +136,19 @@ test.describe('Electron — Mac App Store gates (#1222)', () => {
     await expect(tabs).toHaveText(['General', 'Appearance', 'Editor', 'LLM'])
     await expect(page.getByRole('tab', { name: 'General' })).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByRole('dialog')).not.toContainText(DIRECT_ONLY)
+  })
+
+  test('Remote access never dials out (#1239)', async () => {
+    test.setTimeout(90_000)
+    // Even a profile carried over with Remote access on stays off here.
+    writeFileSync(join(userDataDir, 'mcp-remote.json'), JSON.stringify({ version: 1, enabled: true, deviceId: 'd'.repeat(24), connections: [] }))
+    seedSettings(userDataDir, { defaultSaveDirectory: docsDir })
+    await launch()
+    const status = await page.evaluate(() => (window as any).api.mcpRemoteStatus())
+    expect(status).toMatchObject({ available: false, enabled: false, state: 'unavailable' })
+    const turnedOn = await page.evaluate(() => (window as any).api.mcpRemoteSetEnabled(true))
+    expect(turnedOn).toEqual({ ok: false, error: 'Remote access is not available in the Mac App Store version.' })
+    const listed = await page.evaluate(() => (window as any).api.mcpRemoteList())
+    expect(listed.ok).toBe(false)
   })
 })

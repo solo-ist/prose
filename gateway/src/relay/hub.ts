@@ -12,6 +12,7 @@
  *
  * Frames are JSON text:
  *   gateway → desktop  {type:'hello', heartbeatS}
+ *                      {type:'routing', active}   whether calls come to this socket
  *                      {type:'ping'}
  *                      {type:'call', id, client:{id,name,verified}, scopes, method, params?, headers}
  *   desktop → gateway  {type:'pong'} | {type:'active'}
@@ -82,6 +83,8 @@ export class RelayDevice {
   lastActiveAt = this.connectedAt
   lastSeenAt = this.connectedAt
   readonly pending = new Map<string, Pending>()
+  /** The `active` this socket was last told (`routing` frames go out only on a change). */
+  announcedActive: boolean | null = null
   constructor(
     readonly userId: string,
     readonly deviceId: string,
@@ -124,7 +127,26 @@ export class RelayHub {
       }
     }
     socket.send(JSON.stringify({ type: 'hello', heartbeatS: HEARTBEAT_MS / 1000 }))
+    this.announce(userId)
     return device
+  }
+
+  /**
+   * Tell each of an account's sockets whether calls now come to it, so the
+   * desktop can show "Receiving remote calls" or "Another Mac is active".
+   */
+  private announce(userId: string): void {
+    const live = this.liveDevice(userId)
+    for (const device of this.byUser.get(userId)?.values() ?? []) {
+      const active = device === live
+      if (device.announcedActive === active) continue
+      device.announcedActive = active
+      try {
+        device.socket.send(JSON.stringify({ type: 'routing', active }))
+      } catch {
+        /* the close handler detaches it */
+      }
+    }
   }
 
   /** The socket closed. Its calls fail now; a replaced socket leaves its successor alone. */
@@ -133,6 +155,7 @@ export class RelayHub {
     if (devices?.get(device.deviceId) === device) {
       devices.delete(device.deviceId)
       if (devices.size === 0) this.byUser.delete(device.userId)
+      else this.announce(device.userId)
     }
     if (closeCode === 1009) {
       for (const [id, p] of device.pending) {
@@ -166,6 +189,7 @@ export class RelayHub {
     if (!frame || typeof frame !== 'object') return
     if (frame.type === 'active') {
       device.lastActiveAt = Date.now()
+      this.announce(device.userId)
       return
     }
     if (frame.type !== 'result' || typeof frame.id !== 'string') return
@@ -188,7 +212,8 @@ export class RelayHub {
   liveDevice(userId: string): RelayDevice | undefined {
     let best: RelayDevice | undefined
     for (const device of this.byUser.get(userId)?.values() ?? []) {
-      if (!best || device.lastActiveAt > best.lastActiveAt) best = device
+      // Ties go to the later socket (the map keeps connection order).
+      if (!best || device.lastActiveAt >= best.lastActiveAt) best = device
     }
     return best
   }

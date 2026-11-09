@@ -148,6 +148,53 @@ small function returning `{ subject, html, text }`, e.g.
 data to `.mail-preview/` (gitignored) for a browser check. Send a live test
 to Gmail, Apple Mail and Outlook before switching a new template on.
 
+## The MCP relay (#1238)
+
+ChatGPT and claude.ai reach a writer's open Prose documents through the
+gateway (design: `docs/architecture/mcp-relay.md`). The gateway is an OAuth
+2.1 authorization server for one protected resource, `<BETTER_AUTH_URL>/mcp`
+(`https://api.prose.solo.ist/mcp`), and relays each authorized call in memory
+to the writer's signed-in desktop over a WebSocket the desktop dials out.
+
+- **Authorization** (`src/auth/oauth.ts`): `@better-auth/oauth-provider` and
+  `@better-auth/cimd`, pinned to the gateway's Better Auth. Issuer
+  `<BETTER_AUTH_URL>/api/auth`; Client ID Metadata Documents and open DCR
+  (`/api/auth/oauth2/register`, rate-limited per IP); PKCE S256; the `resource`
+  parameter required; scopes `read`, `propose`, `comment` and `offline_access`.
+  Access tokens are opaque, last an hour, and are checked against the database
+  on every call; refresh tokens last 30 days and rotate. Both are stored as
+  SHA-256 hashes. No signing keys: `BETTER_AUTH_SECRET` signs the
+  authorization query and encrypts confidential clients' secrets.
+- **Discovery** (`src/relay/wellKnown.ts`):
+  `/.well-known/oauth-protected-resource/mcp` (RFC 9728) and
+  `/.well-known/oauth-authorization-server/api/auth` (RFC 8414), plus the bare
+  forms; `/mcp` answers 401 with `WWW-Authenticate: Bearer resource_metadata=…`.
+- **Pages** (`src/relay/pages.ts`): `/oauth/sign-in` (the email code) and
+  `/oauth/consent` (the client by name, verified or not, the scopes asked for).
+- **`POST /mcp`** (`src/relay/mcp.ts`): one JSON-RPC message, 1 MiB at most;
+  `tools/list` filtered and out-of-scope `tools/call` refused by
+  `src/relay/scopes.ts`; forwarded to the account's most recently active
+  desktop; "Prose is not running" when none is connected; 60 s timeout.
+- **`GET /relay`** (`src/relay/socket.ts`, `hub.ts`): the desktop's socket,
+  authenticated by its session cookie; refused with an `Origin` header; one per
+  account + device; 25 s heartbeat, closed after 60 s of silence; results up
+  to 10 MiB.
+- **`POST /api/relay/revoke {clientId}`** (`src/relay/revoke.ts`): revokes the
+  signed-in account's tokens for a client and deletes its consent.
+- **Logs**: one metadata line per call (`[relay] call account=… client=…
+  method=… tool=… ms=… in=…B out=…B outcome=…`), never params or results.
+
+Optional tuning (defaults are production's): `RELAY_OAUTH_IP_MAX` (300 OAuth
+requests per IP per minute), `RELAY_REGISTER_IP_MAX` (30 registrations per IP
+per hour), `RELAY_ACCOUNT_RATE_MAX` (120 calls per account per minute),
+`RELAY_CLIENT_RATE_MAX` (60 per account + client per minute),
+`RELAY_CALL_TIMEOUT_S` (60). `CIMD_TEST_ORIGIN` is test-only and refused
+outside development.
+
+Integration test: `npm run test:relay` (boots its own gateway on :4040, a stub
+CIMD server on :4041 and fake desktops; then the hub's timer checks). CI runs
+it in `gateway.yml`.
+
 ## Scope
 
 **In (Phase 0):** gateway scaffold, accounts (magic-link), the gated LLM proxy, the

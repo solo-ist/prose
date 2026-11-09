@@ -1,6 +1,6 @@
 # Suggesting mode: tracked changes by anyone, decided by the writer
 
-**Status.** Design of record for P3 ([#891](https://github.com/solo-ist/prose/issues/891)), the last item of the 1.9.1 epic ([#1230](https://github.com/solo-ist/prose/issues/1230)) and its cut line. Written 2026-11-07, before any code. It extends `review-provenance.md` and `editor-state.md`, keeps their four rules, and changes what a save writes. So editor-state rule 4 applies: design first.
+**Status.** Design of record for P3 ([#891](https://github.com/solo-ist/prose/issues/891)), the last item of the 1.9.1 epic ([#1230](https://github.com/solo-ist/prose/issues/1230)) and its cut line (built now; joins 1.9.1 if its QA passes in time, §8). Written 2026-11-07, before any code. It extends `review-provenance.md` and `editor-state.md`, keeps their four rules, and changes what a save writes. So editor-state rule 4 applies: design first.
 
 ## 1. Why, and what not
 
@@ -90,11 +90,11 @@ The control sits beside Suggesting mode, is per tab, and isn't persisted.
 | Re-anchoring puts an insertion in the wrong place | Exact context match only, at load. Anything else is orphaned and reported |
 | Interplay with comments, AI suggestions and annotations | Tracked marks are ordinary marks to the other plugins. The P2 log and the comment plugin's existing rules (a deleted range resolves its thread only when the text is really gone) cover them. The e2e covers a comment over a tracked deletion |
 
-## 8. The operator's decisions
+## 8. The operator's decisions (decided 2026-11-09)
 
-1. **The file holds the original until acceptance** (§5). The alternative is writing the proposed text and keeping the original in IndexedDB, which is simpler but breaks the promise that proposals never reach the disk. Recommended: the original.
-2. **Adopt the library if the spike passes** (§3), or always hand-roll.
-3. **Ship P3 in 1.9.1**, or let it follow, since it is the cut line. Everything else in 1.9.1 stands without it.
+1. **The file holds the original until acceptance** (§5): pending insertions are left out of the file and pending deletions stay in as plain text.
+2. **Adopt the library if the spike passes** (§3); otherwise hand-roll the filter, with the library as reference.
+3. **Build now, ship if ready.** P3 is built in parallel with the relay (M5a/M5b) as an opt-in mode, off by default. It is merged into `release/v1.9.1` only after the operator's QA passes in the dev window, and only if that happens by the time the relay is ready. Otherwise it ships in the next release with no rework. Everything else in 1.9.1 stands without it.
 
 ## 9. Delivery
 

@@ -58,7 +58,7 @@ import type { OrphanedChange, StoredReviewLog } from '../extensions/review-log/l
 import { trackedChangesIn } from '../extensions/tracked-changes/changes'
 import { trackedRecordsOf, applyTrackedRecords, type TrackedChangeRecord } from '../extensions/tracked-changes/records'
 import { installTrackedDispatch } from '../extensions/tracked-changes/extension'
-import { isSuggesting, setSuggestingIn, TRACKED_RESOLVED_META } from '../extensions/tracked-changes/transactions'
+import { isSuggesting, setSuggestingIn } from '../extensions/tracked-changes/transactions'
 import { TRACKED_DELETE, TRACKED_INSERT } from '../extensions/tracked-changes/marks'
 import { Transform } from '@tiptap/pm/transform'
 import {
@@ -147,8 +147,6 @@ export interface Session {
   reviewLogPersisted: number
   /** The in-flight review-log write; an identity change awaits it. */
   reviewLogWrite: Promise<void> | null
-  /** A pending write of the tracked set after a change grew (#891). */
-  trackedTimer: ReturnType<typeof setTimeout> | null
   /** The tracked set as last written (JSON), so an unchanged set is not written again. */
   trackedPersisted: string
   /** The in-flight tracked write; an identity change awaits it. */
@@ -282,7 +280,7 @@ export function attachEditor(next: Editor | null): void {
     if (session.source) return
     scheduleMarkdownProjection(session, transaction.getMeta(RELOAD_META) === true ? 0 : PROJECTION_DELAY_MS)
     scheduleSuggestionProjection(session, transaction)
-    scheduleTrackedProjection(session, transaction, prev)
+    scheduleTrackedProjection(session, prev)
   }
   next.on('transaction', onTransaction)
   // Suggesting mode's filter goes in front of the view's dispatch (#891).
@@ -624,35 +622,18 @@ function projectSuggestions(session: Session): void {
   void persistRecords('suggestions', documentId, live)
 }
 
-/** The ids of the pending tracked changes in a state's document. */
-function trackedIdsKey(state: EditorState): string {
-  return trackedChangesIn(state.doc).map((c) => c.id).join(' ')
-}
-
 /**
- * The tracked set follows the marks (#891): written at once when a change
- * appears, goes or is decided, after the projection delay when one only grew
- * (typing). Every write is the set the state holds, an empty one included: a
- * stale set would put changes back at the next load.
+ * The tracked set follows the marks (#891, design §5): every transaction that
+ * changes it (a change made, grown, decided, or moved by an edit around it)
+ * writes it at once, so a crash loses none and the stored context always
+ * matches the text a save wrote. Every write is the set the state holds, an
+ * empty one included: a stale set would put changes back at the next load.
  */
-function scheduleTrackedProjection(session: Session, tr: Transaction, prev: EditorState | null): void {
-  const urgent =
-    tr.getMeta(TRACKED_RESOLVED_META) === true || (prev !== null && trackedIdsKey(prev) !== trackedIdsKey(session.state))
-  if (session.trackedTimer) clearTimeout(session.trackedTimer)
-  session.trackedTimer = null
-  if (urgent) {
-    projectTracked(session)
-    return
-  }
-  // Nothing tracked before or after: nothing to write.
-  if (session.trackedPersisted === '[]' && trackedChangesIn(session.state.doc).length === 0) return
-  session.trackedTimer = setTimeout(() => projectTracked(session), PROJECTION_DELAY_MS)
-}
-
-/** Write the tracked set when it differs from what IndexedDB holds. */
-function projectTracked(session: Session): void {
-  session.trackedTimer = null
+function scheduleTrackedProjection(session: Session, prev: EditorState | null): void {
   if (!registry.sessions.has(session.tabId)) return
+  // Nothing tracked before, after or in IndexedDB: nothing to write.
+  const before = prev ? trackedChangesIn(prev.doc).length : 0
+  if (before === 0 && session.trackedPersisted === '[]' && trackedChangesIn(session.state.doc).length === 0) return
   persistTrackedNow(session)
 }
 
@@ -697,10 +678,6 @@ export function flushProjections(session: Session): void {
   if (session.suggestionTimer) {
     clearTimeout(session.suggestionTimer)
     projectSuggestions(session)
-  }
-  if (session.trackedTimer) {
-    clearTimeout(session.trackedTimer)
-    projectTracked(session)
   }
   if (session.annotationTimer) {
     clearTimeout(session.annotationTimer)
@@ -821,10 +798,6 @@ async function persistSession(session: Session, opts: { allowEmptySuggestions?: 
   if (log && log.revision !== session.reviewLogPersisted) {
     session.reviewLogPersisted = log.revision
     await persistRecords('reviewLog', documentId, log.log)
-  }
-  if (session.trackedTimer) {
-    clearTimeout(session.trackedTimer)
-    session.trackedTimer = null
   }
   await persistTrackedNow(session)
 }
@@ -1128,7 +1101,6 @@ async function openSessionNow(
     // (until then a reload orphans the same records again).
     reviewLogPersisted: (reviewLogPluginState(state)?.revision ?? 0) - (orphans.length > 0 ? 1 : 0),
     reviewLogWrite: null,
-    trackedTimer: null,
     // The set as stored: an orphaning makes the next write drop the orphans.
     trackedPersisted: JSON.stringify(tracked),
     trackedWrite: null,
@@ -1278,7 +1250,7 @@ export function applyToSession(tabId: string, build: (state: EditorState) => Tra
   if (tr.docChanged) {
     scheduleMarkdownProjection(session, PROJECTION_DELAY_MS)
     scheduleSuggestionProjection(session, tr)
-    scheduleTrackedProjection(session, tr, prev)
+    scheduleTrackedProjection(session, prev)
   }
 }
 

@@ -288,6 +288,58 @@ test.describe('Suggesting mode', () => {
     expect(readFileSync(path, 'utf8')).toBe(DOC)
   })
 
+  test('a change is written in the transaction that makes it, and survives a crash', async () => {
+    const path = await openDoc('crash.md')
+    await turnOnSuggesting()
+    // The session draft (the tab, in Suggesting) lands on its own delay.
+    await page.waitForTimeout(1_500)
+    const documentId = await page.evaluate(() => (window as any).__prose_tools.getAnnotationDocId() as string)
+    await caretAfter('gamma')
+    await page.keyboard.type(' delta')
+    // In IndexedDB as typed, whole: nothing waits for a leave, a close or a save.
+    await expect
+      .poll(() => page.evaluate((id) => (window as any).__prose_tools.loadTrackedFromDB(id), documentId), { timeout: 2_000 })
+      .toEqual([expect.objectContaining({ kind: 'insert', text: ' delta' })])
+
+    // The app dies without a chance to persist anything.
+    const exited = new Promise((resolve) => app.process().once('exit', resolve))
+    app.process().kill('SIGKILL')
+    await exited
+    await launch()
+    await waitForEditor(page)
+    await expect.poll(async () => (await tracked())?.map((c) => [c.type, c.insertedText])).toEqual([['insertion', ' delta']])
+    expect(await docText()).toBe('Alpha beta gamma delta.Delta epsilon zeta.')
+    expect(readFileSync(path, 'utf8')).toBe(DOC)
+  })
+
+  test('source mode waits while Suggesting is on or changes are pending', async () => {
+    await openDoc('source.md')
+    const sourceMode = () => page.evaluate(() => (window as any).__prose_tools.getSourceState()?.mode as string)
+    const sourceButton = page.locator('[aria-label="Source mode"]')
+    await expect(sourceButton).toBeEnabled()
+
+    await turnOnSuggesting()
+    await expect(sourceButton).toBeDisabled()
+    await expect(page.locator('[data-testid="status-source"]')).toBeDisabled()
+    // The shortcut and the menu go through the same guard.
+    await page.keyboard.press('ControlOrMeta+Shift+E')
+    await page.waitForTimeout(300)
+    expect(await sourceMode()).toBe('rich')
+
+    // Suggesting off, but a change is pending: still waiting.
+    await caretAfter('gamma')
+    await page.keyboard.type(' delta')
+    await page.locator('[data-testid="status-suggesting"]').click()
+    await expect(page.locator('[data-testid="status-suggesting"]')).toHaveText('Editing')
+    await expect(sourceButton).toBeDisabled()
+
+    // Decided: source mode opens.
+    await page.evaluate(() => (window as any).__prose_editor.commands.rejectAllTrackedChanges())
+    await expect(sourceButton).toBeEnabled()
+    await sourceButton.click()
+    await expect.poll(sourceMode).toBe('source')
+  })
+
   test('a change whose context changed outside Prose is set aside, not put back', async () => {
     const path = await openDoc('orphan.md')
     await turnOnSuggesting()

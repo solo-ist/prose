@@ -4,7 +4,7 @@ import { requestBugReport } from '../EnableLoggingDialog'
 import { useEditor } from '../../hooks/useEditor'
 import { useTabs } from '../../hooks/useTabs'
 import { useEditorStore } from '../../stores/editorStore'
-import { toggleSourceMode, toggleSuggesting, canSuggest } from '../../tabs/actions'
+import { toggleSourceMode, toggleSuggesting, canSuggest, SOURCE_BLOCKED_MESSAGES } from '../../tabs/actions'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useTabStore, useActiveTab } from '../../stores/tabStore'
 import { useActiveSession, useActiveSource } from '../../document/useActiveSession'
@@ -111,6 +111,9 @@ export function Toolbar() {
   const suggesting = useActiveSession(selectSuggesting)
   const trackedCount = useActiveSession(selectTrackedCount)
   const suggestingAvailable = useActiveTab((tab) => (tab ? canSuggest(tab.id) : false)) && !sourceMode
+  // Source mode waits while Suggesting is on or changes are pending (#891):
+  // raw edits would bypass tracking and could orphan them.
+  const sourceBlocked: 'suggesting' | 'pending' | null = sourceMode ? null : suggesting ? 'suggesting' : trackedCount > 0 ? 'pending' : null
 
   const [hasCopied, setHasCopied] = useState(false)
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
@@ -393,7 +396,7 @@ export function Toolbar() {
       label: sourceMode ? 'WYSIWYG mode' : 'Source mode',
       icon: <Code />,
       onSelect: toggleSourceMode,
-      disabled: isRemarkableReadOnly || isPreviewTab,
+      disabled: isRemarkableReadOnly || isPreviewTab || sourceBlocked !== null,
       active: sourceMode,
       renderBar: (key) => (
         <Tooltip key={key}>
@@ -402,7 +405,7 @@ export function Toolbar() {
               variant="ghost"
               size="icon"
               onClick={toggleSourceMode}
-              disabled={isRemarkableReadOnly || isPreviewTab}
+              disabled={isRemarkableReadOnly || isPreviewTab || sourceBlocked !== null}
               aria-label={sourceMode ? 'WYSIWYG mode' : 'Source mode'}
             >
               {sourceMode ? (
@@ -413,7 +416,9 @@ export function Toolbar() {
             </Button>
           </TooltipTrigger>
           <TooltipContent>
-            {sourceMode ? 'WYSIWYG mode' : 'Source mode'} ({isMacOS() ? '⌘⇧E' : 'Ctrl+Shift+E'})
+            {sourceBlocked
+              ? SOURCE_BLOCKED_MESSAGES[sourceBlocked]
+              : `${sourceMode ? 'WYSIWYG mode' : 'Source mode'} (${isMacOS() ? '⌘⇧E' : 'Ctrl+Shift+E'})`}
           </TooltipContent>
         </Tooltip>
       ),

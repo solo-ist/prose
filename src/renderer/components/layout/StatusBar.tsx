@@ -12,7 +12,7 @@ import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { selectOpenThreadCount } from '../../extensions/comments'
 import { useActiveSession, useActiveSource } from '../../document/useActiveSession'
 import { requestCommentReview } from '../editor/AIEditsHistoryPanel'
-import { toggleSourceMode, toggleSuggesting, canSuggest } from '../../tabs/actions'
+import { toggleSourceMode, toggleSuggesting, canSuggest, SOURCE_BLOCKED_MESSAGES } from '../../tabs/actions'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import {
   DropdownMenu,
@@ -108,6 +108,7 @@ export function StatusBar() {
   const suggestingAvailable = useActiveTab((tab) => (tab ? canSuggest(tab.id) : false)) && !sourceMode
   const trackedDisplay = useTrackedDisplay()
   const setTrackedDisplay = useReviewStore((s) => s.setTrackedDisplay)
+  const sourceBlocked: 'suggesting' | 'pending' | null = sourceMode ? null : suggesting ? 'suggesting' : trackedCount > 0 ? 'pending' : null
 
   // Open (unresolved) comment threads, counted from the comment store — the
   // same selector the chat chips and Comment Review derive from, so the
@@ -201,12 +202,27 @@ export function StatusBar() {
       </div>
 
       <div className="flex items-center gap-1">
-        <button
-          onClick={toggleSourceMode}
-          className="hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden transition-colors cursor-pointer"
-        >
-          {sourceMode ? 'Source' : 'WYSIWYG'}
-        </button>
+        {sourceBlocked ? (
+          // Source mode waits while Suggesting is on or changes are pending (#891).
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button data-testid="status-source" disabled className="cursor-default opacity-50">
+                WYSIWYG
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p>{SOURCE_BLOCKED_MESSAGES[sourceBlocked]}</p>
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <button
+            data-testid="status-source"
+            onClick={toggleSourceMode}
+            className="hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden transition-colors cursor-pointer"
+          >
+            {sourceMode ? 'Source' : 'WYSIWYG'}
+          </button>
+        )}
         <span className="text-muted-foreground/40 mx-1">|</span>
 
         {/* Suggesting mode (#891): the writer's edits become tracked changes. */}

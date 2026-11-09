@@ -186,10 +186,12 @@ describe('the file holds the original until a change is accepted', () => {
 })
 
 describe('the tracked record kind', () => {
-  it('is written when a change appears, and written empty when the last one goes', async () => {
+  it('is written in the transaction that makes it, and written empty when the last one goes', async () => {
     await openSuggesting('t5', 'doc-5', 'Alpha beta gamma.')
-    typeAt(after('gamma'), ' delta')
-    expect((db.tracked.get('doc-5') as unknown[]).length).toBe(1)
+    typeAt(after('gamma'), ' d')
+    typeAt(after(' d'), 'elta')
+    // No flush, no leave: the growth is stored already (crash recovery).
+    expect((db.tracked.get('doc-5') as Array<{ text: string }>).map((r) => r.text)).toEqual([' delta'])
     editor.commands.undo()
     flushActiveProjections()
     expect(db.tracked.get('doc-5')).toEqual([])

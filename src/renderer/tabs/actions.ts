@@ -73,6 +73,8 @@ import {
   type SaveSnapshot
 } from '../document/session'
 import { isPlainTextPath } from '../document/identity'
+import { trackedChangesIn } from '../extensions/tracked-changes/changes'
+import { useNotificationStore } from '../stores/notificationStore'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -950,8 +952,32 @@ export function enterSourceMode(tabId: string | null = useTabStore.getState().ac
   if (!tabId) return false
   const tab = useTabStore.getState().getTabById(tabId)
   if (!tab || tab.isPreview || tab.readOnly || !hasSession(tabId)) return false
+  const blocked = sourceBlockedBy(tabId)
+  if (blocked) {
+    useNotificationStore.getState().notify({ id: 'source-blocked', message: SOURCE_BLOCKED_MESSAGES[blocked] })
+    return false
+  }
   enterSource(tabId)
   return true
+}
+
+/**
+ * Why source mode can't open on a tab now (#891, design §5): raw markdown
+ * edits would bypass Suggesting mode's tracking, and could orphan pending
+ * changes. Turning Suggesting off, and accepting or rejecting the pending
+ * changes, opens it again.
+ */
+export function sourceBlockedBy(tabId: string | null = useTabStore.getState().activeTabId): 'suggesting' | 'pending' | null {
+  if (!tabId) return null
+  if (useTabStore.getState().getTabById(tabId)?.suggesting) return 'suggesting'
+  const session = getSession(tabId)
+  if (session && trackedChangesIn(session.state.doc).length > 0) return 'pending'
+  return null
+}
+
+export const SOURCE_BLOCKED_MESSAGES: Record<'suggesting' | 'pending', string> = {
+  suggesting: 'Source mode is off while Suggesting is on: raw edits would bypass tracking. Turn Suggesting off to use it.',
+  pending: 'Source mode is off while tracked changes are pending. Accept or reject them to use it.'
 }
 
 /** Back to the rich editor: the typed text becomes the document in one undo step when it changed. */

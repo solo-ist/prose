@@ -50,3 +50,17 @@ with an older one, can't use it. A Claude Desktop extension runs on Claude Deskt
   app (`list_tabs`).
 - `typecheck:renderer` 66, `tsconfig.node` 18, `typecheck:e2e` 6; unit; build; the MCP e2e specs.
 - The install dialog itself is GUI-only: the operator's MacBook check is in the QA block.
+
+## Execution log
+
+- **2026-11-09.** Plan `cc318fb`; change `17c042b` on `release/v1.9.1` at `84dcc27`.
+  - Claude Desktop 4.23118.0 bundles Electron 44.9.3 with **Node v24.22.0** (`strings` on its Electron Framework); its
+    extension loader falls back to that Node when no system Node satisfies `runtimes.node`, and supports manifests up
+    to 0.4. The bridge itself was run on Electron's Node 24.22.2 (`ELECTRON_RUN_AS_NODE`, the same runtime class):
+    both protocol eras list all 17 tools.
+  - Tests: vitest `zip.test.ts` 3 (round trip through `unzip -l/-t/-p`, modes and fixed date, the empty archive),
+    `mcpb.test.ts` 5 (snapshots for the installed, dev and a test profile; the tool list; the archive's entries).
+    e2e `electron.mcpb.spec.ts` 2: the file for this profile, its env, its server byte-identical to the bundle, and the
+    extracted server run the way Claude Desktop runs it (`node server/index.cjs`, manifest env) listing the tools and
+    reaching the app with `list_tabs`; the Settings button. **Falsified** on the merge-base build:
+    `mcpInstallExtension is not a function`, and no extension button.

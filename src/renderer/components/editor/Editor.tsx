@@ -207,6 +207,17 @@ export function Editor() {
           message: 'This text already has a comment — reply to the existing thread instead of adding a new one.',
         })
       },
+      // Suggesting mode tracks text within a paragraph (#891); an edit it
+      // can't track is refused, never applied untracked, and the writer is told.
+      onTrackedRefused: (reason) => {
+        useNotificationStore.getState().notify({
+          id: 'tracked-refused',
+          message:
+            reason === 'no-marks'
+              ? 'Suggesting mode can’t track changes in a code block. Turn Suggesting off to edit it.'
+              : 'Suggesting mode tracks changes within a paragraph. Turn Suggesting off to add, split or join paragraphs.',
+        })
+      },
     }),
     // The document arrives through the session layer (document/session.ts),
     // which swaps one EditorState per tab into this view.

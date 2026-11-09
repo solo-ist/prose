@@ -18,6 +18,12 @@
  * the share pushes the comment plugin records, and exposes the active state
  * to React through `subscribeActiveSession`.
  *
+ * Tracked changes (#891, docs/architecture/suggesting-mode.md §5) are marks
+ * too, and the file holds the original until one is accepted: every
+ * serialization here goes through `originalOf(doc)` (insertions left out,
+ * deletion marks dropped), and the pending changes persist as the fifth record
+ * kind, `tracked`, re-anchored by their context at load.
+ *
  * This is the only file that creates an `EditorState` for a document or calls
  * `view.updateState`, and the only importer of the record writers in
  * lib/persistence.
@@ -47,8 +53,14 @@ import {
   AI_SUGGESTION_RESOLVED_META
 } from '../extensions/ai-suggestions/extension'
 import { annotationsOf, annotationPluginState, loadAnnotationsInto } from '../extensions/ai-annotations/transactions'
-import { loadReviewLogInto, reviewLogOf, reviewLogPluginState } from '../extensions/review-log/transactions'
-import type { StoredReviewLog } from '../extensions/review-log/log'
+import { loadReviewLogInto, orphanTrackedIn, reviewLogOf, reviewLogPluginState } from '../extensions/review-log/transactions'
+import type { OrphanedChange, StoredReviewLog } from '../extensions/review-log/log'
+import { trackedChangesIn } from '../extensions/tracked-changes/changes'
+import { trackedRecordsOf, applyTrackedRecords, type TrackedChangeRecord } from '../extensions/tracked-changes/records'
+import { installTrackedDispatch } from '../extensions/tracked-changes/extension'
+import { isSuggesting, setSuggestingIn, TRACKED_META, TRACKED_RESOLVED_META } from '../extensions/tracked-changes/transactions'
+import { TRACKED_DELETE, TRACKED_INSERT } from '../extensions/tracked-changes/marks'
+import { Transform } from '@tiptap/pm/transform'
 import {
   getIdentity,
   isPlainTextPath,
@@ -75,6 +87,9 @@ import {
   loadReviewLog,
   saveReviewLog,
   deleteReviewLog,
+  loadTracked,
+  saveTracked,
+  deleteTracked,
   deleteConversations
 } from '../lib/persistence'
 import type { AIAnnotation } from '../types/annotations'
@@ -86,13 +101,14 @@ import { pipelineLog } from '../lib/aiPipelineLog'
 // Types
 // ---------------------------------------------------------------------------
 
-export type RecordKind = 'annotations' | 'comments' | 'suggestions' | 'reviewLog'
+export type RecordKind = 'annotations' | 'comments' | 'suggestions' | 'reviewLog' | 'tracked'
 
 export interface SessionRecords {
   annotations: AIAnnotation[]
   comments: CommentData[]
   suggestions: AISuggestionData[]
   reviewLog: StoredReviewLog
+  tracked: TrackedChangeRecord[]
 }
 
 export interface Session {
@@ -131,6 +147,12 @@ export interface Session {
   reviewLogPersisted: number
   /** The in-flight review-log write; an identity change awaits it. */
   reviewLogWrite: Promise<void> | null
+  /** A pending write of the tracked set after a change grew (#891). */
+  trackedTimer: ReturnType<typeof setTimeout> | null
+  /** The tracked set as last written (JSON), so an unchanged set is not written again. */
+  trackedPersisted: string
+  /** The in-flight tracked write; an identity change awaits it. */
+  trackedWrite: Promise<void> | null
   /** Source mode: the CodeMirror state and what it opened on; null in rich mode (#1150). */
   source: SourceSession | null
   /** A pending projection of the source text into the tab record. */
@@ -260,8 +282,11 @@ export function attachEditor(next: Editor | null): void {
     if (session.source) return
     scheduleMarkdownProjection(session, transaction.getMeta(RELOAD_META) === true ? 0 : PROJECTION_DELAY_MS)
     scheduleSuggestionProjection(session, transaction)
+    scheduleTrackedProjection(session, transaction, prev)
   }
   next.on('transaction', onTransaction)
+  // Suggesting mode's filter goes in front of the view's dispatch (#891).
+  installTrackedDispatch(next)
 
   detachEditor = () => {
     next.off('transaction', onTransaction)
@@ -305,6 +330,7 @@ function rebuildForSchema(session: Session, next: Editor): void {
   loadAnnotationsInto(tr, annotationsOf(session.state))
   loadThreadsInto(tr, threadsOf(session.state))
   loadReviewLogInto(tr, reviewLogOf(session.state))
+  setSuggestingIn(tr, isSuggesting(session.state))
   state = state.applyTransaction(tr).state
   session.state = state
   session.annotationsPersisted = annotationPluginState(state)?.revision ?? 0
@@ -420,9 +446,56 @@ function markdownStorage(e: Editor): MarkdownStorage {
   return e.storage.markdown as MarkdownStorage
 }
 
+/**
+ * The raw serializer. Called from `serializeOriginal` only, so a pending
+ * tracked change never reaches a file, the tab record, Copy Markdown or a
+ * tool's read (#891; a tripwire in the document-sessions spec pins it).
+ */
 function serializeDoc(e: Editor, doc: PMNode): string {
   stats.serializations++
   return markdownStorage(e).serializer.serialize(doc)
+}
+
+/**
+ * The document as the file holds it (#891, design §5): tracked insertions left
+ * out, tracked deletions kept as plain text. Pure; a document with no tracked
+ * change is returned as it is.
+ */
+export function originalOf(doc: PMNode): PMNode {
+  const changes = trackedChangesIn(doc)
+  if (changes.length === 0) return doc
+  const transform = new Transform(doc)
+  const inserts = changes.flatMap((c) => c.ranges.filter((r) => r.kind === 'insert')).sort((a, b) => b.from - a.from)
+  for (const range of inserts) transform.delete(range.from, range.to)
+  const deletion = doc.type.schema.marks[TRACKED_DELETE]
+  if (deletion) transform.removeMark(0, transform.doc.content.size, deletion)
+  return transform.doc
+}
+
+/**
+ * The document as if every pending change were accepted ("Copy with
+ * changes"): tracked deletions gone, tracked insertions kept as plain text.
+ */
+export function finalOf(doc: PMNode): PMNode {
+  const changes = trackedChangesIn(doc)
+  if (changes.length === 0) return doc
+  const transform = new Transform(doc)
+  const deletes = changes.flatMap((c) => c.ranges.filter((r) => r.kind === 'delete')).sort((a, b) => b.from - a.from)
+  for (const range of deletes) transform.delete(range.from, range.to)
+  const insertion = doc.type.schema.marks[TRACKED_INSERT]
+  if (insertion) transform.removeMark(0, transform.doc.content.size, insertion)
+  return transform.doc
+}
+
+/** What a file holds for `doc`: the one serializer every projection and save uses. */
+function serializeOriginal(e: Editor, doc: PMNode): string {
+  return serializeDoc(e, originalOf(doc))
+}
+
+/** The markdown of `tabId`'s document as if every pending change were accepted (body only). */
+export function serializeFinal(tabId: string): string {
+  const session = requireSession(tabId)
+  return serializeDoc(requireEditor(), finalOf(session.state.doc))
 }
 
 /**
@@ -446,7 +519,7 @@ function buildDocument(e: Editor, body: string, identity: IdentityState): PMNode
 
 /** The body the session's document projects to, with the baseline substitution (#1102). */
 function projectedContent(e: Editor, session: Session): string {
-  const body = serializeDoc(e, session.state.doc)
+  const body = serializeOriginal(e, session.state.doc)
   if (session.baseline && session.baseline.serialized === body) return session.baseline.content
   return body
 }
@@ -542,6 +615,53 @@ function projectSuggestions(session: Session): void {
   void persistRecords('suggestions', documentId, live)
 }
 
+/** The ids of the pending tracked changes in a state's document. */
+function trackedIdsKey(state: EditorState): string {
+  return trackedChangesIn(state.doc).map((c) => c.id).join(' ')
+}
+
+/**
+ * The tracked set follows the marks (#891): written at once when a change
+ * appears, goes or is decided, after the projection delay when one only grew
+ * (typing). Every write is the set the state holds, an empty one included: a
+ * stale set would put changes back at the next load.
+ */
+function scheduleTrackedProjection(session: Session, tr: Transaction, prev: EditorState | null): void {
+  const urgent =
+    tr.getMeta(TRACKED_RESOLVED_META) === true ||
+    (tr.getMeta(TRACKED_META) === true && prev !== null && trackedIdsKey(prev) !== trackedIdsKey(session.state)) ||
+    (prev !== null && trackedChangesIn(prev.doc).length > 0 && trackedChangesIn(session.state.doc).length === 0)
+  if (session.trackedTimer) clearTimeout(session.trackedTimer)
+  session.trackedTimer = null
+  if (urgent) {
+    projectTracked(session)
+    return
+  }
+  // Nothing tracked before or after: nothing to write.
+  if (session.trackedPersisted === '[]' && trackedChangesIn(session.state.doc).length === 0) return
+  session.trackedTimer = setTimeout(() => projectTracked(session), PROJECTION_DELAY_MS)
+}
+
+/** Write the tracked set when it differs from what IndexedDB holds. */
+function projectTracked(session: Session): void {
+  session.trackedTimer = null
+  if (!registry.sessions.has(session.tabId)) return
+  persistTrackedNow(session)
+}
+
+function persistTrackedNow(session: Session): Promise<void> {
+  const records = trackedRecordsOf(session.state.doc)
+  const key = JSON.stringify(records)
+  if (key === session.trackedPersisted) return session.trackedWrite ?? Promise.resolve()
+  session.trackedPersisted = key
+  const { documentId } = getIdentity(session.state)
+  const write = persistRecords('tracked', documentId, records).finally(() => {
+    if (session.trackedWrite === write) session.trackedWrite = null
+  })
+  session.trackedWrite = write
+  return write
+}
+
 /**
  * Land `tabId`'s pending projections before a decision reads the tab record
  * (#885): the dirty flag otherwise trails the document by up to the projection
@@ -570,6 +690,10 @@ export function flushProjections(session: Session): void {
   if (session.suggestionTimer) {
     clearTimeout(session.suggestionTimer)
     projectSuggestions(session)
+  }
+  if (session.trackedTimer) {
+    clearTimeout(session.trackedTimer)
+    projectTracked(session)
   }
   if (session.annotationTimer) {
     clearTimeout(session.annotationTimer)
@@ -618,6 +742,9 @@ export async function persistRecords<K extends RecordKind>(
     case 'reviewLog':
       await saveReviewLog(documentId, records as StoredReviewLog)
       break
+    case 'tracked':
+      await saveTracked(documentId, records as TrackedChangeRecord[])
+      break
   }
 }
 
@@ -635,6 +762,9 @@ export async function deleteRecords(kind: RecordKind, documentId: string): Promi
     case 'reviewLog':
       await deleteReviewLog(documentId)
       break
+    case 'tracked':
+      await deleteTracked(documentId)
+      break
   }
 }
 
@@ -645,6 +775,7 @@ export async function deleteDocumentRecords(documentId: string): Promise<void> {
   await deleteRecords('suggestions', documentId)
   await deleteRecords('comments', documentId)
   await deleteRecords('reviewLog', documentId)
+  await deleteRecords('tracked', documentId)
 }
 
 /**
@@ -684,6 +815,11 @@ async function persistSession(session: Session, opts: { allowEmptySuggestions?: 
     session.reviewLogPersisted = log.revision
     await persistRecords('reviewLog', documentId, log.log)
   }
+  if (session.trackedTimer) {
+    clearTimeout(session.trackedTimer)
+    session.trackedTimer = null
+  }
+  await persistTrackedNow(session)
 }
 
 /**
@@ -857,6 +993,26 @@ export async function persistSessionRecords(tabId: string): Promise<void> {
 // Open, activate, close
 // ---------------------------------------------------------------------------
 
+/** Orphaned tracked records, one entry per change, as the review log takes them. */
+function orphanedChanges(records: readonly TrackedChangeRecord[]): OrphanedChange[] {
+  const byId = new Map<string, OrphanedChange>()
+  for (const record of records) {
+    const entry = byId.get(record.id) ?? {
+      id: record.id,
+      type: record.kind === 'insert' ? 'insertion' : 'deletion',
+      originalText: '',
+      suggestedText: '',
+      actor: record.actor,
+      createdAt: record.createdAt
+    }
+    if (record.kind === 'insert') entry.suggestedText += record.text
+    else entry.originalText += record.text
+    if (entry.originalText && entry.suggestedText) entry.type = 'edit'
+    byId.set(record.id, entry)
+  }
+  return [...byId.values()]
+}
+
 /**
  * Build the session for `tab` from `content` (the tab's cached text or the
  * file as read): records loaded first, the body parsed and normalised, the
@@ -888,11 +1044,12 @@ async function openSessionNow(
 ): Promise<Session> {
   const e = await whenEditorAttached()
   const documentId = tab.documentId
-  const [annotations, comments, suggestions, reviewLog] = await Promise.all([
+  const [annotations, comments, suggestions, reviewLog, tracked] = await Promise.all([
     loadAnnotations(documentId),
     loadComments(documentId),
     loadSuggestions(documentId),
-    loadReviewLog(documentId)
+    loadReviewLog(documentId),
+    loadTracked(documentId)
   ])
   const raced = registry.sessions.get(tab.id)
   if (raced) return raced
@@ -911,6 +1068,13 @@ async function openSessionNow(
     .setMeta(IDENTITY_META, identity)
     .setMeta(BUILD_META, true)
     .setMeta('addToHistory', false)
+  // The pending tracked changes first (#891): the document is the file, the
+  // original, and every other record's text may sit on a change's text. A
+  // change whose context is gone is orphaned, never put back elsewhere; the
+  // review log keeps it as superseded.
+  const orphans = applyTrackedRecords(seed, tracked)
+  orphanTrackedIn(seed, orphanedChanges(orphans))
+  setSuggestingIn(seed, record.suggesting === true && !identity.plain)
   // The stored threads and their marks, in one transaction; the plugin sets
   // `anchorLost` from the marks that landed (#1147).
   loadThreadsInto(seed, comments)
@@ -934,7 +1098,7 @@ async function openSessionNow(
   const session: Session = {
     tabId: tab.id,
     state,
-    baseline: { content, serialized: serializeDoc(e, state.doc) },
+    baseline: { content, serialized: serializeOriginal(e, state.doc) },
     // A clean tab holds what its file holds; a dirty one (a restored draft,
     // prose://) has nothing to compare against until a save. The record is
     // read now: the caller's copy may predate a frontmatter write.
@@ -951,8 +1115,14 @@ async function openSessionNow(
     commentWrite: null,
     pushesPerformed: threads?.pushRevision ?? 0,
     // The seed's log counts as written: a backfill is derivable from the marks.
-    reviewLogPersisted: reviewLogPluginState(state)?.revision ?? 0,
+    // An orphaning is not: it is written at the next leave, close or save
+    // (until then a reload orphans the same records again).
+    reviewLogPersisted: (reviewLogPluginState(state)?.revision ?? 0) - (orphans.length > 0 ? 1 : 0),
     reviewLogWrite: null,
+    trackedTimer: null,
+    // The set as stored: an orphaning makes the next write drop the orphans.
+    trackedPersisted: JSON.stringify(tracked),
+    trackedWrite: null,
     source: null,
     sourceTimer: null
   }
@@ -966,7 +1136,9 @@ async function openSessionNow(
     documentId,
     annotations: annotations.length,
     comments: comments.length,
-    suggestions: suggestions.length
+    suggestions: suggestions.length,
+    tracked: tracked.length,
+    orphaned: orphans.length
   })
   return session
 }
@@ -1097,6 +1269,7 @@ export function applyToSession(tabId: string, build: (state: EditorState) => Tra
   if (tr.docChanged) {
     scheduleMarkdownProjection(session, PROJECTION_DELAY_MS)
     scheduleSuggestionProjection(session, tr)
+    scheduleTrackedProjection(session, tr, prev)
   }
 }
 
@@ -1130,12 +1303,18 @@ export async function replaceSessionDocument(
 
     // The baseline first: the projection runs inside the dispatch and must
     // emit the typed bytes, not a re-serialisation (#1102).
-    session.baseline = { content: next.content, serialized: serializeDoc(e, doc) }
+    session.baseline = { content: next.content, serialized: serializeOriginal(e, doc) }
 
     applyToSession(tabId, (state) => {
+      // The live tracked changes, as records against the original text the
+      // source edit started from (#891).
+      const tracked = trackedRecordsOf(state.doc)
       const tr = state.tr
         .replaceWith(0, state.doc.content.size, doc.content)
         .setMeta(RELOAD_META, true)
+      // Back on their context in the new text, before every other record:
+      // the source edit removed the context of an orphan.
+      orphanTrackedIn(tr, orphanedChanges(applyTrackedRecords(tr, tracked)))
       // The threads' marks re-anchored by text in the same transaction; the
       // plugin reads which ones landed (#1147).
       applyCommentMarks(tr, [...threadsOf(state)])
@@ -1222,10 +1401,14 @@ export async function setSessionIdentity(tabId: string, identity: IdentityState)
     const suggestions = getAISuggestions(editorLike)
     const log = reviewLogOf(session.state)
     const hasLog = log.suggestions.length > 0 || log.events.length > 0
+    const tracked = trackedRecordsOf(session.state.doc)
+    session.trackedPersisted = JSON.stringify(tracked)
     await Promise.all([
       session.annotationWrite ?? Promise.resolve(),
       session.commentWrite ?? Promise.resolve(),
       session.reviewLogWrite ?? Promise.resolve(),
+      session.trackedWrite ?? Promise.resolve(),
+      tracked.length > 0 ? persistRecords('tracked', identity.documentId, tracked) : Promise.resolve(),
       comments.length > 0 ? persistRecords('comments', identity.documentId, comments) : Promise.resolve(),
       suggestions.length > 0 ? persistRecords('suggestions', identity.documentId, suggestions) : Promise.resolve(),
       hasLog ? persistRecords('reviewLog', identity.documentId, log) : Promise.resolve()
@@ -1296,6 +1479,30 @@ export function recordSaved(tabId: string, snapshot: SaveSnapshot): void {
 export function markFrontmatterChanged(tabId: string): void {
   const session = registry.sessions.get(tabId)
   if (session) projectNow(session)
+}
+
+// ---------------------------------------------------------------------------
+// Suggesting mode (#891)
+// ---------------------------------------------------------------------------
+
+/**
+ * Suggesting mode on or off for a tab (design §3): the tab record holds it
+ * (the session draft persists it across a relaunch) and the state carries it
+ * for the filter, changed together here. A tab without a session yet takes it
+ * from the record when it opens. A plain-text document can't suggest: plain
+ * mode strips every mark.
+ */
+export function setSessionSuggesting(tabId: string, suggesting: boolean): boolean {
+  const session = registry.sessions.get(tabId)
+  const plain = session ? getIdentity(session.state).plain : isPlainTextPath(useTabStore.getState().getTabById(tabId)?.path ?? null)
+  const next = suggesting && !plain
+  useTabStore.getState().updateTab(tabId, { suggesting: next })
+  if (session && isSuggesting(session.state) !== next) {
+    applyToSession(tabId, (state) => setSuggestingIn(state.tr, next))
+  }
+  if (tabId === registry.activeTabId) notifyActiveSession()
+  pipelineLog('suggesting:set', { tabId, suggesting: next })
+  return next
 }
 
 // ---------------------------------------------------------------------------

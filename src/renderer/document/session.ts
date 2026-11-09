@@ -503,7 +503,8 @@ export function originalHTML(doc: PMNode): string {
 /** The markdown of `tabId`'s document as if every pending change were accepted (body only). */
 export function serializeFinal(tabId: string): string {
   const session = requireSession(tabId)
-  return serializeDoc(requireEditor(), finalOf(session.state.doc))
+  const e = requireEditor()
+  return serializeDoc(e, finalOf(session.state.doc))
 }
 
 /**

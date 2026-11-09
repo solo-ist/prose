@@ -1108,7 +1108,7 @@ test.describe('session tripwires', () => {
   const files = rendererFiles().map((file) => ({ file: rel(file), source: stripComments(readFileSync(file, 'utf8')) }))
 
   test('the record writers in lib/persistence are imported only by document/session.ts', () => {
-    const writers = ['saveAnnotations', 'saveComments', 'saveSuggestions', 'saveReviewLog', 'deleteAnnotations', 'deleteComments', 'deleteSuggestions', 'deleteReviewLog']
+    const writers = ['saveAnnotations', 'saveComments', 'saveSuggestions', 'saveReviewLog', 'saveTracked', 'deleteAnnotations', 'deleteComments', 'deleteSuggestions', 'deleteReviewLog', 'deleteTracked']
     for (const { file, source } of files) {
       if (file === 'src/renderer/document/session.ts' || file === 'src/renderer/lib/persistence.ts') continue
       for (const block of source.match(/import\s*\{[^}]*\}\s*from\s*'[^']*persistence'/g) ?? []) {
@@ -1116,6 +1116,32 @@ test.describe('session tripwires', () => {
           expect(block, `${file} imports ${writer} from persistence`).not.toMatch(new RegExp(`\\b${writer}\\b`))
         }
       }
+    }
+  })
+
+  test('no pending tracked change can reach a file: every serialization of a document goes through originalOf (#891)', () => {
+    const session = files.find((f) => f.file === 'src/renderer/document/session.ts')!
+    // The raw serializer is called in exactly one place, serializeDoc, and
+    // serializeDoc only ever receives originalOf(…) or, for Copy with
+    // changes, finalOf(…).
+    expect(session.source.match(/\.serializer\.serialize\(/g) ?? [], 'raw serializer calls in session.ts').toHaveLength(1)
+    const calls = [...session.source.matchAll(/\bserializeDoc\(\s*[^,()]+,\s*([A-Za-z]+)\(/g)].map((m) => m[1])
+    expect(calls.length, 'serializeDoc calls').toBeGreaterThan(0)
+    for (const callee of calls) expect(['originalOf', 'finalOf'], `serializeDoc(…, ${callee}(…))`).toContain(callee)
+    expect(session.source, 'serializeDoc called with a bare document').not.toMatch(/\bserializeDoc\(\s*[^,()]+,\s*[A-Za-z_.]+\s*\)/)
+    // The save path and the projection never take the final text.
+    for (const fn of ['saveSnapshot', 'projectedContent', 'projectSessionContent', 'enterSource']) {
+      const body = session.source.slice(session.source.indexOf(`function ${fn}(`)).split(/\n}\n/)[0]
+      expect(body, `${fn} reads the final text`).not.toMatch(/\bfinalOf\(|\bserializeFinal\(/)
+    }
+    for (const { file, source } of files) {
+      if (file === 'src/renderer/document/session.ts') continue
+      // Elsewhere a raw serialization takes the original, and the live HTML of the view never leaves.
+      for (const m of source.matchAll(/\.serializer\.serialize\(([^)]*)\)/g)) {
+        expect(m[1], `${file} serializes a raw document`).toMatch(/^originalOf\(/)
+      }
+      expect(source, `${file} reads getMarkdown()`).not.toMatch(/\.getMarkdown\(\)/)
+      expect(source, `${file} reads the view's getHTML()`).not.toMatch(/\.getHTML\(\)/)
     }
   })
 

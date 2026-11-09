@@ -3,6 +3,7 @@ import { Check, X, CheckCheck, XCircle, MessageSquare, ArrowLeftRight } from 'lu
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useReviewStore } from '../../stores/reviewStore'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
+import { reviewItems, type ReviewItem } from './reviewItems'
 import { computeWordDiff, scrollSelectionIntoCenter, type DiffSegment } from '../../lib/diffUtils'
 import type { AISuggestionData } from '../../extensions/ai-suggestions/types'
 import { cn } from '../../lib/utils'
@@ -18,7 +19,8 @@ import { cn } from '../../lib/utils'
 export function SideBySideDiffPanel() {
   const editor = useEditorInstanceStore((state) => state.editor)
   const setReviewMode = useReviewStore((s) => s.setReviewMode)
-  const [suggestions, setSuggestions] = useState<AISuggestionData[]>([])
+  // AI suggestions and tracked changes together, as in Quick Review (#891).
+  const [suggestions, setSuggestions] = useState<ReviewItem[]>([])
   const [hasLoaded, setHasLoaded] = useState(false)
 
   // Subscribe to editor transactions for reactive updates (e.g., after setAISuggestionReply)
@@ -27,9 +29,9 @@ export function SideBySideDiffPanel() {
       setSuggestions([])
       return
     }
-    setSuggestions(getAISuggestions(editor))
+    setSuggestions(reviewItems(editor))
     setHasLoaded(true)
-    const handler = () => setSuggestions(getAISuggestions(editor))
+    const handler = () => setSuggestions(reviewItems(editor))
     editor.on('transaction', handler)
     return () => { editor.off('transaction', handler) }
   }, [editor])
@@ -50,14 +52,16 @@ export function SideBySideDiffPanel() {
     }
   }, [suggestions, total, setReviewMode])
 
-  const handleAccept = useCallback((suggestion: AISuggestionData) => {
+  const handleAccept = useCallback((suggestion: ReviewItem) => {
     if (!editor) return
-    editor.commands.acceptAISuggestion(suggestion.id)
+    if (suggestion.tracked) editor.commands.acceptTrackedChange(suggestion.id)
+    else editor.commands.acceptAISuggestion(suggestion.id)
   }, [editor])
 
-  const handleReject = useCallback((suggestion: AISuggestionData) => {
+  const handleReject = useCallback((suggestion: ReviewItem) => {
     if (!editor) return
-    editor.commands.rejectAISuggestion(suggestion.id)
+    if (suggestion.tracked) editor.commands.rejectTrackedChange(suggestion.id)
+    else editor.commands.rejectAISuggestion(suggestion.id)
   }, [editor])
 
   const handleAcceptAll = useCallback(() => {
@@ -67,6 +71,7 @@ export function SideBySideDiffPanel() {
     for (let i = current.length - 1; i >= 0; i--) {
       editor.commands.acceptAISuggestion(current[i].id)
     }
+    editor.commands.acceptAllTrackedChanges()
     setReviewMode(null)
   }, [editor, setReviewMode])
 
@@ -76,6 +81,7 @@ export function SideBySideDiffPanel() {
     for (let i = current.length - 1; i >= 0; i--) {
       editor.commands.rejectAISuggestion(current[i].id)
     }
+    editor.commands.rejectAllTrackedChanges()
     setReviewMode(null)
   }, [editor, setReviewMode])
 
@@ -202,9 +208,10 @@ function DiffHunk({
 
   const handleSubmitFeedback = useCallback(() => {
     if (!editor || !feedbackInput.trim()) return
-    editor.commands.setAISuggestionReply(suggestion.id, feedbackInput.trim())
+    if ((suggestion as ReviewItem).tracked) editor.commands.replyToTrackedChange(suggestion.id, feedbackInput.trim())
+    else editor.commands.setAISuggestionReply(suggestion.id, feedbackInput.trim())
     setShowFeedbackForm(false)
-  }, [editor, suggestion.id, feedbackInput])
+  }, [editor, suggestion, feedbackInput])
 
   const handleFeedbackKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {

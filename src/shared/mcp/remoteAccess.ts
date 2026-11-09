@@ -43,6 +43,13 @@ export interface RemoteAccessStatus {
   signedIn: boolean
   state: RelayState
   error?: string
+  /**
+   * While connected: whether remote calls come to this Mac (it is the
+   * account's most recently active desktop) or go to another one.
+   */
+  receiving?: boolean
+  /** Remote clients waiting for the writer to approve or decline them. */
+  pendingCount: number
   /** What to paste into ChatGPT or claude.ai. */
   connectorUrl: string
 }

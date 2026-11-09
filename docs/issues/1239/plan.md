@@ -88,3 +88,10 @@ the writer picks.
   locally showed an unrelated, pre-existing failure in its "Share, Shared, Account and Integrations are absent" test:
   General's email hint ("… sent to agents or share viewers", from #1232) matches its direct-only pattern. CI never
   runs that spec (it needs a MAS build), so it went unnoticed; not changed here.
+- **Design §7a** (added after the #1255 review, during this PR): the gateway now sends each of an account's sockets
+  `{type:'routing', active}` whenever the most recently active desktop changes, and Settings says **Receiving remote
+  calls** or **Another Mac is active**; a pending client is counted in Settings, on the Integrations tab and on the
+  Dock icon (direct build, macOS) until the writer approves or declines it, besides the toast with **Review**; the
+  gateway suite covers a call in flight when the socket drops failing at once with -32004; `docs/privacy.md` names
+  the per-call log line's fields and its retention (Render's, 7 to 30 days by plan). The device id is random, made
+  once per profile and kept in `mcp-remote.json`; nothing derives it from the network.

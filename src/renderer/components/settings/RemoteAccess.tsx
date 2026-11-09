@@ -40,7 +40,11 @@ const OPTIONAL_SCOPES = [
 function statusText(status: RemoteAccessStatus): string {
   switch (status.state) {
     case 'connected':
-      return 'Connected. Assistants you approve below can work on the documents you have open.'
+      // The gateway routes an account's calls to its most recently active Mac (§7a).
+      if (status.receiving === false) {
+        return 'Connected. Another Mac is active: remote calls go to it until you use Prose here.'
+      }
+      return 'Connected. Receiving remote calls: assistants you approve below can work on the documents you have open.'
     case 'connecting':
       return 'Connecting…'
     case 'reconnecting':
@@ -103,6 +107,24 @@ function ScopeChoices({
       ))}
     </div>
   )
+}
+
+/**
+ * Remote clients waiting for approval, for the Integrations tab's count.
+ * Follows main's change events; 0 where Remote access doesn't exist.
+ */
+export function useRemotePendingCount(): number {
+  const [count, setCount] = useState(0)
+  useEffect(() => {
+    const api = window.api
+    if (!api?.mcpRemoteStatus) return
+    const refresh = () => {
+      api.mcpRemoteStatus?.().then((s) => setCount(s.available ? s.pendingCount : 0)).catch(() => {})
+    }
+    refresh()
+    return api.onMcpRemoteChanged?.(refresh)
+  }, [])
+  return count
 }
 
 export function RemoteAccess() {
@@ -206,7 +228,17 @@ export function RemoteAccess() {
           onCheckedChange={(checked) => void setEnabled(checked)}
         />
       </div>
-      <p className="text-xs" data-testid="remote-access-status" data-state={status.enabled ? status.state : 'off'}>
+      {pending.length > 0 && (
+        <p className="text-xs font-medium text-amber-600 dark:text-amber-400" data-testid="remote-access-pending-count">
+          {pending.length === 1 ? '1 assistant is waiting for your approval.' : `${pending.length} assistants are waiting for your approval.`}
+        </p>
+      )}
+      <p
+        className="text-xs"
+        data-testid="remote-access-status"
+        data-state={status.enabled ? status.state : 'off'}
+        data-receiving={status.enabled && status.state === 'connected' ? String(status.receiving !== false) : undefined}
+      >
         <Cloud className="mr-1 inline h-3 w-3" />
         {statusText(status.enabled ? status : { ...status, state: 'off' })}
       </p>

@@ -25,7 +25,7 @@ import { AppearancePane } from './AppearancePane'
 import { RemarkableIntegration } from './RemarkableIntegration'
 import { McpIntegration } from './McpIntegration'
 import { McpConnections } from './McpConnections'
-import { RemoteAccess } from './RemoteAccess'
+import { RemoteAccess, useRemotePendingCount } from './RemoteAccess'
 import { AccountSection } from '../account/AccountSection'
 import { ProseSkillIntegration } from './ProseSkillIntegration'
 import { isWebMode } from '../../lib/browserApi'
@@ -179,6 +179,8 @@ export function SettingsDialog() {
   // not offered those tabs at all rather than shown them empty (#1222). A request
   // for one of them (a stale `dialogTab`, a caller naming it) renders General.
   const isMas = isMasBuild()
+  // Remote clients waiting for approval (#1239): counted on the Integrations tab.
+  const remotePending = useRemotePendingCount()
   const activeTab = isMas && (dialogTab === 'integrations' || dialogTab === 'account') ? 'general' : dialogTab
 
   const handleSave = async () => {
@@ -244,7 +246,20 @@ export function SettingsDialog() {
             <TabsTrigger value="appearance">Appearance</TabsTrigger>
             <TabsTrigger value="editor">Editor</TabsTrigger>
             <TabsTrigger value="llm">LLM</TabsTrigger>
-            {!isMas && <TabsTrigger value="integrations">Integrations</TabsTrigger>}
+            {!isMas && (
+              <TabsTrigger value="integrations">
+                Integrations
+                {remotePending > 0 && (
+                  <span
+                    className="ml-1 rounded-full bg-amber-500 px-1.5 text-[10px] font-medium leading-4 text-white"
+                    aria-label={`${remotePending} waiting for approval`}
+                    data-testid="integrations-pending-count"
+                  >
+                    {remotePending}
+                  </span>
+                )}
+              </TabsTrigger>
+            )}
             {!isMas && <TabsTrigger value="account">Account</TabsTrigger>}
           </TabsList>
 

@@ -44,12 +44,36 @@ export function getRemoteConnectionStore(): RemoteConnectionStore {
   return store
 }
 
+/** Remote clients waiting for the writer's approval. */
+function pendingCount(): number {
+  return getRemoteConnectionStore()
+    .list()
+    .filter((c) => c.status === 'pending').length
+}
+
+/**
+ * A pending client needs the writer's attention, not just the client's
+ * (design §7a): the count shows on the Dock icon until the writer approves
+ * or declines it (and in Settings, which reads it from the status). The
+ * direct build only; the MAS build never gets here.
+ */
+function updateAttention(): void {
+  if (IS_MAS_BUILD || process.platform !== 'darwin') return
+  try {
+    const n = pendingCount()
+    app.dock?.setBadge(n > 0 ? String(n) : '')
+  } catch (err) {
+    console.warn('[MCP relay] Could not update the Dock badge:', err)
+  }
+}
+
 function notify(change: RemoteChange): void {
+  if (change.reason !== 'status') updateAttention()
   if (window && !window.isDestroyed()) window.webContents.send('mcp:remote:changed', change)
 }
 
 async function status(): Promise<RemoteAccessStatus> {
-  if (IS_MAS_BUILD) return { available: false, enabled: false, signedIn: false, state: 'unavailable', connectorUrl: '' }
+  if (IS_MAS_BUILD) return { available: false, enabled: false, signedIn: false, state: 'unavailable', pendingCount: 0, connectorUrl: '' }
   const share = await import('../share/index')
   const s = getRemoteConnectionStore()
   const current = relay?.status ?? { state: 'off' as RelayState }
@@ -59,6 +83,8 @@ async function status(): Promise<RemoteAccessStatus> {
     signedIn: (await share.relayEndpoint(s.deviceId)) !== null,
     state: s.enabled ? current.state : 'off',
     ...(current.error && s.enabled ? { error: current.error } : {}),
+    ...(s.enabled && current.state === 'connected' && current.receiving !== undefined ? { receiving: current.receiving } : {}),
+    pendingCount: pendingCount(),
     connectorUrl: await share.relayConnectorUrl()
   }
 }
@@ -165,6 +191,8 @@ export async function startRelay(options: { window: BrowserWindow; invokeTool: M
     notify({ reason: 'status' })
   })
   if (s.enabled) relay.start()
+  // Clients still waiting from a previous session keep their count on the Dock.
+  updateAttention()
 }
 
 /** A Prose window gained focus. */

@@ -91,6 +91,11 @@ describe('RelayClient', () => {
     expect(JSON.parse(sockets[0].sent.find((m) => m.includes('call-1'))!)).toEqual({ type: 'result', id: 'call-1', result: { echoed: 'tools/list' } })
     client.markActive()
     expect(sockets[0].sent.at(-1)).toBe('{"type":"active"}')
+    // The gateway says whether this account's calls come here.
+    sockets[0].receive({ type: 'routing', active: true })
+    expect(client.status).toEqual({ state: 'connected', receiving: true })
+    sockets[0].receive({ type: 'routing', active: false })
+    expect(client.status).toEqual({ state: 'connected', receiving: false })
     sockets[0].receive('not json')
     sockets[0].receive({ type: 'mystery' })
     expect(client.status.state).toBe('connected')

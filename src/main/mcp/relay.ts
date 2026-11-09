@@ -20,6 +20,8 @@ export type { RelayState }
 export interface RelayStatus {
   state: RelayState
   error?: string
+  /** While connected: whether the gateway routes this account's calls here (the gateway's `routing` frame). */
+  receiving?: boolean
 }
 
 export interface RelayEndpoint {
@@ -127,7 +129,7 @@ export class RelayClient {
   }
 
   private setStatus(status: RelayStatus): void {
-    if (status.state === this.current.state && status.error === this.current.error) return
+    if (status.state === this.current.state && status.error === this.current.error && status.receiving === this.current.receiving) return
     this.current = status
     this.options.onStatus?.({ ...status })
   }
@@ -242,6 +244,10 @@ export class RelayClient {
     if (frame.type === 'hello') {
       this.attempt = 0
       this.setStatus({ state: 'connected' })
+      return
+    }
+    if (frame.type === 'routing') {
+      this.setStatus({ state: 'connected', receiving: (frame as { active?: unknown }).active === true })
       return
     }
     if (frame.type === 'ping') {

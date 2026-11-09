@@ -239,12 +239,28 @@ test('turned on, an unapproved client is refused and waits for approval in Setti
   const row = panel.locator('[data-testid="remote-connection-row"][data-status="pending"]')
   await expect(row).toContainText(`${CLIENT_NAME} wants to use Prose`)
   await expect(row).toContainText('Unverified')
+
+  // The writer's attention (design §7a): a count in Settings and on the Integrations tab, and on the Dock.
+  await expect(panel.getByTestId('remote-access-pending-count')).toHaveText('1 assistant is waiting for your approval.')
+  await expect(page.getByTestId('integrations-pending-count')).toHaveText('1')
+  if (process.platform === 'darwin') {
+    await expect.poll(() => app.evaluate(({ app }) => app.dock?.getBadge())).toBe('1')
+  }
+  // The only desktop on the account receives the calls.
+  await expect(panel.getByTestId('remote-access-status')).toHaveAttribute('data-receiving', 'true')
+  await expect(panel.getByTestId('remote-access-status')).toContainText('Receiving remote calls')
 })
 
 test('approved to read, it reads the open document but cannot comment, though its token could', async () => {
   const panel = page.getByTestId('remote-access')
   await panel.getByRole('button', { name: `Approve ${CLIENT_NAME}` }).click()
   await expect(panel.locator('[data-testid="remote-connection-row"][data-status="approved"]')).toContainText(CLIENT_NAME)
+  // Approved: nothing is waiting any more.
+  await expect(panel.getByTestId('remote-access-pending-count')).toHaveCount(0)
+  await expect(page.getByTestId('integrations-pending-count')).toHaveCount(0)
+  if (process.platform === 'darwin') {
+    await expect.poll(() => app.evaluate(({ app }) => app.dock?.getBadge())).toBe('')
+  }
 
   const client = await mcpClient()
   try {
@@ -298,6 +314,34 @@ test('given comment, its records carry via relay and the connection’s label', 
       return rows.find((r) => r.comment === 'From the relay')?.actor
     })
     .toEqual({ kind: 'mcp-agent', connectionId: `remote:${clientId}`, connectionLabel: LABEL, client: CLIENT_NAME, via: 'relay' })
+})
+
+test('with another Mac signed in to the account and more recent, this one says so', async () => {
+  // A second "Mac": the same account's session from another sign-in, on its own device id.
+  const from = gatewayLog.length
+  await fetch(`${GW}/api/sign-in/code`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: GW }, body: JSON.stringify({ email: EMAIL }) })
+  const signedIn = await fetch(`${GW}/api/auth/sign-in/email-otp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: GW },
+    body: JSON.stringify({ email: EMAIL, otp: await codeFor(EMAIL, from) })
+  })
+  const { default: WebSocket } = (await import(join(GATEWAY_DIR, 'node_modules', 'ws', 'wrapper.mjs'))) as { default: any }
+  const otherMac = new WebSocket(`ws://127.0.0.1:${GW_PORT}/relay?device=${randomBytes(18).toString('base64url')}`, {
+    headers: { Cookie: cookieOf(signedIn) }
+  })
+  await new Promise((resolve, reject) => {
+    otherMac.on('open', resolve)
+    otherMac.on('error', reject)
+  })
+  const status = page.getByTestId('remote-access').getByTestId('remote-access-status')
+  try {
+    await expect(status).toHaveAttribute('data-receiving', 'false')
+    await expect(status).toContainText('Another Mac is active')
+  } finally {
+    otherMac.close()
+  }
+  await expect(status).toHaveAttribute('data-receiving', 'true')
+  await expect(status).toContainText('Receiving remote calls')
 })
 
 test('the kill switch: off, the client gets "Prose is not running" at once', async () => {

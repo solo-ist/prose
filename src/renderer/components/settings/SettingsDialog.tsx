@@ -291,7 +291,10 @@ export function SettingsDialog() {
                 autoComplete="email"
               />
               <p className="text-xs text-muted-foreground">
-                Stays on this Mac: it is never stored on your comments or sent to agents or share viewers
+                {/* The App Store edition has no sharing, so its hint doesn't mention it (#1285). */}
+                {isMas
+                  ? 'Stays on this Mac: it is never stored on your comments or sent to agents'
+                  : 'Stays on this Mac: it is never stored on your comments or sent to agents or share viewers'}
               </p>
             </div>
 

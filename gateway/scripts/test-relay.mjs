@@ -299,7 +299,7 @@ function desktop(cookie, { device = b64url(randomBytes(16)), handler = defaultHa
 
 const ALL_TOOLS = [
   'list_tabs', 'read_document', 'get_outline', 'list_comments', 'list_suggestions', 'get_review_status',
-  'list_review_events', 'suggest_edit', 'revise_suggestion', 'reply_to_suggestion', 'add_comment',
+  'list_review_events', 'suggest_edit', 'suggest_insert', 'suggest_delete', 'revise_suggestion', 'reply_to_suggestion', 'add_comment',
   'reply_to_comment', 'resolve_comment', 'reopen_comment', 'open_file', 'create_and_open_file', 'select_tab',
 ]
 function defaultHandler(frame) {
@@ -425,6 +425,7 @@ async function main() {
   const listed = (list.body?.result?.tools ?? []).map((t) => t.name)
   expect(list.status === 200 && list.body?.id === list.id && listed.includes('read_document'), 'tools/list is answered by the desktop', JSON.stringify(list.body).slice(0, 200))
   expect(listed.includes('suggest_edit') && !listed.includes('add_comment'), 'tools/list is filtered to the token scopes (read + propose)', listed.join(','))
+  expect(listed.includes('suggest_insert') && listed.includes('suggest_delete'), 'propose reaches the tracked changes (suggest_insert, suggest_delete; #891)', listed.join(','))
   expect(!listed.includes('open_file') && !listed.includes('create_and_open_file') && !listed.includes('select_tab'), 'tools/list never offers filesystem or view-moving tools', listed.join(','))
   const listFrame = deskA.calls().at(-1)
   expect(listFrame?.method === 'tools/list' && typeof listFrame.id === 'string', 'the desktop got a call frame')

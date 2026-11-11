@@ -22,6 +22,11 @@ describe('remote scopes', () => {
     expect(toolsForRemoteScopes([])).toEqual(new Set())
     const propose = toolsForRemoteScopes(['propose'])
     expect(propose.has('read_document') && propose.has('suggest_edit') && !propose.has('add_comment')).toBe(true)
+    // Tracked changes are proposals too (#891): propose only.
+    for (const tool of ['suggest_insert', 'suggest_delete']) {
+      expect(propose.has(tool), tool).toBe(true)
+      expect(toolsForRemoteScopes(['read']).has(tool) || toolsForRemoteScopes(['comment']).has(tool), tool).toBe(false)
+    }
     const comment = toolsForRemoteScopes(['comment'])
     expect(comment.has('list_comments') && comment.has('add_comment') && !comment.has('suggest_edit')).toBe(true)
     expect(remoteScopesOf(['comment', 'admin', 'read', 'read'])).toEqual(['read', 'comment'])

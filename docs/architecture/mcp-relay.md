@@ -91,7 +91,7 @@ Remote clients get **less than local ones**: they work on documents the writer h
 | Scope | Tools |
 |---|---|
 | `read` | `list_tabs`, `read_document`, `get_outline`, `list_comments`, `list_suggestions`, `get_review_status`, `list_review_events` |
-| `propose` | `read`, plus `suggest_edit`, `revise_suggestion`, `reply_to_suggestion` |
+| `propose` | `read`, plus `suggest_edit`, `suggest_insert`, `suggest_delete` (tracked changes, #891), `revise_suggestion`, `reply_to_suggestion` |
 | `comment` | `read`, plus `add_comment`, `reply_to_comment`, `resolve_comment`, `reopen_comment` |
 
 Scopes are cumulative grants of tools, not separate permissions: `propose` and `comment` each *include* every `read` tool, so a client approved for `comment` alone can still read. The writer can grant both `propose` and `comment`.

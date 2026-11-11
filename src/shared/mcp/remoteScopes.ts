@@ -23,7 +23,7 @@ export const REMOTE_SCOPE_TOOLS: Record<RemoteScope, readonly string[]> = {
     'get_review_status',
     'list_review_events',
   ],
-  propose: ['suggest_edit', 'revise_suggestion', 'reply_to_suggestion'],
+  propose: ['suggest_edit', 'suggest_insert', 'suggest_delete', 'revise_suggestion', 'reply_to_suggestion'],
   comment: ['add_comment', 'reply_to_comment', 'resolve_comment', 'reopen_comment'],
 }
 

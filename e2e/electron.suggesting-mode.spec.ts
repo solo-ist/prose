@@ -221,6 +221,20 @@ test.describe('Suggesting mode', () => {
     await expect(page.getByText('␣', { exact: true })).toBeVisible()
   })
 
+  test('a deleted comma’s Quick Review card shows the words on either side', async () => {
+    await openDoc('comma.md', 'Alpha, beta gamma. Second sentence.\n\nDelta epsilon zeta.\n')
+    await turnOnSuggesting()
+    await caretAfter('Alpha,')
+    await page.keyboard.press('Backspace')
+    await page.locator('[data-testid="status-pending-changes"]').click()
+    await expect(page.getByRole('heading', { name: 'Quick Review' })).toBeVisible()
+    // The box under each label: Original, then Suggested.
+    const box = (label: string) => page.locator(`xpath=//div[normalize-space(.)='${label}']/following-sibling::div[1]`).first()
+    await expect(box('Original')).toHaveText('Alpha, beta gamma. …')
+    await expect(box('Suggested')).toHaveText('Alpha beta gamma. …')
+    await expect(box('Suggested').getByRole('img', { name: 'Removed here' })).toBeVisible()
+  })
+
   test('IME composition lands as one tracked insertion', async () => {
     await openDoc('ime.md')
     await turnOnSuggesting()

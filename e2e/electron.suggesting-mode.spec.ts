@@ -165,21 +165,21 @@ test.describe('Suggesting mode', () => {
         return item ? { visible: item.visible } : null
       })
     await expect.poll(menuItem).toEqual({ visible: false })
-    await expect(page.locator('[data-testid="status-pending-changes"]')).toHaveCount(0)
+    await expect(page.locator('[data-testid="status-suggestions"]')).toHaveCount(0)
 
     await turnOnSuggesting()
     await caretAfter('gamma')
     await page.keyboard.type(' delta')
     await selectText('epsilon ')
     await page.keyboard.press('Backspace')
-    await expect(page.locator('[data-testid="status-pending-changes"]')).toHaveText('2 pending changes')
+    await expect(page.locator('[data-testid="status-suggestions"]')).toHaveText('2 suggestions')
     await expect(page.locator('[data-testid="suggesting-count"]')).toHaveText('2')
     expect(await isDirty()).toBe(false)
 
     // Turning Suggesting off doesn't hide them: the count is the tab's pending changes.
     await page.locator('[data-testid="status-suggesting"]').click()
     await expect(page.locator('[data-testid="status-suggesting"]')).toHaveText('Editing')
-    await expect(page.locator('[data-testid="status-pending-changes"]')).toHaveText('2 pending changes')
+    await expect(page.locator('[data-testid="status-suggestions"]')).toHaveText('2 suggestions')
 
     // The Edit menu's Copy with changes is there now, and copies the final text.
     await expect.poll(menuItem).toEqual({ visible: true })
@@ -191,7 +191,7 @@ test.describe('Suggesting mode', () => {
 
     // Decided, gone: the count and the menu item with them.
     await page.evaluate(() => (window as any).__prose_editor.commands.rejectAllTrackedChanges())
-    await expect(page.locator('[data-testid="status-pending-changes"]')).toHaveCount(0)
+    await expect(page.locator('[data-testid="status-suggestions"]')).toHaveCount(0)
     await expect.poll(menuItem).toEqual({ visible: false })
   })
 
@@ -202,9 +202,9 @@ test.describe('Suggesting mode', () => {
     // Backspace over a space, then the space typed back: struck, then plain again.
     await caretAfter('Alpha ')
     await page.keyboard.press('Backspace')
-    await expect(page.locator('[data-testid="status-pending-changes"]')).toHaveText('1 pending change')
+    await expect(page.locator('[data-testid="status-suggestions"]')).toHaveText('1 suggestion')
     await page.keyboard.type(' ')
-    await expect(page.locator('[data-testid="status-pending-changes"]')).toHaveCount(0)
+    await expect(page.locator('[data-testid="status-suggestions"]')).toHaveCount(0)
 
     // A word selected and typed again.
     await selectText('beta')
@@ -216,7 +216,7 @@ test.describe('Suggesting mode', () => {
     // A space that is a real change is drawn in the card, not left as an empty box.
     await caretAfter('gamma')
     await page.keyboard.type(' ')
-    await page.locator('[data-testid="status-pending-changes"]').click()
+    await page.locator('[data-testid="status-suggestions"]').click()
     await expect(page.getByRole('heading', { name: 'Quick Review' })).toBeVisible()
     await expect(page.getByText('␣', { exact: true })).toBeVisible()
   })
@@ -226,7 +226,7 @@ test.describe('Suggesting mode', () => {
     await turnOnSuggesting()
     await caretAfter('Alpha,')
     await page.keyboard.press('Backspace')
-    await page.locator('[data-testid="status-pending-changes"]').click()
+    await page.locator('[data-testid="status-suggestions"]').click()
     await expect(page.getByRole('heading', { name: 'Quick Review' })).toBeVisible()
     // The box under each label: Original, then Suggested.
     const box = (label: string) => page.locator(`xpath=//div[normalize-space(.)='${label}']/following-sibling::div[1]`).first()
@@ -571,6 +571,22 @@ test.describe('suggest_insert and suggest_delete over MCP', () => {
     }, { timeout: 15_000 }).toBe(true)
     return result
   }
+
+  test('a tracked change and an AI suggestion are one count in the status bar', async () => {
+    const path = await openDoc('one-count.md')
+    const read = await mcp('read_document', { document: path })
+    const nodes = read.data.nodes as Array<{ id: string; content: string }>
+    const inserted = await mcp('suggest_insert', { document: path, nodeId: nodes.find((n) => n.content.includes('epsilon'))!.id, search: 'epsilon', text: ' (new)' })
+    expect(inserted.success, JSON.stringify(inserted)).toBe(true)
+    await expect(page.locator('[data-testid="status-suggestions"]')).toHaveText('1 suggestion')
+    const edited = await mcp('suggest_edit', { document: path, nodeId: nodes.find((n) => n.content.includes('Alpha'))!.id, search: 'Alpha beta gamma.', content: 'Alpha beta.' })
+    expect(edited.success, JSON.stringify(edited)).toBe(true)
+    // One count for both kinds, as Quick Review walks them, and no second one beside it.
+    await expect(page.locator('[data-testid="status-suggestions"]')).toHaveText('2 suggestions')
+    await expect(page.getByRole('button', { name: /pending change|suggestion/ })).toHaveCount(1)
+    await page.locator('[data-testid="status-suggestions"]').click()
+    await expect(page.getByText(/^\d\/2$/)).toBeVisible()
+  })
 
   test('an agent proposes an insertion and a deletion; the writer decides; agents can’t', async () => {
     const path = await openDoc('mcp.md')

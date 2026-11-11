@@ -391,8 +391,9 @@ all-variants (decider in the review log; an accepted agent insertion becomes
 an AI annotation). Display (All changes / No deletions / Final) is CSS on the
 editor container, per tab, not persisted. Because the tab stays clean while
 changes are pending, their count is shown on its own: a badge on the toolbar
-pen and "N pending changes" in the status bar (agents' changes included, mode
-on or off). "Copy with changes" (`serializeFinal`) sits beside Copy Markdown in
+pen and, counted together with the AI suggestions, "N suggestions" in the
+status bar (agents' changes included, mode on or off; the tooltip splits the
+two). "Copy with changes" (`serializeFinal`) sits beside Copy Markdown in
 the Edit menu and in the editor's context menu (main shows it through
 `menu:setCopyWithChangesAvailable`, driven by `App.tsx`), and in the toolbar's
 ⋯ menu, only while there are pending changes.

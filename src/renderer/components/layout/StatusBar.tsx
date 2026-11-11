@@ -1,4 +1,5 @@
-import { Fragment, useMemo, useEffect, useRef, useState, useCallback } from 'react'
+import { Fragment, useEffect, useRef, useState, useCallback } from 'react'
+import type { EditorState } from '@tiptap/pm/state'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
@@ -43,6 +44,8 @@ const TRACKED_DISPLAY_LABELS: Record<TrackedDisplay, string> = {
 // unlike browserApi's isMacOS() which gates on isElectron().
 const isMacKeyboard =
   typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform)
+
+const selectSuggestionCount = (state: EditorState | null): number => (state ? getAISuggestions({ state }).length : 0)
 
 export function StatusBar() {
   const { document, cursorPosition } = useEditor()
@@ -94,20 +97,18 @@ export function StatusBar() {
   const hoveredUrl = useLinkHoverStore((state) => state.hoveredUrl)
   const editor = useEditorInstanceStore((state) => state.editor)
 
-  // Track pending suggestion count
-  const suggestionCount = useMemo(() => {
-    if (!editor) return 0
-    return getAISuggestions(editor).length
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editor, editor?.state.doc])
+  // Pending AI suggestions of the active tab, read from its session state so a
+  // tool's write (an agent's suggest_edit) updates the count at once.
+  const suggestionCount = useActiveSession(selectSuggestionCount)
 
   // Suggesting mode and the tracked changes of the active tab (#891). The tab
-  // stays clean while changes are pending, so their count is shown on its own
-  // ("N pending changes", agents' included, mode on or off); a click reviews
-  // them in Quick Review beside the AI suggestions.
+  // stays clean while changes are pending, so they are counted with the AI
+  // suggestions as "N suggestions" (agents' included, mode on or off); a click
+  // reviews both in Quick Review.
   const suggesting = useActiveSession(selectSuggesting)
   const trackedCount = useActiveSession(selectTrackedCount)
   const suggestingAvailable = useActiveTab((tab) => (tab ? canSuggest(tab.id) : false)) && !sourceMode
+  const reviewCount = trackedCount + suggestionCount
   const trackedDisplay = useTrackedDisplay()
   const setTrackedDisplay = useReviewStore((s) => s.setTrackedDisplay)
   const sourceBlocked: 'suggesting' | 'pending' | null = sourceMode ? null : suggesting ? 'suggesting' : trackedCount > 0 ? 'pending' : null
@@ -304,41 +305,32 @@ export function StatusBar() {
           </>
         ) : null}
 
-        {/* Suggestion count */}
-        {/* Pending tracked changes (#891): the dirty dot can't show them. */}
-        {trackedCount > 0 && (
+        {/* Everything waiting for the writer's decision, as one count: tracked
+            changes (#891; the dirty dot can't show them) and AI suggestions.
+            Quick Review steps through both, so the status bar counts both. */}
+        {reviewCount > 0 && (
           <>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
-                  data-testid="status-pending-changes"
-                  onClick={() => useReviewStore.getState().setReviewMode('quick')}
-                  className="text-emerald-600 dark:text-emerald-400 hover:text-emerald-500 focus-visible:text-emerald-500 focus-visible:outline-hidden transition-colors cursor-pointer"
-                >
-                  {trackedCount} pending change{trackedCount !== 1 ? 's' : ''}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                <p>Tracked changes waiting for your decision. The file keeps the original until you accept.</p>
-              </TooltipContent>
-            </Tooltip>
-            <span className="text-muted-foreground/40 mx-1">|</span>
-          </>
-        )}
-
-        {suggestionCount > 0 && (
-          <>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
+                  data-testid="status-suggestions"
                   onClick={() => useReviewStore.getState().setReviewMode('quick')}
                   className="text-violet-600 dark:text-violet-400 hover:text-violet-500 focus-visible:text-violet-500 focus-visible:outline-hidden transition-colors cursor-pointer"
                 >
-                  {suggestionCount} suggestion{suggestionCount !== 1 ? 's' : ''}
+                  {reviewCount} suggestion{reviewCount !== 1 ? 's' : ''}
                 </button>
               </TooltipTrigger>
               <TooltipContent side="top">
-                <p>Review pending suggestions</p>
+                <p>
+                  Waiting for your decision:{' '}
+                  {[
+                    trackedCount > 0 ? `${trackedCount} tracked change${trackedCount !== 1 ? 's' : ''}` : null,
+                    suggestionCount > 0 ? `${suggestionCount} suggested edit${suggestionCount !== 1 ? 's' : ''}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(', ')}
+                  . Click to review.
+                </p>
               </TooltipContent>
             </Tooltip>
             <span className="text-muted-foreground/40 mx-1">|</span>

@@ -50,10 +50,10 @@ test.beforeEach(async () => {
   test.setTimeout(120_000)
   userDataDir = mkdtempSync(join(tmpdir(), 'prose-1145-'))
   docsDir = mkdtempSync(join(tmpdir(), 'prose-1145-docs-'))
-  // The chat cases (11, 12) need a configured, consented chat: a fake key
+  // The chat cases (11–13) need a configured, consented chat: a fake key
   // (never sent, the stream is stubbed in main), create mode, and the
   // release notes already seen so no modal covers the panel (#1113).
-  const chat = /^case 1[12]/.test(test.info().title)
+  const chat = /^case 1[123]/.test(test.info().title)
   // Case 9 runs with autosave in auto mode (the default is off).
   const autosave = /^case 9/.test(test.info().title)
   writeFileSync(
@@ -846,6 +846,8 @@ interface TurnStep {
   text: string
   toolCalls: Array<{ id: string; name: string; args: Record<string, unknown> }>
   hold?: boolean
+  /** A thinking block the response carries, signed `sig-<request index>` (#1289). */
+  thinking?: string
 }
 
 async function installFakeLLM(script: TurnStep[]): Promise<void> {
@@ -862,6 +864,7 @@ async function installFakeLLM(script: TurnStep[]): Promise<void> {
         streamId: req.streamId,
         content: step.text,
         toolCalls: step.toolCalls.length > 0 ? step.toolCalls : undefined,
+        thinkingBlocks: step.thinking ? [{ type: 'thinking', thinking: step.thinking, signature: `sig-${n}` }] : undefined,
       })
       return { success: true }
     })
@@ -1075,6 +1078,39 @@ test('case 12: an untitled document closed mid-turn fails the rest of the turn b
   expect(await docText()).not.toContain('edited')
   expect(await readDB('annotations', b.documentId)).toEqual([])
   expect(Object.keys((await chatState()).turns)).toEqual([])
+})
+
+/**
+ * Case 13 (#1289) — a response's thinking travels with its own tool calls. Anthropic
+ * binds a thinking block to the messages before the response that produced
+ * it, so the assistant message carrying round n's tool calls must start with
+ * round n's block. Fails on the release head: each round carried the round
+ * before's block (round 0's tool calls carried none), and the API rejected
+ * the third request of the operator's turn with a 400.
+ */
+test("case 13: a tool round's assistant message carries that round's own thinking", async () => {
+  await openDoc('sessions-thinking.md', body('Kilo'), 'Kilo paragraph one')
+  await installFakeLLM([
+    { text: 'Reading.', thinking: 'round 0', toolCalls: [{ id: 'k1', name: 'read_document', args: {} }] },
+    { text: 'Outlining.', thinking: 'round 1', toolCalls: [{ id: 'k2', name: 'get_outline', args: {} }] },
+    { text: 'All done.', toolCalls: [] },
+  ])
+
+  await startTurn('Read this document.')
+  await turnEnded()
+
+  // The last request replays both rounds: each assistant message after the
+  // prompt opens with its own round's block, unmodified.
+  const request = await turnRequest(2)
+  const prompt = request.map((m) => m.role).lastIndexOf('user')
+  const rounds = request.slice(prompt + 1).filter((m) => m.role === 'assistant')
+  expect(rounds.length).toBe(2)
+  rounds.forEach((m, n) => {
+    const content = m.content as Array<{ type: string; thinking?: string; signature?: string; name?: string }>
+    expect(content[0], `round ${n}'s assistant message`).toEqual({ type: 'thinking', thinking: `round ${n}`, signature: `sig-${n}` })
+    expect(content.filter((b) => b.type === 'thinking').length).toBe(1)
+    expect(content.find((b) => b.type === 'tool_use')?.name).toBe(n === 0 ? 'read_document' : 'get_outline')
+  })
 })
 })
 

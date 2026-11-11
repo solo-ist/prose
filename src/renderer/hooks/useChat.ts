@@ -18,7 +18,8 @@ import { executeTool, resolveToolPosition } from '../lib/tools'
 import { getToolsForClaudeAPI } from '../../shared/tools/registry'
 import { resolveModelName } from '../../shared/llm/models'
 import { classifyLlmError, llmErrorGuidance } from '../../shared/llm/errors'
-import type { LLMMessage, LLMStreamToolCall, LLMStreamToolCallStart, LLMContentBlock, LLMThinkingBlock } from '../types'
+import type { LLMMessage, LLMStreamToolCall, LLMStreamToolCallStart } from '../types'
+import { toolRoundAssistantMessage } from '../lib/toolLoopMessages'
 
 // Chat Mode gets a read-only tool subset rather than the full read+write
 // surface, so the agent can ground itself in the document without proposing
@@ -126,12 +127,6 @@ interface ToolLoopContext {
   // hallucinating "I'm still in <old> Mode" despite the tool list
   // and per-mode instructions reflecting the new mode.
   modeJustSwitched: boolean
-  // Thinking blocks from the most recent stream turn. The Anthropic
-  // API requires these to be embedded verbatim in the assistant content
-  // array of tool-loop continuations — dropping or modifying them
-  // causes a 400 error. We accumulate them here and prepend them to
-  // assistantContentBlocks before pushing the continuation message.
-  thinkingBlocks: LLMThinkingBlock[]
 }
 const pendingToolCalls = new Map<string, Array<{ id: string; name: string; args: unknown }>>()
 const toolLoopContexts = new Map<string, ToolLoopContext>()
@@ -287,39 +282,13 @@ export function useChat() {
           return
         }
 
-        // Build assistant message content with text AND tool_use blocks
-        // The Anthropic API requires tool_use blocks in the assistant message
-        // for the subsequent tool_result to be valid.
-        //
-        // Thinking blocks MUST come first and be preserved unmodified. The
-        // API rejects continuations that drop or modify them (#700).
+        // The assistant message for this response's tool calls: its own
+        // thinking blocks first and unmodified (#700, #1289), then its text,
+        // then the tool_use blocks the tool_results answer.
         const assistantText = state.messageOf(conversationId, assistantMsgId)?.content || ''
-        const assistantContentBlocks: LLMContentBlock[] = []
-
-        // Prepend thinking blocks from this turn — required by the API
-        const priorThinking = loop.thinkingBlocks ?? []
-        for (const tb of priorThinking) {
-          assistantContentBlocks.push(tb)
-        }
-
-        // Add text block if there's any text content
-        if (assistantText.trim()) {
-          assistantContentBlocks.push({ type: 'text', text: assistantText })
-        }
-
-        // Add tool_use blocks for each tool call
-        for (const toolCall of toolCalls) {
-          assistantContentBlocks.push({
-            type: 'tool_use',
-            id: toolCall.id,
-            name: toolCall.name,
-            input: toolCall.args
-          })
-        }
-
         const updatedMessages: LLMMessage[] = [
           ...apiMessages,
-          { role: 'assistant' as const, content: assistantContentBlocks }
+          toolRoundAssistantMessage(complete, assistantText, toolCalls)
         ]
 
         // Provenance for AI annotation tracking: the turn's conversation and
@@ -437,16 +406,13 @@ export function useChat() {
 
         // Loop state for the next roundtrip. Preserve `modeJustSwitched`
         // across the whole turn so subsequent continuations keep the "you
-        // just switched" notice. Store thinking blocks so the NEXT
-        // continuation can prepend them to its assistant content array (the
-        // API requires them preserved).
+        // just switched" notice.
         toolLoopContexts.set(newStreamId, {
           apiMessages: updatedMessages,
           assistantMsgId,
           roundtripCount: roundtripCount + 1,
           lastErrorSignature: currentErrorSignature,
-          modeJustSwitched: loop.modeJustSwitched,
-          thinkingBlocks: (complete.thinkingBlocks as LLMThinkingBlock[] | undefined) ?? []
+          modeJustSwitched: loop.modeJustSwitched
         })
         pendingToolCalls.set(newStreamId, [])
         clearStreamRefs(streamId)
@@ -481,7 +447,7 @@ export function useChat() {
               boundContent,
               state.toolMode,
               binding.path,
-              resolveModelName(settingsState.settings.llm.model, settingsState.fetchedModels),
+              resolveModelName(settingsState.settings.llm.model, settingsState.liveModels[settingsState.settings.llm.provider]),
               continuationModeJustSwitched
             ),
             streamId: newStreamId,
@@ -680,8 +646,7 @@ export function useChat() {
           assistantMsgId,
           roundtripCount: 0,
           lastErrorSignature: null,
-          modeJustSwitched,
-          thinkingBlocks: [] // populated by the first complete event
+          modeJustSwitched
         })
         pendingToolCalls.set(streamId, [])
       }
@@ -700,7 +665,7 @@ export function useChat() {
             useEditorStore.getState().document.content,
             toolMode,
             useEditorStore.getState().document.path,
-            resolveModelName(settings.llm.model, useSettingsStore.getState().fetchedModels),
+            resolveModelName(settings.llm.model, useSettingsStore.getState().liveModels[settings.llm.provider]),
             modeJustSwitched
           ),
           streamId,

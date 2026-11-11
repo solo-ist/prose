@@ -73,10 +73,10 @@ test.describe('Electron — first-run onboarding (#1188)', () => {
     await expect(primary()).toBeEnabled()
 
     await primary().click()
-    await expect(progress()).toHaveText(/^3 \/ 6 · API key$/i)
+    await expect(progress()).toHaveText(/^3 \/ 6 · API keys$/i)
     await expect(primary()).toBeDisabled()
-    await page.getByLabel('API key').fill('nope')
-    await page.getByRole('button', { name: 'Verify' }).click()
+    await page.getByLabel('Anthropic API key').fill('nope')
+    await page.getByTestId('onboarding-key-row-anthropic').getByRole('button', { name: 'Verify' }).click()
     await expect(modal()).toContainText('should start with')
     await expect(primary()).toBeDisabled()
     await secondary().click() // Skip for now

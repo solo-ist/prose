@@ -3,9 +3,8 @@ import { subscribeWithSelector } from 'zustand/middleware'
 import type { Appearance, AppearanceOnDisk, ColorTheme, Favorite, LegacyTheme, Project, Settings, SettingsOnDisk } from '../types'
 import { initRendererSentry, setRendererSentryEnabled } from '../lib/sentry'
 import { getDefaultModel } from '../../shared/llm/models'
-import type { ModelInfo } from '../../shared/llm/models'
-import type { LLMKeyStatusMap, LLMProvider } from '../../shared/llm/providers'
-import { hasProviderKey } from '../lib/llm'
+import { PROVIDER_IDS, type LLMKeyStatusMap, type LLMProvider } from '../../shared/llm/providers'
+import { hasProviderKey, type LiveModels } from '../lib/llm'
 import type { ToolMode } from '../../shared/tools/types'
 
 const MAX_RECENT_FILES = 15
@@ -16,8 +15,8 @@ let loadInFlight: Promise<void> | null = null
 /** Tail of the settings-write chain; see `saveSettings`. */
 let saveQueue: Promise<void> = Promise.resolve()
 
-/** The provider whose live model list is being fetched, if any; see `fetchModels`. */
-let fetchingModelsFor: string | null = null
+/** The providers whose live model list is being fetched; see `fetchModels`. */
+const fetchingModelsFor = new Set<LLMProvider>()
 
 type SettingsTab = 'general' | 'appearance' | 'editor' | 'llm' | 'integrations' | 'account'
 
@@ -103,11 +102,11 @@ interface SettingsState {
   isShortcutsDialogOpen: boolean
   isAboutDialogOpen: boolean
   isModelPickerOpen: boolean
-  // Live model list fetched from provider, cached in memory until next launch
-  fetchedModels: ModelInfo[] | null
-  fetchedModelsAt: number | null
-  /** The provider `fetchedModels` came from; read models through `useAvailableModels()`. */
-  fetchedModelsProvider: LLMProvider | null
+  /**
+   * Each provider's live model list, fetched with its key and cached in memory
+   * until next launch (#1287). Read models through `useModelGroups()`.
+   */
+  liveModels: LiveModels
   isFetchingModels: boolean
   dialogTab: SettingsTab
   effectiveTheme: 'dark' | 'light'
@@ -122,16 +121,24 @@ interface SettingsState {
   setShortcutsDialogOpen: (open: boolean) => void
   setAboutDialogOpen: (open: boolean) => void
   setModelPickerOpen: (open: boolean) => void
-  fetchModels: () => Promise<void>
+  /** Refresh the live model list of `provider`, or of every provider with a key. */
+  fetchModels: (provider?: LLMProvider) => Promise<void>
   /**
-   * Make `provider` the one Prose Agents use. The model in use is remembered
-   * for the provider being left, and the new provider's remembered model (else
-   * its default) comes back. Keys are untouched: each provider keeps its own.
+   * Use `model` from `provider` (#1287). Pickers list every provider's models,
+   * so the provider and the model change together; the model in use is
+   * remembered for the provider being left. Keys are untouched.
+   */
+  selectModel: (provider: LLMProvider, model: string) => void
+  /**
+   * Make `provider` the one Prose Agents use, with its remembered model (else
+   * its default). Keys are untouched: each provider keeps its own.
    */
   setActiveProvider: (provider: LLMProvider) => void
   /**
    * Hand a provider's key to main, which stores it (#1240). The store keeps
-   * only the status main answers with. Resolves with main's error, if any.
+   * only the status main answers with. While the provider in use has no key,
+   * the key's provider becomes the one in use (#1287). Resolves with main's
+   * error, if any.
    */
   setLlmKey: (provider: LLMProvider, key: string) => Promise<{ ok: boolean; error?: string }>
   clearLlmKey: (provider: LLMProvider) => Promise<void>
@@ -287,9 +294,7 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
   isShortcutsDialogOpen: false,
   isAboutDialogOpen: false,
   isModelPickerOpen: false,
-  fetchedModels: null,
-  fetchedModelsAt: null,
-  fetchedModelsProvider: null,
+  liveModels: {},
   isFetchingModels: false,
   isAIConsentDialogOpen: false,
   dialogTab: 'general' as SettingsTab,
@@ -390,10 +395,8 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
         // Initialize Sentry if user has opted in
         initRendererSentry(raw?.errorTracking?.enabled === true)
 
-        // Refresh the live model list in the background if we have an API key
-        if (raw?.llm && hasProviderKey(raw.llm)) {
-          get().fetchModels().catch(() => { /* surfaced via state, not a crash */ })
-        }
+        // Refresh every keyed provider's live model list in the background
+        get().fetchModels().catch(() => { /* surfaced via state, not a crash */ })
       } catch (error) {
         console.error('Failed to load settings:', error)
         set({ isLoaded: true })
@@ -436,41 +439,46 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
 
   setModelPickerOpen: (open) => set({ isModelPickerOpen: open }),
 
-  fetchModels: async () => {
-    const { settings } = get()
-    const provider = settings.llm.provider
-    // One fetch per provider at a time; a switch mid-fetch starts the new provider's.
-    if (fetchingModelsFor === provider) return
-    if (!hasProviderKey(settings.llm)) return
+  fetchModels: async (only) => {
     if (typeof window === 'undefined' || !window.api?.fetchModels) return
-
-    fetchingModelsFor = provider
-    set({ isFetchingModels: true })
-    try {
-      // Main reads the provider's saved key.
-      const result = await window.api.fetchModels({ provider })
-      // A list that arrives after the writer moved on belongs to the old provider.
-      if (result.models && result.models.length > 0 && get().settings.llm.provider === provider) {
-        set({ fetchedModels: result.models, fetchedModelsAt: Date.now(), fetchedModelsProvider: provider })
+    const { keyStatus } = get().settings.llm
+    // One fetch per provider at a time, and only with a key (main reads it).
+    const providers = (only ? [only] : PROVIDER_IDS).filter((p) => keyStatus?.[p] && !fetchingModelsFor.has(p))
+    if (providers.length === 0) return
+    await Promise.all(providers.map(async (provider) => {
+      fetchingModelsFor.add(provider)
+      set({ isFetchingModels: true })
+      try {
+        const result = await window.api.fetchModels({ provider })
+        // A key cleared mid-fetch takes its list with it.
+        if (result.models && result.models.length > 0 && get().settings.llm.keyStatus?.[provider]) {
+          const models = result.models
+          set((state) => ({ liveModels: { ...state.liveModels, [provider]: models } }))
+        }
+      } catch (err) {
+        console.warn('[settings] fetchModels failed:', err)
+      } finally {
+        fetchingModelsFor.delete(provider)
+        set({ isFetchingModels: fetchingModelsFor.size > 0 })
       }
-    } catch (err) {
-      console.warn('[settings] fetchModels failed:', err)
-    } finally {
-      if (fetchingModelsFor === provider) fetchingModelsFor = null
-      set({ isFetchingModels: fetchingModelsFor !== null })
-    }
+    }))
+  },
+
+  selectModel: (provider, model) => {
+    const llm = get().settings.llm
+    if (provider === llm.provider && model === llm.model) return
+    get().setLLMConfig({
+      provider,
+      model,
+      ...(provider !== llm.provider ? { modelByProvider: { ...(llm.modelByProvider ?? {}), [llm.provider]: llm.model } } : {})
+    })
+    if (hasProviderKey(get().settings.llm) && !get().liveModels[provider]) void get().fetchModels(provider)
   },
 
   setActiveProvider: (provider) => {
     const llm = get().settings.llm
     if (provider === llm.provider) return
-    const modelByProvider = { ...(llm.modelByProvider ?? {}), [llm.provider]: llm.model }
-    get().setLLMConfig({
-      provider,
-      model: modelByProvider[provider] ?? getDefaultModel(provider),
-      modelByProvider
-    })
-    if (hasProviderKey(get().settings.llm)) void get().fetchModels()
+    get().selectModel(provider, llm.modelByProvider?.[provider] ?? getDefaultModel(provider))
   },
 
   setAppearance: (patch) => {
@@ -495,11 +503,7 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
       settings: {
         ...state.settings,
         llm: { ...state.settings.llm, ...config }
-      },
-      // A fetched model list belongs to the provider it came from.
-      ...(config.provider && config.provider !== state.settings.llm.provider
-        ? { fetchedModels: null, fetchedModelsAt: null, fetchedModelsProvider: null }
-        : {})
+      }
     })),
 
   setLlmKey: async (provider, key) => {
@@ -509,8 +513,13 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
     try {
       const result = await window.api.setLlmKey({ provider, key })
       applyKeyStatus(set, result.status)
-      // A new key for the provider in use brings its live model list.
-      if (result.ok && provider === get().settings.llm.provider) void get().fetchModels()
+      if (result.ok) {
+        // While the provider in use has no key, the first key saved picks the provider (#1287).
+        const llm = get().settings.llm
+        if (provider !== llm.provider && !hasProviderKey(llm)) get().setActiveProvider(provider)
+        // A new key brings its provider's live model list.
+        void get().fetchModels(provider)
+      }
       return result.ok ? { ok: true } : { ok: false, error: result.error }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : 'The key could not be saved' }
@@ -525,7 +534,15 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
       console.warn('[settings] clearLlmKey failed:', err)
       return
     }
-    if (provider === get().settings.llm.provider) set({ fetchedModels: null, fetchedModelsAt: null, fetchedModelsProvider: null })
+    set((state) => {
+      const liveModels = { ...state.liveModels }
+      delete liveModels[provider]
+      return { liveModels }
+    })
+    // Prose Agents move off a provider that lost its key, to one that has a key (#1287).
+    const llm = get().settings.llm
+    const keyed = PROVIDER_IDS.find((p) => llm.keyStatus?.[p])
+    if (provider === llm.provider && !hasProviderKey(llm) && keyed) get().setActiveProvider(keyed)
   },
 
   setEditorConfig: (config) =>

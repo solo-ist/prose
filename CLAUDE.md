@@ -356,6 +356,11 @@ AI-generated edits can be reviewed before accepting. Two modes:
 - **Quick review** — inline diff with per-change accept/reject controls
 - **Side-by-side** — full diff view with navigation
 
+Every card in both shows the change inside its sentence, as the file holds it
+(`components/review/reviewContext.ts`, drawn by `ReviewText.tsx`; #1295): the
+context muted, the changed text highlighted, and a thin marker where a pure
+insertion goes or a pure deletion went.
+
 Comment threads have their own top-level review surface, **Comment Review**
 (`CommentReviewPanel`) — a peer of Quick Review managed through the same
 `reviewStore` mode slot (`reviewMode === 'comments'`), so the two are mutually

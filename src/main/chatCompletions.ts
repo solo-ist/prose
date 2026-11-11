@@ -339,6 +339,24 @@ export interface ChatTarget {
   apiKey: string
 }
 
+/**
+ * Models that refuse function tools unless reasoning is off, learned from the
+ * provider's own refusal (keyed by base URL and model, for this launch). Newer
+ * OpenAI models (gpt-5.5, gpt-6) take tools on Chat Completions only with
+ * `reasoning_effort: "none"`, whatever effort is sent or defaulted; which
+ * models do is not derivable from the id, so the provider's answer decides.
+ */
+const toolsNeedNoReasoning = new Set<string>()
+
+/** For tests: forget what the refusals taught. */
+export function resetToolsNeedNoReasoning(): void {
+  toolsNeedNoReasoning.clear()
+}
+
+function refusesToolsWithReasoning(error: ChatCompletionsError): boolean {
+  return error.status === 400 && /reasoning_effort/.test(error.message) && /\bnone\b/.test(error.message)
+}
+
 /** Stream one Chat Completions request; resolves when the stream ends. */
 export async function streamChatCompletion(
   target: ChatTarget,
@@ -346,17 +364,29 @@ export async function streamChatCompletion(
   handlers: ChatStreamHandlers = {},
   signal?: AbortSignal
 ): Promise<{ content: string; toolCalls: ToolCallResult[]; finishReason: string | null }> {
-  const res = await fetch(`${target.baseURL.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'text/event-stream',
-      Authorization: `Bearer ${target.apiKey}`,
-    },
-    body: JSON.stringify(body),
-    signal,
-  })
-  if (!res.ok) throw await errorFromResponse(res)
+  const hasTools = !!body.tools && body.tools.length > 0
+  const key = `${target.baseURL}|${body.model}`
+  const post = (sent: ChatBody) =>
+    fetch(`${target.baseURL.replace(/\/$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        Authorization: `Bearer ${target.apiKey}`,
+      },
+      body: JSON.stringify(sent),
+      signal,
+    })
+  const withoutReasoning: ChatBody = { ...body, reasoning_effort: 'none' }
+  let res = await post(hasTools && toolsNeedNoReasoning.has(key) ? withoutReasoning : body)
+  if (!res.ok) {
+    const error = await errorFromResponse(res)
+    // Nothing has streamed yet, so the one retry is invisible to the caller.
+    if (!hasTools || body.reasoning_effort === 'none' || toolsNeedNoReasoning.has(key) || !refusesToolsWithReasoning(error)) throw error
+    toolsNeedNoReasoning.add(key)
+    res = await post(withoutReasoning)
+    if (!res.ok) throw await errorFromResponse(res)
+  }
   if (!res.body) throw new ChatCompletionsError('The provider returned an empty response')
 
   const acc = new ChatStreamAccumulator(handlers)

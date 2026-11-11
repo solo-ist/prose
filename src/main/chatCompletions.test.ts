@@ -5,6 +5,7 @@ import {
   ChatStreamAccumulator,
   buildChatBody,
   probeChatQuota,
+  resetToolsNeedNoReasoning,
   listChatModels,
   parseArguments,
   streamChatCompletion,
@@ -194,6 +195,51 @@ describe('calls (#1241)', () => {
     expect(calls[0].url).toBe('https://api.openai.com/v1/chat/completions')
     expect((calls[0].init.headers as Record<string, string>).Authorization).toBe('Bearer sk-test')
     expect(JSON.parse(calls[0].init.body as string)).toEqual(body)
+  })
+
+  it('a model that refuses tools with reasoning is retried once with reasoning off, and asked that way from then on', async () => {
+    resetToolsNeedNoReasoning()
+    const refusal = {
+      error: {
+        message: "Function tools with reasoning_effort are not supported for gpt-5.5 in /v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort to 'none'.",
+        type: 'invalid_request_error',
+      },
+    }
+    const sent: Array<Record<string, unknown>> = []
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string) as Record<string, unknown>
+      sent.push(body)
+      if (body.tools && body.reasoning_effort !== 'none') {
+        return new Response(JSON.stringify(refusal), { status: 400, headers: { 'content-type': 'application/json' } })
+      }
+      return new Response(sse(delta({ content: 'ok' })) + sse(delta({}, 'stop')) + 'data: [DONE]\n\n', { status: 200 })
+    })
+    const target = { baseURL: 'https://api.openai.com/v1', apiKey: 'k' }
+    const tools = [{ name: 'read_document', description: 'Read', input_schema: { type: 'object' as const, properties: {} } }]
+    const withTools = buildChatBody({ model: 'gpt-5.5', system: '', messages: [], tools, reasoningEffort: 'low' })
+
+    expect((await streamChatCompletion(target, withTools)).content).toBe('ok')
+    expect(sent.map((b) => b.reasoning_effort)).toEqual(['low', 'none'])
+    // The next tool round skips the refused request.
+    await streamChatCompletion(target, withTools)
+    expect(sent.map((b) => b.reasoning_effort)).toEqual(['low', 'none', 'none'])
+    // A model that sent no effort at all (gpt-6-sol) is refused the same way and learns the same.
+    const bare = buildChatBody({ model: 'gpt-6-sol', system: '', messages: [], tools })
+    await streamChatCompletion(target, bare)
+    expect(sent.slice(3).map((b) => [b.model, b.reasoning_effort])).toEqual([['gpt-6-sol', undefined], ['gpt-6-sol', 'none']])
+    // Without tools the model keeps its effort; another model is not affected.
+    await streamChatCompletion(target, buildChatBody({ model: 'gpt-5.5', system: '', messages: [], reasoningEffort: 'low' }))
+    expect(sent.at(-1)!.reasoning_effort).toBe('low')
+    resetToolsNeedNoReasoning()
+  })
+
+  it('any other 400 is not retried', async () => {
+    resetToolsNeedNoReasoning()
+    const calls = stubFetch([], { status: 400, json: { error: { message: 'Unsupported value: reasoning_effort does not support low', type: 'invalid_request_error' } } })
+    const tools = [{ name: 't', description: 'd', input_schema: { type: 'object' as const, properties: {} } }]
+    const error = await streamChatCompletion({ baseURL: 'https://x/v1', apiKey: 'k' }, buildChatBody({ model: 'm', system: '', messages: [], tools, reasoningEffort: 'low' })).catch((e) => e)
+    expect(error).toBeInstanceOf(ChatCompletionsError)
+    expect(calls).toHaveLength(1)
   })
 
   it("a non-2xx response carries the provider's code and type (#1268)", async () => {

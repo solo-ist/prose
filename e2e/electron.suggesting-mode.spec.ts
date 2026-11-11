@@ -195,6 +195,32 @@ test.describe('Suggesting mode', () => {
     await expect.poll(menuItem).toEqual({ visible: false })
   })
 
+  test('a space deleted and typed back, or a word retyped, leaves nothing pending; a real space change shows in Quick Review', async () => {
+    await openDoc('noop.md')
+    await turnOnSuggesting()
+
+    // Backspace over a space, then the space typed back: struck, then plain again.
+    await caretAfter('Alpha ')
+    await page.keyboard.press('Backspace')
+    await expect(page.locator('[data-testid="status-pending-changes"]')).toHaveText('1 pending change')
+    await page.keyboard.type(' ')
+    await expect(page.locator('[data-testid="status-pending-changes"]')).toHaveCount(0)
+
+    // A word selected and typed again.
+    await selectText('beta')
+    await page.keyboard.type('beta')
+    await settle()
+    expect(await tracked()).toEqual([])
+    expect(await docText()).toBe('Alpha beta gamma.Delta epsilon zeta.')
+
+    // A space that is a real change is drawn in the card, not left as an empty box.
+    await caretAfter('gamma')
+    await page.keyboard.type(' ')
+    await page.locator('[data-testid="status-pending-changes"]').click()
+    await expect(page.getByRole('heading', { name: 'Quick Review' })).toBeVisible()
+    await expect(page.getByText('␣', { exact: true })).toBeVisible()
+  })
+
   test('IME composition lands as one tracked insertion', async () => {
     await openDoc('ime.md')
     await turnOnSuggesting()

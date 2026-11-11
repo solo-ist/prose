@@ -118,6 +118,75 @@ describe('Suggesting mode: the writer’s edits become tracked changes', () => {
     expect(editor.state.selection.from).toBe(end - 1)
   })
 
+  it('deleting a space and typing it back leaves no change; the caret is after the space', () => {
+    const { editor } = makeEditor('you just typed:')
+    cursor(editor, after(editor, 'you '))
+    backspace(editor)
+    expect(runs(editor.state.doc)).toEqual(['you[- ]just typed:'])
+    type(editor, ' ')
+    expect(runs(editor.state.doc)).toEqual(['you just typed:'])
+    expect(trackedChangesIn(editor.state.doc)).toEqual([])
+    expect(editor.state.selection.from).toBe(after(editor, 'you '))
+  })
+
+  it('the Delete key over a space, then the same space typed, leaves no change', () => {
+    const { editor } = makeEditor('you just typed:')
+    cursor(editor, after(editor, 'you'))
+    forwardDelete(editor)
+    type(editor, ' ')
+    expect(runs(editor.state.doc)).toEqual(['you just typed:'])
+    expect(editor.state.selection.from).toBe(after(editor, 'you '))
+  })
+
+  it('a space typed beside an original one, then the original deleted, leaves no change', () => {
+    const { editor } = makeEditor('you just typed:')
+    cursor(editor, after(editor, 'you'))
+    type(editor, ' ')
+    expect(runs(editor.state.doc)).toEqual(['you[+ ] just typed:'])
+    forwardDelete(editor)
+    expect(runs(editor.state.doc)).toEqual(['you just typed:'])
+    expect(trackedChangesIn(editor.state.doc)).toEqual([])
+  })
+
+  it('a word backspaced away and typed back letter by letter leaves no change', () => {
+    const { editor } = makeEditor('you just typed:')
+    cursor(editor, after(editor, 'just'))
+    for (let i = 0; i < 4; i++) backspace(editor)
+    expect(runs(editor.state.doc)).toEqual(['you [-just] typed:'])
+    for (const ch of 'jus') type(editor, ch)
+    expect(runs(editor.state.doc)).toEqual(['you [+jus][-just] typed:'])
+    type(editor, 't')
+    expect(runs(editor.state.doc)).toEqual(['you just typed:'])
+    expect(editor.state.selection.from).toBe(after(editor, 'just'))
+  })
+
+  it('a selected word replaced by the same word leaves no change', () => {
+    const { editor } = makeEditor('you just typed:')
+    select(editor, before(editor, 'just'), after(editor, 'just'))
+    type(editor, 'just')
+    expect(runs(editor.state.doc)).toEqual(['you just typed:'])
+    expect(trackedChangesIn(editor.state.doc)).toEqual([])
+    expect(editor.state.selection.from).toBe(after(editor, 'just'))
+  })
+
+  it('only the run that cancels out goes; the rest of the change stays', () => {
+    const { editor } = makeEditor('you just typed:')
+    cursor(editor, after(editor, 'typed'))
+    type(editor, ' it')
+    cursor(editor, after(editor, 'you '))
+    backspace(editor)
+    type(editor, ' ')
+    expect(runs(editor.state.doc)).toEqual(['you just typed[+ it]:'])
+  })
+
+  it('the same text with different formatting stays a change', () => {
+    const { editor } = makeEditor('you just typed:')
+    select(editor, before(editor, 'just'), after(editor, 'just'))
+    const { from, to } = editor.state.selection
+    editor.view.dispatch(editor.state.tr.replaceWith(from, to, editor.schema.text('just', [editor.schema.marks.bold.create()])))
+    expect(runs(editor.state.doc)).toEqual(['you [-just][+just] typed:'])
+  })
+
   it('a deletion across another actor’s pending insertion rejects that whole change, decided by the writer', () => {
     const { editor } = makeEditor('Hello world.')
     agentInsert(editor, after(editor, 'Hello'), ' brave new')

@@ -16,7 +16,10 @@
  *   change is rejected, decided by the actor;
  * - text already proposed for deletion stays as it is;
  * - an edit next to the actor's own pending change joins its id, and a
- *   replacement's deletion and insertion share one id (§2).
+ *   replacement's deletion and insertion share one id (§2);
+ * - a stretch of that change which reads the same before and after (a space
+ *   deleted and typed back, a word retyped) is no change: it is plain text
+ *   again.
  *
  * Mark steps (formatting) and node-type changes pass through as they are
  * (§3). A step that would add or remove a block boundary, or change text where
@@ -30,7 +33,7 @@ import { Selection, TextSelection, type EditorState, type Transaction } from '@t
 import { Mapping, ReplaceAroundStep, ReplaceStep, type Step } from '@tiptap/pm/transform'
 import type { Actor } from '../../../shared/review/actor'
 import { decideSuggestionsIn } from '../review-log/transactions'
-import { kindOf, sameActor, trackedMarkOf, trackedMarkTypes } from './changes'
+import { kindOf, sameActor, trackedChangesIn, trackedMarkOf, trackedMarkTypes, type TrackedKind, type TrackedRange } from './changes'
 import { rejectRemainingIn } from './decide'
 import { TRACKED_META } from './transactions'
 
@@ -196,6 +199,68 @@ function trackReplace(
   return { id: toMark.length > 0 ? id : null, caret: direction === 'backward' ? mappedFrom : mappedTo }
 }
 
+/** One change's ranges split where other text comes between them. */
+function contiguousRuns(ranges: readonly TrackedRange[]): TrackedRange[][] {
+  const runs: TrackedRange[][] = []
+  for (const range of ranges) {
+    const run = runs[runs.length - 1]
+    if (run && run[run.length - 1].to === range.from) run.push(range)
+    else runs.push([range])
+  }
+  return runs
+}
+
+/** The `kind` side of a run as untracked inline content, formatting included. */
+function sideOf(doc: PMNode, run: readonly TrackedRange[], kind: TrackedKind): Fragment {
+  const nodes: PMNode[] = []
+  for (const range of run) {
+    if (range.kind !== kind) continue
+    doc.nodesBetween(range.from, range.to, (node, pos) => {
+      if (!node.isInline) return true
+      const piece = node.isText ? node.cut(Math.max(0, range.from - pos), Math.min(node.nodeSize, range.to - pos)) : node
+      nodes.push(piece.mark(piece.marks.filter((m) => !isTrackedMark(m))))
+      return false
+    })
+  }
+  return Fragment.fromArray(nodes)
+}
+
+/**
+ * The changes `ids` made back into plain text wherever they cancel out: a run
+ * whose deleted and inserted content are equal, formatting included, loses its
+ * insertions for real and its deletions' marks. Returns the caret: in such a
+ * run it lands as far into the now-plain text as the inserted text before it
+ * reached, which is where the writer's typing left it.
+ */
+function dropNoOps(out: Transaction, ids: readonly string[], caret: number | null): number | null {
+  const doc = out.doc
+  const unmark: Array<[number, number]> = []
+  const drop: Array<[number, number]> = []
+  let caretIn: { from: number; offset: number } | null = null
+  for (const change of trackedChangesIn(doc)) {
+    if (!ids.includes(change.id)) continue
+    for (const run of contiguousRuns(change.ranges)) {
+      const deleted = sideOf(doc, run, 'delete')
+      if (deleted.size === 0 || !deleted.eq(sideOf(doc, run, 'insert'))) continue
+      for (const range of run) (range.kind === 'insert' ? drop : unmark).push([range.from, range.to])
+      const from = run[0].from
+      if (caret !== null && caret >= from && caret <= run[run.length - 1].to) {
+        let offset = 0
+        for (const range of run) if (range.kind === 'insert') offset += Math.max(0, Math.min(caret, range.to) - range.from)
+        caretIn = { from, offset }
+      }
+    }
+  }
+  if (drop.length === 0) return caret
+  const { remove: deleteType } = trackedMarkTypes(doc.type.schema)
+  for (const [from, to] of unmark) out.removeMark(from, to, deleteType)
+  const start = out.steps.length
+  for (const [from, to] of drop.sort((a, b) => b[0] - a[0])) out.delete(from, to)
+  const mapping = out.mapping.slice(start)
+  if (caretIn) return mapping.map(caretIn.from, -1) + caretIn.offset
+  return caret === null ? null : mapping.map(caret)
+}
+
 /**
  * Map a position of `tr.docs[index]` back to the original document and
  * forward onto `out.doc`. The forward map leans right (assoc 1): a later step
@@ -261,6 +326,7 @@ export function trackTransaction(state: EditorState, tr: Transaction, ctx: Track
     rejectRemainingIn(out, [...rejected])
     decideSuggestionsIn(out, [...rejected], 'rejected', ctx.actor)
   }
+  caret = dropNoOps(out, ids, caret)
 
   if (caret !== null) {
     out.setSelection(TextSelection.near(out.doc.resolve(Math.min(caret, out.doc.content.size))))
@@ -285,5 +351,6 @@ export function trackTransaction(state: EditorState, tr: Transaction, ctx: Track
     if (out.getMeta(key) === undefined) out.setMeta(key, meta[key])
   }
   out.setMeta(TRACKED_META, true)
-  return { kind: 'tracked', tr: out, ids, rejected: [...rejected] }
+  const live = new Set(trackedChangesIn(out.doc).map((c) => c.id))
+  return { kind: 'tracked', tr: out, ids: ids.filter((id) => live.has(id)), rejected: [...rejected] }
 }

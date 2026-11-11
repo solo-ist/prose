@@ -4,7 +4,7 @@ import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useReviewStore } from '../../stores/reviewStore'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { reviewItems, type ReviewItem } from './reviewItems'
-import { computeWordDiff, scrollSelectionIntoCenter, type DiffSegment } from '../../lib/diffUtils'
+import { reviewDiff, scrollSelectionIntoCenter, visibleWhitespace, type DiffSegment } from '../../lib/diffUtils'
 import { cn } from '../../lib/utils'
 
 /**
@@ -194,7 +194,7 @@ function DiffHunk({
   onScrollTo: () => void
 }) {
   const diff = useMemo(
-    () => computeWordDiff(suggestion.originalText, suggestion.suggestedText),
+    () => reviewDiff(suggestion.originalText, suggestion.suggestedText),
     [suggestion.originalText, suggestion.suggestedText]
   )
 
@@ -336,7 +336,7 @@ function DiffText({ segments, mode }: { segments: DiffSegment[]; mode: 'old' | '
               key={i}
               className="bg-red-500/20 text-red-700 dark:text-red-400 line-through rounded-sm px-0.5"
             >
-              {seg.text}
+              {visibleWhitespace(seg.text)}
             </span>
           )
         }
@@ -346,7 +346,7 @@ function DiffText({ segments, mode }: { segments: DiffSegment[]; mode: 'old' | '
               key={i}
               className="bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 rounded-sm px-0.5"
             >
-              {seg.text}
+              {visibleWhitespace(seg.text)}
             </span>
           )
         }

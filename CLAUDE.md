@@ -371,8 +371,10 @@ plus the plugin state, set only by `setSessionSuggesting`). Its filter is
 `trackTransaction` (`filter.ts`), a pure rewrite of the writer's transaction
 installed in front of the view's dispatch by `attachEditor`: inserted text is
 marked, deleted text is struck instead of removed, the writer's own pending
-insertion deletes for real, a deletion across another actor's insertion
-rejects that change; mark steps and node-type changes apply directly; a block
+insertion deletes for real, a stretch of the writer's change that reads the
+same before and after (a space deleted and typed back, a word retyped) is plain
+text again, a deletion across another actor's insertion rejects that change;
+mark steps and node-type changes apply directly; a block
 boundary (Enter, a join, a multi-paragraph paste) or a code block is refused
 with a notice. Source mode is unavailable while the tab suggests or has
 pending tracked changes (`sourceBlockedBy` in `tabs/actions.ts`; the toggles

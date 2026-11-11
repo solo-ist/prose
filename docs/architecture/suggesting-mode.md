@@ -40,6 +40,7 @@ Two marks, each with the attributes `id`, `actor` (P1) and `createdAt`:
 - **Typed or pasted text** is inserted with `trackedInsert` and the writer as actor.
 - **A deletion** of untracked text doesn't delete. The range gets `trackedDelete` instead.
 - **A deletion inside the writer's own pending insertion** deletes for real: you can fix your own typo.
+- **Back to where it started:** a stretch of the writer's change whose deleted and inserted text are the same, formatting included, goes back to plain text. A space deleted and typed back, or a word retyped, leaves nothing pending.
 - **A deletion across someone else's pending insertion** marks that insertion rejected by the writer.
 
 **The rewriting** is a transaction filter in one plugin, a pure function from a transaction to its tracked form, tested step by step. Formatting changes (marks and node types) are applied directly in P3 and never tracked; tracked formatting is out of scope. Structural edits (splitting or joining paragraphs, and edits inside code blocks) aren't tracked either: Suggesting mode refuses them with a message saying to turn Suggesting off for them. The Suggesting toggle's tooltip says so ("Formatting changes apply directly"), so a bolded paragraph that isn't tracked doesn't read as a bug.

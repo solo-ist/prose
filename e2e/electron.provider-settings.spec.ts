@@ -35,6 +35,9 @@ async function launch(seed: boolean): Promise<void> {
   if (seed) seedSettings(userDataDir, { toolMode: 'editor' })
   const launched = await launchApp({
     env: { PROSE_USER_DATA_DIR: userDataDir, PROSE_DOCS_DIR: docsDir, PROSE_DEBUG_PORT: '9244' },
+    // Linux CI has no keyring: without it safeStorage keeps a key for the session only,
+    // and onboarding says so instead of "Saved to Keychain". macOS ignores the switch.
+    args: process.platform === 'linux' ? ['--password-store=basic'] : [],
   })
   app = launched.app
   page = launched.page

@@ -41,6 +41,10 @@ async function launch(seed: boolean): Promise<void> {
   })
   app = launched.app
   page = launched.page
+  // The switch only selects the basic_text backend; isEncryptionAvailable()
+  // stays false on Linux until the app opts into the in-memory key (as in
+  // electron.mcp-relay.spec.ts). A no-op on macOS and Windows.
+  await app.evaluate(({ safeStorage }) => safeStorage.setUsePlainTextEncryption(true))
   await waitForAppReady(page)
 }
 

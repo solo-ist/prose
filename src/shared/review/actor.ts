@@ -116,6 +116,24 @@ export function shortModelName(model: string | null | undefined): string {
 }
 
 /**
+ * The name a writer knows a client by, for the `clientInfo.name` it reports.
+ * Claude Desktop reports "claude-ai" from a chat and "local-agent-mode-<server
+ * name>" from its agent mode, which read as noise on a card. Anything not
+ * listed is shown as reported.
+ */
+const CLIENT_DISPLAY_NAMES: ReadonlyArray<[RegExp, string]> = [
+  [/^claude-ai$/i, 'Claude Desktop'],
+  [/^local-agent-mode-/i, 'Claude Desktop'],
+  [/^claude-code$/i, 'Claude Code'],
+  [/^codex-mcp-client$/i, 'Codex'],
+]
+
+export function clientDisplayName(reported: unknown): string {
+  const name = cleanActorText(reported)
+  return CLIENT_DISPLAY_NAMES.find(([pattern]) => pattern.test(name))?.[1] ?? name
+}
+
+/**
  * The one display string for an actor. `selfName` is the Settings name (empty
  * → "You"); MCP results pass `selfName: null` to get "the writer".
  */
@@ -130,8 +148,12 @@ export function actorLabel(actor: Actor, opts: { selfName?: string | null } = {}
     case 'prose-agent':
       return `Prose · ${shortModelName(actor.model) || providerName(actor.provider)}`
     case 'mcp-agent': {
-      const label = cleanActorText(actor.connectionLabel) || 'MCP client'
-      const client = cleanActorText(actor.client)
+      // The launch connection's label is the client's own report (a named
+      // connection's is the writer's, shown as written); records made before
+      // the display names existed hold the raw one.
+      const raw = cleanActorText(actor.connectionLabel)
+      const label = (actor.connectionId === 'launch' ? clientDisplayName(raw) : raw) || 'MCP client'
+      const client = clientDisplayName(actor.client)
       return client && client !== label ? `${label} · ${client}` : label
     }
     case 'unattributed':

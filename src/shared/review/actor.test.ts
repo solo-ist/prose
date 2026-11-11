@@ -78,6 +78,12 @@ describe('actorLabel', () => {
     expect(actorLabel({ kind: 'mcp-agent', connectionId: 'c', connectionLabel: 'Codex laptop', client: 'Claude' })).toBe('Codex laptop · Claude')
     expect(actorLabel({ kind: 'mcp-agent', connectionId: 'c', connectionLabel: 'Codex laptop', client: 'Codex laptop' })).toBe('Codex laptop')
     expect(actorLabel({ kind: 'mcp-agent', connectionId: 'launch', connectionLabel: '' })).toBe('MCP client')
+    // A known client reads by the name a writer knows it by, once (#1298); records that hold the raw report too.
+    expect(actorLabel({ kind: 'mcp-agent', connectionId: 'launch', connectionLabel: 'local-agent-mode-Prose', client: 'local-agent-mode-Prose' })).toBe('Claude Desktop')
+    expect(actorLabel({ kind: 'mcp-agent', connectionId: 'launch', connectionLabel: 'Claude Desktop', client: 'claude-ai' })).toBe('Claude Desktop')
+    expect(actorLabel({ kind: 'mcp-agent', connectionId: 'c1', connectionLabel: 'Laptop', client: 'claude-code' })).toBe('Laptop · Claude Code')
+    // A named connection's label is the writer's own words, shown as written.
+    expect(actorLabel({ kind: 'mcp-agent', connectionId: 'c1', connectionLabel: 'claude-ai' })).toBe('claude-ai')
   })
   it('names unattributed text by its label', () => {
     expect(actorLabel({ kind: 'unattributed', label: 'Imported' })).toBe('Imported')

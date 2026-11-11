@@ -7,7 +7,7 @@
  * beside the connection's label, never instead of it.
  */
 
-import { cleanActorText, type McpAgentActor } from '../review/actor'
+import { cleanActorText, clientDisplayName, type McpAgentActor } from '../review/actor'
 
 /** What a client reports about itself (`clientInfo`). Untrusted. */
 export interface McpClientInfo {
@@ -43,9 +43,9 @@ export function connectionActor(
   )
 }
 
-/** A call made with the per-launch token: over stdio it is labelled with the client's own name. */
+/** A call made with the per-launch token: over stdio it is labelled with the client's own name, as a writer knows it. */
 export function launchActor(via: 'stdio' | 'http', client?: McpClientInfo): McpAgentActor {
-  const label = via === 'stdio' ? cleanActorText(client?.name) || DEFAULT_CONNECTION_LABEL : DEFAULT_CONNECTION_LABEL
+  const label = via === 'stdio' ? clientDisplayName(client?.name) || DEFAULT_CONNECTION_LABEL : DEFAULT_CONNECTION_LABEL
   return withClient({ kind: 'mcp-agent', connectionId: LAUNCH_CONNECTION_ID, connectionLabel: label, via }, client)
 }
 

@@ -13,8 +13,11 @@ describe('MCP actors', () => {
 
   it('labels a stdio call with the client it reports, else "MCP client"', () => {
     expect(launchActor('stdio', { name: 'claude-ai', version: '0.1.0' })).toEqual({
-      kind: 'mcp-agent', connectionId: 'launch', connectionLabel: 'claude-ai', client: 'claude-ai', clientVersion: '0.1.0', via: 'stdio'
+      kind: 'mcp-agent', connectionId: 'launch', connectionLabel: 'Claude Desktop', client: 'claude-ai', clientVersion: '0.1.0', via: 'stdio'
     })
+    // Claude Desktop's agent mode reports the server's name, not its own.
+    expect(launchActor('stdio', { name: 'local-agent-mode-Prose (Prose Dev)' }).connectionLabel).toBe('Claude Desktop')
+    expect(launchActor('stdio', { name: 'some-other-client' }).connectionLabel).toBe('some-other-client')
     expect(launchActor('stdio')).toEqual({ kind: 'mcp-agent', connectionId: 'launch', connectionLabel: 'MCP client', via: 'stdio' })
     // Over HTTP the launch token names nothing: a client's report never becomes the label.
     expect(launchActor('http', { name: 'Pretender' }).connectionLabel).toBe('MCP client')

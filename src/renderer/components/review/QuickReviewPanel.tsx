@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Check, X, ChevronLeft, ChevronRight, MessageSquare, ArrowLeftRight } from 'lucide-react'
 import { motion, useMotionValue, useTransform, type PanInfo } from 'framer-motion'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
@@ -48,6 +48,15 @@ export function QuickReviewPanel() {
 
   const total = suggestions.length
   const current = suggestions[currentSuggestionIndex]
+
+  // The sentence around the change, as the file holds it (#1295); an AI
+  // suggestion's range walks the document, so it follows the document only.
+  const doc = editor?.state.doc
+  const context = useMemo(
+    () => (doc && current ? reviewContextOf(doc, current) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [doc, current?.id, current?.from, current?.to, current?.tracked]
+  )
 
   // Scroll editor to current suggestion (centered in viewport)
   useEffect(() => {
@@ -224,8 +233,6 @@ export function QuickReviewPanel() {
   }
 
   const diff = reviewDiff(current.originalText, current.suggestedText)
-  // The sentence around the change, as the file holds it (#1295).
-  const context = editor ? reviewContextOf(editor.state.doc, current) : null
 
   return (
     <div className="flex flex-col h-full">

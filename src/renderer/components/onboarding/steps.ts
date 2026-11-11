@@ -16,7 +16,7 @@ export const STEP_ORDER: readonly StepId[] = ['welcome', 'ai', 'key', 'claude', 
 export const STEP_LABELS: Record<StepId, string> = {
   welcome: 'Welcome',
   ai: 'AI and privacy',
-  key: 'API key',
+  key: 'API keys',
   claude: 'Claude',
   default: 'Default editor',
   done: 'Done'
@@ -52,9 +52,8 @@ export function resolveStep(seq: readonly StepId[], step: StepId): StepId {
 
 export interface SummaryInput {
   ai: AiChoice
-  keySaved: boolean
-  /** The provider whose key was saved (its label), named in the summary. */
-  keyProvider?: string
+  /** The providers with a key in the Keychain (their labels), named in the summary (#1287). */
+  keys: string[]
   crash: boolean
   direct: boolean
   skill: SideEffect
@@ -69,10 +68,15 @@ export interface SummaryRow {
   tone: 'foreground' | 'muted' | 'accept'
 }
 
+/** "Anthropic", "Anthropic and OpenAI", "A, B and C". */
+function listLabels(labels: string[]): string {
+  return labels.length > 1 ? `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}` : labels[0]
+}
+
 export function summaryRows(i: SummaryInput): SummaryRow[] {
   const rows: SummaryRow[] = []
   if (i.ai === 'none') rows.push({ label: 'AI assistance', value: 'Off', tone: 'muted' })
-  else if (i.keySaved) rows.push({ label: 'AI assistance', value: `On · ${i.keyProvider ? `${i.keyProvider} key` : 'key'} in Keychain`, tone: 'accept' })
+  else if (i.keys.length > 0) rows.push({ label: 'AI assistance', value: `On · ${listLabels(i.keys)} ${i.keys.length > 1 ? 'keys' : 'key'} in Keychain`, tone: 'accept' })
   else rows.push({ label: 'AI assistance', value: 'On · add a key in Settings', tone: 'foreground' })
   rows.push({ label: 'Crash reports', value: i.crash ? 'On' : 'Off', tone: i.crash ? 'foreground' : 'muted' })
   if (i.direct) {

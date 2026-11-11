@@ -1,6 +1,6 @@
 import type { Settings } from '../types'
 import { getModelsForProvider, isKnownModel, type LLMProvider as LLMProviderType } from '../../shared/llm/models'
-import { getProvider, type ModelInfo } from '../../shared/llm/providers'
+import { getProvider, PROVIDER_IDS, type ModelInfo } from '../../shared/llm/providers'
 
 export interface LLMMessage {
   role: 'user' | 'assistant' | 'system'
@@ -43,25 +43,49 @@ export function validateApiKeyFormat(provider: LLMProviderType, apiKey: string):
   return null
 }
 
-/**
- * The models to offer for `provider`: the live list when it was fetched for
- * that provider, else the provider's seed. Every model picker (Settings, the
- * status bar, the model dialog) reads this, through `useAvailableModels()`.
- */
-export function availableModelsFor(
-  provider: LLMProviderType,
-  fetched: ModelInfo[] | null,
-  fetchedFor: string | null
-): ModelInfo[] {
-  return fetched && fetched.length > 0 && fetchedFor === provider ? fetched : getModelsForProvider(provider)
+/** Each provider's live model list, as the settings store caches it (#1287). */
+export type LiveModels = Partial<Record<LLMProviderType, ModelInfo[]>>
+
+/** The models to offer for `provider`: its live list once fetched, else its seed. */
+export function availableModelsFor(provider: LLMProviderType, live: LiveModels): ModelInfo[] {
+  const fetched = live[provider]
+  return fetched && fetched.length > 0 ? fetched : getModelsForProvider(provider)
+}
+
+/** One provider's section of a model picker (#1287). */
+export interface ModelGroup {
+  provider: LLMProviderType
+  label: string
+  /** Whether main holds a key for it. Without one the group lists no models; pickers show an "Add a key" row. */
+  hasKey: boolean
+  models: ModelInfo[]
 }
 
 /**
- * Whether main holds a key for the configured provider. The renderer never
- * sees the key (#1240), only the status main reports with the settings.
+ * Every provider's models, grouped in provider order (#1287). Settings, the
+ * status bar and the model dialog all read this, through `useModelGroups()`,
+ * so a model from any provider with a key is one pick away, and a provider
+ * without one offers nothing that would fail.
  */
-export function hasProviderKey(config: Settings['llm']): boolean {
-  return !!config.keyStatus?.[config.provider]
+export function modelGroups(keyStatus: Settings['llm']['keyStatus'], live: LiveModels): ModelGroup[] {
+  return PROVIDER_IDS.map((provider) => {
+    const hasKey = !!keyStatus?.[provider]
+    return { provider, label: getProvider(provider).label, hasKey, models: hasKey ? availableModelsFor(provider, live) : [] }
+  })
+}
+
+/** "Add an OpenAI key": the call to action for a provider without one. */
+export function addKeyLabel(label: string): string {
+  return `Add ${/^[aeiou]/i.test(label) ? 'an' : 'a'} ${label} key`
+}
+
+/**
+ * Whether main holds a key for `provider`, by default the one in use. The
+ * renderer never sees the key (#1240), only the status main reports with the
+ * settings.
+ */
+export function hasProviderKey(config: Settings['llm'], provider: LLMProviderType = config.provider): boolean {
+  return !!config.keyStatus?.[provider]
 }
 
 /**

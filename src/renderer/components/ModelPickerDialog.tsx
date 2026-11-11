@@ -8,8 +8,10 @@ import {
   CommandList
 } from './ui/command'
 import { useSettings } from '../hooks/useSettings'
-import type { ModelInfo } from '../../shared/llm/models'
-import { useAvailableModels } from '../hooks/useAvailableModels'
+import { useSettingsStore } from '../stores/settingsStore'
+import { useModelGroups } from '../hooks/useModelGroups'
+import { addKeyLabel } from '../lib/llm'
+import type { LLMProvider } from '../../shared/llm/providers'
 
 interface ModelPickerDialogProps {
   open: boolean
@@ -17,11 +19,12 @@ interface ModelPickerDialogProps {
 }
 
 export function ModelPickerDialog({ open, onOpenChange }: ModelPickerDialogProps) {
-  const { settings, setLLMConfig, saveSettings } = useSettings()
+  const { settings, saveSettings, setDialogOpen } = useSettings()
+  const selectModel = useSettingsStore((s) => s.selectModel)
   const [search, setSearch] = useState('')
 
-  // The provider in use's models: live when fetched, else its seed (#1242)
-  const availableModels = useAvailableModels()
+  // Every provider's models, grouped; a provider without a key offers an "Add a key" row (#1287)
+  const modelGroups = useModelGroups()
 
   // Reset search when dialog opens
   useEffect(() => {
@@ -30,10 +33,15 @@ export function ModelPickerDialog({ open, onOpenChange }: ModelPickerDialogProps
     }
   }, [open])
 
-  const handleSelectModel = async (model: ModelInfo) => {
-    setLLMConfig({ model: model.id })
+  const handleSelectModel = async (provider: LLMProvider, modelId: string) => {
+    selectModel(provider, modelId)
     await saveSettings()
     onOpenChange(false)
+  }
+
+  const handleAddKey = () => {
+    onOpenChange(false)
+    setDialogOpen(true, 'llm')
   }
 
   return (
@@ -45,26 +53,37 @@ export function ModelPickerDialog({ open, onOpenChange }: ModelPickerDialogProps
       />
       <CommandList>
         <CommandEmpty>No models found.</CommandEmpty>
-        <CommandGroup heading={`${settings.llm.provider} models`}>
-          {availableModels.map((model) => (
-            <CommandItem
-              key={model.id}
-              value={model.name}
-              onSelect={() => handleSelectModel(model)}
-              className="flex items-center justify-between"
-            >
-              <div className="flex flex-col">
-                <span>{model.name}</span>
-                {model.description && (
-                  <span className="text-xs text-muted-foreground">{model.description}</span>
+        {modelGroups.map((group) => (
+          <CommandGroup key={group.provider} heading={group.label}>
+            {group.hasKey ? group.models.map((model) => (
+              <CommandItem
+                key={model.id}
+                // The provider's name is searchable too: "openai" finds its models.
+                value={`${group.label} ${model.name} ${model.id}`}
+                onSelect={() => handleSelectModel(group.provider, model.id)}
+                className="flex items-center justify-between"
+              >
+                <div className="flex flex-col">
+                  <span>{model.name}</span>
+                  {model.description && (
+                    <span className="text-xs text-muted-foreground">{model.description}</span>
+                  )}
+                </div>
+                {group.provider === settings.llm.provider && model.id === settings.llm.model && (
+                  <span className="text-primary ml-2">Current</span>
                 )}
-              </div>
-              {model.id === settings.llm.model && (
-                <span className="text-primary ml-2">Current</span>
-              )}
-            </CommandItem>
-          ))}
-        </CommandGroup>
+              </CommandItem>
+            )) : (
+              <CommandItem
+                value={`${group.label} ${addKeyLabel(group.label)}`}
+                onSelect={handleAddKey}
+                className="text-muted-foreground"
+              >
+                {addKeyLabel(group.label)} in Settings → LLM
+              </CommandItem>
+            )}
+          </CommandGroup>
+        ))}
       </CommandList>
     </CommandDialog>
   )

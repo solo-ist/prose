@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useRef, useState, useCallback } from 'react'
+import { Fragment, useMemo, useEffect, useRef, useState, useCallback } from 'react'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
@@ -28,8 +28,10 @@ import { Brain } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useChatStore, type ToolMode } from '../../stores/chatStore'
 import { supportsAdaptiveThinking } from '../../../shared/llm/models'
-import { useAvailableModels } from '../../hooks/useAvailableModels'
-import { getProvider } from '../../../shared/llm/providers'
+import { useModelGroups } from '../../hooks/useModelGroups'
+import { useSettingsStore } from '../../stores/settingsStore'
+import { addKeyLabel, availableModelsFor } from '../../lib/llm'
+import { getProvider, type LLMProvider } from '../../../shared/llm/providers'
 
 const TRACKED_DISPLAY_LABELS: Record<TrackedDisplay, string> = {
   all: 'All changes',
@@ -44,7 +46,7 @@ const isMacKeyboard =
 
 export function StatusBar() {
   const { document, cursorPosition } = useEditor()
-  const { settings, isLoaded: settingsLoaded, autosaveActive, setLLMConfig, saveSettings } = useSettings()
+  const { settings, isLoaded: settingsLoaded, autosaveActive, saveSettings, setDialogOpen } = useSettings()
   const { toolMode, setToolMode } = useChat()
   const { thinkingEnabled, setThinkingEnabled } = useChatStore()
   const isRemarkableReadOnly = useEditorStore((state) => state.isRemarkableReadOnly)
@@ -161,17 +163,19 @@ export function StatusBar() {
 
   const currentMode = modeConfig[toolMode]
 
-  // The provider in use's models: live when fetched, else its seed (#1242)
-  const availableModels = useAvailableModels()
-  const currentModel = availableModels.find(m => m.id === settings.llm.model)
+  // Every provider's models, grouped; a provider without a key offers an "Add a key" row (#1287)
+  const modelGroups = useModelGroups()
+  const liveModels = useSettingsStore((s) => s.liveModels)
+  const selectModel = useSettingsStore((s) => s.selectModel)
+  const currentModel = availableModelsFor(settings.llm.provider, liveModels).find(m => m.id === settings.llm.model)
   // Compact display for the status bar — drop the "Claude " prefix (e.g. "Sonnet 4.6").
   const modelDisplayName = (currentModel?.name || settings.llm.model.split('/').pop() || settings.llm.model).replace(/^Claude\s+/, '')
   // The extended-thinking toggle sits next to the model selector and only shows
   // for models that support adaptive thinking (hidden for e.g. Haiku 4.5).
   const showThinkingToggle = supportsAdaptiveThinking(settings.llm.model)
 
-  const handleModelChange = async (modelId: string) => {
-    setLLMConfig({ model: modelId })
+  const handleModelChange = async (provider: LLMProvider, modelId: string) => {
+    selectModel(provider, modelId)
     await saveSettings()
   }
 
@@ -381,26 +385,38 @@ export function StatusBar() {
                 </TooltipContent>
               </Tooltip>
               <DropdownMenuContent align="end" className="max-h-[300px] overflow-y-auto">
-                <DropdownMenuLabel className="text-xs text-muted-foreground">
-                  {getProvider(settings.llm.provider).label}
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {availableModels.map((model) => (
-                  <DropdownMenuItem
-                    key={model.id}
-                    onClick={() => handleModelChange(model.id)}
-                    className="cursor-pointer font-mono text-xs"
-                  >
-                    <div className="flex flex-col items-start">
-                      <span>{model.name}</span>
-                      {model.description && (
-                        <span className="text-[10px] text-muted-foreground">{model.description}</span>
-                      )}
-                    </div>
-                    {model.id === settings.llm.model && (
-                      <span className="ml-auto pl-2 text-primary">✓</span>
+                {modelGroups.map((group, i) => (
+                  <Fragment key={group.provider}>
+                    {i > 0 && <DropdownMenuSeparator />}
+                    <DropdownMenuLabel className="text-xs text-muted-foreground">
+                      {group.label}
+                    </DropdownMenuLabel>
+                    {group.hasKey ? group.models.map((model) => (
+                      <DropdownMenuItem
+                        key={model.id}
+                        onClick={() => handleModelChange(group.provider, model.id)}
+                        className="cursor-pointer font-mono text-xs"
+                      >
+                        <div className="flex flex-col items-start">
+                          <span>{model.name}</span>
+                          {model.description && (
+                            <span className="text-[10px] text-muted-foreground">{model.description}</span>
+                          )}
+                        </div>
+                        {group.provider === settings.llm.provider && model.id === settings.llm.model && (
+                          <span className="ml-auto pl-2 text-primary">✓</span>
+                        )}
+                      </DropdownMenuItem>
+                    )) : (
+                      <DropdownMenuItem
+                        data-testid={`status-model-add-key-${group.provider}`}
+                        onClick={() => setDialogOpen(true, 'llm')}
+                        className="cursor-pointer font-mono text-xs text-muted-foreground"
+                      >
+                        {addKeyLabel(group.label)} in Settings → LLM
+                      </DropdownMenuItem>
                     )}
-                  </DropdownMenuItem>
+                  </Fragment>
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>

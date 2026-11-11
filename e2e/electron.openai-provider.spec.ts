@@ -43,15 +43,13 @@ test.afterEach(async () => {
   rmSync(userDataDir, { recursive: true, force: true })
 })
 
-/** Settings → LLM: choose OpenAI, type the key, Test it, Save Changes. */
+/** Settings → LLM: add OpenAI's key, Test it, Save Changes. Claude has no key, so OpenAI is in use (#1287). */
 async function configureOpenAI(testSays: string | RegExp = 'API key is valid'): Promise<void> {
   await page.evaluate(() => (window as any).__prose_account.openSettings())
   const dialog = page.getByRole('dialog')
   await dialog.getByRole('tab', { name: 'LLM' }).click()
-  await dialog.locator('#provider').click()
-  await page.getByRole('option', { name: 'OpenAI' }).click()
-  // OpenAI is now in use and has no key, so its row opens on the field (#1242).
   const row = dialog.getByTestId('llm-key-row-openai')
+  await row.getByRole('button', { name: 'Add key' }).click()
   await dialog.locator('#apiKey-openai').fill(OPENAI_KEY)
   await row.getByRole('button', { name: 'Test' }).click()
   await expect(row.getByText(testSays)).toBeVisible()
@@ -194,7 +192,7 @@ test("a model that doesn't reason (gpt-4.1) gets no reasoning_effort and the pla
   await app.close()
   rmSync(userDataDir, { recursive: true, force: true })
   userDataDir = mkdtempSync(join(tmpdir(), 'prose-1271-'))
-  // OpenAI's remembered model is gpt-4.1, so choosing OpenAI selects it.
+  // OpenAI's remembered model is gpt-4.1, so OpenAI's first key brings it back.
   seedSettings(userDataDir, {
     toolMode: 'editor',
     llm: { provider: 'anthropic', model: 'claude-sonnet-5-5', modelByProvider: { openai: 'gpt-4.1' } },

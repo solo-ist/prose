@@ -13,7 +13,9 @@ import { Input } from '../ui/input'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue
 } from '../ui/select'
@@ -37,8 +39,8 @@ import { AlertCircle } from 'lucide-react'
 import { getDefaultModel, type LLMProvider } from '../../../shared/llm/models'
 import { PROVIDERS, PROVIDER_IDS } from '../../../shared/llm/providers'
 import { ProviderKeys, draftFormatError, type KeyDrafts } from './ProviderKeys'
-import { useAvailableModels } from '../../hooks/useAvailableModels'
-import { validateUrl, hasProviderKey } from '../../lib/llm'
+import { useModelGroups } from '../../hooks/useModelGroups'
+import { addKeyLabel, availableModelsFor, validateUrl } from '../../lib/llm'
 
 /** Extract the primary font name from a CSS font-family stack */
 function extractPrimaryFont(fontFamily: string): string {
@@ -103,7 +105,7 @@ export function SettingsDialog() {
   // sees each one's status and keeps a typed key only as a local draft until
   // Save Changes hands it over (#1242).
   const setLlmKey = useSettingsStore((s) => s.setLlmKey)
-  const setActiveProvider = useSettingsStore((s) => s.setActiveProvider)
+  const selectModel = useSettingsStore((s) => s.selectModel)
   const [keyDrafts, setKeyDrafts] = useState<KeyDrafts>({})
   const [keySaveErrors, setKeySaveErrors] = useState<Partial<Record<LLMProvider, string>>>({})
   const anyDraftInvalid = PROVIDER_IDS.some((p) => draftFormatError(p, keyDrafts) !== null)
@@ -122,16 +124,17 @@ export function SettingsDialog() {
   const integrationsTabRef = useRef<HTMLDivElement>(null)
   const accountTabRef = useRef<HTMLDivElement>(null)
 
-  // The provider in use's models: its live list once fetched, else its seed.
+  // Every provider's models, grouped: each keyed provider's live list once
+  // fetched, else its seed; a provider without a key lists none (#1287).
   const isFetchingModels = useSettingsStore((s) => s.isFetchingModels)
   const fetchModels = useSettingsStore((s) => s.fetchModels)
-  const availableModels = useAvailableModels()
-
-  // Check if current model is in the list
-  const isCustomModel = useMemo(
-    () => !availableModels.some(m => m.id === settings.llm.model),
-    [availableModels, settings.llm.model]
-  )
+  const modelGroups = useModelGroups()
+  const liveModels = useSettingsStore((s) => s.liveModels)
+  const activeGroup = modelGroups.find((g) => g.provider === settings.llm.provider)
+  // A model its provider doesn't list (live, else seed) was typed in as a custom id.
+  const isCustomModel = !availableModelsFor(settings.llm.provider, liveModels).some((m) => m.id === settings.llm.model)
+  // The select shows the model in use only once its provider has a key to list it.
+  const modelListed = !!activeGroup?.hasKey && !isCustomModel
 
   const baseUrlError = useMemo(
     () => validateUrl(settings.llm.baseUrl || ''),
@@ -144,10 +147,17 @@ export function SettingsDialog() {
     setKeySaveErrors({})
   }, [isDialogOpen])
 
-  // Reset custom model state when provider changes
+  // Each open starts on the field for a custom id, else on the list.
   useEffect(() => {
-    setCustomModel(isCustomModel)
-  }, [settings.llm.provider, isCustomModel])
+    if (isDialogOpen) setCustomModel(isCustomModel)
+    // Seeded once per open: a typed id passing through a listed one ("gpt-5" on
+    // the way to "gpt-5-…") must not close the field under the writer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDialogOpen])
+  // A custom id that appears later (a pick elsewhere, a late load) opens the field.
+  useEffect(() => {
+    if (isCustomModel) setCustomModel(true)
+  }, [isCustomModel])
 
   // Check secure storage availability when dialog opens
   useEffect(() => {
@@ -156,13 +166,12 @@ export function SettingsDialog() {
     }
   }, [isDialogOpen])
 
-  // Refresh the live model list when the dialog opens (if API key is set)
-  const hasKey = hasProviderKey(settings.llm)
+  // Refresh every keyed provider's live model list when the dialog opens
   useEffect(() => {
-    if (isDialogOpen && hasKey) {
+    if (isDialogOpen) {
       fetchModels()
     }
-  }, [isDialogOpen, hasKey, settings.llm.provider, fetchModels])
+  }, [isDialogOpen, fetchModels])
 
   // Check if we're the default handler when dialog opens
   useEffect(() => {
@@ -224,11 +233,11 @@ export function SettingsDialog() {
     setDialogTab(value as typeof dialogTab)
   }
 
-  const handleProviderChange = (provider: LLMProvider) => {
-    // The provider in use changes; every key stays where it is, and the model
-    // last used with this provider comes back (else its default).
-    setActiveProvider(provider)
-    setCustomModel(false)
+  // The model select's values name the provider too: `<provider>::<model id>`.
+  const modelValue = (provider: LLMProvider, model: string) => `${provider}::${model}`
+  const handleModelSelect = (value: string) => {
+    const at = value.indexOf('::')
+    selectModel(value.slice(0, at) as LLMProvider, value.slice(at + 2))
   }
 
 
@@ -291,7 +300,10 @@ export function SettingsDialog() {
                 autoComplete="email"
               />
               <p className="text-xs text-muted-foreground">
-                Stays on this Mac: it is never stored on your comments or sent to agents or share viewers
+                {/* The App Store edition has no sharing, so its hint doesn't mention it (#1285). */}
+                {isMas
+                  ? 'Stays on this Mac: it is never stored on your comments or sent to agents'
+                  : 'Stays on this Mac: it is never stored on your comments or sent to agents or share viewers'}
               </p>
             </div>
 
@@ -558,23 +570,6 @@ export function SettingsDialog() {
 
             <div className={!aiEnabled ? 'opacity-50 pointer-events-none' : ''}>
             <div className="space-y-2">
-              <Label htmlFor="provider">Provider</Label>
-              <Select
-                value={settings.llm.provider}
-                onValueChange={(value) => handleProviderChange(value as LLMProvider)}
-              >
-                <SelectTrigger id="provider">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PROVIDER_IDS.map((id) => (
-                    <SelectItem key={id} value={id}>{PROVIDERS[id].label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="model">Model{isFetchingModels && <span className="ml-2 text-xs text-muted-foreground">refreshing…</span>}</Label>
                 {!customModel && (
@@ -592,9 +587,10 @@ export function SettingsDialog() {
                     className="text-xs text-muted-foreground hover:text-foreground"
                     onClick={() => {
                       setCustomModel(false)
-                      // Reset to first model in list if current is custom
-                      if (isCustomModel && availableModels.length > 0) {
-                        setLLMConfig({ model: availableModels[0].id })
+                      // Back to the list: the provider in use's first model, else any keyed provider's.
+                      if (isCustomModel) {
+                        const group = activeGroup?.hasKey ? activeGroup : modelGroups.find((g) => g.hasKey)
+                        if (group && group.models.length > 0) selectModel(group.provider, group.models[0].id)
                       }
                     }}
                   >
@@ -603,32 +599,61 @@ export function SettingsDialog() {
                 )}
               </div>
               {customModel ? (
-                <Input
-                  id="model"
-                  value={settings.llm.model}
-                  onChange={(e) => setLLMConfig({ model: e.target.value })}
-                  placeholder={`e.g., ${getDefaultModel(settings.llm.provider as LLMProvider)}`}
-                />
+                <div className="flex gap-2">
+                  {/* A typed id needs its provider (#1287). */}
+                  <Select
+                    value={settings.llm.provider}
+                    onValueChange={(value) => selectModel(value as LLMProvider, settings.llm.model)}
+                  >
+                    <SelectTrigger id="customModelProvider" aria-label="Custom model provider" className="w-36 shrink-0">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PROVIDER_IDS.map((id) => (
+                        <SelectItem key={id} value={id}>{PROVIDERS[id].label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    id="model"
+                    value={settings.llm.model}
+                    onChange={(e) => setLLMConfig({ model: e.target.value })}
+                    placeholder={`e.g., ${getDefaultModel(settings.llm.provider as LLMProvider)}`}
+                  />
+                </div>
               ) : (
                 <Select
-                  value={settings.llm.model}
-                  onValueChange={(value) => setLLMConfig({ model: value })}
+                  // Empty until the model in use is listed, which needs its provider's key.
+                  value={modelListed ? modelValue(settings.llm.provider as LLMProvider, settings.llm.model) : ''}
+                  onValueChange={handleModelSelect}
                 >
                   <SelectTrigger id="model">
-                    <SelectValue placeholder="Select a model" />
+                    <SelectValue placeholder="Add a key below to choose a model" />
                   </SelectTrigger>
                   <SelectContent>
-                    {availableModels.map((model) => (
-                      <SelectItem key={model.id} value={model.id}>
-                        <div className="flex flex-col items-start text-left">
-                          <span>{model.name}</span>
-                          {model.description && (
-                            <span className="text-xs text-muted-foreground">
-                              {model.description}
-                            </span>
-                          )}
-                        </div>
-                      </SelectItem>
+                    {modelGroups.map((group) => (
+                      <SelectGroup key={group.provider}>
+                        <SelectLabel>{group.label}</SelectLabel>
+                        {group.hasKey ? group.models.map((model) => (
+                          <SelectItem key={model.id} value={modelValue(group.provider, model.id)}>
+                            <div className="flex flex-col items-start text-left">
+                              <span>{model.name}</span>
+                              {model.description && (
+                                <span className="text-xs text-muted-foreground">
+                                  {model.description}
+                                </span>
+                              )}
+                            </div>
+                          </SelectItem>
+                        )) : (
+                          <div
+                            data-testid={`model-add-key-${group.provider}`}
+                            className="py-1.5 pl-8 pr-2 text-xs text-muted-foreground"
+                          >
+                            {addKeyLabel(group.label)} below to use its models.
+                          </div>
+                        )}
+                      </SelectGroup>
                     ))}
                   </SelectContent>
                 </Select>
@@ -639,8 +664,8 @@ export function SettingsDialog() {
               <div className="space-y-2">
                 <Label>API Keys</Label>
                 <p className="text-xs text-muted-foreground">
-                  Each provider keeps its own key; switching the provider in use never removes one. Keys stay in the
-                  macOS Keychain and are only ever sent to their provider.
+                  Each provider keeps its own key, and every provider with a key has its models in the list above. Keys
+                  stay in the macOS Keychain and are only ever sent to their provider.
                 </p>
                 <ProviderKeys
                   active={settings.llm.provider as LLMProvider}

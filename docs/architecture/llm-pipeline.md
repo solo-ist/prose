@@ -81,7 +81,7 @@ All handlers validate `streamId === chatStore.currentStreamId` before processing
 When the stream completes with tool calls:
 
 1. **Circuit breaker** — if `roundtripCount >= MAX_TOOL_ROUNDTRIPS`, append error and stop.
-2. **Build assistant content** — text blocks + `tool_use` blocks for the API message history.
+2. **Build assistant content** — `toolRoundAssistantMessage` (`lib/toolLoopMessages.ts`): the response's own thinking blocks first and unmodified, then its text, then its `tool_use` blocks. The thinking must come from the same response as the tool calls: Anthropic binds each block to the system prompt, the tool set and every message before it, and replays a block one round late only to reject the request (#1289).
 3. **Sort editor-mutating tools** — `edit`, `insert`, `suggest_edit`, `delete_node` are sorted by document position descending (bottom-first) via `resolveToolPosition()`, so an earlier tool call can't shift positions out from under a later one. `move_cursor` is intentionally **not** in this set — it changes the selection, not document content, so it has no effect on subsequent positions. Non-editor tools sort before editor tools.
 4. **Execute each tool** — `executeTool(name, args, toolMode, provenance)` from `src/renderer/lib/tools/index.ts`. `edit` and `insert` are async: unless the user prefers reduced motion, content is inserted in word-level chunks across ~24 animation frames so the user perceives the edit arriving rather than appearing. Tool results resolve once all chunks have landed.
 5. **Duplicate failure detection** — tracks `"${toolName}:${errorMessage}"` signature. If identical to the previous roundtrip's error, stops the loop.
@@ -92,7 +92,7 @@ When the stream completes with tool calls:
 
 Two code paths:
 
-- **Anthropic with tools** — uses `@anthropic-ai/sdk` directly (not Vercel AI SDK) to avoid tool format translation. Converts `role: 'tool'` messages to Anthropic's `tool_result` format. Emits `chunk`, `tool-call:start` (on each `content_block_start` for `tool_use`, before any `input_json_delta`), `tool-call`, and `complete` events.
+- **Anthropic with tools** — uses `@anthropic-ai/sdk` directly (not Vercel AI SDK) to avoid tool format translation. Converts `role: 'tool'` messages to Anthropic's `tool_result` format. Emits `chunk`, `tool-call:start` (on each `content_block_start` for `tool_use`, before any `input_json_delta`), `tool-call`, and `complete` events. With adaptive thinking it sends `thinking.block_binding.prefix_mismatch_behavior: "drop_block"` under the `thinking-binding-controls-2026-08-01` beta (`src/main/thinkingBinding.ts`): each continuation's system prompt describes the document as it is now, so after an edit tool the turn's earlier thinking no longer matches, and the API drops those blocks instead of failing the turn. Drops are logged from the response's `input_transformations` (#1289).
 - **Anthropic without tools** — uses Vercel AI SDK `streamText()` via `@ai-sdk/anthropic`. No tool support. Emits `chunk` and `complete` only. (Anthropic is the only supported provider; all legacy multi-provider code has been removed.)
 
 Active streams tracked in `Map<string, AbortController>` for abort support.

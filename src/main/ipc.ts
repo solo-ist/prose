@@ -7,6 +7,7 @@ import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
 import { withRetry } from '../shared/utils/retry'
 import { classifyLlmError, llmErrorMessage, type LlmErrorKind } from '../shared/llm/errors'
+import { droppedThinking, withThinkingBinding } from './thinkingBinding'
 import { getDefaultModel, getSmallModel, supportsAdaptiveThinking, getThinkingOffMode } from '../shared/llm/models'
 import { chatCompletionsTuning, getProvider, isProvider } from '../shared/llm/providers'
 import { buildChatBody, listChatModels, probeChatQuota, streamChatCompletion } from './chatCompletions'
@@ -1380,17 +1381,21 @@ export function setupIpcHandlers(): void {
 
         const maxTokens = request.maxTokens || 16000
 
+        // Adaptive thinking also drops, rather than rejects, thinking blocks
+        // the rebuilt system prompt no longer matches (#1289).
+        const binding = withThinkingBinding(thinkingParam)
+
         const streamParams: Parameters<typeof client.messages.stream>[0] = {
           model: request.model,
           max_tokens: maxTokens,
           system: request.system,
           messages: anthropicMessages,
           tools: anthropicTools,
-          ...(thinkingParam ? { thinking: thinkingParam } : {}),
+          ...(binding.thinking ? { thinking: binding.thinking } : {}),
           ...(sendEffort ? { output_config: { effort: 'high' as const } } : {})
-        }
+        } as Parameters<typeof client.messages.stream>[0]
 
-        const stream = client.messages.stream(streamParams)
+        const stream = client.messages.stream(streamParams, binding.headers ? { headers: binding.headers } : undefined)
 
         let fullContent = ''
         const toolCalls: Array<{ id: string; name: string; args: unknown }> = []
@@ -1465,6 +1470,10 @@ export function setupIpcHandlers(): void {
         console.log('[LLM:stream] Waiting for finalMessage...')
         const finalMessage = await stream.finalMessage()
         console.log('[LLM:stream] Got finalMessage, stop_reason:', finalMessage.stop_reason)
+        const dropped = droppedThinking(finalMessage)
+        if (dropped.length > 0) {
+          console.warn('[LLM:stream] The API dropped thinking blocks it could not use:', dropped)
+        }
 
         // Extract tool calls and thinking blocks from the final message.
         // Thinking blocks are passed back so useChat can embed them verbatim

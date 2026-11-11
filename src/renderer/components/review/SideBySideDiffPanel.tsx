@@ -4,7 +4,9 @@ import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useReviewStore } from '../../stores/reviewStore'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
 import { reviewItems, type ReviewItem } from './reviewItems'
-import { reviewDiff, scrollSelectionIntoCenter, visibleWhitespace, type DiffSegment } from '../../lib/diffUtils'
+import { reviewContextOf } from './reviewContext'
+import { ReviewText } from './ReviewText'
+import { reviewDiff, scrollSelectionIntoCenter } from '../../lib/diffUtils'
 import { cn } from '../../lib/utils'
 
 /**
@@ -197,6 +199,8 @@ function DiffHunk({
     () => reviewDiff(suggestion.originalText, suggestion.suggestedText),
     [suggestion.originalText, suggestion.suggestedText]
   )
+  // The sentence around the change, as the file holds it (#1295).
+  const context = editor ? reviewContextOf(editor.state.doc, suggestion) : null
 
   const [feedbackInput, setFeedbackInput] = useState(suggestion.userReply ?? '')
   const [showFeedbackForm, setShowFeedbackForm] = useState(false)
@@ -240,7 +244,7 @@ function DiffHunk({
         <div className="pr-2 border-r border-border">
           <div className="text-[10px] font-medium text-muted-foreground/60 mb-1 uppercase tracking-wider">Original</div>
           <div className="text-sm leading-relaxed">
-            <DiffText segments={diff.old} mode="old" />
+            <ReviewText segments={diff.old} mode="old" context={context} />
           </div>
         </div>
 
@@ -248,7 +252,7 @@ function DiffHunk({
         <div className="pl-2">
           <div className="text-[10px] font-medium text-muted-foreground/60 mb-1 uppercase tracking-wider">Suggested</div>
           <div className="text-sm leading-relaxed">
-            <DiffText segments={diff.new} mode="new" />
+            <ReviewText segments={diff.new} mode="new" context={context} />
           </div>
         </div>
       </div>
@@ -323,35 +327,5 @@ function DiffHunk({
         </button>
       </div>
     </div>
-  )
-}
-
-function DiffText({ segments, mode }: { segments: DiffSegment[]; mode: 'old' | 'new' }) {
-  return (
-    <span>
-      {segments.map((seg, i) => {
-        if (mode === 'old' && seg.type === 'removed') {
-          return (
-            <span
-              key={i}
-              className="bg-red-500/20 text-red-700 dark:text-red-400 line-through rounded-sm px-0.5"
-            >
-              {visibleWhitespace(seg.text)}
-            </span>
-          )
-        }
-        if (mode === 'new' && seg.type === 'added') {
-          return (
-            <span
-              key={i}
-              className="bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 rounded-sm px-0.5"
-            >
-              {visibleWhitespace(seg.text)}
-            </span>
-          )
-        }
-        return <span key={i} className="opacity-50">{seg.text}</span>
-      })}
-    </span>
   )
 }

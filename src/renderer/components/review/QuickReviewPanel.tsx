@@ -3,9 +3,11 @@ import { Check, X, ChevronLeft, ChevronRight, MessageSquare, ArrowLeftRight } fr
 import { motion, useMotionValue, useTransform, type PanInfo } from 'framer-motion'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useReviewStore, useCurrentSuggestionIndex } from '../../stores/reviewStore'
-import { reviewDiff, scrollSelectionIntoCenter, visibleWhitespace, type DiffSegment } from '../../lib/diffUtils'
+import { reviewDiff, scrollSelectionIntoCenter } from '../../lib/diffUtils'
 import { cn } from '../../lib/utils'
 import { reviewItems, type ReviewItem } from './reviewItems'
+import { reviewContextOf } from './reviewContext'
+import { ReviewText } from './ReviewText'
 
 /**
  * Card-based quick review component — redesigned (#385).
@@ -222,6 +224,8 @@ export function QuickReviewPanel() {
   }
 
   const diff = reviewDiff(current.originalText, current.suggestedText)
+  // The sentence around the change, as the file holds it (#1295).
+  const context = editor ? reviewContextOf(editor.state.doc, current) : null
 
   return (
     <div className="flex flex-col h-full">
@@ -350,7 +354,7 @@ export function QuickReviewPanel() {
               Original
             </div>
             <div className="text-sm leading-relaxed rounded-md bg-muted/30 px-3 py-2.5 border border-border">
-              <DiffText segments={diff.old} mode="old" />
+              <ReviewText segments={diff.old} mode="old" context={context} />
             </div>
           </div>
 
@@ -360,7 +364,7 @@ export function QuickReviewPanel() {
               Suggested
             </div>
             <div className="text-sm leading-relaxed rounded-md bg-muted/30 px-3 py-2.5 border border-border">
-              <DiffText segments={diff.new} mode="new" />
+              <ReviewText segments={diff.new} mode="new" context={context} />
             </div>
           </div>
 
@@ -426,36 +430,5 @@ export function QuickReviewPanel() {
         ↵ accept · ⌫ reject · ← → navigate
       </div>
     </div>
-  )
-}
-
-/** Render diff segments with word-level highlighting */
-function DiffText({ segments, mode }: { segments: DiffSegment[]; mode: 'old' | 'new' }) {
-  return (
-    <span>
-      {segments.map((seg, i) => {
-        if (mode === 'old' && seg.type === 'removed') {
-          return (
-            <span
-              key={i}
-              className="bg-red-500/20 text-red-700 dark:text-red-400 line-through rounded-sm px-0.5"
-            >
-              {visibleWhitespace(seg.text)}
-            </span>
-          )
-        }
-        if (mode === 'new' && seg.type === 'added') {
-          return (
-            <span
-              key={i}
-              className="bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 rounded-sm px-0.5"
-            >
-              {visibleWhitespace(seg.text)}
-            </span>
-          )
-        }
-        return <span key={i} className="opacity-50">{seg.text}</span>
-      })}
-    </span>
   )
 }

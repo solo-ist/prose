@@ -3,9 +3,10 @@
  *
  * One entry per provider. Main reads it to call the provider and to find the
  * provider's key; the renderer reads it for the model picker and the key field.
- * Anthropic speaks its own API; OpenAI speaks Chat Completions through one
- * adapter in main (src/main/chatCompletions.ts), which Inference Coop (#956)
- * reuses with its own base URL and models.
+ * Anthropic speaks its own API. OpenAI speaks the Responses API through
+ * src/main/responses.ts (#1301): its newer models take tools with reasoning
+ * only there. OpenAI-compatible gateways (Inference Coop, #956) speak Chat
+ * Completions through src/main/chatCompletions.ts.
  */
 
 export interface ModelInfo {
@@ -17,12 +18,13 @@ export interface ModelInfo {
 export type LLMProvider = 'anthropic' | 'openai'
 
 /**
- * How main talks to the provider: Anthropic's Messages API through its SDK, or
- * the Chat Completions API (OpenAI and OpenAI-compatible gateways such as
- * LiteLLM) through `src/main/chatCompletions.ts`. Every switch on it in main is
- * exhaustive, so a new transport fails to compile until each path handles it.
+ * How main talks to the provider: Anthropic's Messages API through its SDK,
+ * OpenAI's Responses API through `src/main/responses.ts`, or the Chat
+ * Completions API (OpenAI-compatible gateways such as LiteLLM) through
+ * `src/main/chatCompletions.ts`. Every switch on it in main is exhaustive, so
+ * a new transport fails to compile until each path handles it.
  */
-export type ProviderTransport = 'anthropic' | 'chat-completions'
+export type ProviderTransport = 'anthropic' | 'responses' | 'chat-completions'
 
 export interface ProviderInfo {
   id: LLMProvider
@@ -52,6 +54,16 @@ export interface ProviderInfo {
    * `/v1/models` also lists embeddings, audio, image and Responses-only models.
    */
   liveModels?: { include?: RegExp; exclude?: RegExp }
+  /**
+   * Responses API hints (#1301). They are first guesses only: the adapter
+   * learns what a model really accepts from the provider's refusals.
+   */
+  responses?: {
+    /** Whether the model reasons, so takes a `reasoning` parameter and the thinking toggle. */
+    reasons: (model: string) => boolean
+    /** The lowest `reasoning.effort` to try first when thinking is off. */
+    offEffort: (model: string) => string
+  }
   /** Chat Completions request tuning; read through `chatCompletionsTuning`. */
   chatCompletions?: {
     /**
@@ -117,7 +129,7 @@ export const PROVIDERS: Record<LLMProvider, ProviderInfo> = {
   openai: {
     id: 'openai',
     label: 'OpenAI',
-    transport: 'chat-completions',
+    transport: 'responses',
     baseURL: 'https://api.openai.com/v1',
     credentialKey: 'llm-api-key-openai',
     models: OPENAI_MODELS,
@@ -128,12 +140,12 @@ export const PROVIDERS: Record<LLMProvider, ProviderInfo> = {
     keyFormat: { prefix: 'sk-', minLength: 20 },
     keysUrl: 'https://platform.openai.com/api-keys',
     billingHint: 'platform.openai.com → Settings → Billing',
-    chatCompletions: {
-      // gpt-5 defaults to medium reasoning, which Chat Completions does not
-      // stream: dead air before every tool step's first token. Low keeps the
-      // tool loop responsive (#1271).
-      reasoningEffortFor: (model) => (isOpenAIReasoningModel(model) ? 'low' : undefined),
-      reasoningHeadroom: 8000,
+    responses: {
+      reasons: (model) => isOpenAIReasoningModel(model),
+      // The first gpt-5 generation's lowest effort is "minimal"; later models
+      // take "none", or refuse it and say what they take, which the adapter
+      // then uses.
+      offEffort: (model) => (/^gpt-5(-mini|-nano)?(-\d{4}-\d{2}-\d{2})?$/.test(model) ? 'minimal' : 'none'),
     },
     liveModels: {
       include: /^(gpt-|o\d|chatgpt-)/,
@@ -145,11 +157,19 @@ export const PROVIDERS: Record<LLMProvider, ProviderInfo> = {
 export const PROVIDER_IDS = Object.keys(PROVIDERS) as LLMProvider[]
 
 /**
- * OpenAI models that take `reasoning_effort`: the gpt-5 family and the
- * o-series, but not the chat-tuned `gpt-5-chat` aliases or the gpt-4 line.
+ * OpenAI models that reason: everything but the gpt-4 and gpt-3.5 lines and
+ * the chat-tuned aliases (`gpt-5-chat-latest`, `chatgpt-4o-latest`). A newer
+ * family (gpt-6) counts without being listed; a wrong guess is corrected by
+ * the provider's refusal.
  */
 export function isOpenAIReasoningModel(model: string): boolean {
-  return /^(gpt-5|o\d)/.test(model) && !/-chat\b/.test(model)
+  return !/^(gpt-4|gpt-3\.5|chatgpt-)/.test(model) && !/-chat\b/.test(model)
+}
+
+/** Whether `model` on `providerId` reasons over the Responses API (false for every other transport). */
+export function reasonsOverResponses(providerId: string, model: string): boolean {
+  const provider = getProvider(providerId)
+  return isProvider(providerId) && provider.transport === 'responses' && !!provider.responses?.reasons(model)
 }
 
 /**

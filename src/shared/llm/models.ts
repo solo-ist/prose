@@ -3,7 +3,7 @@
  * The model lists themselves live in each provider's entry (`./providers`).
  */
 
-import { getProvider, PROVIDERS, ANTHROPIC_MODELS, type LLMProvider, type ModelInfo } from './providers'
+import { getProvider, reasonsOverResponses, PROVIDERS, ANTHROPIC_MODELS, type LLMProvider, type ModelInfo } from './providers'
 
 export { ANTHROPIC_MODELS }
 export type { LLMProvider, ModelInfo }
@@ -61,6 +61,15 @@ const THINKING_CAPABLE_PREFIXES = [
 
 export function supportsAdaptiveThinking(modelId: string): boolean {
   return THINKING_CAPABLE_PREFIXES.some(prefix => modelId.startsWith(prefix))
+}
+
+/**
+ * Whether the thinking toggle applies to this provider's model: Claude's
+ * adaptive thinking, or an OpenAI model that reasons over the Responses API
+ * (#1301), where off means the lowest effort the model accepts.
+ */
+export function supportsThinkingToggle(providerId: string, modelId: string): boolean {
+  return reasonsOverResponses(providerId, modelId) || (getProvider(providerId).thinking && supportsAdaptiveThinking(modelId))
 }
 
 /**

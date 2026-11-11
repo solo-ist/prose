@@ -199,8 +199,14 @@ function DiffHunk({
     () => reviewDiff(suggestion.originalText, suggestion.suggestedText),
     [suggestion.originalText, suggestion.suggestedText]
   )
-  // The sentence around the change, as the file holds it (#1295).
-  const context = editor ? reviewContextOf(editor.state.doc, suggestion) : null
+  // The sentence around the change, as the file holds it (#1295); an AI
+  // suggestion's range walks the document, so it follows the document only.
+  const doc = editor?.state.doc
+  const context = useMemo(
+    () => (doc ? reviewContextOf(doc, suggestion) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [doc, suggestion.id, suggestion.from, suggestion.to, suggestion.tracked]
+  )
 
   const [feedbackInput, setFeedbackInput] = useState(suggestion.userReply ?? '')
   const [showFeedbackForm, setShowFeedbackForm] = useState(false)

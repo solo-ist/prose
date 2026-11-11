@@ -83,7 +83,7 @@ test.describe('Electron — Mac App Store gates (#1222)', () => {
     await primary.click()
     await page.getByRole('radio', { name: 'Use AI' }).click()
     await primary.click()
-    await expect(progress).toHaveText(/^3 \/ 5 · API key$/i)
+    await expect(progress).toHaveText(/^3 \/ 5 · API keys$/i)
     await secondary.click() // Skip for now
     await expect(progress).toHaveText(/^4 \/ 5 · Default editor$/i)
     await secondary.click() // Remind me later

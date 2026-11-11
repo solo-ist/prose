@@ -18,7 +18,7 @@ import { Input } from '../ui/input'
 import { ProseMark } from '../ProseMark'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { validateApiKeyFormat } from '../../lib/llm'
-import { PROVIDERS, PROVIDER_IDS, type LLMProvider } from '../../../shared/llm/providers'
+import { PROVIDERS, PROVIDER_IDS, type LLMKeyStatusMap, type LLMProvider } from '../../../shared/llm/providers'
 import { cn } from '../../lib/utils'
 import {
   STEP_LABELS,
@@ -46,6 +46,34 @@ const AI_VIOLET = 'hsl(270 70% 60%)'
 const SERIF = { fontFamily: "'Fraunces', Georgia, serif", fontStyle: 'italic', fontWeight: 500 } as const
 
 type KeyState = 'empty' | 'checking' | 'valid' | 'invalid'
+
+/** One provider's field on the key step (#1287). */
+interface KeyField {
+  input: string
+  state: KeyState
+  message: string | null
+  /** A key for this provider is in the Keychain: saved here, or before onboarding. */
+  saved: boolean
+  /** It works but can't be used yet (no credits, #1268). */
+  warning: boolean
+}
+
+/** Each provider's field, seeded from the keys already in the Keychain. */
+function keyFieldsFrom(keyStatus: LLMKeyStatusMap | undefined): Record<LLMProvider, KeyField> {
+  return Object.fromEntries(
+    PROVIDER_IDS.map((provider) => {
+      const has = !!keyStatus?.[provider]
+      const field: KeyField = {
+        input: '',
+        state: has ? 'valid' : 'empty',
+        message: has ? 'A key is already in the Keychain.' : null,
+        saved: has,
+        warning: false
+      }
+      return [provider, field]
+    })
+  ) as Record<LLMProvider, KeyField>
+}
 
 interface Probe {
   direct: boolean
@@ -101,7 +129,6 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
   const setAIConsent = useSettingsStore((s) => s.setAIConsent)
   const setErrorTracking = useSettingsStore((s) => s.setErrorTracking)
   const setFileAssociationConfig = useSettingsStore((s) => s.setFileAssociationConfig)
-  const setActiveProvider = useSettingsStore((s) => s.setActiveProvider)
   const setLlmKey = useSettingsStore((s) => s.setLlmKey)
   const saveSettings = useSettingsStore((s) => s.saveSettings)
 
@@ -109,13 +136,8 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
   const [step, setStep] = useState<StepId>(startAt)
   const [ai, setAi] = useState<AiChoice>(null)
   const [crash, setCrash] = useState(false)
-  // The key step's provider (#1242): the one in use, Anthropic by default.
-  const [keyProvider, setKeyProvider] = useState<LLMProvider>('anthropic')
-  const [keyInput, setKeyInput] = useState('')
-  const [keyState, setKeyState] = useState<KeyState>('empty')
-  const [keyMessage, setKeyMessage] = useState<string | null>(null)
-  const [keySaved, setKeySaved] = useState(false)
-  const [keyWarning, setKeyWarning] = useState(false)
+  // The key step (#1287): a field per provider, each verified and saved on its own.
+  const [keys, setKeys] = useState<Record<LLMProvider, KeyField>>(() => keyFieldsFrom(undefined))
   const [skill, setSkill] = useState<SideEffect>('idle')
   const [skillError, setSkillError] = useState<string | null>(null)
   const [mcp, setMcp] = useState<SideEffect>('idle')
@@ -128,17 +150,11 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    const hasKey = !!settings.llm.keyStatus?.[settings.llm.provider]
-    setKeyProvider(settings.llm.provider)
     setProbe(null)
     setStep(startAt)
     setAi(null)
     setCrash(settings.errorTracking?.enabled === true)
-    setKeyInput('')
-    setKeyWarning(false)
-    setKeyState(hasKey ? 'valid' : 'empty')
-    setKeySaved(hasKey)
-    setKeyMessage(hasKey ? 'A key is already in the Keychain.' : null)
+    setKeys(keyFieldsFrom(settings.llm.keyStatus))
     setSkill('idle')
     setSkillError(null)
     setMcp('idle')
@@ -181,64 +197,48 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
     onFinish()
   }, [ai, crash, def, defaultAlready, setAIConsent, setErrorTracking, setFileAssociationConfig, onFinish])
 
-  /** Pick the key step's provider; its own saved key (if any) shows as the starting state. */
-  const chooseKeyProvider = (provider: LLMProvider) => {
-    if (provider === keyProvider) return
-    const has = !!useSettingsStore.getState().settings.llm.keyStatus?.[provider]
-    setKeyProvider(provider)
-    setKeyInput('')
-    setKeyWarning(false)
-    setKeyState(has ? 'valid' : 'empty')
-    setKeySaved(has)
-    setKeyMessage(has ? 'A key is already in the Keychain.' : null)
-    // A provider that already has a key is ready to use as it is.
-    if (has) setActiveProvider(provider)
-  }
+  const patchKey = (provider: LLMProvider, patch: Partial<KeyField>) =>
+    setKeys((k) => ({ ...k, [provider]: { ...k[provider], ...patch } }))
 
-  const verifyKey = async () => {
-    const value = keyInput.trim()
-    const provider = keyProvider
+  const verifyKey = async (provider: LLMProvider) => {
+    const value = keys[provider].input.trim()
     const { label } = PROVIDERS[provider]
     const formatError = validateApiKeyFormat(provider, value)
     if (formatError) {
-      setKeyState('invalid')
-      setKeyMessage(formatError)
+      patchKey(provider, { state: 'invalid', message: formatError })
       return
     }
-    setKeyState('checking')
-    setKeyMessage(null)
+    patchKey(provider, { state: 'checking', message: null })
     try {
       const result = window.api?.testApiKey
         ? await window.api.testApiKey({ provider, apiKey: value })
         : { success: false, message: 'The key check is unavailable in this build.' }
       if (!result.success) {
-        setKeyState('invalid')
-        setKeyMessage(result.message || `${label} did not accept this key.`)
+        patchKey(provider, { state: 'invalid', message: result.message || `${label} did not accept this key.` })
         return
       }
       // Main stores it (the Keychain when available); the renderer keeps no copy (#1240).
+      // The first key saved picks the provider Prose Agents use, with its model (#1287).
       const saved = await setLlmKey(provider, value)
       if (!saved.ok) {
-        setKeyState('invalid')
-        setKeyMessage(saved.error || 'The key could not be saved.')
+        patchKey(provider, { state: 'invalid', message: saved.error || 'The key could not be saved.' })
         return
       }
-      // The verified provider is the one Prose Agents use, with its model.
-      setActiveProvider(provider)
       await saveSettings()
-      setKeyInput('')
-      setKeyState('valid')
-      setKeySaved(true)
       const where =
         useSettingsStore.getState().settings.llm.keyStatus?.[provider]?.persisted === false
           ? 'Saved for this session (secure storage is unavailable).'
           : 'Saved to Keychain.'
-      // A valid key on an account with no credits saves, and says so (#1268).
-      setKeyMessage(result.warning ? `${result.message} ${where}` : `Key works. ${where}`)
-      setKeyWarning(result.warning === true)
+      patchKey(provider, {
+        input: '',
+        state: 'valid',
+        saved: true,
+        // A valid key on an account with no credits saves, and says so (#1268).
+        warning: result.warning === true,
+        message: result.warning ? `${result.message} ${where}` : `Key works. ${where}`
+      })
     } catch (e) {
-      setKeyState('invalid')
-      setKeyMessage(e instanceof Error ? e.message : 'The key check failed.')
+      patchKey(provider, { state: 'invalid', message: e instanceof Error ? e.message : 'The key check failed.' })
     }
   }
 
@@ -297,7 +297,7 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
       primaryDisabled = ai === null
       break
     case 'key':
-      primaryDisabled = keyState !== 'valid'
+      primaryDisabled = !PROVIDER_IDS.some((p) => keys[p].saved)
       secondaryLabel = 'Skip for now'
       break
     case 'claude':
@@ -322,7 +322,8 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
       break
   }
 
-  const summary = summaryRows({ ai, keySaved, keyProvider: PROVIDERS[keyProvider].label, crash, direct, skill, mcp, def, defaultAlready })
+  const savedKeys = PROVIDER_IDS.filter((p) => keys[p].saved).map((p) => PROVIDERS[p].label)
+  const summary = summaryRows({ ai, keys: savedKeys, crash, direct, skill, mcp, def, defaultAlready })
   const sideEffectLabel = (state: SideEffect, idle: string, working: string, done: string) =>
     state === 'done' ? done : state === 'working' ? working : state === 'error' ? 'Retry' : idle
 
@@ -481,107 +482,81 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
           {current === 'key' && (
             <div className="flex flex-col gap-5">
               <div className="flex flex-col gap-1.5">
-                {title(`Add your ${PROVIDERS[keyProvider].label} key`)}
+                {title('Add your API keys')}
                 <p className="m-0 text-muted-foreground">
-                  Prose uses your own key. It's kept in the macOS Keychain and only ever sent to {PROVIDERS[keyProvider].label}.
+                  Prose uses your own keys. Add one or both: each is kept in the macOS Keychain and only ever sent to its provider.
                 </p>
               </div>
-              <div role="radiogroup" aria-label="AI provider" className="flex gap-2" data-testid="onboarding-provider">
-                {PROVIDER_IDS.map((provider) => {
-                  const checked = keyProvider === provider
-                  return (
-                    <button
-                      key={provider}
-                      type="button"
-                      role="radio"
-                      aria-checked={checked}
-                      onClick={() => chooseKeyProvider(provider)}
-                      className={cn(
-                        'flex flex-1 items-center justify-between gap-2 rounded-lg border px-3.5 py-2.5 text-left text-sm transition-colors',
-                        checked ? 'border-foreground bg-muted/40' : 'border-border hover:bg-muted/20'
-                      )}
-                    >
-                      <span className="font-medium">{PROVIDERS[provider].label}</span>
-                      <span
-                        aria-hidden="true"
-                        className={cn(
-                          'flex h-4 w-4 flex-none items-center justify-center rounded-full border',
-                          checked ? 'border-foreground' : 'border-muted-foreground/60'
-                        )}
+              {PROVIDER_IDS.map((provider) => {
+                const field = keys[provider]
+                const info = PROVIDERS[provider]
+                return (
+                  <div key={provider} className="flex flex-col gap-2" data-testid={`onboarding-key-row-${provider}`}>
+                    <label htmlFor={`onboarding-key-${provider}`} className="text-xs font-medium">
+                      {info.label} API key
+                    </label>
+                    <div className="flex gap-2">
+                      <Input
+                        id={`onboarding-key-${provider}`}
+                        type="password"
+                        autoComplete="off"
+                        spellCheck={false}
+                        placeholder={field.saved && !field.input ? '•••• key in Keychain' : `${info.keyFormat?.prefix ?? ''}…`}
+                        value={field.input}
+                        onChange={(e) =>
+                          patchKey(provider, { input: e.target.value, state: 'empty', message: null, warning: false })
+                        }
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') void verifyKey(provider)
+                        }}
+                        className="h-9"
+                        style={{
+                          borderColor:
+                            field.state === 'invalid' ? REJECT : field.state === 'valid' ? ACCEPT : undefined
+                        }}
+                      />
+                      <Button
+                        variant="outline"
+                        className="h-9 flex-none"
+                        onClick={() => void verifyKey(provider)}
+                        disabled={field.state === 'checking' || !field.input.trim()}
                       >
-                        {checked && <span className="h-2 w-2 rounded-full bg-foreground" />}
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-              <div className="flex flex-col gap-2">
-                <label htmlFor="onboarding-key" className="text-xs font-medium">
-                  API key
-                </label>
-                <div className="flex gap-2">
-                  <Input
-                    id="onboarding-key"
-                    type="password"
-                    autoComplete="off"
-                    spellCheck={false}
-                    placeholder={keySaved && !keyInput ? '•••• key in Keychain' : `${PROVIDERS[keyProvider].keyFormat?.prefix ?? ''}…`}
-                    value={keyInput}
-                    onChange={(e) => {
-                      setKeyInput(e.target.value)
-                      setKeyWarning(false)
-                      setKeyState('empty')
-                      setKeyMessage(null)
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') void verifyKey()
-                    }}
-                    className="h-9"
-                    style={{
-                      borderColor:
-                        keyState === 'invalid' ? REJECT : keyState === 'valid' ? ACCEPT : undefined
-                    }}
-                  />
-                  <Button
-                    variant="outline"
-                    className="h-9 flex-none"
-                    onClick={() => void verifyKey()}
-                    disabled={keyState === 'checking' || !keyInput.trim()}
-                  >
-                    {keyState === 'checking' ? 'Checking…' : 'Verify'}
-                  </Button>
-                </div>
-                <div aria-live="polite" className="flex min-h-5 items-start gap-2 text-xs">
-                  {keyState === 'checking' && <span className="text-muted-foreground">Checking with {PROVIDERS[keyProvider].label}…</span>}
-                  {keyState === 'valid' && (
-                    <>
-                      <Check className="mt-px h-3.5 w-3.5 flex-none" style={{ color: keyWarning ? WARN : ACCEPT }} aria-hidden="true" />
-                      <span style={{ color: keyWarning ? WARN : ACCEPT }}>{keyMessage ?? 'Key works. Saved to Keychain.'}</span>
-                    </>
-                  )}
-                  {keyState === 'invalid' && <span style={{ color: REJECT }}>{keyMessage}</span>}
-                  {keyState === 'empty' && (
-                    <span className="text-muted-foreground">
-                      {PROVIDERS[keyProvider].keyFormat && (
-                        <>Starts with <Code>{PROVIDERS[keyProvider].keyFormat?.prefix}</Code>. </>
+                        {field.state === 'checking' ? 'Checking…' : 'Verify'}
+                      </Button>
+                    </div>
+                    <div aria-live="polite" className="flex min-h-5 items-start gap-2 text-xs">
+                      {field.state === 'checking' && <span className="text-muted-foreground">Checking with {info.label}…</span>}
+                      {field.state === 'valid' && (
+                        <>
+                          <Check className="mt-px h-3.5 w-3.5 flex-none" style={{ color: field.warning ? WARN : ACCEPT }} aria-hidden="true" />
+                          <span style={{ color: field.warning ? WARN : ACCEPT }}>{field.message ?? 'Key works. Saved to Keychain.'}</span>
+                        </>
                       )}
-                      Create one at{' '}
-                      <button
-                        type="button"
-                        className="underline underline-offset-2 hover:text-foreground"
-                        onClick={() => void window.api?.openExternal?.(PROVIDERS[keyProvider].keysUrl)}
-                      >
-                        {new URL(PROVIDERS[keyProvider].keysUrl).host}
-                      </button>
-                      .
-                    </span>
-                  )}
-                </div>
-              </div>
+                      {field.state === 'invalid' && <span style={{ color: REJECT }}>{field.message}</span>}
+                      {field.state === 'empty' && (
+                        <span className="text-muted-foreground">
+                          {info.keyFormat && (
+                            <>Starts with <Code>{info.keyFormat.prefix}</Code>. </>
+                          )}
+                          Create one at{' '}
+                          <button
+                            type="button"
+                            className="underline underline-offset-2 hover:text-foreground"
+                            onClick={() => void window.api?.openExternal?.(info.keysUrl)}
+                          >
+                            {new URL(info.keysUrl).host}
+                          </button>
+                          .
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
               <div className="flex items-start gap-3 rounded-md border border-border bg-muted/30 px-3.5 py-3">
                 <KeyRound className="mt-0.5 h-4 w-4 flex-none text-muted-foreground" aria-hidden="true" />
                 <span className="text-xs text-muted-foreground">
-                  No key yet? Skip this. The assistant waits until you add one in Settings → AI <Kbd>⌘,</Kbd>
+                  No key yet? Skip this. The assistant waits until you add one in Settings → LLM <Kbd>⌘,</Kbd>
                 </span>
               </div>
             </div>

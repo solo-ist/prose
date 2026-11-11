@@ -447,7 +447,7 @@ export function useChat() {
               boundContent,
               state.toolMode,
               binding.path,
-              resolveModelName(settingsState.settings.llm.model, settingsState.fetchedModels),
+              resolveModelName(settingsState.settings.llm.model, settingsState.liveModels[settingsState.settings.llm.provider]),
               continuationModeJustSwitched
             ),
             streamId: newStreamId,
@@ -665,7 +665,7 @@ export function useChat() {
             useEditorStore.getState().document.content,
             toolMode,
             useEditorStore.getState().document.path,
-            resolveModelName(settings.llm.model, useSettingsStore.getState().fetchedModels),
+            resolveModelName(settings.llm.model, useSettingsStore.getState().liveModels[settings.llm.provider]),
             modeJustSwitched
           ),
           streamId,

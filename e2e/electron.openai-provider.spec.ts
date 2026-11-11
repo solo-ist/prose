@@ -1,5 +1,5 @@
 /**
- * OpenAI as a Prose Agents provider, over the Chat Completions adapter (#1241).
+ * OpenAI as a Prose Agents provider (#1241), over the Responses adapter (#1301).
  *
  * The OpenAI API is never called: `fetch` in the main process is stubbed for
  * https://api.openai.com/ (the adapter calls the global `fetch` at request
@@ -13,7 +13,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { dismissOnboarding, dismissOverlay, launchApp, openChat, seedSettings, typeInEditor, waitForAppReady, waitForEditor } from './helpers'
-import { openAIRequests, sseChunk, stubOpenAI, type OpenAIStep } from './openai-stub'
+import { openAIRequests, rsAnswer, rsCall, rsCallItem, rsCompleted, rsReasoning, rsReasoningItem, rsText, stubOpenAI, type OpenAIStep } from './openai-stub'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -88,54 +88,61 @@ test('Settings: OpenAI is a provider; its key tests against /models, saves in ma
   await expect(dialog.locator('#emojiIcons')).toBeDisabled()
 })
 
-test('a chat turn over OpenAI: a suggest_edit call split across chunks leaves a suggestion, and its result goes back as a tool message', async () => {
+/** The chat's turns: streamed requests to /responses. The key test's credits probe is not streamed (#1268). */
+const turns = async () => (await requests()).filter((r) => r.url.endsWith('/responses') && r.body?.stream === true)
+
+async function ask(prompt: string): Promise<void> {
+  await waitForEditor(page)
+  await openChat(page)
+  await page.evaluate((prompt) => {
+    window.dispatchEvent(new CustomEvent('prose:mode-switch-and-run', { detail: { prompt } }))
+  }, prompt)
+}
+
+test('a chat turn over OpenAI: it reasons and calls suggest_edit in one turn; the thought process shows, and the reasoning goes back with the tool result', async () => {
   const args = JSON.stringify({ nodeId: 'stale', search: 'The quick fox.', content: 'The quick brown fox.' })
+  const reasoning = { id: 'rs_1', summary: ['The sentence wants ', 'a colour.'], encrypted: 'gAAAAenc' }
+  const call = { id: 'fc_1', callId: 'call_1', name: 'suggest_edit', args: [args.slice(0, 20), args.slice(20, 50), args.slice(50)] }
   await stub([
-    // Roundtrip 1: a little text, then the tool call in pieces.
-    [
-      sseChunk({ role: 'assistant', content: 'Let me ' }),
-      sseChunk({ content: 'suggest that.' }),
-      sseChunk({ tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'suggest_edit', arguments: '' } }] }),
-      sseChunk({ tool_calls: [{ index: 0, function: { arguments: args.slice(0, 20) } }] }),
-      sseChunk({ tool_calls: [{ index: 0, function: { arguments: args.slice(20, 50) } }] }),
-      sseChunk({ tool_calls: [{ index: 0, function: { arguments: args.slice(50) } }] }),
-      sseChunk({}, 'tool_calls'),
-      'data: [DONE]\n\n',
-    ],
+    // Roundtrip 1: reasoning, a little text, then the tool call in pieces.
+    [...rsReasoning(reasoning, 0), ...rsText('Let me ', 'suggest that.'), ...rsCall(call, 2), rsCompleted()],
     // Roundtrip 2: plain text to close the loop.
-    [sseChunk({ content: 'Suggested a change.' }), sseChunk({}, 'stop'), 'data: [DONE]\n\n'],
+    rsAnswer('Suggested a change.'),
   ])
   await configureOpenAI()
   await waitForEditor(page)
   await typeInEditor(page, 'The quick fox.')
-  await openChat(page)
-  await page.evaluate(() => {
-    window.dispatchEvent(new CustomEvent('prose:mode-switch-and-run', { detail: { prompt: 'Add a colour.' } }))
-  })
+  // GPT-5 reasons, so the thinking toggle is there, and on.
+  await expect(page.getByRole('button', { name: 'Extended thinking on' })).toBeVisible()
+  await ask('Add a colour.')
 
-  // Streamed requests are the chat's; the key test's credits probe is not streamed (#1268).
-  const chatRequests = async () => (await requests()).filter((r) => r.url.endsWith('/chat/completions') && r.body?.stream === true)
-  await expect.poll(async () => (await chatRequests()).length, { timeout: 15_000 }).toBe(2)
-  const [first, second] = await chatRequests()
+  await expect.poll(async () => (await turns()).length, { timeout: 15_000 }).toBe(2)
+  const [first, second] = await turns()
 
+  expect(first.url).toBe('https://api.openai.com/v1/responses')
   expect(first.auth).toBe(`Bearer ${OPENAI_KEY}`)
   expect(first.body.model).toBe('gpt-5')
   expect(first.body.stream).toBe(true)
-  expect(first.body.messages[0].role).toBe('system')
-  expect(first.body.messages.at(-1)).toEqual({ role: 'user', content: 'Add a colour.' })
+  // Stateless: nothing is stored at OpenAI, and the system prompt is not an input item.
+  expect(first.body.store).toBe(false)
+  expect(typeof first.body.instructions).toBe('string')
+  expect(first.body.input.at(-1)).toEqual({ role: 'user', content: 'Add a colour.' })
   expect(first.body.tools.map((t: any) => t.type)).toEqual(first.body.tools.map(() => 'function'))
-  expect(first.body.tools.some((t: any) => t.function.name === 'suggest_edit')).toBe(true)
+  expect(first.body.tools.some((t: any) => t.name === 'suggest_edit' && t.strict === false)).toBe(true)
   expect(first.body).not.toHaveProperty('thinking')
-  // gpt-5 reasons: low effort on every step, with room for the reasoning in the limit (#1271).
-  expect(first.body.reasoning_effort).toBe('low')
-  expect(second.body.reasoning_effort).toBe('low')
-  expect(first.body.max_completion_tokens).toBe(24000)
+  // Tools and reasoning together, on every step, with room for the reasoning in the limit.
+  expect(first.body.reasoning).toEqual({ effort: 'medium', summary: 'auto' })
+  expect(second.body.reasoning).toEqual({ effort: 'medium', summary: 'auto' })
+  expect(first.body.max_output_tokens).toBe(32000)
 
-  const assistant = second.body.messages.find((m: any) => m.role === 'assistant' && m.tool_calls)
-  expect(assistant.tool_calls).toEqual([{ id: 'call_1', type: 'function', function: { name: 'suggest_edit', arguments: args } }])
-  const toolMessage = second.body.messages.find((m: any) => m.role === 'tool')
-  expect(toolMessage.tool_call_id).toBe('call_1')
-  expect(typeof toolMessage.content).toBe('string')
+  // The tool round goes back as OpenAI sent it: the reasoning item, then the call, then its result.
+  const items = second.body.input as any[]
+  const at = items.findIndex((i) => i.type === 'reasoning')
+  expect(items[at]).toEqual(rsReasoningItem(reasoning))
+  expect(items[at + 1]).toEqual(rsCallItem(call))
+  expect(items[at + 2].type).toBe('function_call_output')
+  expect(items[at + 2].call_id).toBe('call_1')
+  expect(typeof items[at + 2].output).toBe('string')
 
   // The suggestion is in the document, over the original text.
   await expect
@@ -151,6 +158,34 @@ test('a chat turn over OpenAI: a suggest_edit call split across chunks leaves a 
     )
     .toContain('The quick fox.')
   await expect(page.getByText('Suggested a change.')).toBeVisible()
+  // The reasoning summary is the turn's thought process.
+  await expect(page.getByText('Thought process').first()).toBeVisible()
+})
+
+test('thinking off asks for the least reasoning; a model that refuses that effort is asked again with one it lists, and the writer sees only the answer', async () => {
+  const refusal = {
+    status: 400,
+    json: {
+      error: {
+        message: "Unsupported value: 'reasoning.effort' does not support 'minimal' with this model. Supported values are: 'low', 'medium', 'high', and 'xhigh'.",
+        type: 'invalid_request_error',
+        param: 'reasoning.effort',
+        code: 'unsupported_value',
+      },
+    },
+  }
+  await stub([refusal, rsAnswer('Hello.'), rsAnswer('Hello again.')])
+  await configureOpenAI()
+  await page.getByRole('button', { name: 'Extended thinking on' }).click()
+  await expect(page.getByRole('button', { name: 'Extended thinking off' })).toBeVisible()
+
+  await ask('Hi.')
+  await expect(page.getByText('Hello.', { exact: true })).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByText(/Unsupported value/)).toHaveCount(0)
+  await ask('Hi again.')
+  await expect(page.getByText('Hello again.')).toBeVisible({ timeout: 15_000 })
+  // No summary is asked for with thinking off; the refused effort is not tried twice.
+  expect((await turns()).map((t) => t.body.reasoning)).toEqual([{ effort: 'minimal' }, { effort: 'low' }, { effort: 'low' }])
 })
 
 test('an account with no credits (HTTP 429 insufficient_quota): one request, the credits message, nothing about waiting (#1268)', async () => {
@@ -172,10 +207,7 @@ test('an account with no credits (HTTP 429 insufficient_quota): one request, the
 
   await waitForEditor(page)
   await typeInEditor(page, 'The quick fox.')
-  await openChat(page)
-  await page.evaluate(() => {
-    window.dispatchEvent(new CustomEvent('prose:mode-switch-and-run', { detail: { prompt: 'Add a colour.' } }))
-  })
+  await ask('Add a colour.')
 
   const error = page.getByText("OpenAI says this key's account has no credits left.")
   await expect(error).toBeVisible({ timeout: 15_000 })
@@ -184,11 +216,10 @@ test('an account with no credits (HTTP 429 insufficient_quota): one request, the
   await expect(page.getByText(/rate limit/i)).toHaveCount(0)
   // Not retried: exactly one streamed request reached OpenAI.
   await page.waitForTimeout(1_500)
-  const streamed = (await requests()).filter((r) => r.url.endsWith('/chat/completions') && r.body?.stream === true)
-  expect(streamed).toHaveLength(1)
+  expect(await turns()).toHaveLength(1)
 })
 
-test("a model that doesn't reason (gpt-4.1) gets no reasoning_effort and the plain limit (#1271)", async () => {
+test("a model that doesn't reason (gpt-4.1) gets no reasoning setting, the plain limit and no thinking toggle", async () => {
   await app.close()
   rmSync(userDataDir, { recursive: true, force: true })
   userDataDir = mkdtempSync(join(tmpdir(), 'prose-1271-'))
@@ -203,17 +234,14 @@ test("a model that doesn't reason (gpt-4.1) gets no reasoning_effort and the pla
   await waitForAppReady(page)
   await dismissOnboarding(page).catch(() => {})
   await dismissOverlay(page).catch(() => {})
-  await stub([[sseChunk({ content: 'Hello.' }), sseChunk({}, 'stop'), 'data: [DONE]\n\n']])
+  await stub([rsAnswer('Hello.')])
   await configureOpenAI()
+  await expect(page.getByRole('button', { name: /Extended thinking/ })).toHaveCount(0)
 
-  await waitForEditor(page)
-  await openChat(page)
-  await page.evaluate(() => {
-    window.dispatchEvent(new CustomEvent('prose:mode-switch-and-run', { detail: { prompt: 'Hi.' } }))
-  })
+  await ask('Hi.')
   await expect(page.getByText('Hello.')).toBeVisible({ timeout: 15_000 })
-  const [turn] = (await requests()).filter((r) => r.url.endsWith('/chat/completions') && r.body?.stream === true)
+  const [turn] = await turns()
   expect(turn.body.model).toBe('gpt-4.1')
-  expect(turn.body).not.toHaveProperty('reasoning_effort')
-  expect(turn.body.max_completion_tokens).toBe(16000)
+  expect(turn.body).not.toHaveProperty('reasoning')
+  expect(turn.body.max_output_tokens).toBe(16000)
 })

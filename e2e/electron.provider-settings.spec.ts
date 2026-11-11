@@ -15,7 +15,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { dismissOnboarding, dismissOverlay, launchApp, openChat, seedSettings, typeInEditor, waitForAppReady, waitForEditor } from './helpers'
-import { openAIRequests, sseChunk, stubOpenAI } from './openai-stub'
+import { openAIRequests, rsAnswer, rsCall, rsCompleted, stubOpenAI } from './openai-stub'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -92,7 +92,7 @@ async function saveBothKeys(): Promise<void> {
   await saveAndClose()
 }
 
-const hello = (text: string): string[] => [sseChunk({ content: text }), sseChunk({}, 'stop'), 'data: [DONE]\n\n']
+const hello = (text: string): string[] => rsAnswer(text)
 
 /** Send "Hi." from the chat panel's run path. */
 async function chat(): Promise<void> {
@@ -106,7 +106,7 @@ async function chat(): Promise<void> {
 }
 
 const streamedTurns = async () =>
-  (await openAIRequests(app)).filter((r) => r.url.endsWith('/chat/completions') && r.body?.stream === true)
+  (await openAIRequests(app)).filter((r) => r.url.endsWith('/responses') && r.body?.stream === true)
 
 test('Settings: one model list across providers; a pick sets the provider; Clear moves off a provider that lost its key', async () => {
   await launch(true)
@@ -317,12 +317,8 @@ test("an OpenAI turn's suggestion reads \"By Prose · GPT-5\"", async () => {
   await dismissOverlay(page).catch(() => {})
   const args = JSON.stringify({ nodeId: 'stale', search: 'The quick fox.', content: 'The quick brown fox.' })
   await stubOpenAI(app, [
-    [
-      sseChunk({ tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'suggest_edit', arguments: args } }] }),
-      sseChunk({}, 'tool_calls'),
-      'data: [DONE]\n\n',
-    ],
-    [sseChunk({ content: 'Done.' }), sseChunk({}, 'stop'), 'data: [DONE]\n\n'],
+    [...rsCall({ id: 'fc_1', callId: 'call_1', name: 'suggest_edit', args: [args] }), rsCompleted()],
+    rsAnswer('Done.'),
   ], LIVE_MODELS)
   await useOpenAI()
   await waitForEditor(page)

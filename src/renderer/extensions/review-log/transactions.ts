@@ -7,7 +7,7 @@
 
 import { PluginKey, type EditorState, type Transaction } from '@tiptap/pm/state'
 import type { Actor } from '../../../shared/review/actor'
-import type { FeedbackEntry, ReviewIntent, StoredReviewLog, SuggestionMarkInfo } from './log'
+import type { FeedbackEntry, OrphanedChange, ReviewIntent, StoredReviewLog, SuggestionMarkInfo } from './log'
 import { EMPTY_STORED } from './log'
 
 export interface ReviewLogPluginState {
@@ -44,6 +44,12 @@ export function feedbackIn(tr: Transaction, suggestionId: string, entry: Feedbac
 /** Who resolved or reopened the threads this transaction toggles. */
 export function threadActorIn(tr: Transaction, by: Actor): Transaction {
   return withIntent(tr, (i) => ({ ...i, threadBy: by }))
+}
+
+/** Tracked changes a load could not put back (#891): superseded, with an event. */
+export function orphanTrackedIn(tr: Transaction, orphans: OrphanedChange[]): Transaction {
+  if (orphans.length === 0) return tr
+  return withIntent(tr, (i) => ({ ...i, orphaned: [...(i.orphaned ?? []), ...orphans] }))
 }
 
 /** Replace the log with stored rows (the seed, a dev remount). */

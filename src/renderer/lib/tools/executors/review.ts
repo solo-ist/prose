@@ -16,6 +16,7 @@ import { reviewLogOf, eventsSince, type SuggestionHistory } from '../../../exten
 import { threadsOf } from '../../../extensions/comments/transactions'
 import { actorLabel, actorOfProvenance, type Actor } from '../../../../shared/review/actor'
 import { executeSuggestEdit, isEditorReadOnly } from './editor'
+import { trackedChangesIn } from '../../../extensions/tracked-changes/changes'
 
 function by(actor: Actor): { by: string; byKind: Actor['kind'] } {
   return { by: actorLabel(actor, { selfName: null }), byKind: actor.kind }
@@ -33,16 +34,23 @@ function feedbackOf(row: SuggestionHistory | undefined) {
   return (row?.feedback ?? []).map((f) => ({ text: f.text, createdAt: f.createdAt, ...by(f.actor) }))
 }
 
+/** The pending tracked changes of a document (#891), in document order. */
+function pendingTracked(state: Parameters<typeof getAISuggestions>[0]['state']) {
+  return trackedChangesIn(state.doc)
+}
+
 export function executeListSuggestions(args: { include?: 'pending' | 'all' }, ctx: ToolContext): ToolResult {
   const { handle } = ctx
   if (!handle) return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
   const log = reviewLogOf(handle.state)
   const rows = new Map(log.suggestions.map((s) => [s.id, s]))
   const pending = pendingSuggestions(handle.state)
+  const tracked = pendingTracked(handle.state)
   const suggestions: Array<Record<string, unknown>> = pending.map((s) => {
     const row = rows.get(s.id)
     return {
       id: s.id,
+      type: s.type,
       status: 'pending',
       originalText: s.originalText,
       suggestedText: s.suggestedText,
@@ -53,12 +61,32 @@ export function executeListSuggestions(args: { include?: 'pending' | 'all' }, ct
       ...(row?.supersedes ? { revises: row.supersedes } : {}),
     }
   })
+  // Tracked changes (#891): text marks, the deleted text as original and the
+  // inserted text as suggested.
+  for (const change of tracked) {
+    const row = rows.get(change.id)
+    suggestions.push({
+      id: change.id,
+      type: change.type,
+      tracked: true,
+      status: 'pending',
+      originalText: change.deletedText,
+      suggestedText: change.insertedText,
+      explanation: '',
+      createdAt: change.createdAt,
+      ...by(row?.actor ?? change.actor),
+      feedback: feedbackOf(row),
+    })
+  }
   if (args.include === 'all') {
-    const live = new Set(pending.map((s) => s.id))
+    const live = new Set([...pending.map((s) => s.id), ...tracked.map((c) => c.id)])
     for (const row of log.suggestions) {
       if (live.has(row.id) || row.status === 'pending') continue
       suggestions.push({
         id: row.id,
+        type: row.type,
+        ...(row.tracked ? { tracked: true } : {}),
+        ...(row.orphaned ? { orphaned: true } : {}),
         status: row.status,
         originalText: row.originalText,
         suggestedText: row.suggestedText,
@@ -81,6 +109,10 @@ export function executeReplyToSuggestion(args: { id: string; text: string }, ctx
   if (isEditorReadOnly(handle)) return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
   const text = args.text?.trim()
   if (!text) return toolError('Feedback text is required', 'INVALID_INPUT')
+  if (pendingTracked(handle.state).some((c) => c.id === args.id)) {
+    handle.commands.replyToTrackedChange(args.id, text, ctx.provenance?.actor ?? AGENT_FALLBACK)
+    return toolSuccess({ suggestionId: args.id })
+  }
   if (!pendingSuggestions(handle.state).some((s) => s.id === args.id)) {
     return toolError(`No pending suggestion "${args.id}". Call list_suggestions for the pending ones.`, 'SUGGESTION_NOT_FOUND')
   }
@@ -161,6 +193,12 @@ function reviseDecided(args: { id: string; content: string; comment?: string; no
 export function executeReviseSuggestion(args: { id: string; content: string; comment?: string; nodeId?: string }, ctx: ToolContext): ToolResult {
   const { handle } = ctx
   if (!handle) return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
+  if (pendingTracked(handle.state).some((c) => c.id === args.id) || reviewLogOf(handle.state).suggestions.some((s) => s.id === args.id && s.tracked)) {
+    return toolError(
+      `"${args.id}" is a tracked change, which revise_suggestion doesn't revise. Propose again with suggest_insert or suggest_delete (or suggest_edit for the node), and give feedback with reply_to_suggestion.`,
+      'TRACKED_CHANGE'
+    )
+  }
   const target = pendingSuggestions(handle.state).find((s) => s.id === args.id)
   // No mark: the writer decided it, or a revision replaced it.
   if (!target) return reviseDecided(args, ctx, handle)
@@ -190,7 +228,7 @@ export function executeGetReviewStatus(ctx: ToolContext): ToolResult {
     if (row.status === 'accepted' || row.status === 'rejected' || row.status === 'superseded') counts[row.status]++
   }
   return toolSuccess({
-    pending: pendingSuggestions(handle.state).map((s) => s.id),
+    pending: [...pendingSuggestions(handle.state).map((s) => s.id), ...pendingTracked(handle.state).map((c) => c.id)],
     ...counts,
     openComments: threadsOf(handle.state).filter((t) => !t.resolved).length,
     lastSeq: Math.max(0, log.nextSeq - 1),

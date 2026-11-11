@@ -226,6 +226,7 @@ Most handlers live in `src/main/ipc.ts` (86 across 14 namespaces). A few sit clo
 - `appStoreImport:*` (6) - Import the App Store edition's profile into the direct build (#1243): status, start (stages the import and relaunches; the copy runs in `runPendingImport` at the next launch, before anything opens the profile), decline, acknowledge, importKeys / discardKeys. Every handler reports unavailable on MAS builds
 - `skill:download` - Download an external skill for use inside Prose
 - `clipboard:*` (1) - Write text to system clipboard
+- `menu:*` (2) - The native menu's renderer-driven items: Reopen Closed Tab (enabled while the closed-tab stack has entries) and Copy with changes (shown in the Edit menu and the editor's context menu while the active tab has pending tracked changes, #891)
 - `appearance:*` (1) - Pin the macOS dock tile to the Prose icon
 - `window:*`, `shell:*`, `recentFiles:*`, `emoji:*`, `fileAssociation:*` - Utility handlers
 
@@ -234,13 +235,13 @@ Most handlers live in `src/main/ipc.ts` (86 across 14 namespaces). A few sit clo
 Editor state is not in a store. Every open tab owns a ProseMirror `EditorState` held by a session in `src/renderer/document/session.ts` (see "Editor" below); the tab record in `tabStore` is the truth for a document's body, frontmatter, dirty flag, preview / read-only flags and rich-or-source mode; annotation records, comment threads and suggestions live in the plugins' own state.
 
 Zustand stores in `src/renderer/stores/`:
-- `tabStore` - The tab records (`Tab`: identity, `content`, `frontmatter`, `isDirty`, `isPreview`, `readOnly`, `mode`, `viewState`), the closed-tab history, session persistence to IndexedDB; `useActiveTab(select)` reads the active record
+- `tabStore` - The tab records (`Tab`: identity, `content`, `frontmatter`, `isDirty`, `isPreview`, `readOnly`, `mode`, `suggesting`, `viewState`), the closed-tab history, session persistence to IndexedDB; `useActiveTab(select)` reads the active record
 - `editorStore` - A **mirror** of the active tab's record (`document`: id, path, content, frontmatter, dirty; written only by the session layer and `tabs/actions.ts`) plus UI flags (`isEditing`, `isRemarkableReadOnly`, `isAutosaving`, `annotationsVisible`, the AI frontmatter overlay `pendingFrontmatter`, the status-bar cursor). Nothing computes on the mirror.
 - `editorInstanceStore` - TipTap editor instance reference
 - `chatStore` - Chat messages, conversations, streaming state, panel visibility
 - `settingsStore` - App settings (theme, LLM config, editor preferences)
 - `fileListStore` - File explorer state and directory listing
-- `reviewStore` - Review mode (`quick`/`side-by-side` for AI edits, `comments` for comment threads), suggestion navigation
+- `reviewStore` - Review mode (`quick`/`side-by-side` for AI edits, `comments` for comment threads), suggestion navigation, the tracked-change display per tab (`trackedDisplay`, not persisted)
 - `summaryStore` - AI-generated document summaries, staleness tracking
 - `commandHistoryStore` - Per-tool argument history, persisted to IndexedDB
 - `linkHoverStore` - Currently hovered link URL for tooltip
@@ -273,16 +274,19 @@ Client-side persistence uses IndexedDB (`src/renderer/lib/persistence.ts`). When
 - **Upgrades can be blocked** if the database is open in another tab. The upgrade waits until all connections close, but users may not notice. New stores may silently fail to create.
 - **Test fresh installs and upgrades** separately. A fresh install always gets the latest schema, but existing users need the migration path.
 
-**Editor-state rules (comments, AI suggestions, AI annotations):** marks and
-decorations are NOT serialized into the `.md`; the records live in IndexedDB
-keyed by `documentId` and are re-applied at load by matching the marked text.
-Four rules keep them safe, each enforced by a mechanism rather than a
-convention (design: `docs/architecture/editor-state.md` §3.3; the tripwires in
+**Editor-state rules (comments, AI suggestions, AI annotations, the review log,
+tracked changes):** marks and decorations are NOT serialized into the `.md`;
+the records live in IndexedDB keyed by `documentId` and are re-applied at load
+by matching the marked text. Five record kinds (`annotations`, `comments`,
+`suggestions`, `reviewLog`, `tracked`), four rules keep them safe, each
+enforced by a mechanism rather than a convention (design:
+`docs/architecture/editor-state.md` §3.3; the tripwires in
 `e2e/electron.document-sessions.spec.ts` fail the build when one is broken):
-1. **No write without the producing state's document id.** The three IndexedDB
-   writers (`saveAnnotations`, `saveComments`, `saveSuggestions` and their
-   deletes) are imported only by `document/session.ts`, whose `persistRecords`
-   reads the id and the records from the same `EditorState`.
+1. **No write without the producing state's document id.** The IndexedDB
+   writers (`saveAnnotations`, `saveComments`, `saveSuggestions`,
+   `saveReviewLog`, `saveTracked` and their deletes) are imported only by
+   `document/session.ts`, whose `persistRecords` reads the id and the records
+   from the same `EditorState`.
 2. **Id and records change together.** They are fields of one immutable
    `EditorState` (the identity plugin and each record plugin's state): a state
    is created whole and replaced whole, so no moment has the next id with the
@@ -297,6 +301,22 @@ convention (design: `docs/architecture/editor-state.md` §3.3; the tripwires in
    code calls `commands.setContent` (the session builds states). A new writer or
    projection is a function in `session.ts`, added in a PR that cites the
    design (`docs/patterns.md`, "How to Add a Session Writer or Projection").
+
+**Tracked changes never reach a file** (#891, `docs/architecture/suggesting-mode.md` §5):
+pending `trackedInsert` / `trackedDelete` marks are proposals, so the file holds
+the original until one is accepted. Every serialization in `session.ts` goes
+through `originalOf(doc)` (insertions left out, deletion marks dropped):
+the projection, the save, the #1102 baseline, Copy Markdown, `read_document`;
+Export HTML and a share publish use `originalHTML`. `finalOf` / `serializeFinal`
+(as if every change were accepted) serve "Copy with changes" only. The pending
+changes are the fifth record kind, `tracked` (`DB_VERSION` 11): each range with
+up to 32 characters of original text either side (within its paragraph),
+written by `session.ts` in every transaction that changes the set (no
+debounce: a crash loses nothing; an empty set included), put back by exact
+context in the seed (nearest the offset hint when it repeats) and across a
+source-mode exit, and **orphaned** (kept in the review log as `superseded`,
+`orphaned: true`, event `suggestion:orphaned`) when the context is gone. A
+tripwire forbids serializing the raw document anywhere in the renderer.
 
 ### LLM Integration
 
@@ -336,10 +356,47 @@ AI-generated edits can be reviewed before accepting. Two modes:
 - **Quick review** — inline diff with per-change accept/reject controls
 - **Side-by-side** — full diff view with navigation
 
+Every card in both shows the change inside its sentence, as the file holds it
+(`components/review/reviewContext.ts`, drawn by `ReviewText.tsx`; #1295): the
+context muted, the changed text highlighted, and a thin marker where a pure
+insertion goes or a pure deletion went.
+
 Comment threads have their own top-level review surface, **Comment Review**
 (`CommentReviewPanel`) — a peer of Quick Review managed through the same
 `reviewStore` mode slot (`reviewMode === 'comments'`), so the two are mutually
 exclusive and toggle cleanly. Prev/next navigation wraps in all review panels.
+
+**Tracked changes and Suggesting mode** (#891; design
+`docs/architecture/suggesting-mode.md`, build log `docs/issues/891/`): text
+marks `trackedInsert` / `trackedDelete` (`id`, `actor`, `createdAt`) in
+`extensions/tracked-changes/`. Agents make them with `suggest_insert` /
+`suggest_delete`; the writer makes them in **Suggesting mode**, a per-tab
+toggle (toolbar pen button, status bar "Editing / Suggesting"; `tab.suggesting`
+plus the plugin state, set only by `setSessionSuggesting`). Its filter is
+`trackTransaction` (`filter.ts`), a pure rewrite of the writer's transaction
+installed in front of the view's dispatch by `attachEditor`: inserted text is
+marked, deleted text is struck instead of removed, the writer's own pending
+insertion deletes for real, a stretch of the writer's change that reads the
+same before and after (a space deleted and typed back, a word retyped) is plain
+text again, a deletion across another actor's insertion rejects that change;
+mark steps and node-type changes apply directly; a block
+boundary (Enter, a join, a multi-paragraph paste) or a code block is refused
+with a notice. Source mode is unavailable while the tab suggests or has
+pending tracked changes (`sourceBlockedBy` in `tabs/actions.ts`; the toggles
+say why). Undo, decisions and every tool write through a `DocumentHandle`
+(tagged `TRACK_SKIP_META`) pass untouched. The writer decides in Quick Review
+(`components/review/reviewItems.ts` merges tracked changes with AI
+suggestions), with `acceptTrackedChange` / `rejectTrackedChange` and the
+all-variants (decider in the review log; an accepted agent insertion becomes
+an AI annotation). Display (All changes / No deletions / Final) is CSS on the
+editor container, per tab, not persisted. Because the tab stays clean while
+changes are pending, their count is shown on its own: a badge on the toolbar
+pen and, counted together with the AI suggestions, "N suggestions" in the
+status bar (agents' changes included, mode on or off; the tooltip splits the
+two). "Copy with changes" (`serializeFinal`) sits beside Copy Markdown in
+the Edit menu and in the editor's context menu (main shows it through
+`menu:setCopyWithChangesAvailable`, driven by `App.tsx`), and in the toolbar's
+⋯ menu, only while there are pending changes.
 
 Managed by `reviewStore` and components in `src/renderer/components/review/`.
 
@@ -367,7 +424,7 @@ Prose is an MCP server for any client (Claude Desktop, Claude Code, Codex, Open 
 - **The remote relay, desktop side** (#1239): **Remote access** (Settings → Integrations → Connections, `components/settings/RemoteAccess.tsx`), off by default, direct build only; it needs the gateway sign-in. On, main dials out (`src/main/mcp/relay.ts`, Node's WebSocket, `<gateway>/relay?device=<id>` with the origin-bound session cookie; pong, backoff, `{type:'active'}` on window focus; the gateway's `{type:'routing', active}` frames drive "Receiving remote calls" / "Another Mac is active"); off closes the socket at once, the kill switch. A pending client gets a toast with Review and a count in Settings, on the Integrations tab and on the Dock (direct build) until approved or declined. `IS_MAS_BUILD` never dials. The second gate is `src/main/mcp/relayCalls.ts`: a client the writer hasn't approved is recorded as pending in `<userData>/mcp-remote.json` (`remoteConnections.ts`, 0600) and refused; an approved one reaches only the tools both its token's scopes and the writer's approval allow (`src/shared/mcp/remoteScopes.ts`, kept identical to the gateway's table by a test), through `createProseMcpServer({ allowedTools })` behind `createMcpHandler`, with the actor `{ connectionId: 'remote:<client id>', connectionLabel: <the writer's label>, client: <registered name>, via: 'relay' }`. Deny and remove refuse at once, then revoke the client at the gateway (`POST /api/relay/revoke`). The renderer refuses any non-remote tool for a `via: 'relay'` actor. Remote clients never get `open_file`, `create_and_open_file` or `select_tab`. E2E: `e2e/electron.mcp-relay.spec.ts`, against a real local gateway (`PROSE_E2E_GATEWAY_DATABASE_URL`; CI's e2e job has a Postgres service).
 - **Claude Desktop extension** (#1257, `src/main/mcp/mcpb.ts` + `zip.ts`): `mcp:installExtension` builds this profile's `<userData>/mcp-server/Prose.mcpb` (manifest 0.3, the bundled bridge as `server/index.cjs`, `PROSE_USER_DATA_DIR` in `env` for any profile but the installed app's) and opens it, which shows Claude Desktop's install dialog. `runtimes.node: >=20` lets Claude Desktop fall back to its built-in Node (24.22 at Claude 4.23118). The config-file install (`mcp:install`) stays as the fallback for a system Node 20+. `PROSE_MCPB_OPEN=0` writes without opening (tests).
 
-Exposes 17 tools (the `mcpToolNames` subset in `src/shared/tools/registry.ts`): `read_document`, `get_outline`, `open_file`, `suggest_edit`, `create_and_open_file`, `list_comments`, `add_comment`, `resolve_comment`, `reply_to_comment`, `reopen_comment`, `list_tabs`, `select_tab`, and the review lifecycle (#890) `list_suggestions`, `reply_to_suggestion`, `revise_suggestion`, `get_review_status`, `list_review_events`. Accept and reject are never on the list: the writer decides (#607), and agents follow decisions through `list_review_events`. `revise_suggestion` replaces a pending suggestion (it becomes `superseded`) or follows one the writer rejected (#1266): a new pending suggestion on the same node, linked both ways, while the old one stays `rejected`; the node is the call's `nodeId`, else the one the log row recorded (`SuggestionHistory.nodeId`; node ids change when a document reopens), else the one node still holding the original text. An accepted suggestion can't be revised (`SUGGESTION_ACCEPTED`): the agent calls `suggest_edit` again. The document tools take an optional `document` (a documentId or path from `list_tabs`) that must name an open tab (#1237). MCP calls never move the writer's caret, focus or tab (tab-changing tools aside), and the renderer re-checks the allowlist the main-process bridge enforces. Every record an MCP call makes carries an `Actor` (`src/shared/review/actor.ts`, #1232), and the review log (`extensions/review-log/`, #1233) keeps each suggestion's history and the events. Their titles, annotations, output schemas and MCP-specific descriptions live in `src/shared/tools/mcpMetadata.ts`; results carry `structuredContent` beside the text. `zod` is a direct 3.x dependency on purpose: the app's tool schemas are zod 3, and the v2 SDK brings its own zod 4 (the migration is #1216).
+Exposes 19 tools (the `mcpToolNames` subset in `src/shared/tools/registry.ts`): `read_document`, `get_outline`, `open_file`, `suggest_edit`, `create_and_open_file`, `list_comments`, `add_comment`, `resolve_comment`, `reply_to_comment`, `reopen_comment`, `list_tabs`, `select_tab`, the review lifecycle (#890) `list_suggestions`, `reply_to_suggestion`, `revise_suggestion`, `get_review_status`, `list_review_events`, and the tracked changes (#891) `suggest_insert` (text into a paragraph: `nodeId` and/or `search`, `position` before / after / start / end) and `suggest_delete` (`nodeId` + an exact `search` phrase). Both match the node's original text, as `read_document` reports it, never move the writer's caret, and refuse a line break, a code block and a `.txt`; `revise_suggestion` refuses a tracked change (`TRACKED_CHANGE`). Accept and reject are never on the list: the writer decides (#607), and agents follow decisions through `list_review_events`. `revise_suggestion` replaces a pending suggestion (it becomes `superseded`) or follows one the writer rejected (#1266): a new pending suggestion on the same node, linked both ways, while the old one stays `rejected`; the node is the call's `nodeId`, else the one the log row recorded (`SuggestionHistory.nodeId`; node ids change when a document reopens), else the one node still holding the original text. An accepted suggestion can't be revised (`SUGGESTION_ACCEPTED`): the agent calls `suggest_edit` again. The document tools take an optional `document` (a documentId or path from `list_tabs`) that must name an open tab (#1237). MCP calls never move the writer's caret, focus or tab (tab-changing tools aside), and the renderer re-checks the allowlist the main-process bridge enforces. Every record an MCP call makes carries an `Actor` (`src/shared/review/actor.ts`, #1232), and the review log (`extensions/review-log/`, #1233) keeps each suggestion's history and the events. Their titles, annotations, output schemas and MCP-specific descriptions live in `src/shared/tools/mcpMetadata.ts`; results carry `structuredContent` beside the text. `zod` is a direct 3.x dependency on purpose: the app's tool schemas are zod 3, and the v2 SDK brings its own zod 4 (the migration is #1216).
 
 ### Shared Code
 

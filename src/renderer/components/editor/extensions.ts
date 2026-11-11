@@ -35,6 +35,8 @@ import type { CommentOptions } from '../../extensions/comments/types'
 import { AISuggestion } from '../../extensions/ai-suggestions'
 import { AIAnnotations } from '../../extensions/ai-annotations'
 import { ReviewLog } from '../../extensions/review-log'
+import { TrackedChanges, TrackedDelete, TrackedInsert } from '../../extensions/tracked-changes'
+import type { TrackedChangesOptions } from '../../extensions/tracked-changes'
 import { NodeIds } from '../../extensions/node-ids'
 import { SearchHighlight } from '../../extensions/search-highlight'
 import { LinkHover } from '../../extensions/link-hover'
@@ -97,6 +99,8 @@ const TaskListDashMarker = TaskList.extend({
 export interface EditorExtensionOptions {
   bulletListMarker?: string
   onCommentBlocked?: CommentOptions['onCommentBlocked']
+  /** An edit Suggesting mode can't track yet was refused (#891). */
+  onTrackedRefused?: TrackedChangesOptions['onRefused']
 }
 
 export function createEditorExtensions(options: EditorExtensionOptions = {}): Extensions {
@@ -180,6 +184,14 @@ export function createEditorExtensions(options: EditorExtensionOptions = {}): Ex
       onCommentBlocked: options.onCommentBlocked
     }),
     AISuggestion,
+    // Tracked changes (#891): the two marks, Suggesting mode's state and the
+    // writer's decisions. The filter itself sits in front of the view's
+    // dispatch (installed by the session layer when it attaches the editor).
+    TrackedInsert,
+    TrackedDelete,
+    TrackedChanges.configure({
+      onRefused: options.onTrackedRefused
+    }),
     // The review log (#1233): priority 10, after the record plugins it reads.
     ReviewLog,
     AIAnnotations.configure({

@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { buildWordDiffAnnotations } from './diffUtils'
+import { buildWordDiffAnnotations, computeWordDiff, reviewDiff, visibleWhitespace } from './diffUtils'
 import type { AIAnnotation } from '../types/annotations'
 
 const PROV = { model: 'Opus', conversationId: 'c', messageId: 'm' }
@@ -68,5 +68,44 @@ describe('buildWordDiffAnnotations', () => {
     const out = buildWordDiffAnnotations({ originalText, newText, rangeFrom: 0, rangeTo: newText.length, provenance: PROV, priorAnnotations: [detached, gone] })
     expect(out.filter((r) => r.id)).toEqual([])
     expect(out.map((r) => r.content)).toEqual(['2'])
+  })
+})
+
+describe('reviewDiff: what a review card highlights (#891)', () => {
+  it('a pure insertion is one added segment, its spaces included', () => {
+    expect(reviewDiff('', 'source mode is disabled, so')).toEqual({
+      old: [],
+      new: [{ text: 'source mode is disabled, so', type: 'added' }],
+    })
+  })
+
+  it('a pure deletion is one removed segment', () => {
+    expect(reviewDiff(',', '')).toEqual({ old: [{ text: ',', type: 'removed' }], new: [] })
+  })
+
+  it('a typed space is highlighted, not drawn as nothing', () => {
+    expect(reviewDiff('', ' ').new).toEqual([{ text: ' ', type: 'added' }])
+  })
+
+  it('an edit that changes only whitespace highlights that whitespace', () => {
+    expect(reviewDiff('one  two', 'one two')).toEqual({
+      old: [{ text: 'one ', type: 'unchanged' }, { text: ' ', type: 'removed' }, { text: 'two', type: 'unchanged' }],
+      new: [{ text: 'one ', type: 'unchanged' }, { text: 'two', type: 'unchanged' }],
+    })
+  })
+
+  it('an edit that changes words is the word diff', () => {
+    expect(reviewDiff('Hello world', 'Hello there')).toEqual(computeWordDiff('Hello world', 'Hello there'))
+  })
+})
+
+describe('visibleWhitespace (#891)', () => {
+  it('draws a whitespace-only highlight as glyphs', () => {
+    expect(visibleWhitespace(' ')).toBe('␣')
+    expect(visibleWhitespace(' \t\n')).toBe('␣⇥↵')
+  })
+
+  it('leaves text with any non-space character alone', () => {
+    expect(visibleWhitespace(' so ')).toBe(' so ')
   })
 })

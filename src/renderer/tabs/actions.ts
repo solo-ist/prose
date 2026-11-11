@@ -69,9 +69,12 @@ import {
   getSession,
   landProjections,
   landAllProjections,
+  setSessionSuggesting,
   type SaveSnapshot
 } from '../document/session'
 import { isPlainTextPath } from '../document/identity'
+import { trackedChangesIn } from '../extensions/tracked-changes/changes'
+import { useNotificationStore } from '../stores/notificationStore'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -141,7 +144,8 @@ function snapshotOf(tab: Tab): ClosedTabSnapshot {
     frontmatter: tab.frontmatter,
     cursorPosition: tab.cursorPosition,
     viewState: tab.viewState,
-    mode: tab.mode
+    mode: tab.mode,
+    suggesting: tab.suggesting
   }
 }
 
@@ -948,8 +952,32 @@ export function enterSourceMode(tabId: string | null = useTabStore.getState().ac
   if (!tabId) return false
   const tab = useTabStore.getState().getTabById(tabId)
   if (!tab || tab.isPreview || tab.readOnly || !hasSession(tabId)) return false
+  const blocked = sourceBlockedBy(tabId)
+  if (blocked) {
+    useNotificationStore.getState().notify({ id: 'source-blocked', message: SOURCE_BLOCKED_MESSAGES[blocked] })
+    return false
+  }
   enterSource(tabId)
   return true
+}
+
+/**
+ * Why source mode can't open on a tab now (#891, design §5): raw markdown
+ * edits would bypass Suggesting mode's tracking, and could orphan pending
+ * changes. Turning Suggesting off, and accepting or rejecting the pending
+ * changes, opens it again.
+ */
+export function sourceBlockedBy(tabId: string | null = useTabStore.getState().activeTabId): 'suggesting' | 'pending' | null {
+  if (!tabId) return null
+  if (useTabStore.getState().getTabById(tabId)?.suggesting) return 'suggesting'
+  const session = getSession(tabId)
+  if (session && trackedChangesIn(session.state.doc).length > 0) return 'pending'
+  return null
+}
+
+export const SOURCE_BLOCKED_MESSAGES: Record<'suggesting' | 'pending', string> = {
+  suggesting: 'Source mode is off while Suggesting is on: raw edits would bypass tracking. Turn Suggesting off to use it.',
+  pending: 'Source mode is off while tracked changes are pending. Accept or reject them to use it.'
 }
 
 /** Back to the rich editor: the typed text becomes the document in one undo step when it changed. */
@@ -963,6 +991,27 @@ export function toggleSourceMode(): void {
   if (!tabId) return
   if (getSession(tabId)?.source) exitSourceMode(tabId)
   else enterSourceMode(tabId)
+}
+
+// ---------------------------------------------------------------------------
+// Suggesting mode (#891)
+// ---------------------------------------------------------------------------
+
+/** Can this tab suggest? Not a preview, a read-only, a source-mode or a plain-text tab. */
+export function canSuggest(tabId: string | null = useTabStore.getState().activeTabId): boolean {
+  if (!tabId) return false
+  const tab = useTabStore.getState().getTabById(tabId)
+  if (!tab || tab.isPreview || tab.readOnly || tab.mode === 'source') return false
+  return !isPlainTextPath(tab.path)
+}
+
+/** The one toggle behind the toolbar and the status bar: the writer's edits become tracked changes, or stop. */
+export function toggleSuggesting(tabId: string | null = useTabStore.getState().activeTabId): boolean {
+  if (!tabId) return false
+  const tab = useTabStore.getState().getTabById(tabId)
+  if (!tab) return false
+  if (!tab.suggesting && !canSuggest(tabId)) return false
+  return setSessionSuggesting(tabId, !tab.suggesting)
 }
 
 // ---------------------------------------------------------------------------
@@ -988,7 +1037,8 @@ export async function restoreTabs(restored: RestoredTab[], activeTabId: string |
       frontmatter: entry.frontmatter,
       cursorPosition: entry.draft.cursorPosition,
       viewState: entry.draft.viewState,
-      mode: entry.draft.mode
+      mode: entry.draft.mode,
+      suggesting: entry.draft.suggesting
     })
   }
   const active =

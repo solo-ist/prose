@@ -15,7 +15,7 @@ import { getSettingsDir, LEGACY_SETTINGS_DIR, normalizePath, resolveWithin, reso
 import type { FileAccessOptions } from '../shared/fileAccess'
 import { clearRecentFiles } from './recentFiles'
 import { dialogDefaultPath, rememberDialogDir } from './dialogDirs'
-import { refreshMenu, setReopenClosedTabEnabled } from './menu'
+import { refreshMenu, setReopenClosedTabEnabled, setCopyWithChangesAvailable } from './menu'
 import { credentialStore } from './credentialStore'
 import {
   REMARKABLE_DEVICE_TOKEN,
@@ -1913,6 +1913,12 @@ export function setupIpcHandlers(): void {
   // closed-tab stack (enabled when non-empty). Rebuilds the menu only on change.
   ipcMain.handle('menu:setReopenClosedTabEnabled', async (_event, enabled: boolean) => {
     setReopenClosedTabEnabled(!!enabled)
+  })
+
+  // Menu: show "Copy with changes" (Edit menu, editor context menu) while the
+  // active tab has pending tracked changes (#891). A boolean; rebuilds on change.
+  ipcMain.handle('menu:setCopyWithChangesAvailable', async (_event, available: boolean) => {
+    setCopyWithChangesAvailable(!!available)
   })
 
   // Shell: Open a local file in its default app (for non-markdown "Open Externally")

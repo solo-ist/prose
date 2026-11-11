@@ -7,7 +7,8 @@
 export const PROSE_MCP_INSTRUCTIONS = [
   "Prose is a markdown editor running on the writer's computer; these tools work on the documents open in it.",
   '',
-  '- The writer decides. You propose (suggest_edit), revise (revise_suggestion) and discuss (reply_to_suggestion, add_comment, ' +
+  '- The writer decides. You propose (suggest_edit for a node, suggest_insert and suggest_delete for text inside a paragraph), ' +
+    'revise (revise_suggestion) and discuss (reply_to_suggestion, add_comment, ' +
     'reply_to_comment); the writer accepts or rejects in Prose. No tool accepts or rejects for them. ' +
     "Only create_and_open_file writes a file by itself (always a new one).",
   '- Follow the outcome through list_review_events: get_review_status gives the latest seq, and list_review_events with ' +

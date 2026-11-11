@@ -3,8 +3,10 @@ import { Check, X, CheckCheck, XCircle, MessageSquare, ArrowLeftRight } from 'lu
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useReviewStore } from '../../stores/reviewStore'
 import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
-import { computeWordDiff, scrollSelectionIntoCenter, type DiffSegment } from '../../lib/diffUtils'
-import type { AISuggestionData } from '../../extensions/ai-suggestions/types'
+import { reviewItems, type ReviewItem } from './reviewItems'
+import { reviewContextOf } from './reviewContext'
+import { ReviewText } from './ReviewText'
+import { reviewDiff, scrollSelectionIntoCenter } from '../../lib/diffUtils'
 import { cn } from '../../lib/utils'
 
 /**
@@ -18,7 +20,8 @@ import { cn } from '../../lib/utils'
 export function SideBySideDiffPanel() {
   const editor = useEditorInstanceStore((state) => state.editor)
   const setReviewMode = useReviewStore((s) => s.setReviewMode)
-  const [suggestions, setSuggestions] = useState<AISuggestionData[]>([])
+  // AI suggestions and tracked changes together, as in Quick Review (#891).
+  const [suggestions, setSuggestions] = useState<ReviewItem[]>([])
   const [hasLoaded, setHasLoaded] = useState(false)
 
   // Subscribe to editor transactions for reactive updates (e.g., after setAISuggestionReply)
@@ -27,9 +30,9 @@ export function SideBySideDiffPanel() {
       setSuggestions([])
       return
     }
-    setSuggestions(getAISuggestions(editor))
+    setSuggestions(reviewItems(editor))
     setHasLoaded(true)
-    const handler = () => setSuggestions(getAISuggestions(editor))
+    const handler = () => setSuggestions(reviewItems(editor))
     editor.on('transaction', handler)
     return () => { editor.off('transaction', handler) }
   }, [editor])
@@ -50,36 +53,43 @@ export function SideBySideDiffPanel() {
     }
   }, [suggestions, total, setReviewMode])
 
-  const handleAccept = useCallback((suggestion: AISuggestionData) => {
+  const handleAccept = useCallback((suggestion: ReviewItem) => {
     if (!editor) return
-    editor.commands.acceptAISuggestion(suggestion.id)
+    if (suggestion.tracked) editor.commands.acceptTrackedChange(suggestion.id)
+    else editor.commands.acceptAISuggestion(suggestion.id)
   }, [editor])
 
-  const handleReject = useCallback((suggestion: AISuggestionData) => {
+  const handleReject = useCallback((suggestion: ReviewItem) => {
     if (!editor) return
-    editor.commands.rejectAISuggestion(suggestion.id)
+    if (suggestion.tracked) editor.commands.rejectTrackedChange(suggestion.id)
+    else editor.commands.rejectAISuggestion(suggestion.id)
   }, [editor])
 
   const handleAcceptAll = useCallback(() => {
     if (!editor) return
-    // Process in reverse order to avoid position shifting issues
+    // Process in reverse order to avoid position shifting issues. AI
+    // suggestions only (getAISuggestions, not the list shown); the tracked
+    // changes go in one transaction below.
     const current = getAISuggestions(editor)
     for (let i = current.length - 1; i >= 0; i--) {
       editor.commands.acceptAISuggestion(current[i].id)
     }
+    editor.commands.acceptAllTrackedChanges()
     setReviewMode(null)
   }, [editor, setReviewMode])
 
   const handleRejectAll = useCallback(() => {
     if (!editor) return
+    // AI suggestions only; the tracked changes go in one transaction below.
     const current = getAISuggestions(editor)
     for (let i = current.length - 1; i >= 0; i--) {
       editor.commands.rejectAISuggestion(current[i].id)
     }
+    editor.commands.rejectAllTrackedChanges()
     setReviewMode(null)
   }, [editor, setReviewMode])
 
-  const scrollToSuggestion = useCallback((suggestion: AISuggestionData) => {
+  const scrollToSuggestion = useCallback((suggestion: ReviewItem) => {
     if (!editor) return
     editor.commands.focus()
     editor.commands.setTextSelection(suggestion.from)
@@ -179,15 +189,23 @@ function DiffHunk({
   onReject,
   onScrollTo,
 }: {
-  suggestion: AISuggestionData
+  suggestion: ReviewItem
   editor: ReturnType<typeof useEditorInstanceStore.getState>['editor']
   onAccept: () => void
   onReject: () => void
   onScrollTo: () => void
 }) {
   const diff = useMemo(
-    () => computeWordDiff(suggestion.originalText, suggestion.suggestedText),
+    () => reviewDiff(suggestion.originalText, suggestion.suggestedText),
     [suggestion.originalText, suggestion.suggestedText]
+  )
+  // The sentence around the change, as the file holds it (#1295); an AI
+  // suggestion's range walks the document, so it follows the document only.
+  const doc = editor?.state.doc
+  const context = useMemo(
+    () => (doc ? reviewContextOf(doc, suggestion) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [doc, suggestion.id, suggestion.from, suggestion.to, suggestion.tracked]
   )
 
   const [feedbackInput, setFeedbackInput] = useState(suggestion.userReply ?? '')
@@ -202,9 +220,10 @@ function DiffHunk({
 
   const handleSubmitFeedback = useCallback(() => {
     if (!editor || !feedbackInput.trim()) return
-    editor.commands.setAISuggestionReply(suggestion.id, feedbackInput.trim())
+    if (suggestion.tracked) editor.commands.replyToTrackedChange(suggestion.id, feedbackInput.trim())
+    else editor.commands.setAISuggestionReply(suggestion.id, feedbackInput.trim())
     setShowFeedbackForm(false)
-  }, [editor, suggestion.id, feedbackInput])
+  }, [editor, suggestion, feedbackInput])
 
   const handleFeedbackKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -231,7 +250,7 @@ function DiffHunk({
         <div className="pr-2 border-r border-border">
           <div className="text-[10px] font-medium text-muted-foreground/60 mb-1 uppercase tracking-wider">Original</div>
           <div className="text-sm leading-relaxed">
-            <DiffText segments={diff.old} mode="old" />
+            <ReviewText segments={diff.old} mode="old" context={context} />
           </div>
         </div>
 
@@ -239,7 +258,7 @@ function DiffHunk({
         <div className="pl-2">
           <div className="text-[10px] font-medium text-muted-foreground/60 mb-1 uppercase tracking-wider">Suggested</div>
           <div className="text-sm leading-relaxed">
-            <DiffText segments={diff.new} mode="new" />
+            <ReviewText segments={diff.new} mode="new" context={context} />
           </div>
         </div>
       </div>
@@ -314,35 +333,5 @@ function DiffHunk({
         </button>
       </div>
     </div>
-  )
-}
-
-function DiffText({ segments, mode }: { segments: DiffSegment[]; mode: 'old' | 'new' }) {
-  return (
-    <span>
-      {segments.map((seg, i) => {
-        if (mode === 'old' && seg.type === 'removed') {
-          return (
-            <span
-              key={i}
-              className="bg-red-500/20 text-red-700 dark:text-red-400 line-through rounded-sm px-0.5"
-            >
-              {seg.text}
-            </span>
-          )
-        }
-        if (mode === 'new' && seg.type === 'added') {
-          return (
-            <span
-              key={i}
-              className="bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 rounded-sm px-0.5"
-            >
-              {seg.text}
-            </span>
-          )
-        }
-        return <span key={i} className="opacity-50">{seg.text}</span>
-      })}
-    </span>
   )
 }

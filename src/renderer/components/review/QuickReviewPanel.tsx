@@ -1,12 +1,13 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Check, X, ChevronLeft, ChevronRight, MessageSquare, ArrowLeftRight } from 'lucide-react'
 import { motion, useMotionValue, useTransform, type PanInfo } from 'framer-motion'
 import { useEditorInstanceStore } from '../../stores/editorInstanceStore'
 import { useReviewStore, useCurrentSuggestionIndex } from '../../stores/reviewStore'
-import { getAISuggestions } from '../../extensions/ai-suggestions/extension'
-import { computeWordDiff, scrollSelectionIntoCenter, type DiffSegment } from '../../lib/diffUtils'
-import type { AISuggestionData } from '../../extensions/ai-suggestions/types'
+import { reviewDiff, scrollSelectionIntoCenter } from '../../lib/diffUtils'
 import { cn } from '../../lib/utils'
+import { reviewItems, type ReviewItem } from './reviewItems'
+import { reviewContextOf } from './reviewContext'
+import { ReviewText } from './ReviewText'
 
 /**
  * Card-based quick review component — redesigned (#385).
@@ -31,7 +32,7 @@ export function QuickReviewPanel() {
   const [feedbackInput, setFeedbackInput] = useState('')
   const [showFeedbackForm, setShowFeedbackForm] = useState(false)
   const feedbackInputRef = useRef<HTMLTextAreaElement>(null)
-  const [suggestions, setSuggestions] = useState<AISuggestionData[]>([])
+  const [suggestions, setSuggestions] = useState<ReviewItem[]>([])
 
   // Subscribe to editor transactions for reactive updates
   useEffect(() => {
@@ -39,14 +40,23 @@ export function QuickReviewPanel() {
       setSuggestions([])
       return
     }
-    setSuggestions(getAISuggestions(editor))
-    const handler = () => setSuggestions(getAISuggestions(editor))
+    setSuggestions(reviewItems(editor))
+    const handler = () => setSuggestions(reviewItems(editor))
     editor.on('transaction', handler)
     return () => { editor.off('transaction', handler) }
   }, [editor])
 
   const total = suggestions.length
   const current = suggestions[currentSuggestionIndex]
+
+  // The sentence around the change, as the file holds it (#1295); an AI
+  // suggestion's range walks the document, so it follows the document only.
+  const doc = editor?.state.doc
+  const context = useMemo(
+    () => (doc && current ? reviewContextOf(doc, current) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [doc, current?.id, current?.from, current?.to, current?.tracked]
+  )
 
   // Scroll editor to current suggestion (centered in viewport)
   useEffect(() => {
@@ -79,8 +89,9 @@ export function QuickReviewPanel() {
     setDirection('next')
     setAnimating(true)
     setTimeout(() => {
-      editor.commands.acceptAISuggestion(current.id)
-      const remaining = getAISuggestions(editor)
+      if (current.tracked) editor.commands.acceptTrackedChange(current.id)
+      else editor.commands.acceptAISuggestion(current.id)
+      const remaining = reviewItems(editor)
       if (remaining.length === 0) {
         setReviewMode(null)
       } else {
@@ -95,8 +106,9 @@ export function QuickReviewPanel() {
     setDirection('next')
     setAnimating(true)
     setTimeout(() => {
-      editor.commands.rejectAISuggestion(current.id)
-      const remaining = getAISuggestions(editor)
+      if (current.tracked) editor.commands.rejectTrackedChange(current.id)
+      else editor.commands.rejectAISuggestion(current.id)
+      const remaining = reviewItems(editor)
       if (remaining.length === 0) {
         setReviewMode(null)
       } else {
@@ -187,7 +199,8 @@ export function QuickReviewPanel() {
 
   const handleSubmitFeedback = useCallback(() => {
     if (!editor || !current || !feedbackInput.trim()) return
-    editor.commands.setAISuggestionReply(current.id, feedbackInput.trim())
+    if (current.tracked) editor.commands.replyToTrackedChange(current.id, feedbackInput.trim())
+    else editor.commands.setAISuggestionReply(current.id, feedbackInput.trim())
     setShowFeedbackForm(false)
   }, [editor, current, feedbackInput])
 
@@ -219,7 +232,7 @@ export function QuickReviewPanel() {
     )
   }
 
-  const diff = computeWordDiff(current.originalText, current.suggestedText)
+  const diff = reviewDiff(current.originalText, current.suggestedText)
 
   return (
     <div className="flex flex-col h-full">
@@ -348,7 +361,7 @@ export function QuickReviewPanel() {
               Original
             </div>
             <div className="text-sm leading-relaxed rounded-md bg-muted/30 px-3 py-2.5 border border-border">
-              <DiffText segments={diff.old} mode="old" />
+              <ReviewText segments={diff.old} mode="old" context={context} />
             </div>
           </div>
 
@@ -358,7 +371,7 @@ export function QuickReviewPanel() {
               Suggested
             </div>
             <div className="text-sm leading-relaxed rounded-md bg-muted/30 px-3 py-2.5 border border-border">
-              <DiffText segments={diff.new} mode="new" />
+              <ReviewText segments={diff.new} mode="new" context={context} />
             </div>
           </div>
 
@@ -424,36 +437,5 @@ export function QuickReviewPanel() {
         ↵ accept · ⌫ reject · ← → navigate
       </div>
     </div>
-  )
-}
-
-/** Render diff segments with word-level highlighting */
-function DiffText({ segments, mode }: { segments: DiffSegment[]; mode: 'old' | 'new' }) {
-  return (
-    <span>
-      {segments.map((seg, i) => {
-        if (mode === 'old' && seg.type === 'removed') {
-          return (
-            <span
-              key={i}
-              className="bg-red-500/20 text-red-700 dark:text-red-400 line-through rounded-sm px-0.5"
-            >
-              {seg.text}
-            </span>
-          )
-        }
-        if (mode === 'new' && seg.type === 'added') {
-          return (
-            <span
-              key={i}
-              className="bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 rounded-sm px-0.5"
-            >
-              {seg.text}
-            </span>
-          )
-        }
-        return <span key={i} className="opacity-50">{seg.text}</span>
-      })}
-    </span>
   )
 }

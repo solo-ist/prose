@@ -45,7 +45,8 @@ import { useSummaryStore } from '../../stores/summaryStore'
 import { useEditor } from '../../hooks/useEditor'
 import { useTabs } from '../../hooks/useTabs'
 import { hydrateDraft, restoreTabs, convertTab, type RestoredTab, toggleSourceMode, markTabSaved } from '../../tabs/actions'
-import { landProjections } from '../../document/session'
+import { landProjections, activeSessionState, subscribeActiveSession, hasSession, serializeFinal } from '../../document/session'
+import { trackedChangesIn } from '../../extensions/tracked-changes/changes'
 import { useSettings } from '../../hooks/useSettings'
 import { usePanelLayout, PanelLayoutProvider } from '../../hooks/usePanelLayout'
 import type { ImperativePanelHandle } from 'react-resizable-panels'
@@ -676,6 +677,12 @@ export function App() {
           if (content) getApi().copyToClipboard(content)
           break
         }
+        case 'copyWithChanges': {
+          // The text as if every pending tracked change were accepted (#891).
+          const tabId = useTabStore.getState().activeTabId
+          if (tabId && hasSession(tabId)) getApi().copyToClipboard(serializeFinal(tabId))
+          break
+        }
         case 'addComment':
           window.dispatchEvent(new CustomEvent('menu:addComment'))
           break
@@ -736,6 +743,22 @@ export function App() {
 
     return unsubscribe
   }, [openFileInTab, saveFile, saveFileAs, createNewTab, setDialogOpen, toggleChat, toggleFileList, isFileListOpen, setShortcutsDialogOpen, setAboutDialogOpen, editor, reopenLastClosedTab])
+
+  // Show the native "Copy with changes" items (Edit menu, editor context menu)
+  // only while the active tab has pending tracked changes (#891, design §5).
+  useEffect(() => {
+    const api = getApi()
+    let shown: boolean | null = null
+    const push = () => {
+      const state = activeSessionState()
+      const available = state ? trackedChangesIn(state.doc).length > 0 : false
+      if (available === shown) return
+      shown = available
+      void api.setCopyWithChangesAvailable(available)
+    }
+    push()
+    return subscribeActiveSession(push)
+  }, [])
 
   // Keep the native "Reopen Closed Tab" menu item enabled only while the
   // session-only closed-tab stack has entries. Push the current emptiness to

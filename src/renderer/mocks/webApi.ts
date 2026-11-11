@@ -526,6 +526,7 @@ export function createMockApi(): ElectronAPI {
     exitFullScreen: async (): Promise<void> => {},
     refreshRecentMenu: async (): Promise<void> => {},
     setReopenClosedTabEnabled: async (): Promise<void> => {},
+    setCopyWithChangesAvailable: async (): Promise<void> => {},
     mcpGetStatus: async () => ({
       installed: false,
       version: null,

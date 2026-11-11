@@ -538,6 +538,7 @@ export const browserApi: ElectronAPI = {
 
   // Native menu state - no-op in browser (no native menu)
   setReopenClosedTabEnabled: async (): Promise<void> => {},
+  setCopyWithChangesAvailable: async (): Promise<void> => {},
 
   // MCP server install management - desktop only
   mcpGetStatus: async () => ({

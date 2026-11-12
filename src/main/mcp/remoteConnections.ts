@@ -6,8 +6,15 @@
  * The gateway's consent is the first gate; this store is the second. A client
  * the writer hasn't approved here reaches nothing: its first call records it
  * as pending, and it stays refused until the writer approves it, with the
- * scopes the writer picks. Even a stolen OAuth token, or a compromised
- * gateway account, reaches nothing the writer hasn't approved in the app.
+ * scopes the writer picks. For those clients even a stolen OAuth token, or a
+ * compromised gateway account, reaches nothing the writer hasn't approved in
+ * the app.
+ *
+ * The exception (#1304) is the short list of trusted clients
+ * (shared/mcp/trustedRemoteClients.ts): one of those is connected on its
+ * first call, with the scopes the writer granted on the gateway's consent
+ * page, and stays counted as unreviewed until the writer has seen it here.
+ * For them the gateway's sign-in and consent are the only gate.
  *
  * Stored at `<userData>/mcp-remote.json` (mode 0600), written atomically. It
  * holds no secret: the relay authenticates with the gateway session, and the
@@ -121,11 +128,51 @@ export class RemoteConnectionStore {
       scopes: [],
       firstSeenAt: this.now(),
       approvedAt: null,
-      lastUsedAt: null
+      lastUsedAt: null,
+      reviewedAt: null
     }
     data.connections.push(row)
     this.save()
     return { ...row }
+  }
+
+  /**
+   * A first call from a trusted client (#1304): connect it without the
+   * writer's approval, with the scopes granted on the gateway's consent page
+   * (`read` always). It is unreviewed until the writer has seen it. The
+   * caller decides trust; a client already known here is never changed.
+   */
+  connectTrusted(client: { id: string; name: string; verified: boolean }, scopes: readonly unknown[]): RemoteConnection {
+    const data = this.load()
+    if (data.connections.some((c) => c.clientId === client.id)) throw new RemoteConnectionError('This client is already known')
+    const name = cleanActorText(client.name) || 'Remote client'
+    const now = this.now()
+    const row: RemoteConnection = {
+      id: remoteConnectionId(client.id),
+      clientId: client.id,
+      clientName: name,
+      verified: client.verified,
+      label: this.freeLabel(name),
+      status: 'approved',
+      scopes: remoteScopesOf(['read', ...scopes]),
+      firstSeenAt: now,
+      approvedAt: now,
+      lastUsedAt: null,
+      reviewedAt: null
+    }
+    data.connections.push(row)
+    this.save()
+    return { ...row, scopes: [...row.scopes] }
+  }
+
+  /** The writer has seen the connections: nothing is unreviewed any more. Returns whether anything changed. */
+  markReviewed(): boolean {
+    const unreviewed = this.load().connections.filter((c) => c.status === 'approved' && c.reviewedAt === null)
+    if (unreviewed.length === 0) return false
+    const now = this.now()
+    for (const row of unreviewed) row.reviewedAt = now
+    this.save()
+    return true
   }
 
   /** The writer approves a client, with the scopes it may use (`read` always). */
@@ -135,6 +182,7 @@ export class RemoteConnectionStore {
     row.scopes = this.validScopes(scopes)
     if (label !== undefined) row.label = this.validLabel(label, clientId)
     row.approvedAt = this.now()
+    row.reviewedAt = row.approvedAt
     this.save()
     return { ...row }
   }
@@ -145,6 +193,7 @@ export class RemoteConnectionStore {
     if (row.status !== 'approved') throw new RemoteConnectionError('Approve this client first')
     if (change.scopes !== undefined) row.scopes = this.validScopes(change.scopes)
     if (change.label !== undefined) row.label = this.validLabel(change.label, clientId)
+    row.reviewedAt ??= this.now()
     this.save()
     return { ...row }
   }
@@ -158,7 +207,11 @@ export class RemoteConnectionStore {
     return { ...row }
   }
 
-  /** Forget a client: its calls are refused at once (it would come back as pending). */
+  /**
+   * Forget a client: its calls are refused at once. The caller revokes its
+   * tokens at the gateway, so it comes back (as pending, or connected if it
+   * is trusted) only after the writer consents there again.
+   */
   remove(clientId: string): void {
     const data = this.load()
     const index = data.connections.findIndex((c) => c.clientId === clientId)
@@ -207,6 +260,20 @@ export class RemoteConnectionStore {
     return name
   }
 
+  /** `name`, or `name 2`, `name 3`… when an approved connection already has it (labels are unique). */
+  private freeLabel(name: string): string {
+    const taken = new Set(
+      this.load()
+        .connections.filter((c) => c.status === 'approved')
+        .map((c) => c.label.toLowerCase())
+    )
+    if (!taken.has(name.toLowerCase())) return name
+    for (let n = 2; ; n++) {
+      const candidate = `${name} ${n}`
+      if (!taken.has(candidate.toLowerCase())) return candidate
+    }
+  }
+
   private load(): StoreFile {
     if (this.data) return this.data
     let parsed: Partial<StoreFile> | null = null
@@ -220,7 +287,12 @@ export class RemoteConnectionStore {
         ? parsed.deviceId
         : randomBytes(18).toString('base64url')
     const connections = Array.isArray(parsed?.connections)
-      ? parsed.connections.filter(isConnection).map((c) => ({ ...c, scopes: remoteScopesOf(c.scopes) }))
+      ? parsed.connections.filter(isConnection).map((c) => ({
+          ...c,
+          scopes: remoteScopesOf(c.scopes),
+          // A row written before #1304 was approved by the writer: it has been seen.
+          reviewedAt: typeof c.reviewedAt === 'number' ? c.reviewedAt : c.status === 'approved' ? (c.approvedAt ?? c.firstSeenAt) : null
+        }))
       : []
     this.data = { version: 1, enabled: parsed?.enabled === true, deviceId, connections }
     // A file without a usable device id gets one now; a missing file is

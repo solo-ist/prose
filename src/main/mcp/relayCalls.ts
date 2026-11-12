@@ -4,20 +4,24 @@
  *
  * The gateway has already checked the client's OAuth token and its scopes;
  * this is the second gate. A client the writer hasn't approved in Prose is
- * recorded as pending and refused. An approved one reaches only the tools
- * both its token's scopes and the writer's approval allow, through the same
- * MCP server definition the local endpoint serves, and every record it makes
- * carries the actor main builds here (`via: 'relay'`), labelled with the
- * writer's name for the connection.
+ * recorded as pending and refused, unless it is on the short list of trusted
+ * clients (#1304), which is connected on its first call with the scopes its
+ * token carries. A connected one reaches only the tools both its token's
+ * scopes and the connection allow, through the same MCP server definition
+ * the local endpoint serves, and every record it makes carries the actor
+ * main builds here (`via: 'relay'`), labelled with the writer's name for the
+ * connection.
  *
  * Everything in a frame is data from the network: the client's name is shown,
- * never trusted; the params are tool arguments like any MCP client's.
+ * never trusted (trust reads the verified client id's domain, never the
+ * name); the params are tool arguments like any MCP client's.
  */
 
 import { createMcpHandler, type AuthInfo, type McpHttpHandler } from '@modelcontextprotocol/server'
 import { createProseMcpServer, toCallToolResult } from '../../shared/mcp/server'
 import { connectionActor } from '../../shared/mcp/actor'
 import { remoteScopesOf, toolsForRemoteScopes } from '../../shared/mcp/remoteScopes'
+import { isTrustedRemoteClient } from '../../shared/mcp/trustedRemoteClients'
 import type { McpAgentActor } from '../../shared/review/actor'
 import type { McpToolInvoker } from './http-server'
 import type { RemoteConnection, RemoteConnectionStore } from './remoteConnections'
@@ -51,13 +55,15 @@ interface RelayContext {
 }
 
 export interface RelayCallHandlerOptions {
-  store: Pick<RemoteConnectionStore, 'get' | 'notePending' | 'touch'>
+  store: Pick<RemoteConnectionStore, 'get' | 'notePending' | 'connectTrusted' | 'touch'>
   /** Runs an approved call's tool (the renderer bridge). */
   invokeTool: McpToolInvoker
   /** The app version, reported as `serverInfo.version`. */
   version: string
   /** A client was recorded as pending: tell the writer. */
   onPending?: (connection: RemoteConnection) => void
+  /** A trusted client was connected without approval (#1304): tell the writer. */
+  onConnected?: (connection: RemoteConnection) => void
 }
 
 function fail(code: number, message: string): RelayAnswer {
@@ -141,8 +147,13 @@ export class RelayCallHandler {
     const { store } = this.options
     let connection = store.get(frame.client.id)
     if (!connection) {
-      connection = store.notePending(frame.client)
-      this.options.onPending?.(connection)
+      if (isTrustedRemoteClient(frame.client)) {
+        connection = store.connectTrusted(frame.client, remoteScopesOf(frame.scopes))
+        this.options.onConnected?.(connection)
+      } else {
+        connection = store.notePending(frame.client)
+        this.options.onPending?.(connection)
+      }
     }
     if (connection.status === 'pending') {
       return fail(

@@ -67,6 +67,52 @@ describe('RemoteConnectionStore', () => {
     expect(() => s.remove(chatgpt.id)).toThrow('No such connection')
   })
 
+  it('connects a trusted client with its granted scopes, unreviewed until the writer has seen it (#1304)', () => {
+    const s = store()
+    expect(s.connectTrusted(chatgpt, ['comment', 'offline_access'])).toMatchObject({
+      id: 'remote:https://chatgpt.com/oauth/client.json',
+      label: 'ChatGPT',
+      status: 'approved',
+      scopes: ['read', 'comment'],
+      firstSeenAt: clock,
+      approvedAt: clock,
+      reviewedAt: null
+    })
+    // Known already: never changed by a second connect.
+    expect(() => s.connectTrusted(chatgpt, ['propose'])).toThrow('already known')
+    clock += 5000
+    expect(s.markReviewed()).toBe(true)
+    expect(store().get(chatgpt.id)).toMatchObject({ reviewedAt: clock, scopes: ['read', 'comment'] })
+    expect(s.markReviewed()).toBe(false)
+  })
+
+  it('a writer’s own approval or change counts as seen; a trusted client’s label never collides', () => {
+    const s = store()
+    s.notePending({ id: 'a', name: 'ChatGPT', verified: false })
+    expect(s.approve('a', ['read'])).toMatchObject({ reviewedAt: clock })
+    expect(s.connectTrusted(chatgpt, ['read'])).toMatchObject({ label: 'ChatGPT 2', reviewedAt: null })
+    clock += 1
+    expect(s.update(chatgpt.id, { scopes: ['comment'] })).toMatchObject({ reviewedAt: clock })
+  })
+
+  it('treats an approved row written before #1304 as seen', () => {
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        enabled: true,
+        deviceId: 'd'.repeat(24),
+        connections: [
+          { id: 'remote:a', clientId: 'a', clientName: 'A', verified: false, label: 'A', status: 'approved', scopes: ['read'], firstSeenAt: 5, approvedAt: 7, lastUsedAt: null },
+          { id: 'remote:b', clientId: 'b', clientName: 'B', verified: false, label: 'B', status: 'pending', scopes: [], firstSeenAt: 5, approvedAt: null, lastUsedAt: null }
+        ]
+      })
+    )
+    expect(store().get('a')?.reviewedAt).toBe(7)
+    expect(store().get('b')?.reviewedAt).toBeNull()
+    expect(store().markReviewed()).toBe(false)
+  })
+
   it('cleans names and refuses a label another approved connection has', () => {
     const s = store()
     s.notePending({ id: 'a', name: 'Claude\u0000\n', verified: false })

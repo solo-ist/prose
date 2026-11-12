@@ -80,6 +80,7 @@ import { splitMcpTarget } from '../../lib/tools/mcpTarget'
 import { mcpActorFrom, LAUNCH_CONNECTION_ID, DEFAULT_CONNECTION_LABEL } from '../../../shared/mcp/actor'
 import { isMcpToolName } from '../../../shared/tools/registry'
 import { REMOTE_TOOL_NAMES } from '../../../shared/mcp/remoteScopes'
+import { remoteConnectedMessage } from '../settings/remoteAccessText'
 import { useReviewMode, useWasChatOpenBeforeReview, usePreviousChatWidth, useReviewStore, type ReviewMode } from '../../stores/reviewStore'
 import { chatOpenDefaultPct, reviewChatWidthPct } from '../../hooks/usePanelLayout'
 
@@ -878,9 +879,21 @@ export function App() {
   }, [])
 
   // Remote access (#1239): an assistant asked to use Prose through the relay.
-  // Nothing reaches it until the writer approves it, so say where.
+  // Nothing reaches it until the writer approves it, so say where. A trusted
+  // one (#1304) is already connected: say so, with its proven domain and what
+  // it can do, so a connection the writer didn't make doesn't pass unseen.
   useEffect(() => {
     return window.api?.onMcpRemoteChanged?.((change) => {
+      if (change.reason === 'connected') {
+        useNotificationStore.getState().notify({
+          id: 'remote-access-connected',
+          message: remoteConnectedMessage(change),
+          actionLabel: 'Review',
+          onAction: () => useSettingsStore.getState().setDialogOpen(true, 'integrations'),
+          durationMs: 15000,
+        })
+        return
+      }
       if (change.reason !== 'pending') return
       useNotificationStore.getState().notify({
         id: 'remote-access-pending',

@@ -1,7 +1,7 @@
 # Privacy Policy
 
 **Prose — AI-Powered Markdown Editor**
-Last updated: November 9, 2026
+Last updated: November 12, 2026
 
 ## Summary
 
@@ -50,7 +50,7 @@ Remote access lets ChatGPT and claude.ai (and other assistants that connect over
 
 How it works: your Prose app opens a connection out to our server, `api.prose.solo.ist`; your computer accepts no incoming connections. When a connected assistant calls a Prose tool (for example, to read an open document or suggest an edit), the request goes from the assistant's service to our server, then over that connection to your Prose app, which answers. The answer goes back the same way. An answer can include text from the documents you have open.
 
-- **Two approvals.** You approve each assistant on our sign-in page, and again in Prose, where you choose what it may do (read; suggest edits; comment). An assistant you haven't approved in Prose gets nothing.
+- **Your approval, and a list in Prose.** You approve each assistant on our sign-in page, which shows what it asks to do (read; suggest edits; comment). Claude (claude.ai), ChatGPT (chatgpt.com) and the Inference Co-op's assistant (inference.coop) are then connected, and Prose tells you so. Any other assistant must be approved a second time in Prose and gets nothing until you do. Every connected assistant is listed in Prose under Settings → Integrations → Connections, where you can change what it may do or remove it.
 - **Open documents only.** An assistant can't open, create, or list your files, and it never accepts or rejects suggestions: you decide.
 - **Nothing kept in transit.** The relay carries an assistant's requests (tool calls) and Prose's answers, in memory, and only while Remote access is on. No document content is ever stored on our server. If Prose isn't running, the assistant is told so and nothing waits for you.
 

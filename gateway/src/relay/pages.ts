@@ -215,7 +215,7 @@ relayPageRoutes.get(OAUTH_CONSENT_PATH, async (c) => {
       ${identity}
       <p>It is asking to:</p>
       ${scopeList}
-      <p>It can only work on documents you have open in Prose, and never opens or lists your files. Prose will also ask you to approve it in the app, under Settings &rarr; Integrations &rarr; Connections, before it can see anything.</p>
+      <p>It can only work on documents you have open in Prose, and never opens or lists your files. In Prose, under Settings &rarr; Integrations &rarr; Connections, you can change what it may do or remove it. An assistant Prose doesn't recognise also waits there for your approval before it can see anything.</p>
       <p class="note">Signed in as ${escapeHtml(session.user.email)}. <button type="button" class="link" id="switch">Not you?</button></p>
       <button type="button" id="allow">Allow</button>
       <button type="button" class="secondary" id="deny">Deny</button>

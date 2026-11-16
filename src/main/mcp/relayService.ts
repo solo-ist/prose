@@ -11,6 +11,7 @@
  *   mcp:remote:update     change an approved client's scopes or label
  *   mcp:remote:deny       decline a client (and revoke it at the gateway)
  *   mcp:remote:remove     forget a client (and revoke it at the gateway)
+ *   mcp:remote:acknowledge the writer has seen the connections (#1304)
  *   → mcp:remote:changed  pushed to the window when any of it changes
  */
 
@@ -28,6 +29,7 @@ import type {
   RemoteResult
 } from '../../shared/mcp/remoteAccess'
 import { RelayCallHandler, parseCallFrame } from './relayCalls'
+import { remoteClientHost } from '../../shared/mcp/trustedRemoteClients'
 import type { McpToolInvoker } from './http-server'
 
 const MAS_ERROR = 'Remote access is not available in the Mac App Store version.'
@@ -51,16 +53,25 @@ function pendingCount(): number {
     .filter((c) => c.status === 'pending').length
 }
 
+/** Trusted clients that connected without approval and the writer hasn't seen yet (#1304). */
+function unreviewedCount(): number {
+  return getRemoteConnectionStore()
+    .list()
+    .filter((c) => c.status === 'approved' && c.reviewedAt === null).length
+}
+
 /**
  * A pending client needs the writer's attention, not just the client's
  * (design §7a): the count shows on the Dock icon until the writer approves
- * or declines it (and in Settings, which reads it from the status). The
- * direct build only; the MAS build never gets here.
+ * or declines it (and in Settings, which reads it from the status). A
+ * trusted client that connected by itself is counted too, until the writer
+ * has seen it in Settings (#1304). The direct build only; the MAS build
+ * never gets here.
  */
 function updateAttention(): void {
   if (IS_MAS_BUILD || process.platform !== 'darwin') return
   try {
-    const n = pendingCount()
+    const n = pendingCount() + unreviewedCount()
     app.dock?.setBadge(n > 0 ? String(n) : '')
   } catch (err) {
     console.warn('[MCP relay] Could not update the Dock badge:', err)
@@ -73,7 +84,9 @@ function notify(change: RemoteChange): void {
 }
 
 async function status(): Promise<RemoteAccessStatus> {
-  if (IS_MAS_BUILD) return { available: false, enabled: false, signedIn: false, state: 'unavailable', pendingCount: 0, connectorUrl: '' }
+  if (IS_MAS_BUILD) {
+    return { available: false, enabled: false, signedIn: false, state: 'unavailable', pendingCount: 0, unreviewedCount: 0, connectorUrl: '' }
+  }
   const share = await import('../share/index')
   const s = getRemoteConnectionStore()
   const current = relay?.status ?? { state: 'off' as RelayState }
@@ -85,6 +98,7 @@ async function status(): Promise<RemoteAccessStatus> {
     ...(current.error && s.enabled ? { error: current.error } : {}),
     ...(s.enabled && current.state === 'connected' && current.receiving !== undefined ? { receiving: current.receiving } : {}),
     pendingCount: pendingCount(),
+    unreviewedCount: unreviewedCount(),
     connectorUrl: await share.relayConnectorUrl()
   }
 }
@@ -157,6 +171,13 @@ export function setupRemoteAccessHandlers(): void {
     const id = text(clientId)
     return forget(id, (s) => s.remove(id))
   })
+
+  ipcMain.handle('mcp:remote:acknowledge', (): RemoteResult<null> => {
+    const result = run(() => getRemoteConnectionStore().markReviewed())
+    if (!result.ok) return result
+    if (result.value) notify({ reason: 'list' })
+    return { ok: true, value: null }
+  })
 }
 
 /**
@@ -172,7 +193,14 @@ export async function startRelay(options: { window: BrowserWindow; invokeTool: M
     store: s,
     invokeTool: options.invokeTool,
     version: options.version,
-    onPending: (connection) => notify({ reason: 'pending', clientName: connection.clientName })
+    onPending: (connection) => notify({ reason: 'pending', clientName: connection.clientName }),
+    onConnected: (connection) =>
+      notify({
+        reason: 'connected',
+        clientName: connection.clientName,
+        host: remoteClientHost({ id: connection.clientId, verified: connection.verified }) ?? '',
+        scopes: connection.scopes
+      })
   })
   const handler = calls
   relay = new RelayClient({
@@ -197,7 +225,7 @@ export async function startRelay(options: { window: BrowserWindow; invokeTool: M
     notify({ reason: 'status' })
   })
   if (s.enabled) relay.start()
-  // Clients still waiting from a previous session keep their count on the Dock.
+  // Clients still waiting (or not yet seen) from a previous session keep their count on the Dock.
   updateAttention()
 }
 

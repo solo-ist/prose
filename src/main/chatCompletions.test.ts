@@ -276,13 +276,21 @@ describe('calls (#1241)', () => {
     ).rejects.toThrow('HTTP 401: Incorrect API key provided')
   })
 
-  it("listChatModels keeps OpenAI's chat models only", async () => {
-    stubFetch([], {
-      json: {
-        data: ['gpt-5', 'gpt-5-mini', 'o4-mini', 'text-embedding-3-small', 'whisper-1', 'gpt-4o-audio-preview', 'gpt-5-codex', 'dall-e-3', 'gpt-realtime', 'gpt-5-pro'].map((id) => ({ id })),
-      },
-    })
+  it("listChatModels keeps OpenAI's chat models from GPT-5.5 on, without snapshots or the models that refuse tools (#1311)", async () => {
+    // The ids the operator's key listed on 2026-11-16, plus the non-chat kinds.
+    const listed = [
+      'gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'gpt-5', 'gpt-5-2025-08-07', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5.1', 'gpt-5.2', 'gpt-5.4', 'gpt-5.4-mini',
+      'gpt-5.5', 'gpt-5.5-2026-04-23', 'gpt-5.6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-6-astra', 'gpt-6-luna', 'gpt-6-sol', 'gpt-6.1-sol', 'gpt-6.1-terra',
+      'gpt-live-1', 'o3', 'o3-2025-04-16', 'o4-mini',
+      'text-embedding-3-small', 'whisper-1', 'gpt-4o-audio-preview', 'gpt-5-codex', 'gpt-6-codex', 'dall-e-3', 'gpt-realtime', 'gpt-5-pro', 'gpt-6-sol-pro',
+    ]
+    stubFetch([], { json: { data: listed.map((id) => ({ id })) } })
     const ids = await listChatModels({ baseURL: PROVIDERS.openai.baseURL, apiKey: 'k' }, PROVIDERS.openai.liveModels)
-    expect(ids).toEqual(['gpt-5', 'gpt-5-mini', 'o4-mini'])
+    expect(ids).toEqual(['gpt-5.5', 'gpt-5.6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-6-luna', 'gpt-6-sol', 'gpt-6.1-terra'])
+    // Later versions arrive without a change here.
+    const { include, exclude } = PROVIDERS.openai.liveModels!
+    const kept = (id: string) => include!.test(id) && !exclude!.test(id)
+    expect(['gpt-5.10', 'gpt-6.2-luna', 'gpt-7', 'gpt-10-sol'].every(kept)).toBe(true)
+    expect(['gpt-5.4', 'gpt-5', 'gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-sol-2026-09-01'].filter(kept)).toEqual([])
   })
 })

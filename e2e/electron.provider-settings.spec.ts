@@ -22,7 +22,7 @@ import { openAIRequests, sseChunk, stubOpenAI } from './openai-stub'
 const ANTHROPIC_KEY = 'sk-ant-api03-e2e' + 'a'.repeat(50) + 'ANTH'
 const OPENAI_KEY = 'sk-proj-e2e' + 'o'.repeat(40) + 'OPEN'
 /** A live-only id, absent from the seed: proves a list came from the provider. */
-const LIVE_MODELS = ['gpt-5', 'gpt-5-mini', 'gpt-5.1', 'text-embedding-3-small']
+const LIVE_MODELS = ['gpt-5.5', 'gpt-6-luna', 'gpt-6.1-terra', 'text-embedding-3-small']
 
 let app: ElectronApplication
 let page: Page
@@ -145,10 +145,10 @@ test('Settings: one model list across providers; a pick sets the provider; Clear
   // Both providers in one list: Claude's models beside OpenAI's live list (with its live-only model).
   await dialog().locator('#model').click()
   await expect(page.getByRole('option', { name: /Claude Sonnet 5.5/ })).toBeVisible()
-  await expect(page.getByRole('option', { name: 'gpt-5.1' })).toBeVisible()
+  await expect(page.getByRole('option', { name: 'gpt-6.1-terra' })).toBeVisible()
   await expect(page.getByRole('option', { name: /text-embedding/ })).toHaveCount(0)
-  await page.getByRole('option', { name: /GPT-5 mini/ }).click()
-  await expect(dialog().locator('#model')).toContainText('GPT-5 mini')
+  await page.getByRole('option', { name: /GPT-6 Luna/ }).click()
+  await expect(dialog().locator('#model')).toContainText('GPT-6 Luna')
   await expect(row('openai')).toContainText('in use')
 
   // A Claude model from the same list: the provider follows.
@@ -157,7 +157,7 @@ test('Settings: one model list across providers; a pick sets the provider; Clear
   await expect(row('anthropic')).toContainText('in use')
 
   // On OpenAI again, clear its key: Prose Agents move to Anthropic, with its model.
-  await pickModel(/GPT-5 mini/)
+  await pickModel(/GPT-6 Luna/)
   await row('openai').getByRole('button', { name: 'Clear' }).click()
   await expect(status('openai')).toHaveText('No key')
   await expect(status('anthropic')).toContainText('••••••••ANTH')
@@ -167,7 +167,7 @@ test('Settings: one model list across providers; a pick sets the provider; Clear
   settings = await loadSettings()
   expect(settings.llm.provider).toBe('anthropic')
   expect(settings.llm.model).toBe('claude-opus-5-5')
-  expect(settings.llm.modelByProvider?.openai).toBe('gpt-5-mini')
+  expect(settings.llm.modelByProvider?.openai).toBe('gpt-6-luna')
   expect(Object.keys(settings.llm.keyStatus ?? {})).toEqual(['anthropic'])
 })
 
@@ -182,16 +182,16 @@ test('Settings: a custom model id takes its provider', async () => {
   await dialog().getByRole('button', { name: 'Use custom model' }).click()
   await dialog().locator('#customModelProvider').click()
   await page.getByRole('option', { name: 'OpenAI' }).click()
-  // Typed through a listed id ("gpt-5") on the way: the field stays open.
+  // Typed through a listed id ("gpt-5.5") on the way: the field stays open.
   await dialog().locator('#model').fill('')
-  await dialog().locator('#model').pressSequentially('gpt-5-2026-08-01')
+  await dialog().locator('#model').pressSequentially('gpt-5.5-2026-04-23')
   await saveAndClose()
 
   const settings = await loadSettings()
   expect(settings.llm.provider).toBe('openai')
-  expect(settings.llm.model).toBe('gpt-5-2026-08-01')
+  expect(settings.llm.model).toBe('gpt-5.5-2026-04-23')
   await openLlmSettings()
-  await expect(dialog().locator('#model')).toHaveValue('gpt-5-2026-08-01')
+  await expect(dialog().locator('#model')).toHaveValue('gpt-5.5-2026-04-23')
   await expect(dialog().locator('#customModelProvider')).toContainText('OpenAI')
 })
 
@@ -211,17 +211,17 @@ test("the status bar's model menu lists both providers; a GPT pick with Claude i
   await expect(menu).toContainText('OpenAI')
   await expect(menu.getByRole('menuitem', { name: /Claude Sonnet 5.5/ })).toBeVisible()
   await expect(menu.getByRole('menuitem', { name: /text-embedding/ })).toHaveCount(0)
-  await menu.getByRole('menuitem', { name: 'gpt-5.1' }).click()
-  await expect(model).toHaveText('gpt-5.1')
+  await menu.getByRole('menuitem', { name: 'gpt-6.1-terra' }).click()
+  await expect(model).toHaveText('gpt-6.1-terra')
 
   await chat()
   await expect(page.getByText('Hello from GPT.')).toBeVisible({ timeout: 15_000 })
   const [turn] = await streamedTurns()
-  expect(turn.body.model).toBe('gpt-5.1')
+  expect(turn.body.model).toBe('gpt-6.1-terra')
   expect(turn.auth).toBe(`Bearer ${OPENAI_KEY}`)
   const settings = await loadSettings()
   expect(settings.llm.provider).toBe('openai')
-  expect(settings.llm.model).toBe('gpt-5.1')
+  expect(settings.llm.model).toBe('gpt-6.1-terra')
   expect(settings.llm.modelByProvider?.anthropic).toBe('claude-sonnet-5-5')
 })
 
@@ -233,10 +233,10 @@ test('with one key, the other provider offers "Add a key", which opens Settings 
   await useOpenAI()
 
   // The first key saved picked its provider: Claude had none.
-  await expect(page.getByTestId('status-model')).toHaveText('GPT-5')
+  await expect(page.getByTestId('status-model')).toHaveText('GPT-5.5')
   await page.getByTestId('status-model').click()
   const menu = page.getByRole('menu')
-  await expect(menu.getByRole('menuitem', { name: 'gpt-5.1' })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: 'gpt-6.1-terra' })).toBeVisible()
   await expect(menu.getByRole('menuitem', { name: /Claude/ })).toHaveCount(0)
   const add = page.getByTestId('status-model-add-key-anthropic')
   await expect(add).toHaveText('Add an Anthropic key in Settings → LLM')
@@ -295,7 +295,7 @@ test('onboarding: a key per provider; the first one verified picks the provider;
 
   const settings = await loadSettings()
   expect(settings.llm.provider).toBe('openai')
-  expect(settings.llm.model).toBe('gpt-5')
+  expect(settings.llm.model).toBe('gpt-5.5')
   expect(settings.llm.keyStatus?.openai?.hint).toBe('OPEN')
   expect(settings.llm.keyStatus?.anthropic?.hint).toBe('ANTH')
   const [verify] = await openAIRequests(app)
@@ -307,10 +307,10 @@ test('onboarding: a key per provider; the first one verified picks the provider;
   await chat()
   await expect(page.getByText('Hello from GPT.')).toBeVisible({ timeout: 15_000 })
   const [turn] = await streamedTurns()
-  expect(turn.body.model).toBe('gpt-5')
+  expect(turn.body.model).toBe('gpt-5.5')
 })
 
-test("an OpenAI turn's suggestion reads \"By Prose · GPT-5\"", async () => {
+test("an OpenAI turn's suggestion reads \"By Prose · GPT-5.5\"", async () => {
   test.setTimeout(90_000)
   await launch(true)
   await dismissOnboarding(page).catch(() => {})
@@ -337,5 +337,5 @@ test("an OpenAI turn's suggestion reads \"By Prose · GPT-5\"", async () => {
   // A real click, with focus still in the chat input: the blurred editor's
   // selection highlight sits over the mark and must not swallow the click (#1264).
   await mark.click()
-  await expect(page.getByTestId('suggestion-actor')).toHaveText('By Prose · GPT-5')
+  await expect(page.getByTestId('suggestion-actor')).toHaveText('By Prose · GPT-5.5')
 })

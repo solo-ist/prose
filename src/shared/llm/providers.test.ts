@@ -11,7 +11,10 @@ describe('provider list (#1240)', () => {
     expect(PROVIDERS.openai.credentialKey).not.toBe(PROVIDERS.anthropic.credentialKey)
     expect(PROVIDERS.openai.thinking).toBe(false)
     expect(getModelsForProvider('openai').map((m) => m.id)).toContain(getDefaultModel('openai'))
-    expect(resolveModelName('gpt-5-mini')).toBe('GPT-5 mini')
+    expect(resolveModelName('gpt-6-luna')).toBe('GPT-6 Luna')
+    // The seed holds only what the live filter would keep (#1311).
+    const { include, exclude } = PROVIDERS.openai.liveModels!
+    expect(getModelsForProvider('openai').every((m) => include!.test(m.id) && !exclude!.test(m.id))).toBe(true)
   })
 
   it('the model helpers read the entry', () => {

@@ -3,7 +3,7 @@
  *
  * Every comment, reply, suggestion and AI annotation names who made it: the
  * writer (by their Settings name), a share reviewer, a Prose Agent (provider
- * and model) or an MCP agent (its connection). Records from before 1.9.1 have
+ * and model) or an MCP agent (its connection). Records from before 1.10.0 have
  * no actor and are read, never rewritten: case 1 seeds 1.9.0-shaped rows
  * straight into IndexedDB and checks the names Activity shows. Case 2 makes
  * new records through the UI default, the in-app tool pipeline and the MCP
@@ -140,7 +140,7 @@ test.describe('review provenance', () => {
     return page.getByTestId('activity-actor').allTextContents()
   }
 
-  test('case 1: records written before 1.9.1 read with the right names', async () => {
+  test('case 1: records written before 1.10.0 read with the right names', async () => {
     const probe = await openDoc('probe.md', 'Probe line.\n', 'Probe line.')
     expect(await idForPath(probe.path!), 'the spec derives document ids the way Prose does').toBe(probe.documentId)
     const legacyPath = probe.path!.replace(/probe\.md$/, 'legacy.md')
@@ -174,7 +174,7 @@ test.describe('review provenance', () => {
       .toEqual(expect.arrayContaining(['Prose · Sonnet 5.5', 'MCP client', 'Imported']))
     const names = await activityCommentNames()
     expect(names).toEqual(expect.arrayContaining([NAME, 'Dana', 'AI']))
-    // A share reviewer was shown as "you" in an expanded Activity row before 1.9.1.
+    // A share reviewer was shown as "you" in an expanded Activity row before 1.10.0.
     expect(names).not.toContain('you')
 
     // Read, never rewritten: the stored rows still have no actor.

@@ -1,12 +1,12 @@
 # Review provenance: who made every record
 
-Status: design of record for the 1.9.1 epic ([#1230](https://github.com/solo-ist/prose/issues/1230)), written for P0 ([#1231](https://github.com/solo-ist/prose/issues/1231)) before P1 ([#1232](https://github.com/solo-ist/prose/issues/1232)) and P2 ([#1233](https://github.com/solo-ist/prose/issues/1233)) code against it. It extends `editor-state.md` (the per-tab sessions, the plugin-state records and the four rules) and does not change any of its rules. Decided with the operator 2026-11-07.
+Status: design of record for the 1.10.0 epic ([#1230](https://github.com/solo-ist/prose/issues/1230)), written for P0 ([#1231](https://github.com/solo-ist/prose/issues/1231)) before P1 ([#1232](https://github.com/solo-ist/prose/issues/1232)) and P2 ([#1233](https://github.com/solo-ist/prose/issues/1233)) code against it. It extends `editor-state.md` (the per-tab sessions, the plugin-state records and the four rules) and does not change any of its rules. Decided with the operator 2026-11-07.
 
-How to read it cold: section 1 is why. Section 2 is the `Actor` type. Section 3 says where each record carries it, section 4 how records written before 1.9.1 read. Section 5 is the suggestion lifecycle and the review log, section 6 who stamps what. Section 7 is what leaves the machine, section 8 the delivery and the tests.
+How to read it cold: section 1 is why. Section 2 is the `Actor` type. Section 3 says where each record carries it, section 4 how records written before 1.10.0 read. Section 5 is the suggestion lifecycle and the review log, section 6 who stamps what. Section 7 is what leaves the machine, section 8 the delivery and the tests.
 
 ## 1. Why
 
-PR #854 asked how Prose works with any model and answered with MCP: external agents propose, Prose keeps the decision. 1.9.1 has three ways into a document: the writer, **Prose Agents** (the in-app chat on the writer's own Anthropic, OpenAI or Inference Coop key) and **MCP agents** (Claude Desktop, Claude Code, Codex, Open WebUI, LibreChat locally; ChatGPT and claude.ai through the relay). Each of them can comment, reply and suggest. Today a record knows only `'user'` or `'ai'`, and every MCP edit is labelled "Claude (MCP)". A review is only as good as its answer to "who said this?", so every record now carries an actor, and the life of a suggestion (feedback, revision, decision) is kept instead of vanishing when the mark goes.
+PR #854 asked how Prose works with any model and answered with MCP: external agents propose, Prose keeps the decision. 1.10.0 has three ways into a document: the writer, **Prose Agents** (the in-app chat on the writer's own Anthropic, OpenAI or Inference Coop key) and **MCP agents** (Claude Desktop, Claude Code, Codex, Open WebUI, LibreChat locally; ChatGPT and claude.ai through the relay). Each of them can comment, reply and suggest. Today a record knows only `'user'` or `'ai'`, and every MCP edit is labelled "Claude (MCP)". A review is only as good as its answer to "who said this?", so every record now carries an actor, and the life of a suggestion (feedback, revision, decision) is kept instead of vanishing when the mark goes.
 
 The writer decides. No agent accepts or rejects over MCP (#607); agents learn the outcome by reading the review log (section 5.4).
 
@@ -23,7 +23,7 @@ export interface HumanActor {
   self: boolean
   /** A share reviewer's display name (self === false). */
   name?: string
-  /** Reserved for ATProto (AT-1). Nothing sets it in 1.9.1. */
+  /** Reserved for ATProto (AT-1). Nothing sets it in 1.10.0. */
   did?: string
 }
 
@@ -47,7 +47,7 @@ export interface McpAgentActor {
   via?: 'stdio' | 'http' | 'relay'
 }
 
-/** AI text whose origin is unknown: rows from before 1.9.1, and text the writer marks as AI-written (the selection toggle, "Imported"). */
+/** AI text whose origin is unknown: rows from before 1.10.0, and text the writer marks as AI-written (the selection toggle, "Imported"). */
 export interface UnattributedActor {
   kind: 'unattributed'
   label: string
@@ -75,7 +75,7 @@ Decisions in the type:
 
 All new fields are optional and JSON-compatible: no store changes shape, and only the review log adds a store (section 5.5).
 
-## 4. Reading records written before 1.9.1
+## 4. Reading records written before 1.10.0
 
 One pure function per record kind in `actor.ts` (`actorOfComment`, `actorOfProvenance`), applied wherever a record is read for display or a tool result. *(Shipped in P1: rows are derived on read and never rewritten, so there is no migration to get wrong; `author` and `authorName` stay written beside `actor` for the share wire format.)*
 
@@ -87,7 +87,7 @@ One pure function per record kind in `actor.ts` (`actorOfComment`, `actorOfProve
 | suggestion / annotation `provenanceModel: 'Claude (MCP)'` | `{ kind: 'mcp-agent', connectionId: 'legacy', connectionLabel: 'MCP client', via: 'stdio' }` |
 | suggestion / annotation `provenanceModel: 'Imported'` | `{ kind: 'unattributed', label: 'Imported' }` |
 | annotation `provenanceModel: 'External AI'` (pasted AI text) | `{ kind: 'unattributed', label: 'External AI' }` |
-| suggestion / annotation with any other `provenanceModel` | `{ kind: 'prose-agent', provider: 'anthropic', model: provenanceModel }` (before 1.9.1 the in-app chat was Anthropic-only) |
+| suggestion / annotation with any other `provenanceModel` | `{ kind: 'prose-agent', provider: 'anthropic', model: provenanceModel }` (before 1.10.0 the in-app chat was Anthropic-only) |
 | suggestion / annotation with no model | `{ kind: 'unattributed', label: 'AI' }` |
 
 A vitest per row of this table, against fixtures copied from a 1.9.0 profile.
@@ -176,7 +176,7 @@ Until M2 lands, MCP calls carry `{ connectionId: 'launch', connectionLabel: 'MCP
 
 ## 7. What leaves the machine
 
-- **Share pushes keep today's wire format.** A thread or reply by the writer goes without `authorName`, as today (the gateway shows the publication's owner); one by a Prose Agent or an MCP agent goes as "Prose", as `author: 'ai'` does today. Connection labels, client names and models do not go to the gateway in 1.9.1. Showing agent attribution to share viewers is a later decision.
+- **Share pushes keep today's wire format.** A thread or reply by the writer goes without `authorName`, as today (the gateway shows the publication's owner); one by a Prose Agent or an MCP agent goes as "Prose", as `author: 'ai'` does today. Connection labels, client names and models do not go to the gateway in 1.10.0. Showing agent attribution to share viewers is a later decision.
 - **Email never leaves.** It lives in Settings only, is not part of any record, and is not sent with share pushes, MCP results or the relay.
 - **MCP results carry actors** (`list_comments`, `list_suggestions`, `list_review_events`) with `actorLabel` and the kind; a human actor appears as "the writer" or a reviewer's name.
 - **The relay** (M5) forwards calls and results in memory; nothing in this document's records is stored at the gateway.

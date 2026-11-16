@@ -11,7 +11,7 @@ export interface CommentReply {
   /** 'user' for human replies, 'ai' for AI-generated replies. */
   author: 'user' | 'ai'
   /**
-   * Who wrote the reply (#1232). Missing on rows from before 1.9.1 and on share
+   * Who wrote the reply (#1232). Missing on rows from before 1.10.0 and on share
    * pulls: read it through `actorOfComment`, which derives it from `author` and
    * `authorName`. `author` stays written for the share wire format.
    */

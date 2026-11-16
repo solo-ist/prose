@@ -1,6 +1,6 @@
 # #1242 — A4: provider settings, onboarding, models by provider
 
-Part of the 1.9.1 epic [#1230](https://github.com/solo-ist/prose/issues/1230), track A. Branch
+Part of the 1.10.0 epic [#1230](https://github.com/solo-ist/prose/issues/1230), track A. Branch
 `issue-1242-provider-settings` from `release/v1.9.1` = `18b2ab6` (A1 #1247, A2 #1260, W1 #1248, M4, P4 in). The PR
 targets `release/v1.9.1`. Expected renderer + shared only (not gated).
 

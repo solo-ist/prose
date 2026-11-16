@@ -1,6 +1,6 @@
 # #1243 — W1: import the App Store edition's data into the direct build
 
-Part of the 1.9.1 epic (#1230, track W: the App Store wind-down, **importer only**). Security-gated
+Part of the 1.10.0 epic (#1230, track W: the App Store wind-down, **importer only**). Security-gated
 (`src/main`, `src/preload`): the operator merges.
 
 ## Context
@@ -105,7 +105,7 @@ Settings → LLM. The staged copy is deleted either way. Skipped when this profi
 | `src/renderer/components/layout/App.tsx` | Offer before onboarding; summary after it |
 | `src/renderer/components/settings/SettingsDialog.tsx` | General: the import row |
 | `src/main/appStoreImport.test.ts`, `e2e/electron.app-store-import.spec.ts` | Tests |
-| `docs/qa/v1.9.1.md` | QA block W1 |
+| `docs/qa/v1.10.0.md` | QA block W1 |
 | `CLAUDE.md` | The `appStoreImport:*` IPC namespace |
 
 Test seams (honoured only with `PROSE_USER_DATA_DIR`, the existing e2e isolation): `PROSE_APP_STORE_DATA_DIR`
@@ -127,4 +127,4 @@ quits without relaunching.
   Import → the pending marker is written and the app quits; a launch with the marker → the project, the
   tab text and the summary are there, onboarding is skipped, no key in `credentials/`, the staged key
   offered. Falsified on a build of the merge-base.
-- **The real check** (the operator's MacBook, App Store 1.9.0 installed): see `docs/qa/v1.9.1.md` § W1.
+- **The real check** (the operator's MacBook, App Store 1.9.0 installed): see `docs/qa/v1.10.0.md` § W1.

@@ -3,7 +3,7 @@ import { PROVIDERS, PROVIDER_IDS, chatCompletionsTuning, getProvider, isOpenAIRe
 import { getDefaultHaikuModel, getDefaultModel, getModelsForProvider, getSmallModel, isKnownModel, resolveModelName } from './models'
 
 describe('provider list (#1240)', () => {
-  it('has Anthropic, keyed under its pre-1.9.1 credential name, and OpenAI over Chat Completions with its own key', () => {
+  it('has Anthropic, keyed under its pre-1.10.0 credential name, and OpenAI over Chat Completions with its own key', () => {
     expect(PROVIDER_IDS).toEqual(['anthropic', 'openai'])
     expect(PROVIDERS.anthropic.credentialKey).toBe('llm-api-key')
     expect(PROVIDERS.anthropic.transport).toBe('anthropic')

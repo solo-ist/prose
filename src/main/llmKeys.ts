@@ -67,7 +67,7 @@ export async function clearProviderKey(provider: LLMProvider): Promise<void> {
 export async function seedSessionKeyFromDisk(raw: { llm?: { provider?: unknown; apiKey?: unknown } }): Promise<void> {
   const plaintext = raw.llm?.apiKey
   if (typeof plaintext !== 'string' || !plaintext.trim()) return
-  // The pre-1.9.1 field belonged to the only provider there was.
+  // The pre-1.10.0 field belonged to the only provider there was.
   if ((await resolveProviderKey('anthropic')) !== null) return
   sessionKeys.set('anthropic', plaintext.trim())
 }

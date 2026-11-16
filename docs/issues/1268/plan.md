@@ -1,6 +1,6 @@
 # #1268: an out-of-credits key reads as "rate limited": classify LLM errors once
 
-Part of 1.9.1 (epic [#1230](https://github.com/solo-ist/prose/issues/1230)); found in the operator's live A2 test.
+Part of 1.10.0 (epic [#1230](https://github.com/solo-ist/prose/issues/1230)); found in the operator's live A2 test.
 Branch `issue-1268-llm-quota-errors` from `release/v1.9.1` = `6907393`. Touches `src/main` and `src/preload`, so it is
 gated; the operator's go covers merging it into the release branch.
 

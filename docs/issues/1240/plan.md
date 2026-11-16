@@ -1,6 +1,6 @@
 # #1240 — A1: provider layer and one key per provider in main
 
-Part of the 1.9.1 epic [#1230](https://github.com/solo-ist/prose/issues/1230) (track A, Prose Agents on your key).
+Part of the 1.10.0 epic [#1230](https://github.com/solo-ist/prose/issues/1230) (track A, Prose Agents on your key).
 Security-gated (`src/main`, `src/preload`): CI + claude review, then the operator merges. Branch
 `issue-1240-provider-layer` from `main` = `84ba7bd`.
 
@@ -92,7 +92,7 @@ settings object); `webApi` stubs the three calls.
 ## Execution log
 
 - **2026-11-07.** `48ca3eb` plan · `3fe1ced` the change + tests · `8caffeb` CLAUDE.md + QA block A1
-  (`docs/qa/v1.9.1.md`). `typecheck:renderer` 69 = base (same error set); `tsc -p tsconfig.node.json` 23 (base 24);
+  (`docs/qa/v1.10.0.md`). `typecheck:renderer` 69 = base (same error set); `tsc -p tsconfig.node.json` 23 (base 24);
   unit 176 passed; `electron.llm-keys.spec.ts` 3/3 on the branch, **3/3 failing on a build of `84ba7bd`**; related
   specs green (onboarding and document-sessions cases 11/12 from temporary copies on spare debug ports).
   PR [#1247](https://github.com/solo-ist/prose/pull/1247). CI e2e green on the first run.

@@ -1,6 +1,6 @@
-# #1278 — the LibreChat setup snippet, fixed for LibreChat 0.8.8 (1.9.1 epic #1230)
+# #1278 — the LibreChat setup snippet, fixed for LibreChat 0.8.8 (1.10.0 epic #1230)
 
-Found by acceptance run 2 (`docs/qa/v1.9.1-acceptance.md`, "LibreChat 0.8.8"), against `release/v1.9.1` at `84dcc27`.
+Found by acceptance run 2 (`docs/qa/v1.10.0-acceptance.md`, "LibreChat 0.8.8"), against `release/v1.9.1` at `84dcc27`.
 
 ## What's wrong
 
@@ -21,7 +21,7 @@ Run 2 also found that LibreChat passes a server's MCP `instructions` to the mode
   outside-Docker variant names `<host>:<port>` too.
 - Open WebUI: its fields (Type MCP (Streamable HTTP), Auth Bearer, Key; the Docker URL in the note) already match the
   config that passed run 2. No change; the test pins them.
-- QA: a line under M2's block in `docs/qa/v1.9.1.md`.
+- QA: a line under M2's block in `docs/qa/v1.10.0.md`.
 
 ## Verification
 

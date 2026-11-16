@@ -103,7 +103,7 @@ export const PROVIDERS: Record<LLMProvider, ProviderInfo> = {
     label: 'Anthropic',
     transport: 'anthropic',
     baseURL: 'https://api.anthropic.com/v1',
-    // The name predates multiple providers; kept so keys saved before 1.9.1 still resolve.
+    // The name predates multiple providers; kept so keys saved before 1.10.0 still resolve.
     credentialKey: 'llm-api-key',
     models: ANTHROPIC_MODELS,
     modelsSource: 'live+static',

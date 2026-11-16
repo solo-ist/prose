@@ -498,7 +498,7 @@ test.describe('the tracked store (DB_VERSION 11)', () => {
         })
     )
 
-  test('a fresh profile has it; a 1.9.1 profile (version 10) gains it and keeps its rows', async () => {
+  test('a fresh profile has it; a 1.10.0 profile (version 10) gains it and keeps its rows', async () => {
     expect(await schema()).toMatchObject({ version: 11, stores: expect.arrayContaining(['tracked', 'review_log']) })
 
     // The database as version 10 left it: every store but `tracked`, and a row.

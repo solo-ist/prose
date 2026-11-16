@@ -2,7 +2,7 @@
  * Who made a record (#1232; design: docs/architecture/review-provenance.md).
  *
  * Every comment thread, reply, AI suggestion and AI annotation can carry an
- * `Actor`. Records written before 1.9.1 have none; `actorOf…` derives one from
+ * `Actor`. Records written before 1.10.0 have none; `actorOf…` derives one from
  * their legacy fields whenever it is read, and nothing is ever written back.
  * Shared by main (MCP connections, the relay) and the renderer.
  */
@@ -15,7 +15,7 @@ export interface HumanActor {
   self: boolean
   /** A share reviewer's display name (only when `self` is false). */
   name?: string
-  /** Reserved for ATProto (AT-1). Nothing sets it in 1.9.1. */
+  /** Reserved for ATProto (AT-1). Nothing sets it in 1.10.0. */
   did?: string
 }
 
@@ -40,7 +40,7 @@ export interface McpAgentActor {
 }
 
 /**
- * AI text whose origin is unknown: rows from before 1.9.1, pasted AI text and
+ * AI text whose origin is unknown: rows from before 1.10.0, pasted AI text and
  * text the writer marks as AI-written. `label` is only ever one of the code
  * constants below, never input from a client, a share row or a file.
  */
@@ -83,7 +83,7 @@ export function actorOfProvenance(model: string | null | undefined, actor?: Acto
   if (m === 'Claude (MCP)') return { kind: 'mcp-agent', connectionId: 'legacy', connectionLabel: 'MCP client' }
   if (m === 'Imported') return { kind: 'unattributed', label: 'Imported' }
   if (m === 'External AI') return { kind: 'unattributed', label: 'External AI' }
-  // Before 1.9.1 the in-app chat was Anthropic-only.
+  // Before 1.10.0 the in-app chat was Anthropic-only.
   return { kind: 'prose-agent', provider: 'anthropic', model: m }
 }
 

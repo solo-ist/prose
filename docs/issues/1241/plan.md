@@ -1,6 +1,6 @@
 # #1241 — A2: OpenAI over one Chat Completions adapter
 
-Part of the 1.9.1 epic [#1230](https://github.com/solo-ist/prose/issues/1230), track A. **Stacked on A1** (#1240,
+Part of the 1.10.0 epic [#1230](https://github.com/solo-ist/prose/issues/1230), track A. **Stacked on A1** (#1240,
 PR [#1247](https://github.com/solo-ist/prose/pull/1247)): branch `issue-1241-openai` from `issue-1240-provider-layer`
 = `c7f4e82`; the PR's base moves to `main` once #1247 merges. Security-gated (`src/main`): CI + claude review, then the
 operator merges.
@@ -87,7 +87,7 @@ refetches for the new one.
   ai-edit-lifecycle, seed-settings, onboarding and document-sessions cases 11/12 (temporary copies on port 9245).
   `typecheck:renderer` 66 = base; `tsc -p tsconfig.node.json` 18 (base 19: A1's `llmKeys.test.ts` literal typed);
   `typecheck:e2e` 6 = base. CLAUDE.md LLM section and the A2 QA block (live checks for the operator's key).
-- **Retarget (2026-11-08):** 1.9.1 now merges into `release/v1.9.1`; #1247 (A1) merged there, the PR retargeted, and
+- **Retarget (2026-11-08):** 1.10.0 now merges into `release/v1.9.1`; #1247 (A1) merged there, the PR retargeted, and
   `origin/release/v1.9.1` merged in (`387f023`; only the QA doc conflicted: every block kept, A2's last). Unit 250,
   `typecheck:renderer` 66, node 18, e2e 6; openai-provider + llm-keys + app-store-import + settings-account 14 passed.
 - **Review 1** (clean, two minor hardening notes) → the follow-up commit: the first tool-call name wins (a repeat or a

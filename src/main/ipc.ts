@@ -986,7 +986,7 @@ export function setupIpcHandlers(): void {
     // A plaintext key still in settings.json (secure storage unavailable, no
     // write since launch) would come back at the next load; drop it now. The
     // plaintext `llm.apiKey` field only ever held the Anthropic key (the only
-    // provider before 1.9.1); no other provider's key is ever written there.
+    // provider before 1.10.0); no other provider's key is ever written there.
     try {
       const onDisk = JSON.parse(await readFile(getSettingsPath(), 'utf-8')) as Settings & { llm?: { apiKey?: string } }
       if (provider === 'anthropic' && onDisk.llm?.apiKey) {

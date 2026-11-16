@@ -86,7 +86,7 @@ These fill gaps the design leaves open; none changes a §8 decision.
    IME, paste, ⌘Z, drag, relaunch re-anchoring, an orphan after an external
    edit, the display controls, the two MCP tools, a comment over a tracked
    deletion; a tripwire against serializing the raw document in the save path.
-8. Docs: QA block in `docs/qa/v1.9.1.md`, CLAUDE.md (fifth record kind, MCP
+8. Docs: QA block in `docs/qa/v1.10.0.md`, CLAUDE.md (fifth record kind, MCP
    tool list, Document Review), the design doc merged in.
 
 ## Baselines (after `npm run build`, on `origin/release/v1.9.1` 84dcc27)

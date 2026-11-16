@@ -18,7 +18,7 @@ function shape(manifest: Record<string, unknown>): Record<string, unknown> {
 
 describe('mcpbManifest', () => {
   it('the installed app: name "prose", no env (the bridge defaults to this profile)', () => {
-    expect(shape(mcpbManifest('1.9.1', { dir: `${HOME}/prose`, isInstalledApp: true }, 'darwin'))).toMatchInlineSnapshot(`
+    expect(shape(mcpbManifest('1.10.0', { dir: `${HOME}/prose`, isInstalledApp: true }, 'darwin'))).toMatchInlineSnapshot(`
       {
         "author": {
           "name": "Solo",
@@ -49,13 +49,13 @@ describe('mcpbManifest', () => {
           },
           "type": "node",
         },
-        "version": "1.9.1",
+        "version": "1.10.0",
       }
     `)
   })
 
   it('the dev profile: its own name, and the profile passed in env', () => {
-    const manifest = mcpbManifest('1.9.1', { dir: `${HOME}/Prose Dev`, isInstalledApp: false }, 'darwin')
+    const manifest = mcpbManifest('1.10.0', { dir: `${HOME}/Prose Dev`, isInstalledApp: false }, 'darwin')
     expect({ name: manifest.name, display_name: manifest.display_name, server: manifest.server }).toMatchInlineSnapshot(`
       {
         "display_name": "Prose (Prose Dev)",
@@ -78,14 +78,14 @@ describe('mcpbManifest', () => {
   })
 
   it('a test profile anywhere: a name Claude Desktop accepts, the folder in env', () => {
-    const manifest = mcpbManifest('1.9.1', { dir: '/tmp/prose-e2e-ÄB c', isInstalledApp: false }, 'linux')
+    const manifest = mcpbManifest('1.10.0', { dir: '/tmp/prose-e2e-ÄB c', isInstalledApp: false }, 'linux')
     expect(manifest.name).toBe('prose-prose-e2e-b-c')
     expect((manifest.server as { mcp_config: { env: Record<string, string> } }).mcp_config.env).toEqual({ PROSE_USER_DATA_DIR: '/tmp/prose-e2e-ÄB c' })
     expect(manifest.compatibility).toEqual({ platforms: ['linux'], runtimes: { node: '>=20.0.0' } })
   })
 
   it('lists every MCP tool with a one-sentence description', () => {
-    const tools = mcpbManifest('1.9.1', { dir: `${HOME}/prose`, isInstalledApp: true }, 'darwin').tools as Array<{ name: string; description: string }>
+    const tools = mcpbManifest('1.10.0', { dir: `${HOME}/prose`, isInstalledApp: true }, 'darwin').tools as Array<{ name: string; description: string }>
     expect(tools.map((t) => t.name).sort()).toEqual([...mcpToolNames].sort())
     for (const tool of tools) expect(tool.description).toMatch(/^[^\n]+[.!?]$/)
   })
@@ -98,7 +98,7 @@ describe('buildMcpb', () => {
   })
 
   it('holds the manifest and the server, and nothing else', () => {
-    const manifest = mcpbManifest('1.9.1', { dir: `${HOME}/Prose Dev`, isInstalledApp: false }, 'darwin')
+    const manifest = mcpbManifest('1.10.0', { dir: `${HOME}/Prose Dev`, isInstalledApp: false }, 'darwin')
     const server = Buffer.from('#!/usr/bin/env node\nconsole.log("bridge")\n')
     dir = mkdtempSync(join(tmpdir(), 'prose-mcpb-'))
     const file = join(dir, 'Prose.mcpb')

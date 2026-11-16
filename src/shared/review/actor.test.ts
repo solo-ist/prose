@@ -11,7 +11,7 @@ import {
   type Actor,
 } from './actor'
 
-describe('actorOfComment: records from before 1.9.1 (design §4)', () => {
+describe('actorOfComment: records from before 1.10.0 (design §4)', () => {
   it("reads a 'user' row with no authorName as the writer", () => {
     expect(actorOfComment({ author: 'user' })).toEqual(SELF)
   })
@@ -36,7 +36,7 @@ describe('actorOfComment: records from before 1.9.1 (design §4)', () => {
   })
 })
 
-describe('actorOfProvenance: annotations and suggestions from before 1.9.1', () => {
+describe('actorOfProvenance: annotations and suggestions from before 1.10.0', () => {
   it('reads Claude (MCP) as the legacy MCP connection', () => {
     expect(actorOfProvenance('Claude (MCP)')).toEqual({ kind: 'mcp-agent', connectionId: 'legacy', connectionLabel: 'MCP client' })
   })

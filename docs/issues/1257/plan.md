@@ -1,6 +1,6 @@
-# #1257 — M2b: a Claude Desktop extension (`.mcpb`) for the stdio bridge (1.9.1 epic #1230)
+# #1257 — M2b: a Claude Desktop extension (`.mcpb`) for the stdio bridge (1.10.0 epic #1230)
 
-Operator decision (2026-11-09): build the `.mcpb` in 1.9.1; a plugin can replace it later.
+Operator decision (2026-11-09): build the `.mcpb` in 1.10.0; a plugin can replace it later.
 
 ## Context
 

@@ -1,6 +1,6 @@
 # The MCP relay: ChatGPT and claude.ai to a writer's Prose
 
-**Status.** Design of record for M5a ([#1238](https://github.com/solo-ist/prose/issues/1238), gateway) and M5b ([#1239](https://github.com/solo-ist/prose/issues/1239), desktop), part of the 1.9.1 epic ([#1230](https://github.com/solo-ist/prose/issues/1230)). Written 2026-11-07, before any code. The relay is the largest security surface in 1.9.1: it opens a path from the internet into the writer's desktop app. So this document is reviewed first, and both PRs are security-gated.
+**Status.** Design of record for M5a ([#1238](https://github.com/solo-ist/prose/issues/1238), gateway) and M5b ([#1239](https://github.com/solo-ist/prose/issues/1239), desktop), part of the 1.10.0 epic ([#1230](https://github.com/solo-ist/prose/issues/1230)). Written 2026-11-07, before any code. The relay is the largest security surface in 1.10.0: it opens a path from the internet into the writer's desktop app. So this document is reviewed first, and both PRs are security-gated.
 
 **Reading it cold.**
 - §1: why the relay exists.
@@ -108,7 +108,7 @@ The `document` target (M3) still names only open tabs. The desktop enforces scop
 
 **Second gate: approval in the app.** The first call from a client the writer hasn't approved is refused ("Approve <client> in Prose → Settings → Connections"). The client then appears there as pending, with its name and whether it is verified. The writer approves it with scopes (read / propose / comment) or denies it. An approved client is a connection like the local ones, with a label the writer can change. For these clients, even a stolen OAuth token or a compromised gateway account reaches nothing the writer hasn't approved in the app itself.
 
-**Trusted clients skip the second gate (#1304).** 1.9.1 QA showed the second approval failing the first connection: claude.ai and ChatGPT both report a connection error straight after the consent page, the "Approve <client> in Prose" message never reaches the writer there, and the same person consents twice within a minute. So a short list of clients (`src/shared/mcp/trustedRemoteClients.ts`: `claude.ai`, `chatgpt.com`, and `inference.coop` with its subdomains, for the Inference Co-op's hosted LibreChat) is connected on its first call, with the scopes the writer granted on the consent page. A client is trusted only when the gateway verified it (CIMD, so its client id is an `https` URL on a domain it controls) **and** that domain is on the list; its name plays no part. A verified client on any other domain, and every DCR client, still waits for approval as above.
+**Trusted clients skip the second gate (#1304).** 1.10.0 QA showed the second approval failing the first connection: claude.ai and ChatGPT both report a connection error straight after the consent page, the "Approve <client> in Prose" message never reaches the writer there, and the same person consents twice within a minute. So a short list of clients (`src/shared/mcp/trustedRemoteClients.ts`: `claude.ai`, `chatgpt.com`, and `inference.coop` with its subdomains, for the Inference Co-op's hosted LibreChat) is connected on its first call, with the scopes the writer granted on the consent page. A client is trusted only when the gateway verified it (CIMD, so its client id is an `https` URL on a domain it controls) **and** that domain is on the list; its name plays no part. A verified client on any other domain, and every DCR client, still waits for approval as above.
 
 What the writer gets instead of the prompt: a toast naming the client, its proven domain and what it can do, with Review; and a count on the Integrations tab and the Dock that stays until the writer has seen the connection in Settings (`reviewedAt` on the connection; `mcp:remote:acknowledge`). The row is marked new on that visit. Scopes, rename, remove and decline work as for any connection; a client the writer has declined or narrowed stays that way when it connects again.
 
@@ -158,10 +158,10 @@ So Activity, the review log and `list_review_events` show who it was (P1, P2, P4
 
 ## 8. The operator's decisions (decided 2026-11-09)
 
-1. **Who gets Remote access:** any signed-in writer, free, in 1.9.1. The metadata logs show the cost; the Open Collective entitlement (#953) can gate it later if usage calls for it.
+1. **Who gets Remote access:** any signed-in writer, free, in 1.10.0. The metadata logs show the cost; the Open Collective entitlement (#953) can gate it later if usage calls for it.
 2. **Client registration:** CIMD and DCR both. DCR is rate-limited.
 3. **Token lifetimes:** access tokens 1 hour, refresh tokens 30 days. Revoking a remote client in Prose ends it at once, whatever its refresh token says.
-4. **Remote clients and files:** documents the writer already has open only. A remote client can't open, create or list files. A per-connection "may open files" scope is a possible later addition, not part of 1.9.1.
+4. **Remote clients and files:** documents the writer already has open only. A remote client can't open, create or list files. A per-connection "may open files" scope is a possible later addition, not part of 1.10.0.
 
 ## 9. Delivery and tests
 

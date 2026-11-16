@@ -1,4 +1,4 @@
-# #1239 — M5b: the remote MCP relay, desktop side (1.9.1 epic #1230)
+# #1239 — M5b: the remote MCP relay, desktop side (1.10.0 epic #1230)
 
 Stacked on M5a (#1238, PR #1280): the gateway's OAuth server, `POST /mcp` and the `/relay` socket. Design of record:
 [`docs/architecture/mcp-relay.md`](../../architecture/mcp-relay.md) §6, with the operator's §8 decisions.

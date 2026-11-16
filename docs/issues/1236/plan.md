@@ -1,4 +1,4 @@
-# #1236 — M2: MCP connections (1.9.1 epic #1230)
+# #1236 — M2: MCP connections (1.10.0 epic #1230)
 
 Stacked on M1 (#1235, PR #1249): the PR's base is `issue-1235-mcp-protocol` until M1 merges.
 

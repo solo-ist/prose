@@ -23,7 +23,7 @@ export interface OpenAIRequest {
   body: any
 }
 
-export const DEFAULT_OPENAI_MODELS = ['gpt-5', 'gpt-5-mini', 'text-embedding-3-small', 'whisper-1']
+export const DEFAULT_OPENAI_MODELS = ['gpt-5.5', 'gpt-6-luna', 'gpt-4.1', 'text-embedding-3-small', 'whisper-1']
 
 /** One SSE `data:` line for a Chat Completions chunk. */
 export const sseChunk = (delta: Record<string, unknown>, finish: string | null = null): string =>

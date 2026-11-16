@@ -92,9 +92,9 @@ export const ANTHROPIC_MODELS: ModelInfo[] = [
  * against the live list at the first live smoke (the operator's key).
  */
 export const OPENAI_MODELS: ModelInfo[] = [
-  { id: 'gpt-5', name: 'GPT-5', description: 'Most capable' },
-  { id: 'gpt-5-mini', name: 'GPT-5 mini', description: 'Faster, more economical' },
-  { id: 'gpt-4.1', name: 'GPT-4.1', description: 'Non-reasoning' },
+  { id: 'gpt-5.5', name: 'GPT-5.5' },
+  { id: 'gpt-6-luna', name: 'GPT-6 Luna' },
+  { id: 'gpt-6-sol', name: 'GPT-6 Sol' },
 ]
 
 export const PROVIDERS: Record<LLMProvider, ProviderInfo> = {
@@ -122,7 +122,8 @@ export const PROVIDERS: Record<LLMProvider, ProviderInfo> = {
     credentialKey: 'llm-api-key-openai',
     models: OPENAI_MODELS,
     modelsSource: 'live+static',
-    defaultModel: 'gpt-5',
+    defaultModel: 'gpt-5.5',
+    // Internal calls only (key checks, summaries), so it needn't be on the picker's list.
     smallModel: 'gpt-5-mini',
     thinking: false,
     keyFormat: { prefix: 'sk-', minLength: 20 },
@@ -135,9 +136,15 @@ export const PROVIDERS: Record<LLMProvider, ProviderInfo> = {
       reasoningEffortFor: (model) => (isOpenAIReasoningModel(model) ? 'low' : undefined),
       reasoningHeadroom: 8000,
     },
+    // GPT-5.5 and newer, by version, without dated snapshots (#1311); an older
+    // or dated id can still be typed as a custom model. gpt-6-astra and
+    // gpt-6.1-sol are left out until Prose speaks the Responses API (#1312):
+    // they refuse function tools on Chat Completions at every reasoning
+    // setting they accept. Which models do is not derivable from the id
+    // (gpt-6-sol works), so the two are named.
     liveModels: {
-      include: /^(gpt-|o\d|chatgpt-)/,
-      exclude: /(audio|realtime|transcribe|tts|image|embedding|search|instruct|moderation|codex|computer-use|deep-research|-pro\b)/,
+      include: /^gpt-(5\.([5-9]|\d{2,})|[6-9]|\d{2,})(?![\d])/,
+      exclude: /(audio|realtime|transcribe|tts|image|embedding|search|instruct|moderation|codex|computer-use|deep-research|-pro\b|-\d{4}-\d{2}-\d{2}$|^gpt-6-astra\b|^gpt-6\.1-sol\b)/,
     },
   },
 }

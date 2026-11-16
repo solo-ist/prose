@@ -150,8 +150,8 @@ export function SettingsDialog() {
   // Each open starts on the field for a custom id, else on the list.
   useEffect(() => {
     if (isDialogOpen) setCustomModel(isCustomModel)
-    // Seeded once per open: a typed id passing through a listed one ("gpt-5" on
-    // the way to "gpt-5-…") must not close the field under the writer.
+    // Seeded once per open: a typed id passing through a listed one ("gpt-5.5" on
+    // the way to "gpt-5.5-…") must not close the field under the writer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDialogOpen])
   // A custom id that appears later (a pick elsewhere, a late load) opens the field.

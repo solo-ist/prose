@@ -481,7 +481,9 @@ export function createMockApi(): ElectronAPI {
 
     emojiGenerate: async (
       _title: string,
-      _contentPreview?: string
+      _contentPreview: string | undefined,
+      _provider: string,
+      _model: string
     ): Promise<{ emoji: string | null; error?: string }> => ({
       emoji: null,
       error: 'Not available in web mode',

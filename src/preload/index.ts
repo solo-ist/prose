@@ -305,7 +305,7 @@ export interface ElectronAPI {
   // Release notes for the post-update modal (bundled per version)
   getReleaseNotes: (version: string) => Promise<ReleaseNotes | null>
   // Emoji generation (runs in main process to avoid CORS)
-  emojiGenerate: (title: string, contentPreview?: string) => Promise<{ emoji: string | null; error?: string }>
+  emojiGenerate: (title: string, contentPreview: string | undefined, provider: string, model: string) => Promise<{ emoji: string | null; error?: string }>
   // Window fullscreen state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => () => void
   // Recent files
@@ -661,7 +661,8 @@ const api: ElectronAPI = {
   // Release notes
   getReleaseNotes: (version: string) => ipcRenderer.invoke('releaseNotes:get', version),
   // Emoji generation
-  emojiGenerate: (title: string, contentPreview?: string) => ipcRenderer.invoke('emoji:generate', title, contentPreview),
+  emojiGenerate: (title: string, contentPreview: string | undefined, provider: string, model: string) =>
+    ipcRenderer.invoke('emoji:generate', title, contentPreview, provider, model),
   // Recent files
   refreshRecentMenu: () => ipcRenderer.invoke('recentFiles:refreshMenu'),
   clearRecentFiles: () => ipcRenderer.invoke('recentFiles:clear'),

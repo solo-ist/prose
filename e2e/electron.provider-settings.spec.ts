@@ -225,6 +225,28 @@ test("the status bar's model menu lists both providers; a GPT pick with Claude i
   expect(settings.llm.modelByProvider?.anthropic).toBe('claude-sonnet-5-5')
 })
 
+test('⇧⌘M opens Switch model with both providers; a pick sets the provider and model (#1316)', async () => {
+  await launch(true)
+  await dismissOnboarding(page).catch(() => {})
+  await dismissOverlay(page).catch(() => {})
+  await stubOpenAI(app, [], LIVE_MODELS)
+  await saveBothKeys()
+
+  await waitForEditor(page)
+  await page.keyboard.press('ControlOrMeta+Shift+M')
+  await expect(page.getByPlaceholder('Search models...')).toBeVisible()
+  await expect(dialog()).toContainText('Anthropic')
+  await expect(dialog()).toContainText('OpenAI')
+  await expect(dialog().getByRole('option', { name: /Claude Sonnet 5.5/ })).toBeVisible()
+  await dialog().getByRole('option', { name: /gpt-6.1-terra/ }).click()
+  await expect(dialog()).toHaveCount(0)
+  await expect(page.getByTestId('status-model')).toHaveText('gpt-6.1-terra')
+
+  const settings = await loadSettings()
+  expect(settings.llm.provider).toBe('openai')
+  expect(settings.llm.model).toBe('gpt-6.1-terra')
+})
+
 test('with one key, the other provider offers "Add a key", which opens Settings → LLM', async () => {
   await launch(true)
   await dismissOnboarding(page).catch(() => {})

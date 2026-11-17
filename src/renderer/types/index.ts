@@ -398,7 +398,7 @@ export interface LLMStreamRequest extends LLMRequest {
   tools?: LLMToolDefinition[]
   maxToolRoundtrips?: number
   maxTokens?: number
-  /** Enable adaptive thinking (Anthropic-only). Defaults to true when omitted. */
+  /** The thinking toggle: Claude's adaptive thinking, or an OpenAI model's reasoning (#1301). Defaults to true when omitted. */
   thinking?: boolean
 }
 

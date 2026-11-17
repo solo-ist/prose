@@ -157,7 +157,9 @@ export class ChatCompletionsError extends Error {
     message: string,
     readonly status?: number,
     readonly code?: string,
-    readonly type?: string
+    readonly type?: string,
+    /** The request field the provider blames, when it names one. */
+    readonly param?: string
   ) {
     super(message)
     this.name = 'ChatCompletionsError'

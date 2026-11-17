@@ -9,8 +9,9 @@ import { withRetry } from '../shared/utils/retry'
 import { classifyLlmError, llmErrorMessage, type LlmErrorKind } from '../shared/llm/errors'
 import { droppedThinking, withThinkingBinding } from './thinkingBinding'
 import { getDefaultModel, getSmallModel, supportsAdaptiveThinking, getThinkingOffMode } from '../shared/llm/models'
-import { chatCompletionsTuning, getProvider, isProvider } from '../shared/llm/providers'
+import { chatCompletionsTuning, getProvider, isProvider, type ProviderInfo } from '../shared/llm/providers'
 import { buildChatBody, listChatModels, probeChatQuota, streamChatCompletion } from './chatCompletions'
+import { probeResponsesQuota, streamResponse, type ResponsesRequest } from './responses'
 import { getSettingsDir, LEGACY_SETTINGS_DIR, normalizePath, resolveWithin, resolveToolPath, IMAGE_EXTENSIONS } from './paths'
 import type { FileAccessOptions } from '../shared/fileAccess'
 import { clearRecentFiles } from './recentFiles'
@@ -104,6 +105,20 @@ const activeStreams = new Map<string, AbortController>()
 function llmFailure(error: unknown, providerId: string): { error: string; kind: LlmErrorKind } {
   const info = classifyLlmError(error)
   return { error: llmErrorMessage(info, isProvider(providerId) ? getProvider(providerId) : undefined), kind: info.kind }
+}
+
+/** A chat request as the Responses adapter takes it, with the provider's first guesses about the model. */
+function responsesRequest(provider: ProviderInfo, request: LLMRequest & Partial<LLMStreamRequest>, thinking: boolean): ResponsesRequest {
+  return {
+    model: request.model,
+    system: request.system,
+    messages: request.messages,
+    tools: request.tools,
+    maxTokens: request.maxTokens,
+    thinking,
+    reasons: provider.responses?.reasons(request.model) ?? false,
+    offEffort: provider.responses?.offEffort(request.model) ?? 'none'
+  }
 }
 
 // Security-scoped bookmark stop function (MAS sandbox) — single bookmark for
@@ -1041,6 +1056,13 @@ export function setupIpcHandlers(): void {
           if (await probeChatQuota(target, getSmallModel(provider))) return noCredits()
           return { success: true, message: 'API key is valid' }
         }
+        case 'responses': {
+          // The same two steps, the credits check asked the Responses way (#1301).
+          const target = { baseURL: getProvider(provider).baseURL, apiKey }
+          await listChatModels(target)
+          if (await probeResponsesQuota(target, getSmallModel(provider))) return noCredits()
+          return { success: true, message: 'API key is valid' }
+        }
         default: {
           // A transport added to ProviderTransport without a case here fails to compile.
           const unhandled: never = transport
@@ -1117,6 +1139,7 @@ export function setupIpcHandlers(): void {
             }))
           return { models }
         }
+        case 'responses':
         case 'chat-completions': {
           // Live ids filtered to chat models; the seed's names where it knows them.
           const info = getProvider(provider)
@@ -1146,6 +1169,20 @@ export function setupIpcHandlers(): void {
     if (!apiKey) throw new Error('No API key configured. Add one in Settings.')
     const info = getProvider(request.provider)
     const transport = info.transport
+    if (transport === 'responses') {
+      try {
+        // Internal calls (summaries) want an answer, not deliberation: thinking off.
+        const { content } = await withRetry(
+          () => streamResponse({ baseURL: info.baseURL, apiKey }, responsesRequest(info, request, false)),
+          { maxRetries: 2 }
+        )
+        return { content }
+      } catch (error) {
+        console.error('[LLM] Error:', error)
+        if (error instanceof Error) error.message = llmFailure(error, request.provider).error
+        throw error
+      }
+    }
     if (transport === 'chat-completions') {
       try {
         const body = buildChatBody({
@@ -1244,38 +1281,44 @@ export function setupIpcHandlers(): void {
     const abortController = new AbortController()
     activeStreams.set(streamId, abortController)
 
-    // Chat Completions (OpenAI, OpenAI-compatible gateways): one adapter for
-    // the tool and non-tool cases, sending the same events as the Anthropic
-    // path so the renderer's loop can't tell them apart (#1241).
-    if (transport === 'chat-completions') {
+    // OpenAI's Responses API (#1301) and Chat Completions (OpenAI-compatible
+    // gateways, #1241): one adapter each for the tool and non-tool cases,
+    // sending the same events as the Anthropic path so the renderer's loop
+    // can't tell them apart.
+    if (transport === 'responses' || transport === 'chat-completions') {
       try {
-        const body = buildChatBody({
-          model: request.model,
-          system: request.system,
-          messages: request.messages,
-          tools: toolDefinitions,
-          // Low reasoning per model for OpenAI, room for it in the limit (#1271).
-          ...chatCompletionsTuning(provider, request.model, request.maxTokens)
-        })
-        const { content, toolCalls } = await streamChatCompletion(
-          { baseURL: provider.baseURL, apiKey },
-          body,
-          {
-            onText: (delta) => {
-              if (abortController.signal.aborted) return
-              event.sender.send('llm:stream:chunk', { streamId, delta })
-            },
-            onReasoning: (snapshot) => {
-              if (abortController.signal.aborted) return
-              event.sender.send('llm:stream:thinking:delta', { streamId, thinking: snapshot })
-            },
-            onToolCallStart: (toolCallId, toolName) => {
-              if (abortController.signal.aborted) return
-              event.sender.send('llm:stream:tool-call:start', { streamId, toolCallId, toolName })
-            }
+        const target = { baseURL: provider.baseURL, apiKey }
+        const handlers = {
+          onText: (delta: string) => {
+            if (abortController.signal.aborted) return
+            event.sender.send('llm:stream:chunk', { streamId, delta })
           },
-          abortController.signal
-        )
+          onReasoning: (snapshot: string) => {
+            if (abortController.signal.aborted) return
+            event.sender.send('llm:stream:thinking:delta', { streamId, thinking: snapshot })
+          },
+          onToolCallStart: (toolCallId: string, toolName: string) => {
+            if (abortController.signal.aborted) return
+            event.sender.send('llm:stream:tool-call:start', { streamId, toolCallId, toolName })
+          }
+        }
+        const { content, toolCalls } = transport === 'responses'
+          // The thinking toggle is the writer's: on reasons and shows its summary,
+          // off asks for the least reasoning the model accepts.
+          ? await streamResponse(target, responsesRequest(provider, request, request.thinking !== false), handlers, abortController.signal)
+          : await streamChatCompletion(
+              target,
+              buildChatBody({
+                model: request.model,
+                system: request.system,
+                messages: request.messages,
+                tools: toolDefinitions,
+                // The provider's reasoning effort per model, room for it in the limit (#1271).
+                ...chatCompletionsTuning(provider, request.model, request.maxTokens)
+              }),
+              handlers,
+              abortController.signal
+            )
         for (const toolCall of toolCalls) {
           event.sender.send('llm:stream:tool-call', { streamId, toolCall })
         }
@@ -1290,7 +1333,7 @@ export function setupIpcHandlers(): void {
           event.sender.send('llm:stream:complete', { streamId, content: '' })
           return { success: true }
         }
-        console.error('[LLM:stream] Chat Completions error:', error)
+        console.error(`[LLM:stream] ${transport} error:`, error)
         event.sender.send('llm:stream:error', { streamId, ...llmFailure(error, request.provider) })
         return { success: false }
       } finally {

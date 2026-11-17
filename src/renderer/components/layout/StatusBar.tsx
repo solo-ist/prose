@@ -28,7 +28,7 @@ import {
 import { Brain } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useChatStore, type ToolMode } from '../../stores/chatStore'
-import { supportsAdaptiveThinking } from '../../../shared/llm/models'
+import { supportsThinkingToggle } from '../../../shared/llm/models'
 import { useModelGroups } from '../../hooks/useModelGroups'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { addKeyLabel, availableModelsFor } from '../../lib/llm'
@@ -172,8 +172,9 @@ export function StatusBar() {
   // Compact display for the status bar — drop the "Claude " prefix (e.g. "Sonnet 4.6").
   const modelDisplayName = (currentModel?.name || settings.llm.model.split('/').pop() || settings.llm.model).replace(/^Claude\s+/, '')
   // The extended-thinking toggle sits next to the model selector and only shows
-  // for models that support adaptive thinking (hidden for e.g. Haiku 4.5).
-  const showThinkingToggle = supportsAdaptiveThinking(settings.llm.model)
+  // for models that think: Claude's adaptive thinking, or an OpenAI reasoning
+  // model (hidden for e.g. Haiku 4.5 and GPT-4.1).
+  const showThinkingToggle = supportsThinkingToggle(settings.llm.provider, settings.llm.model)
 
   const handleModelChange = async (provider: LLMProvider, modelId: string) => {
     selectModel(provider, modelId)

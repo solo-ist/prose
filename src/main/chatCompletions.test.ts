@@ -276,7 +276,7 @@ describe('calls (#1241)', () => {
     ).rejects.toThrow('HTTP 401: Incorrect API key provided')
   })
 
-  it("listChatModels keeps OpenAI's chat models from GPT-5.5 on, without snapshots or the models that refuse tools (#1311)", async () => {
+  it("listChatModels keeps OpenAI's chat models from GPT-5.5 on, without snapshots (#1311)", async () => {
     // The ids the operator's key listed on 2026-11-16, plus the non-chat kinds.
     const listed = [
       'gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'gpt-5', 'gpt-5-2025-08-07', 'gpt-5-mini', 'gpt-5-nano', 'gpt-5.1', 'gpt-5.2', 'gpt-5.4', 'gpt-5.4-mini',
@@ -286,11 +286,11 @@ describe('calls (#1241)', () => {
     ]
     stubFetch([], { json: { data: listed.map((id) => ({ id })) } })
     const ids = await listChatModels({ baseURL: PROVIDERS.openai.baseURL, apiKey: 'k' }, PROVIDERS.openai.liveModels)
-    expect(ids).toEqual(['gpt-5.5', 'gpt-5.6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-6-luna', 'gpt-6-sol', 'gpt-6.1-terra'])
+    expect(ids).toEqual(['gpt-5.5', 'gpt-5.6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-6-astra', 'gpt-6-luna', 'gpt-6-sol', 'gpt-6.1-sol', 'gpt-6.1-terra'])
     // Later versions arrive without a change here.
     const { include, exclude } = PROVIDERS.openai.liveModels!
     const kept = (id: string) => include!.test(id) && !exclude!.test(id)
     expect(['gpt-5.10', 'gpt-6.2-luna', 'gpt-7', 'gpt-10-sol'].every(kept)).toBe(true)
-    expect(['gpt-5.4', 'gpt-5', 'gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-sol-2026-09-01'].filter(kept)).toEqual([])
+    expect(['gpt-5.4', 'gpt-5', 'gpt-live-1', 'o3', 'gpt-6-sol-2026-09-01'].filter(kept)).toEqual([])
   })
 })

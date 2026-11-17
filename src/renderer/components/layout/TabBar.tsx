@@ -276,8 +276,8 @@ function TabItem({
   const lastDot = tab.path ? tab.path.lastIndexOf('.') : -1
   const extension = lastDot > 0 ? tab.path!.substring(lastDot) : ''
 
-  // Emoji generation is LLM-powered (main-process emoji:generate, the model in
-  // use, #1324). Without a configured key it silently no-ops, so give explicit feedback
+  // Emoji generation is LLM-powered (main-process emoji:generate, the small
+  // model of the provider in use, #1324). Without a configured key it silently no-ops, so give explicit feedback
   // rather than appearing dead.
   const handleRegenEmoji = useCallback(() => {
     if (!isAIConfigured(settings)) {

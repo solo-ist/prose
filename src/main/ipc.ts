@@ -1891,12 +1891,13 @@ export function setupIpcHandlers(): void {
     }
   )
 
-  // Emoji: one emoji for a tab, from the model in use on any provider (#1324).
-  // The renderer names the provider and model; main reads the key (#1240).
-  ipcMain.handle('emoji:generate', async (_event, title: string, contentPreview: string | undefined, provider: string, model: string): Promise<{ emoji: string | null; error?: string }> => {
+  // Emoji: one emoji for a tab, on any provider (#1324). The renderer names
+  // the provider in use; main reads its key (#1240) and always asks that
+  // provider's small model, never the one chat uses: the task is trivial.
+  ipcMain.handle('emoji:generate', async (_event, title: string, contentPreview: string | undefined, provider: string): Promise<{ emoji: string | null; error?: string }> => {
     try {
-      if (!isProvider(provider) || typeof model !== 'string' || !model) {
-        return { emoji: null, error: 'no-model' }
+      if (!isProvider(provider)) {
+        return { emoji: null, error: 'unknown-provider' }
       }
       if (!(await resolveProviderKey(provider))) {
         return { emoji: null, error: 'no-api-key' }
@@ -1906,7 +1907,7 @@ export function setupIpcHandlers(): void {
       const prompt = contentPreview ? `Title: ${title}\nContent preview: ${contentPreview}` : title
       const { content } = await completeChat({
         provider,
-        model,
+        model: getProvider(provider).smallModel,
         system: 'Respond with exactly ONE emoji that represents the document. Nothing else — no text, no explanation, just the emoji.',
         messages: [{ role: 'user', content: prompt }]
       })

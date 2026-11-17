@@ -30,9 +30,9 @@ describe('generateEmoji', () => {
     state.settings.llm = { provider: 'openai', model: 'gpt-6-astra', keyStatus: { openai: { hint: 'OAIK', persisted: true } } }
   })
 
-  it('asks the provider and model in use (#1324)', async () => {
+  it('asks the provider in use, leaving the model to main (#1324)', async () => {
     expect(await generateEmoji(tab())).toBe('🌊')
-    expect(emojiGenerate).toHaveBeenCalledWith('River notes', 'Rivers\nThe Loire.', 'openai', 'gpt-6-astra')
+    expect(emojiGenerate).toHaveBeenCalledWith('River notes', 'Rivers\nThe Loire.', 'openai')
   })
 
   it('follows the selection to another provider', async () => {
@@ -42,7 +42,7 @@ describe('generateEmoji', () => {
       keyStatus: { 'inference-coop': { hint: 'COOP', persisted: true } }
     } as never
     await generateEmoji(tab())
-    expect(emojiGenerate).toHaveBeenCalledWith('River notes', expect.any(String), 'inference-coop', 'tinfoil/glm-5.3')
+    expect(emojiGenerate).toHaveBeenCalledWith('River notes', expect.any(String), 'inference-coop')
   })
 
   it('makes no call without consent or without a key for the provider in use', async () => {

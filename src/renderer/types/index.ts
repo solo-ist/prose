@@ -719,8 +719,8 @@ export interface ElectronAPI {
   shareReplyToComment: (publicationId: string, commentId: string, text: string, authorName?: string, fromAuthor?: boolean) => Promise<ShareOp<{ id: string; createdAt: string }>>
   shareResolveComment: (publicationId: string, commentId: string, resolved: boolean) => Promise<ShareOp>
   shareRemoveComment: (publicationId: string, commentId: string) => Promise<ShareOp>
-  // Emoji generation with the model in use (#1324); main reads the provider's key
-  emojiGenerate: (title: string, contentPreview: string | undefined, provider: string, model: string) => Promise<{ emoji: string | null; error?: string }>
+  // Emoji generation on the provider in use, by its small model (#1324); main reads the key
+  emojiGenerate: (title: string, contentPreview: string | undefined, provider: string) => Promise<{ emoji: string | null; error?: string }>
   // Window fullscreen state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => () => void
   isFullScreen: () => Promise<boolean>

@@ -695,7 +695,7 @@ export function SettingsDialog() {
               <div className="space-y-0.5">
                 <Label htmlFor="emojiIcons">Emoji Tab Icons</Label>
                 <p className="text-xs text-muted-foreground">
-                  Show AI-generated emoji icons on all tabs. Each one is a short request to the model in use.
+                  Show AI-generated emoji icons on all tabs. Each one is a short request to your provider's small model, whichever model chat uses.
                 </p>
               </div>
               <Switch

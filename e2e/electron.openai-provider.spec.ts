@@ -85,18 +85,19 @@ test('Settings: OpenAI is a provider; its key tests against /models, saves in ma
   await expect(options.filter({ hasText: 'gpt-4.1' })).toHaveCount(0)
   await expect(options.filter({ hasText: 'text-embedding-3-small' })).toHaveCount(0)
   await expect(options.filter({ hasText: 'whisper-1' })).toHaveCount(0)
-  // Tab emoji use the model in use (#1324): an OpenAI key alone enables the switch.
+  // Tab emoji use the provider in use (#1324): an OpenAI key alone enables the switch,
+  // and the request goes to the small model, not the one chat uses.
   await page.keyboard.press('Escape')
   await expect(dialog.locator('#emojiIcons')).toBeEnabled()
-  const made = await page.evaluate(() => (window as any).api.emojiGenerate('Meeting notes', 'Agenda', 'openai', 'gpt-5.5'))
+  const made = await page.evaluate(() => (window as any).api.emojiGenerate('Meeting notes', 'Agenda', 'openai'))
   expect(made).toEqual({ emoji: '📝' })
   const emoji = (await openAIEmojiRequests(app)).at(-1)!
   expect(emoji.url).toBe('https://api.openai.com/v1/responses')
   expect(emoji.auth).toBe(`Bearer ${OPENAI_KEY}`)
-  expect(emoji.body.model).toBe('gpt-5.5')
+  expect(emoji.body.model).toBe('gpt-5-mini')
   expect(JSON.stringify(emoji.body.input)).toContain('Meeting notes')
   // A provider with no key answers without a request.
-  const none = await page.evaluate(() => (window as any).api.emojiGenerate('Meeting notes', undefined, 'anthropic', 'claude-haiku-5-5'))
+  const none = await page.evaluate(() => (window as any).api.emojiGenerate('Meeting notes', undefined, 'anthropic'))
   expect(none).toEqual({ emoji: null, error: 'no-api-key' })
 })
 

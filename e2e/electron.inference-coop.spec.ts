@@ -108,18 +108,15 @@ test('Settings: the co-op key tests against the gateway, saves in main, and the 
   await expect(options.filter({ hasText: 'GreenPT GLM 5.3 Flash' })).toHaveCount(1)
   await page.keyboard.press('Escape')
 
-  // Tab emoji come from the model in use (#1324): the switch is on offer, and
-  // the request goes to the gateway with the co-op key, thinking off.
+  // Tab emoji come from the provider in use (#1324): the switch is on offer, and
+  // the request goes to the gateway with the co-op key, to its small model, thinking off.
   await expect(dialog.locator('#emojiIcons')).toBeEnabled()
-  const made = await page.evaluate(
-    (model) => (window as any).api.emojiGenerate('River notes', undefined, 'inference-coop', model),
-    DEFAULT_MODEL
-  )
+  const made = await page.evaluate(() => (window as any).api.emojiGenerate('River notes', undefined, 'inference-coop'))
   expect(made).toEqual({ emoji: '🌊' })
   const emoji = (await coopEmojiRequests(app)).at(-1)!
   expect(emoji.url).toBe(`${COOP_GATEWAY}/chat/completions`)
   expect(emoji.auth).toBe(`Bearer ${COOP_KEY}`)
-  expect(emoji.body.model).toBe(DEFAULT_MODEL)
+  expect(emoji.body.model).toBe('greenpt/deepseek-v4.1-flash')
   expect(emoji.body.reasoning_effort).toBe('none')
 })
 

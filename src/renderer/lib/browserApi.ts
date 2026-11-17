@@ -525,7 +525,7 @@ export const browserApi: ElectronAPI = {
   shareRemoveComment: async () => ({ ok: false as const, error: 'Sharing is not available in browser mode.' }),
 
   // Emoji generation - not available in browser (no LLM calls there)
-  emojiGenerate: async (_title: string, _contentPreview: string | undefined, _provider: string, _model: string) => ({ emoji: null, error: 'Not available in browser mode' }),
+  emojiGenerate: async (_title: string, _contentPreview: string | undefined, _provider: string) => ({ emoji: null, error: 'Not available in browser mode' }),
 
   // Window fullscreen - not available in browser
   onFullscreenChange: (_callback: (isFullscreen: boolean) => void) => {

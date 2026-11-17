@@ -22,6 +22,7 @@ import { PROVIDERS, PROVIDER_IDS, type LLMKeyStatusMap, type LLMProvider } from 
 import { cn } from '../../lib/utils'
 import {
   STEP_LABELS,
+  orList,
   resolveStep,
   sequenceFor,
   summaryRows,
@@ -419,7 +420,7 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
                       value: 'ai' as const,
                       icon: <Sparkles className="h-4 w-4" style={{ color: AI_VIOLET }} aria-hidden="true" />,
                       name: 'Use AI',
-                      text: `When you ask, selected text and document content go to the provider you choose (${PROVIDER_IDS.map((p) => PROVIDERS[p].label).join(' or ')}) on your own key. Directly, no middleman.`
+                      text: `When you ask, selected text and document content go to the provider you choose (${orList(PROVIDER_IDS.map((p) => PROVIDERS[p].label))}) on your own key. Directly, no middleman.`
                     },
                     {
                       value: 'none' as const,
@@ -484,7 +485,7 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
               <div className="flex flex-col gap-1.5">
                 {title('Add your API keys')}
                 <p className="m-0 text-muted-foreground">
-                  Prose uses your own keys. Add one or both: each is kept in the macOS Keychain and only ever sent to its provider.
+                  Prose uses your own keys. Add any of them: each is kept in the macOS Keychain and only ever sent to its provider.
                 </p>
               </div>
               {PROVIDER_IDS.map((provider) => {
@@ -538,15 +539,22 @@ export function OnboardingDialog({ open, startAt, onFinish }: OnboardingDialogPr
                           {info.keyFormat && (
                             <>Starts with <Code>{info.keyFormat.prefix}</Code>. </>
                           )}
-                          Create one at{' '}
-                          <button
-                            type="button"
-                            className="underline underline-offset-2 hover:text-foreground"
-                            onClick={() => void window.api?.openExternal?.(info.keysUrl)}
-                          >
-                            {new URL(info.keysUrl).host}
-                          </button>
-                          .
+                          {info.keysLinkDirectOnly && !direct ? (
+                            // The App Store build names no page where one joins or pays (#956).
+                            <>Use the key from your {info.label} account.</>
+                          ) : (
+                            <>
+                              Create one at{' '}
+                              <button
+                                type="button"
+                                className="underline underline-offset-2 hover:text-foreground"
+                                onClick={() => void window.api?.openExternal?.(info.keysUrl)}
+                              >
+                                {new URL(info.keysUrl).host}
+                              </button>
+                              .
+                            </>
+                          )}
                         </span>
                       )}
                     </div>

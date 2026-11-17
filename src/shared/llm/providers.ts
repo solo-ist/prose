@@ -15,7 +15,7 @@ export interface ModelInfo {
   description?: string
 }
 
-export type LLMProvider = 'anthropic' | 'openai'
+export type LLMProvider = 'anthropic' | 'openai' | 'inference-coop'
 
 /**
  * How main talks to the provider: Anthropic's Messages API through its SDK,
@@ -47,6 +47,11 @@ export interface ProviderInfo {
   keyFormat?: { prefix: string; minLength: number }
   /** Where a writer creates a key (onboarding and Settings link to it). */
   keysUrl: string
+  /**
+   * True when the key page is also where one joins or pays (the co-op's
+   * dashboard): the App Store build names no link to it (#956).
+   */
+  keysLinkDirectOnly?: boolean
   /** Where the account's credits are managed, named when the provider says it has none (#1268). */
   billingHint: string
   /**
@@ -109,6 +114,17 @@ export const OPENAI_MODELS: ModelInfo[] = [
   { id: 'gpt-6-sol', name: 'GPT-6 Sol' },
 ]
 
+/**
+ * The Inference Cooperative's gateway (LiteLLM, #956). The seed is the three
+ * models the 2026-10-19 probes showed completing Prose's tool loop; the live
+ * list adds whatever chat models the member's key can reach.
+ */
+export const INFERENCE_COOP_MODELS: ModelInfo[] = [
+  { id: 'greenpt/deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash (GreenPT)', description: 'The co-op\'s default; renewable energy' },
+  { id: 'tinfoil/deepseek-v4-1-flash', name: 'DeepSeek V4.1 Flash (Tinfoil)', description: 'Runs in a secure enclave' },
+  { id: 'tinfoil/glm-5.3', name: 'GLM-5.3 (Tinfoil)', description: 'Flagship; runs in a secure enclave' },
+]
+
 export const PROVIDERS: Record<LLMProvider, ProviderInfo> = {
   anthropic: {
     id: 'anthropic',
@@ -153,6 +169,34 @@ export const PROVIDERS: Record<LLMProvider, ProviderInfo> = {
     liveModels: {
       include: /^gpt-(5\.([5-9]|\d{2,})|[6-9]|\d{2,})(?![\d])/,
       exclude: /(audio|realtime|transcribe|tts|image|embedding|search|instruct|moderation|codex|computer-use|deep-research|-pro\b|-\d{4}-\d{2}-\d{2}$)/,
+    },
+  },
+  'inference-coop': {
+    id: 'inference-coop',
+    label: 'Inference Coop',
+    // The co-op's one documented route (docs.inference.coop, "API access").
+    transport: 'chat-completions',
+    baseURL: 'https://gateway.inference.coop/v1',
+    credentialKey: 'llm-api-key-inference-coop',
+    models: INFERENCE_COOP_MODELS,
+    modelsSource: 'live+static',
+    defaultModel: 'greenpt/deepseek-v4.1-flash',
+    smallModel: 'greenpt/deepseek-v4.1-flash',
+    thinking: false,
+    keyFormat: { prefix: 'sk-', minLength: 10 },
+    keysUrl: 'https://dashboard.inference.coop',
+    keysLinkDirectOnly: true,
+    billingHint: 'dashboard.inference.coop',
+    chatCompletions: {
+      // Thinking off for every model: left on, the Tinfoil models spend the
+      // whole output budget reasoning before a tool call (the 2026-10-19 probes).
+      reasoningEffortFor: () => 'none',
+    },
+    // The gateway also lists speech, image and embedding models. greenpt/glm-5.3
+    // is left out: its tool calls failed 3 of 3 in the probes (its -flash and
+    // the Tinfoil build are separate entries and stay).
+    liveModels: {
+      exclude: /(whisper|voxtral|tts|embed|image|^greenpt\/glm-5\.3$)/,
     },
   },
 }

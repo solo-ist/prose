@@ -104,7 +104,15 @@ const activeStreams = new Map<string, AbortController>()
  */
 function llmFailure(error: unknown, providerId: string): { error: string; kind: LlmErrorKind } {
   const info = classifyLlmError(error)
-  return { error: llmErrorMessage(info, isProvider(providerId) ? getProvider(providerId) : undefined), kind: info.kind }
+  return { error: llmErrorMessage(info, isProvider(providerId) ? errorProvider(getProvider(providerId)) : undefined), kind: info.kind }
+}
+
+/**
+ * The provider as error messages name it. The App Store build leaves out a
+ * billing page that is also where one joins or pays (#956).
+ */
+function errorProvider(provider: ProviderInfo): { label: string; billingHint?: string } {
+  return { label: provider.label, billingHint: IS_MAS_BUILD && provider.keysLinkDirectOnly ? undefined : provider.billingHint }
 }
 
 /** A chat request as the Responses adapter takes it, with the provider's first guesses about the model. */
@@ -1028,11 +1036,14 @@ export function setupIpcHandlers(): void {
       return { success: false, message: 'No API key saved' }
     }
     // The key works but its account can't be used: it saves, with a warning (#1268).
-    const noCredits = () => ({
-      success: true,
-      warning: true,
-      message: `Key is valid, but the ${getProvider(provider).label} account has no credits. Add credits at ${getProvider(provider).billingHint}.`
-    })
+    const noCredits = () => {
+      const { label, billingHint } = errorProvider(getProvider(provider))
+      return {
+        success: true,
+        warning: true,
+        message: `Key is valid, but the ${label} account has no credits.${billingHint ? ` Add credits at ${billingHint}.` : ''}`
+      }
+    }
 
     try {
       const transport = getProvider(provider).transport

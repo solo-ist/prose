@@ -18,6 +18,7 @@ describe('models by provider (#1242, #1287)', () => {
     expect(groups.map((g) => [g.provider, g.label, g.hasKey])).toEqual([
       ['anthropic', 'Anthropic', false],
       ['openai', 'OpenAI', true],
+      ['inference-coop', 'Inference Coop', false],
     ])
     expect(groups[0].models).toEqual([])
     expect(groups[1].models).toBe(live)

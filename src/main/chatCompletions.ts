@@ -106,7 +106,10 @@ export function toChatMessages(system: string, messages: LLMMessage[]): ChatMess
     // user: tool_result blocks (Anthropic's shape) first, as tool messages, then the text
     if (typeof m.content !== 'string') {
       for (const b of m.content) {
-        if (b.type === 'tool_result') out.push({ role: 'tool', tool_call_id: b.tool_use_id, content: b.content })
+        if (b.type !== 'tool_result') continue
+        // The same guard as the `tool` path above: an id-less result can't be matched to its call.
+        if (!b.tool_use_id) console.error('[chatCompletions] A tool result has no tool_use_id')
+        out.push({ role: 'tool', tool_call_id: b.tool_use_id ?? '', content: b.content })
       }
       const text = textOf(m.content)
       if (text) out.push({ role: 'user', content: text })
@@ -292,6 +295,10 @@ export class ChatStreamAccumulator {
       .sort(([a], [b]) => a - b)
       .filter(([, c]) => c.name)
       .map(([index, c]) => {
+        // A gateway that streams a call without an id (some LiteLLM routes)
+        // gets a local one. The next request sends it back as both the
+        // assistant's `tool_calls[].id` and the result's `tool_call_id`, so
+        // the pair still matches each other, which is all the API checks.
         const id = c.id || `call_${index}_${Date.now().toString(36)}`
         if (!c.started) this.handlers.onToolCallStart?.(id, c.name)
         return { id, name: c.name, args: parseArguments(c.args) }

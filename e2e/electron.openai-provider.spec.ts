@@ -169,7 +169,7 @@ test('thinking off asks for the least reasoning; a model that refuses that effor
     status: 400,
     json: {
       error: {
-        message: "Unsupported value: 'reasoning.effort' does not support 'minimal' with this model. Supported values are: 'low', 'medium', 'high', and 'xhigh'.",
+        message: "Unsupported value: 'reasoning.effort' does not support 'none' with this model. Supported values are: 'low', 'medium', 'high', and 'xhigh'.",
         type: 'invalid_request_error',
         param: 'reasoning.effort',
         code: 'unsupported_value',
@@ -186,8 +186,9 @@ test('thinking off asks for the least reasoning; a model that refuses that effor
   await expect(page.getByText(/Unsupported value/)).toHaveCount(0)
   await ask('Hi again.')
   await expect(page.getByText('Hello again.')).toBeVisible({ timeout: 15_000 })
-  // No summary is asked for with thinking off; the refused effort is not tried twice.
-  expect((await turns()).map((t) => t.body.reasoning)).toEqual([{ effort: 'minimal' }, { effort: 'low' }, { effort: 'low' }])
+  // GPT-5.5's first guess is "none" (gpt-6-astra and gpt-6.1-sol refuse it). No summary is
+  // asked for with thinking off; the refused effort is not tried twice.
+  expect((await turns()).map((t) => t.body.reasoning)).toEqual([{ effort: 'none' }, { effort: 'low' }, { effort: 'low' }])
 })
 
 test('an account with no credits (HTTP 429 insufficient_quota): one request, the credits message, nothing about waiting (#1268)', async () => {

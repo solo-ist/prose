@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { useSettingsStore } from './settingsStore'
 import type { LLMKeyStatusMap } from '../../shared/llm/providers'
+import { notifyToolModeChange } from './toolModeBridge'
 
 const LIVE = {
   anthropic: [{ id: 'claude-live', name: 'Claude Live' }],
@@ -122,6 +123,49 @@ describe('clearing a key', () => {
     await useSettingsStore.getState().clearLlmKey('openai')
     expect(useSettingsStore.getState().settings.llm.provider).toBe('anthropic')
     expect(useSettingsStore.getState().settings.llm.model).toBe('claude-sonnet-5-5')
+  })
+})
+
+describe('a default model per mode (#1322)', () => {
+  const sol = { provider: 'openai' as const, model: 'gpt-6.1-sol' }
+
+  it('entering a mode switches to its model and saves; a mode without one keeps the model in use', () => {
+    reset(BOTH)
+    useSettingsStore.getState().setLLMConfig({ modeModels: { chat: sol } })
+    notifyToolModeChange('chat')
+    expect(useSettingsStore.getState().settings.llm).toMatchObject(sol)
+    notifyToolModeChange('create')
+    expect(useSettingsStore.getState().settings.llm).toMatchObject(sol)
+  })
+
+  it("skips a default whose provider has no key", () => {
+    reset({ anthropic: BOTH.anthropic })
+    useSettingsStore.getState().setLLMConfig({ modeModels: { chat: sol } })
+    notifyToolModeChange('chat')
+    expect(useSettingsStore.getState().settings.llm.provider).toBe('anthropic')
+  })
+
+  it('setting the default of the mode in use takes effect at once; another mode waits', () => {
+    reset(BOTH)
+    notifyToolModeChange('editor')
+    useSettingsStore.getState().setModeModel('chat', sol)
+    expect(useSettingsStore.getState().settings.llm.provider).toBe('anthropic')
+    useSettingsStore.getState().setModeModel('editor', sol)
+    expect(useSettingsStore.getState().settings.llm).toMatchObject(sol)
+    // Clearing a default leaves the model in use and removes the entry.
+    useSettingsStore.getState().setModeModel('editor', null)
+    expect(useSettingsStore.getState().settings.llm.modeModels).toEqual({ chat: sol })
+    expect(useSettingsStore.getState().settings.llm).toMatchObject(sol)
+  })
+})
+
+describe('the shown set (#1322)', () => {
+  it('is stored per provider, and reset removes the entry so the built-in flagships apply again', () => {
+    reset(BOTH)
+    useSettingsStore.getState().setShownModels('openai', ['gpt-5.5'])
+    expect(useSettingsStore.getState().settings.llm.shownModels).toEqual({ openai: ['gpt-5.5'] })
+    useSettingsStore.getState().setShownModels('openai', null)
+    expect(useSettingsStore.getState().settings.llm.shownModels).toEqual({})
   })
 })
 

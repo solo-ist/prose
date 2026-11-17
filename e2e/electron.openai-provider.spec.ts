@@ -80,7 +80,7 @@ test('Settings: OpenAI is a provider; its key tests against /models, saves in ma
   await expect.poll(async () => (await requests()).filter((r) => r.url.endsWith('/models')).length).toBeGreaterThanOrEqual(2)
   await dialog.locator('#model').click()
   const options = page.getByRole('option')
-  await expect(options.filter({ hasText: 'GPT-6 Luna' })).toHaveCount(1)
+  await expect(options.filter({ hasText: 'OpenAI Luna 6' })).toHaveCount(1)
   // Older generations are off the list (#1311).
   await expect(options.filter({ hasText: 'gpt-4.1' })).toHaveCount(0)
   await expect(options.filter({ hasText: 'text-embedding-3-small' })).toHaveCount(0)

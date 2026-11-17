@@ -11,7 +11,10 @@
 
 export interface ModelInfo {
   id: string
+  /** The long name, for menus ("Claude Sonnet 5.5"); see `./modelNames`. */
   name: string
+  /** The short name, for the status bar ("Sonnet 5.5"). Set where lists are built for display. */
+  shortName?: string
   description?: string
 }
 
@@ -38,6 +41,12 @@ export interface ProviderInfo {
   models: ModelInfo[]
   /** Where the model picker's list comes from: the provider's live list, else the seed. */
   modelsSource: 'live+static'
+  /**
+   * The models the pickers show until the writer chooses their own set in
+   * Settings → LLM (#1322), in the order shown: the flagships, not every model
+   * the key reaches. Includes `defaultModel`.
+   */
+  featuredModels: string[]
   defaultModel: string
   /** The model for lightweight internal calls: key checks, summaries, tab emoji. */
   smallModel: string
@@ -109,9 +118,9 @@ export const ANTHROPIC_MODELS: ModelInfo[] = [
  * against the live list at the first live smoke (the operator's key).
  */
 export const OPENAI_MODELS: ModelInfo[] = [
-  { id: 'gpt-5.5', name: 'GPT-5.5' },
-  { id: 'gpt-6-luna', name: 'GPT-6 Luna' },
-  { id: 'gpt-6-sol', name: 'GPT-6 Sol' },
+  { id: 'gpt-5.5', name: 'OpenAI GPT 5.5' },
+  { id: 'gpt-6-luna', name: 'OpenAI Luna 6' },
+  { id: 'gpt-6-sol', name: 'OpenAI Sol 6' },
 ]
 
 /**
@@ -120,9 +129,9 @@ export const OPENAI_MODELS: ModelInfo[] = [
  * list adds whatever chat models the member's key can reach.
  */
 export const INFERENCE_COOP_MODELS: ModelInfo[] = [
-  { id: 'greenpt/deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash (GreenPT)', description: 'The co-op\'s default; renewable energy' },
-  { id: 'tinfoil/deepseek-v4-1-flash', name: 'DeepSeek V4.1 Flash (Tinfoil)', description: 'Runs in a secure enclave' },
-  { id: 'tinfoil/glm-5.3', name: 'GLM-5.3 (Tinfoil)', description: 'Flagship; runs in a secure enclave' },
+  { id: 'greenpt/deepseek-v4.1-flash', name: 'GreenPT DeepSeek 4.1', description: 'The co-op\'s default; renewable energy' },
+  { id: 'tinfoil/deepseek-v4-1-flash', name: 'Tinfoil DeepSeek 4.1', description: 'Runs in a secure enclave' },
+  { id: 'tinfoil/glm-5.3', name: 'Tinfoil GLM 5.3', description: 'Flagship; runs in a secure enclave' },
 ]
 
 export const PROVIDERS: Record<LLMProvider, ProviderInfo> = {
@@ -135,6 +144,7 @@ export const PROVIDERS: Record<LLMProvider, ProviderInfo> = {
     credentialKey: 'llm-api-key',
     models: ANTHROPIC_MODELS,
     modelsSource: 'live+static',
+    featuredModels: ['claude-fable-5-2', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'],
     defaultModel: 'claude-sonnet-5-5',
     smallModel: 'claude-haiku-4-5',
     thinking: true,
@@ -150,6 +160,8 @@ export const PROVIDERS: Record<LLMProvider, ProviderInfo> = {
     credentialKey: 'llm-api-key-openai',
     models: OPENAI_MODELS,
     modelsSource: 'live+static',
+    // The newest of each line, and the default.
+    featuredModels: ['gpt-5.5', 'gpt-6-astra', 'gpt-6-luna', 'gpt-6.1-sol', 'gpt-6.1-terra'],
     defaultModel: 'gpt-5.5',
     // Internal calls only (key checks, summaries), so it needn't be on the picker's list.
     smallModel: 'gpt-5-mini',
@@ -180,6 +192,14 @@ export const PROVIDERS: Record<LLMProvider, ProviderInfo> = {
     credentialKey: 'llm-api-key-inference-coop',
     models: INFERENCE_COOP_MODELS,
     modelsSource: 'live+static',
+    featuredModels: [
+      'tinfoil/deepseek-v4-1-flash',
+      'tinfoil/glm-5.3',
+      'greenpt/deepseek-v4.1-flash',
+      'regolo/qwen3.5-122b',
+      'regolo/gemma4-31b',
+      'regolo/apertus-70b',
+    ],
     defaultModel: 'greenpt/deepseek-v4.1-flash',
     smallModel: 'greenpt/deepseek-v4.1-flash',
     thinking: false,

@@ -89,11 +89,23 @@ test('Settings: the co-op key tests against the gateway, saves in main, and the 
   await expect(dialog.getByTestId('llm-key-status-inference-coop')).toContainText('••••••••COOP')
   await dialog.locator('#model').click()
   const options = page.getByRole('option')
-  await expect(options.filter({ hasText: 'GLM-5.3 (Tinfoil)' })).toHaveCount(1)
-  await expect(options.filter({ hasText: 'greenpt/glm-5.3-flash' })).toHaveCount(1)
+  // The picker lists the flagships (#1322), under the one naming scheme.
+  await expect(options.filter({ hasText: 'Tinfoil GLM 5.3' })).toHaveCount(1)
+  await expect(options.filter({ hasText: 'GreenPT DeepSeek 4.1' })).toHaveCount(1)
+  await expect(options.filter({ hasText: 'GLM 5.3 Flash' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+
+  // Settings lists every chat model, the flagships checked; checking another adds it to the picker.
+  const shown = dialog.getByTestId('shown-models-inference-coop')
+  await shown.locator('summary').click()
+  await expect(shown).toContainText('3 of 4 shown')
   // Left out: the model whose tool calls fail, and everything that isn't a chat model.
-  await expect(options.filter({ hasText: /^greenpt\/glm-5\.3$/ })).toHaveCount(0)
-  await expect(options.filter({ hasText: /embed|whisper|qwen-image/ })).toHaveCount(0)
+  await expect(shown.getByText('greenpt/glm-5.3', { exact: true })).toHaveCount(0)
+  await expect(shown.getByText(/embed|whisper|qwen-image/)).toHaveCount(0)
+  await shown.getByLabel(/GreenPT GLM 5.3 Flash/).click()
+  await expect(shown).toContainText('4 of 4 shown')
+  await dialog.locator('#model').click()
+  await expect(options.filter({ hasText: 'GreenPT GLM 5.3 Flash' })).toHaveCount(1)
 })
 
 test('a chat turn over the co-op: thinking off on every step, and a tool call streamed without an id still pairs with its result', async () => {
@@ -133,7 +145,7 @@ test('a chat turn over the co-op: thinking off on every step, and a tool call st
   expect(result.tool_call_id).toBe(assistant.tool_calls[0].id)
 
   await expect(page.getByText('Suggested a change.')).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByTestId('status-model')).toHaveText('DeepSeek V4.1 Flash (GreenPT)')
+  await expect(page.getByTestId('status-model')).toHaveText('DeepSeek 4.1')
 })
 
 test("a spent budget (LiteLLM's budget_exceeded): one request, the credits message, nothing about waiting", async () => {

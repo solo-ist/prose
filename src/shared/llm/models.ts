@@ -4,6 +4,7 @@
  */
 
 import { getProvider, reasonsOverResponses, PROVIDERS, ANTHROPIC_MODELS, type LLMProvider, type ModelInfo } from './providers'
+import { modelNames } from './modelNames'
 
 export { ANTHROPIC_MODELS }
 export type { LLMProvider, ModelInfo }
@@ -130,19 +131,29 @@ export function getThinkingOffMode(modelId: string): ThinkingOffMode {
   return THINKING_OFF_MODES[base] ?? 'omit'
 }
 
+/** The provider whose seed lists `modelId`, else the one its id reads as. */
+function providerOfModel(modelId: string): string | undefined {
+  const seeded = Object.values(PROVIDERS).find((p) => p.models.some((m) => m.id === modelId))
+  if (seeded) return seeded.id
+  if (modelId.startsWith('claude-')) return 'anthropic'
+  if (modelId.startsWith('gpt-')) return 'openai'
+  return undefined
+}
+
 /**
- * Resolve a model ID to its human-readable display name. Prefers the live-fetched
- * list (which the provider updates as new models ship), falls back to the static
- * seed, and finally to the raw model ID.
+ * A model's long name ("Claude Sonnet 5.5", "Tinfoil GLM 5.3"), as menus and
+ * authorship labels show it (#1322). Derived from the id; the provider's own
+ * display name (the live list's, else the seed's) covers an id no rule knows,
+ * and the raw id is the last resort. Pass `provider` where it is known.
  */
 export function resolveModelName(
   modelId: string,
-  fetched?: ModelInfo[] | null
+  fetched?: ModelInfo[] | null,
+  provider?: string
 ): string {
-  const fromFetched = fetched?.find((m) => m.id === modelId)?.name
-  if (fromFetched) return fromFetched
-  const fromStatic = Object.values(PROVIDERS)
-    .flatMap((p) => p.models)
-    .find((m) => m.id === modelId)?.name
-  return fromStatic || modelId
+  const given =
+    fetched?.find((m) => m.id === modelId)?.name ||
+    Object.values(PROVIDERS).flatMap((p) => p.models).find((m) => m.id === modelId)?.name
+  const owner = provider ?? providerOfModel(modelId)
+  return owner ? modelNames(owner, modelId, given).long : given || modelId
 }

@@ -39,6 +39,7 @@ import { AlertCircle } from 'lucide-react'
 import { getDefaultModel, type LLMProvider } from '../../../shared/llm/models'
 import { PROVIDERS, PROVIDER_IDS } from '../../../shared/llm/providers'
 import { ProviderKeys, draftFormatError, type KeyDrafts } from './ProviderKeys'
+import { ModelPreferences } from './ModelPreferences'
 import { useModelGroups } from '../../hooks/useModelGroups'
 import { addKeyLabel, availableModelsFor, validateUrl } from '../../lib/llm'
 
@@ -659,6 +660,9 @@ export function SettingsDialog() {
                 </Select>
               )}
             </div>
+
+            {/* Per-mode defaults and the pickers' shown set (#1322) */}
+            <ModelPreferences groups={modelGroups} />
 
             {/* API keys: one per provider, all visible (#1242) */}
               <div className="space-y-2">

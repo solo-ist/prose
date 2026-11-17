@@ -215,8 +215,9 @@ export function isOpenAIReasoningModel(model: string): boolean {
 
 /** Whether `model` on `providerId` reasons over the Responses API (false for every other transport). */
 export function reasonsOverResponses(providerId: string, model: string): boolean {
-  const provider = getProvider(providerId)
-  return isProvider(providerId) && provider.transport === 'responses' && !!provider.responses?.reasons(model)
+  if (!isProvider(providerId)) return false
+  const provider = PROVIDERS[providerId]
+  return provider.transport === 'responses' && !!provider.responses?.reasons(model)
 }
 
 /**

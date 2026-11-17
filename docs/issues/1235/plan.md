@@ -1,11 +1,11 @@
-# #1235 — M1: MCP protocol (1.9.1 epic #1230)
+# #1235 — M1: MCP protocol (1.10.0 epic #1230)
 
 ## Context
 
 Prose's MCP server today is `@modelcontextprotocol/sdk` 1.32 (v1), which speaks protocol revisions up to
 2025-11-25. The spec moved to **2026-07-28** (no sessions, no `initialize`, a per-request envelope,
 `server/discover`). Claude's clients still speak 2025-11-25; others are rolling the new revision out. The
-1.9.1 surface has to answer both. The server also lacks `instructions` (the guidance lives in a Claude-only
+1.10.0 surface has to answer both. The server also lacks `instructions` (the guidance lives in a Claude-only
 skill), reports a frozen `1.0.0`, returns only text, checks neither `Host` nor `Origin` (DNS rebinding), and
 the dev instance shares port 9877 with the installed app.
 

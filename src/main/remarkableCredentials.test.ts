@@ -51,7 +51,7 @@ beforeEach(() => {
 })
 
 describe('reMarkable credentials stay in main (#1275)', () => {
-  it('the device token is stored under its pre-1.9.1 name, resolved and cleared', async () => {
+  it('the device token is stored under its pre-1.10.0 name, resolved and cleared', async () => {
     await setDeviceToken(TOKEN)
     expect(h.stored.get('remarkable-device-token')).toBe(TOKEN)
     expect(await resolveDeviceToken()).toBe(TOKEN)

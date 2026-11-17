@@ -37,7 +37,7 @@ beforeEach(() => {
 })
 
 describe('llmKeys (#1240)', () => {
-  it('stores in secure storage under the pre-1.9.1 name, so saved keys keep resolving', async () => {
+  it('stores in secure storage under the pre-1.10.0 name, so saved keys keep resolving', async () => {
     await setProviderKey('anthropic', KEY)
     expect(h.stored.get('llm-api-key')).toBe(KEY)
     expect(await resolveProviderKey('anthropic')).toBe(KEY)

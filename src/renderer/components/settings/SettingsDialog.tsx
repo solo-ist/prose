@@ -150,8 +150,8 @@ export function SettingsDialog() {
   // Each open starts on the field for a custom id, else on the list.
   useEffect(() => {
     if (isDialogOpen) setCustomModel(isCustomModel)
-    // Seeded once per open: a typed id passing through a listed one ("gpt-5" on
-    // the way to "gpt-5-…") must not close the field under the writer.
+    // Seeded once per open: a typed id passing through a listed one ("gpt-5.5" on
+    // the way to "gpt-5.5-…") must not close the field under the writer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDialogOpen])
   // A custom id that appears later (a pick elsewhere, a late load) opens the field.
@@ -188,7 +188,7 @@ export function SettingsDialog() {
   // not offered those tabs at all rather than shown them empty (#1222). A request
   // for one of them (a stale `dialogTab`, a caller naming it) renders General.
   const isMas = isMasBuild()
-  // Remote clients waiting for approval (#1239): counted on the Integrations tab.
+  // Remote clients waiting for approval (#1239), or connected and not yet seen (#1304): counted on the Integrations tab.
   const remotePending = useRemotePendingCount()
   const activeTab = isMas && (dialogTab === 'integrations' || dialogTab === 'account') ? 'general' : dialogTab
 
@@ -261,7 +261,7 @@ export function SettingsDialog() {
                 {remotePending > 0 && (
                   <span
                     className="ml-1 rounded-full bg-amber-500 px-1.5 text-[10px] font-medium leading-4 text-white"
-                    aria-label={`${remotePending} waiting for approval`}
+                    aria-label={`${remotePending} to review`}
                     data-testid="integrations-pending-count"
                   >
                     {remotePending}

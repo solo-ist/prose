@@ -1069,7 +1069,7 @@ async function openSessionNow(
   // counts as unpersisted); otherwise the seed's revision counts as written.
   loadAnnotationsInto(seed, annotations)
   // The stored review log (#1233); the seed derives no events, and marks with
-  // no history row (from before 1.9.1) are backfilled as pending.
+  // no history row (from before 1.10.0) are backfilled as pending.
   loadReviewLogInto(seed, reviewLog)
   state = state.applyTransaction(seed).state
   const seeded = annotationPluginState(state)

@@ -3,8 +3,11 @@
  * ChatGPT and claude.ai work with the documents open in Prose, through the
  * Prose gateway (design docs/architecture/mcp-relay.md §6).
  *
- * The switch is the kill switch: off closes the connection at once. Each
- * assistant the writer connects appears here as pending on its first call,
+ * The switch is the kill switch: off closes the connection at once. A
+ * trusted assistant (claude.ai, ChatGPT; shared/mcp/trustedRemoteClients.ts,
+ * #1304) the writer connects is listed here already connected, with the
+ * permissions granted on the gateway's consent page, and marked new until
+ * the writer has seen it. Any other appears as pending on its first call,
  * and reaches nothing until the writer approves it with the permissions
  * picked here (the second gate, after the gateway's consent page). Removing
  * or declining one refuses it at once and revokes it at the gateway.
@@ -44,7 +47,7 @@ function statusText(status: RemoteAccessStatus): string {
       if (status.receiving === false) {
         return 'Connected. Another Mac is active: remote calls go to it until you use Prose here.'
       }
-      return 'Connected. Receiving remote calls: assistants you approve below can work on the documents you have open.'
+      return 'Connected. Receiving remote calls: the assistants listed below can work on the documents you have open.'
     case 'connecting':
       return 'Connecting…'
     case 'reconnecting':
@@ -110,8 +113,10 @@ function ScopeChoices({
 }
 
 /**
- * Remote clients waiting for approval, for the Integrations tab's count.
- * Follows main's change events; 0 where Remote access doesn't exist.
+ * Remote clients that need the writer's eye, for the Integrations tab's
+ * count: those waiting for approval, and trusted ones that connected and
+ * haven't been seen here yet (#1304). Follows main's change events; 0 where
+ * Remote access doesn't exist.
  */
 export function useRemotePendingCount(): number {
   const [count, setCount] = useState(0)
@@ -119,7 +124,7 @@ export function useRemotePendingCount(): number {
     const api = window.api
     if (!api?.mcpRemoteStatus) return
     const refresh = () => {
-      api.mcpRemoteStatus?.().then((s) => setCount(s.available ? s.pendingCount : 0)).catch(() => {})
+      api.mcpRemoteStatus?.().then((s) => setCount(s.available ? s.pendingCount + s.unreviewedCount : 0)).catch(() => {})
     }
     refresh()
     return api.onMcpRemoteChanged?.(refresh)
@@ -135,13 +140,23 @@ export function RemoteAccess() {
   const [removing, setRemoving] = useState<RemoteConnection | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  // Trusted clients that connected since the writer last looked (#1304): shown
+  // as new for this visit. Showing them is what marks them seen, which clears
+  // the counts on the Integrations tab and the Dock.
+  const [fresh, setFresh] = useState<ReadonlySet<string>>(new Set())
 
   const load = useCallback(async () => {
     const api = window.api
     if (!api?.mcpRemoteStatus || !api.mcpRemoteList) return
     const [s, listed] = await Promise.all([api.mcpRemoteStatus(), api.mcpRemoteList()])
     setStatus(s)
-    if (listed.ok) setConnections(listed.value)
+    if (!listed.ok) return
+    setConnections(listed.value)
+    const unreviewed = listed.value.filter((c) => c.status === 'approved' && c.reviewedAt === null).map((c) => c.clientId)
+    if (unreviewed.length > 0) {
+      setFresh((seen) => new Set([...seen, ...unreviewed]))
+      void api.mcpRemoteAcknowledge?.()
+    }
   }, [])
 
   useEffect(() => {
@@ -217,7 +232,8 @@ export function RemoteAccess() {
           <Label htmlFor="remote-access-switch">Remote access</Label>
           <p className="text-xs text-muted-foreground">
             Let ChatGPT and claude.ai work with the documents you have open, through the Prose gateway. They can't open,
-            create or list your files, and you approve each one here first.
+            create or list your files. Each one you connect is listed here, where you can change what it may do or
+            remove it; any other assistant waits for your approval here first.
           </p>
         </div>
         <Switch
@@ -254,8 +270,8 @@ export function RemoteAccess() {
           </div>
           <p className="text-xs text-muted-foreground">
             ChatGPT: Settings → Apps &amp; Connectors → Advanced settings → Developer mode, then Create, with OAuth.
-            claude.ai: Settings → Connectors → Add custom connector. Sign in with your Prose email, then approve the
-            assistant below when it first asks.
+            claude.ai: Settings → Connectors → Add custom connector. Sign in with your Prose email and allow it; it
+            then appears below, connected.
           </p>
         </div>
       )}
@@ -323,6 +339,11 @@ export function RemoteAccess() {
                         {c.label !== c.clientName ? `${c.clientName} · ` : ''}
                         {lastUsed(c)}
                       </p>
+                      {fresh.has(c.clientId) && (
+                        <p className="text-xs font-medium text-amber-600 dark:text-amber-400" data-testid="remote-connection-new">
+                          New: connected after you allowed it in your browser. {identity(c)}. Not you? Remove it.
+                        </p>
+                      )}
                     </div>
                     <Button
                       size="icon"
@@ -371,8 +392,8 @@ export function RemoteAccess() {
           <AlertDialogHeader>
             <AlertDialogTitle>Remove {removing?.label}?</AlertDialogTitle>
             <AlertDialogDescription>
-              It loses access right away, and has to be connected and approved again to come back. What it already did in
-              Prose stays attributed to it.
+              It loses access right away, and has to be connected again to come back. What it already did in Prose stays
+              attributed to it.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

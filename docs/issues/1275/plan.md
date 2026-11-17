@@ -1,7 +1,7 @@
 # #1275: reMarkable credentials still reach the renderer
 
-Part of 1.9.1 (epic [#1230](https://github.com/solo-ist/prose/issues/1230)), and the A1 (#1240) follow-up the operator
-chose: 1.9.1's notes can say keys never reach the window. Branch `issue-1275-remarkable-credentials` from
+Part of 1.10.0 (epic [#1230](https://github.com/solo-ist/prose/issues/1230)), and the A1 (#1240) follow-up the operator
+chose: 1.10.0's notes can say keys never reach the window. Branch `issue-1275-remarkable-credentials` from
 `release/v1.9.1` = `84dcc27`. It touches `src/main` and `src/preload`, so it is gated; the operator's go covers merging
 it into the release branch.
 

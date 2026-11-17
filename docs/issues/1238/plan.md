@@ -1,4 +1,4 @@
-# #1238 — M5a: the remote MCP relay, gateway side (1.9.1 epic #1230)
+# #1238 — M5a: the remote MCP relay, gateway side (1.10.0 epic #1230)
 
 Design of record: [`docs/architecture/mcp-relay.md`](../../architecture/mcp-relay.md) (branch
 `issue-1238-relay-design`), with the operator's §8 decisions final (2026-11-09): any signed-in writer gets Remote

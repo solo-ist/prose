@@ -1,6 +1,6 @@
 # #1266 — revise_suggestion works on a rejected suggestion
 
-Found by the 1.9.1 acceptance run (#1230), step 8: "The agent revises the rejected one, and the superseded version stays in history." Today `revise_suggestion` only finds a suggestion by its live mark, so a rejected one (no mark) returns SUGGESTION_NOT_FOUND. Branch `issue-1266-revise-rejected` off `release/v1.9.1`. Renderer and shared code only.
+Found by the 1.10.0 acceptance run (#1230), step 8: "The agent revises the rejected one, and the superseded version stays in history." Today `revise_suggestion` only finds a suggestion by its live mark, so a rejected one (no mark) returns SUGGESTION_NOT_FOUND. Branch `issue-1266-revise-rejected` off `release/v1.9.1`. Renderer and shared code only.
 
 ## Decision (operator, option a)
 
@@ -29,7 +29,7 @@ A rejected suggestion has no mark, and the log row stores no node today.
 - `lib/tools/executors/review.ts`: `executeReviseSuggestion` branches on the live mark, then on the log row's status, and resolves the node as above.
 - `shared/tools/schemas/review.ts`, `shared/tools/mcpMetadata.ts`, `shared/mcp/instructions.ts`: the `nodeId` argument; the description and the server instructions say a rejected suggestion can be revised and stays rejected, and an accepted one cannot.
 - `components/editor/AIEditsHistoryPanel.tsx`: a rejected row with a revision reads "Rejected by …", then "Then revised by …" with a "View revision" link while the revision is pending. It never says "Superseded".
-- CLAUDE.md (MCP section) and `docs/qa/v1.9.1.md`.
+- CLAUDE.md (MCP section) and `docs/qa/v1.10.0.md`.
 
 ## Tests
 
@@ -41,7 +41,7 @@ A rejected suggestion has no mark, and the log row stores no node today.
 
 ## Execution log
 
-- **2026-11-08.** `b920b58` plan; `ff35459` the change, the unit tests and the e2e cases. `release/v1.9.1` moved meanwhile (#1264, `6907393`); merged in as `dfe521c`, the only conflict `docs/qa/v1.9.1.md` (both blocks kept, #1266's last).
+- **2026-11-08.** `b920b58` plan; `ff35459` the change, the unit tests and the e2e cases. `release/v1.9.1` moved meanwhile (#1264, `6907393`); merged in as `dfe521c`, the only conflict `docs/qa/v1.10.0.md` (both blocks kept, #1266's last).
 - **Checks** (after a build: without one, the generated `src/main/env.ts` is missing and both base and branch show 3 more renderer and 7 more node errors):
   - `typecheck:renderer` 66, `tsc -p tsconfig.node.json` 18, `typecheck:e2e` 6: the same as `6907393`.
   - `test:unit`: 39 files, 340 tests, green (`review-log/log.test.ts` +2, `executors/review.test.ts` 9).

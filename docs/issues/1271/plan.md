@@ -1,6 +1,6 @@
 # #1271: OpenAI chat is slow, because gpt-5 runs at medium reasoning on every tool step
 
-Part of 1.9.1 (epic [#1230](https://github.com/solo-ist/prose/issues/1230)); found in the operator's live A2 test.
+Part of 1.10.0 (epic [#1230](https://github.com/solo-ist/prose/issues/1230)); found in the operator's live A2 test.
 Queued after #1268: branch `issue-1271-openai-reasoning-effort`, cut from #1268's head and merged up to
 `release/v1.9.1` once #1268 lands. It touches `src/main`, so it's gated, and the operator's go covers merging it into
 the release branch.

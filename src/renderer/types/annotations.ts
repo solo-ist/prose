@@ -23,7 +23,7 @@ export interface AIProvenance {
   /** The specific message ID that contained the edit */
   messageId: string
   /**
-   * Who proposed the text (#1232). Missing on rows from before 1.9.1: read it
+   * Who proposed the text (#1232). Missing on rows from before 1.10.0: read it
    * through `actorOfProvenance(model, actor)`.
    */
   actor?: Actor

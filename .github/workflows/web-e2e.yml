@@ -28,7 +28,8 @@ jobs:
         startsWith(github.event.comment.body, '/test') &&
         !contains(github.event.comment.body, '@claude')
       )
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.58.2 cannot install its deps on ubuntu-latest (26.04), #1319
+    runs-on: ubuntu-24.04
     steps:
       - name: Check commenter permissions
         if: github.event_name == 'issue_comment'

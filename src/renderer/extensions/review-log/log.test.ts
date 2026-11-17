@@ -171,7 +171,7 @@ describe('threads', () => {
 })
 
 describe('load', () => {
-  it('a seed loads the stored log, derives no events, and backfills marks from before 1.9.1', () => {
+  it('a seed loads the stored log, derives no events, and backfills marks from before 1.10.0', () => {
     suggest('Alpha sentence', 'old', 'Alpha line', null)
     const stored: StoredReviewLog = {
       suggestions: [{ id: 'gone', type: 'edit', originalText: 'x', suggestedText: 'y', explanation: '', actor: AGENT, createdAt: 1, status: 'accepted', feedback: [] }],
@@ -184,7 +184,7 @@ describe('load', () => {
     editor.view.dispatch(tr)
     expect(log().events).toEqual(stored.events)
     expect(log().nextSeq).toBe(8)
-    // The pre-1.9.1 mark had no row: backfilled as pending, its actor read from the model.
+    // The pre-1.10.0 mark had no row: backfilled as pending, its actor read from the model.
     expect(row('old')).toMatchObject({ status: 'pending', actor: { kind: 'prose-agent', model: 'claude-opus-5-5' } })
     editor.commands.rejectAISuggestion('old')
     expect(log().events.at(-1)).toMatchObject({ seq: 8, kind: 'suggestion:rejected' })

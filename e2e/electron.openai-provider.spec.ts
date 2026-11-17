@@ -80,7 +80,9 @@ test('Settings: OpenAI is a provider; its key tests against /models, saves in ma
   await expect.poll(async () => (await requests()).filter((r) => r.url.endsWith('/models')).length).toBeGreaterThanOrEqual(2)
   await dialog.locator('#model').click()
   const options = page.getByRole('option')
-  await expect(options.filter({ hasText: 'GPT-5 mini' })).toHaveCount(1)
+  await expect(options.filter({ hasText: 'GPT-6 Luna' })).toHaveCount(1)
+  // Older generations are off the list (#1311).
+  await expect(options.filter({ hasText: 'gpt-4.1' })).toHaveCount(0)
   await expect(options.filter({ hasText: 'text-embedding-3-small' })).toHaveCount(0)
   await expect(options.filter({ hasText: 'whisper-1' })).toHaveCount(0)
   // Tab emoji stay Anthropic-only: no Anthropic key, so the switch is off.
@@ -121,7 +123,7 @@ test('a chat turn over OpenAI: it reasons and calls suggest_edit in one turn; th
 
   expect(first.url).toBe('https://api.openai.com/v1/responses')
   expect(first.auth).toBe(`Bearer ${OPENAI_KEY}`)
-  expect(first.body.model).toBe('gpt-5')
+  expect(first.body.model).toBe('gpt-5.5')
   expect(first.body.stream).toBe(true)
   // Stateless: nothing is stored at OpenAI, and the system prompt is not an input item.
   expect(first.body.store).toBe(false)

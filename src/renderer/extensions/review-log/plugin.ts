@@ -46,7 +46,7 @@ export function createReviewLogPlugin(): Plugin<ReviewLogPluginState> {
           now: Date.now(),
         })
         // A seed backfills marks that have no history row (suggestions from
-        // before 1.9.1) as pending, silently.
+        // before 1.10.0) as pending, silently.
         const backfilled = quiet ? backfill(log, marks) : log
         if (backfilled === prev.log && marks === prev.marks) return prev
         return { log: backfilled, marks, revision: backfilled === prev.log ? prev.revision : prev.revision + 1 }

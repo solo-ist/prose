@@ -22,7 +22,8 @@ jobs:
         contains(github.event.comment.body, '/test') &&
         !contains(github.event.comment.body, '@claude')
       )
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.58.2 cannot install its deps on ubuntu-latest (26.04), #1319
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     # The relay spec (e2e/electron.mcp-relay.spec.ts, #1239) runs the real
     # gateway against this Postgres; every other spec ignores it.

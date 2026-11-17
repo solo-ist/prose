@@ -298,6 +298,7 @@ export interface ElectronAPI {
   mcpRemoteUpdate: (clientId: string, change: { scopes?: string[]; label?: string }) => Promise<RemoteResult<RemoteConnection>>
   mcpRemoteDeny: (clientId: string) => Promise<RemoteResult<RemoteForgetResult>>
   mcpRemoteRemove: (clientId: string) => Promise<RemoteResult<RemoteForgetResult>>
+  mcpRemoteAcknowledge: () => Promise<RemoteResult<null>>
   onMcpRemoteChanged: (callback: (change: RemoteChange) => void) => () => void
   // Claude Desktop extension (#1257): builds this profile's .mcpb and opens Claude Desktop's install dialog
   mcpInstallExtension: () => Promise<{ success: boolean; path?: string; error?: string }>
@@ -646,6 +647,7 @@ const api: ElectronAPI = {
   mcpRemoteUpdate: (clientId: string, change: { scopes?: string[]; label?: string }) => ipcRenderer.invoke('mcp:remote:update', clientId, change),
   mcpRemoteDeny: (clientId: string) => ipcRenderer.invoke('mcp:remote:deny', clientId),
   mcpRemoteRemove: (clientId: string) => ipcRenderer.invoke('mcp:remote:remove', clientId),
+  mcpRemoteAcknowledge: () => ipcRenderer.invoke('mcp:remote:acknowledge'),
   onMcpRemoteChanged: (callback: (change: RemoteChange) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, change: RemoteChange): void => {
       callback(change)

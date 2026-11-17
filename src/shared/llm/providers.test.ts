@@ -3,7 +3,7 @@ import { PROVIDERS, PROVIDER_IDS, chatCompletionsTuning, getProvider, isOpenAIRe
 import { getDefaultHaikuModel, getDefaultModel, getModelsForProvider, getSmallModel, isKnownModel, resolveModelName, supportsThinkingToggle } from './models'
 
 describe('provider list (#1240)', () => {
-  it('has Anthropic, keyed under its pre-1.9.1 credential name, and OpenAI with its own key', () => {
+  it('has Anthropic, keyed under its pre-1.10.0 credential name, and OpenAI with its own key', () => {
     expect(PROVIDER_IDS).toEqual(['anthropic', 'openai'])
     expect(PROVIDERS.anthropic.credentialKey).toBe('llm-api-key')
     expect(PROVIDERS.anthropic.transport).toBe('anthropic')
@@ -11,7 +11,10 @@ describe('provider list (#1240)', () => {
     expect(PROVIDERS.openai.credentialKey).not.toBe(PROVIDERS.anthropic.credentialKey)
     expect(PROVIDERS.openai.thinking).toBe(false)
     expect(getModelsForProvider('openai').map((m) => m.id)).toContain(getDefaultModel('openai'))
-    expect(resolveModelName('gpt-5-mini')).toBe('GPT-5 mini')
+    expect(resolveModelName('gpt-6-luna')).toBe('GPT-6 Luna')
+    // The seed holds only what the live filter would keep (#1311).
+    const { include, exclude } = PROVIDERS.openai.liveModels!
+    expect(getModelsForProvider('openai').every((m) => include!.test(m.id) && !exclude!.test(m.id))).toBe(true)
   })
 
   it('the model helpers read the entry', () => {

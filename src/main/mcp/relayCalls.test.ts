@@ -16,11 +16,14 @@ import type { McpAgentActor } from '../../shared/review/actor'
 import type { ToolResult } from '../../shared/tools/types'
 
 const CLIENT = { id: 'https://chatgpt.com/oauth/client.json', name: 'ChatGPT', verified: true }
+/** Verified, but its domain isn't on the trusted list: it waits for approval. */
+const OTHER = { id: 'https://assistant.example.com/client.json', name: 'Example Assistant', verified: true }
 
 let dir: string
 let store: RemoteConnectionStore
 let handler: RelayCallHandler
 let pending: string[]
+let connected: string[]
 const invoked: Array<{ name: string; args: unknown; actor: McpAgentActor }> = []
 
 const RESULTS: Record<string, ToolResult> = {
@@ -36,6 +39,7 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }))
 beforeEach(() => {
   store = new RemoteConnectionStore(join(dir, `${randomUUID()}.json`))
   pending = []
+  connected = []
   invoked.length = 0
   handler = new RelayCallHandler({
     store,
@@ -44,7 +48,8 @@ beforeEach(() => {
       invoked.push({ name, args, actor })
       return RESULTS[name] ?? { success: false, error: `no stub for ${name}` }
     },
-    onPending: (c) => pending.push(c.clientId)
+    onPending: (c) => pending.push(c.clientId),
+    onConnected: (c) => connected.push(c.clientId)
   })
 })
 afterEach(() => handler.close())
@@ -66,28 +71,41 @@ function viaGateway(scopes: string[], client = CLIENT): typeof fetch {
   }
 }
 
-async function connect(scopes: string[], pin?: string): Promise<Client> {
+async function connect(scopes: string[], pin?: string, as = CLIENT): Promise<Client> {
   const client = new Client({ name: 'relay-test', version: '1.0.0' }, pin ? { versionNegotiation: { mode: { pin } } } : {})
-  await client.connect(new StreamableHTTPClientTransport(new URL('https://gateway.test/mcp'), { fetch: viaGateway(scopes) }))
+  await client.connect(new StreamableHTTPClientTransport(new URL('https://gateway.test/mcp'), { fetch: viaGateway(scopes, as) }))
   return client
 }
 
-function frame(method: string, params?: Record<string, unknown>, scopes = ['read', 'comment']): RelayCallFrame {
-  return parseCallFrame({ type: 'call', id: randomUUID(), client: CLIENT, scopes, method, params, headers: { 'MCP-Protocol-Version': '2025-11-25' } })!
+function frame(method: string, params?: Record<string, unknown>, scopes = ['read', 'comment'], client = CLIENT): RelayCallFrame {
+  return parseCallFrame({ type: 'call', id: randomUUID(), client, scopes, method, params, headers: { 'MCP-Protocol-Version': '2025-11-25' } })!
 }
 
 describe('a client the writer has not approved', () => {
   it('is recorded as pending and refused, and runs nothing', async () => {
-    const answer = await handler.handle(frame('tools/call', { name: 'read_document', arguments: {} }))
+    const answer = await handler.handle(frame('tools/call', { name: 'read_document', arguments: {} }, undefined, OTHER))
     expect(answer).toEqual({
-      error: { code: RELAY_CALL_ERROR.NOT_APPROVED, message: 'Approve ChatGPT in Prose → Settings → Integrations → Connections, then try again.' }
+      error: {
+        code: RELAY_CALL_ERROR.NOT_APPROVED,
+        message: 'Approve Example Assistant in Prose → Settings → Integrations → Connections, then try again.'
+      }
     })
-    expect(store.get(CLIENT.id)).toMatchObject({ status: 'pending', clientName: 'ChatGPT', verified: true })
-    expect(pending).toEqual([CLIENT.id])
+    expect(store.get(OTHER.id)).toMatchObject({ status: 'pending', clientName: 'Example Assistant', verified: true })
+    expect(pending).toEqual([OTHER.id])
     // Asking again doesn't record it twice.
-    await handler.handle(frame('tools/list'))
-    expect(pending).toEqual([CLIENT.id])
+    await handler.handle(frame('tools/list', undefined, undefined, OTHER))
+    expect(pending).toEqual([OTHER.id])
+    expect(connected).toEqual([])
     expect(invoked).toEqual([])
+  })
+
+  it('waits for approval when it only claims a trusted name or domain', async () => {
+    // Self-registered (DCR): no proven domain, whatever it calls itself.
+    const impostor = { id: 'https://chatgpt.com/oauth/client.json', name: 'ChatGPT', verified: false }
+    const answer = await handler.handle(frame('tools/list', undefined, undefined, impostor))
+    expect(answer).toMatchObject({ error: { code: RELAY_CALL_ERROR.NOT_APPROVED } })
+    expect(store.get(impostor.id)).toMatchObject({ status: 'pending', verified: false })
+    expect(connected).toEqual([])
   })
 
   it('stays refused once declined', async () => {
@@ -95,6 +113,58 @@ describe('a client the writer has not approved', () => {
     store.deny(CLIENT.id)
     const answer = await handler.handle(frame('tools/list'))
     expect(answer).toMatchObject({ error: { code: RELAY_CALL_ERROR.DECLINED } })
+  })
+})
+
+describe.each([
+  ['2025-era (initialize)', undefined],
+  ['2026-07-28', '2026-07-28']
+])('a trusted client (#1304), %s', (_label, pin) => {
+  it('connects on its first call with what its token carries, and the writer is told once', async () => {
+    const client = await connect(['read', 'comment', 'offline_access'], pin)
+    try {
+      const names = (await client.listTools()).tools.map((t) => t.name)
+      expect(names).toContain('read_document')
+      expect(names).toContain('add_comment')
+      // Not granted on the consent page, so not given here.
+      expect(names).not.toContain('suggest_edit')
+      expect(names).not.toContain('open_file')
+
+      const read = await client.callTool({ name: 'read_document', arguments: {} })
+      expect(read.isError).toBeFalsy()
+    } finally {
+      await client.close()
+    }
+    expect(store.get(CLIENT.id)).toMatchObject({
+      status: 'approved',
+      label: 'ChatGPT',
+      scopes: ['read', 'comment'],
+      approvedAt: expect.any(Number),
+      reviewedAt: null
+    })
+    expect(connected).toEqual([CLIENT.id])
+    expect(pending).toEqual([])
+    expect(invoked.at(-1)?.actor).toMatchObject({ connectionLabel: 'ChatGPT', client: 'ChatGPT', via: 'relay' })
+  })
+})
+
+describe('a trusted client the writer has acted on', () => {
+  it('keeps the writer’s narrower permissions when it connects again with more', async () => {
+    await handler.handle(frame('tools/list', undefined, ['read', 'propose', 'comment']))
+    store.update(CLIENT.id, { scopes: [] })
+    const answer = await handler.handle(frame('tools/call', { name: 'add_comment', arguments: { nodeId: 'n1', comment: 'Hi' } }, ['read', 'propose', 'comment']))
+    expect(store.get(CLIENT.id)?.scopes).toEqual(['read'])
+    expect(invoked).toEqual([])
+    expect(JSON.stringify(answer)).not.toContain('"id":"c1"')
+    expect(connected).toEqual([CLIENT.id])
+  })
+
+  it('stays refused once declined', async () => {
+    await handler.handle(frame('tools/list'))
+    store.deny(CLIENT.id)
+    const answer = await handler.handle(frame('tools/list'))
+    expect(answer).toMatchObject({ error: { code: RELAY_CALL_ERROR.DECLINED } })
+    expect(connected).toEqual([CLIENT.id])
   })
 })
 

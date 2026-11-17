@@ -23,6 +23,12 @@ export interface RemoteConnection {
   firstSeenAt: number
   approvedAt: number | null
   lastUsedAt: number | null
+  /**
+   * When the writer first saw this connection in Settings, or approved it
+   * there. Null while a trusted client that connected without approval
+   * (#1304) hasn't been looked at yet: it stays counted until then.
+   */
+  reviewedAt: number | null
 }
 
 export type RelayState =
@@ -50,11 +56,18 @@ export interface RemoteAccessStatus {
   receiving?: boolean
   /** Remote clients waiting for the writer to approve or decline them. */
   pendingCount: number
+  /** Trusted clients that connected without approval and the writer hasn't looked at yet (#1304). */
+  unreviewedCount: number
   /** What to paste into ChatGPT or claude.ai. */
   connectorUrl: string
 }
 
-export type RemoteChange = { reason: 'status' } | { reason: 'list' } | { reason: 'pending'; clientName: string }
+export type RemoteChange =
+  | { reason: 'status' }
+  | { reason: 'list' }
+  | { reason: 'pending'; clientName: string }
+  /** A trusted client connected without approval (#1304); `host` is its proven domain. */
+  | { reason: 'connected'; clientName: string; host: string; scopes: RemoteScope[] }
 
 export type RemoteResult<T> = { ok: true; value: T } | { ok: false; error: string }
 

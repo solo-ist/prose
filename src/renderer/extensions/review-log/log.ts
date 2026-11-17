@@ -47,7 +47,7 @@ export interface SuggestionHistory {
    * The node the suggestion was on when the log first saw it (#1266), so a
    * rejected suggestion, which has no mark, can still be revised in place.
    * Node ids are regenerated when a document is reopened: a stale one is a
-   * hint, not an address. Absent on rows from before 1.9.1.
+   * hint, not an address. Absent on rows from before 1.10.0.
    */
   nodeId?: string
   /** A tracked change (#891): text marks in the document, not a node-level suggestion. */

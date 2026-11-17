@@ -565,6 +565,10 @@ export function Editor() {
       // F1: Show keyboard shortcuts
       e.preventDefault()
       setShortcutsDialogOpen(true)
+    } else if (isMod && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'm') {
+      // Cmd+Shift+M: Switch model (#1316)
+      e.preventDefault()
+      setModelPickerOpen(true)
     } else if (e.shiftKey && e.key === 'Tab' && !isMod) {
       // Shift+Tab: Cycle through tool modes (chat → editor → create → chat).
       // Editor must be reachable via keyboard — it's the new safe-by-default

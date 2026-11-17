@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { dismissOnboarding, dismissOverlay, launchApp, openChat, seedSettings, typeInEditor, waitForAppReady, waitForEditor } from './helpers'
 import { sseChunk, type OpenAIStep } from './openai-stub'
-import { COOP_GATEWAY, coopRequests, stubCoop } from './coop-stub'
+import { COOP_GATEWAY, coopEmojiRequests, coopRequests, stubCoop } from './coop-stub'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -106,6 +106,18 @@ test('Settings: the co-op key tests against the gateway, saves in main, and the 
   await expect(shown).toContainText('4 of 4 shown')
   await dialog.locator('#model').click()
   await expect(options.filter({ hasText: 'GreenPT GLM 5.3 Flash' })).toHaveCount(1)
+  await page.keyboard.press('Escape')
+
+  // Tab emoji come from the provider in use (#1324): the switch is on offer, and
+  // the request goes to the gateway with the co-op key, to its small model, thinking off.
+  await expect(dialog.locator('#emojiIcons')).toBeEnabled()
+  const made = await page.evaluate(() => (window as any).api.emojiGenerate('River notes', undefined, 'inference-coop'))
+  expect(made).toEqual({ emoji: '🌊' })
+  const emoji = (await coopEmojiRequests(app)).at(-1)!
+  expect(emoji.url).toBe(`${COOP_GATEWAY}/chat/completions`)
+  expect(emoji.auth).toBe(`Bearer ${COOP_KEY}`)
+  expect(emoji.body.model).toBe('greenpt/deepseek-v4.1-flash')
+  expect(emoji.body.reasoning_effort).toBe('none')
 })
 
 test('a chat turn over the co-op: thinking off on every step, and a tool call streamed without an id still pairs with its result', async () => {

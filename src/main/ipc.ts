@@ -10,6 +10,7 @@ import { classifyLlmError, llmErrorMessage, type LlmErrorKind } from '../shared/
 import { droppedThinking, withThinkingBinding } from './thinkingBinding'
 import { getDefaultModel, getSmallModel, supportsAdaptiveThinking, getThinkingOffMode } from '../shared/llm/models'
 import { chatCompletionsTuning, getProvider, isProvider, type ProviderInfo } from '../shared/llm/providers'
+import { firstEmoji } from '../shared/llm/emoji'
 import { buildChatBody, listChatModels, probeChatQuota, streamChatCompletion } from './chatCompletions'
 import { probeResponsesQuota, streamResponse, type ResponsesRequest } from './responses'
 import { getSettingsDir, LEGACY_SETTINGS_DIR, normalizePath, resolveWithin, resolveToolPath, IMAGE_EXTENSIONS } from './paths'
@@ -1174,7 +1175,8 @@ export function setupIpcHandlers(): void {
   })
 
   // LLM: Chat completion (runs in main process to avoid CORS)
-  ipcMain.handle('llm:chat', async (_event, request: LLMRequest) => {
+  // Also the path for tab emoji (#1324), so every transport answers them.
+  const completeChat = async (request: LLMRequest): Promise<{ content: string }> => {
     if (!isProvider(request.provider)) throw new Error(`Unknown provider: ${request.provider}`)
     const apiKey = await resolveProviderKey(request.provider)
     if (!apiKey) throw new Error('No API key configured. Add one in Settings.')
@@ -1269,7 +1271,8 @@ export function setupIpcHandlers(): void {
       }
       throw error
     }
-  })
+  }
+  ipcMain.handle('llm:chat', (_event, request: LLMRequest) => completeChat(request))
 
   // LLM: Streaming chat completion (with optional tool support)
   ipcMain.handle('llm:stream', async (event, request: LLMStreamRequest) => {
@@ -1888,39 +1891,28 @@ export function setupIpcHandlers(): void {
     }
   )
 
-  // Emoji: Generate emoji for a tab title (runs in main process to avoid CORS)
-  ipcMain.handle('emoji:generate', async (_event, title: string, contentPreview?: string): Promise<{ emoji: string | null; error?: string }> => {
+  // Emoji: one emoji for a tab, on any provider (#1324). The renderer names
+  // the provider in use; main reads its key (#1240) and always asks that
+  // provider's small model, never the one chat uses: the task is trivial.
+  ipcMain.handle('emoji:generate', async (_event, title: string, contentPreview: string | undefined, provider: string): Promise<{ emoji: string | null; error?: string }> => {
     try {
-      // Tab emoji are Anthropic-only (Claude Haiku), whichever provider chat
-      // uses: the Anthropic key, read in main (#1240). Settings enables the
-      // switch only when that key is saved and says so (#1241).
-      const provider = getProvider('anthropic')
-      const apiKey = await resolveProviderKey(provider.id)
-
-      if (!apiKey) {
+      if (!isProvider(provider)) {
+        return { emoji: null, error: 'unknown-provider' }
+      }
+      if (!(await resolveProviderKey(provider))) {
         return { emoji: null, error: 'no-api-key' }
       }
 
-      const Anthropic = (await import('@anthropic-ai/sdk')).default
-      const client = new Anthropic({ apiKey })
-
       // Build prompt with optional content preview for better context
-      let prompt = title
-      if (contentPreview) {
-        prompt = `Title: ${title}\nContent preview: ${contentPreview}`
-      }
-
-      const response = await client.messages.create({
-        model: provider.smallModel,
-        max_tokens: 10,
+      const prompt = contentPreview ? `Title: ${title}\nContent preview: ${contentPreview}` : title
+      const { content } = await completeChat({
+        provider,
+        model: getProvider(provider).smallModel,
         system: 'Respond with exactly ONE emoji that represents the document. Nothing else — no text, no explanation, just the emoji.',
         messages: [{ role: 'user', content: prompt }]
       })
 
-      const text = response.content[0]?.type === 'text' ? response.content[0].text.trim() : ''
-      const emojiMatch = text.match(/\p{Emoji_Presentation}/u)
-
-      return { emoji: emojiMatch ? emojiMatch[0] : null }
+      return { emoji: firstEmoji(content) }
     } catch (err) {
       console.error('[emoji:generate] Error:', err)
       return { emoji: null, error: err instanceof Error ? err.message : 'Unknown error' }

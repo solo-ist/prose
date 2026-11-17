@@ -41,7 +41,7 @@ import { PROVIDERS, PROVIDER_IDS } from '../../../shared/llm/providers'
 import { ProviderKeys, draftFormatError, type KeyDrafts } from './ProviderKeys'
 import { ModelPreferences } from './ModelPreferences'
 import { useModelGroups } from '../../hooks/useModelGroups'
-import { addKeyLabel, availableModelsFor, validateUrl } from '../../lib/llm'
+import { addKeyLabel, availableModelsFor, hasProviderKey, validateUrl } from '../../lib/llm'
 
 /** Extract the primary font name from a CSS font-family stack */
 function extractPrimaryFont(fontFamily: string): string {
@@ -695,14 +695,14 @@ export function SettingsDialog() {
               <div className="space-y-0.5">
                 <Label htmlFor="emojiIcons">Emoji Tab Icons</Label>
                 <p className="text-xs text-muted-foreground">
-                  Show AI-generated emoji icons on all tabs. Uses your Anthropic key (Claude Haiku), whichever provider chat uses.
+                  Show AI-generated emoji icons on all tabs. Each one is a short request to your provider's small model, whichever model chat uses.
                 </p>
               </div>
               <Switch
                 id="emojiIcons"
                 checked={settings.llm.emojiIcons ?? false}
                 onCheckedChange={(checked) => setLLMConfig({ emojiIcons: checked })}
-                disabled={!settings.llm.keyStatus?.anthropic}
+                disabled={!hasProviderKey(settings.llm)}
               />
             </div>
             </div>{/* end AI features wrapper */}

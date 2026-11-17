@@ -8,7 +8,10 @@
  * OpenAI speaks since #1301, or `/chat/completions`) takes the next scripted
  * step: a list of SSE payloads sent as separate body chunks, or an HTTP error.
  * A non-streamed request (the key test's credits probe, #1268) takes `probe`
- * instead (a plain 200 by default) and consumes no step.
+ * instead (a plain 200 by default) and consumes no step. A tab-emoji request
+ * (#1324) is answered with one emoji and kept apart (`openAIEmojiRequests`):
+ * it takes no step and isn't among the recorded requests, so tabs opening
+ * during a case don't disturb its script.
  */
 import type { ElectronApplication } from '@playwright/test'
 
@@ -82,7 +85,7 @@ export async function stubOpenAI(
 ): Promise<void> {
   await app.evaluate((_electron, { steps, models, probe }) => {
     const g = globalThis as any
-    g.__oai = { requests: [] as unknown[], steps, n: 0 }
+    g.__oai = { requests: [] as unknown[], emoji: [] as unknown[], steps, n: 0 }
     const json = (status: number, body: unknown) =>
       new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
     const realFetch = g.__realFetch ?? globalThis.fetch
@@ -91,6 +94,13 @@ export async function stubOpenAI(
       const url = typeof input === 'string' ? input : input.url
       if (!url.startsWith('https://api.openai.com/')) return realFetch(input, init)
       const headers = new Headers(init?.headers)
+      if (typeof init?.body === 'string' && init.body.includes('exactly ONE emoji')) {
+        g.__oai.emoji.push({ url, auth: headers.get('authorization'), body: JSON.parse(init.body) })
+        const delta = { type: 'response.output_text.delta', output_index: 0, content_index: 0, item_id: 'msg_e', delta: '📝' }
+        const done = { type: 'response.completed', response: { status: 'completed', output: [] } }
+        const sse = [delta, done].map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('')
+        return new Response(sse, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+      }
       g.__oai.requests.push({ url, auth: headers.get('authorization'), body: init?.body ? JSON.parse(init.body) : null })
       if (url.endsWith('/models')) {
         const data = models.map((id: string) => ({ id, object: 'model' }))
@@ -117,3 +127,7 @@ export async function stubOpenAI(
 
 export const openAIRequests = (app: ElectronApplication): Promise<OpenAIRequest[]> =>
   app.evaluate(() => (globalThis as any).__oai.requests as OpenAIRequest[])
+
+/** The tab-emoji requests (#1324), which the stub answers apart from the script. */
+export const openAIEmojiRequests = (app: ElectronApplication): Promise<OpenAIRequest[]> =>
+  app.evaluate(() => (globalThis as any).__oai.emoji as OpenAIRequest[])

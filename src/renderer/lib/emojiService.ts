@@ -1,4 +1,6 @@
 import { getApi } from './browserApi'
+import { isAIConfigured } from './llm'
+import { useSettingsStore } from '../stores/settingsStore'
 import {
   saveEmojiCache,
   loadEmojiCache,
@@ -93,13 +95,17 @@ export async function generateEmoji(tab: { id: string; path: string | null; titl
     // Ignore DB errors, proceed to API
   }
 
-  // 4. Make API call via IPC (main process handles provider/key checks)
+  // 4. Ask the provider in use; main picks its small model (#1324). An
+  // auto-fired call: without consent or a key it does nothing, nothing cached.
+  const { settings } = useSettingsStore.getState()
+  if (!isAIConfigured(settings)) return FALLBACK_EMOJI
+  const { provider } = settings.llm
   const title = getPromptTitle(tab)
   const contentPreview = getContentPreview(tab)
   const promise = (async (): Promise<string | null> => {
     await acquireConcurrencySlot()
     try {
-      const result = await getApi().emojiGenerate(title, contentPreview)
+      const result = await getApi().emojiGenerate(title, contentPreview, provider)
 
       if (result.emoji) {
         memoryCache.set(key, result.emoji)

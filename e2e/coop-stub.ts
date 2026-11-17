@@ -5,7 +5,8 @@
  * https://gateway.inference.coop/ only, each request is recorded, `/models`
  * answers with `models`, and each streamed `/chat/completions` request takes
  * the next step: SSE chunks, or a JSON error. A request that isn't streamed is
- * the key test's credits probe.
+ * the key test's credits probe. A tab-emoji request (#1324) is answered with
+ * one emoji and kept apart (`coopEmojiRequests`), taking no step.
  */
 import type { ElectronApplication } from '@playwright/test'
 import type { OpenAIRequest, OpenAIStep } from './openai-stub'
@@ -31,7 +32,7 @@ export async function stubCoop(
 ): Promise<void> {
   await app.evaluate((_electron, { steps, models, probe }) => {
     const g = globalThis as any
-    g.__coop = { requests: [] as unknown[], steps, n: 0 }
+    g.__coop = { requests: [] as unknown[], emoji: [] as unknown[], steps, n: 0 }
     const json = (status: number, body: unknown) =>
       new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
     const previous = globalThis.fetch
@@ -40,6 +41,13 @@ export async function stubCoop(
       if (!url.startsWith('https://gateway.inference.coop/')) return previous(input, init)
       const headers = new Headers(init?.headers)
       const request = init?.body ? JSON.parse(init.body) : null
+      if (typeof init?.body === 'string' && init.body.includes('exactly ONE emoji')) {
+        g.__coop.emoji.push({ url, auth: headers.get('authorization'), body: request })
+        const chunk = (delta: unknown, finish: string | null) =>
+          `data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`
+        const sse = chunk({ content: '🌊' }, null) + chunk({}, 'stop') + 'data: [DONE]\n\n'
+        return new Response(sse, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+      }
       g.__coop.requests.push({ url, auth: headers.get('authorization'), body: request })
       if (url.endsWith('/models')) return json(200, { object: 'list', data: models.map((id: string) => ({ id, object: 'model' })) })
       if (request?.stream !== true) {
@@ -62,3 +70,7 @@ export async function stubCoop(
 
 export const coopRequests = (app: ElectronApplication): Promise<OpenAIRequest[]> =>
   app.evaluate(() => (globalThis as any).__coop.requests as OpenAIRequest[])
+
+/** The tab-emoji requests (#1324), which the stub answers apart from the script. */
+export const coopEmojiRequests = (app: ElectronApplication): Promise<OpenAIRequest[]> =>
+  app.evaluate(() => (globalThis as any).__coop.emoji as OpenAIRequest[])

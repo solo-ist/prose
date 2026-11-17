@@ -1,4 +1,4 @@
-import type { ToolResult } from '../../shared/tools/types'
+import type { ToolMode, ToolResult } from '../../shared/tools/types'
 import type { FileAccessOptions } from '../../shared/fileAccess'
 import type { LlmErrorKind } from '../../shared/llm/errors'
 import type { LLMKeyStatusMap, LLMProvider } from '../../shared/llm/providers'
@@ -72,6 +72,14 @@ interface SettingsBase {
     keyStatus?: LLMKeyStatusMap
     /** The model last used with each provider, restored when the writer switches back to it. */
     modelByProvider?: Partial<Record<LLMProvider, string>>
+    /**
+     * The models the pickers show for a provider, once the writer has changed
+     * the set in Settings → LLM (#1322). Absent for a provider: its built-in
+     * `featuredModels` apply, so a later release can change them.
+     */
+    shownModels?: Partial<Record<LLMProvider, string[]>>
+    /** The model a mode switches to when the writer enters it (#1322). Absent: the model in use stays. */
+    modeModels?: Partial<Record<ToolMode, { provider: LLMProvider; model: string }>>
     baseUrl?: string
     emojiIcons?: boolean
   }

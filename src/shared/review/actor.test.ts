@@ -70,8 +70,11 @@ describe('actorLabel', () => {
   })
   it('names a Prose Agent by its model', () => {
     expect(actorLabel({ kind: 'prose-agent', provider: 'anthropic', model: 'claude-sonnet-5-5' })).toBe('Prose · Sonnet 5.5')
-    expect(actorLabel({ kind: 'prose-agent', provider: 'openai', model: 'gpt-5-mini' })).toBe('Prose · GPT-5 mini')
-    expect(actorLabel({ kind: 'prose-agent', provider: 'inference-coop', model: 'tinfoil/glm-5.3' })).toBe('Prose · tinfoil/glm-5.3')
+    expect(actorLabel({ kind: 'prose-agent', provider: 'openai', model: 'gpt-5-mini' })).toBe('Prose · GPT 5 Mini')
+    expect(actorLabel({ kind: 'prose-agent', provider: 'openai', model: 'gpt-6.1-terra' })).toBe('Prose · Terra 6.1')
+    expect(actorLabel({ kind: 'prose-agent', provider: 'inference-coop', model: 'tinfoil/glm-5.3' })).toBe('Prose · GLM 5.3')
+    // A record from before 1.10.0 holds the display name, not the id.
+    expect(actorLabel({ kind: 'prose-agent', provider: 'anthropic', model: 'Claude Sonnet 4.6' })).toBe('Prose · Sonnet 4.6')
     expect(actorLabel({ kind: 'prose-agent', provider: 'openai', model: '' })).toBe('Prose · OpenAI')
   })
   it('names an MCP agent by its connection, with the self-reported client beside it', () => {
@@ -101,15 +104,15 @@ describe('helpers', () => {
     expect(cleanActorText('z'.repeat(150))).toHaveLength(100)
     expect(cleanActorText(undefined)).toBe('')
   })
-  it('shortModelName compacts Claude and OpenAI GPT ids and leaves others as given', () => {
-    expect(shortModelName('claude-opus-5-5')).toBe('Opus 5.5')
-    expect(shortModelName('claude-haiku-4-5-20251001')).toBe('Haiku 4.5')
-    expect(shortModelName('gpt-5.1')).toBe('GPT-5.1')
-    expect(shortModelName('gpt-5-mini')).toBe('GPT-5 mini')
-    expect(shortModelName('gpt-5-mini-2025-08-07')).toBe('GPT-5 mini')
-    expect(shortModelName('gpt-4o-mini')).toBe('GPT-4o mini')
-    expect(shortModelName('o4-mini')).toBe('o4-mini')
-    expect(shortModelName('tinfoil/glm-5.3')).toBe('tinfoil/glm-5.3')
+  it("shortModelName is the naming scheme's short name; an id no rule knows is left as given", () => {
+    expect(shortModelName('anthropic', 'claude-opus-5-5')).toBe('Opus 5.5')
+    expect(shortModelName('anthropic', 'claude-haiku-4-5-20251001')).toBe('Haiku 4.5')
+    expect(shortModelName('openai', 'gpt-5.1')).toBe('GPT 5.1')
+    expect(shortModelName('openai', 'gpt-5-mini-2025-08-07')).toBe('GPT 5 Mini')
+    expect(shortModelName('openai', 'gpt-4o-mini')).toBe('gpt-4o-mini')
+    expect(shortModelName('openai', 'o4-mini')).toBe('o4-mini')
+    expect(shortModelName('inference-coop', 'greenpt/deepseek-v4.1-flash')).toBe('DeepSeek 4.1')
+    expect(shortModelName('openai', '')).toBe('')
   })
   it('people are not agents; everything else is', () => {
     expect(isAgentActor(SELF)).toBe(false)

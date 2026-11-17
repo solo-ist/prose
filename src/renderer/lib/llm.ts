@@ -1,6 +1,7 @@
 import type { Settings } from '../types'
 import { getModelsForProvider, isKnownModel, type LLMProvider as LLMProviderType } from '../../shared/llm/models'
 import { getProvider, PROVIDER_IDS, type ModelInfo } from '../../shared/llm/providers'
+import { modelNames } from '../../shared/llm/modelNames'
 
 export interface LLMMessage {
   role: 'user' | 'assistant' | 'system'
@@ -46,10 +47,43 @@ export function validateApiKeyFormat(provider: LLMProviderType, apiKey: string):
 /** Each provider's live model list, as the settings store caches it (#1287). */
 export type LiveModels = Partial<Record<LLMProviderType, ModelInfo[]>>
 
-/** The models to offer for `provider`: its live list once fetched, else its seed. */
+/**
+ * Every model `provider` offers: its live list once fetched, else its seed,
+ * each named by the one scheme (`modelNames`, #1322): `name` for menus,
+ * `shortName` for the status bar.
+ */
 export function availableModelsFor(provider: LLMProviderType, live: LiveModels): ModelInfo[] {
   const fetched = live[provider]
-  return fetched && fetched.length > 0 ? fetched : getModelsForProvider(provider)
+  const models = fetched && fetched.length > 0 ? fetched : getModelsForProvider(provider)
+  return models.map((m) => {
+    const names = modelNames(provider, m.id, m.name)
+    return { ...m, name: names.long, shortName: names.short }
+  })
+}
+
+/** What the pickers need of the LLM settings: the model in use and the writer's shown sets. */
+export type ModelChoice = Pick<Settings['llm'], 'provider' | 'model' | 'shownModels'>
+
+/** The ids the pickers show for `provider`: the writer's set, else the provider's flagships (#1322). */
+export function shownModelIds(provider: LLMProviderType, llm: Pick<ModelChoice, 'shownModels'>): string[] {
+  return llm.shownModels?.[provider] ?? getProvider(provider).featuredModels
+}
+
+/**
+ * The models a picker lists for `provider` (#1322): the shown set, in its
+ * order, out of what the provider offers. The model in use is always listed,
+ * and a set that matches nothing on offer (a stale default, everything
+ * unchecked) lists every model rather than none.
+ */
+export function pickerModelsFor(provider: LLMProviderType, live: LiveModels, llm: ModelChoice): ModelInfo[] {
+  const all = availableModelsFor(provider, live)
+  const shown = shownModelIds(provider, llm)
+  const listed = all
+    .filter((m) => shown.includes(m.id))
+    .sort((a, b) => shown.indexOf(a.id) - shown.indexOf(b.id))
+  if (listed.length === 0) return all
+  const inUse = provider === llm.provider ? all.find((m) => m.id === llm.model) : undefined
+  return inUse && !listed.includes(inUse) ? [...listed, inUse] : listed
 }
 
 /** One provider's section of a model picker (#1287). */
@@ -58,7 +92,10 @@ export interface ModelGroup {
   label: string
   /** Whether main holds a key for it. Without one the group lists no models; pickers show an "Add a key" row. */
   hasKey: boolean
+  /** What the pickers list: the shown set (#1322). */
   models: ModelInfo[]
+  /** Everything the provider offers, for Settings → LLM, where the shown set is chosen. */
+  allModels: ModelInfo[]
 }
 
 /**
@@ -67,10 +104,16 @@ export interface ModelGroup {
  * so a model from any provider with a key is one pick away, and a provider
  * without one offers nothing that would fail.
  */
-export function modelGroups(keyStatus: Settings['llm']['keyStatus'], live: LiveModels): ModelGroup[] {
+export function modelGroups(llm: ModelChoice & Pick<Settings['llm'], 'keyStatus'>, live: LiveModels): ModelGroup[] {
   return PROVIDER_IDS.map((provider) => {
-    const hasKey = !!keyStatus?.[provider]
-    return { provider, label: getProvider(provider).label, hasKey, models: hasKey ? availableModelsFor(provider, live) : [] }
+    const hasKey = !!llm.keyStatus?.[provider]
+    return {
+      provider,
+      label: getProvider(provider).label,
+      hasKey,
+      models: hasKey ? pickerModelsFor(provider, live, llm) : [],
+      allModels: hasKey ? availableModelsFor(provider, live) : [],
+    }
   })
 }
 

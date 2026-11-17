@@ -3,9 +3,10 @@ import { subscribeWithSelector } from 'zustand/middleware'
 import type { Appearance, AppearanceOnDisk, ColorTheme, Favorite, LegacyTheme, Project, Settings, SettingsOnDisk } from '../types'
 import { initRendererSentry, setRendererSentryEnabled } from '../lib/sentry'
 import { getDefaultModel } from '../../shared/llm/models'
-import { PROVIDER_IDS, type LLMKeyStatusMap, type LLMProvider } from '../../shared/llm/providers'
+import { PROVIDER_IDS, isProvider, type LLMKeyStatusMap, type LLMProvider } from '../../shared/llm/providers'
 import { hasProviderKey, type LiveModels } from '../lib/llm'
 import type { ToolMode } from '../../shared/tools/types'
+import { lastToolMode, onToolModeChange } from './toolModeBridge'
 
 const MAX_RECENT_FILES = 15
 
@@ -17,6 +18,12 @@ let saveQueue: Promise<void> = Promise.resolve()
 
 /** The providers whose live model list is being fetched; see `fetchModels`. */
 const fetchingModelsFor = new Set<LLMProvider>()
+
+/**
+ * True while `loadSettings` restores the saved mode at launch: that is not the
+ * writer entering a mode, so it leaves the saved model alone (#1322).
+ */
+let restoringToolMode = false
 
 type SettingsTab = 'general' | 'appearance' | 'editor' | 'llm' | 'integrations' | 'account'
 
@@ -134,6 +141,22 @@ interface SettingsState {
    * its default). Keys are untouched: each provider keeps its own.
    */
   setActiveProvider: (provider: LLMProvider) => void
+  /**
+   * Show `models` in the pickers for `provider` (#1322), or go back to its
+   * built-in flagships with `null`. Saved with the dialog's Save Changes.
+   */
+  setShownModels: (provider: LLMProvider, models: string[] | null) => void
+  /**
+   * The model `mode` switches to when the writer enters it (#1322), or `null`
+   * for none. Set for the mode the writer is in, it takes effect at once.
+   * Saved with the dialog's Save Changes.
+   */
+  setModeModel: (mode: ToolMode, choice: { provider: LLMProvider; model: string } | null) => void
+  /**
+   * The writer entered `mode`: use its default model, if it has one and that
+   * model's provider has a key (#1322). Called on every mode change.
+   */
+  applyModeModel: (mode: ToolMode) => void
   /**
    * Hand a provider's key to main, which stores it (#1240). The store keeps
    * only the status main answers with. While the provider in use has no key,
@@ -390,7 +413,12 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
         // The persisted value takes priority; fall back to the store's in-memory default.
         const persistedToolMode = migrated.toolMode ?? defaultSettings.toolMode ?? 'editor'
         const { useChatStore } = await import('./chatStore')
-        useChatStore.getState().setToolMode(persistedToolMode)
+        restoringToolMode = true
+        try {
+          useChatStore.getState().setToolMode(persistedToolMode)
+        } finally {
+          restoringToolMode = false
+        }
 
         // Initialize Sentry if user has opted in
         initRendererSentry(raw?.errorTracking?.enabled === true)
@@ -479,6 +507,34 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
     const llm = get().settings.llm
     if (provider === llm.provider) return
     get().selectModel(provider, llm.modelByProvider?.[provider] ?? getDefaultModel(provider))
+  },
+
+  setShownModels: (provider, models) => {
+    const shownModels = { ...(get().settings.llm.shownModels ?? {}) }
+    if (models) shownModels[provider] = models
+    else delete shownModels[provider]
+    get().setLLMConfig({ shownModels })
+  },
+
+  setModeModel: (mode, choice) => {
+    const modeModels = { ...(get().settings.llm.modeModels ?? {}) }
+    if (choice) modeModels[mode] = choice
+    else delete modeModels[mode]
+    get().setLLMConfig({ modeModels })
+    const current = lastToolMode() ?? get().settings.toolMode ?? 'editor'
+    if (choice && mode === current && hasProviderKey(get().settings.llm, choice.provider)) {
+      get().selectModel(choice.provider, choice.model)
+    }
+  },
+
+  applyModeModel: (mode) => {
+    const llm = get().settings.llm
+    const choice = llm.modeModels?.[mode]
+    // A default whose provider lost its key (or isn't one this build knows) is skipped, not an error.
+    if (!choice || !isProvider(choice.provider) || !hasProviderKey(llm, choice.provider)) return
+    if (choice.provider === llm.provider && choice.model === llm.model) return
+    get().selectModel(choice.provider, choice.model)
+    void get().saveSettings()
   },
 
   setAppearance: (patch) => {
@@ -831,3 +887,8 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
     get().saveSettings()
   }
 })))
+
+// Entering a mode switches to its default model (#1322); see `applyModeModel`.
+onToolModeChange((mode) => {
+  if (!restoringToolMode) useSettingsStore.getState().applyModeModel(mode)
+})

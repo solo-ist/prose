@@ -33,6 +33,7 @@ import { useModelGroups } from '../../hooks/useModelGroups'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { addKeyLabel, availableModelsFor } from '../../lib/llm'
 import { getProvider, type LLMProvider } from '../../../shared/llm/providers'
+import { modelNames } from '../../../shared/llm/modelNames'
 
 const TRACKED_DISPLAY_LABELS: Record<TrackedDisplay, string> = {
   all: 'All changes',
@@ -169,8 +170,9 @@ export function StatusBar() {
   const liveModels = useSettingsStore((s) => s.liveModels)
   const selectModel = useSettingsStore((s) => s.selectModel)
   const currentModel = availableModelsFor(settings.llm.provider, liveModels).find(m => m.id === settings.llm.model)
-  // Compact display for the status bar — drop the "Claude " prefix (e.g. "Sonnet 4.6").
-  const modelDisplayName = (currentModel?.name || settings.llm.model.split('/').pop() || settings.llm.model).replace(/^Claude\s+/, '')
+  // The status bar shows the short name ("Sonnet 5.5"); menus and the tooltip the long one (#1322).
+  const currentModelNames = modelNames(settings.llm.provider, settings.llm.model, currentModel?.name)
+  const modelDisplayName = currentModelNames.short
   // The extended-thinking toggle sits next to the model selector and only shows
   // for models that think: Claude's adaptive thinking, or an OpenAI reasoning
   // model (hidden for e.g. Haiku 4.5 and GPT-4.1).
@@ -374,7 +376,8 @@ export function StatusBar() {
                   </DropdownMenuTrigger>
                 </TooltipTrigger>
                 <TooltipContent side="top">
-                  <p>{getProvider(settings.llm.provider).label} / {settings.llm.model}</p>
+                  <p>{currentModelNames.long}</p>
+                  <p className="text-muted-foreground">{getProvider(settings.llm.provider).label} / {settings.llm.model}</p>
                 </TooltipContent>
               </Tooltip>
               <DropdownMenuContent align="end" className="max-h-[300px] overflow-y-auto">

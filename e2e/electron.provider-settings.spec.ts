@@ -145,10 +145,10 @@ test('Settings: one model list across providers; a pick sets the provider; Clear
   // Both providers in one list: Claude's models beside OpenAI's live list (with its live-only model).
   await dialog().locator('#model').click()
   await expect(page.getByRole('option', { name: /Claude Sonnet 5.5/ })).toBeVisible()
-  await expect(page.getByRole('option', { name: 'gpt-6.1-terra' })).toBeVisible()
+  await expect(page.getByRole('option', { name: 'OpenAI Terra 6.1' })).toBeVisible()
   await expect(page.getByRole('option', { name: /text-embedding/ })).toHaveCount(0)
-  await page.getByRole('option', { name: /GPT-6 Luna/ }).click()
-  await expect(dialog().locator('#model')).toContainText('GPT-6 Luna')
+  await page.getByRole('option', { name: /OpenAI Luna 6/ }).click()
+  await expect(dialog().locator('#model')).toContainText('OpenAI Luna 6')
   await expect(row('openai')).toContainText('in use')
 
   // A Claude model from the same list: the provider follows.
@@ -157,7 +157,7 @@ test('Settings: one model list across providers; a pick sets the provider; Clear
   await expect(row('anthropic')).toContainText('in use')
 
   // On OpenAI again, clear its key: Prose Agents move to Anthropic, with its model.
-  await pickModel(/GPT-6 Luna/)
+  await pickModel(/OpenAI Luna 6/)
   await row('openai').getByRole('button', { name: 'Clear' }).click()
   await expect(status('openai')).toHaveText('No key')
   await expect(status('anthropic')).toContainText('••••••••ANTH')
@@ -211,8 +211,8 @@ test("the status bar's model menu lists both providers; a GPT pick with Claude i
   await expect(menu).toContainText('OpenAI')
   await expect(menu.getByRole('menuitem', { name: /Claude Sonnet 5.5/ })).toBeVisible()
   await expect(menu.getByRole('menuitem', { name: /text-embedding/ })).toHaveCount(0)
-  await menu.getByRole('menuitem', { name: 'gpt-6.1-terra' }).click()
-  await expect(model).toHaveText('gpt-6.1-terra')
+  await menu.getByRole('menuitem', { name: 'OpenAI Terra 6.1' }).click()
+  await expect(model).toHaveText('Terra 6.1')
 
   await chat()
   await expect(page.getByText('Hello from GPT.')).toBeVisible({ timeout: 15_000 })
@@ -238,13 +238,54 @@ test('⇧⌘M opens Switch model with both providers; a pick sets the provider a
   await expect(dialog()).toContainText('Anthropic')
   await expect(dialog()).toContainText('OpenAI')
   await expect(dialog().getByRole('option', { name: /Claude Sonnet 5.5/ })).toBeVisible()
-  await dialog().getByRole('option', { name: /gpt-6.1-terra/ }).click()
+  await dialog().getByRole('option', { name: /OpenAI Terra 6\.1/ }).click()
   await expect(dialog()).toHaveCount(0)
-  await expect(page.getByTestId('status-model')).toHaveText('gpt-6.1-terra')
+  await expect(page.getByTestId('status-model')).toHaveText('Terra 6.1')
 
   const settings = await loadSettings()
   expect(settings.llm.provider).toBe('openai')
   expect(settings.llm.model).toBe('gpt-6.1-terra')
+})
+
+test('a default model per mode: entering the mode switches to it; the shown set decides what the pickers list (#1322)', async () => {
+  test.setTimeout(90_000)
+  await launch(true)
+  await dismissOnboarding(page).catch(() => {})
+  await dismissOverlay(page).catch(() => {})
+  await stubOpenAI(app, [], LIVE_MODELS)
+  await saveBothKeys()
+
+  await openLlmSettings()
+  // Chat mode gets a GPT model; the writer is in Editor, so nothing changes yet.
+  await dialog().getByTestId('mode-model-chat').click()
+  await page.getByRole('option', { name: 'OpenAI Terra 6.1' }).click()
+  // Uncheck a flagship: it leaves the pickers.
+  const shown = dialog().getByTestId('shown-models-openai')
+  await shown.locator('summary').click()
+  await expect(shown).toContainText('3 of 3 shown')
+  await shown.getByLabel(/OpenAI Luna 6/).click()
+  await expect(shown).toContainText('2 of 3 shown')
+  await saveAndClose()
+
+  const model = page.getByTestId('status-model')
+  await expect(model).toHaveText('Sonnet 5.5')
+  await model.click()
+  const menu = page.getByRole('menu')
+  await expect(menu.getByRole('menuitem', { name: 'OpenAI Terra 6.1' })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: /Luna/ })).toHaveCount(0)
+  // Picking the model in use closes the menu and changes nothing.
+  await menu.getByRole('menuitem', { name: /Claude Sonnet 5.5/ }).click()
+  await expect(page.locator('[role="menu"]')).toHaveCount(0)
+
+  await page.getByTestId('status-bar').getByRole('button', { name: 'Editor', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Chat' }).click()
+  await expect(model).toHaveText('Terra 6.1')
+
+  const settings = await loadSettings()
+  expect(settings.llm.provider).toBe('openai')
+  expect(settings.llm.model).toBe('gpt-6.1-terra')
+  expect(settings.llm.modeModels).toEqual({ chat: { provider: 'openai', model: 'gpt-6.1-terra' } })
+  expect(settings.llm.shownModels.openai).not.toContain('gpt-6-luna')
 })
 
 test('with one key, the other provider offers "Add a key", which opens Settings → LLM', async () => {
@@ -255,10 +296,10 @@ test('with one key, the other provider offers "Add a key", which opens Settings 
   await useOpenAI()
 
   // The first key saved picked its provider: Claude had none.
-  await expect(page.getByTestId('status-model')).toHaveText('GPT-5.5')
+  await expect(page.getByTestId('status-model')).toHaveText('GPT 5.5')
   await page.getByTestId('status-model').click()
   const menu = page.getByRole('menu')
-  await expect(menu.getByRole('menuitem', { name: 'gpt-6.1-terra' })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: 'OpenAI Terra 6.1' })).toBeVisible()
   await expect(menu.getByRole('menuitem', { name: /Claude/ })).toHaveCount(0)
   const add = page.getByTestId('status-model-add-key-anthropic')
   await expect(add).toHaveText('Add an Anthropic key in Settings → LLM')
@@ -332,7 +373,7 @@ test('onboarding: a key per provider; the first one verified picks the provider;
   expect(turn.body.model).toBe('gpt-5.5')
 })
 
-test("an OpenAI turn's suggestion reads \"By Prose · GPT-5.5\"", async () => {
+test("an OpenAI turn's suggestion reads \"By Prose · GPT 5.5\"", async () => {
   test.setTimeout(90_000)
   await launch(true)
   await dismissOnboarding(page).catch(() => {})
@@ -355,5 +396,5 @@ test("an OpenAI turn's suggestion reads \"By Prose · GPT-5.5\"", async () => {
   // A real click, with focus still in the chat input: the blurred editor's
   // selection highlight sits over the mark and must not swallow the click (#1264).
   await mark.click()
-  await expect(page.getByTestId('suggestion-actor')).toHaveText('By Prose · GPT-5.5')
+  await expect(page.getByTestId('suggestion-actor')).toHaveText('By Prose · GPT 5.5')
 })

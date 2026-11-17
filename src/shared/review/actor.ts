@@ -7,7 +7,9 @@
  * Shared by main (MCP connections, the relay) and the renderer.
  */
 
-export type ProseAgentProvider = 'anthropic' | 'openai' | 'inference-coop'
+import { modelNames } from '../llm/modelNames'
+
+export type ProseAgentProvider ='anthropic' | 'openai' | 'inference-coop'
 
 export interface HumanActor {
   kind: 'human'
@@ -98,21 +100,14 @@ export function providerName(provider: ProseAgentProvider): string {
 }
 
 /**
- * A compact model name: `claude-sonnet-5-5` → "Sonnet 5.5", `gpt-5-mini` →
- * "GPT-5 mini" (dated suffixes dropped); any other id is shown as given.
+ * A Prose Agent's model as labels show it: the short name of the one naming
+ * scheme (`modelNames`, #1322), the same one the status bar shows:
+ * `claude-sonnet-5-5` → "Sonnet 5.5", `gpt-6.1-terra` → "Terra 6.1",
+ * `tinfoil/glm-5.3` → "GLM 5.3". An id no rule knows is shown as given.
  */
-export function shortModelName(model: string | null | undefined): string {
+export function shortModelName(provider: ProseAgentProvider, model: string | null | undefined): string {
   const m = cleanActorText(model)
-  if (/^gpt-/i.test(m)) {
-    const [version, ...words] = m.slice(4).replace(/-\d{4}-\d{2}-\d{2}$/, '').split('-').filter(Boolean)
-    return version ? ['GPT-' + version, ...words].join(' ') : m
-  }
-  if (!/^claude[-/]/.test(m)) return m
-  const tokens = m.replace(/^claude[-/]?/, '').replace(/[-\s]?\d{6,}$/, '').split('-').filter(Boolean)
-  if (tokens.length === 0) return m
-  const name = tokens[0].charAt(0).toUpperCase() + tokens[0].slice(1)
-  const version = tokens.slice(1).join('.')
-  return version ? `${name} ${version}` : name
+  return m ? modelNames(provider, m).short : ''
 }
 
 /**
@@ -146,7 +141,7 @@ export function actorLabel(actor: Actor, opts: { selfName?: string | null } = {}
       }
       return cleanActorText(actor.name) || 'Reviewer'
     case 'prose-agent':
-      return `Prose · ${shortModelName(actor.model) || providerName(actor.provider)}`
+      return `Prose · ${shortModelName(actor.provider, actor.model) || providerName(actor.provider)}`
     case 'mcp-agent': {
       // The launch connection's label is the client's own report (a named
       // connection's is the writer's, shown as written); records made before

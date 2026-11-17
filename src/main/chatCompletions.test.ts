@@ -91,6 +91,20 @@ describe('out: Prose messages and tools as Chat Completions (#1241)', () => {
     ])
   })
 
+  it('a tool result without an id is still sent, with an empty id and an error logged, in either shape (#956)', () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const out = toChatMessages('', [
+      { role: 'tool', content: 'a' } as never,
+      { role: 'user', content: [{ type: 'tool_result', content: 'b' } as never] },
+    ])
+    expect(out).toEqual([
+      { role: 'tool', tool_call_id: '', content: 'a' },
+      { role: 'tool', tool_call_id: '', content: 'b' },
+    ])
+    expect(logged).toHaveBeenCalledTimes(2)
+    logged.mockRestore()
+  })
+
   it('tools become functions; the body carries tools, max_completion_tokens and reasoning_effort only when set', () => {
     const tools = [{ name: 'read_document', description: 'Read it', input_schema: { type: 'object', properties: {} } }]
     expect(toChatTools(tools)).toEqual([

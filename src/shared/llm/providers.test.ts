@@ -4,7 +4,7 @@ import { getDefaultHaikuModel, getDefaultModel, getModelsForProvider, getSmallMo
 
 describe('provider list (#1240)', () => {
   it('has Anthropic, keyed under its pre-1.10.0 credential name, and OpenAI with its own key', () => {
-    expect(PROVIDER_IDS).toEqual(['anthropic', 'openai'])
+    expect(PROVIDER_IDS).toEqual(['anthropic', 'openai', 'inference-coop'])
     expect(PROVIDERS.anthropic.credentialKey).toBe('llm-api-key')
     expect(PROVIDERS.anthropic.transport).toBe('anthropic')
     expect(PROVIDERS.openai.transport).toBe('responses')
@@ -52,6 +52,27 @@ describe('Chat Completions tuning (#1271)', () => {
     expect(chatCompletionsTuning(provider, 'gpt-5-chat-latest', 16000)).toEqual({ maxTokens: 16000 })
     // The summary path sends no limit.
     expect(chatCompletionsTuning(provider, 'gpt-5')).toEqual({ reasoningEffort: 'low' })
+  })
+
+  it('Inference Coop (#956): Chat Completions on its gateway, thinking off for every model, chat models that take tools', () => {
+    const coop = PROVIDERS['inference-coop']
+    expect(coop.transport).toBe('chat-completions')
+    expect(coop.baseURL).toBe('https://gateway.inference.coop/v1')
+    expect(new Set(PROVIDER_IDS.map((p) => PROVIDERS[p].credentialKey)).size).toBe(PROVIDER_IDS.length)
+    expect(getModelsForProvider('inference-coop').map((m) => m.id)).toContain(getDefaultModel('inference-coop'))
+    expect(chatCompletionsTuning(coop, 'tinfoil/glm-5.3', 16000)).toEqual({ reasoningEffort: 'none', maxTokens: 16000 })
+    expect(reasonsOverResponses('inference-coop', 'tinfoil/glm-5.3')).toBe(false)
+    // The gateway's catalog on 2026-11-07 (code/litellm config.yaml).
+    const catalog = [
+      'greenpt/deepseek-v4.1-flash', 'tinfoil/deepseek-v4-1-flash', 'tinfoil/gpt-oss-120b', 'tinfoil/glm-5.3', 'greenpt/glm-5.3-flash', 'greenpt/glm-5.3',
+      'regolo/apertus-70b', 'regolo/qwen3.5-122b', 'regolo/qwen-image', 'tinfoil/whisper-large-v3-turbo', 'tinfoil/voxtral-small-24b', 'tinfoil/voxtral-tts',
+      'tinfoil/nomic-embed-text', 'greenpt/qwen3-embedding-8b', 'greenpt/green-embeddings',
+    ]
+    const { exclude } = coop.liveModels!
+    expect(catalog.filter((id) => !exclude!.test(id))).toEqual([
+      'greenpt/deepseek-v4.1-flash', 'tinfoil/deepseek-v4-1-flash', 'tinfoil/gpt-oss-120b', 'tinfoil/glm-5.3', 'greenpt/glm-5.3-flash', 'regolo/apertus-70b', 'regolo/qwen3.5-122b',
+    ])
+    expect(getModelsForProvider('inference-coop').every((m) => !exclude!.test(m.id))).toBe(true)
   })
 
   it('a provider that answers none (the co-op, A3) sends it and adds no headroom; other transports send nothing', () => {

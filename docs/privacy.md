@@ -1,7 +1,7 @@
 # Privacy Policy
 
 **Prose — AI-Powered Markdown Editor**
-Last updated: November 12, 2026
+Last updated: November 16, 2026
 
 ## Summary
 
@@ -16,13 +16,13 @@ Prose is a local-first writing app. Your documents stay on your device unless yo
 
 ## Your API Key
 
-Prose uses a bring-your-own-key (BYOK) model. You provide your own Anthropic API key to use AI features. Your key is:
+Prose uses a bring-your-own-key (BYOK) model. You provide your own API key for each AI provider you want to use: Anthropic, OpenAI, or the Inference Cooperative. Each key is:
 
 - Stored locally on your device using macOS Keychain (via Electron `safeStorage`)
-- Sent directly to Anthropic's API (`api.anthropic.com`) only when you explicitly invoke an AI feature
+- Sent only to its own provider (`api.anthropic.com`, `api.openai.com` or `gateway.inference.coop`), and only when you invoke an AI feature or test the key
 - Never transmitted to us or any other third party
 
-AI requests are made directly from your device to Anthropic. We never see, store, or relay your API key or your conversations. Anthropic's own privacy policy governs how they handle API requests: https://www.anthropic.com/privacy
+AI requests are made directly from your device to the provider whose model you picked. They carry your prompt and the document text the request needs. We never see, store, or relay your API keys or your conversations. Each provider's own privacy policy governs how it handles API requests: [Anthropic](https://www.anthropic.com/privacy), [OpenAI](https://openai.com/policies/privacy-policy), [the Inference Cooperative](https://docs.inference.coop/privacy-policy/). The Inference Cooperative's gateway passes requests on to the inference provider that hosts the model you picked.
 
 ## Your Documents
 
@@ -89,7 +89,9 @@ Prose only makes network requests in these cases:
 
 | Connection | When | Purpose |
 |-----------|------|---------|
-| `api.anthropic.com` | You use an AI feature | Sends your prompt to Anthropic's API using your key |
+| `api.anthropic.com` | You use an AI feature with a Claude model | Sends your prompt to Anthropic's API using your key |
+| `api.openai.com` | You use an AI feature with an OpenAI model | Sends your prompt to OpenAI's API using your key |
+| `gateway.inference.coop` | You use an AI feature with an Inference Cooperative model | Sends your prompt to the co-op's gateway using your key |
 | `github.com` | App checks for updates | Checks for new releases (direct-download version only) |
 | `sentry.io` | Crash occurs (opt-in only) | Sends anonymized crash report |
 | `api.prose.solo.ist` | You use sharing (opt-in only) | Signs you in, publishes your document, and syncs its comments |
@@ -99,7 +101,9 @@ No other network connections are made.
 
 ## Third-Party Services
 
-- **Anthropic** — AI provider. Only contacted when you use AI features. Governed by [Anthropic's privacy policy](https://www.anthropic.com/privacy).
+- **Anthropic** — AI provider. Only contacted when you use AI features with a Claude model. Governed by [Anthropic's privacy policy](https://www.anthropic.com/privacy).
+- **OpenAI** — AI provider. Only contacted when you use AI features with an OpenAI model. Governed by [OpenAI's privacy policy](https://openai.com/policies/privacy-policy).
+- **The Inference Cooperative** — AI provider. Only contacted when you use AI features with one of its models. Governed by [its privacy policy](https://docs.inference.coop/privacy-policy/).
 - **Sentry** — Crash reporting. Only contacted if you opt in. Governed by [Sentry's privacy policy](https://sentry.io/privacy/).
 - **Render** — Hosts the sharing and Remote access service and its database. Only used if you use sharing or Remote access.
 - **Cloudflare R2** — Stores published documents. Only used if you publish.

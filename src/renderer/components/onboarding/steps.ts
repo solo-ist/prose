@@ -69,8 +69,13 @@ export interface SummaryRow {
 }
 
 /** "Anthropic", "Anthropic and OpenAI", "A, B and C". */
-function listLabels(labels: string[]): string {
-  return labels.length > 1 ? `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}` : labels[0]
+function listLabels(labels: string[], joiner = 'and'): string {
+  return labels.length > 1 ? `${labels.slice(0, -1).join(', ')} ${joiner} ${labels[labels.length - 1]}` : labels[0]
+}
+
+/** "Anthropic or OpenAI", "A, B or C". */
+export function orList(labels: string[]): string {
+  return listLabels(labels, 'or')
 }
 
 export function summaryRows(i: SummaryInput): SummaryRow[] {

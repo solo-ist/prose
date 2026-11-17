@@ -114,7 +114,10 @@ export function toResponsesInput(messages: LLMMessage[], recall?: Recall): Respo
     // user: tool_result blocks (Anthropic's shape) first, as outputs, then the text
     if (typeof m.content !== 'string') {
       for (const b of m.content) {
-        if (b.type === 'tool_result') out.push({ type: 'function_call_output', call_id: b.tool_use_id, output: b.content })
+        if (b.type !== 'tool_result') continue
+        // Same guard as the `tool` path: an id-less result must not drop `call_id`.
+        if (!b.tool_use_id) console.error('[responses] A tool result has no tool_use_id')
+        out.push({ type: 'function_call_output', call_id: b.tool_use_id ?? '', output: b.content })
       }
       const text = textOf(m.content)
       if (text) out.push({ role: 'user', content: text })

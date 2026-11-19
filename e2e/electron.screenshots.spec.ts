@@ -3,8 +3,8 @@
  * Run: npx playwright test electron.screenshots --workers=1
  *
  * Isolated, seeded instance (Prose theme) → README hero + App Store scenes
- * 1, 3, 4, 5. Scene 2 (live AI dialogue) runs against the real profile in a
- * separate spec. Light hero, then alternating dark/light.
+ * 1 and 3 to 7. Scene 2 (the chat mode-switch) is a separate spec. Light hero,
+ * then alternating dark/light.
  *
  * Demo content: the real blog post fixture (e2e/fixtures/a-chorus-of-human-voices.md),
  * with a few obvious typos injected (below the hero fold) for the review/activity demos.
@@ -30,6 +30,14 @@ const FIXTURE = join(REPO, 'e2e/fixtures/a-chorus-of-human-voices.md')
 const HERO_NAME = 'A Chorus of Human Voices.md'
 const LEVERAGE_NAME = 'The Great Leverage Inversion.md'
 const SHOTS = '/tmp/prose-shots'
+const WRITER = 'Angel Marino'
+// Never sent anywhere useful: they only make each provider read as keyed, so
+// the model menu lists all three. Held in main's memory for this launch.
+const DEMO_KEYS: Array<[string, string]> = [
+  ['anthropic', 'sk-ant-demo-screenshot-key'],
+  ['openai', 'sk-demo-screenshot-key'],
+  ['inference-coop', 'sk-demo-screenshot-key'],
+]
 
 // Generator — excluded from the normal e2e suite; opt in with SHOOT=1.
 test.skip(process.env.SHOOT !== '1', 'marketing screenshot generator (run with SHOOT=1)')
@@ -59,18 +67,24 @@ async function nodeIncluding(text: string): Promise<DocNode> {
 
 // Returns the new suggestionId. Calls the seam directly so provenance.model is
 // set (executeProseTool drops the 4th arg → "Unknown" in the Activity panel).
-async function suggest(marker: string, replace: (s: string) => string, comment: string): Promise<string> {
+async function suggest(
+  marker: string,
+  replace: (s: string) => string,
+  comment: string,
+  model = 'claude-sonnet-5-5',
+): Promise<string> {
   const node = await nodeIncluding(marker)
   const res = await page.evaluate(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    async ({ nodeId, content, search, comment }: any) =>
+    async ({ nodeId, content, search, comment, model }: any) =>
       (window as any).__prose_tools.executeTool(
         'suggest_edit',
         { nodeId, content, search, comment },
         'create',
-        { model: 'claude-sonnet-5-5' },
+        // The actor names the provider; a bare model is read as Anthropic's.
+        { model, actor: { kind: 'prose-agent', provider: model.startsWith('gpt-') ? 'openai' : 'anthropic', model } },
       ),
-    { nodeId: node.id, content: replace(node.content ?? ''), search: node.content, comment },
+    { nodeId: node.id, content: replace(node.content ?? ''), search: node.content, comment, model },
   )
   expect((res as { success: boolean }).success).toBe(true)
   return (res as { data: { suggestionId: string } }).data.suggestionId
@@ -138,6 +152,31 @@ async function clearSuggestions(): Promise<void> {
   await page.waitForTimeout(250)
 }
 
+// Put the writer's selection on `text` (or the caret before it), so the next
+// keystrokes land there. Finds it inside one text block; tracked deletions stay
+// in the document, so the offsets hold while changes are pending.
+async function selectText(text: string, caretBefore = false): Promise<void> {
+  const found = await page.evaluate(
+    ({ text, caretBefore }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const editor = (window as any).__prose_editor
+      let range: { from: number; to: number } | null = null
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      editor.state.doc.descendants((node: any, pos: number) => {
+        if (range || !node.isTextblock) return
+        const at = node.textContent.indexOf(text)
+        if (at >= 0) range = { from: pos + 1 + at, to: pos + 1 + at + text.length }
+      })
+      if (!range) return false
+      const { from, to } = range as { from: number; to: number }
+      editor.chain().focus().setTextSelection(caretBefore ? from : { from, to }).run()
+      return true
+    },
+    { text, caretBefore },
+  )
+  expect(found, `text "${text}" in the document`).toBe(true)
+}
+
 // Focused typo/grammar copyedits — first the post's real issues, then a few
 // obvious injected typos. All single-purpose (no tone/style changes).
 async function seedCopyedits(): Promise<string[]> {
@@ -175,6 +214,8 @@ test.beforeAll(async () => {
       appearance: { color: 'prose', mode: 'light', icon: 'pilcrow' },
       aiConsent: { consented: true, consentedAt: '2025-01-01T00:00:00.000Z' },
       llm: { provider: 'anthropic', apiKey: 'sk-ant-demo-screenshot-key', model: 'claude-sonnet-5-5' },
+      // The author shown on the writer's feedback and tracked changes.
+      user: { name: WRITER },
       defaultSaveDirectory: essays,
       projects: [
         { id: uuid(1), name: 'Essays', path: essays, createdAt: '2025-01-01T00:00:00.000Z', lastOpenedAt: '2025-06-01T00:00:00.000Z' },
@@ -188,13 +229,29 @@ test.beforeAll(async () => {
     })
 
   app = await electron.launch({
-    args: [join(REPO, 'out/main/index.js')],
+    // 2x whatever the display, so the 1280 × 800 window captures at 2560 × 1600.
+    args: [join(REPO, 'out/main/index.js'), '--force-device-scale-factor=2'],
     env: { ...(process.env as Record<string, string>), PROSE_USER_DATA_DIR: profile },
   })
   page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')
   await waitForAppReady(page)
   await dismissOnboarding(page)
+  await dismissOverlay(page)
+
+  // Key every provider, then reload so the settings store reads the status.
+  const saved = await page.evaluate(async (keys) => {
+    const results: boolean[] = []
+    for (const [provider, key] of keys) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      results.push((await (window as any).api.setLlmKey({ provider, key })).ok)
+    }
+    return results
+  }, DEMO_KEYS)
+  expect(saved).toEqual([true, true, true])
+  await page.reload()
+  await page.waitForLoadState('domcontentloaded')
+  await waitForAppReady(page)
   await dismissOverlay(page)
 
   await app.evaluate(({ BrowserWindow }) => {
@@ -220,7 +277,57 @@ test('01 hero — editor (light)', async () => {
   await page.screenshot({ path: join(SHOTS, '01-hero-editor.png') })
 })
 
-test('03 review every suggestion (light)', async () => {
+test('03 any model — the model menu (light)', async () => {
+  await setMode('light')
+  await openHero()
+  await closeChat()
+  await setFilesVisible(false)
+  await scrollTop()
+  await page.locator('[data-testid="status-model"]').click()
+  await expect(page.getByRole('menu')).toBeVisible()
+  // The menu scrolls past 300 px in the app. The shot lifts that cap so all
+  // three providers are in frame: the same items, drawn taller than shipped.
+  await page.getByRole('menu').evaluate((menu) => {
+    ;(menu as HTMLElement).style.maxHeight = 'none'
+  })
+  // Off the trigger, so its tooltip isn't in the shot.
+  await page.mouse.move(400, 300)
+  await page.waitForTimeout(800)
+  await page.screenshot({ path: join(SHOTS, '03-any-model.png') })
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+})
+
+test('04 suggesting mode (dark)', async () => {
+  await setMode('dark')
+  await openHero()
+  await closeChat()
+  await setFilesVisible(false)
+  await clearSuggestions()
+  const toggle = page.locator('[data-testid="status-suggesting"]')
+  await toggle.click()
+  await expect(toggle).toHaveText('Suggesting')
+  // A replacement, a deletion and an insertion in one paragraph, last first.
+  await selectText('darlings')
+  await page.keyboard.type('favorites')
+  await selectText(' from last year')
+  await page.keyboard.press('Backspace')
+  await selectText('leaked', true)
+  await page.keyboard.type('infamous ')
+  await expect(page.locator('[data-testid="status-suggestions"]')).toBeVisible()
+  await scrollTop()
+  await page.waitForTimeout(600)
+  await page.screenshot({ path: join(SHOTS, '04-suggesting.png') })
+  // Leave the shared tab as the next scene expects it.
+  await page.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(window as any).__prose_editor.commands.rejectAllTrackedChanges()
+  })
+  await toggle.click()
+  await expect(toggle).toHaveText('Editing')
+})
+
+test('05 review every suggestion (light)', async () => {
   await setMode('light')
   await openHero()
   await closeChat()
@@ -230,19 +337,25 @@ test('03 review every suggestion (light)', async () => {
   // Open Quick Review via the status-bar suggestion chip.
   await page.getByRole('button', { name: /\d+ suggestion/ }).first().click()
   await page.waitForTimeout(800)
-  await page.screenshot({ path: join(SHOTS, '03-review-diffs.png') })
+  await page.screenshot({ path: join(SHOTS, '05-review-diffs.png') })
   const closeReview = page.locator('[aria-label^="Close review"]')
   if (await closeReview.isVisible({ timeout: 1_000 }).catch(() => false)) await closeReview.click()
   await page.waitForTimeout(400)
 })
 
-test('04 edits history — activity (dark)', async () => {
+test('06 who did what — activity (dark)', async () => {
   await setMode('dark')
   await openHero()
   await setFilesVisible(false)
   await clearSuggestions()
   const ids = await seedCopyedits()
-  ids.push(await suggest('dredded', (s) => s.replace('dredded', 'dreaded'), 'Typo.'))
+  // A second model, so the panel shows authors from two providers.
+  ids.push(await suggest('dredded', (s) => s.replace('dredded', 'dreaded'), 'Typo.', 'gpt-5.5'))
+  // The writer's feedback on the newest suggestion (the top card), before accepting it.
+  await page.evaluate((id) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(window as any).__prose_editor.commands.setAISuggestionReply(id, 'Good catch.')
+  }, ids[ids.length - 1])
   for (const id of ids) {
     await executeProseTool(page, 'accept_diff', { id })
     await page.waitForTimeout(150)
@@ -252,15 +365,15 @@ test('04 edits history — activity (dark)', async () => {
   if (await showChat.isVisible({ timeout: 1_000 }).catch(() => false)) await showChat.click()
   await page.getByRole('tab', { name: /Activity/ }).click()
   await page.waitForTimeout(700)
-  await page.screenshot({ path: join(SHOTS, '04-edits-history.png') })
+  await page.screenshot({ path: join(SHOTS, '06-who-did-what.png') })
 })
 
-test('05 projects & favorites (light)', async () => {
+test('07 projects & favorites (light)', async () => {
   await setMode('light')
   await openHero()
   await closeChat()
   await selectView('favorites')
   await scrollTop()
   await page.waitForTimeout(600)
-  await page.screenshot({ path: join(SHOTS, '05-projects-favorites.png') })
+  await page.screenshot({ path: join(SHOTS, '07-projects-favorites.png') })
 })

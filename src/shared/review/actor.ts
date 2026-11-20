@@ -2,12 +2,14 @@
  * Who made a record (#1232; design: docs/architecture/review-provenance.md).
  *
  * Every comment thread, reply, AI suggestion and AI annotation can carry an
- * `Actor`. Records written before 1.9.1 have none; `actorOf…` derives one from
+ * `Actor`. Records written before 1.10.0 have none; `actorOf…` derives one from
  * their legacy fields whenever it is read, and nothing is ever written back.
  * Shared by main (MCP connections, the relay) and the renderer.
  */
 
-export type ProseAgentProvider = 'anthropic' | 'openai' | 'inference-coop'
+import { modelNames } from '../llm/modelNames'
+
+export type ProseAgentProvider ='anthropic' | 'openai' | 'inference-coop'
 
 export interface HumanActor {
   kind: 'human'
@@ -15,7 +17,7 @@ export interface HumanActor {
   self: boolean
   /** A share reviewer's display name (only when `self` is false). */
   name?: string
-  /** Reserved for ATProto (AT-1). Nothing sets it in 1.9.1. */
+  /** Reserved for ATProto (AT-1). Nothing sets it in 1.10.0. */
   did?: string
 }
 
@@ -40,7 +42,7 @@ export interface McpAgentActor {
 }
 
 /**
- * AI text whose origin is unknown: rows from before 1.9.1, pasted AI text and
+ * AI text whose origin is unknown: rows from before 1.10.0, pasted AI text and
  * text the writer marks as AI-written. `label` is only ever one of the code
  * constants below, never input from a client, a share row or a file.
  */
@@ -83,7 +85,7 @@ export function actorOfProvenance(model: string | null | undefined, actor?: Acto
   if (m === 'Claude (MCP)') return { kind: 'mcp-agent', connectionId: 'legacy', connectionLabel: 'MCP client' }
   if (m === 'Imported') return { kind: 'unattributed', label: 'Imported' }
   if (m === 'External AI') return { kind: 'unattributed', label: 'External AI' }
-  // Before 1.9.1 the in-app chat was Anthropic-only.
+  // Before 1.10.0 the in-app chat was Anthropic-only.
   return { kind: 'prose-agent', provider: 'anthropic', model: m }
 }
 
@@ -98,17 +100,32 @@ export function providerName(provider: ProseAgentProvider): string {
 }
 
 /**
- * A compact model name: `claude-sonnet-5-5` → "Sonnet 5.5" (dated suffixes
- * dropped); any other provider's id is shown as given.
+ * A Prose Agent's model as labels show it: the short name of the one naming
+ * scheme (`modelNames`, #1322), the same one the status bar shows:
+ * `claude-sonnet-5-5` → "Sonnet 5.5", `gpt-6.1-terra` → "Terra 6.1",
+ * `tinfoil/glm-5.3` → "GLM 5.3". An id no rule knows is shown as given.
  */
-export function shortModelName(model: string | null | undefined): string {
+export function shortModelName(provider: ProseAgentProvider, model: string | null | undefined): string {
   const m = cleanActorText(model)
-  if (!/^claude[-/]/.test(m)) return m
-  const tokens = m.replace(/^claude[-/]?/, '').replace(/[-\s]?\d{6,}$/, '').split('-').filter(Boolean)
-  if (tokens.length === 0) return m
-  const name = tokens[0].charAt(0).toUpperCase() + tokens[0].slice(1)
-  const version = tokens.slice(1).join('.')
-  return version ? `${name} ${version}` : name
+  return m ? modelNames(provider, m).short : ''
+}
+
+/**
+ * The name a writer knows a client by, for the `clientInfo.name` it reports.
+ * Claude Desktop reports "claude-ai" from a chat and "local-agent-mode-<server
+ * name>" from its agent mode, which read as noise on a card. Anything not
+ * listed is shown as reported.
+ */
+const CLIENT_DISPLAY_NAMES: ReadonlyArray<[RegExp, string]> = [
+  [/^claude-ai$/i, 'Claude Desktop'],
+  [/^local-agent-mode-/i, 'Claude Desktop'],
+  [/^claude-code$/i, 'Claude Code'],
+  [/^codex-mcp-client$/i, 'Codex'],
+]
+
+export function clientDisplayName(reported: unknown): string {
+  const name = cleanActorText(reported)
+  return CLIENT_DISPLAY_NAMES.find(([pattern]) => pattern.test(name))?.[1] ?? name
 }
 
 /**
@@ -124,10 +141,14 @@ export function actorLabel(actor: Actor, opts: { selfName?: string | null } = {}
       }
       return cleanActorText(actor.name) || 'Reviewer'
     case 'prose-agent':
-      return `Prose · ${shortModelName(actor.model) || providerName(actor.provider)}`
+      return `Prose · ${shortModelName(actor.provider, actor.model) || providerName(actor.provider)}`
     case 'mcp-agent': {
-      const label = cleanActorText(actor.connectionLabel) || 'MCP client'
-      const client = cleanActorText(actor.client)
+      // The launch connection's label is the client's own report (a named
+      // connection's is the writer's, shown as written); records made before
+      // the display names existed hold the raw one.
+      const raw = cleanActorText(actor.connectionLabel)
+      const label = (actor.connectionId === 'launch' ? clientDisplayName(raw) : raw) || 'MCP client'
+      const client = clientDisplayName(actor.client)
       return client && client !== label ? `${label} · ${client}` : label
     }
     case 'unattributed':

@@ -1,46 +1,43 @@
 /**
- * Known models for the LLM provider.
- * These are used for the model picker dropdown and validation.
+ * Model helpers for the LLM providers.
+ * The model lists themselves live in each provider's entry (`./providers`).
  */
 
-export interface ModelInfo {
-  id: string
-  name: string
-  description?: string
-}
+import { getProvider, reasonsOverResponses, PROVIDERS, ANTHROPIC_MODELS, type LLMProvider, type ModelInfo } from './providers'
+import { modelNames } from './modelNames'
 
-export const ANTHROPIC_MODELS: ModelInfo[] = [
-  { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', description: 'Fastest, most economical' },
-  { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', description: 'Best balance of speed and intelligence' },
-  { id: 'claude-opus-5-5', name: 'Claude Opus 5.5', description: 'Most capable model' },
-]
+export { ANTHROPIC_MODELS }
+export type { LLMProvider, ModelInfo }
 
-export type LLMProvider = 'anthropic'
-
-export function getModelsForProvider(_provider: LLMProvider): ModelInfo[] {
-  return ANTHROPIC_MODELS
+export function getModelsForProvider(provider: LLMProvider): ModelInfo[] {
+  return getProvider(provider).models
 }
 
 /**
  * Check if a model ID is a known model.
  */
-export function isKnownModel(_provider: LLMProvider, modelId: string): boolean {
-  return ANTHROPIC_MODELS.some(m => m.id === modelId)
+export function isKnownModel(provider: LLMProvider, modelId: string): boolean {
+  return getProvider(provider).models.some(m => m.id === modelId)
 }
 
 /**
  * Get default model
  */
-export function getDefaultModel(_provider: LLMProvider): string {
-  return 'claude-sonnet-5-5'
+export function getDefaultModel(provider: LLMProvider): string {
+  return getProvider(provider).defaultModel
 }
 
 /**
- * Get default Haiku model (used for internal lightweight calls such as
- * API key validation and emoji generation where exact version doesn't matter).
+ * The provider's model for lightweight internal calls (API key validation,
+ * summaries, emoji generation) where the exact version doesn't matter.
  */
+export function getSmallModel(provider: LLMProvider): string {
+  return getProvider(provider).smallModel
+}
+
+/** Anthropic's small model. Kept for the call sites that predate other providers. */
 export function getDefaultHaikuModel(): string {
-  return 'claude-haiku-4-5'
+  return getSmallModel('anthropic')
 }
 
 /**
@@ -65,6 +62,15 @@ const THINKING_CAPABLE_PREFIXES = [
 
 export function supportsAdaptiveThinking(modelId: string): boolean {
   return THINKING_CAPABLE_PREFIXES.some(prefix => modelId.startsWith(prefix))
+}
+
+/**
+ * Whether the thinking toggle applies to this provider's model: Claude's
+ * adaptive thinking, or an OpenAI model that reasons over the Responses API
+ * (#1301), where off means the lowest effort the model accepts.
+ */
+export function supportsThinkingToggle(providerId: string, modelId: string): boolean {
+  return reasonsOverResponses(providerId, modelId) || (getProvider(providerId).thinking && supportsAdaptiveThinking(modelId))
 }
 
 /**
@@ -125,17 +131,29 @@ export function getThinkingOffMode(modelId: string): ThinkingOffMode {
   return THINKING_OFF_MODES[base] ?? 'omit'
 }
 
+/** The provider whose seed lists `modelId`, else the one its id reads as. */
+function providerOfModel(modelId: string): string | undefined {
+  const seeded = Object.values(PROVIDERS).find((p) => p.models.some((m) => m.id === modelId))
+  if (seeded) return seeded.id
+  if (modelId.startsWith('claude-')) return 'anthropic'
+  if (modelId.startsWith('gpt-')) return 'openai'
+  return undefined
+}
+
 /**
- * Resolve a model ID to its human-readable display name. Prefers the live-fetched
- * list (which the provider updates as new models ship), falls back to the static
- * seed, and finally to the raw model ID.
+ * A model's long name ("Claude Sonnet 5.5", "Tinfoil GLM 5.3"), as menus and
+ * authorship labels show it (#1322). Derived from the id; the provider's own
+ * display name (the live list's, else the seed's) covers an id no rule knows,
+ * and the raw id is the last resort. Pass `provider` where it is known.
  */
 export function resolveModelName(
   modelId: string,
-  fetched?: ModelInfo[] | null
+  fetched?: ModelInfo[] | null,
+  provider?: string
 ): string {
-  const fromFetched = fetched?.find((m) => m.id === modelId)?.name
-  if (fromFetched) return fromFetched
-  const fromStatic = ANTHROPIC_MODELS.find((m) => m.id === modelId)?.name
-  return fromStatic || modelId
+  const given =
+    fetched?.find((m) => m.id === modelId)?.name ||
+    Object.values(PROVIDERS).flatMap((p) => p.models).find((m) => m.id === modelId)?.name
+  const owner = provider ?? providerOfModel(modelId)
+  return owner ? modelNames(owner, modelId, given).long : given || modelId
 }

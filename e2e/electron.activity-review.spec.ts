@@ -70,6 +70,17 @@ test.describe('Activity review', () => {
     return result.data.suggestionId
   }
 
+  async function openActivity(): Promise<void> {
+    const chatTab = page.getByRole('tab', { name: 'Chat' })
+    if (!(await chatTab.isVisible({ timeout: 1_000 }).catch(() => false))) {
+      await page.keyboard.press('ControlOrMeta+Shift+L')
+      await chatTab.waitFor({ state: 'visible', timeout: 5_000 })
+    }
+    await page.getByRole('tab', { name: /Activity/ }).click()
+  }
+
+  const row = (id: string) => page.locator(`[data-testid="suggestion-activity-row"][data-suggestion-id="${id}"]`)
+
   test('suggestions show their life in Activity; the actor filter narrows it; a pending one opens Quick Review', async () => {
     const path = join(docsDir, 'activity.md')
     writeFileSync(path, 'First paragraph here.\n\nSecond paragraph here.\n\nThird paragraph here.\n')
@@ -85,15 +96,7 @@ test.describe('Activity review', () => {
     const third = await agentSuggests('Third paragraph', 'Third paragraph, pending.')
     await agentSuggests('First paragraph', 'First paragraph, pending.')
 
-    // Open Activity.
-    const chatTab = page.getByRole('tab', { name: 'Chat' })
-    if (!(await chatTab.isVisible({ timeout: 1_000 }).catch(() => false))) {
-      await page.keyboard.press('ControlOrMeta+Shift+L')
-      await chatTab.waitFor({ state: 'visible', timeout: 5_000 })
-    }
-    await page.getByRole('tab', { name: /Activity/ }).click()
-
-    const row = (id: string) => page.locator(`[data-testid="suggestion-activity-row"][data-suggestion-id="${id}"]`)
+    await openActivity()
     await expect(row(first)).toHaveAttribute('data-status', 'superseded')
     await expect(row(first).getByTestId('suggestion-row-actor')).toHaveText('Prose · Opus 5.5')
     await expect(row(first).getByTestId('suggestion-decided-by')).toHaveText('Revised by Codex laptop')
@@ -125,5 +128,44 @@ test.describe('Activity review', () => {
     await row(third).click()
     await expect(page.getByRole('heading', { name: 'Quick Review' })).toBeVisible()
     await expect(page.getByText('2/2', { exact: true })).toBeVisible()
+  })
+
+  test('a suggestion the writer rejected and an agent revised stays Rejected and names the revision (#1266)', async () => {
+    const path = join(docsDir, 'rejected.md')
+    writeFileSync(path, 'First paragraph here.\n\nSecond paragraph here.\n')
+    expect((await executeProseTool(page, 'open_file', { path })).success).toBe(true)
+    await waitForEditor(page)
+    await expect.poll(docText).toContain('Second paragraph here.')
+
+    const first = await agentSuggests('Second paragraph', 'Second paragraph, sharper.')
+    await commands('rejectAISuggestion', first)
+    // The revision, as an MCP call makes it.
+    const revised = await page.evaluate(
+      ({ id, actor }) =>
+        (window as any).__prose_tools.executeTool(
+          'revise_suggestion',
+          { id, content: 'Second paragraph, sharper still.' },
+          'create',
+          { model: '', conversationId: '', messageId: '', documentId: '', actor },
+          undefined,
+          { preserveView: true },
+        ),
+      { id: first, actor: MCP },
+    )
+    expect(revised.success, JSON.stringify(revised)).toBe(true)
+    const second = revised.data.suggestionId as string
+
+    await openActivity()
+    await expect(row(first)).toHaveAttribute('data-status', 'rejected')
+    await expect(row(first).getByTestId('suggestion-status')).toHaveText('Rejected')
+    await expect(row(first).getByTestId('suggestion-decided-by')).toHaveText('Rejected by You')
+    await expect(row(first).getByTestId('suggestion-revised-after')).toContainText('Then revised by Codex laptop')
+    await expect(row(first)).not.toContainText(/superseded/i)
+    await expect(row(second)).toHaveAttribute('data-status', 'pending')
+
+    // The link opens Quick Review on the revision.
+    await row(first).getByTestId('suggestion-open-revision').click()
+    await expect(page.getByRole('heading', { name: 'Quick Review' })).toBeVisible()
+    await expect(page.getByText('1/1', { exact: true })).toBeVisible()
   })
 })

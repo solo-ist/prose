@@ -126,6 +126,6 @@ test.describe('review log', () => {
         resolve({ version: open.result.version, stores: Array.from(open.result.objectStoreNames) })
         open.result.close()
       }
-    }))).toMatchObject({ version: 10, stores: expect.arrayContaining(['review_log']) })
+    }))).toMatchObject({ version: 11, stores: expect.arrayContaining(['review_log', 'tracked']) })
   })
 })

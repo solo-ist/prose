@@ -15,12 +15,12 @@ Part of epic #1230. Design of record: `docs/architecture/review-provenance.md` (
    - paste-as-AI and the selection popover's "mark as AI" stay unattributed (`External AI`, `Imported`).
 4. **Old rows are read, never rewritten** (refines design §4): `actorOf…` derives the actor from `author` / `authorName` / `provenance.model` whenever a record has none. Nothing is written back at load or later, so there is no migration to get wrong; the design's table is the derivation, with one added row (`External AI` → unattributed). `author` and `authorName` stay written beside `actor` for the share wire format and the viewer.
 5. **Display**: the comment popover, Comment Review and Activity name the thread's and each reply's actor; the annotation tooltip and Activity name the annotation's actor instead of a bare model id; the suggestion popover gains a "by" line. Self shows the Settings name, "You" when it is empty.
-6. **Settings → General**: "Your name" and "Email (optional)". The email is read by nothing in 1.9.1 except the test that proves it never leaves (§7 of the design).
+6. **Settings → General**: "Your name" and "Email (optional)". The email is read by nothing in 1.10.0 except the test that proves it never leaves (§7 of the design).
 7. **`list_comments`**: each comment and reply gains `by` (the label; the writer is "the writer") and `byKind`. Additive: `replies` keep their fields.
 
 ## Not in this PR
 
-The review log (P2), connections and a main-built MCP actor (M2), the `via` transport (filled by M2; optional until then, a design refinement noted in the doc), share wire-format changes (none in 1.9.1).
+The review log (P2), connections and a main-built MCP actor (M2), the `via` transport (filled by M2; optional until then, a design refinement noted in the doc), share wire-format changes (none in 1.10.0).
 
 ## Tests
 
@@ -30,6 +30,6 @@ The review log (P2), connections and a main-built MCP actor (M2), the `via` tran
 
 ## Execution log
 
-- **2026-11-07.** `118fc4a` plan · `49bc8ea` change + specs. Two refinements of the design, written back into `review-provenance.md`: rows from before 1.9.1 are **derived on read and never rewritten** (no migration), and `McpAgentActor.via` is optional until M2. One row added to the derivation table (`External AI`, the paste marker). The suggestion mark's `actor` attribute is state-only (never rendered to HTML, never parsed from it), so pasted markup can't claim an actor and the popover reads it from the state. Found on the way: an expanded Activity comment row named a share reviewer "you".
+- **2026-11-07.** `118fc4a` plan · `49bc8ea` change + specs. Two refinements of the design, written back into `review-provenance.md`: rows from before 1.10.0 are **derived on read and never rewritten** (no migration), and `McpAgentActor.via` is optional until M2. One row added to the derivation table (`External AI`, the paste marker). The suggestion mark's `actor` attribute is state-only (never rendered to HTML, never parsed from it), so pasted markup can't claim an actor and the popover reads it from the state. Found on the way: an expanded Activity comment row named a share reviewer "you".
 - **Checks:** `typecheck:renderer` 66 (= base), `typecheck:e2e` 6 (= base), unit 187 (21 new), build clean. `electron.provenance.spec.ts` 2/2 on the branch, **both fail on a build of `54aa64b`** (no actor labels; no reply actor). The 14 related specs (activity, AI provenance and lifecycle, annotation re-anchor, comment auto-resolve / occurrence / review-exit / threading, document sessions with its tripwires, edit-markdown, suggestion popover, suggestions and their persistence, provenance): 75 passed.
 - Mid-way the comment popover crashed on open: the name hook sat after the popover's early return. Moved above it; the spec's reply step caught it.

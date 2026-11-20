@@ -16,7 +16,6 @@ import type { RemarkableCloudNotebook } from '../../types'
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
-  deviceToken: string
   syncDirectory: string
   onComplete: () => void
 }
@@ -24,7 +23,6 @@ interface Props {
 export function NotebookSelectionDialog({
   open,
   onOpenChange,
-  deviceToken,
   syncDirectory,
   onComplete
 }: Props) {
@@ -45,7 +43,7 @@ export function NotebookSelectionDialog({
       try {
         // Load cloud notebooks and existing sync state in parallel
         const [cloudNotebooks, existingSyncState] = await Promise.all([
-          window.api.remarkableListCloudNotebooks(deviceToken),
+          window.api.remarkableListCloudNotebooks(),
           window.api.remarkableGetSyncState(syncDirectory)
         ])
         setNotebooks(cloudNotebooks)
@@ -78,7 +76,7 @@ export function NotebookSelectionDialog({
     }
 
     loadNotebooks()
-  }, [open, deviceToken, syncDirectory])
+  }, [open, syncDirectory])
 
   const handleToggle = (id: string) => {
     setSelectedIds(prev => {

@@ -70,6 +70,9 @@ import {
   executeListReviewEvents
 } from './executors/review'
 
+// Tracked changes (#891)
+import { executeSuggestInsert, executeSuggestDelete } from './executors/tracked'
+
 // UI-coordination executors
 import { executeRequestModeSwitch } from './executors/ui'
 
@@ -82,6 +85,7 @@ const DOCUMENT_TOOLS = new Set([
   'read_document', 'read_selection', 'get_metadata', 'search_document', 'get_outline', 'outline',
   'list_comments', 'add_comment', 'resolve_comment', 'reply_to_comment', 'reopen_comment',
   'list_suggestions', 'reply_to_suggestion', 'revise_suggestion', 'get_review_status', 'list_review_events',
+  'suggest_insert', 'suggest_delete',
   'edit', 'insert', 'suggest_edit', 'accept_diff', 'reject_diff', 'list_diffs', 'delete_node', 'move_cursor',
   'save_file'
 ])
@@ -89,6 +93,7 @@ const DOCUMENT_TOOLS = new Set([
 /** Tools that write: refused while the target document is open in source mode. */
 const WRITING_TOOLS = new Set([
   'add_comment', 'resolve_comment', 'reply_to_comment', 'reopen_comment', 'reply_to_suggestion', 'revise_suggestion',
+  'suggest_insert', 'suggest_delete',
   'edit', 'insert', 'suggest_edit', 'accept_diff', 'reject_diff', 'delete_node', 'move_cursor', 'save_file'
 ])
 
@@ -219,6 +224,12 @@ export async function executeTool(
         break
       case 'list_review_events':
         result = executeListReviewEvents(validatedArgs, ctx)
+        break
+      case 'suggest_insert':
+        result = executeSuggestInsert(validatedArgs, ctx)
+        break
+      case 'suggest_delete':
+        result = executeSuggestDelete(validatedArgs, ctx)
         break
 
       // Editor tools

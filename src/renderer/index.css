@@ -1297,6 +1297,44 @@
   background: hsl(var(--ai-suggest-mark-bg) / 0.6);
 }
 
+/*
+ * Tracked changes (#891; design: docs/architecture/suggesting-mode.md §6).
+ * An insertion is underlined in its author's colour, a deletion struck
+ * through. The three display classes on the container switch CSS only; the
+ * document is never rewritten for display.
+ */
+.prose-editor [data-tracked-slot='0'] { --tracked-color: 152 55% 36%; }
+.prose-editor [data-tracked-slot='1'] { --tracked-color: 212 75% 48%; }
+.prose-editor [data-tracked-slot='2'] { --tracked-color: 280 55% 52%; }
+.prose-editor [data-tracked-slot='3'] { --tracked-color: 28 85% 45%; }
+.prose-editor [data-tracked-slot='4'] { --tracked-color: 330 65% 48%; }
+.prose-editor [data-tracked-slot='5'] { --tracked-color: 190 70% 36%; }
+
+.prose-editor ins.tracked-insert {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  text-decoration-color: hsl(var(--tracked-color));
+  background: hsl(var(--tracked-color) / 0.1);
+}
+
+.prose-editor del.tracked-delete {
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+  text-decoration-color: hsl(var(--tracked-color));
+  opacity: 0.6;
+}
+
+.prose-editor.tracked-display-no-deletions del.tracked-delete,
+.prose-editor.tracked-display-final del.tracked-delete {
+  display: none;
+}
+
+.prose-editor.tracked-display-final ins.tracked-insert {
+  text-decoration: none;
+  background: none;
+}
+
 .dark .prose-editor .ai-suggestion-mark:hover {
   background: hsl(var(--ai-suggest-mark-bg) / 0.5);
 }

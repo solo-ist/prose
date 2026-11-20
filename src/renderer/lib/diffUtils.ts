@@ -110,6 +110,41 @@ export function computeWordDiff(original: string, suggested: string): { old: Dif
 }
 
 /**
+ * What a review card highlights (#891). A pure insertion or deletion is one
+ * segment, its spaces included, so a typed space or a deleted comma shows
+ * whole. An edit is the word diff, unless that finds nothing (it never marks
+ * whitespace): then the characters between the common start and end are.
+ */
+export function reviewDiff(original: string, suggested: string): { old: DiffSegment[]; new: DiffSegment[] } {
+  if (!original) return { old: [], new: suggested ? [{ text: suggested, type: 'added' }] : [] }
+  if (!suggested) return { old: [{ text: original, type: 'removed' }], new: [] }
+  const words = computeWordDiff(original, suggested)
+  const changed = [...words.old, ...words.new].some((seg) => seg.type !== 'unchanged')
+  if (changed || original === suggested) return words
+  let start = 0
+  while (start < original.length && start < suggested.length && original[start] === suggested[start]) start++
+  let end = 0
+  while (
+    end < original.length - start &&
+    end < suggested.length - start &&
+    original[original.length - 1 - end] === suggested[suggested.length - 1 - end]
+  ) end++
+  const side = (text: string, type: 'removed' | 'added'): DiffSegment[] =>
+    [
+      { text: text.slice(0, start), type: 'unchanged' as const },
+      { text: text.slice(start, text.length - end), type },
+      { text: text.slice(text.length - end), type: 'unchanged' as const },
+    ].filter((seg) => seg.text)
+  return { old: side(original, 'removed'), new: side(suggested, 'added') }
+}
+
+/** A highlighted run of whitespace drawn as glyphs (␣ ⇥ ↵), so it can be seen; other text as it is. */
+export function visibleWhitespace(text: string): string {
+  if (text.trim()) return text
+  return [...text].map((ch) => (ch === '\t' ? '⇥' : ch === '\n' ? '↵' : '␣')).join('')
+}
+
+/**
  * Compute, for each unchanged word in a word diff, its character-offset range in
  * both the original and new text.  Used to remap prior annotations that covered an
  * unchanged word into the coordinate space of the freshly-written text.

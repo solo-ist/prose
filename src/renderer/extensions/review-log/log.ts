@@ -12,6 +12,8 @@ import type { Transaction } from '@tiptap/pm/state'
 import { AddMarkStep, ReplaceAroundStep, ReplaceStep } from '@tiptap/pm/transform'
 import { SELF, actorOfComment, actorOfProvenance, type Actor } from '../../../shared/review/actor'
 import type { CommentData } from '../comments/types'
+import { trackedChangesIn } from '../tracked-changes/changes'
+import { TRACKED_DELETE, TRACKED_INSERT } from '../tracked-changes/marks'
 
 export type SuggestionStatus = 'pending' | 'accepted' | 'rejected' | 'superseded'
 
@@ -35,9 +37,27 @@ export interface SuggestionHistory {
   decidedBy?: Actor
   /** The suggestion this one revised. */
   supersedes?: string
-  /** The revision that replaced this one. */
+  /**
+   * The revision that followed this one: it replaced it (`superseded`), or the
+   * agent revised it after the writer rejected it (`rejected` stays, #1266).
+   */
   supersededBy?: string
   feedback: FeedbackEntry[]
+  /**
+   * The node the suggestion was on when the log first saw it (#1266), so a
+   * rejected suggestion, which has no mark, can still be revised in place.
+   * Node ids are regenerated when a document is reopened: a stale one is a
+   * hint, not an address. Absent on rows from before 1.10.0.
+   */
+  nodeId?: string
+  /** A tracked change (#891): text marks in the document, not a node-level suggestion. */
+  tracked?: true
+  /**
+   * The change's context in the file was gone when the document loaded (an
+   * edit outside Prose), so it was not put back (#891, design §5). Its status
+   * is `superseded`.
+   */
+  orphaned?: true
 }
 
 export type ReviewEventKind =
@@ -47,6 +67,8 @@ export type ReviewEventKind =
   | 'suggestion:rejected'
   | 'suggestion:reopened'
   | 'suggestion:feedback'
+  /** A tracked change that no longer fits the file (#891): set aside, never re-inserted. */
+  | 'suggestion:orphaned'
   | 'comment:added'
   | 'comment:replied'
   | 'comment:resolved'
@@ -81,6 +103,20 @@ export interface SuggestionMarkInfo {
   createdAt: number
   provenanceModel: string
   actor: Actor | null
+  /** The id of the node the mark is in (its nearest ancestor with one). */
+  nodeId: string | null
+  /** A tracked change (#891) rather than a node-level suggestion. */
+  tracked?: boolean
+}
+
+/** A tracked change the load could not put back (#891). */
+export interface OrphanedChange {
+  id: string
+  type: 'edit' | 'insertion' | 'deletion'
+  originalText: string
+  suggestedText: string
+  actor: Actor
+  createdAt: number
 }
 
 /**
@@ -95,6 +131,8 @@ export interface ReviewIntent {
   threadBy?: Actor
   /** Replace the log with stored rows (a seed, a dev remount); derives no events. */
   load?: StoredReviewLog
+  /** Tracked changes whose context is gone (#891): superseded, logged even in a seed. */
+  orphaned?: OrphanedChange[]
 }
 
 export const MAX_EVENTS = 5_000
@@ -104,10 +142,22 @@ export const EMPTY_STORED: StoredReviewLog = Object.freeze({ suggestions: [], ev
 
 export const SUGGESTION_MARK = 'aiSuggestion'
 
-/** Every suggestion mark in `doc`, by id (the first occurrence's attributes). */
+/** The id of the nearest node at or above `parent` that has one. */
+function hostNodeId(doc: PMNode, pos: number, parent: PMNode | null): string | null {
+  const direct = parent?.attrs?.nodeId
+  if (typeof direct === 'string' && direct) return direct
+  const $pos = doc.resolve(pos)
+  for (let depth = $pos.depth; depth >= 0; depth--) {
+    const id = $pos.node(depth).attrs?.nodeId
+    if (typeof id === 'string' && id) return id
+  }
+  return null
+}
+
+/** Every suggestion mark in `doc`, by id (the first occurrence's attributes), then every tracked change (#891). */
 export function scanSuggestionMarks(doc: PMNode): Map<string, SuggestionMarkInfo> {
   const found = new Map<string, SuggestionMarkInfo>()
-  doc.descendants((node) => {
+  doc.descendants((node, pos, parent) => {
     for (const mark of node.marks) {
       if (mark.type.name !== SUGGESTION_MARK) continue
       const id = mark.attrs.id as string | null
@@ -121,25 +171,43 @@ export function scanSuggestionMarks(doc: PMNode): Map<string, SuggestionMarkInfo
         createdAt: (mark.attrs.createdAt as number) || Date.now(),
         provenanceModel: (mark.attrs.provenanceModel as string) || '',
         actor: (mark.attrs.actor as Actor | null) ?? null,
+        nodeId: hostNodeId(doc, pos, parent),
       })
     }
     return true
   })
+  for (const change of trackedChangesIn(doc)) {
+    if (found.has(change.id)) continue
+    found.set(change.id, {
+      id: change.id,
+      type: change.type,
+      originalText: change.deletedText,
+      suggestedText: change.insertedText,
+      explanation: '',
+      createdAt: change.createdAt || Date.now(),
+      provenanceModel: '',
+      actor: change.actor,
+      nodeId: hostNodeId(doc, change.from, null),
+      tracked: true,
+    })
+  }
   return found
 }
+
+const PROPOSAL_MARKS = new Set([SUGGESTION_MARK, TRACKED_INSERT, TRACKED_DELETE])
 
 /** Could this transaction have put a suggestion mark into the document? */
 export function stepsMayAddSuggestion(tr: Transaction): boolean {
   for (const step of tr.steps) {
     if (step instanceof AddMarkStep) {
-      if (step.mark.type.name === SUGGESTION_MARK) return true
+      if (PROPOSAL_MARKS.has(step.mark.type.name)) return true
       continue
     }
     if (step instanceof ReplaceStep || step instanceof ReplaceAroundStep) {
       let carries = false
       step.slice.content.descendants((node) => {
         if (carries) return false
-        if (node.marks.some((m) => m.type.name === SUGGESTION_MARK)) carries = true
+        if (node.marks.some((m) => PROPOSAL_MARKS.has(m.type.name))) carries = true
         return !carries
       })
       if (carries) return true
@@ -159,6 +227,8 @@ function historyFromMark(info: SuggestionMarkInfo): SuggestionHistory {
     createdAt: info.createdAt,
     status: 'pending',
     feedback: [],
+    ...(info.nodeId ? { nodeId: info.nodeId } : {}),
+    ...(info.tracked ? { tracked: true as const } : {}),
   }
 }
 
@@ -204,6 +274,8 @@ export function nextLog(input: LogInput): StoredReviewLog {
   }
   if (intent?.load) nextSeq = intent.load.nextSeq
 
+  const orphaned = new Map((intent?.orphaned ?? []).map((o) => [o.id, o]))
+
   // Suggestions: marks that appeared and disappeared.
   if (input.marksBefore !== input.marksAfter) {
     const decidedBy = new Map<string, { status: 'accepted' | 'rejected'; by: Actor }>()
@@ -230,8 +302,18 @@ export function nextLog(input: LogInput): StoredReviewLog {
       }
     }
 
+    for (const [id, info] of input.marksAfter) {
+      // A pending tracked change grows as the writer types (#891): its row
+      // follows the text, silently.
+      const was = input.marksBefore.get(id)
+      if (!was || (was.originalText === info.originalText && was.suggestedText === info.suggestedText && was.type === info.type)) continue
+      const existing = get(id)
+      if (!existing || existing.status !== 'pending') continue
+      rows().set(id, { ...existing, type: info.type, originalText: info.originalText, suggestedText: info.suggestedText })
+    }
+
     for (const id of input.marksBefore.keys()) {
-      if (input.marksAfter.has(id)) continue
+      if (input.marksAfter.has(id) || orphaned.has(id)) continue
       const existing = get(id) ?? historyFromMark(input.marksBefore.get(id)!)
       if (existing.status !== 'pending') continue
       const revision = revisedFrom.get(id)
@@ -243,6 +325,39 @@ export function nextLog(input: LogInput): StoredReviewLog {
       rows().set(id, { ...existing, status: decision.status, decidedAt: now, decidedBy: decision.by })
       emit({ kind: decision.status === 'accepted' ? 'suggestion:accepted' : 'suggestion:rejected', actor: decision.by, suggestionId: id })
     }
+
+    // A revision of a suggestion the writer rejected (#1266): it has no mark,
+    // so nothing above touched its row. The rejection stands (status, when and
+    // by whom); the row only gains the forward link. The new row's backward
+    // link and its `suggestion:revised` event came from the loop above.
+    for (const r of intent?.revised ?? []) {
+      if (input.marksBefore.has(r.from) || input.marksBefore.has(r.to) || !input.marksAfter.has(r.to)) continue
+      const existing = get(r.from)
+      if (!existing || existing.status !== 'rejected' || existing.supersededBy) continue
+      rows().set(r.from, { ...existing, supersededBy: r.to })
+    }
+  }
+
+  // Tracked changes the file no longer has room for (#891): set aside and
+  // said so, even in a seed (it is a fact about this load, not a derivation).
+  for (const orphan of orphaned.values()) {
+    const existing = get(orphan.id)
+    if (existing && existing.status !== 'pending') continue
+    const row: SuggestionHistory = existing ?? {
+      id: orphan.id,
+      type: orphan.type,
+      originalText: orphan.originalText,
+      suggestedText: orphan.suggestedText,
+      explanation: '',
+      actor: orphan.actor,
+      createdAt: orphan.createdAt,
+      status: 'pending',
+      feedback: [],
+      tracked: true,
+    }
+    rows().set(orphan.id, { ...row, status: 'superseded', orphaned: true, decidedAt: now })
+    // By the writer: it was their file that changed.
+    events.push({ kind: 'suggestion:orphaned', actor: SELF, suggestionId: orphan.id, seq: nextSeq++, at: now })
   }
 
   // Feedback on a suggestion.

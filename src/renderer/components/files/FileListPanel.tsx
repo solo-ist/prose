@@ -75,7 +75,7 @@ export function FileListPanel() {
     loadNotebooks,
     loadCloudNotebooks,
     syncDirectory,
-    deviceToken,
+    remarkableConnected,
     removeRecentFile
   } = useFileList()
 
@@ -84,7 +84,7 @@ export function FileListPanel() {
   const { isSyncing, sync, error: syncError, progress: syncProgress, lastSyncedAt } = useRemarkableSync()
   const { setDialogOpen } = useSettings()
   const remarkableFlag = useRemarkableEnabled()
-  const remarkableEnabled = useSettingsStore((state) => remarkableFlag && state.settings.remarkable?.enabled && !!state.settings.remarkable?.deviceToken)
+  const remarkableEnabled = useSettingsStore((state) => remarkableFlag && state.settings.remarkable?.enabled && !!state.settings.remarkable?.connected)
   // Sharing (#1036): the Shared view + the ◎ tree indicator read one list store.
   const webPlatform = useWebPlatformEnabled()
   const refreshSharedList = useSharedListStore((s) => s.refresh)
@@ -707,13 +707,13 @@ export function FileListPanel() {
   // sync() has its own concurrent-call lock and we don't want to retrigger
   // when isSyncing transitions back to false after a manual sync completes.
   useEffect(() => {
-    if (viewMode === 'notebooks' && remarkableEnabled && deviceToken && !isSyncing) {
+    if (viewMode === 'notebooks' && remarkableEnabled && remarkableConnected && !isSyncing) {
       sync().catch((err) => {
         console.error('[FileListPanel] Auto-sync failed:', err)
       })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, remarkableEnabled, deviceToken])
+  }, [viewMode, remarkableEnabled, remarkableConnected])
 
   useEffect(() => {
     if (viewMode !== 'recent' || recentFiles.length === 0) return
@@ -905,7 +905,7 @@ export function FileListPanel() {
   }
 
   const handleConfirmMove = async () => {
-    if (!moveTarget || !deviceToken || !syncDirectory || !window.api) return
+    if (!moveTarget || !remarkableConnected || !syncDirectory || !window.api) return
     // No-op move — disable Confirm in the UI as well, but defend here too.
     if (selectedTargetParentId === moveTarget.currentParentId) return
 
@@ -919,7 +919,6 @@ export function FileListPanel() {
       // a follow-up move for the same notebook doesn't pass the now-stale
       // pre-move hash and fail with "not found in root hash".
       const newHash = await window.api.remarkableMoveNotebook(
-        deviceToken,
         moveTarget.notebookHash,
         selectedTargetParentId
       )
@@ -940,7 +939,7 @@ export function FileListPanel() {
       // tree re-renders under the new parent immediately. The useMemo on
       // cloudNotebooks/notebookMetadata picks up the new structure.
       await loadNotebooks(syncDirectory)
-      if (deviceToken) await loadCloudNotebooks(deviceToken, syncDirectory)
+      if (remarkableConnected) await loadCloudNotebooks(syncDirectory)
       setMoveTarget(null)
     } catch (err) {
       console.error('[reMarkable] Cloud move failed:', err)

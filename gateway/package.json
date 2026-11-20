@@ -27,17 +27,17 @@
     "test:relay": "node scripts/test-relay.mjs && tsx scripts/test-relay-hub.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1149.0",
-    "@better-auth/cimd": "1.7.18",
-    "@better-auth/oauth-provider": "1.7.18",
-    "@hono/node-server": "^2.1.4",
-    "@prisma/adapter-pg": "^7.10.0",
+    "@aws-sdk/client-s3": "^3.1170.0",
+    "@better-auth/cimd": "1.7.25",
+    "@better-auth/oauth-provider": "1.7.25",
+    "@hono/node-server": "^2.1.8",
+    "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.1",
     "better-auth": "^1.7.18",
-    "dotenv": "^18.0.7",
-    "hono": "^4.13.13",
+    "dotenv": "^18.0.10",
+    "hono": "^4.13.19",
     "pg": "^8.23.1",
-    "ws": "^8.22.2",
+    "ws": "^8.23.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {

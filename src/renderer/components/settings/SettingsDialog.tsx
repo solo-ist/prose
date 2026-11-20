@@ -13,7 +13,9 @@ import { Input } from '../ui/input'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue
 } from '../ui/select'
@@ -24,13 +26,22 @@ import { Switch } from '../ui/switch'
 import { AppearancePane } from './AppearancePane'
 import { RemarkableIntegration } from './RemarkableIntegration'
 import { McpIntegration } from './McpIntegration'
+import { McpConnections } from './McpConnections'
+import { RemoteAccess, useRemotePendingCount } from './RemoteAccess'
 import { AccountSection } from '../account/AccountSection'
 import { ProseSkillIntegration } from './ProseSkillIntegration'
 import { isWebMode } from '../../lib/browserApi'
+import { cn } from '../../lib/utils'
+import { isMasBuild } from '../../lib/featureFlags'
+import { AppStoreImportSettingsRow } from '../appStoreImport/AppStoreImportDialogs'
 import type { Settings } from '../../types'
-import { Eye, EyeOff, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
-import { getModelsForProvider, getDefaultModel, type LLMProvider } from '../../../shared/llm/models'
-import { validateApiKeyFormat, validateUrl, maskApiKey } from '../../lib/llm'
+import { AlertCircle } from 'lucide-react'
+import { getDefaultModel, type LLMProvider } from '../../../shared/llm/models'
+import { PROVIDERS, PROVIDER_IDS } from '../../../shared/llm/providers'
+import { ProviderKeys, draftFormatError, type KeyDrafts } from './ProviderKeys'
+import { ModelPreferences } from './ModelPreferences'
+import { useModelGroups } from '../../hooks/useModelGroups'
+import { addKeyLabel, availableModelsFor, hasProviderKey, validateUrl } from '../../lib/llm'
 
 /** Extract the primary font name from a CSS font-family stack */
 function extractPrimaryFont(fontFamily: string): string {
@@ -91,10 +102,14 @@ export function SettingsDialog() {
   const [isDefaultHandler, setIsDefaultHandler] = useState<boolean | null>(null)
   const [checkingDefault, setCheckingDefault] = useState(false)
 
-  // API key visibility and testing
-  const [showApiKey, setShowApiKey] = useState(false)
-  const [testingApiKey, setTestingApiKey] = useState(false)
-  const [apiKeyTestResult, setApiKeyTestResult] = useState<{ success: boolean; message: string } | null>(null)
+  // API keys, one per provider. Main holds the saved keys (#1240); the dialog
+  // sees each one's status and keeps a typed key only as a local draft until
+  // Save Changes hands it over (#1242).
+  const setLlmKey = useSettingsStore((s) => s.setLlmKey)
+  const selectModel = useSettingsStore((s) => s.selectModel)
+  const [keyDrafts, setKeyDrafts] = useState<KeyDrafts>({})
+  const [keySaveErrors, setKeySaveErrors] = useState<Partial<Record<LLMProvider, string>>>({})
+  const anyDraftInvalid = PROVIDER_IDS.some((p) => draftFormatError(p, keyDrafts) !== null)
 
   // Secure storage availability
   const [secureStorageAvailable, setSecureStorageAvailable] = useState<boolean | null>(null)
@@ -110,44 +125,40 @@ export function SettingsDialog() {
   const integrationsTabRef = useRef<HTMLDivElement>(null)
   const accountTabRef = useRef<HTMLDivElement>(null)
 
-  // Get models for current provider — prefer the live-fetched list from the
-  // provider, fall back to the static seed list when offline / no API key.
-  const fetchedModels = useSettingsStore((s) => s.fetchedModels)
+  // Every provider's models, grouped: each keyed provider's live list once
+  // fetched, else its seed; a provider without a key lists none (#1287).
   const isFetchingModels = useSettingsStore((s) => s.isFetchingModels)
   const fetchModels = useSettingsStore((s) => s.fetchModels)
-  const availableModels = useMemo(
-    () => fetchedModels && fetchedModels.length > 0
-      ? fetchedModels
-      : getModelsForProvider(settings.llm.provider as LLMProvider),
-    [fetchedModels, settings.llm.provider]
-  )
-
-  // Check if current model is in the list
-  const isCustomModel = useMemo(
-    () => !availableModels.some(m => m.id === settings.llm.model),
-    [availableModels, settings.llm.model]
-  )
-
-  // Validation errors
-  const apiKeyFormatError = useMemo(
-    () => validateApiKeyFormat(settings.llm.provider as LLMProvider, settings.llm.apiKey),
-    [settings.llm.provider, settings.llm.apiKey]
-  )
+  const modelGroups = useModelGroups()
+  const liveModels = useSettingsStore((s) => s.liveModels)
+  const activeGroup = modelGroups.find((g) => g.provider === settings.llm.provider)
+  // A model its provider doesn't list (live, else seed) was typed in as a custom id.
+  const isCustomModel = !availableModelsFor(settings.llm.provider, liveModels).some((m) => m.id === settings.llm.model)
+  // The select shows the model in use only once its provider has a key to list it.
+  const modelListed = !!activeGroup?.hasKey && !isCustomModel
 
   const baseUrlError = useMemo(
     () => validateUrl(settings.llm.baseUrl || ''),
     [settings.llm.baseUrl]
   )
 
-  // Reset API key test result when key changes
+  // A draft never outlives the dialog.
   useEffect(() => {
-    setApiKeyTestResult(null)
-  }, [settings.llm.apiKey, settings.llm.provider])
+    setKeyDrafts({})
+    setKeySaveErrors({})
+  }, [isDialogOpen])
 
-  // Reset custom model state when provider changes
+  // Each open starts on the field for a custom id, else on the list.
   useEffect(() => {
-    setCustomModel(isCustomModel)
-  }, [settings.llm.provider, isCustomModel])
+    if (isDialogOpen) setCustomModel(isCustomModel)
+    // Seeded once per open: a typed id passing through a listed one ("gpt-5.5" on
+    // the way to "gpt-5.5-…") must not close the field under the writer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDialogOpen])
+  // A custom id that appears later (a pick elsewhere, a late load) opens the field.
+  useEffect(() => {
+    if (isCustomModel) setCustomModel(true)
+  }, [isCustomModel])
 
   // Check secure storage availability when dialog opens
   useEffect(() => {
@@ -156,12 +167,12 @@ export function SettingsDialog() {
     }
   }, [isDialogOpen])
 
-  // Refresh the live model list when the dialog opens (if API key is set)
+  // Refresh every keyed provider's live model list when the dialog opens
   useEffect(() => {
-    if (isDialogOpen && settings.llm.apiKey) {
+    if (isDialogOpen) {
       fetchModels()
     }
-  }, [isDialogOpen, settings.llm.apiKey, fetchModels])
+  }, [isDialogOpen, fetchModels])
 
   // Check if we're the default handler when dialog opens
   useEffect(() => {
@@ -173,7 +184,30 @@ export function SettingsDialog() {
     }
   }, [isDialogOpen])
 
+  // The App Store build has no account (sharing is direct-download only) and no
+  // integrations (MCP, the Claude skill and reMarkable are all off there), so it is
+  // not offered those tabs at all rather than shown them empty (#1222). A request
+  // for one of them (a stale `dialogTab`, a caller naming it) renders General.
+  const isMas = isMasBuild()
+  // Remote clients waiting for approval (#1239), or connected and not yet seen (#1304): counted on the Integrations tab.
+  const remotePending = useRemotePendingCount()
+  const activeTab = isMas && (dialogTab === 'integrations' || dialogTab === 'account') ? 'general' : dialogTab
+
   const handleSave = async () => {
+    // Each typed key goes to main, which stores it; then the rest of the settings.
+    const errors: Partial<Record<LLMProvider, string>> = {}
+    for (const provider of PROVIDER_IDS) {
+      const draft = keyDrafts[provider]?.trim()
+      if (!draft || draftFormatError(provider, keyDrafts)) continue
+      const result = await setLlmKey(provider, draft)
+      if (result.ok) {
+        setKeyDrafts((d) => ({ ...d, [provider]: undefined }))
+      } else {
+        errors[provider] = result.error || 'The key could not be saved'
+      }
+    }
+    setKeySaveErrors(errors)
+    if (Object.keys(errors).length > 0) return
     await saveSettings()
     setDialogOpen(false)
   }
@@ -192,7 +226,7 @@ export function SettingsDialog() {
       account: accountTabRef
     }
 
-    const outgoingRef = tabRefs[dialogTab]
+    const outgoingRef = tabRefs[activeTab]
     if (outgoingRef?.current) {
       outgoingRef.current.scrollTop = 0
     }
@@ -200,45 +234,14 @@ export function SettingsDialog() {
     setDialogTab(value as typeof dialogTab)
   }
 
-  const handleProviderChange = (provider: LLMProvider) => {
-    // When provider changes, set the default model for that provider
-    const defaultModel = getDefaultModel(provider)
-    setLLMConfig({ provider, model: defaultModel })
-    setCustomModel(false)
-    setApiKeyTestResult(null)
+  // The model select's values name the provider too: `<provider>::<model id>`.
+  const modelValue = (provider: LLMProvider, model: string) => `${provider}::${model}`
+  const handleModelSelect = (value: string) => {
+    const at = value.indexOf('::')
+    selectModel(value.slice(0, at) as LLMProvider, value.slice(at + 2))
   }
 
-  const handleTestApiKey = async () => {
-    if (!settings.llm.apiKey || apiKeyFormatError) return
 
-    setTestingApiKey(true)
-    setApiKeyTestResult(null)
-
-    try {
-      // Use the window.api if available, otherwise show error
-      if (window.api?.testApiKey) {
-        const result = await window.api.testApiKey({
-          provider: settings.llm.provider,
-          apiKey: settings.llm.apiKey,
-          baseUrl: settings.llm.baseUrl
-        })
-        setApiKeyTestResult(result)
-      } else {
-        // Fallback: do a simple validation check
-        setApiKeyTestResult({
-          success: true,
-          message: 'API key format is valid (connection test not available in browser)'
-        })
-      }
-    } catch (error) {
-      setApiKeyTestResult({
-        success: false,
-        message: error instanceof Error ? error.message : 'Failed to test API key'
-      })
-    } finally {
-      setTestingApiKey(false)
-    }
-  }
 
   return (
     <Dialog open={isDialogOpen} onOpenChange={setDialogOpen}>
@@ -247,17 +250,66 @@ export function SettingsDialog() {
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
 
-        <Tabs value={dialogTab} onValueChange={handleTabChange} className="mt-4 flex-1 min-h-0 flex flex-col">
-          <TabsList className="grid w-full grid-cols-6 shrink-0">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="mt-4 flex-1 min-h-0 flex flex-col">
+          <TabsList className={cn('grid w-full shrink-0', isMas ? 'grid-cols-4' : 'grid-cols-6')} data-testid="settings-tabs">
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="appearance">Appearance</TabsTrigger>
             <TabsTrigger value="editor">Editor</TabsTrigger>
             <TabsTrigger value="llm">LLM</TabsTrigger>
-            <TabsTrigger value="integrations">Integrations</TabsTrigger>
-            <TabsTrigger value="account">Account</TabsTrigger>
+            {!isMas && (
+              <TabsTrigger value="integrations">
+                Integrations
+                {remotePending > 0 && (
+                  <span
+                    className="ml-1 rounded-full bg-amber-500 px-1.5 text-[10px] font-medium leading-4 text-white"
+                    aria-label={`${remotePending} to review`}
+                    data-testid="integrations-pending-count"
+                  >
+                    {remotePending}
+                  </span>
+                )}
+              </TabsTrigger>
+            )}
+            {!isMas && <TabsTrigger value="account">Account</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="general" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={generalTabRef}>
+            <div className="space-y-2">
+              <Label htmlFor="userName">Your Name</Label>
+              <Input
+                id="userName"
+                value={settings.user?.name ?? ''}
+                onChange={(e) => useSettingsStore.getState().setUserIdentity({ name: e.target.value })}
+                placeholder="You"
+                maxLength={100}
+                autoComplete="name"
+              />
+              <p className="text-xs text-muted-foreground">
+                Shown on your comments, replies and decisions, beside the agents and reviewers who also leave them
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="userEmail">Email (optional)</Label>
+              <Input
+                id="userEmail"
+                type="email"
+                value={settings.user?.email ?? ''}
+                onChange={(e) => useSettingsStore.getState().setUserIdentity({ email: e.target.value })}
+                placeholder="you@example.com"
+                maxLength={254}
+                autoComplete="email"
+              />
+              <p className="text-xs text-muted-foreground">
+                {/* The App Store edition has no sharing, so its hint doesn't mention it (#1285). */}
+                {isMas
+                  ? 'Stays on this Mac: it is never stored on your comments or sent to agents'
+                  : 'Stays on this Mac: it is never stored on your comments or sent to agents or share viewers'}
+              </p>
+            </div>
+
+            <Separator />
+
             <div className="space-y-2">
               <Label htmlFor="recovery">Draft Recovery</Label>
               <Select
@@ -399,6 +451,8 @@ export function SettingsDialog() {
                 }}
               />
             </div>
+
+            <AppStoreImportSettingsRow />
           </TabsContent>
 
           <TabsContent value="appearance" className="mt-4 overflow-y-auto flex-1 min-h-0 flex flex-col px-0 mx-0" ref={appearanceTabRef}>
@@ -517,21 +571,6 @@ export function SettingsDialog() {
 
             <div className={!aiEnabled ? 'opacity-50 pointer-events-none' : ''}>
             <div className="space-y-2">
-              <Label htmlFor="provider">Provider</Label>
-              <Select
-                value={settings.llm.provider}
-                onValueChange={(value) => handleProviderChange(value as LLMProvider)}
-              >
-                <SelectTrigger id="provider">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="anthropic">Anthropic</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="model">Model{isFetchingModels && <span className="ml-2 text-xs text-muted-foreground">refreshing…</span>}</Label>
                 {!customModel && (
@@ -549,9 +588,10 @@ export function SettingsDialog() {
                     className="text-xs text-muted-foreground hover:text-foreground"
                     onClick={() => {
                       setCustomModel(false)
-                      // Reset to first model in list if current is custom
-                      if (isCustomModel && availableModels.length > 0) {
-                        setLLMConfig({ model: availableModels[0].id })
+                      // Back to the list: the provider in use's first model, else any keyed provider's.
+                      if (isCustomModel) {
+                        const group = activeGroup?.hasKey ? activeGroup : modelGroups.find((g) => g.hasKey)
+                        if (group && group.models.length > 0) selectModel(group.provider, group.models[0].id)
                       }
                     }}
                   >
@@ -560,106 +600,91 @@ export function SettingsDialog() {
                 )}
               </div>
               {customModel ? (
-                <Input
-                  id="model"
-                  value={settings.llm.model}
-                  onChange={(e) => setLLMConfig({ model: e.target.value })}
-                  placeholder={`e.g., ${getDefaultModel('anthropic')}`}
-                />
+                <div className="flex gap-2">
+                  {/* A typed id needs its provider (#1287). */}
+                  <Select
+                    value={settings.llm.provider}
+                    onValueChange={(value) => selectModel(value as LLMProvider, settings.llm.model)}
+                  >
+                    <SelectTrigger id="customModelProvider" aria-label="Custom model provider" className="w-36 shrink-0">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PROVIDER_IDS.map((id) => (
+                        <SelectItem key={id} value={id}>{PROVIDERS[id].label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    id="model"
+                    value={settings.llm.model}
+                    onChange={(e) => setLLMConfig({ model: e.target.value })}
+                    placeholder={`e.g., ${getDefaultModel(settings.llm.provider as LLMProvider)}`}
+                  />
+                </div>
               ) : (
                 <Select
-                  value={settings.llm.model}
-                  onValueChange={(value) => setLLMConfig({ model: value })}
+                  // Empty until the model in use is listed, which needs its provider's key.
+                  value={modelListed ? modelValue(settings.llm.provider as LLMProvider, settings.llm.model) : ''}
+                  onValueChange={handleModelSelect}
                 >
                   <SelectTrigger id="model">
-                    <SelectValue placeholder="Select a model" />
+                    <SelectValue placeholder="Add a key below to choose a model" />
                   </SelectTrigger>
                   <SelectContent>
-                    {availableModels.map((model) => (
-                      <SelectItem key={model.id} value={model.id}>
-                        <div className="flex flex-col items-start text-left">
-                          <span>{model.name}</span>
-                          {model.description && (
-                            <span className="text-xs text-muted-foreground">
-                              {model.description}
-                            </span>
-                          )}
-                        </div>
-                      </SelectItem>
+                    {modelGroups.map((group) => (
+                      <SelectGroup key={group.provider}>
+                        <SelectLabel>{group.label}</SelectLabel>
+                        {group.hasKey ? group.models.map((model) => (
+                          <SelectItem key={model.id} value={modelValue(group.provider, model.id)}>
+                            <div className="flex flex-col items-start text-left">
+                              <span>{model.name}</span>
+                              {model.description && (
+                                <span className="text-xs text-muted-foreground">
+                                  {model.description}
+                                </span>
+                              )}
+                            </div>
+                          </SelectItem>
+                        )) : (
+                          <div
+                            data-testid={`model-add-key-${group.provider}`}
+                            className="py-1.5 pl-8 pr-2 text-xs text-muted-foreground"
+                          >
+                            {addKeyLabel(group.label)} below to use its models.
+                          </div>
+                        )}
+                      </SelectGroup>
                     ))}
                   </SelectContent>
                 </Select>
               )}
             </div>
 
-            {/* API Key */}
+            {/* Per-mode defaults and the pickers' shown set (#1322) */}
+            <ModelPreferences groups={modelGroups} />
+
+            {/* API keys: one per provider, all visible (#1242) */}
               <div className="space-y-2">
-                <Label htmlFor="apiKey">API Key</Label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <Input
-                      id="apiKey"
-                      type={showApiKey ? 'text' : 'password'}
-                      value={settings.llm.apiKey}
-                      onChange={(e) => setLLMConfig({ apiKey: e.target.value })}
-                      placeholder="Enter your API key"
-                      className={apiKeyFormatError ? 'border-amber-500 pr-10' : 'pr-10'}
-                    />
-                    <button
-                      type="button"
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                      onClick={() => setShowApiKey(!showApiKey)}
-                      tabIndex={-1}
-                    >
-                      {showApiKey ? (
-                        <EyeOff className="h-4 w-4" />
-                      ) : (
-                        <Eye className="h-4 w-4" />
-                      )}
-                    </button>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleTestApiKey}
-                    disabled={!settings.llm.apiKey || !!apiKeyFormatError || testingApiKey}
-                  >
-                    {testingApiKey ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      'Test'
-                    )}
-                  </Button>
-                </div>
-                {apiKeyFormatError && (
-                  <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" />
-                    {apiKeyFormatError}
-                  </p>
-                )}
-                {apiKeyTestResult && (
-                  <p className={`text-xs flex items-center gap-1 ${
-                    apiKeyTestResult.success
-                      ? 'text-green-600 dark:text-green-400'
-                      : 'text-red-600 dark:text-red-400'
-                  }`}>
-                    {apiKeyTestResult.success ? (
-                      <CheckCircle2 className="h-3 w-3" />
-                    ) : (
-                      <AlertCircle className="h-3 w-3" />
-                    )}
-                    {apiKeyTestResult.message}
-                  </p>
-                )}
-                {settings.llm.apiKey && !showApiKey && !apiKeyFormatError && (
-                  <p className="text-xs text-muted-foreground">
-                    Current key: {maskApiKey(settings.llm.apiKey)}
-                  </p>
-                )}
+                <Label>API Keys</Label>
+                <p className="text-xs text-muted-foreground">
+                  Each provider keeps its own key, and every provider with a key has its models in the list above. Keys
+                  stay in the macOS Keychain and are only ever sent to their provider.
+                </p>
+                <ProviderKeys
+                  active={settings.llm.provider as LLMProvider}
+                  keyStatus={settings.llm.keyStatus}
+                  drafts={keyDrafts}
+                  onDraftChange={(provider, draft) => {
+                    setKeyDrafts((d) => ({ ...d, [provider]: draft }))
+                    setKeySaveErrors((e) => ({ ...e, [provider]: undefined }))
+                  }}
+                  saveErrors={keySaveErrors}
+                />
                 {secureStorageAvailable === false && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
                     <AlertCircle className="h-3 w-3 shrink-0" />
-                    Secure storage is unavailable on this system. Your API key cannot be saved and will need to be re-entered each session.
+                    Secure storage is unavailable on this system. Your API keys cannot be saved and will need to be re-entered each session.
                   </p>
                 )}
               </div>
@@ -670,45 +695,53 @@ export function SettingsDialog() {
               <div className="space-y-0.5">
                 <Label htmlFor="emojiIcons">Emoji Tab Icons</Label>
                 <p className="text-xs text-muted-foreground">
-                  Show AI-generated emoji icons on all tabs
+                  Show AI-generated emoji icons on all tabs. Each one is a short request to your provider's small model, whichever model chat uses.
                 </p>
               </div>
               <Switch
                 id="emojiIcons"
                 checked={settings.llm.emojiIcons ?? false}
                 onCheckedChange={(checked) => setLLMConfig({ emojiIcons: checked })}
-                disabled={!settings.llm.apiKey}
+                disabled={!hasProviderKey(settings.llm)}
               />
             </div>
             </div>{/* end AI features wrapper */}
 
           </TabsContent>
 
+          {!isMas && (
           <TabsContent value="integrations" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={integrationsTabRef}>
-            {!isWebMode() && !window.api?.isMasBuild && <McpIntegration />}
-            {!isWebMode() && !window.api?.isMasBuild && <Separator />}
-            {!isWebMode() && !window.api?.isMasBuild && <ProseSkillIntegration />}
-            {!isWebMode() && !window.api?.isMasBuild && <Separator />}
-            {!isWebMode() && !window.api?.isMasBuild && (
+            {!isWebMode() && <McpIntegration />}
+            {!isWebMode() && <Separator />}
+            {!isWebMode() && <McpConnections />}
+            {!isWebMode() && <Separator />}
+            {!isWebMode() && <RemoteAccess />}
+            {!isWebMode() && <Separator />}
+            {!isWebMode() && <ProseSkillIntegration />}
+            {!isWebMode() && <Separator />}
+            {!isWebMode() && (
               <RemarkableIntegration
                 settings={settings}
                 setRemarkableConfig={setRemarkableConfig}
               />
             )}
-            {/* All three integrations (Mcp, ProseSkill, Remarkable) are gated
-                to desktop, non-MAS builds — without this fallback, web and MAS
-                users land on a completely empty Integrations tab with no
-                explanation when they click into it. */}
-            {(isWebMode() || window.api?.isMasBuild) && (
+            {/* All three integrations (Mcp, ProseSkill, Remarkable) are desktop
+                only — without this fallback, web users land on a completely empty
+                Integrations tab with no explanation. MAS builds get no
+                Integrations tab at all (#1222). */}
+            {isWebMode() && (
               <p className="text-sm text-muted-foreground">
                 No integrations are available in this build.
               </p>
             )}
           </TabsContent>
+          )}
 
+          {!isMas && (
           <TabsContent value="account" className="space-y-4 mt-4 overflow-y-auto flex-1 px-1 -mx-1" ref={accountTabRef}>
             <AccountSection />
           </TabsContent>
+          )}
         </Tabs>
 
         <Separator className="my-4 shrink-0" />
@@ -717,7 +750,7 @@ export function SettingsDialog() {
           <Button variant="outline" onClick={() => setDialogOpen(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={!!apiKeyFormatError && !!settings.llm.apiKey?.trim()}>Save Changes</Button>
+          <Button onClick={handleSave} disabled={anyDraftInvalid}>Save Changes</Button>
         </div>
       </DialogContent>
     </Dialog>

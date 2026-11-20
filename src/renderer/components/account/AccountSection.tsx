@@ -12,8 +12,8 @@ import { SignInForm } from './SignInForm'
  * The tab this fills was emptied by the Google Docs removal (#1057).
  */
 export function AccountSection() {
+  // Off on MAS too (`webPlatformOn`), where Settings does not offer this tab at all (#1222).
   const webPlatform = useWebPlatformEnabled()
-  const isMasBuild = !!window.api?.isMasBuild
 
   const auth = useAccountStore((s) => s.auth)
   const access = useAccountStore((s) => s.access)
@@ -25,7 +25,7 @@ export function AccountSection() {
   const surfaceShown = useAccountStore((s) => s.surfaceShown)
   const surfaceHidden = useAccountStore((s) => s.surfaceHidden)
 
-  const enabled = webPlatform && !isMasBuild
+  const enabled = webPlatform
 
   useEffect(() => {
     if (!enabled) return
@@ -35,14 +35,12 @@ export function AccountSection() {
     return () => surfaceHidden()
   }, [enabled, refresh, surfaceShown, surfaceHidden])
 
-  // Web and MAS builds have no gateway session to show: every share channel there
+  // With sharing off there is no gateway session to show: every share channel
   // returns "not available", so a sign-in form would be a dead end.
   if (!enabled) {
     return (
       <p className="text-sm text-muted-foreground">
-        {isMasBuild
-          ? 'Account sign-in is not available in the Mac App Store version.'
-          : 'Sharing is turned off, so there is no account to sign in to.'}
+        Sharing is turned off, so there is no account to sign in to.
       </p>
     )
   }

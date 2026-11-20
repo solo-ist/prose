@@ -152,7 +152,7 @@ export function SelectionPopover({ editor, onAddComment, onToggleLink }: Selecti
           from,
           to,
           content: selectedText,
-          provenance: { model: 'Imported', conversationId: '', messageId: '' },
+          provenance: { model: 'Imported', conversationId: '', messageId: '', actor: { kind: 'unattributed', label: 'Imported' } },
         },
       ])
     }

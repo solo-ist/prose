@@ -12,6 +12,9 @@ import { DOMParser as ProseMirrorDOMParser, Slice } from '@tiptap/pm/model'
 import type { Transaction } from '@tiptap/pm/state'
 import type { MarkSerializerSpec } from 'prosemirror-markdown'
 import type { AISuggestionOptions, AISuggestionData, SuggestionType } from './types'
+import { SELF, type Actor } from '../../../shared/review/actor'
+import { decideSuggestionsIn, feedbackIn, reviseSuggestionIn } from '../review-log/transactions'
+import { generateId } from '../../lib/persistence'
 import { addAnnotationsTo, annotationsOf } from '../ai-annotations/transactions'
 import { buildWordDiffAnnotations } from '../../lib/diffUtils'
 import { pipelineLog } from '../../lib/aiPipelineLog'
@@ -212,6 +215,8 @@ declare module '@tiptap/core' {
         provenanceModel?: string
         provenanceConversationId?: string
         provenanceMessageId?: string
+        /** Who proposed it (#1232) */
+        actor?: Actor | null
         documentId?: string
         /** Raw markdown for a block-type conversion (#673); null/absent = text replacement */
         blockConversionIntent?: string | null
@@ -219,23 +224,29 @@ declare module '@tiptap/core' {
       /**
        * Set user reply on an AI suggestion by ID
        */
-      setAISuggestionReply: (id: string, reply: string) => ReturnType
+      setAISuggestionReply: (id: string, reply: string, by?: Actor) => ReturnType
+      /**
+       * Revise a pending suggestion (#1233): its mark is replaced, over the same
+       * range, by a new suggestion that links back to it; the old one is
+       * superseded in the review log.
+       */
+      reviseAISuggestion: (id: string, revision: { suggestedText: string; explanation?: string; by: Actor; newId?: string }) => ReturnType
       /**
        * Accept an AI suggestion by ID - replaces text with suggested text
        */
-      acceptAISuggestion: (id: string) => ReturnType
+      acceptAISuggestion: (id: string, by?: Actor) => ReturnType
       /**
        * Reject an AI suggestion by ID - removes the mark
        */
-      rejectAISuggestion: (id: string) => ReturnType
+      rejectAISuggestion: (id: string, by?: Actor) => ReturnType
       /**
        * Accept all AI suggestions
        */
-      acceptAllAISuggestions: () => ReturnType
+      acceptAllAISuggestions: (by?: Actor) => ReturnType
       /**
        * Reject all AI suggestions
        */
-      rejectAllAISuggestions: () => ReturnType
+      rejectAllAISuggestions: (by?: Actor) => ReturnType
     }
   }
 }
@@ -341,6 +352,14 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           return { 'data-provenance-message': attributes.provenanceMessageId }
         },
       },
+      // Who proposed it (#1232). State only: never rendered to the DOM (so it
+      // doesn't ride the clipboard) and never read back from HTML (so pasted
+      // markup can't claim an actor). The popover reads it from the state.
+      actor: {
+        default: null,
+        parseHTML: () => null,
+        renderHTML: () => ({}),
+      },
       documentId: {
         default: '',
         parseHTML: (element) => element.getAttribute('data-document-id'),
@@ -398,6 +417,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             createdAt: Date.now(),
             from,
             to,
+            actor: attrs.actor ?? null,
             blockConversionIntent: attrs.blockConversionIntent ?? null,
           }
 
@@ -411,6 +431,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             provenanceModel: attrs.provenanceModel || '',
             provenanceConversationId: attrs.provenanceConversationId || '',
             provenanceMessageId: attrs.provenanceMessageId || '',
+            actor: attrs.actor ?? null,
             documentId: attrs.documentId || '',
             blockConversionIntent: attrs.blockConversionIntent ?? null,
           })
@@ -423,9 +444,18 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
         },
 
       setAISuggestionReply:
-        (id, reply) =>
+        (id, reply, by) =>
         ({ tr, state, dispatch }) => {
           if (!dispatch) return false
+
+          // An agent's feedback goes to the review log only (#890): the mark's
+          // `userReply` is the writer's feedback, which the in-app chat reads.
+          if (by && by.kind !== 'human') {
+            if (!reply.trim()) return false
+            feedbackIn(tr, id, { id: generateId(), actor: by, text: reply.trim(), createdAt: Date.now() })
+            dispatch(tr)
+            return true
+          }
 
           const { doc } = state
           const positions: Array<{ pos: number; nodeSize: number; mark: typeof state.schema.marks.aiSuggestion }> = []
@@ -460,13 +490,55 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
               userReply: reply
             })
           )
+          // The review log keeps every reply, with who gave it (#1233); the
+          // attribute keeps the latest for the in-app chat.
+          if (reply.trim()) {
+            feedbackIn(tr, id, { id: generateId(), actor: by ?? SELF, text: reply.trim(), createdAt: Date.now() })
+          }
 
           dispatch(tr)
           return true
         },
 
+      reviseAISuggestion:
+        (id, revision) =>
+        ({ tr, state, dispatch }) => {
+          let existingAttrs: Record<string, unknown> | null = null
+          let markFrom = -1
+          let markTo = -1
+          state.doc.descendants((node, pos) => {
+            node.marks.forEach((mark) => {
+              if (mark.type.name === this.name && mark.attrs.id === id) {
+                if (!existingAttrs) existingAttrs = mark.attrs
+                if (markFrom === -1) markFrom = pos
+                markTo = pos + node.nodeSize
+              }
+            })
+          })
+          if (!existingAttrs || markFrom === -1) return false
+          if (!dispatch) return true
+          const newId = revision.newId ?? generateId()
+          tr.removeMark(markFrom, markTo, state.schema.marks.aiSuggestion)
+          tr.addMark(
+            markFrom,
+            markTo,
+            state.schema.marks.aiSuggestion.create({
+              ...(existingAttrs as Record<string, unknown>),
+              id: newId,
+              suggestedText: revision.suggestedText,
+              explanation: revision.explanation ?? (existingAttrs as Record<string, unknown>).explanation ?? '',
+              createdAt: Date.now(),
+              userReply: null,
+              actor: revision.by,
+            })
+          )
+          reviseSuggestionIn(tr, id, newId, revision.by)
+          dispatch(tr)
+          return true
+        },
+
       acceptAISuggestion:
-        (id) =>
+        (id, by) =>
         ({ tr, state, dispatch, editor }) => {
           if (!dispatch) return false
 
@@ -570,6 +642,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             provenanceModel?: string
             provenanceConversationId?: string
             provenanceMessageId?: string
+            actor?: Actor | null
             documentId?: string
             originalText?: string
             explanation?: string
@@ -604,6 +677,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
               model,
               conversationId: attrs.provenanceConversationId || '',
               messageId: attrs.provenanceMessageId || '',
+              ...(attrs.actor ? { actor: attrs.actor } : {}),
             }
             if (conversion && conversion.singleTextblock) {
               // Converted node sits at its pre-replace position (nothing
@@ -659,6 +733,8 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
               )
             }
           }
+          // Who decided, for the review log (#1233); the writer unless a tool says otherwise.
+          decideSuggestionsIn(tr, [id], 'accepted', by ?? SELF)
           dispatch(tr)
 
           if (this.options.onSuggestionAccepted) {
@@ -669,7 +745,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
         },
 
       rejectAISuggestion:
-        (id) =>
+        (id, by) =>
         ({ tr, state, dispatch }) => {
           if (!dispatch) return false
 
@@ -697,6 +773,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
           tr.removeMark(markFrom, markTo, state.schema.marks.aiSuggestion)
 
           tr.setMeta(AI_SUGGESTION_RESOLVED_META, true)
+          decideSuggestionsIn(tr, [id], 'rejected', by ?? SELF)
           dispatch(tr)
 
           if (this.options.onSuggestionRejected) {
@@ -707,7 +784,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
         },
 
       acceptAllAISuggestions:
-        () =>
+        (by) =>
         ({ tr, state, dispatch, editor }) => {
           if (!dispatch) return false
 
@@ -726,6 +803,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             provenanceModel: string
             provenanceConversationId: string
             provenanceMessageId: string
+            actor: Actor | null
             documentId: string
           }> = []
 
@@ -762,6 +840,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
                     provenanceModel: mark.attrs.provenanceModel || '',
                     provenanceConversationId: mark.attrs.provenanceConversationId || '',
                     provenanceMessageId: mark.attrs.provenanceMessageId || '',
+                    actor: mark.attrs.actor ?? null,
                     documentId: mark.attrs.documentId || ''
                   })
                 }
@@ -853,6 +932,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
               model: suggestion.provenanceModel || 'unknown',
               conversationId: suggestion.provenanceConversationId,
               messageId: suggestion.provenanceMessageId,
+              ...(suggestion.actor ? { actor: suggestion.actor } : {}),
             }
             if (conversion && conversion.singleTextblock) {
               const base = tr.mapping.map(conversion.insertedAt, -1)
@@ -893,35 +973,39 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
               )
             }
           }
+          decideSuggestionsIn(tr, applied.map(({ suggestion }) => suggestion.id), 'accepted', by ?? SELF)
           dispatch(tr)
 
           return true
         },
 
       rejectAllAISuggestions:
-        () =>
+        (by) =>
         ({ tr, state, dispatch }) => {
           if (!dispatch) return false
 
           const { doc } = state
           let removed = false
+          const rejectedIds = new Set<string>()
 
           doc.descendants((node, pos) => {
             node.marks.forEach((mark) => {
               if (mark.type.name === this.name) {
                 tr.removeMark(pos, pos + node.nodeSize, mark.type)
                 removed = true
-
-                if (this.options.onSuggestionRejected && mark.attrs.id) {
-                  this.options.onSuggestionRejected(mark.attrs.id)
-                }
+                if (mark.attrs.id) rejectedIds.add(mark.attrs.id as string)
               }
             })
           })
 
           if (removed) {
             tr.setMeta(AI_SUGGESTION_RESOLVED_META, true)
+            decideSuggestionsIn(tr, [...rejectedIds], 'rejected', by ?? SELF)
             dispatch(tr)
+            // One callback per suggestion, after dispatch as rejectAISuggestion
+            // does: a suggestion over formatted text spans several text nodes,
+            // and calling per node fired it once for each (#888, from #854).
+            for (const id of rejectedIds) this.options.onSuggestionRejected?.(id)
             return true
           }
 
@@ -1000,6 +1084,7 @@ export function applySuggestionMarks(tr: Transaction, suggestions: AISuggestionD
       provenanceModel: suggestion.provenanceModel || '',
       provenanceConversationId: suggestion.provenanceConversationId || '',
       provenanceMessageId: suggestion.provenanceMessageId || '',
+      actor: suggestion.actor ?? null,
       documentId: suggestion.documentId || '',
       blockConversionIntent: suggestion.blockConversionIntent ?? null,
     })
@@ -1032,6 +1117,7 @@ export function getAISuggestions(editor: { state: { doc: PMNode } }): AISuggesti
           provenanceModel: mark.attrs.provenanceModel || undefined,
           provenanceConversationId: mark.attrs.provenanceConversationId || undefined,
           provenanceMessageId: mark.attrs.provenanceMessageId || undefined,
+          actor: mark.attrs.actor ?? undefined,
           documentId: mark.attrs.documentId || undefined,
           blockConversionIntent: mark.attrs.blockConversionIntent ?? null,
         })

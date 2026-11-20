@@ -28,7 +28,8 @@ import {
   executeListComments,
   executeAddComment,
   executeResolveComment,
-  executeReplyToComment
+  executeReplyToComment,
+  executeReopenComment
 } from './executors/document'
 
 // Editor executors
@@ -60,6 +61,18 @@ import {
   executeSelectTab
 } from './executors/tabs'
 
+// Review executors (#890)
+import {
+  executeListSuggestions,
+  executeReplyToSuggestion,
+  executeReviseSuggestion,
+  executeGetReviewStatus,
+  executeListReviewEvents
+} from './executors/review'
+
+// Tracked changes (#891)
+import { executeSuggestInsert, executeSuggestDelete } from './executors/tracked'
+
 // UI-coordination executors
 import { executeRequestModeSwitch } from './executors/ui'
 
@@ -70,14 +83,17 @@ export type { ToolContext } from './context'
 /** Tools that act on a document: `executeTool` resolves its handle before they run. */
 const DOCUMENT_TOOLS = new Set([
   'read_document', 'read_selection', 'get_metadata', 'search_document', 'get_outline', 'outline',
-  'list_comments', 'add_comment', 'resolve_comment', 'reply_to_comment',
+  'list_comments', 'add_comment', 'resolve_comment', 'reply_to_comment', 'reopen_comment',
+  'list_suggestions', 'reply_to_suggestion', 'revise_suggestion', 'get_review_status', 'list_review_events',
+  'suggest_insert', 'suggest_delete',
   'edit', 'insert', 'suggest_edit', 'accept_diff', 'reject_diff', 'list_diffs', 'delete_node', 'move_cursor',
   'save_file'
 ])
 
 /** Tools that write: refused while the target document is open in source mode. */
 const WRITING_TOOLS = new Set([
-  'add_comment', 'resolve_comment', 'reply_to_comment',
+  'add_comment', 'resolve_comment', 'reply_to_comment', 'reopen_comment', 'reply_to_suggestion', 'revise_suggestion',
+  'suggest_insert', 'suggest_delete',
   'edit', 'insert', 'suggest_edit', 'accept_diff', 'reject_diff', 'delete_node', 'move_cursor', 'save_file'
 ])
 
@@ -108,15 +124,17 @@ async function resolveHandleFor(
 /**
  * Execute a tool by name with the given arguments.
  * Validates the tool exists and checks mode access before executing. A
- * `binding` (a chat turn's) names the document the call acts on; without
- * one the call acts on the active tab.
+ * `binding` (a chat turn's, or an MCP call's `document` target) names the
+ * document the call acts on; without one the call acts on the active tab.
+ * `preserveView` (MCP calls, #1237) keeps the writer's selection and focus.
  */
 export async function executeTool(
   toolName: string,
   args: unknown,
   mode: ToolMode = 'create',
   provenance?: ToolProvenance,
-  binding?: ToolBinding
+  binding?: ToolBinding,
+  options: { preserveView?: boolean } = {}
 ): Promise<ToolResult> {
   // Check if tool exists
   const tool = getTool(toolName)
@@ -143,7 +161,7 @@ export async function executeTool(
 
   const resolved = await resolveHandleFor(toolName, binding)
   if (resolved.error) return resolved.error
-  const ctx: ToolContext = { handle: resolved.handle, provenance, binding }
+  const ctx: ToolContext = { handle: resolved.handle, provenance, binding, preserveView: options.preserveView === true }
   if (resolved.handle) {
     pipelineLog('tool:call', {
       tool: toolName,
@@ -186,6 +204,32 @@ export async function executeTool(
         break
       case 'reply_to_comment':
         result = executeReplyToComment(validatedArgs, ctx)
+        break
+      case 'reopen_comment':
+        result = executeReopenComment(validatedArgs, ctx)
+        break
+
+      // Review tools (#890)
+      case 'list_suggestions':
+        result = executeListSuggestions(validatedArgs, ctx)
+        break
+      case 'reply_to_suggestion':
+        result = executeReplyToSuggestion(validatedArgs, ctx)
+        break
+      case 'revise_suggestion':
+        result = executeReviseSuggestion(validatedArgs, ctx)
+        break
+      case 'get_review_status':
+        result = executeGetReviewStatus(ctx)
+        break
+      case 'list_review_events':
+        result = executeListReviewEvents(validatedArgs, ctx)
+        break
+      case 'suggest_insert':
+        result = executeSuggestInsert(validatedArgs, ctx)
+        break
+      case 'suggest_delete':
+        result = executeSuggestDelete(validatedArgs, ctx)
         break
 
       // Editor tools

@@ -13,6 +13,11 @@ let _menuWindow: BrowserWindow | null = null
 // (see ipc.ts). Defaults to false because the stack is always empty at launch.
 let _reopenClosedTabEnabled = false
 
+// Whether the active tab has pending tracked changes (#891), so "Copy with
+// changes" shows beside Copy Markdown (and in the editor's context menu) only
+// then. Renderer-driven via menu:setCopyWithChangesAvailable (see ipc.ts).
+let _copyWithChangesAvailable = false
+
 // Helper to open an external URL without leaking an unhandled promise
 // rejection if the OS can't open the URL (e.g., no default browser).
 function openExternalUrl(url: string): void {
@@ -235,6 +240,15 @@ export function createMenu(mainWindow: BrowserWindow): void {
           }
         },
         {
+          // The text as if every pending tracked change were accepted (#891).
+          id: 'copy-with-changes',
+          label: 'Copy with changes',
+          visible: _copyWithChangesAvailable,
+          click: (): void => {
+            sendMenuAction('copyWithChanges')
+          }
+        },
+        {
           label: 'Add Comment',
           accelerator: 'CmdOrCtrl+Shift+A',
           click: (): void => {
@@ -434,6 +448,17 @@ export function refreshMenu(): void {
  * renderer's closed-tab stack has entries. Rebuilds the menu only when the
  * state actually changes, avoiding needless menu churn on every tab event.
  */
+export function setCopyWithChangesAvailable(available: boolean): void {
+  if (_copyWithChangesAvailable === available) return
+  _copyWithChangesAvailable = available
+  refreshMenu()
+}
+
+/** Read by the editor's context menu (spellcheck.ts). */
+export function isCopyWithChangesAvailable(): boolean {
+  return _copyWithChangesAvailable
+}
+
 export function setReopenClosedTabEnabled(enabled: boolean): void {
   if (_reopenClosedTabEnabled === enabled) return
   _reopenClosedTabEnabled = enabled

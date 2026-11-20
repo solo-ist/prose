@@ -17,7 +17,9 @@ import { AboutDialog } from '../settings/AboutDialog'
 import { ModelPickerDialog } from '../ModelPickerDialog'
 import { APP_VERSION } from '../../buildInfo.generated'
 import { OnboardingDialog } from '../onboarding/OnboardingDialog'
+import { AppStoreImportConfirm, AppStoreImportOffer, AppStoreImportSummary, useAppStoreImportStore, useAppStoreImportSummaryDue } from '../appStoreImport/AppStoreImportDialogs'
 import { ReleaseNotesDialog } from '../releaseNotes/ReleaseNotesDialog'
+import { releaseNotesIds } from '../releaseNotes/notesId'
 import { EnableLoggingDialog } from '../EnableLoggingDialog'
 import { Notifications } from './Notifications'
 import {
@@ -43,7 +45,8 @@ import { useSummaryStore } from '../../stores/summaryStore'
 import { useEditor } from '../../hooks/useEditor'
 import { useTabs } from '../../hooks/useTabs'
 import { hydrateDraft, restoreTabs, convertTab, type RestoredTab, toggleSourceMode, markTabSaved } from '../../tabs/actions'
-import { landProjections } from '../../document/session'
+import { landProjections, activeSessionState, subscribeActiveSession, hasSession, serializeFinal } from '../../document/session'
+import { trackedChangesIn } from '../../extensions/tracked-changes/changes'
 import { useSettings } from '../../hooks/useSettings'
 import { usePanelLayout, PanelLayoutProvider } from '../../hooks/usePanelLayout'
 import type { ImperativePanelHandle } from 'react-resizable-panels'
@@ -73,6 +76,11 @@ import { handleMissingPath } from '../../lib/stalePath'
 import { useNotificationStore } from '../../stores/notificationStore'
 import type { DraftState, SessionState } from '../../lib/persistence'
 import { executeTool } from '../../lib/tools'
+import { splitMcpTarget } from '../../lib/tools/mcpTarget'
+import { mcpActorFrom, LAUNCH_CONNECTION_ID, DEFAULT_CONNECTION_LABEL } from '../../../shared/mcp/actor'
+import { isMcpToolName } from '../../../shared/tools/registry'
+import { REMOTE_TOOL_NAMES } from '../../../shared/mcp/remoteScopes'
+import { remoteConnectedMessage } from '../settings/remoteAccessText'
 import { useReviewMode, useWasChatOpenBeforeReview, usePreviousChatWidth, useReviewStore, type ReviewMode } from '../../stores/reviewStore'
 import { chatOpenDefaultPct, reviewChatWidthPct } from '../../hooks/usePanelLayout'
 
@@ -442,6 +450,12 @@ export function App() {
   // default-editor prompt ("Remind me later") runs only then, so it never
   // stacks on onboarding nor follows it in the same session.
   const [consentCurrentAtLoad, setConsentCurrentAtLoad] = useState<boolean | null>(null)
+  // The App Store edition import (#1243): its first-launch offer comes before
+  // onboarding (an import brings the consent along), and its one-time summary
+  // holds back the later-launch default-editor prompt.
+  useEffect(() => { void useAppStoreImportStore.getState().load() }, [])
+  const importOfferPending = useAppStoreImportStore((s) => !s.loaded || s.offerOpen)
+  const importSummaryDue = useAppStoreImportSummaryDue()
   useEffect(() => {
     if (!settingsLoaded) return
     const aiConsent = settings.aiConsent
@@ -449,8 +463,8 @@ export function App() {
     // current (e2e seeds one), only a missing record or a lower version is due.
     const current = !(!aiConsent || aiConsent.version < AI_CONSENT_VERSION)
     setConsentCurrentAtLoad((known) => (known === null ? current : known))
-    if (!current) setAIConsentDialogOpen(true)
-  }, [settingsLoaded, settings.aiConsent, setAIConsentDialogOpen])
+    if (!current && !importOfferPending) setAIConsentDialogOpen(true)
+  }, [settingsLoaded, settings.aiConsent, setAIConsentDialogOpen, importOfferPending])
   // Done closes the modal onto the home screen: the blank launch tab shows the
   // empty state (mark, shortcuts, New Document / Open File).
   const handleOnboardingFinish = useCallback(() => setAIConsentDialogOpen(false), [setAIConsentDialogOpen])
@@ -467,8 +481,12 @@ export function App() {
   // and re-opens the dialog under the user's cursor, detaching the button they are
   // mid-click on.
   const releaseNotesChecked = useRef(false)
+  const importStatusLoaded = useAppStoreImportStore((s) => s.loaded)
   useEffect(() => {
     if (!settingsLoaded) return
+    // Wait for the App Store import status: an import is welcomed by its own
+    // summary (#1243), not by this build's notes.
+    if (!importStatusLoaded) return
     if (releaseNotesChecked.current) return
     releaseNotesChecked.current = true
 
@@ -480,7 +498,10 @@ export function App() {
     // the effect above tests. Record the version silently so the next real update
     // is the first one that shows notes.
     const consentDue = !settings.aiConsent || settings.aiConsent.version < AI_CONSENT_VERSION
-    if (consentDue) {
+    // The same for a profile just imported from the App Store edition (#1243).
+    const imported = useAppStoreImportStore.getState().status?.result
+    const justImported = imported?.state === 'imported' && !imported.acknowledged
+    if (consentDue || justImported) {
       setLastSeenVersion(APP_VERSION)
       return
     }
@@ -489,7 +510,11 @@ export function App() {
     void (async () => {
       // No notes bundled for this build (a local build, a hotfix tag) is a normal
       // outcome: record the version and stay quiet rather than show an empty modal.
-      const notes = await getApi().getReleaseNotes?.(APP_VERSION).catch(() => null)
+      let notes: { markdown: string } | null = null
+      for (const id of releaseNotesIds(APP_VERSION, getApi().isMasBuild === true)) {
+        notes = (await getApi().getReleaseNotes?.(id).catch(() => null)) ?? null
+        if (notes?.markdown) break
+      }
       if (cancelled) return
       if (!notes?.markdown) {
         setLastSeenVersion(APP_VERSION)
@@ -503,7 +528,7 @@ export function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reads settings once,
     // behind the latch above; adding them back re-opens the dialog mid-click.
-  }, [settingsLoaded, setReleaseNotesOpen, setLastSeenVersion])
+  }, [settingsLoaded, importStatusLoaded, setReleaseNotesOpen, setLastSeenVersion])
 
   // Check for session/draft recovery after settings are loaded
   useEffect(() => {
@@ -653,6 +678,12 @@ export function App() {
           if (content) getApi().copyToClipboard(content)
           break
         }
+        case 'copyWithChanges': {
+          // The text as if every pending tracked change were accepted (#891).
+          const tabId = useTabStore.getState().activeTabId
+          if (tabId && hasSession(tabId)) getApi().copyToClipboard(serializeFinal(tabId))
+          break
+        }
         case 'addComment':
           window.dispatchEvent(new CustomEvent('menu:addComment'))
           break
@@ -713,6 +744,22 @@ export function App() {
 
     return unsubscribe
   }, [openFileInTab, saveFile, saveFileAs, createNewTab, setDialogOpen, toggleChat, toggleFileList, isFileListOpen, setShortcutsDialogOpen, setAboutDialogOpen, editor, reopenLastClosedTab])
+
+  // Show the native "Copy with changes" items (Edit menu, editor context menu)
+  // only while the active tab has pending tracked changes (#891, design §5).
+  useEffect(() => {
+    const api = getApi()
+    let shown: boolean | null = null
+    const push = () => {
+      const state = activeSessionState()
+      const available = state ? trackedChangesIn(state.doc).length > 0 : false
+      if (available === shown) return
+      shown = available
+      void api.setCopyWithChangesAvailable(available)
+    }
+    push()
+    return subscribeActiveSession(push)
+  }, [])
 
   // Keep the native "Reopen Closed Tab" menu item enabled only while the
   // session-only closed-tab stack has entries. Push the current emptiness to
@@ -775,15 +822,50 @@ export function App() {
   // Handle MCP tool invocations (only active in MCP server mode)
   useEffect(() => {
     if (!window.api?.onMcpToolInvoke) return
-    const unsubscribe = window.api.onMcpToolInvoke(async (requestId, toolName, args) => {
+    const unsubscribe = window.api.onMcpToolInvoke(async (requestId, toolName, args, sentActor) => {
       try {
-        const documentId = useEditorStore.getState().document.documentId
-        const result = await executeTool(toolName, args, 'create', {
-          model: 'Claude (MCP)',
-          conversationId: requestId,
-          messageId: requestId,
-          documentId: documentId ?? '',
-        })
+        // A `document` argument targets an open tab (#1237); without one the
+        // call acts on the active tab. Either way it keeps the writer's
+        // selection and focus, and only tab-changing tools change the tab.
+        // The bridge checks the allowlist in main; check it here too, so a call
+        // that reaches the renderer some other way can't run an unlisted tool
+        // (accept_diff and reject_diff stay the writer's, #607).
+        if (!isMcpToolName(toolName)) {
+          window.api.sendMcpToolResult(requestId, { success: false, error: `Unknown tool: ${toolName}`, code: 'UNKNOWN_TOOL' })
+          return
+        }
+        // A remote client (the relay, #1239) only ever gets the remote tools:
+        // open documents, never files or the writer's view. Main enforces each
+        // connection's approved scopes; this is the floor beneath them.
+        const actor = mcpActorFrom(sentActor)
+        if (actor?.via === 'relay' && !REMOTE_TOOL_NAMES.has(toolName)) {
+          window.api.sendMcpToolResult(requestId, { success: false, error: `${toolName} is not available to remote clients`, code: 'UNKNOWN_TOOL' })
+          return
+        }
+        const target = splitMcpTarget(toolName, args, requestId)
+        if ('error' in target) {
+          window.api.sendMcpToolResult(requestId, target.error)
+          return
+        }
+        const documentId = target.binding?.documentId ?? useEditorStore.getState().document.documentId
+        const result = await executeTool(
+          toolName,
+          target.args,
+          'create',
+          {
+            model: 'Claude (MCP)',
+            conversationId: requestId,
+            messageId: requestId,
+            documentId: documentId ?? '',
+            // Who the call is from: main builds it from the connection the
+            // token resolved to, or the stdio bridge's clientInfo (#1236).
+            // Never from the tool arguments; without one (a call sent by
+            // hand), the per-launch connection, as before.
+            actor: actor ?? { kind: 'mcp-agent', connectionId: LAUNCH_CONNECTION_ID, connectionLabel: DEFAULT_CONNECTION_LABEL },
+          },
+          target.binding,
+          { preserveView: true }
+        )
         window.api.sendMcpToolResult(requestId, result)
       } catch (error) {
         window.api.sendMcpToolResult(requestId, {
@@ -794,6 +876,33 @@ export function App() {
       }
     })
     return unsubscribe
+  }, [])
+
+  // Remote access (#1239): an assistant asked to use Prose through the relay.
+  // Nothing reaches it until the writer approves it, so say where. A trusted
+  // one (#1304) is already connected: say so, with its proven domain and what
+  // it can do, so a connection the writer didn't make doesn't pass unseen.
+  useEffect(() => {
+    return window.api?.onMcpRemoteChanged?.((change) => {
+      if (change.reason === 'connected') {
+        useNotificationStore.getState().notify({
+          id: 'remote-access-connected',
+          message: remoteConnectedMessage(change),
+          actionLabel: 'Review',
+          onAction: () => useSettingsStore.getState().setDialogOpen(true, 'integrations'),
+          durationMs: 15000,
+        })
+        return
+      }
+      if (change.reason !== 'pending') return
+      useNotificationStore.getState().notify({
+        id: 'remote-access-pending',
+        message: `${change.clientName.slice(0, 80)} asked to use Prose. Approve it in Settings → Integrations → Connections.`,
+        actionLabel: 'Review',
+        onAction: () => useSettingsStore.getState().setDialogOpen(true, 'integrations'),
+        durationMs: 15000,
+      })
+    })
   }, [])
 
   return (
@@ -807,7 +916,8 @@ export function App() {
         data-color={effectiveColor}
       >
         <Toolbar />
-        <UpdateBanner />
+        {/* The App Store updates the MAS build; its updater never starts (#1222). */}
+        {!getApi().isMasBuild && <UpdateBanner />}
 
         <div className="flex-1 overflow-hidden">
           <ResizablePanelGroup
@@ -864,7 +974,10 @@ export function App() {
           open={isModelPickerOpen}
           onOpenChange={setModelPickerOpen}
         />
-        {consentCurrentAtLoad === true && <DefaultHandlerPrompt />}
+        {consentCurrentAtLoad === true && !importSummaryDue && <DefaultHandlerPrompt />}
+        <AppStoreImportOffer />
+        <AppStoreImportConfirm />
+        <AppStoreImportSummary blocked={isOnboardingOpen} />
         <OnboardingDialog
           open={isOnboardingOpen}
           startAt={settings.aiConsent ? 'ai' : 'welcome'}

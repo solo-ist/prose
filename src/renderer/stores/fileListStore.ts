@@ -214,7 +214,8 @@ interface FileListState {
    */
   renameInTree: (oldPath: string, newPath: string, newName: string) => void
   loadNotebooks: (syncDirectory: string) => Promise<void>
-  loadCloudNotebooks: (deviceToken: string, syncDirectory: string) => Promise<void>
+  /** The cloud notebook list, read with the device token main holds (#1275). */
+  loadCloudNotebooks: (syncDirectory: string) => Promise<void>
   toggleNotebookSync: (notebookId: string, syncDirectory: string) => Promise<void>
   addSyncingNotebook: (id: string) => void
   removeSyncingNotebook: (id: string) => void
@@ -556,13 +557,13 @@ export const useFileListStore = create<FileListState>()(
       }
     },
 
-    loadCloudNotebooks: async (deviceToken: string, syncDirectory: string) => {
+    loadCloudNotebooks: async (syncDirectory: string) => {
       if (!window.api) return
 
       set({ isLoading: true })
       try {
         const [cloudNotebooks, syncState] = await Promise.all([
-          window.api.remarkableListCloudNotebooks(deviceToken),
+          window.api.remarkableListCloudNotebooks(),
           window.api.remarkableGetSyncState(syncDirectory)
         ])
         set({ cloudNotebooks, syncState, isLoading: false })

@@ -177,9 +177,9 @@ So a fork PR from an outside contributor goes green with **no review**, logging 
 All workflows in `.github/workflows/`:
 - `claude.yml` - Code review + `@claude` mention handler; entered via `/review` comment only (no `pull_request` trigger)
 - `review-feedback.yml` - Analyzes claude[bot] review comments, posts structured triage
-- `e2e.yml` - Electron Playwright tests on every PR (or `/test` comment)
+- `e2e.yml` - Electron Playwright tests on every PR (or `/test` comment); a Postgres service and `gateway/` installed for the relay spec's local gateway (#1239)
 - `web-e2e.yml` - Browser Playwright tests for `accelerated`-labeled or bot PRs
-- `gateway.yml` - Gateway share integration suite (`npm run test:share` against a Postgres service) on PRs touching `gateway/**`
+- `gateway.yml` - Gateway integration suites (`npm run test:share`, `test:mail`, `test:share:subdomains`, and the MCP relay's `test:relay`, against a Postgres service) on PRs touching `gateway/**`
 - `share-viewer-e2e.yml` - Shared web viewer suite (`e2e/web.share-viewer.spec.ts`) on PRs touching the viewer, the artifact builder, or the spec
 - `ci-gate.yml` - On E2E `workflow_run` success, auto-posts `/review` (the green-CI review trigger), gated on the PR author having repo write access; on failure, routes to auto-fix
 - `pipeline-triage.yml` - Scores review findings, routes to auto-fix or human review
@@ -211,18 +211,22 @@ When running as Electron:
 
 ### IPC Channels
 
-Most handlers live in `src/main/ipc.ts` (86 across 14 namespaces). A few sit closer to their feature: `sentry:setEnabled` and `renderer:ready` in `src/main/index.ts`, `updater:*` (3) in `src/main/updater.ts`, `file:watch:start` and `file:watch:stop` in `src/main/fileWatcher.ts`, and `mcp:tool:result` (via `ipcMain.on`, not `handle`) in `src/main/mcp/bridge.ts`.
+Most handlers live in `src/main/ipc.ts` (86 across 14 namespaces). A few sit closer to their feature: `sentry:setEnabled` and `renderer:ready` in `src/main/index.ts`, `updater:*` (3) in `src/main/updater.ts`, `file:watch:start` and `file:watch:stop` in `src/main/fileWatcher.ts`, `appStoreImport:*` (6) in `src/main/appStoreImportIpc.ts`, `mcp:tool:result` (via `ipcMain.on`, not `handle`) in `src/main/mcp/bridge.ts`, `mcp:connections:*` (4) and `mcp:endpoint` in `src/main/mcp/connectionsIpc.ts`, and `mcp:remote:*` (8) in `src/main/mcp/relayService.ts`.
 
 - `file:*` (22) - File operations (open, save, read, rename, delete, trash, duplicate, watch, export HTML, MAS bookmark activation, etc.) — 20 handlers in `ipc.ts`, plus `file:watch:start` and `file:watch:stop` in `fileWatcher.ts`
 - `settings:*` (4) - Settings persistence, secure storage check, API key test
-- `llm:chat`, `llm:fetchModels`, `llm:stream`, `llm:stream:abort` - LLM API calls (streaming via Anthropic SDK)
+- `llm:chat`, `llm:fetchModels`, `llm:stream`, `llm:stream:abort` - LLM API calls (the Anthropic SDK, the Responses adapter for OpenAI, or the Chat Completions adapter for compatible gateways); the request names a provider and main reads its key
+- `llm:keyStatus`, `llm:setKey`, `llm:clearKey` - Per-provider API keys: the renderer sets or clears a key and reads back only its status (#1240)
 - `remarkable:*` (20) - reMarkable tablet sync (register, validate, sync, sync:abort, OCR, folder move, etc.)
-- `mcp:*` (3) - MCP server status, install, uninstall for Claude Desktop
+- `mcp:*` (8) - MCP server status, install, uninstall for Claude Desktop; connections (list, create, rename, revoke) and the HTTP endpoint's URL (#1236)
+- `mcp:remote:*` (8) - Remote access (#1239): status, the switch, and the remote connections (list, approve, update, deny, remove, acknowledge — the writer has seen the connections, #1304); main pushes `mcp:remote:changed`. Every handler refuses on MAS builds
 - `share:*` (21) - Gateway sharing: sign-in, access, publish/republish/revoke, local list + `share:listRemote` gateway reconcile (#1037), comments pull/push, path updates. Only the two local reads (`share:list`, `share:getForPath`) are callable on MAS builds
 - `sentry:setEnabled` - Toggle Sentry error tracking from renderer
 - `updater:*` (3) - Auto-update check, download, install (Electron auto-updater)
+- `appStoreImport:*` (6) - Import the App Store edition's profile into the direct build (#1243): status, start (stages the import and relaunches; the copy runs in `runPendingImport` at the next launch, before anything opens the profile), decline, acknowledge, importKeys / discardKeys. Every handler reports unavailable on MAS builds
 - `skill:download` - Download an external skill for use inside Prose
 - `clipboard:*` (1) - Write text to system clipboard
+- `menu:*` (2) - The native menu's renderer-driven items: Reopen Closed Tab (enabled while the closed-tab stack has entries) and Copy with changes (shown in the Edit menu and the editor's context menu while the active tab has pending tracked changes, #891)
 - `appearance:*` (1) - Pin the macOS dock tile to the Prose icon
 - `window:*`, `shell:*`, `recentFiles:*`, `emoji:*`, `fileAssociation:*` - Utility handlers
 
@@ -231,13 +235,13 @@ Most handlers live in `src/main/ipc.ts` (86 across 14 namespaces). A few sit clo
 Editor state is not in a store. Every open tab owns a ProseMirror `EditorState` held by a session in `src/renderer/document/session.ts` (see "Editor" below); the tab record in `tabStore` is the truth for a document's body, frontmatter, dirty flag, preview / read-only flags and rich-or-source mode; annotation records, comment threads and suggestions live in the plugins' own state.
 
 Zustand stores in `src/renderer/stores/`:
-- `tabStore` - The tab records (`Tab`: identity, `content`, `frontmatter`, `isDirty`, `isPreview`, `readOnly`, `mode`, `viewState`), the closed-tab history, session persistence to IndexedDB; `useActiveTab(select)` reads the active record
+- `tabStore` - The tab records (`Tab`: identity, `content`, `frontmatter`, `isDirty`, `isPreview`, `readOnly`, `mode`, `suggesting`, `viewState`), the closed-tab history, session persistence to IndexedDB; `useActiveTab(select)` reads the active record
 - `editorStore` - A **mirror** of the active tab's record (`document`: id, path, content, frontmatter, dirty; written only by the session layer and `tabs/actions.ts`) plus UI flags (`isEditing`, `isRemarkableReadOnly`, `isAutosaving`, `annotationsVisible`, the AI frontmatter overlay `pendingFrontmatter`, the status-bar cursor). Nothing computes on the mirror.
 - `editorInstanceStore` - TipTap editor instance reference
 - `chatStore` - Chat messages, conversations, streaming state, panel visibility
 - `settingsStore` - App settings (theme, LLM config, editor preferences)
 - `fileListStore` - File explorer state and directory listing
-- `reviewStore` - Review mode (`quick`/`side-by-side` for AI edits, `comments` for comment threads), suggestion navigation
+- `reviewStore` - Review mode (`quick`/`side-by-side` for AI edits, `comments` for comment threads), suggestion navigation, the tracked-change display per tab (`trackedDisplay`, not persisted)
 - `summaryStore` - AI-generated document summaries, staleness tracking
 - `commandHistoryStore` - Per-tool argument history, persisted to IndexedDB
 - `linkHoverStore` - Currently hovered link URL for tooltip
@@ -270,16 +274,19 @@ Client-side persistence uses IndexedDB (`src/renderer/lib/persistence.ts`). When
 - **Upgrades can be blocked** if the database is open in another tab. The upgrade waits until all connections close, but users may not notice. New stores may silently fail to create.
 - **Test fresh installs and upgrades** separately. A fresh install always gets the latest schema, but existing users need the migration path.
 
-**Editor-state rules (comments, AI suggestions, AI annotations):** marks and
-decorations are NOT serialized into the `.md`; the records live in IndexedDB
-keyed by `documentId` and are re-applied at load by matching the marked text.
-Four rules keep them safe, each enforced by a mechanism rather than a
-convention (design: `docs/architecture/editor-state.md` §3.3; the tripwires in
+**Editor-state rules (comments, AI suggestions, AI annotations, the review log,
+tracked changes):** marks and decorations are NOT serialized into the `.md`;
+the records live in IndexedDB keyed by `documentId` and are re-applied at load
+by matching the marked text. Five record kinds (`annotations`, `comments`,
+`suggestions`, `reviewLog`, `tracked`), four rules keep them safe, each
+enforced by a mechanism rather than a convention (design:
+`docs/architecture/editor-state.md` §3.3; the tripwires in
 `e2e/electron.document-sessions.spec.ts` fail the build when one is broken):
-1. **No write without the producing state's document id.** The three IndexedDB
-   writers (`saveAnnotations`, `saveComments`, `saveSuggestions` and their
-   deletes) are imported only by `document/session.ts`, whose `persistRecords`
-   reads the id and the records from the same `EditorState`.
+1. **No write without the producing state's document id.** The IndexedDB
+   writers (`saveAnnotations`, `saveComments`, `saveSuggestions`,
+   `saveReviewLog`, `saveTracked` and their deletes) are imported only by
+   `document/session.ts`, whose `persistRecords` reads the id and the records
+   from the same `EditorState`.
 2. **Id and records change together.** They are fields of one immutable
    `EditorState` (the identity plugin and each record plugin's state): a state
    is created whole and replaced whole, so no moment has the next id with the
@@ -295,11 +302,29 @@ convention (design: `docs/architecture/editor-state.md` §3.3; the tripwires in
    projection is a function in `session.ts`, added in a PR that cites the
    design (`docs/patterns.md`, "How to Add a Session Writer or Projection").
 
+**Tracked changes never reach a file** (#891, `docs/architecture/suggesting-mode.md` §5):
+pending `trackedInsert` / `trackedDelete` marks are proposals, so the file holds
+the original until one is accepted. Every serialization in `session.ts` goes
+through `originalOf(doc)` (insertions left out, deletion marks dropped):
+the projection, the save, the #1102 baseline, Copy Markdown, `read_document`;
+Export HTML and a share publish use `originalHTML`. `finalOf` / `serializeFinal`
+(as if every change were accepted) serve "Copy with changes" only. The pending
+changes are the fifth record kind, `tracked` (`DB_VERSION` 11): each range with
+up to 32 characters of original text either side (within its paragraph),
+written by `session.ts` in every transaction that changes the set (no
+debounce: a crash loses nothing; an empty set included), put back by exact
+context in the seed (nearest the offset hint when it repeats) and across a
+source-mode exit, and **orphaned** (kept in the review log as `superseded`,
+`orphaned: true`, event `suggestion:orphaned`) when the context is gone. A
+tripwire forbids serializing the raw document anywhere in the renderer.
+
 ### LLM Integration
 
-**Anthropic is the only provider.** All legacy multi-provider code (OpenAI, OpenRouter, Ollama) has been removed. The `Settings` type defines `provider: 'anthropic'` only.
+**Providers** are listed in `src/shared/llm/providers.ts` (transport, base URL, credential key, models, small model, thinking, live-model filter): Anthropic (`transport: 'anthropic'`, its SDK), OpenAI (`transport: 'responses'`, #1301) and Inference Coop (`transport: 'chat-completions'`, #956: LiteLLM at `https://gateway.inference.coop/v1`, `reasoning_effort: "none"` on every request, its key page never linked from the MAS build). Every switch on the transport in main is exhaustive (a `never` default), so a new one fails to compile until each path handles it. **Anthropic-only, whatever the chat provider:** reMarkable OCR reads the Anthropic key. Tab emoji use the provider in use but always its `smallModel` (#1324), never the chat model: `emoji:generate` takes the provider from the renderer, picks the model in main and answers through the same function as `llm:chat`. **Keys stay in main** (`src/main/llmKeys.ts`): the renderer never holds one. It sees `settings.llm.keyStatus` (each provider's last four characters and whether the key persists), stores a key with `setLlmKey` and clears it with `clearLlmKey`; `settings:save` never stores a key. Settings → LLM shows one key row per provider (`components/settings/ProviderKeys.tsx`). Both providers work side by side (#1287): every model picker (Settings → LLM's Model list, the status bar, ⇧⌘M) reads `useModelGroups()`, every provider's models under its name (each keyed provider's live list once fetched, `settingsStore.liveModels`, else its seed; a provider without a key shows an "Add a key" row instead of models), and a pick calls `selectModel(provider, model)`, which sets both and remembers the model being left (`settings.llm.modelByProvider`). The first key saved picks the provider in use while that one has no key; clearing the in-use provider's key moves to a provider that still has one. Onboarding's key step has a field per provider, each verified on its own. **Names, the shown set and mode defaults (#1322):** every model is named from its id by `modelNames()` (`src/shared/llm/modelNames.ts`): a short name for the status bar and authorship labels ("Sonnet 5.5", "Terra 6.1"), a long one for menus ("Claude Sonnet 5.5", "OpenAI Terra 6.1", "Regolo Apertus 70b"); never show a provider's own display name or a raw id where one of these fits. Pickers list a provider's `featuredModels` (its flagships) until the writer checks their own set in Settings → LLM → Models in menus (`settings.llm.shownModels`, absent per provider until changed); a group's `models` is that shown set, `allModels` everything on offer, and the model in use is always listed. `settings.llm.modeModels` gives a mode a default model: entering the mode selects it (`applyModeModel`, told synchronously through `stores/toolModeBridge.ts`), skipped when its provider has no key and at launch.
 
-LLM calls flow: `useChat` hook → `getApi().llmChatStream()` → IPC → main process → Anthropic SDK (with tools) or Vercel AI SDK (without)
+LLM calls flow: `useChat` hook → `getApi().llmChatStream()` → IPC → main process → Anthropic SDK (with tools) or Vercel AI SDK (without), or for OpenAI `src/main/responses.ts`, or for a Chat Completions provider `src/main/chatCompletions.ts` (tools or not). Each adapter translates Prose's Anthropic-shaped messages and tools out and the SSE stream back into the same `llm:stream:*` events, so `useChat` never knows which API answered.
+
+**OpenAI speaks the Responses API** (`POST /responses`, #1301) because its newer models take tools together with reasoning only there. Requests are stateless (`store: false`). The thinking toggle applies to OpenAI's reasoning models (`supportsThinkingToggle`): on sends `reasoning: { effort: 'medium', summary: 'auto' }` and the summary streams into the thought-process block; off sends the lowest effort the model accepts. Which efforts a model takes isn't in its id, so `ProviderInfo.responses` gives first guesses and the adapter learns from the provider's refusals for the rest of the launch (`ReasoningLessons`: the effort, whether the organization may have summaries), resending before anything streams. A reasoning model's reasoning items must return with its tool calls, and the renderer's messages don't carry them, so main keeps each tool round's output items in memory (`ReplayMemory`, by call id and model) and sends them back verbatim; a round it no longer has is rebuilt from the message.
 
 **Gating AI entry points:** any UI or background path that triggers an LLM call must gate on the single source of truth in `lib/llm.ts` — `isAIConfigured(settings)` / `aiAvailability(settings)` (consent **and** valid config), or the `useAIConfigured()` hook in components. Disable user-initiated controls with an explanation when unavailable, fire `notifyAINotConfigured()` for blocked actions whose surface may be hidden, and silently no-op auto-fired calls (e.g. summaries). Never destroy user content (comments, suggestions) on a blocked call.
 
@@ -333,10 +358,47 @@ AI-generated edits can be reviewed before accepting. Two modes:
 - **Quick review** — inline diff with per-change accept/reject controls
 - **Side-by-side** — full diff view with navigation
 
+Every card in both shows the change inside its sentence, as the file holds it
+(`components/review/reviewContext.ts`, drawn by `ReviewText.tsx`; #1295): the
+context muted, the changed text highlighted, and a thin marker where a pure
+insertion goes or a pure deletion went.
+
 Comment threads have their own top-level review surface, **Comment Review**
 (`CommentReviewPanel`) — a peer of Quick Review managed through the same
 `reviewStore` mode slot (`reviewMode === 'comments'`), so the two are mutually
 exclusive and toggle cleanly. Prev/next navigation wraps in all review panels.
+
+**Tracked changes and Suggesting mode** (#891; design
+`docs/architecture/suggesting-mode.md`, build log `docs/issues/891/`): text
+marks `trackedInsert` / `trackedDelete` (`id`, `actor`, `createdAt`) in
+`extensions/tracked-changes/`. Agents make them with `suggest_insert` /
+`suggest_delete`; the writer makes them in **Suggesting mode**, a per-tab
+toggle (toolbar pen button, status bar "Editing / Suggesting"; `tab.suggesting`
+plus the plugin state, set only by `setSessionSuggesting`). Its filter is
+`trackTransaction` (`filter.ts`), a pure rewrite of the writer's transaction
+installed in front of the view's dispatch by `attachEditor`: inserted text is
+marked, deleted text is struck instead of removed, the writer's own pending
+insertion deletes for real, a stretch of the writer's change that reads the
+same before and after (a space deleted and typed back, a word retyped) is plain
+text again, a deletion across another actor's insertion rejects that change;
+mark steps and node-type changes apply directly; a block
+boundary (Enter, a join, a multi-paragraph paste) or a code block is refused
+with a notice. Source mode is unavailable while the tab suggests or has
+pending tracked changes (`sourceBlockedBy` in `tabs/actions.ts`; the toggles
+say why). Undo, decisions and every tool write through a `DocumentHandle`
+(tagged `TRACK_SKIP_META`) pass untouched. The writer decides in Quick Review
+(`components/review/reviewItems.ts` merges tracked changes with AI
+suggestions), with `acceptTrackedChange` / `rejectTrackedChange` and the
+all-variants (decider in the review log; an accepted agent insertion becomes
+an AI annotation). Display (All changes / No deletions / Final) is CSS on the
+editor container, per tab, not persisted. Because the tab stays clean while
+changes are pending, their count is shown on its own: a badge on the toolbar
+pen and, counted together with the AI suggestions, "N suggestions" in the
+status bar (agents' changes included, mode on or off; the tooltip splits the
+two). "Copy with changes" (`serializeFinal`) sits beside Copy Markdown in
+the Edit menu and in the editor's context menu (main shows it through
+`menu:setCopyWithChangesAvailable`, driven by `App.tsx`), and in the toolbar's
+⋯ menu, only while there are pending changes.
 
 Managed by `reviewStore` and components in `src/renderer/components/review/`.
 
@@ -356,11 +418,15 @@ Syncs handwritten notebooks **and typed-text documents** (Type Folio keyboard in
 
 ### MCP Server
 
-Prose exposes itself as an MCP server to Claude Desktop via two components:
-- `src/main/mcp/` - Socket server + HTTP bridge inside the Electron main process. Relays tool calls to the renderer via IPC.
-- `src/mcp-stdio/` - Standalone stdio server that Claude Desktop launches. Connects to the running app via Unix socket; auto-launches Prose if not running.
+Prose is an MCP server for any client (Claude Desktop, Claude Code, Codex, Open WebUI, LibreChat). One server definition (`src/shared/mcp/server.ts`, on the v2 SDK `@modelcontextprotocol/server`) serves protocol revisions 2025-11-25 (the `initialize` handshake) and 2026-07-28 (`server/discover`, the per-request envelope), with client-neutral `instructions` (`src/shared/mcp/instructions.ts`). Two components:
+- `src/main/mcp/` - Inside the Electron main process: the Streamable HTTP endpoint on loopback (`/mcp`; port 9877 for the installed app, 9878 unpackaged, `PROSE_MCP_PORT` overrides; Host and Origin checks, then a bearer token: a **connection's** token or the per-launch one in `<userData>/mcp-auth-token`), the Unix socket the stdio bridge uses, and the IPC bridge that relays tool calls to the renderer.
+- **Connections** (#1236, `src/main/mcp/connections.ts`): one named, revocable token per client, created in Settings → Integrations → Connections, stored as a SHA-256 hash in `<userData>/mcp-connections.json` (0600); the token is shown once. **Main builds the actor** for every MCP call — the connection (HTTP), or the stdio client's `clientInfo` — and sends it beside the call (`mcp:tool:invoke`'s fourth argument); the renderer accepts it only through `mcpActorFrom` (`src/shared/mcp/actor.ts`) and never reads identity from tool arguments.
+- `src/mcp-stdio/` - Standalone stdio server that clients launch. Relays to the socket of the profile it was installed into (`profile.ts`; `PROSE_USER_DATA_DIR` overrides); auto-launches only the installed app.
+- **The remote relay, gateway side** (#1238; design `docs/architecture/mcp-relay.md`): ChatGPT and claude.ai reach Prose through the gateway, never the writer's machine. `gateway/src/auth/oauth.ts` makes the gateway an OAuth 2.1 authorization server (`@better-auth/oauth-provider` + `@better-auth/cimd` 1.7.18, pinned to its Better Auth) for one resource, `<gateway>/mcp` (`https://api.prose.solo.ist/mcp`): CIMD and open DCR (rate-limited per IP), PKCE S256, the `resource` parameter required, scopes `read` / `propose` / `comment` (+ `offline_access`), opaque access tokens (1 h) and rotating refresh tokens (30 d) stored hashed and checked on every call, so a revoke bites at once. `gateway/src/relay/`: discovery (`wellKnown.ts`), the email-code sign-in and consent pages (`pages.ts`), `POST /mcp` (`mcp.ts`: filters `tools/list` and refuses out-of-scope calls by `scopes.ts`, forwards in memory, "Prose is not running" with no desktop), `GET /relay` (`socket.ts` + `hub.ts`: the desktop's dial-out WebSocket, session cookie, no `Origin`, one per account + device), `POST /api/relay/revoke`, metadata-only logs (`log.ts`). Tested by `gateway/scripts/test-relay.mjs` (`npm run test:relay`).
+- **The remote relay, desktop side** (#1239): **Remote access** (Settings → Integrations → Connections, `components/settings/RemoteAccess.tsx`), off by default, direct build only; it needs the gateway sign-in. On, main dials out (`src/main/mcp/relay.ts`, Node's WebSocket, `<gateway>/relay?device=<id>` with the origin-bound session cookie; pong, backoff, `{type:'active'}` on window focus; the gateway's `{type:'routing', active}` frames drive "Receiving remote calls" / "Another Mac is active"); off closes the socket at once, the kill switch. A pending client gets a toast with Review and a count in Settings, on the Integrations tab and on the Dock (direct build) until approved or declined. `IS_MAS_BUILD` never dials. The second gate is `src/main/mcp/relayCalls.ts`: a client the writer hasn't approved is recorded as pending in `<userData>/mcp-remote.json` (`remoteConnections.ts`, 0600) and refused. **Trusted clients skip it (#1304):** one the gateway verified (CIMD) whose client id is on a listed domain (`src/shared/mcp/trustedRemoteClients.ts`: claude.ai, chatgpt.com, inference.coop and its subdomains) is connected on its first call with its token's scopes, announced by a toast naming its domain, and counted on the Integrations tab and the Dock until the writer has seen it in Settings (`reviewedAt`, `mcp:remote:acknowledge`); trust reads the verified domain, never the name, and adding a domain is a security decision (design `docs/architecture/mcp-relay.md` §6–7). A connected client reaches only the tools both its token's scopes and the writer's approval allow (`src/shared/mcp/remoteScopes.ts`, kept identical to the gateway's table by a test), through `createProseMcpServer({ allowedTools })` behind `createMcpHandler`, with the actor `{ connectionId: 'remote:<client id>', connectionLabel: <the writer's label>, client: <registered name>, via: 'relay' }`. Deny and remove refuse at once, then revoke the client at the gateway (`POST /api/relay/revoke`). The renderer refuses any non-remote tool for a `via: 'relay'` actor. Remote clients never get `open_file`, `create_and_open_file` or `select_tab`. E2E: `e2e/electron.mcp-relay.spec.ts`, against a real local gateway (`PROSE_E2E_GATEWAY_DATABASE_URL`; CI's e2e job has a Postgres service).
+- **Claude Desktop extension** (#1257, `src/main/mcp/mcpb.ts` + `zip.ts`): `mcp:installExtension` builds this profile's `<userData>/mcp-server/Prose.mcpb` (manifest 0.3, the bundled bridge as `server/index.cjs`, `PROSE_USER_DATA_DIR` in `env` for any profile but the installed app's) and opens it, which shows Claude Desktop's install dialog. `runtimes.node: >=20` lets Claude Desktop fall back to its built-in Node (24.22 at Claude 4.23118). The config-file install (`mcp:install`) stays as the fallback for a system Node 20+. `PROSE_MCPB_OPEN=0` writes without opening (tests).
 
-Exposes 10 tools (the `mcpToolNames` subset in `src/shared/tools/registry.ts`): `read_document`, `get_outline`, `open_file`, `suggest_edit`, `create_and_open_file`, `list_comments`, `add_comment`, `resolve_comment`, `list_tabs`, `select_tab`.
+Exposes 19 tools (the `mcpToolNames` subset in `src/shared/tools/registry.ts`): `read_document`, `get_outline`, `open_file`, `suggest_edit`, `create_and_open_file`, `list_comments`, `add_comment`, `resolve_comment`, `reply_to_comment`, `reopen_comment`, `list_tabs`, `select_tab`, the review lifecycle (#890) `list_suggestions`, `reply_to_suggestion`, `revise_suggestion`, `get_review_status`, `list_review_events`, and the tracked changes (#891) `suggest_insert` (text into a paragraph: `nodeId` and/or `search`, `position` before / after / start / end) and `suggest_delete` (`nodeId` + an exact `search` phrase). Both match the node's original text, as `read_document` reports it, never move the writer's caret, and refuse a line break, a code block and a `.txt`; `revise_suggestion` refuses a tracked change (`TRACKED_CHANGE`). Accept and reject are never on the list: the writer decides (#607), and agents follow decisions through `list_review_events`. `revise_suggestion` replaces a pending suggestion (it becomes `superseded`) or follows one the writer rejected (#1266): a new pending suggestion on the same node, linked both ways, while the old one stays `rejected`; the node is the call's `nodeId`, else the one the log row recorded (`SuggestionHistory.nodeId`; node ids change when a document reopens), else the one node still holding the original text. An accepted suggestion can't be revised (`SUGGESTION_ACCEPTED`): the agent calls `suggest_edit` again. The document tools take an optional `document` (a documentId or path from `list_tabs`) that must name an open tab (#1237). MCP calls never move the writer's caret, focus or tab (tab-changing tools aside), and the renderer re-checks the allowlist the main-process bridge enforces. Every record an MCP call makes carries an `Actor` (`src/shared/review/actor.ts`, #1232), and the review log (`extensions/review-log/`, #1233) keeps each suggestion's history and the events. Their titles, annotations, output schemas and MCP-specific descriptions live in `src/shared/tools/mcpMetadata.ts`; results carry `structuredContent` beside the text. `zod` is a direct 3.x dependency on purpose: the app's tool schemas are zod 3, and the v2 SDK brings its own zod 4 (the migration is #1216).
 
 ### Shared Code
 
@@ -385,14 +451,14 @@ Step-by-step recipes for common extension tasks (settings tab, IPC channel, TipT
 ## Security Rules
 
 - **Path handling** — every filesystem IPC handler declares its **path source** in a comment (`// Path source: A|B|C …`, see `src/main/paths.ts`) and validates accordingly. **A (user-chosen: dialogs, explorer entries, the current tab, settings roots)** → `normalizePath()`. KNOW WHAT IT IS: a normalizer, NOT containment — `normalize()` resolves `..` before the traversal check, so `a/../../etc/x` passes clean. **B (content-derived: document text, image srcs, imported artifacts, `prose://` payloads, LLM/MCP tool arguments, sync metadata)** → `resolveWithin(root, path, …)` with an explicit containment root; it realpaths both sides and applies extension / hidden-folder rules (`file:readBase64` — audit H-03; tool paths use `resolveToolPath()`: text files under home or a user-chosen workspace root — default save directory, projects, favorites — never inside a hidden folder). **C (a user-chosen directory + a typed name)** → sanitize the name in the renderer with `sanitizeEntryName()` before joining. Never cite `normalizePath()` as a traversal defense. (#918)
-- **API keys** — store via `credentialStore` (OS `safeStorage`), never in plaintext. If `safeStorage` is unavailable, keys are stripped, not saved.
+- **API keys** — store via `credentialStore` (OS `safeStorage`), never in plaintext, and only from main: LLM keys go through `src/main/llmKeys.ts` and never cross to the renderer (#1240). If `safeStorage` is unavailable, a key is held in main's memory for the session and never written.
 - **No `innerHTML` with dynamic data** — use JSX or `textContent`. LLM-generated content must never be inserted as raw HTML.
 - **Sandbox settings** — `contextIsolation: true`, `nodeIntegration: false` — never change these.
 - **External URLs** — `shell.openExternal` only allows `http:` and `https:` protocols. All others are silently dropped.
 - **CORS** — MCP HTTP server only reflects `localhost`/`127.0.0.1` origins. No wildcard `Access-Control-Allow-Origin`.
 - **DevTools** — stripped from production View menu. Set `PROSE_DEBUG=1` env var to re-enable for debugging.
 - **Privacy manifest** — `resources/PrivacyInfo.xcprivacy` declares required-reason API usage for Apple. Update when adding new system APIs.
-- **MAS sandbox** — MCP install/uninstall/status handlers are blocked via `IS_MAS_BUILD`. Settings path uses `app.getPath('userData')` (sandbox-safe). Never use `homedir()` + `.prose` for new data paths.
+- **MAS sandbox** — MCP install/uninstall/status handlers and Remote access (`mcp:remote:*`; the relay never dials out) are blocked via `IS_MAS_BUILD`. Settings path uses `app.getPath('userData')` (sandbox-safe). Never use `homedir()` + `.prose` for new data paths.
 - **App Store submission** — NEVER submit builds for App Store review. Upload to App Store Connect / TestFlight is the automation boundary. Submission for review is always a human decision and action.
 
 ## Sentry Debugging

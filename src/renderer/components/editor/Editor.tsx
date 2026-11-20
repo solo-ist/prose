@@ -4,6 +4,7 @@ import { TextSelection } from '@tiptap/pm/state'
 import type { Slice } from '@tiptap/pm/model'
 import type { EditorView } from '@tiptap/pm/view'
 import { useNotificationStore } from '../../stores/notificationStore'
+import { useTrackedDisplay } from '../../stores/reviewStore'
 import { useEditor } from '../../hooks/useEditor'
 import { useSettings } from '../../hooks/useSettings'
 import { useChat } from '../../hooks/useChat'
@@ -161,6 +162,8 @@ export function Editor() {
   const isPreviewTab = useActiveTab((tab) => tab?.isPreview ?? false)
   const frontmatter = useActiveTab((tab) => tab?.frontmatter ?? EMPTY_FRONTMATTER)
   const annotationsVisible = useEditorStore((state) => state.annotationsVisible)
+  // How tracked changes show in this tab (#891): CSS only, per tab, not persisted.
+  const trackedDisplay = useTrackedDisplay()
   const toggleAnnotationsVisible = useEditorStore((state) => state.toggleAnnotationsVisible)
   // The active tab's source session (#1150): its CodeMirror state is the
   // surface's, kept by the session across switches.
@@ -205,6 +208,17 @@ export function Editor() {
         useNotificationStore.getState().notify({
           id: 'comment-overlap-blocked',
           message: 'This text already has a comment — reply to the existing thread instead of adding a new one.',
+        })
+      },
+      // Suggesting mode tracks text within a paragraph (#891); an edit it
+      // can't track is refused, never applied untracked, and the writer is told.
+      onTrackedRefused: (reason) => {
+        useNotificationStore.getState().notify({
+          id: 'tracked-refused',
+          message:
+            reason === 'no-marks'
+              ? 'Suggesting mode can’t track changes in a code block. Turn Suggesting off to edit it.'
+              : 'Suggesting mode tracks changes within a paragraph. Turn Suggesting off to add, split or join paragraphs.',
         })
       },
     }),
@@ -551,6 +565,10 @@ export function Editor() {
       // F1: Show keyboard shortcuts
       e.preventDefault()
       setShortcutsDialogOpen(true)
+    } else if (isMod && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'm') {
+      // Cmd+Shift+M: Switch model (#1316)
+      e.preventDefault()
+      setModelPickerOpen(true)
     } else if (e.shiftKey && e.key === 'Tab' && !isMod) {
       // Shift+Tab: Cycle through tool modes (chat → editor → create → chat).
       // Editor must be reachable via keyboard — it's the new safe-by-default
@@ -753,7 +771,7 @@ export function Editor() {
           from: pendingPasteAnnotation.from,
           to: annotationTo,
           content: pendingPasteAnnotation.text,
-          provenance: { model: 'External AI', conversationId: 'paste', messageId },
+          provenance: { model: 'External AI', conversationId: 'paste', messageId, actor: { kind: 'unattributed', label: 'External AI' } },
           explanation: 'Marked pasted text as AI-authored',
         },
       ])
@@ -892,7 +910,7 @@ export function Editor() {
             </div>
           )}
           <TransformAnimation isTransforming={isTransforming} onComplete={completeTransform}>
-            <div className={`max-w-3xl mx-auto prose-editor ${isRemarkableReadOnly && !isTransforming ? 'opacity-80 select-none' : ''} ${!annotationsVisible ? 'hide-annotations' : ''}`}>
+            <div className={`max-w-3xl mx-auto prose-editor tracked-display-${trackedDisplay} ${isRemarkableReadOnly && !isTransforming ? 'opacity-80 select-none' : ''} ${!annotationsVisible ? 'hide-annotations' : ''}`}>
               {showFrontmatter && (
                 isRemarkableReadOnly || isPreviewTab
                   ? <FrontmatterDisplay frontmatter={frontmatter} />

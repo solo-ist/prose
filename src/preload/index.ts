@@ -2,6 +2,11 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { Settings, RemarkableSyncPhase } from '../renderer/types'
 import type { ToolResult } from '../shared/tools/types'
 import type { FileAccessOptions } from '../shared/fileAccess'
+import type { LlmErrorKind } from '../shared/llm/errors'
+import type { LLMKeyStatusMap } from '../shared/llm/providers'
+
+import type { AppStoreImportKeysResult, AppStoreImportStart, AppStoreImportStatus } from '../shared/appStoreImport'
+import type { RemoteAccessStatus, RemoteChange, RemoteConnection, RemoteForgetResult, RemoteResult } from '../shared/mcp/remoteAccess'
 import {
   unwrapReadFileResult,
   unwrapSaveFileResult,
@@ -29,7 +34,6 @@ export interface LLMToolDefinition {
 export interface LLMRequest {
   provider: string
   model: string
-  apiKey: string
   baseUrl?: string
   messages: LLMMessage[]
   system: string
@@ -99,6 +103,8 @@ export interface LLMStreamComplete {
 export interface LLMStreamError {
   streamId: string
   error: string
+  /** The one classification of the failure (#1268); the chat's hint keys on it. */
+  kind?: LlmErrorKind
 }
 
 export interface McpStatus {
@@ -109,13 +115,23 @@ export interface McpStatus {
 
 export interface TestApiKeyRequest {
   provider: string
-  apiKey: string
+  /** A typed key not yet saved; without one, main tests the provider's saved key. */
+  apiKey?: string
   baseUrl?: string
+}
+
+/** What `llm:setKey` answers: the key status map, never a key (#1240). */
+export interface SetLlmKeyResult {
+  ok: boolean
+  error?: string
+  status: LLMKeyStatusMap
 }
 
 export interface TestApiKeyResult {
   success: boolean
   message: string
+  /** The key is valid but can't be used yet (its account has no credits, #1268): shown, not refused. */
+  warning?: boolean
 }
 
 export interface McpServerStatus {
@@ -137,6 +153,22 @@ export interface McpInstallResult {
   error?: string
 }
 
+/** An MCP connection (#1236): a client's named, revocable token. The token itself is never listed. */
+export interface McpConnection {
+  id: string
+  label: string
+  createdAt: number
+  lastUsedAt: number | null
+}
+
+export type McpConnectionResult<T> = { ok: true; value: T } | { ok: false; error: string }
+
+export interface McpEndpointInfo {
+  available: boolean
+  port: number
+  url: string
+}
+
 export interface ElectronAPI {
   openFile: () => Promise<FileResult | null>
   saveFile: (path: string, content: string, opts?: FileAccessOptions) => Promise<void>
@@ -148,10 +180,13 @@ export interface ElectronAPI {
   loadSettings: () => Promise<Settings>
   saveSettings: (settings: Settings) => Promise<void>
   testApiKey: (request: TestApiKeyRequest) => Promise<TestApiKeyResult>
-  fetchModels: (request: { provider: string; apiKey: string }) => Promise<{
+  fetchModels: (request: { provider: string; apiKey?: string }) => Promise<{
     models?: Array<{ id: string; name: string; description?: string }>
     error?: string
   }>
+  getLlmKeyStatus: () => Promise<LLMKeyStatusMap>
+  setLlmKey: (request: { provider: string; key: string }) => Promise<SetLlmKeyResult>
+  clearLlmKey: (provider: string) => Promise<LLMKeyStatusMap>
   onMenuAction: (callback: (action: string) => void) => () => void
   onFileOpenExternal: (callback: (path: string) => void) => () => void
   llmChat: (request: LLMRequest) => Promise<LLMResponse>
@@ -186,16 +221,18 @@ export interface ElectronAPI {
   exitFullScreen: () => Promise<void>
   listDirectory: (path: string, maxDepth?: number, showDotfiles?: boolean, opts?: FileAccessOptions) => Promise<FileItem[]>
   remarkableRegister: (code: string) => Promise<RemarkableRegisterResponse>
-  remarkableValidate: (deviceToken: string) => Promise<boolean>
-  remarkableSync: (deviceToken: string, syncDirectory: string) => Promise<RemarkableSyncResult>
+  /** Validate the device token main holds. */
+  remarkableValidate: () => Promise<boolean>
+  remarkableSync: (syncDirectory: string) => Promise<RemarkableSyncResult>
   remarkableDisconnect: (syncDirectory?: string) => Promise<void>
   remarkableGetMetadata: (syncDirectory: string) => Promise<RemarkableSyncMetadata | null>
-  remarkableListCloudNotebooks: (deviceToken: string) => Promise<RemarkableCloudNotebook[]>
+  remarkableListCloudNotebooks: () => Promise<RemarkableCloudNotebook[]>
   remarkableGetSyncState: (syncDirectory: string) => Promise<RemarkableSyncState | null>
   remarkableUpdateSyncSelection: (syncDirectory: string, selectedNotebooks: string[]) => Promise<void>
   // Secure API key storage for reMarkable OCR
   remarkableStoreApiKey: (apiKey: string) => Promise<void>
-  remarkableGetApiKey: () => Promise<string | null>
+  /** Whether a reMarkable OCR key is saved; the key never leaves main (#1275). */
+  remarkableOcrKeyStatus: () => Promise<boolean>
   remarkableClearApiKey: () => Promise<void>
   // reMarkable read-only/editable version paths
   remarkableGetOCRPath: (notebookId: string, syncDirectory: string) => Promise<string | null>
@@ -204,7 +241,7 @@ export interface ElectronAPI {
   remarkableFindNotebookByFilePath: (filePath: string, syncDirectory: string) => Promise<string | null>
   remarkableClearNotebookMarkdownPath: (notebookId: string, syncDirectory: string) => Promise<boolean>
   remarkableClearOcrSentinel: (notebookId: string, syncDirectory: string) => Promise<boolean>
-  remarkableMoveNotebook: (deviceToken: string, notebookHash: string, newParentId: string) => Promise<string>
+  remarkableMoveNotebook: (notebookHash: string, newParentId: string) => Promise<string>
   remarkableUpdateNotebookParent: (notebookId: string, newParentId: string, syncDirectory: string, newHash?: string) => Promise<boolean>
   remarkableCancelSync: () => Promise<void>
   onRemarkableSyncProgress: (
@@ -212,7 +249,8 @@ export interface ElectronAPI {
   ) => () => void
   // MCP tool execution (only used in MCP server mode)
   onMcpToolInvoke: (
-    callback: (requestId: string, toolName: string, args: unknown) => void
+    // `actor`: who the call is from, built by main (#1236); the renderer re-validates it.
+    callback: (requestId: string, toolName: string, args: unknown, actor: unknown) => void
   ) => () => void
   sendMcpToolResult: (requestId: string, result: ToolResult) => void
   // MCP server status
@@ -246,10 +284,28 @@ export interface ElectronAPI {
   mcpGetStatus: () => Promise<McpServerStatus>
   mcpInstall: () => Promise<McpInstallResult>
   mcpUninstall: () => Promise<McpInstallResult>
+  // MCP connections (#1236)
+  mcpListConnections: () => Promise<McpConnectionResult<McpConnection[]>>
+  mcpCreateConnection: (label: string) => Promise<McpConnectionResult<{ connection: McpConnection; token: string }>>
+  mcpRenameConnection: (id: string, label: string) => Promise<McpConnectionResult<McpConnection>>
+  mcpRevokeConnection: (id: string) => Promise<McpConnectionResult<null>>
+  mcpEndpoint: () => Promise<McpEndpointInfo>
+  // Remote access (#1239): the relay to ChatGPT and claude.ai, and its remote connections
+  mcpRemoteStatus: () => Promise<RemoteAccessStatus>
+  mcpRemoteSetEnabled: (enabled: boolean) => Promise<RemoteResult<RemoteAccessStatus>>
+  mcpRemoteList: () => Promise<RemoteResult<RemoteConnection[]>>
+  mcpRemoteApprove: (clientId: string, scopes: string[], label?: string) => Promise<RemoteResult<RemoteConnection>>
+  mcpRemoteUpdate: (clientId: string, change: { scopes?: string[]; label?: string }) => Promise<RemoteResult<RemoteConnection>>
+  mcpRemoteDeny: (clientId: string) => Promise<RemoteResult<RemoteForgetResult>>
+  mcpRemoteRemove: (clientId: string) => Promise<RemoteResult<RemoteForgetResult>>
+  mcpRemoteAcknowledge: () => Promise<RemoteResult<null>>
+  onMcpRemoteChanged: (callback: (change: RemoteChange) => void) => () => void
+  // Claude Desktop extension (#1257): builds this profile's .mcpb and opens Claude Desktop's install dialog
+  mcpInstallExtension: () => Promise<{ success: boolean; path?: string; error?: string }>
   // Release notes for the post-update modal (bundled per version)
   getReleaseNotes: (version: string) => Promise<ReleaseNotes | null>
   // Emoji generation (runs in main process to avoid CORS)
-  emojiGenerate: (title: string, contentPreview?: string) => Promise<{ emoji: string | null; error?: string }>
+  emojiGenerate: (title: string, contentPreview: string | undefined, provider: string) => Promise<{ emoji: string | null; error?: string }>
   // Window fullscreen state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => () => void
   // Recent files
@@ -257,6 +313,8 @@ export interface ElectronAPI {
   clearRecentFiles: () => Promise<void>
   // Native menu: enable/disable "Reopen Closed Tab" based on closed-tab stack
   setReopenClosedTabEnabled: (enabled: boolean) => Promise<void>
+  // Native menu: show "Copy with changes" while the active tab has pending tracked changes (#891)
+  setCopyWithChangesAvailable: (available: boolean) => Promise<void>
   // Clipboard
   copyToClipboard: (text: string) => Promise<void>
   // Sentry error tracking
@@ -267,6 +325,15 @@ export interface ElectronAPI {
   downloadSkill: () => Promise<{ success: boolean; error?: string }>
   // Build info
   isMasBuild: boolean
+  // Import from the App Store edition (#1243); direct builds only
+  appStoreImport: {
+    status: () => Promise<AppStoreImportStatus>
+    start: () => Promise<AppStoreImportStart>
+    decline: () => Promise<void>
+    acknowledge: () => Promise<void>
+    importKeys: () => Promise<AppStoreImportKeysResult>
+    discardKeys: () => Promise<void>
+  }
   // File watcher — subscribe to filesystem events for the File Explorer
   startWatchingDirectory: (dirPath: string) => Promise<void>
   stopWatchingDirectory: () => Promise<void>
@@ -285,8 +352,9 @@ export interface FileItem {
   hasChildren?: boolean // For lazy loading - indicates folder has content without loading it
 }
 
+/** The device token stays in main (#1275); registration answers only that it worked. */
 export interface RemarkableRegisterResponse {
-  deviceToken: string
+  connected: boolean
 }
 
 export interface RemarkableSyncResult {
@@ -342,7 +410,10 @@ const api: ElectronAPI = {
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (settings: Settings) => ipcRenderer.invoke('settings:save', settings),
   testApiKey: (request: TestApiKeyRequest) => ipcRenderer.invoke('settings:testApiKey', request),
-  fetchModels: (request: { provider: string; apiKey: string }) => ipcRenderer.invoke('llm:fetchModels', request),
+  fetchModels: (request: { provider: string; apiKey?: string }) => ipcRenderer.invoke('llm:fetchModels', request),
+  getLlmKeyStatus: () => ipcRenderer.invoke('llm:keyStatus'),
+  setLlmKey: (request: { provider: string; key: string }) => ipcRenderer.invoke('llm:setKey', request),
+  clearLlmKey: (provider: string) => ipcRenderer.invoke('llm:clearKey', provider),
   isSecureStorageAvailable: () => ipcRenderer.invoke('settings:isSecureStorageAvailable'),
   onMenuAction: (callback: (action: string) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, action: string): void => {
@@ -393,20 +464,20 @@ const api: ElectronAPI = {
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
   listDirectory: (path: string, maxDepth?: number, showDotfiles?: boolean, opts?: FileAccessOptions) => ipcRenderer.invoke('file:listDirectory', path, maxDepth, showDotfiles, opts),
   remarkableRegister: (code: string) => ipcRenderer.invoke('remarkable:register', code),
-  remarkableValidate: (deviceToken: string) => ipcRenderer.invoke('remarkable:validate', deviceToken),
-  remarkableSync: (deviceToken: string, syncDirectory: string) =>
-    ipcRenderer.invoke('remarkable:sync', deviceToken, syncDirectory),
+  remarkableValidate: () => ipcRenderer.invoke('remarkable:validate'),
+  remarkableSync: (syncDirectory: string) =>
+    ipcRenderer.invoke('remarkable:sync', syncDirectory),
   remarkableDisconnect: (syncDirectory?: string) => ipcRenderer.invoke('remarkable:disconnect', syncDirectory),
   remarkableGetMetadata: (syncDirectory: string) => ipcRenderer.invoke('remarkable:getMetadata', syncDirectory),
-  remarkableListCloudNotebooks: (deviceToken: string) =>
-    ipcRenderer.invoke('remarkable:listCloudNotebooks', deviceToken),
+  remarkableListCloudNotebooks: () =>
+    ipcRenderer.invoke('remarkable:listCloudNotebooks'),
   remarkableGetSyncState: (syncDirectory: string) =>
     ipcRenderer.invoke('remarkable:getSyncState', syncDirectory),
   remarkableUpdateSyncSelection: (syncDirectory: string, selectedNotebooks: string[]) =>
     ipcRenderer.invoke('remarkable:updateSyncSelection', syncDirectory, selectedNotebooks),
   // Secure API key storage for reMarkable OCR
   remarkableStoreApiKey: (apiKey: string) => ipcRenderer.invoke('remarkable:storeApiKey', apiKey),
-  remarkableGetApiKey: () => ipcRenderer.invoke('remarkable:getApiKey'),
+  remarkableOcrKeyStatus: () => ipcRenderer.invoke('remarkable:ocrKeyStatus'),
   remarkableClearApiKey: () => ipcRenderer.invoke('remarkable:clearApiKey'),
   // reMarkable read-only/editable version paths
   remarkableGetOCRPath: (notebookId: string, syncDirectory: string) =>
@@ -421,8 +492,8 @@ const api: ElectronAPI = {
     ipcRenderer.invoke('remarkable:clearNotebookMarkdownPath', notebookId, syncDirectory),
   remarkableClearOcrSentinel: (notebookId: string, syncDirectory: string) =>
     ipcRenderer.invoke('remarkable:clearOcrSentinel', notebookId, syncDirectory),
-  remarkableMoveNotebook: (deviceToken: string, notebookHash: string, newParentId: string) =>
-    ipcRenderer.invoke('remarkable:moveNotebook', deviceToken, notebookHash, newParentId),
+  remarkableMoveNotebook: (notebookHash: string, newParentId: string) =>
+    ipcRenderer.invoke('remarkable:moveNotebook', notebookHash, newParentId),
   remarkableUpdateNotebookParent: (notebookId: string, newParentId: string, syncDirectory: string, newHash?: string) =>
     ipcRenderer.invoke('remarkable:updateNotebookParent', notebookId, newParentId, syncDirectory, newHash),
   remarkableCancelSync: () => ipcRenderer.invoke('remarkable:sync:abort'),
@@ -436,14 +507,15 @@ const api: ElectronAPI = {
     }
   },
   // MCP tool execution
-  onMcpToolInvoke: (callback: (requestId: string, toolName: string, args: unknown) => void) => {
+  onMcpToolInvoke: (callback: (requestId: string, toolName: string, args: unknown, actor: unknown) => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
       requestId: string,
       toolName: string,
-      args: unknown
+      args: unknown,
+      actor: unknown
     ): void => {
-      callback(requestId, toolName, args)
+      callback(requestId, toolName, args, actor)
     }
     ipcRenderer.on('mcp:tool:invoke', handler)
     return () => {
@@ -563,15 +635,40 @@ const api: ElectronAPI = {
   mcpGetStatus: () => ipcRenderer.invoke('mcp:getStatus'),
   mcpInstall: () => ipcRenderer.invoke('mcp:install'),
   mcpUninstall: () => ipcRenderer.invoke('mcp:uninstall'),
+  mcpListConnections: () => ipcRenderer.invoke('mcp:connections:list'),
+  mcpCreateConnection: (label: string) => ipcRenderer.invoke('mcp:connections:create', label),
+  mcpRenameConnection: (id: string, label: string) => ipcRenderer.invoke('mcp:connections:rename', id, label),
+  mcpRevokeConnection: (id: string) => ipcRenderer.invoke('mcp:connections:revoke', id),
+  mcpEndpoint: () => ipcRenderer.invoke('mcp:endpoint'),
+  mcpRemoteStatus: () => ipcRenderer.invoke('mcp:remote:status'),
+  mcpRemoteSetEnabled: (enabled: boolean) => ipcRenderer.invoke('mcp:remote:setEnabled', enabled),
+  mcpRemoteList: () => ipcRenderer.invoke('mcp:remote:list'),
+  mcpRemoteApprove: (clientId: string, scopes: string[], label?: string) => ipcRenderer.invoke('mcp:remote:approve', clientId, scopes, label),
+  mcpRemoteUpdate: (clientId: string, change: { scopes?: string[]; label?: string }) => ipcRenderer.invoke('mcp:remote:update', clientId, change),
+  mcpRemoteDeny: (clientId: string) => ipcRenderer.invoke('mcp:remote:deny', clientId),
+  mcpRemoteRemove: (clientId: string) => ipcRenderer.invoke('mcp:remote:remove', clientId),
+  mcpRemoteAcknowledge: () => ipcRenderer.invoke('mcp:remote:acknowledge'),
+  onMcpRemoteChanged: (callback: (change: RemoteChange) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, change: RemoteChange): void => {
+      callback(change)
+    }
+    ipcRenderer.on('mcp:remote:changed', handler)
+    return () => {
+      ipcRenderer.removeListener('mcp:remote:changed', handler)
+    }
+  },
+  mcpInstallExtension: () => ipcRenderer.invoke('mcp:installExtension'),
   // Release notes
   getReleaseNotes: (version: string) => ipcRenderer.invoke('releaseNotes:get', version),
   // Emoji generation
-  emojiGenerate: (title: string, contentPreview?: string) => ipcRenderer.invoke('emoji:generate', title, contentPreview),
+  emojiGenerate: (title: string, contentPreview: string | undefined, provider: string) =>
+    ipcRenderer.invoke('emoji:generate', title, contentPreview, provider),
   // Recent files
   refreshRecentMenu: () => ipcRenderer.invoke('recentFiles:refreshMenu'),
   clearRecentFiles: () => ipcRenderer.invoke('recentFiles:clear'),
   // Native menu: enable/disable "Reopen Closed Tab" based on closed-tab stack
   setReopenClosedTabEnabled: (enabled: boolean) => ipcRenderer.invoke('menu:setReopenClosedTabEnabled', enabled),
+  setCopyWithChangesAvailable: (available: boolean) => ipcRenderer.invoke('menu:setCopyWithChangesAvailable', available),
   // Clipboard (routes through main process, bypasses web Permissions Policy)
   copyToClipboard: (text: string) => ipcRenderer.invoke('clipboard:writeText', text),
   // Sentry error tracking
@@ -590,6 +687,15 @@ const api: ElectronAPI = {
   downloadSkill: () => ipcRenderer.invoke('skill:download'),
   // Build info
   isMasBuild: process.env.MAS_BUILD === '1',
+  // Import from the App Store edition (#1243)
+  appStoreImport: {
+    status: () => ipcRenderer.invoke('appStoreImport:status'),
+    start: () => ipcRenderer.invoke('appStoreImport:start'),
+    decline: () => ipcRenderer.invoke('appStoreImport:decline'),
+    acknowledge: () => ipcRenderer.invoke('appStoreImport:acknowledge'),
+    importKeys: () => ipcRenderer.invoke('appStoreImport:importKeys'),
+    discardKeys: () => ipcRenderer.invoke('appStoreImport:discardKeys')
+  },
   // File watcher — subscribe to filesystem events for the File Explorer
   startWatchingDirectory: (dirPath: string) => ipcRenderer.invoke('file:watch:start', dirPath),
   stopWatchingDirectory: () => ipcRenderer.invoke('file:watch:stop'),

@@ -13,4 +13,10 @@ export interface ToolContext {
   handle: DocumentHandle | null
   provenance?: ToolProvenance
   binding?: ToolBinding
+  /**
+   * The caller is not the writer's own UI (an MCP client, #1237): a tool that
+   * places a mark selects its range only inside its own transaction, restores
+   * the writer's selection and never takes focus.
+   */
+  preserveView?: boolean
 }

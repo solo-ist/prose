@@ -84,6 +84,26 @@ const EnvSchema = z.object({
     .optional()
     .transform((v) => v === '1' || v === 'true'),
 
+  // The MCP relay (#1238). Per-IP ceilings on the OAuth routes (per minute)
+  // and on dynamic client registration (per hour), and per-minute ceilings on
+  // relayed calls per account and per account + client. Better Auth's own
+  // limiter is off (it can't see client IPs behind Render), so these are the
+  // OAuth surface's limits. Token and registration calls come from the
+  // vendors' servers (ChatGPT's, Anthropic's), so one IP stands for many
+  // writers: the ceilings are sized for that, and are env-tunable without a
+  // code change if a vendor's traffic outgrows them.
+  RELAY_OAUTH_IP_MAX: z.coerce.number().int().positive().default(300),
+  RELAY_REGISTER_IP_MAX: z.coerce.number().int().positive().default(30),
+  RELAY_ACCOUNT_RATE_MAX: z.coerce.number().int().positive().default(120),
+  RELAY_CLIENT_RATE_MAX: z.coerce.number().int().positive().default(60),
+  // How long a relayed call waits for the desktop's answer.
+  RELAY_CALL_TIMEOUT_S: z.coerce.number().int().positive().max(120).default(60),
+
+  // Test-only: send Client ID Metadata Document fetches to a local stub
+  // server (https://host/path → <origin>/host/path) instead of the internet.
+  // Refused outside development, like RESEND_API_URL.
+  CIMD_TEST_ORIGIN: z.string().url().optional(),
+
   // Cloudflare R2 (blobs only; stub in Phase 0).
   R2_ACCOUNT_ID: z.string().optional(),
   R2_ACCESS_KEY_ID: z.string().optional(),
@@ -128,6 +148,16 @@ const EnvSchema = z.object({
       code: 'custom',
       path: ['BETTER_AUTH_URL'],
       message: 'must be an explicit https:// URL outside development',
+    })
+  }
+  // CIMD_TEST_ORIGIN reroutes client-metadata fetches to a local stub; in
+  // production it would let anyone's client_id resolve to a document the
+  // stub chose.
+  if (env.CIMD_TEST_ORIGIN) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['CIMD_TEST_ORIGIN'],
+      message: 'test-only override — unset it outside development',
     })
   }
   // UPSTREAM_URL is a dev-only mock override. Outside development it must not
@@ -211,3 +241,12 @@ export const upstreamBase = config.UPSTREAM_URL ?? config.ANTHROPIC_BASE_URL
 
 /** True when we're proxying the real Anthropic API (key present, no mock override). */
 export const useRealAnthropic = !config.UPSTREAM_URL && !!config.ANTHROPIC_API_KEY
+
+/** The gateway's own origin (the API host). */
+export const gatewayOrigin = new URL(config.BETTER_AUTH_URL).origin
+
+/**
+ * The relay's one OAuth protected resource (#1238): the MCP endpoint, on the
+ * gateway's own host. Tokens are audience-bound to exactly this URL.
+ */
+export const mcpResourceUrl = `${gatewayOrigin}/mcp`

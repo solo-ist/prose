@@ -2,6 +2,7 @@
  * Document tool executors - read-only tools for accessing document content.
  */
 
+import { actorLabel, actorOfComment, type Actor } from '../../../../shared/review/actor'
 import type { ToolResult, DocumentMetadata, TextMatch, OutlineEntry } from '../../../../shared/tools/types'
 import { toolSuccess, toolError } from '../../../../shared/tools/types'
 import { useEditorStore } from '../../../stores/editorStore'
@@ -18,6 +19,8 @@ import { isEditorReadOnly } from './editor'
 import { getApi } from '../../browserApi'
 import { generateId } from '../../persistence'
 import { dumpFrontmatterYaml } from '../../markdown'
+import { originalTextOf } from '../../../extensions/tracked-changes/records'
+import { originalOf } from '../../../document/session'
 
 /**
  * Node representation with ID for AI targeting.
@@ -40,10 +43,13 @@ interface DocumentNode {
  * one that `edit` takes on any of its cells (#1100).
  */
 function toDocumentNode(n: NodeWithId, handle: DocumentHandle): DocumentNode {
+  // The original text, as the file holds it (#891): a pending tracked
+  // insertion is left out and a pending deletion kept, as in `markdown`.
+  const live = handle.state.doc.nodeAt(n.pos)
   const node: DocumentNode = {
     id: n.nodeId,
     type: n.type,
-    content: n.type === 'table' ? tableMarkdown(n, handle) : n.textContent,
+    content: n.type === 'table' ? tableMarkdown(n, handle) : live ? originalTextOf(live) : n.textContent,
   }
   if (n.children && n.children.length > 0) {
     node.children = n.children.map((child) => toDocumentNode(child, handle))
@@ -58,7 +64,7 @@ function tableMarkdown(n: NodeWithId, handle: DocumentHandle): string {
   // degrades to its text rather than failing the whole read.
   try {
     const doc = handle.schema.topNodeType.create(null, table)
-    return handle.markdown.serializer.serialize(doc).trim()
+    return handle.markdown.serializer.serialize(originalOf(doc)).trim()
   } catch {
     return n.textContent
   }
@@ -403,6 +409,9 @@ export function executeGetOutline(ctx: ToolContext): ToolResult<{ outline: Outli
 // Comment tools
 // ============================================================================
 
+/** A reply as list_comments returns it: the stored reply plus who wrote it. */
+type CommentEntryReply = CommentReply & { by: string; byKind: Actor['kind'] }
+
 /** Comment shape returned by list_comments (includes thread data). */
 interface CommentEntry {
   id: string
@@ -411,7 +420,10 @@ interface CommentEntry {
   createdAt: number
   from: number
   to: number
-  replies: CommentReply[]
+  /** Who wrote the comment (#1232): the writer is "the writer"; agents and reviewers by name. */
+  by: string
+  byKind: Actor['kind']
+  replies: CommentEntryReply[]
   resolved: boolean
   /** The thread's text was edited away; it is open but has no position (#1147). */
   anchorLost?: boolean
@@ -435,6 +447,14 @@ export function executeListComments(ctx: ToolContext): ToolResult<{ comments: Co
   // state, #1147) hold replies + resolved state not carried by the mark.
   const liveMarks = getComments(handle)
   const threads = threadsOf(handle.state)
+  // Labels for agents (#1232). The writer is "the writer": a name or email
+  // from Settings never goes into a tool result.
+  const byOf = (record: Parameters<typeof actorOfComment>[0]) => {
+    const actor = actorOfComment(record)
+    return { by: actorLabel(actor, { selfName: null }), byKind: actor.kind }
+  }
+  const repliesOf = (replies: CommentReply[] | undefined): CommentEntryReply[] =>
+    (replies ?? []).map((r) => ({ ...r, ...byOf(r) }))
 
   const comments: CommentEntry[] = liveMarks.map((c) => {
     const thread = threads.find((p) => p.id === c.id)
@@ -445,7 +465,8 @@ export function executeListComments(ctx: ToolContext): ToolResult<{ comments: Co
       createdAt: c.createdAt,
       from: c.from,
       to: c.to,
-      replies: thread?.replies ?? [],
+      ...byOf(thread ?? {}),
+      replies: repliesOf(thread?.replies),
       resolved: thread?.resolved ?? false,
     }
   })
@@ -462,7 +483,8 @@ export function executeListComments(ctx: ToolContext): ToolResult<{ comments: Co
       createdAt: p.createdAt,
       from: p.from,
       to: p.to,
-      replies: p.replies ?? [],
+      ...byOf(p),
+      replies: repliesOf(p.replies),
       resolved: p.resolved === true,
       ...(p.resolved ? {} : { anchorLost: true }),
     })
@@ -540,12 +562,16 @@ export function executeAddComment(args: {
 
   const id = generateId()
 
-  const success = handle
-    .chain()
-    .focus()
+  // An MCP call (#1237) leaves the writer's caret and focus where they were:
+  // select, mark and restore in one transaction (a mark adds no content).
+  const { from: keptFrom, to: keptTo } = handle.state.selection
+  let chain = handle.chain()
+  if (!ctx.preserveView) chain = chain.focus()
+  chain = chain
     .setTextSelection({ from, to })
-    .setComment({ id, comment, author: 'ai' })
-    .run()
+    .setComment({ id, comment, author: 'ai', ...(ctx.provenance?.actor ? { actor: ctx.provenance.actor } : {}) })
+  if (ctx.preserveView) chain = chain.setTextSelection({ from: keptFrom, to: keptTo })
+  const success = chain.run()
 
   if (!success) {
     return toolError('Failed to apply comment mark — the range may not contain markable content', 'COMMENT_FAILED')
@@ -589,7 +615,7 @@ export function executeResolveComment(args: {
 
   // Resolved and unmarked together; the session persists the thread and
   // pushes the resolve to a share (#769).
-  handle.commands.resolveThread(id)
+  handle.commands.resolveThread(id, ctx.provenance?.actor)
 
   return toolSuccess({ resolved: true })
 }
@@ -597,6 +623,21 @@ export function executeResolveComment(args: {
 /**
  * reply_to_comment - Append an AI reply to a comment thread.
  */
+/**
+ * reopen_comment (#890): a resolved thread becomes active again, its mark back
+ * on its text when the text is still there; logged with the caller as actor.
+ */
+export function executeReopenComment(args: { id: string }, ctx: ToolContext): ToolResult<{ reopened: true }> {
+  const { handle } = ctx
+  if (!handle) return toolError('Editor not available', 'EDITOR_NOT_AVAILABLE')
+  if (isEditorReadOnly(handle)) return toolError('Document is read-only in this mode', 'EDITOR_READ_ONLY')
+  const thread = threadsOf(handle.state).find((c) => c.id === args.id)
+  if (!thread) return toolError(`Comment with ID "${args.id}" not found`, 'COMMENT_NOT_FOUND')
+  if (!thread.resolved) return toolError(`Comment "${args.id}" is already open`, 'COMMENT_OPEN')
+  handle.commands.reopenThread(args.id, ctx.provenance?.actor)
+  return toolSuccess({ reopened: true })
+}
+
 export function executeReplyToComment(args: {
   id: string
   text: string
@@ -625,6 +666,7 @@ export function executeReplyToComment(args: {
   const reply: CommentReply = {
     id: generateId(),
     author: 'ai',
+    ...(ctx.provenance?.actor ? { actor: ctx.provenance.actor } : {}),
     text: text.trim(),
     createdAt: Date.now(),
   }

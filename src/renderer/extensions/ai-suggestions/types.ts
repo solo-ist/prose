@@ -2,6 +2,8 @@
  * AI Suggestion mark types
  */
 
+import type { Actor } from '../../../shared/review/actor'
+
 export type SuggestionType = 'edit' | 'insertion'
 
 export interface AISuggestionData {
@@ -17,6 +19,8 @@ export interface AISuggestionData {
   provenanceModel?: string
   provenanceConversationId?: string
   provenanceMessageId?: string
+  /** Who proposed it (#1232); read through `actorOfProvenance(provenanceModel, actor)`. */
+  actor?: Actor | null
   documentId?: string
   /**
    * Raw markdown of a block-type conversion (#673) — present when the

@@ -7,6 +7,13 @@ import { useChatStore } from './chatStore'
 // tab) so the two can toggle between each other through the single mode slot.
 export type ReviewMode = 'quick' | 'side-by-side' | 'comments'
 
+/**
+ * How tracked changes show (#891, design §6): every change marked, deleted
+ * text hidden, or the text as if every change were accepted. Per tab, not
+ * persisted; it switches CSS only, never the document.
+ */
+export type TrackedDisplay = 'all' | 'no-deletions' | 'final'
+
 interface TabReviewState {
   reviewMode: ReviewMode | null
   currentSuggestionIndex: number
@@ -21,6 +28,9 @@ interface ReviewStoreState {
   /** Bumped on every enterCommentReview call. Lets the panel re-focus the target
    *  even when it's already open on the same thread id (repeat expand). */
   commentReviewTargetSeq: number
+  /** Tracked-change display per tab (#891); absent means 'all'. */
+  trackedDisplay: Record<string, TrackedDisplay>
+  setTrackedDisplay: (display: TrackedDisplay) => void
   setReviewMode: (mode: ReviewMode | null) => void
   setCurrentSuggestionIndex: (index: number) => void
   setPreviousChatWidth: (width: number) => void
@@ -40,6 +50,13 @@ export const useReviewStore = create<ReviewStoreState>((set, get) => ({
   previousChatWidth: {},
   commentReviewTargetId: null,
   commentReviewTargetSeq: 0,
+  trackedDisplay: {},
+
+  setTrackedDisplay: (display) => {
+    const tabId = getActiveTabId()
+    if (!tabId) return
+    set((state) => ({ trackedDisplay: { ...state.trackedDisplay, [tabId]: display } }))
+  },
 
   setReviewMode: (mode) => {
     const tabId = getActiveTabId()
@@ -108,6 +125,12 @@ export const useReviewStore = create<ReviewStoreState>((set, get) => ({
 export function useReviewMode(): ReviewMode | null {
   const tabId = useTabStore((s) => s.activeTabId)
   return useReviewStore((s) => s.tabStates[tabId ?? '']?.reviewMode ?? null)
+}
+
+/** How the active tab shows its tracked changes (#891). */
+export function useTrackedDisplay(): TrackedDisplay {
+  const tabId = useTabStore((s) => s.activeTabId)
+  return useReviewStore((s) => s.trackedDisplay[tabId ?? ''] ?? 'all')
 }
 
 /** Non-reactive read of the active tab's review mode (for use inside effects). */

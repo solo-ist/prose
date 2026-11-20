@@ -10,7 +10,7 @@ import { useEditorStore } from '../../../stores/editorStore'
 import { useTabStore } from '../../../stores/tabStore'
 import { setTabFrontmatter } from '../../../tabs/actions'
 import type { ToolContext } from '../context'
-import type { ToolProvenance } from '../provenanceTypes'
+import { annotationProvenance, type ToolProvenance } from '../provenanceTypes'
 import { addAnnotationsTo, annotationsOf } from '../../../extensions/ai-annotations'
 import { buildWordDiffAnnotations } from '../../diffUtils'
 import { findNodeById, findNodeByContent, getNodesWithIds, flattenNodes } from '../../../extensions/node-ids'
@@ -19,6 +19,8 @@ import { getAISuggestions, parseMarkdownToSlice, sliceVisibleText } from '../../
 import { parseMarkdown, loadFrontmatterYaml, FRONTMATTER_REGEX } from '../../markdown'
 import { pipelineLog } from '../../aiPipelineLog'
 import { AI_REPLACEMENT_META } from '../../../extensions/comments'
+import { reviseSuggestionIn } from '../../../extensions/review-log/transactions'
+import { actorOfProvenance } from '../../../../shared/review/actor'
 
 /**
  * Target visible duration for a chunked streaming insertion. The number of
@@ -485,11 +487,7 @@ export async function executeEdit(
         newText: inserted.text,
         rangeFrom: contentStart,
         rangeTo: inserted.end,
-        provenance: {
-          model: provenance.model,
-          conversationId: provenance.conversationId,
-          messageId: provenance.messageId,
-        },
+        provenance: annotationProvenance(provenance),
         explanation: comment,
         priorAnnotations,
       })
@@ -647,11 +645,7 @@ export async function executeInsert(
                 newText: text,
                 rangeFrom: insertFrom,
                 rangeTo: insertFrom + insertedSize,
-                provenance: {
-                  model: provenance.model,
-                  conversationId: provenance.conversationId,
-                  messageId: provenance.messageId,
-                },
+                provenance: annotationProvenance(provenance),
                 explanation: comment,
               })
             )
@@ -694,11 +688,7 @@ export async function executeInsert(
           newText: inserted.text,
           rangeFrom: insertFrom,
           rangeTo: inserted.end,
-          provenance: {
-            model: provenance.model,
-            conversationId: provenance.conversationId,
-            messageId: provenance.messageId,
-          },
+          provenance: annotationProvenance(provenance),
           explanation: comment,
         })
       )
@@ -757,11 +747,7 @@ function replaceTable(
         from,
         to: from + parsed.nodeSize,
         content: parsed.textContent,
-        provenance: {
-          model: provenance.model,
-          conversationId: provenance.conversationId,
-          messageId: provenance.messageId,
-        },
+        provenance: annotationProvenance(provenance),
         explanation: comment,
       },
     ])
@@ -776,6 +762,11 @@ function replaceTable(
  * suggest_edit - Show an AI suggestion as a highlighted mark on text.
  * The user can click the highlighted text to see the suggestion and accept/reject it.
  * Falls back to content matching if the nodeId is stale.
+ *
+ * `opts.revises`: a pending suggestion on this node the new one must replace
+ * (`revise_suggestion` on a pending suggestion). `opts.follows`: a suggestion
+ * the writer rejected that the new one revises (#1266); it has no mark, so the
+ * log links the two and the rejection stands.
  */
 export function executeSuggestEdit(
   args: {
@@ -784,8 +775,9 @@ export function executeSuggestEdit(
     comment?: string
     search?: string
   },
-  ctx: ToolContext
-): ToolResult<{ suggested: boolean; suggestionId: string }> {
+  ctx: ToolContext,
+  opts: { revises?: string; follows?: string } = {}
+): ToolResult<{ suggested: boolean; suggestionId: string; revises?: string }> {
   const { handle, provenance } = ctx
 
   if (!handle) {
@@ -1046,9 +1038,29 @@ export function executeSuggestEdit(
   const contentStart = pos + 1
   const contentEnd = pos + node.nodeSize - 1
 
-  handle
-    .chain()
-    .focus()
+  // A pending suggestion on this node is superseded by the new one, in the
+  // same transaction (#890): the mark would replace it anyway, and the review
+  // log must read that as a revision by the caller, not a rejection by the
+  // writer. `revise_suggestion` is this path aimed at one suggestion.
+  const replaced = suggestionIdsIn(handle.state.doc, contentStart, contentEnd)
+  if (opts.revises && !replaced.includes(opts.revises)) {
+    return toolError(`Suggestion "${opts.revises}" is not pending on this node`, 'SUGGESTION_NOT_FOUND')
+  }
+  const revisedBy = provenance?.actor ?? actorOfProvenance(provenance?.model)
+
+  // An MCP call (#1237) marks the node without moving the writer's caret or
+  // taking focus: select, mark and restore in one transaction. The mark adds
+  // no content, so the saved positions still hold.
+  const { from: keptFrom, to: keptTo } = handle.state.selection
+  let chain = handle.chain()
+  if (!ctx.preserveView) chain = chain.focus()
+  chain = chain
+    .command(({ tr }) => {
+      for (const old of replaced) reviseSuggestionIn(tr, old, suggestionId, revisedBy)
+      // Last, so the new row names the rejected suggestion it was asked to revise.
+      if (opts.follows) reviseSuggestionIn(tr, opts.follows, suggestionId, revisedBy)
+      return true
+    })
     .setTextSelection({ from: contentStart, to: contentEnd })
     .setAISuggestion({
       id: suggestionId,
@@ -1057,12 +1069,14 @@ export function executeSuggestEdit(
       suggestedText,
       explanation: comment || '',
       provenanceModel: provenance?.model || '',
+      actor: provenance?.actor ?? null,
       provenanceConversationId: provenance?.conversationId || '',
       provenanceMessageId: provenance?.messageId || '',
       documentId: handle.documentId,
       blockConversionIntent,
     })
-    .run()
+  if (ctx.preserveView) chain = chain.setTextSelection({ from: keptFrom, to: keptTo })
+  chain.run()
 
   pipelineLog('suggest_edit:result', {
     suggestionId,
@@ -1074,8 +1088,23 @@ export function executeSuggestEdit(
 
   return toolSuccess({
     suggested: true,
-    suggestionId
+    suggestionId,
+    // The pending suggestion this one replaced, named as list_suggestions names it.
+    ...(replaced.length > 0 ? { revises: replaced[0] } : {})
   })
+}
+
+/** The ids of the suggestion marks in a range of `doc`, first-seen order. */
+export function suggestionIdsIn(doc: PMNode, from: number, to: number): string[] {
+  const ids: string[] = []
+  doc.nodesBetween(from, to, (node) => {
+    for (const mark of node.marks) {
+      const id = mark.type.name === 'aiSuggestion' ? (mark.attrs.id as string | null) : null
+      if (id && !ids.includes(id)) ids.push(id)
+    }
+    return true
+  })
+  return ids
 }
 
 /** Suggestion data returned by list_diffs */
@@ -1113,7 +1142,7 @@ export function executeAcceptDiff(args: {
       return toolError(`Suggestion with id "${id}" not found`, 'DIFF_NOT_FOUND')
     }
 
-    const success = handle.commands.acceptAISuggestion(id)
+    const success = handle.commands.acceptAISuggestion(id, ctx.provenance?.actor)
     if (success) {
       return toolSuccess({ accepted: true, diffId: id, count: 1 })
     } else {
@@ -1123,7 +1152,7 @@ export function executeAcceptDiff(args: {
 
   // Accept all suggestions
   const count = suggestions.length
-  const success = handle.commands.acceptAllAISuggestions()
+  const success = handle.commands.acceptAllAISuggestions(ctx.provenance?.actor)
 
   if (success) {
     return toolSuccess({ accepted: true, count })
@@ -1159,7 +1188,7 @@ export function executeRejectDiff(args: {
       return toolError(`Suggestion with id "${id}" not found`, 'DIFF_NOT_FOUND')
     }
 
-    const success = handle.commands.rejectAISuggestion(id)
+    const success = handle.commands.rejectAISuggestion(id, ctx.provenance?.actor)
     if (success) {
       return toolSuccess({ rejected: true, diffId: id, count: 1 })
     } else {
@@ -1169,7 +1198,7 @@ export function executeRejectDiff(args: {
 
   // Reject all suggestions
   const count = suggestions.length
-  const success = handle.commands.rejectAllAISuggestions()
+  const success = handle.commands.rejectAllAISuggestions(ctx.provenance?.actor)
 
   if (success) {
     return toolSuccess({ rejected: true, count })
@@ -1241,11 +1270,7 @@ export function executeDeleteNode(
         from,
         to: from,
         content: deletedText,
-        provenance: {
-          model: provenance.model,
-          conversationId: provenance.conversationId,
-          messageId: provenance.messageId,
-        },
+        provenance: annotationProvenance(provenance),
       },
     ])
   }

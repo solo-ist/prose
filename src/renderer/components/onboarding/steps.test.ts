@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveStep, sequenceFor, summaryRows } from './steps'
+import { orList, resolveStep, sequenceFor, summaryRows } from './steps'
 
 describe('onboarding sequence (#1188)', () => {
   it('shows six steps on a direct build before the AI choice and with AI on', () => {
@@ -35,7 +35,7 @@ describe('onboarding sequence (#1188)', () => {
 })
 
 describe('onboarding summary (#1188)', () => {
-  const base = { ai: 'ai' as const, keySaved: false, crash: false, direct: true, skill: 'idle' as const, mcp: 'idle' as const, def: null, defaultAlready: false }
+  const base = { ai: 'ai' as const, keys: [] as string[], crash: false, direct: true, skill: 'idle' as const, mcp: 'idle' as const, def: null, defaultAlready: false }
 
   it('lists AI, crash reports, both Claude rows and the default on a direct build', () => {
     expect(summaryRows(base).map((r) => r.label)).toEqual([
@@ -44,8 +44,13 @@ describe('onboarding summary (#1188)', () => {
   })
 
   it('reflects the choices and side effects', () => {
-    const rows = summaryRows({ ...base, keySaved: true, crash: true, skill: 'done', def: 'done' })
-    expect(rows[0]).toEqual({ label: 'AI assistance', value: 'On · key in Keychain', tone: 'accept' })
+    const rows = summaryRows({ ...base, keys: ['Anthropic'], crash: true, skill: 'done', def: 'done' })
+    expect(rows[0]).toEqual({ label: 'AI assistance', value: 'On · Anthropic key in Keychain', tone: 'accept' })
+    // Each provider with a saved key is named (#1242, #1287).
+    expect(summaryRows({ ...base, keys: ['OpenAI'] })[0].value).toBe('On · OpenAI key in Keychain')
+    expect(summaryRows({ ...base, keys: ['Anthropic', 'OpenAI', 'Inference Coop'] })[0].value).toBe('On · Anthropic, OpenAI and Inference Coop keys in Keychain')
+    expect(orList(['Anthropic', 'OpenAI', 'Inference Coop'])).toBe('Anthropic, OpenAI or Inference Coop')
+    expect(summaryRows({ ...base, keys: ['Anthropic', 'OpenAI'] })[0].value).toBe('On · Anthropic and OpenAI keys in Keychain')
     expect(rows[1]).toEqual({ label: 'Crash reports', value: 'On', tone: 'foreground' })
     expect(rows[2]).toEqual({ label: 'Claude Skill', value: 'Downloaded', tone: 'accept' })
     expect(rows[3]).toEqual({ label: 'Claude Desktop', value: 'Skipped', tone: 'muted' })

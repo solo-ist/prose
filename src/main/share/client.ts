@@ -209,6 +209,31 @@ export async function requestAccess(config: ShareClientConfig): Promise<ShareAcc
   return parseAccess(await res.json())
 }
 
+/**
+ * The relay's credential (#1239): the session cookie for THIS gateway, or
+ * null. The relay socket authenticates with it on the upgrade; like every
+ * other gateway call, a session minted by a different origin is never sent.
+ */
+export async function relaySessionCookie(config: ShareClientConfig): Promise<string | null> {
+  const session = await storedSession()
+  if (!session || session.origin !== new URL(base(config)).origin) return null
+  return session.cookie
+}
+
+/**
+ * Ask the gateway to revoke a remote MCP client's OAuth grants for this
+ * account (#1239): its access and refresh tokens and its consent. The app
+ * has already stopped answering it; this makes the client sign in again.
+ */
+export async function revokeRelayClient(config: ShareClientConfig, clientId: string): Promise<void> {
+  const res = await fetch(`${base(config)}/api/relay/revoke`, {
+    method: 'POST',
+    headers: await authedHeaders(config),
+    body: JSON.stringify({ clientId }),
+  })
+  if (!res.ok) throw await toError(res)
+}
+
 /** True when a session cookie exists for THIS gateway AND it accepts it. */
 export async function checkSession(config: ShareClientConfig): Promise<{ signedIn: boolean; email?: string }> {
   const session = await storedSession()

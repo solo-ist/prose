@@ -6,6 +6,7 @@
 import type { BrowserWindow } from 'electron'
 import { ipcMain } from 'electron'
 import type { ToolResult } from '../../shared/tools/types'
+import type { McpAgentActor } from '../../shared/review/actor'
 import { isMcpToolName } from '../../shared/tools/registry'
 
 interface PendingRequest {
@@ -14,7 +15,9 @@ interface PendingRequest {
   timeout: NodeJS.Timeout
 }
 
-const TOOL_TIMEOUT_MS = 30000 // 30 second timeout for tool execution
+// Above every client-side limit (the stdio bridge's 60 s for suggest_edit,
+// Codex and LibreChat's 60 s defaults), so the app is never first to give up.
+const TOOL_TIMEOUT_MS = 120_000
 
 /**
  * Bridge for MCP server to communicate with renderer.
@@ -42,7 +45,12 @@ export class McpBridge {
    * Execute a tool by sending it to the renderer.
    * Returns a promise that resolves with the tool result.
    */
-  executeTool(name: string, args: unknown): Promise<ToolResult> {
+  /**
+   * `actor` is who the call is from, built by the MCP server that received it
+   * (#1236). It travels beside the arguments; the renderer never reads
+   * identity from the arguments themselves.
+   */
+  executeTool(name: string, args: unknown, actor: McpAgentActor): Promise<ToolResult> {
     return new Promise((resolve, reject) => {
       // Enforce the MCP allowlist on tools/call, not only tools/list: the
       // renderer's executeTool() runs any registered tool, so without this an
@@ -71,7 +79,7 @@ export class McpBridge {
       this.pendingRequests.set(requestId, { resolve, reject, timeout })
 
       // Send to renderer
-      this.window.webContents.send('mcp:tool:invoke', requestId, name, args)
+      this.window.webContents.send('mcp:tool:invoke', requestId, name, args, actor)
     })
   }
 

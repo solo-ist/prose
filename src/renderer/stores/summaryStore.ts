@@ -70,7 +70,6 @@ export const useSummaryStore = create<SummaryState>()((set, get) => ({
       const response = await api.llmChat({
         provider: settings.llm.provider,
         model: settings.llm.model,
-        apiKey: settings.llm.apiKey,
         baseUrl: settings.llm.baseUrl,
         messages: [
           {

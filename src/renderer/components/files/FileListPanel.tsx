@@ -75,7 +75,7 @@ export function FileListPanel() {
     loadNotebooks,
     loadCloudNotebooks,
     syncDirectory,
-    deviceToken,
+    remarkableConnected,
     removeRecentFile
   } = useFileList()
 
@@ -84,7 +84,7 @@ export function FileListPanel() {
   const { isSyncing, sync, error: syncError, progress: syncProgress, lastSyncedAt } = useRemarkableSync()
   const { setDialogOpen } = useSettings()
   const remarkableFlag = useRemarkableEnabled()
-  const remarkableEnabled = useSettingsStore((state) => remarkableFlag && state.settings.remarkable?.enabled && !!state.settings.remarkable?.deviceToken)
+  const remarkableEnabled = useSettingsStore((state) => remarkableFlag && state.settings.remarkable?.enabled && !!state.settings.remarkable?.connected)
   // Sharing (#1036): the Shared view + the ◎ tree indicator read one list store.
   const webPlatform = useWebPlatformEnabled()
   const refreshSharedList = useSharedListStore((s) => s.refresh)
@@ -262,6 +262,31 @@ export function FileListPanel() {
   const [rootDropOver, setRootDropOver] = useState(false)
   // The `..` row as a drop target (#1167): highlighted while a file is dragged over it.
   const [parentDropOver, setParentDropOver] = useState(false)
+  // Whether the `..` row can take a drop. Under the App Store sandbox the parent of
+  // the granted base folder is outside the grant, so a move there fails; probe it the
+  // way `navigateToParent` does and refuse the drop instead (#1222). The direct
+  // build can always reach the parent, so it never probes.
+  const [parentDroppable, setParentDroppable] = useState(true)
+  useEffect(() => {
+    if (!api.isMasBuild) return
+    const parentPath = rootPath?.split('/').slice(0, -1).join('/')
+    if (!parentPath) {
+      setParentDroppable(false)
+      return
+    }
+    let cancelled = false
+    setParentDroppable(false)
+    void Promise.resolve(api.listDirectory(parentPath, 1))
+      .then((files) => {
+        if (!cancelled) setParentDroppable(Array.isArray(files) && files.length > 0)
+      })
+      .catch(() => {
+        if (!cancelled) setParentDroppable(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [api, rootPath])
   // Notebook folder expand/collapse state lives in fileListStore so it
   // survives panel unmount (Shift+Cmd+H). Synced folders default open,
   // unsynced default closed — membership in the Set means "toggled".
@@ -682,13 +707,13 @@ export function FileListPanel() {
   // sync() has its own concurrent-call lock and we don't want to retrigger
   // when isSyncing transitions back to false after a manual sync completes.
   useEffect(() => {
-    if (viewMode === 'notebooks' && remarkableEnabled && deviceToken && !isSyncing) {
+    if (viewMode === 'notebooks' && remarkableEnabled && remarkableConnected && !isSyncing) {
       sync().catch((err) => {
         console.error('[FileListPanel] Auto-sync failed:', err)
       })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, remarkableEnabled, deviceToken])
+  }, [viewMode, remarkableEnabled, remarkableConnected])
 
   useEffect(() => {
     if (viewMode !== 'recent' || recentFiles.length === 0) return
@@ -880,7 +905,7 @@ export function FileListPanel() {
   }
 
   const handleConfirmMove = async () => {
-    if (!moveTarget || !deviceToken || !syncDirectory || !window.api) return
+    if (!moveTarget || !remarkableConnected || !syncDirectory || !window.api) return
     // No-op move — disable Confirm in the UI as well, but defend here too.
     if (selectedTargetParentId === moveTarget.currentParentId) return
 
@@ -894,7 +919,6 @@ export function FileListPanel() {
       // a follow-up move for the same notebook doesn't pass the now-stale
       // pre-move hash and fail with "not found in root hash".
       const newHash = await window.api.remarkableMoveNotebook(
-        deviceToken,
         moveTarget.notebookHash,
         selectedTargetParentId
       )
@@ -915,7 +939,7 @@ export function FileListPanel() {
       // tree re-renders under the new parent immediately. The useMemo on
       // cloudNotebooks/notebookMetadata picks up the new structure.
       await loadNotebooks(syncDirectory)
-      if (deviceToken) await loadCloudNotebooks(deviceToken, syncDirectory)
+      if (remarkableConnected) await loadCloudNotebooks(syncDirectory)
       setMoveTarget(null)
     } catch (err) {
       console.error('[reMarkable] Cloud move failed:', err)
@@ -1440,18 +1464,22 @@ export function FileListPanel() {
                       // A file dropped here moves up one folder (#1167). The events stop
                       // here so the list container's own drop, into the shown folder,
                       // does not run as well. The button is absent at a project's root,
-                      // so there is no drop target past the ceiling.
+                      // so there is no drop target past the ceiling. A parent the app
+                      // cannot reach (the MAS sandbox) takes no drop: the events still
+                      // stop here, but without preventDefault the drop is not allowed.
                       onDragOver={(e) => {
                         if (e.dataTransfer.types.includes('application/prose-file-path')) {
-                          e.preventDefault()
                           e.stopPropagation()
+                          if (!parentDroppable) return
+                          e.preventDefault()
                           e.dataTransfer.dropEffect = 'move'
                         }
                       }}
                       onDragEnter={(e) => {
                         if (e.dataTransfer.types.includes('application/prose-file-path')) {
-                          e.preventDefault()
                           e.stopPropagation()
+                          if (!parentDroppable) return
+                          e.preventDefault()
                           setParentDropOver(true)
                         }
                       }}
@@ -1465,7 +1493,7 @@ export function FileListPanel() {
                         setParentDropOver(false)
                         const sourcePath = e.dataTransfer.getData('application/prose-file-path')
                         const parentPath = rootPath?.split('/').slice(0, -1).join('/')
-                        if (sourcePath && parentPath) handleFileDrop(sourcePath, parentPath)
+                        if (sourcePath && parentPath && parentDroppable) handleFileDrop(sourcePath, parentPath)
                       }}
                     >
                       <ChevronUp className="h-4 w-4 shrink-0" />

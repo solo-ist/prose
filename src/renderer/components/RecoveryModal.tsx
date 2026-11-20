@@ -14,6 +14,7 @@ import {
 } from './ui/dialog'
 import { Button } from './ui/button'
 import { AlertCircle, CheckCircle, XCircle } from 'lucide-react'
+import { isMasBuild, MAS_SUPPORT_URL } from '../lib/featureFlags'
 
 /**
  * Modal that appears when database recovery has occurred.
@@ -37,6 +38,11 @@ export function RecoveryModal() {
   }
 
   const handleReportIssue = () => {
+    // The App Store build has no GitHub bug path; every report surface there opens support.
+    if (isMasBuild()) {
+      window.open(MAS_SUPPORT_URL, '_blank', 'noopener,noreferrer')
+      return
+    }
     // Pre-fill GitHub issue with recovery details
     const title = encodeURIComponent('Database recovery occurred')
     const body = encodeURIComponent(`

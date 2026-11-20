@@ -5,7 +5,9 @@ import {
   initDB,
   loadAnnotations as loadAnnotationsFromDB,
   loadComments as loadCommentsFromDB,
-  loadSuggestions as loadSuggestionsFromDB
+  loadReviewLog,
+  loadSuggestions as loadSuggestionsFromDB,
+  loadTracked
 } from './lib/persistence'
 import { getSessionTabIds, getProjectionStats, getActiveSession, getSession } from './document/session'
 import { sourceFolds, sourceSelection, sourceText } from './extensions/source/state'
@@ -18,6 +20,8 @@ import { executeTool } from './lib/tools'
 import { annotationsOf } from './extensions/ai-annotations'
 import { threadsOf, threadPluginState } from './extensions/comments'
 import { getAISuggestions } from './extensions/ai-suggestions'
+import { reviewLogOf } from './extensions/review-log'
+import { trackedChangesIn, isSuggesting } from './extensions/tracked-changes'
 import { renameTab } from './tabs/actions'
 import { useTabStore } from './stores/tabStore'
 import { useSettingsStore } from './stores/settingsStore'
@@ -120,6 +124,24 @@ import './index.css'
   // sessions have done (serialisations are what a switch must not cost).
   getSessionTabIds,
   getProjectionStats,
+  // A tab's review log (#1233), from its own state; the active tab without an
+  // id. A copy, so a spec cannot mutate plugin state.
+  getReviewLog: (tabId?: string) => {
+    const session = tabId ? getSession(tabId) : getActiveSession()
+    return session ? JSON.parse(JSON.stringify(reviewLogOf(session.state))) : null
+  },
+  loadReviewLogFromDB: loadReviewLog,
+  // A tab's pending tracked changes (#891), from its own state; the active
+  // tab without an id. Plain objects, so a spec cannot mutate plugin state.
+  getTrackedChanges: (tabId?: string) => {
+    const session = tabId ? getSession(tabId) : getActiveSession()
+    return session ? JSON.parse(JSON.stringify(trackedChangesIn(session.state.doc))) : null
+  },
+  isSuggesting: (tabId?: string) => {
+    const session = tabId ? getSession(tabId) : getActiveSession()
+    return session ? isSuggesting(session.state) : false
+  },
+  loadTrackedFromDB: loadTracked,
 }
 // Account seam for e2e (#1059) — same always-on tier as __prose_tools. Settings
 // opens from the app menu, which Playwright cannot click, so this is the

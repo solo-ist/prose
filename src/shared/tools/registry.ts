@@ -8,12 +8,14 @@ import { editorTools } from './schemas/editor'
 import { fileTools } from './schemas/file'
 import { uiTools } from './schemas/ui'
 import { tabTools } from './schemas/tabs'
+import { reviewTools } from './schemas/review'
 import { zodToJsonSchema } from './utils'
+import { MCP_TOOL_METADATA, type McpToolAnnotations } from './mcpMetadata'
 
 /**
  * All registered tools.
  */
-export const allTools = [...documentTools, ...editorTools, ...fileTools, ...tabTools, ...uiTools] as const
+export const allTools = [...documentTools, ...editorTools, ...reviewTools, ...fileTools, ...tabTools, ...uiTools] as const
 
 /**
  * Tool name type (union of all tool names).
@@ -97,10 +99,11 @@ export function getToolsForClaudeAPI(mode: ToolMode = 'create'): Array<{
 }
 
 /**
- * Tools exposed via MCP server.
- * Focused subset for Claude Desktop integration.
+ * Tools exposed via MCP server: the focused subset every MCP client sees
+ * (stdio, HTTP). `MCP_TOOL_METADATA` (mcpMetadata.ts) carries each one's
+ * title, annotations, output schema and any MCP-specific description.
  */
-const mcpToolNames = [
+export const mcpToolNames = [
   'read_document',
   'get_outline',
   'open_file',
@@ -110,7 +113,19 @@ const mcpToolNames = [
   'add_comment',
   'resolve_comment',
   'list_tabs',
-  'select_tab'
+  'select_tab',
+  // The review lifecycle (#890). Accept and reject stay off this list: the
+  // writer decides (#607).
+  'reply_to_comment',
+  'reopen_comment',
+  'list_suggestions',
+  'reply_to_suggestion',
+  'revise_suggestion',
+  'get_review_status',
+  'list_review_events',
+  // Tracked changes (#891): proposals only; the writer decides.
+  'suggest_insert',
+  'suggest_delete'
 ] as const
 
 /**
@@ -123,19 +138,83 @@ export function isMcpToolName(name: string): boolean {
 }
 
 /**
- * Get tools formatted for MCP server.
- * Returns a focused subset of tools for Claude Desktop integration.
+ * MCP document tools that take an optional `document` target (#1237): a
+ * documentId or path from `list_tabs`, resolved to an open tab by the
+ * renderer's MCP handler. MCP-only: the in-app chat is already bound to its
+ * conversation's document (#1148).
  */
-export function getToolsForMCP(): Array<{
+const mcpDocumentToolNames = [
+  'read_document',
+  'get_outline',
+  'suggest_edit',
+  'list_comments',
+  'add_comment',
+  'resolve_comment',
+  'reply_to_comment',
+  'reopen_comment',
+  'list_suggestions',
+  'reply_to_suggestion',
+  'revise_suggestion',
+  'get_review_status',
+  'list_review_events',
+  'suggest_insert',
+  'suggest_delete',
+] as const
+
+export const MCP_DOCUMENT_ARG = 'document'
+export const MCP_DOCUMENT_ARG_MAX_LENGTH = 4096
+
+export function isMcpDocumentTool(name: string): boolean {
+  return (mcpDocumentToolNames as readonly string[]).includes(name)
+}
+
+const MCP_DOCUMENT_PROPERTY = {
+  type: 'string',
+  maxLength: MCP_DOCUMENT_ARG_MAX_LENGTH,
+  description:
+    'Optional. The document to act on: its documentId or path, as list_tabs reports them. It must be open in Prose ' +
+    '(open_file opens it). Omit it to act on the active tab. Targeting a document never switches the tab the writer sees.',
+}
+
+/** A tool's MCP input schema: its own, plus `document` on the document tools. */
+function mcpInputSchema(tool: ToolConfig): Record<string, unknown> {
+  const schema = zodToJsonSchema(tool.schema)
+  if (!isMcpDocumentTool(tool.name)) return schema
+  const properties = (schema.properties as Record<string, unknown> | undefined) ?? {}
+  return { ...schema, properties: { ...properties, [MCP_DOCUMENT_ARG]: MCP_DOCUMENT_PROPERTY } }
+}
+
+/** One tool as `tools/list` advertises it over MCP. */
+export interface McpToolDefinition {
   name: string
+  title: string
   description: string
   inputSchema: Record<string, unknown>
-}> {
+  outputSchema: Record<string, unknown>
+  /** `title` repeats here for clients older than the top-level tool title (2025-06-18). */
+  annotations: McpToolAnnotations
+}
+
+/**
+ * Get tools formatted for the MCP servers (stdio bridge and HTTP): the MCP
+ * subset, with the MCP description where one exists, a display title, the
+ * input schema (plus `document` on the document tools), the behaviour
+ * annotations and the output schema of a successful result.
+ */
+export function getToolsForMCP(): McpToolDefinition[] {
   return allTools
     .filter((tool) => (mcpToolNames as readonly string[]).includes(tool.name))
-    .map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      inputSchema: zodToJsonSchema(tool.schema)
-    }))
+    .map((tool) => {
+      const meta = MCP_TOOL_METADATA[tool.name]
+      // A tool on the MCP list needs its metadata (mcpMetadata.ts); say which one, not a bare TypeError.
+      if (!meta) throw new Error(`MCP metadata missing for tool: ${tool.name}`)
+      return {
+        name: tool.name,
+        title: meta.annotations.title,
+        description: meta.description ?? tool.description,
+        inputSchema: mcpInputSchema(tool),
+        outputSchema: meta.outputSchema,
+        annotations: meta.annotations
+      }
+    })
 }

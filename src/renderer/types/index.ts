@@ -1,5 +1,10 @@
-import type { ToolResult } from '../../shared/tools/types'
+import type { ToolMode, ToolResult } from '../../shared/tools/types'
 import type { FileAccessOptions } from '../../shared/fileAccess'
+import type { LlmErrorKind } from '../../shared/llm/errors'
+import type { LLMKeyStatusMap, LLMProvider } from '../../shared/llm/providers'
+
+import type { AppStoreImportKeysResult, AppStoreImportStart, AppStoreImportStatus } from '../../shared/appStoreImport'
+import type { RemoteAccessStatus, RemoteChange, RemoteConnection, RemoteForgetResult, RemoteResult } from '../../shared/mcp/remoteAccess'
 
 /**
  * A named project — a root-folder workspace. Think Obsidian vaults or
@@ -57,9 +62,24 @@ export type LegacyTheme = 'light' | 'dark' | 'system' | 'termy-green-light' | 't
 
 interface SettingsBase {
   llm: {
-    provider: 'anthropic'
+    provider: LLMProvider
     model: string
-    apiKey: string
+    /**
+     * Which providers have a key, filled by main on every settings load and
+     * after `setLlmKey` / `clearLlmKey`. Never the key itself: keys stay in
+     * main (#1240), and `settings:save` drops this field.
+     */
+    keyStatus?: LLMKeyStatusMap
+    /** The model last used with each provider, restored when the writer switches back to it. */
+    modelByProvider?: Partial<Record<LLMProvider, string>>
+    /**
+     * The models the pickers show for a provider, once the writer has changed
+     * the set in Settings → LLM (#1322). Absent for a provider: its built-in
+     * `featuredModels` apply, so a later release can change them.
+     */
+    shownModels?: Partial<Record<LLMProvider, string[]>>
+    /** The model a mode switches to when the writer enters it (#1322). Absent: the model in use stays. */
+    modeModels?: Partial<Record<ToolMode, { provider: LLMProvider; model: string }>>
     baseUrl?: string
     emojiIcons?: boolean
   }
@@ -78,14 +98,28 @@ interface SettingsBase {
   recovery?: {
     mode: 'silent' | 'prompt'
   }
+  /**
+   * The writer's identity on their own records (#1232). The name labels "you"
+   * in comments and Activity; the email stays on this Mac (it is in no record,
+   * MCP result, share push or relay call). Both optional.
+   */
+  user?: {
+    name?: string
+    email?: string
+  }
   defaultSaveDirectory?: string
   masDirectoryBookmark?: string
   remarkable?: {
     enabled: boolean
-    deviceToken?: string
     syncDirectory: string
     lastSyncedAt?: string
-    /** Whether user has set an Anthropic API key (not the key itself - stored securely) */
+    /**
+     * Whether main holds a device token, filled by main on every settings load
+     * (#1275). The token itself never reaches the renderer; `settings:save`
+     * drops this field.
+     */
+    connected?: boolean
+    /** Whether a reMarkable OCR key is saved (main fills it; the key never leaves main) */
     hasAnthropicKey?: boolean
   }
   recentFiles?: string[]
@@ -236,8 +270,9 @@ export interface FileItem {
   isDotfile?: boolean
 }
 
+/** The device token stays in main (#1275); registration answers only that it worked. */
 export interface RemarkableRegisterResponse {
-  deviceToken: string
+  connected: boolean
 }
 
 export interface RemarkableStatusResponse {
@@ -356,7 +391,6 @@ export interface LLMToolDefinition {
 export interface LLMRequest {
   provider: string
   model: string
-  apiKey: string
   baseUrl?: string
   messages: LLMMessage[]
   system: string
@@ -372,7 +406,7 @@ export interface LLMStreamRequest extends LLMRequest {
   tools?: LLMToolDefinition[]
   maxToolRoundtrips?: number
   maxTokens?: number
-  /** Enable adaptive thinking (Anthropic-only). Defaults to true when omitted. */
+  /** The thinking toggle: Claude's adaptive thinking, or an OpenAI model's reasoning (#1301). Defaults to true when omitted. */
   thinking?: boolean
 }
 
@@ -422,6 +456,8 @@ export interface LLMStreamComplete {
 export interface LLMStreamError {
   streamId: string
   error: string
+  /** The one classification of the failure (#1268); the chat's hint keys on it. */
+  kind?: LlmErrorKind
 }
 
 export interface McpStatus {
@@ -432,13 +468,23 @@ export interface McpStatus {
 
 export interface TestApiKeyRequest {
   provider: string
-  apiKey: string
+  /** A typed key not yet saved; without one, main tests the provider's saved key. */
+  apiKey?: string
   baseUrl?: string
+}
+
+/** What `setLlmKey` answers: the key status map, never a key (#1240). */
+export interface SetLlmKeyResult {
+  ok: boolean
+  error?: string
+  status: LLMKeyStatusMap
 }
 
 export interface TestApiKeyResult {
   success: boolean
   message: string
+  /** The key is valid but can't be used yet (its account has no credits, #1268): shown, not refused. */
+  warning?: boolean
 }
 
 // --- Share service (#768) ---
@@ -503,6 +549,16 @@ export interface SharePulledComment {
   createdAt: string
 }
 
+/** An MCP connection (#1236): a client's named, revocable token. The token itself is never listed. */
+export interface McpConnection {
+  id: string
+  label: string
+  createdAt: number
+  lastUsedAt: number | null
+}
+
+export type McpConnectionResult<T> = { ok: true; value: T } | { ok: false; error: string }
+
 export interface ElectronAPI {
   openFile: () => Promise<FileResult | null>
   saveFile: (path: string, content: string, opts?: FileAccessOptions) => Promise<void>
@@ -514,10 +570,15 @@ export interface ElectronAPI {
   loadSettings: () => Promise<SettingsOnDisk>
   saveSettings: (settings: Settings) => Promise<void>
   testApiKey: (request: TestApiKeyRequest) => Promise<TestApiKeyResult>
-  fetchModels: (request: { provider: string; apiKey: string }) => Promise<{
+  fetchModels: (request: { provider: string; apiKey?: string }) => Promise<{
     models?: Array<{ id: string; name: string; description?: string }>
     error?: string
   }>
+  /** Which providers have a key (last four characters, whether it persists). */
+  getLlmKeyStatus: () => Promise<LLMKeyStatusMap>
+  /** Hand a key to main, which stores it; the renderer keeps no copy. */
+  setLlmKey: (request: { provider: string; key: string }) => Promise<SetLlmKeyResult>
+  clearLlmKey: (provider: string) => Promise<LLMKeyStatusMap>
   isSecureStorageAvailable: () => Promise<boolean>
   onMenuAction: (callback: (action: string) => void) => () => void
   onFileOpenExternal: (callback: (path: string) => void) => () => void
@@ -563,16 +624,18 @@ export interface ElectronAPI {
   listDirectory: (path: string, maxDepth?: number, showDotfiles?: boolean, opts?: FileAccessOptions) => Promise<FileItem[]>
   // reMarkable sync
   remarkableRegister: (code: string) => Promise<RemarkableRegisterResponse>
-  remarkableValidate: (deviceToken: string) => Promise<boolean>
-  remarkableSync: (deviceToken: string, syncDirectory: string) => Promise<RemarkableSyncResult>
+  /** Validate the device token main holds. */
+  remarkableValidate: () => Promise<boolean>
+  remarkableSync: (syncDirectory: string) => Promise<RemarkableSyncResult>
   remarkableDisconnect: (syncDirectory?: string) => Promise<void>
   remarkableGetMetadata: (syncDirectory: string) => Promise<RemarkableSyncMetadata | null>
-  remarkableListCloudNotebooks: (deviceToken: string) => Promise<RemarkableCloudNotebook[]>
+  remarkableListCloudNotebooks: () => Promise<RemarkableCloudNotebook[]>
   remarkableGetSyncState: (syncDirectory: string) => Promise<RemarkableSyncState | null>
   remarkableUpdateSyncSelection: (syncDirectory: string, selectedNotebooks: string[]) => Promise<void>
   // Secure API key storage for reMarkable OCR
   remarkableStoreApiKey: (apiKey: string) => Promise<void>
-  remarkableGetApiKey: () => Promise<string | null>
+  /** Whether a reMarkable OCR key is saved; the key never leaves main (#1275). */
+  remarkableOcrKeyStatus: () => Promise<boolean>
   remarkableClearApiKey: () => Promise<void>
   // reMarkable read-only/editable version paths
   remarkableGetOCRPath: (notebookId: string, syncDirectory: string) => Promise<string | null>
@@ -581,7 +644,7 @@ export interface ElectronAPI {
   remarkableFindNotebookByFilePath: (filePath: string, syncDirectory: string) => Promise<string | null>
   remarkableClearNotebookMarkdownPath: (notebookId: string, syncDirectory: string) => Promise<boolean>
   remarkableClearOcrSentinel: (notebookId: string, syncDirectory: string) => Promise<boolean>
-  remarkableMoveNotebook: (deviceToken: string, notebookHash: string, newParentId: string) => Promise<string>
+  remarkableMoveNotebook: (notebookHash: string, newParentId: string) => Promise<string>
   remarkableUpdateNotebookParent: (notebookId: string, newParentId: string, syncDirectory: string, newHash?: string) => Promise<boolean>
   remarkableCancelSync: () => Promise<void>
   onRemarkableSyncProgress: (
@@ -589,7 +652,8 @@ export interface ElectronAPI {
   ) => () => void
   // MCP tool execution (only used in MCP server mode)
   onMcpToolInvoke: (
-    callback: (requestId: string, toolName: string, args: unknown) => void
+    // `actor`: who the call is from, built by main (#1236). Untrusted here: read it through mcpActorFrom.
+    callback: (requestId: string, toolName: string, args: unknown, actor?: unknown) => void
   ) => () => void
   sendMcpToolResult: (requestId: string, result: ToolResult) => void
   // MCP server status
@@ -605,6 +669,24 @@ export interface ElectronAPI {
   }>
   mcpInstall: () => Promise<{ success: boolean; error?: string }>
   mcpUninstall: () => Promise<{ success: boolean; error?: string }>
+  // MCP connections (#1236): Settings → Integrations → Connections. The token is returned once, by create.
+  mcpListConnections?: () => Promise<McpConnectionResult<McpConnection[]>>
+  mcpCreateConnection?: (label: string) => Promise<McpConnectionResult<{ connection: McpConnection; token: string }>>
+  mcpRenameConnection?: (id: string, label: string) => Promise<McpConnectionResult<McpConnection>>
+  mcpRevokeConnection?: (id: string) => Promise<McpConnectionResult<null>>
+  mcpEndpoint?: () => Promise<{ available: boolean; port: number; url: string }>
+  // Remote access (#1239): the relay to ChatGPT and claude.ai, and its remote connections
+  mcpRemoteStatus?: () => Promise<RemoteAccessStatus>
+  mcpRemoteSetEnabled?: (enabled: boolean) => Promise<RemoteResult<RemoteAccessStatus>>
+  mcpRemoteList?: () => Promise<RemoteResult<RemoteConnection[]>>
+  mcpRemoteApprove?: (clientId: string, scopes: string[], label?: string) => Promise<RemoteResult<RemoteConnection>>
+  mcpRemoteUpdate?: (clientId: string, change: { scopes?: string[]; label?: string }) => Promise<RemoteResult<RemoteConnection>>
+  mcpRemoteDeny?: (clientId: string) => Promise<RemoteResult<RemoteForgetResult>>
+  mcpRemoteRemove?: (clientId: string) => Promise<RemoteResult<RemoteForgetResult>>
+  mcpRemoteAcknowledge?: () => Promise<RemoteResult<null>>
+  onMcpRemoteChanged?: (callback: (change: RemoteChange) => void) => () => void
+  // Claude Desktop extension (#1257): builds this profile's .mcpb and opens Claude Desktop's install dialog
+  mcpInstallExtension?: () => Promise<{ success: boolean; path?: string; error?: string }>
   // Release notes for the post-update modal (#1058); null when this version ships none
   getReleaseNotes: (version: string) => Promise<{ version: string; markdown: string } | null>
   // File association (default markdown editor)
@@ -637,8 +719,8 @@ export interface ElectronAPI {
   shareReplyToComment: (publicationId: string, commentId: string, text: string, authorName?: string, fromAuthor?: boolean) => Promise<ShareOp<{ id: string; createdAt: string }>>
   shareResolveComment: (publicationId: string, commentId: string, resolved: boolean) => Promise<ShareOp>
   shareRemoveComment: (publicationId: string, commentId: string) => Promise<ShareOp>
-  // Emoji generation (runs in main process to avoid CORS)
-  emojiGenerate: (title: string, contentPreview?: string) => Promise<{ emoji: string | null; error?: string }>
+  // Emoji generation on the provider in use, by its small model (#1324); main reads the key
+  emojiGenerate: (title: string, contentPreview: string | undefined, provider: string) => Promise<{ emoji: string | null; error?: string }>
   // Window fullscreen state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => () => void
   isFullScreen: () => Promise<boolean>
@@ -649,6 +731,8 @@ export interface ElectronAPI {
   refreshRecentMenu: () => Promise<void>
   // Native menu: enable/disable "Reopen Closed Tab" based on closed-tab stack
   setReopenClosedTabEnabled: (enabled: boolean) => Promise<void>
+  // Native menu: show "Copy with changes" while the active tab has pending tracked changes (#891)
+  setCopyWithChangesAvailable: (available: boolean) => Promise<void>
   // Clipboard
   copyToClipboard: (text: string) => Promise<void>
   // Sentry error tracking
@@ -659,6 +743,15 @@ export interface ElectronAPI {
   downloadSkill?: () => Promise<{ success: boolean; error?: string }>
   // Build info
   isMasBuild?: boolean
+  // Import from the App Store edition (#1243); direct Electron builds only
+  appStoreImport?: {
+    status: () => Promise<AppStoreImportStatus>
+    start: () => Promise<AppStoreImportStart>
+    decline: () => Promise<void>
+    acknowledge: () => Promise<void>
+    importKeys: () => Promise<AppStoreImportKeysResult>
+    discardKeys: () => Promise<void>
+  }
   // File watcher — Electron-only live reload support for the File Explorer
   startWatchingDirectory?: (dirPath: string) => Promise<void>
   stopWatchingDirectory?: () => Promise<void>

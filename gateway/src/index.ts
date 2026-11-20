@@ -5,10 +5,13 @@
  */
 import 'dotenv/config'
 import { serve } from '@hono/node-server'
+import { WebSocketServer } from 'ws'
 import { config, port } from './config.js'
 import { createApp } from './app.js'
 import { prisma } from './db/index.js'
 import { hashShareToken } from './routes/share/common.js'
+import { MAX_FRAME_BYTES, relayHub } from './relay/hub.js'
+import { startSessionSweep } from './relay/sessions.js'
 
 const app = createApp()
 
@@ -37,7 +40,14 @@ void (async () => {
   }
 })()
 
-const server = serve({ fetch: app.fetch, port }, (info) => {
+// The MCP relay's desktop sockets (#1238): GET /relay upgrades here (relay/
+// socket.ts). The frame cap is a 10 MiB result plus its envelope; a larger
+// frame closes the socket (1009) and fails its call.
+const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES })
+relayHub.start()
+startSessionSweep()
+
+const server = serve({ fetch: app.fetch, port, websocket: { server: wss } }, (info) => {
   console.log(`[gateway] listening on http://localhost:${info.port} (env=${config.NODE_ENV})`)
 })
 

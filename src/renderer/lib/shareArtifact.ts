@@ -10,6 +10,7 @@ import { extractFirstH1 } from './markdown'
 import { mergeCommentsForPersistence } from '../extensions/comments/extension'
 import { threadsOf } from '../extensions/comments/transactions'
 import { getIdentity } from '../document/identity'
+import { originalHTML } from '../document/session'
 
 export interface ShareArtifactDoc {
   content: string
@@ -45,7 +46,8 @@ export async function buildShareArtifact(
   // Snapshot the live editor HTML and comments SYNCHRONOUSLY, before the async
   // auth lookup below — a switch during that await must not swap in another
   // document's content after the identity check has passed.
-  const editorHtml = editor.getHTML()
+  // The original, as the file holds it: a pending tracked change is never published (#891).
+  const editorHtml = originalHTML(editor.state.doc)
   const merged = mergeCommentsForPersistence(editor, threadsOf(editor.state))
   const status = await getApi().shareAuthStatus()
   const gatewayUrl = status.ok ? status.gatewayUrl : ''

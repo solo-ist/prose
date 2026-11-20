@@ -16,11 +16,12 @@ import { cn } from '../../lib/utils'
 import { useReviewStore } from '../../stores/reviewStore'
 import { getApi } from '../../lib/browserApi'
 import { requestBugReport } from '../EnableLoggingDialog'
+import { MAS_SUPPORT_URL } from '../../lib/featureFlags'
 
-// GitHub feedback template URLs (mirror the Toolbar "More" menu / Help menu)
+// GitHub feedback template URLs (mirror the Toolbar "More" menu / Help menu).
+// MAS builds use MAS_SUPPORT_URL instead of the bug template.
 const BUG_REPORT_URL = 'https://github.com/solo-ist/prose/issues/new?template=bug-report.yml'
 const FEATURE_REQUEST_URL = 'https://github.com/solo-ist/prose/issues/new?template=feature-request.yml'
-const MAS_SUPPORT_URL = 'https://solo.ist/prose/support'
 
 // Tool descriptions for autocomplete
 const toolDescriptions: Record<string, string> = {
@@ -302,7 +303,7 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
 • **/open_file** — Open a file
 • **/save_file** — Save to file
 • **/read_file** — Read file contents
-• **/report-bug** — Report a bug on GitHub
+${getApi().isMasBuild ? '• **/report-bug** — Request support' : '• **/report-bug** — Report a bug on GitHub'}
 • **/request-feature** — Request a feature on GitHub
 
 *Tip: Select a command from the dropdown to execute it immediately, or type arguments after the command.*`,
@@ -784,7 +785,7 @@ export function ChatInput({ onSend, isLoading, isStreaming, onStop }: ChatInputP
               >
                 <span className="font-mono">/{cmd}</span>
                 <span className="text-xs text-muted-foreground truncate ml-4">
-                  {toolDescriptions[cmd] || ''}
+                  {(cmd === 'report-bug' && getApi().isMasBuild ? 'Request support' : toolDescriptions[cmd]) || ''}
                 </span>
               </div>
             ))}

@@ -21,6 +21,9 @@ import { Wand2, Crosshair, X, MessageSquare, CheckCheck, Clock, ArrowUpRight, Us
 import { selectAnnotations } from '../../extensions/ai-annotations'
 import { useActiveSession } from '../../document/useActiveSession'
 import { OPEN_COMMENT_EVENT, selectThreads } from '../../extensions/comments'
+import { selectReviewLog, type SuggestionHistory } from '../../extensions/review-log'
+import { reviewItems } from '../review/reviewItems'
+import type { Actor } from '../../../shared/review/actor'
 import { useReviewStore } from '../../stores/reviewStore'
 import { useShareStore } from '../../stores/shareStore'
 import { useEditorStore } from '../../stores/editorStore'
@@ -33,6 +36,8 @@ import { PROSE_ICONS, IconThumb } from '../../lib/prose-icons'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { renderMarkdown } from '../chat/ChatMessage'
 import { cn } from '../../lib/utils'
+import { actorAvatarKind, actorLabel, actorOfComment, actorOfProvenance, isAgentActor } from '../../../shared/review/actor'
+import { useSelfName } from '../../hooks/useSelfName'
 
 /** Which activity categories are visible. Every category defaults to shown. */
 export interface ActivityFilter {
@@ -41,6 +46,10 @@ export interface ActivityFilter {
   resolvedThreads: boolean
   edits: boolean
   superseded: boolean
+  /** Suggestions still waiting for the writer (#1234). */
+  pendingSuggestions: boolean
+  /** Accepted, rejected and superseded suggestions, from the review log (#1234). */
+  decidedSuggestions: boolean
 }
 
 export const DEFAULT_ACTIVITY_FILTER: ActivityFilter = {
@@ -49,7 +58,12 @@ export const DEFAULT_ACTIVITY_FILTER: ActivityFilter = {
   resolvedThreads: true,
   edits: true,
   superseded: true,
+  pendingSuggestions: true,
+  decidedSuggestions: true,
 }
+
+/** The actor filter's "show everyone" value. Any other value is an actor label. */
+export const ALL_ACTORS = ''
 
 // Re-exported for existing importers (e.g. CommentPopover). Source of truth is
 // the comments extension module, so chat tool-results can import it without a cycle.
@@ -73,6 +87,25 @@ export function requestCommentReview(id?: string): void {
 type ActivityItem =
   | { kind: 'annotation'; annotation: AIAnnotation; createdAt: number }
   | { kind: 'comment'; comment: CommentData; createdAt: number }
+  | { kind: 'suggestion'; suggestion: SuggestionHistory; createdAt: number }
+
+type ActivitySubject =
+  | { kind: 'annotation'; annotation: AIAnnotation }
+  | { kind: 'comment'; comment: CommentData }
+  | { kind: 'suggestion'; suggestion: SuggestionHistory }
+
+/** Everyone who made or touched an item (#1234): the actor filter matches any of them. */
+export function activityActors(item: ActivitySubject): Actor[] {
+  if (item.kind === 'annotation') return [actorOfProvenance(item.annotation.provenance.model, item.annotation.provenance.actor)]
+  if (item.kind === 'comment') return [actorOfComment(item.comment), ...(item.comment.replies ?? []).map(actorOfComment)]
+  const s = item.suggestion
+  return [s.actor, ...(s.decidedBy ? [s.decidedBy] : []), ...s.feedback.map((f) => f.actor)]
+}
+
+/** A suggestion row's latest moment: its decision, else its last feedback, else its proposal. */
+function suggestionMoment(s: SuggestionHistory): number {
+  return s.decidedAt ?? s.feedback.at(-1)?.createdAt ?? s.createdAt
+}
 
 interface ActivityDateGroup {
   label: string
@@ -88,11 +121,18 @@ function commentCategory(c: CommentData): 'open' | 'pending' | 'resolved' {
 /** Whether an item passes the active filter. Exported so the tab badge count
  *  in ChatPanel can use the same predicate. */
 export function activityItemVisible(
-  item: { kind: 'annotation'; annotation: AIAnnotation } | { kind: 'comment'; comment: CommentData },
-  f: ActivityFilter
+  item: ActivitySubject,
+  f: ActivityFilter,
+  actor: { label: string; selfName: string } = { label: ALL_ACTORS, selfName: '' }
 ): boolean {
+  if (actor.label !== ALL_ACTORS && !activityActors(item).some((a) => actorLabel(a, { selfName: actor.selfName }) === actor.label)) {
+    return false
+  }
   if (item.kind === 'annotation') {
     return item.annotation.detached ? f.superseded : f.edits
+  }
+  if (item.kind === 'suggestion') {
+    return item.suggestion.status === 'pending' ? f.pendingSuggestions : f.decidedSuggestions
   }
   const cat = commentCategory(item.comment)
   return cat === 'open' ? f.openThreads : cat === 'pending' ? f.pendingThreads : f.resolvedThreads
@@ -101,24 +141,32 @@ export function activityItemVisible(
 interface AIEditsHistoryPanelProps {
   /** Active category filter. Owned by ChatPanel's tab header. */
   filter: ActivityFilter
+  /** Active actor filter: an actor label, or ALL_ACTORS (#1234). */
+  actorFilter: string
   /** Reset the filter to show everything (wired to the filtered-empty CTA). */
   onShowAll: () => void
   /** Enter comment Review mode focused on a specific thread (the expand icon). */
   onReviewThread: (id: string) => void
 }
 
-export function AIEditsHistoryPanel({ filter, onShowAll, onReviewThread }: AIEditsHistoryPanelProps) {
+export function AIEditsHistoryPanel({ filter, actorFilter, onShowAll, onReviewThread }: AIEditsHistoryPanelProps) {
   const annotations = useActiveSession(selectAnnotations)
   const pendingComments = useActiveSession(selectThreads)
+  const reviewLog = useActiveSession(selectReviewLog)
   const editor = useEditorInstanceStore((s) => s.editor)
+  const selfName = useSelfName()
 
   // Build the unified, filtered feed (newest-first).
   const items: ActivityItem[] = useMemo(() => {
+    const actor = { label: actorFilter, selfName }
     const annotationItems: ActivityItem[] = annotations
-      .filter((a) => activityItemVisible({ kind: 'annotation', annotation: a }, filter))
+      .filter((a) => activityItemVisible({ kind: 'annotation', annotation: a }, filter, actor))
       .map((a) => ({ kind: 'annotation', annotation: a, createdAt: a.createdAt }))
+    const suggestionItems: ActivityItem[] = reviewLog.suggestions
+      .filter((sg) => activityItemVisible({ kind: 'suggestion', suggestion: sg }, filter, actor))
+      .map((sg) => ({ kind: 'suggestion', suggestion: sg, createdAt: suggestionMoment(sg) }))
     const commentItems: ActivityItem[] = pendingComments
-      .filter((c) => activityItemVisible({ kind: 'comment', comment: c }, filter))
+      .filter((c) => activityItemVisible({ kind: 'comment', comment: c }, filter, actor))
       .map((c) => ({
         kind: 'comment',
         comment: c,
@@ -127,10 +175,13 @@ export function AIEditsHistoryPanel({ filter, onShowAll, onReviewThread }: AIEdi
             ? c.replies[c.replies.length - 1].createdAt
             : c.createdAt,
       }))
-    return [...annotationItems, ...commentItems].sort((a, b) => b.createdAt - a.createdAt)
-  }, [annotations, pendingComments, filter])
+    return [...annotationItems, ...suggestionItems, ...commentItems].sort((a, b) => b.createdAt - a.createdAt)
+  }, [annotations, pendingComments, reviewLog, filter, actorFilter, selfName])
 
-  const hasAnyActivity = annotations.length > 0 || pendingComments.length > 0
+  // A rejected row names the revision that followed it (#1266).
+  const suggestionsById = useMemo(() => new Map(reviewLog.suggestions.map((sg) => [sg.id, sg])), [reviewLog])
+
+  const hasAnyActivity = annotations.length > 0 || pendingComments.length > 0 || reviewLog.suggestions.length > 0
   const nothingVisible = items.length === 0
   const groups = useMemo(() => groupActivityByDate(items), [items])
 
@@ -144,6 +195,20 @@ export function AIEditsHistoryPanel({ filter, onShowAll, onReviewThread }: AIEdi
       const domAtPos = editor.view.domAtPos(selection.from)
       const el = domAtPos.node instanceof Element ? domAtPos.node : domAtPos.node.parentElement
       el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    },
+    [editor]
+  )
+
+  // A pending suggestion opens Quick Review on itself (#854's card hand-off).
+  const handleReviewSuggestion = useCallback(
+    (id: string) => {
+      if (!editor) return
+      // Quick Review steps through suggestions and tracked changes together (#891).
+      const index = reviewItems(editor).findIndex((sg) => sg.id === id)
+      if (index === -1) return
+      const store = useReviewStore.getState()
+      store.setReviewMode('quick')
+      store.setCurrentSuggestionIndex(index)
     },
     [editor]
   )
@@ -182,6 +247,8 @@ export function AIEditsHistoryPanel({ filter, onShowAll, onReviewThread }: AIEdi
                 onRemoveAnnotation={handleRemoveAnnotation}
                 onRemoveComment={handleRemoveComment}
                 onReviewThread={onReviewThread}
+                onReviewSuggestion={handleReviewSuggestion}
+                suggestionsById={suggestionsById}
               />
             ))}
           </div>
@@ -230,6 +297,8 @@ interface ActivityDateGroupProps {
   onRemoveAnnotation: (id: string) => void
   onRemoveComment: (id: string) => void
   onReviewThread: (id: string) => void
+  onReviewSuggestion: (id: string) => void
+  suggestionsById: ReadonlyMap<string, SuggestionHistory>
 }
 
 function ActivityDateGroupView({
@@ -239,6 +308,8 @@ function ActivityDateGroupView({
   onRemoveAnnotation,
   onRemoveComment,
   onReviewThread,
+  onReviewSuggestion,
+  suggestionsById,
 }: ActivityDateGroupProps) {
   return (
     <div>
@@ -256,6 +327,13 @@ function ActivityDateGroupView({
               onJump={onJumpAnnotation}
               onRemove={onRemoveAnnotation}
             />
+          ) : item.kind === 'suggestion' ? (
+            <SuggestionActivityRow
+              key={`suggestion-${item.suggestion.id}`}
+              suggestion={item.suggestion}
+              revision={item.suggestion.supersededBy ? suggestionsById.get(item.suggestion.supersededBy) : undefined}
+              onReview={onReviewSuggestion}
+            />
           ) : (
             <CommentActivityRow
               key={item.comment.id}
@@ -270,6 +348,114 @@ function ActivityDateGroupView({
   )
 }
 
+// ─── Suggestion row (#1234) ─────────────────────────────────────────────────
+
+const SUGGESTION_STATUS: Record<SuggestionHistory['status'], { label: string; className: string }> = {
+  pending: { label: 'Pending', className: 'bg-amber-500/15 text-amber-700 dark:text-amber-300' },
+  accepted: { label: 'Accepted', className: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' },
+  rejected: { label: 'Rejected', className: 'bg-muted text-muted-foreground' },
+  superseded: { label: 'Superseded', className: 'bg-muted text-muted-foreground' },
+}
+
+function SuggestionActivityRow({
+  suggestion,
+  revision,
+  onReview,
+}: {
+  suggestion: SuggestionHistory
+  /** The suggestion that followed this one, when the log has it. */
+  revision?: SuggestionHistory
+  onReview: (id: string) => void
+}) {
+  const selfName = useSelfName()
+  const [expanded, setExpanded] = useState(false)
+  const status = SUGGESTION_STATUS[suggestion.status]
+  const pending = suggestion.status === 'pending'
+  const name = (a: Actor) => actorLabel(a, { selfName })
+  return (
+    <div
+      data-testid="suggestion-activity-row"
+      data-suggestion-id={suggestion.id}
+      data-status={suggestion.status}
+      onClick={() => (pending ? onReview(suggestion.id) : setExpanded((v) => !v))}
+      className={cn(
+        'group cursor-pointer rounded-lg border border-border/60 bg-card/40 px-3 py-2.5 transition-colors hover:bg-accent/40',
+        !pending && 'opacity-75 hover:opacity-100'
+      )}
+    >
+      <div className="mb-1.5 flex items-center gap-2">
+        <span data-testid="suggestion-status" className={cn('inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider', status.className)}>
+          {status.label}
+        </span>
+        <span className="min-w-0 truncate text-xs text-muted-foreground" data-testid="suggestion-row-actor">
+          {name(suggestion.actor)}
+        </span>
+        <span className="ml-auto shrink-0 text-xs text-muted-foreground/60">{formatAge(suggestionMoment(suggestion))}</span>
+      </div>
+      <p className="line-clamp-2 text-[12.5px] leading-relaxed text-foreground/60 line-through decoration-foreground/30">
+        {suggestion.originalText}
+      </p>
+      <p className="line-clamp-3 text-[12.5px] leading-relaxed text-foreground/90">{suggestion.suggestedText}</p>
+      {/* A tracked change the file no longer had room for (#891): set aside, never put back elsewhere. */}
+      {suggestion.orphaned && (
+        <p className="mt-1 text-[11px] text-muted-foreground" data-testid="suggestion-orphaned">
+          Set aside: the text around it changed outside Prose
+        </p>
+      )}
+      {suggestion.decidedBy && suggestion.status !== 'pending' && (
+        <p className="mt-1 text-[11px] text-muted-foreground" data-testid="suggestion-decided-by">
+          {suggestion.status === 'superseded' ? 'Revised by' : `${status.label} by`} {name(suggestion.decidedBy)}
+        </p>
+      )}
+      {/* Rejected, then revised by an agent (#1266): the rejection stands, and the row names what followed. */}
+      {suggestion.status === 'rejected' && suggestion.supersededBy && (
+        <p className="mt-0.5 flex flex-wrap items-center gap-x-1 text-[11px] text-muted-foreground" data-testid="suggestion-revised-after">
+          <span>Then revised{revision ? ` by ${name(revision.actor)}` : ''}</span>
+          {revision && revision.status !== 'pending' && <span>· {SUGGESTION_STATUS[revision.status].label.toLowerCase()}</span>}
+          {revision?.status === 'pending' && (
+            <>
+              <span aria-hidden>·</span>
+              <button
+                type="button"
+                data-testid="suggestion-open-revision"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onReview(revision.id)
+                }}
+                className="inline-flex items-center gap-0.5 underline-offset-2 hover:text-foreground hover:underline"
+              >
+                View revision
+                <ArrowUpRight className="h-3 w-3" />
+              </button>
+            </>
+          )}
+        </p>
+      )}
+      {suggestion.feedback.length > 0 && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            setExpanded((v) => !v)
+          }}
+          className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+        >
+          <MessageSquare className="h-3 w-3" />
+          {suggestion.feedback.length} {suggestion.feedback.length === 1 ? 'reply' : 'replies'}
+        </button>
+      )}
+      {expanded && (
+        <div className="mt-2 flex flex-col gap-2" data-testid="suggestion-feedback">
+          {suggestion.explanation && <p className="text-[11.5px] italic text-muted-foreground">{suggestion.explanation}</p>}
+          {suggestion.feedback.map((f) => (
+            <FullRow key={f.id} kind={actorAvatarKind(f.actor)} name={name(f.actor)} time={formatAge(f.createdAt)} text={f.text} markdown={isAgentActor(f.actor)} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Annotation row (kept; aligned styling) ─────────────────────────────────
 
 interface HistoryEntryRowProps {
@@ -279,6 +465,7 @@ interface HistoryEntryRowProps {
 }
 
 function HistoryEntryRow({ annotation, onJump, onRemove }: HistoryEntryRowProps) {
+  const selfName = useSelfName()
   const snippet = annotation.content.slice(0, 200).replace(/\n/g, ' ')
   const isLong = annotation.content.length > 200
   const detached = annotation.detached === true
@@ -310,8 +497,8 @@ function HistoryEntryRow({ annotation, onJump, onRemove }: HistoryEntryRowProps)
             superseded
           </span>
         )}
-        <span className="min-w-0 truncate text-xs text-muted-foreground">
-          {formatModelName(annotation.provenance.model)}
+        <span className="min-w-0 truncate text-xs text-muted-foreground" data-testid="annotation-actor">
+          {actorLabel(actorOfProvenance(annotation.provenance.model, annotation.provenance.actor), { selfName })}
         </span>
         <span className="ml-auto shrink-0 text-xs text-muted-foreground/60">{formatAge(annotation.createdAt)}</span>
         {!detached && (
@@ -373,14 +560,18 @@ interface CommentActivityRowProps {
 }
 
 function CommentActivityRow({ comment, onRemove, onReview }: CommentActivityRowProps) {
+  const selfName = useSelfName()
   const [expanded, setExpanded] = useState(false)
   const replies = comment.replies ?? []
   const category = commentCategory(comment)
   const isResolved = category === 'resolved'
   const last = replies.length > 0 ? replies[replies.length - 1] : null
   const hasMark = !isResolved // resolved threads remove their mark from the doc
-  // The top-level comment may be AI-authored (left via add_comment).
-  const commentIsAI = comment.author === 'ai'
+  // The top-level comment may be agent-authored (left via add_comment); name
+  // every actor (#1232).
+  const commentActor = actorOfComment(comment)
+  const commentIsAI = isAgentActor(commentActor)
+  const lastActor = last ? actorOfComment(last) : null
 
   const openInDocument = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -389,6 +580,7 @@ function CommentActivityRow({ comment, onRemove, onReview }: CommentActivityRowP
 
   return (
     <div
+      data-testid="comment-activity-row"
       onClick={() => setExpanded((v) => !v)}
       className={cn(
         'group cursor-pointer rounded-[10px] border border-border bg-muted/50 px-3 py-3 transition-all hover:border-muted-foreground/30 hover:bg-muted/85',
@@ -446,7 +638,7 @@ function CommentActivityRow({ comment, onRemove, onReview }: CommentActivityRowP
         <div className="flex flex-col gap-1.5">
           <PreviewRow kind={commentIsAI ? 'ai' : 'user'} text={comment.comment} clamp={1} markdown={commentIsAI} />
           {last ? (
-            <PreviewRow kind={last.author === 'ai' ? 'ai' : 'user'} text={last.text} clamp={2} markdown={last.author === 'ai'} />
+            <PreviewRow kind={actorAvatarKind(lastActor!)} text={last.text} clamp={2} markdown={isAgentActor(lastActor!)} />
           ) : !isResolved ? (
             <PreviewRow kind="pending" text="Awaiting reply…" clamp={1} />
           ) : null}
@@ -456,21 +648,24 @@ function CommentActivityRow({ comment, onRemove, onReview }: CommentActivityRowP
         <div className="flex flex-col gap-2.5">
           <FullRow
             kind={commentIsAI ? 'ai' : 'user'}
-            name={commentIsAI ? 'Prose' : 'you'}
+            name={actorLabel(commentActor, { selfName })}
             time={formatAge(comment.createdAt)}
             text={comment.comment}
             markdown={commentIsAI}
           />
-          {replies.map((r) => (
-            <FullRow
-              key={r.id}
-              kind={r.author === 'ai' ? 'ai' : 'user'}
-              name={r.author === 'ai' ? 'Prose' : 'you'}
-              time={formatAge(r.createdAt)}
-              text={r.text}
-              markdown={r.author === 'ai'}
-            />
-          ))}
+          {replies.map((r) => {
+            const actor = actorOfComment(r)
+            return (
+              <FullRow
+                key={r.id}
+                kind={actorAvatarKind(actor)}
+                name={actorLabel(actor, { selfName })}
+                time={formatAge(r.createdAt)}
+                text={r.text}
+                markdown={isAgentActor(actor)}
+              />
+            )
+          })}
           {hasMark && (
             <button
               onClick={openInDocument}
@@ -584,7 +779,7 @@ function FullRow({
       <MiniAvatar kind={kind} />
       <div className="min-w-0 flex-1">
         <div className="mb-0.5 text-[11px] text-muted-foreground">
-          {name} · {time}
+          <span data-testid="activity-actor">{name}</span> · {time}
         </div>
         {markdown ? (
           <div className="prose-chat wrap-break-word text-[12.5px] leading-relaxed text-foreground/85">
@@ -648,17 +843,4 @@ function formatGroupLabel(timestamp: number): string {
   if (diffDays === 1) return 'Yesterday'
   if (diffDays < 7) return date.toLocaleDateString('en-US', { weekday: 'long' })
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: diffDays > 365 ? 'numeric' : undefined })
-}
-
-function formatModelName(model: string): string {
-  if (!model || model === 'external') return 'External'
-  const tokens = model
-    .replace(/^claude[-/]?/, '')
-    .replace(/[-\s]?\d{6,}$/, '')
-    .split('-')
-    .filter(Boolean)
-  if (tokens.length === 0) return model
-  const name = tokens[0].charAt(0).toUpperCase() + tokens[0].slice(1)
-  const version = tokens.slice(1).join('.')
-  return version ? `${name} ${version}` : name
 }

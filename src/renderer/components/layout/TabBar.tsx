@@ -24,7 +24,7 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { useTabEmoji } from '../../hooks/useTabEmoji'
 import { useSettings } from '../../hooks/useSettings'
 import { isMacOS } from '../../lib/browserApi'
-import { isAIConfigured } from '../../lib/llm'
+import { aiAvailability, aiUnavailableMessage, isAIConfigured } from '../../lib/llm'
 import { useNotificationStore } from '../../stores/notificationStore'
 
 interface TabBarProps {
@@ -276,14 +276,14 @@ function TabItem({
   const lastDot = tab.path ? tab.path.lastIndexOf('.') : -1
   const extension = lastDot > 0 ? tab.path!.substring(lastDot) : ''
 
-  // Emoji generation is LLM-powered (main-process emoji:generate → Anthropic).
-  // Without a configured key it silently no-ops, so give explicit feedback
+  // Emoji generation is LLM-powered (main-process emoji:generate, the small
+  // model of the provider in use, #1324). Without a configured key it silently no-ops, so give explicit feedback
   // rather than appearing dead.
   const handleRegenEmoji = useCallback(() => {
     if (!isAIConfigured(settings)) {
       useNotificationStore.getState().notify({
         id: 'emoji-needs-ai',
-        message: 'Emoji generation needs an Anthropic API key — add one in Settings → Integrations.',
+        message: aiUnavailableMessage(aiAvailability(settings).reason ?? 'no-config'),
       })
       return
     }

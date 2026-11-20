@@ -2,6 +2,7 @@ import { BrowserWindow, Menu, MenuItem, session } from 'electron'
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import { getSettingsDir } from './paths'
+import { isCopyWithChangesAvailable } from './menu'
 
 function getDictionaryPath(): string { return join(getSettingsDir(), 'dictionary.json') }
 
@@ -114,6 +115,18 @@ export function setupContextMenu(mainWindow: BrowserWindow): void {
           enabled: params.editFlags.canCopy
         })
       )
+      // The document as if every pending tracked change were accepted (#891);
+      // only while the active tab has some.
+      if (isCopyWithChangesAvailable()) {
+        menu.append(
+          new MenuItem({
+            label: 'Copy with changes',
+            click: () => {
+              mainWindow.webContents.send('menu:action', 'copyWithChanges')
+            }
+          })
+        )
+      }
       menu.append(
         new MenuItem({
           label: 'Paste',

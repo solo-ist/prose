@@ -14,6 +14,7 @@ import { useTabStore } from '../../../stores/tabStore'
 import { openFile, newTab, markTabSaved } from '../../../tabs/actions'
 import { saveSnapshot } from '../../../document/session'
 import type { ToolContext } from '../context'
+import { annotationProvenance } from '../provenanceTypes'
 
 /** Human-readable text for a thrown value, including structured file-operation failures. */
 function describeError(e: unknown): string {
@@ -328,11 +329,7 @@ export async function executeCreateAndOpenFile(args: {
             from: 0,
             to: annotationTo,
             content,
-            provenance: {
-              model: provenance.model,
-              conversationId: provenance.conversationId,
-              messageId: provenance.messageId,
-            },
+            provenance: annotationProvenance(provenance),
             explanation: `Created ${attemptFilename}`,
           },
         ])

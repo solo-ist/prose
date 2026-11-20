@@ -17,10 +17,9 @@
  * are only ever handed back to the OS dialog as a starting point; nothing here
  * reads or writes a user file.
  */
-import { app } from 'electron'
 import { readFile, writeFile, stat } from 'fs/promises'
 import { dirname, join } from 'path'
-import { expandPath, getSettingsDir } from './paths'
+import { expandPath, getSettingsDir, userDocumentsDir, userHomeDir } from './paths'
 
 /** `open` = file open; `save` = Save As and the exports; `folder` = folder pickers. */
 export type DialogKind = 'open' | 'save' | 'folder'
@@ -49,8 +48,12 @@ async function isDirectory(path: string | undefined): Promise<boolean> {
   if (!path) return false
   try {
     return (await stat(path)).isDirectory()
-  } catch {
-    return false
+  } catch (err) {
+    // Present but unreadable by this process: under the App Store sandbox, any
+    // folder outside the ones the user granted (#1223). The system picker runs
+    // outside the sandbox, so it can still start there; a hint needs no grant.
+    const code = (err as NodeJS.ErrnoException).code
+    return code === 'EPERM' || code === 'EACCES'
   }
 }
 
@@ -67,12 +70,13 @@ async function defaultSaveDirectory(): Promise<string | undefined> {
 /**
  * The `defaultPath` for a dialog of this kind: the directory the user last
  * chose for it, else the default save directory, else Documents, else home;
- * joined with `filename` when a save dialog proposes one.
+ * joined with `filename` when a save dialog proposes one. Documents and home are
+ * the user's real ones on MAS, not the sandbox container's (#1223).
  */
 export async function dialogDefaultPath(kind: DialogKind, filename?: string): Promise<string> {
   const remembered = (await load())[kind]
-  const candidates = [remembered, await defaultSaveDirectory(), app.getPath('documents')]
-  let dir = app.getPath('home')
+  const candidates = [remembered, await defaultSaveDirectory(), userDocumentsDir()]
+  let dir = userHomeDir()
   for (const candidate of candidates) {
     if (await isDirectory(candidate)) {
       dir = candidate as string

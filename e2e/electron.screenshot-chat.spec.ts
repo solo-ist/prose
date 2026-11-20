@@ -51,7 +51,8 @@ test('02 ai alongside you — mode-switch (dark)', async () => {
     })
 
   app = await electron.launch({
-    args: [join(REPO, 'out/main/index.js')],
+    // 2x whatever the display, so the 1280 × 800 window captures at 2560 × 1600.
+    args: [join(REPO, 'out/main/index.js'), '--force-device-scale-factor=2'],
     env: { ...(process.env as Record<string, string>), PROSE_USER_DATA_DIR: profile },
   })
   page = await app.firstWindow()

@@ -13,4 +13,4 @@ Existing users are prompted to update automatically.
 ## Requirements
 
 - macOS (Apple Silicon)
-- An API key for AI features: [Anthropic](https://console.anthropic.com/), [OpenAI](https://platform.openai.com/api-keys) or an Inference Cooperative key
+- An API key for AI features: [Anthropic](https://console.anthropic.com/), [OpenAI](https://platform.openai.com/api-keys) or an [Inference Cooperative](https://inference.coop/) key

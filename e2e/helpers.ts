@@ -35,6 +35,29 @@ export * from './shared'
  * without this ran under an undismissed modal). A key in `overrides` replaces
  * the baseline key wholesale.
  */
+/**
+ * Draw the macOS window buttons into the page, for the marketing captures.
+ * `page.screenshot` captures the web contents only, so the native buttons are
+ * missing and the toolbar's 88px inset for them reads as a stray gap. The
+ * position matches `trafficLightPosition` in `src/main/index.ts` (16, 16);
+ * the buttons are the standard 12px circles on a 20px pitch.
+ */
+export async function drawWindowButtons(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const id = 'shot-window-buttons'
+    document.getElementById(id)?.remove()
+    const row = document.createElement('div')
+    row.id = id
+    row.style.cssText = 'position:fixed;left:16px;top:16px;display:flex;gap:8px;z-index:2147483647;pointer-events:none'
+    for (const color of ['#FF5F57', '#FEBC2E', '#28C840']) {
+      const dot = document.createElement('div')
+      dot.style.cssText = `width:12px;height:12px;border-radius:50%;background:${color};box-shadow:inset 0 0 0 0.5px rgba(0,0,0,0.18)`
+      row.appendChild(dot)
+    }
+    document.body.appendChild(row)
+  })
+}
+
 export function seedSettings(userDataDir: string, overrides: Record<string, unknown> = {}): void {
   const projectRoot = resolve(__dirname, '..')
   const appVersion = (JSON.parse(readFileSync(resolve(projectRoot, 'package.json'), 'utf-8')) as { version: string }).version

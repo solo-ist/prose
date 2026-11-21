@@ -22,6 +22,7 @@ import {
   waitForEditor,
   executeProseTool,
   seedSettings,
+  drawWindowButtons,
 } from './helpers'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -91,7 +92,11 @@ async function suggest(
 }
 
 async function setMode(mode: 'light' | 'dark'): Promise<void> {
-  await page.evaluate((m) => document.documentElement.classList.toggle('dark', m === 'dark'), mode)
+  // The fresh-install pairing: Mono in light, Prose in dark. Mono has no class.
+  await page.evaluate((m) => {
+    document.documentElement.classList.toggle('dark', m === 'dark')
+    document.documentElement.classList.toggle('theme-prose', m === 'dark')
+  }, mode)
   await page.waitForTimeout(300)
 }
 
@@ -211,7 +216,7 @@ test.beforeAll(async () => {
   writeFileSync(join(notes, 'Ideas.md'), '# Ideas\n\n- ...\n')
 
   seedSettings(profile, {
-      appearance: { color: 'prose', mode: 'light', icon: 'pilcrow' },
+      appearance: { lightColor: 'mono', darkColor: 'prose', mode: 'light', icon: 'pilcrow' },
       aiConsent: { consented: true, consentedAt: '2025-01-01T00:00:00.000Z' },
       llm: { provider: 'anthropic', apiKey: 'sk-ant-demo-screenshot-key', model: 'claude-sonnet-5-5' },
       // The author shown on the writer's feedback and tracked changes.
@@ -259,6 +264,7 @@ test.beforeAll(async () => {
     w.setContentSize(1280, 800)
     w.center()
   })
+  await drawWindowButtons(page)
   await page.waitForTimeout(500)
 })
 

@@ -14,7 +14,7 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { waitForAppReady, dismissOnboarding, dismissOverlay, waitForEditor, executeProseTool, seedSettings } from './helpers'
+import { waitForAppReady, dismissOnboarding, dismissOverlay, waitForEditor, executeProseTool, seedSettings, drawWindowButtons } from './helpers'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const REPO = resolve(__dirname, '..')
@@ -42,7 +42,7 @@ test('02 ai alongside you — mode-switch (dark)', async () => {
   const heroPath = join(docs, 'A Chorus of Human Voices.md')
   writeFileSync(heroPath, readFileSync(FIXTURE, 'utf8').replace(/^---\n[\s\S]*?\n---\n+/, ''))
   seedSettings(profile, {
-      appearance: { color: 'prose', mode: 'dark', icon: 'pilcrow' },
+      appearance: { lightColor: 'mono', darkColor: 'prose', mode: 'dark', icon: 'pilcrow' },
       // Fake key so the chat renders configured (never sent — the exchange is injected).
       aiConsent: { consented: true, consentedAt: '2025-01-01T00:00:00.000Z' },
       llm: { provider: 'anthropic', apiKey: 'sk-ant-demo-screenshot-key', model: 'claude-sonnet-5-5' },
@@ -66,6 +66,7 @@ test('02 ai alongside you — mode-switch (dark)', async () => {
     w.center()
   })
   await page.evaluate(() => document.documentElement.classList.add('dark'))
+  await drawWindowButtons(page)
 
   const opened = await executeProseTool(page, 'open_file', { path: heroPath })
   expect(opened.success).toBe(true)

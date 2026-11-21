@@ -1,6 +1,6 @@
 ---
 name: screenshots
-description: Generate the README hero + Mac App Store marketing screenshots (retina, Prose theme, light/dark) via Playwright.
+description: Generate the README hero + Mac App Store marketing screenshots (retina, Mono in light and Prose in dark) via Playwright.
 ---
 
 # Marketing Screenshot Generator
@@ -69,15 +69,20 @@ with `... electron.screenshots -g "03 review" --workers=1`.
 ## How it works
 
 - **Isolated profile** — each spec seeds a throwaway `PROSE_USER_DATA_DIR` with
-  `settings.json` (Prose theme `color: 'prose'`, projects/favorites, a fake
+  `settings.json` (the fresh-install themes, projects/favorites, a fake
   `llm.apiKey` so the chat renders *configured*, `aiConsent`). No private data,
   reproducible.
 - **Retina** — the window is set to **1280×800** logical and both specs launch
   with `--force-device-scale-factor=2`, so it captures at **2560×1600**, the
   App Store spec, whatever display is attached. Verify with
   `sips -g pixelWidth -g pixelHeight`.
-- **Theme** — `color: 'prose'` (the gold theme; *not* the `mono` default).
-  Light/dark per scene via the `dark` class on `<html>`.
+- **Theme** — the fresh-install pairing: `lightColor: 'mono'` for light
+  scenes, `darkColor: 'prose'` (the gold theme) for dark ones. Never Prose in
+  light. Each scene sets the `dark` and `theme-prose` classes on `<html>`
+  together.
+- **Window buttons** — `page.screenshot` captures the web contents only, so
+  `drawWindowButtons` (`e2e/helpers.ts`) draws the three macOS buttons at the
+  app's `trafficLightPosition`. Without them the toolbar's inset reads as a gap.
 - **Seeded content via test seams** (always-on, see `src/renderer/main.tsx`):
   - `window.__prose_tools.executeTool(name, args, mode, provenance?)` — drive
     `open_file`, `suggest_edit` (pass `provenance.model` so the Activity panel

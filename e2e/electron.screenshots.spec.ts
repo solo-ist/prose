@@ -257,6 +257,7 @@ test.beforeAll(async () => {
   await page.reload()
   await page.waitForLoadState('domcontentloaded')
   await waitForAppReady(page)
+  await dismissOnboarding(page)
   await dismissOverlay(page)
 
   await app.evaluate(({ BrowserWindow }) => {

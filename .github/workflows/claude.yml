@@ -113,7 +113,7 @@ jobs:
             - [ ] Dependencies checked for known CVEs (if new deps added)
             - [ ] Content Security Policy not weakened
 
-            If the PR touches privilege-boundary files (`src/main/**`, `src/preload/**`, `electron-builder.*`, `electron.vite.config.*`), prepend your review with the following hidden HTML comment **exactly** (do not paraphrase, translate, or alter — it is a machine-readable sentinel parsed by `pipeline-triage.yml`):
+            If the PR touches privilege-boundary files (`src/main/**`, `src/preload/**`, `electron-builder.*`, `electron-vite.config.*`), prepend your review with the following hidden HTML comment **exactly** (do not paraphrase, translate, or alter — it is a machine-readable sentinel parsed by `pipeline-triage.yml`):
 
             `<!-- security-gate: true -->`
 

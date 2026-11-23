@@ -1,0 +1,56 @@
+{
+ "request": {
+  "model": "tinfoil/glm-5.3",
+  "messages": [
+   {
+    "role": "system",
+    "content": "You are helping a member-governed AI cooperative make sense of an anonymous braindump survey before a members' meeting. You will receive a batch of survey responses. Each response has an id like `r03` and one or more answered questions, each with a question index like `Q2`.\n\nExtract every distinct, atomic point a respondent makes. One point per item. Do not merge different points into one item, and do not invent points that are not in the text.\n\nFor each item return:\n\n- `id`: the response id it came from (e.g. `r03`).\n- `q`: the question index it came from (e.g. `Q2`).\n- `label`: a neutral paraphrase of the point in at most 12 words, written so that similar points from different people would get similar labels.\n- `kind`: one of `idea` (something to build, try, or offer), `want` (something that would make membership more valuable to them), `need` (something missing or broken), `goal` (where the co-op should be), `concern` (a worry, disagreement, or criticism).\n- `stance`: `for` if the point supports doing or having something, `against` if it opposes or warns against something, `neutral` if it is an observation or question.\n- `quote`: a short verbatim excerpt (5 to 30 words) copied exactly from the response text that best evidences the point. It must be a character-for-character substring of the source text. Do not paraphrase, do not fix typos, do not add ellipses.\n\nSkip pleasantries, empty answers, and \"nothing to add\". Keep the respondent's framing; do not editorialize.\n\nReturn exactly one fenced ```json block and nothing else, shaped as:\n\n```json\n{\"items\": [{\"id\": \"r03\", \"q\": \"Q2\", \"label\": \"...\", \"kind\": \"idea\", \"stance\": \"for\", \"quote\": \"...\"}]}\n```\n"
+   },
+   {
+    "role": "user",
+    "content": "## Response r46\n\n### r46 / Q1: What drew you to the co-op, and what do you use it for today?\nOpen source commitments.\n\n### r46 / Q2: Ideas. What should the co-op build, try, or offer next?\nPublish all the code under a copyleft license and accept contributions.\n\n### r46 / Q3: Wants. What would make membership more valuable to you personally?\nA contributor guide.\n\n### r46 / Q4: Needs. What is missing, broken, or in your way right now?\nThe repos are public but the contribution path is 'ask the admin.'\n\n### r46 / Q5: Goals. Where should the co-op be a year from now?\nA real open source project with multiple maintainers.\n\n## Response r47\n\n### r47 / Q1: What drew you to the co-op, and what do you use it for today?\nCuriosity about whether a co-op could run inference at all.\n\n### r47 / Q2: Ideas. What should the co-op build, try, or offer next?\nDocument the economics honestly: what each member costs, what the margin is.\n\n### r47 / Q3: Wants. What would make membership more valuable to you personally?\nA public budget.\n\n### r47 / Q4: Needs. What is missing, broken, or in your way right now?\nI don't know if dues cover costs.\n\n### r47 / Q5: Goals. Where should the co-op be a year from now?\nFinancially transparent and sustainable.\n\n### r47 / Q6: Dissent. What worries you, what do you disagree with, or what are we getting wrong?\nIf the numbers don't work we should know now, not after a surprise price hike.\n\n## Response r48\n\n### r48 / Q1: What drew you to the co-op, and what do you use it for today?\nI run workshops for seniors and wanted a safe tool to recommend.\n\n### r48 / Q2: Ideas. What should the co-op build, try, or offer next?\nLarge-print, simple-mode chat.\n\n### r48 / Q3: Wants. What would make membership more valuable to you personally?\nA 'simple mode' toggle.\n\n### r48 / Q4: Needs. What is missing, broken, or in your way right now?\nToo many buttons.\n\n### r48 / Q7: Anything else?\nBless you for the Figtree font, it's readable.\n\n## Response r49\n\n### r49 / Q1: What drew you to the co-op, and what do you use it for today?\nThe Tinfoil models are good and cheap. That's it.\n\n### r49 / Q6: Dissent. What worries you, what do you disagree with, or what are we getting wrong?\nGovernance threads are noise to me. I just want a reliable service. Count that as dissent if you like.\n\n## Response r50\n\n### r50 / Q1: What drew you to the co-op, and what do you use it for today?\nAcademic librarian. We're evaluating alternatives to recommend to students.\n\n### r50 / Q2: Ideas. What should the co-op build, try, or offer next?\nAn education partnership program with group onboarding.\n\n### r50 / Q3: Wants. What would make membership more valuable to you personally?\nGroup sign-up so a class can join together.\n\n### r50 / Q5: Goals. Where should the co-op be a year from now?\nThe tool libraries recommend."
+   }
+  ],
+  "max_tokens": 8000,
+  "temperature": 0.2,
+  "reasoning_effort": "low"
+ },
+ "response": {
+  "id": "chatcmpl-afd12cf300c73096",
+  "created": 1793076508,
+  "model": "tinfoil/glm-5.3",
+  "object": "chat.completion",
+  "system_fingerprint": "vllm-0.31.0-tp4-ep-c7b474f9",
+  "choices": [
+   {
+    "finish_reason": "stop",
+    "index": 0,
+    "message": {
+     "content": "```json\n{\"items\": [\n{\"id\": \"r46\", \"q\": \"Q1\", \"label\": \"Joined for open source commitments\", \"kind\": \"neutral\", \"stance\": \"neutral\", \"quote\": \"Open source commitments.\"},\n{\"id\": \"r46\", \"q\": \"Q2\", \"label\": \"Publish code under copyleft license, accept contributions\", \"kind\": \"idea\", \"stance\": \"for\", \"quote\": \"Publish all the code under a copyleft license and accept contributions.\"},\n{\"id\": \"r46\", \"q\": \"Q3\", \"label\": \"Wants a contributor guide\", \"kind\": \"want\", \"stance\": \"for\", \"quote\": \"A contributor guide.\"},\n{\"id\": \"r46\", \"q\": \"Q4\", \"label\": \"Contribution path requires asking the admin\", \"kind\": \"need\", \"stance\": \"neutral\", \"quote\": \"The repos are public but the contribution path is 'ask the admin.'\"},\n{\"id\": \"r46\", \"q\": \"Q5\", \"label\": \"Real open source project with multiple maintainers\", \"kind\": \"goal\", \"stance\": \"for\", \"quote\": \"A real open source project with multiple maintainers.\"},\n{\"id\": \"r47\", \"q\": \"Q1\", \"label\": \"Curious whether co-op could run inference\", \"kind\": \"neutral\", \"stance\": \"neutral\", \"quote\": \"Curiosity about whether a co-op could run inference at all.\"},\n{\"id\": \"r47\", \"q\": \"Q2\", \"label\": \"Document economics honestly, costs and margin\", \"kind\": \"idea\", \"stance\": \"for\", \"quote\": \"Document the economics honestly: what each member costs, what the margin is.\"},\n{\"id\": \"r47\", \"q\": \"Q3\", \"label\": \"Wants a public budget\", \"kind\": \"want\", \"stance\": \"for\", \"quote\": \"A public budget.\"},\n{\"id\": \"r47\", \"q\": \"Q4\", \"label\": \"Unclear whether dues cover costs\", \"kind\": \"need\", \"stance\": \"neutral\", \"quote\": \"I don't know if dues cover costs.\"},\n{\"id\": \"r47\", \"q\": \"Q5\", \"label\": \"Financially transparent and sustainable\", \"kind\": \"goal\", \"stance\": \"for\", \"quote\": \"Financially transparent and sustainable.\"},\n{\"id\": \"r47\", \"q\": \"Q6\", \"label\": \"Wants financial problems surfaced before price hike\", \"kind\": \"concern\", \"stance\": \"for\", \"quote\": \"If the numbers don't work we should know now, not after a surprise price hike.\"},\n{\"id\": \"r48\", \"q\": \"Q1\", \"label\": \"Joined for safe tool to recommend to seniors\", \"kind\": \"neutral\", \"stance\": \"neutral\", \"quote\": \"I run workshops for seniors and wanted a safe tool to recommend.\"},\n{\"id\": \"r48\", \"q\": \"Q2\", \"label\": \"Large-print simple-mode chat\", \"kind\": \"idea\", \"stance\": \"for\", \"quote\": \"Large-print, simple-mode chat.\"},\n{\"id\": \"r48\", \"q\": \"Q3\", \"label\": \"Wants a simple mode toggle\", \"kind\": \"want\", \"stance\": \"for\", \"quote\": \"A 'simple mode' toggle.\"},\n{\"id\": \"r48\", \"q\": \"Q4\", \"label\": \"Interface has too many buttons\", \"kind\": \"need\", \"stance\": \"neutral\", \"quote\": \"Too many buttons.\"},\n{\"id\": \"r48\", \"q\": \"Q7\", \"label\": \"Praises readable Figtree font\", \"kind\": \"neutral\", \"stance\": \"for\", \"quote\": \"Bless you for the Figtree font, it's readable.\"},\n{\"id\": \"r49\", \"q\": \"Q1\", \"label\": \"Joined for good cheap Tinfoil models\", \"kind\": \"neutral\", \"stance\": \"neutral\", \"quote\": \"The Tinfoil models are good and cheap. That's it.\"},\n{\"id\": \"r49\", \"q\": \"Q6\", \"label\": \"Finds governance threads noise; wants reliable service\", \"kind\": \"concern\", \"stance\": \"neutral\", \"quote\": \"Governance threads are noise to me. I just want a reliable service.\"},\n{\"id\": \"r50\", \"q\": \"Q1\", \"label\": \"Librarian evaluating alternatives for students\", \"kind\": \"neutral\", \"stance\": \"neutral\", \"quote\": \"Academic librarian. We're evaluating alternatives to recommend to students.\"},\n{\"id\": \"r50\", \"q\": \"Q2\", \"label\": \"Education partnership program with group onboarding\", \"kind\": \"idea\", \"stance\": \"for\", \"quote\": \"An education partnership program with group onboarding.\"},\n{\"id\": \"r50\", \"q\": \"Q3\", \"label\": \"Wants group sign-up for classes\", \"kind\": \"want\", \"stance\": \"for\", \"quote\": \"Group sign-up so a class can join together.\"},\n{\"id\": \"r50\", \"q\": \"Q5\", \"label\": \"Become the tool libraries recommend\", \"kind\": \"goal\", \"stance\": \"for\", \"quote\": \"The tool libraries recommend.\"}\n]}\n```",
+     "role": "assistant",
+     "provider_specific_fields": {
+      "refusal": null,
+      "reasoning": null
+     }
+    },
+    "provider_specific_fields": {
+     "token_ids": null,
+     "routed_experts": null,
+     "stop_reason": 154827
+    }
+   }
+  ],
+  "usage": {
+   "completion_tokens": 1150,
+   "prompt_tokens": 1158,
+   "total_tokens": 2308,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   },
+   "prompt_tokens_details": {
+    "cached_tokens": 384,
+    "created_cache_tokens": 768
+   }
+  }
+ }
+}

@@ -57,7 +57,6 @@ const defaultSettings: Settings = {
   llm: {
     provider: 'anthropic',
     model: getDefaultModel('anthropic'),
-    apiKey: '',
   },
   editor: {
     fontSize: 16,
@@ -401,10 +400,9 @@ export function createMockApi(): ElectronAPI {
       throw new Error('reMarkable not available in web mode')
     },
 
-    remarkableValidate: async (_deviceToken: string): Promise<boolean> => false,
+    remarkableValidate: async (): Promise<boolean> => false,
 
     remarkableSync: async (
-      _deviceToken: string,
       _syncDirectory: string
     ): Promise<RemarkableSyncResult> => {
       throw new Error('reMarkable sync is not available in web mode')
@@ -416,9 +414,7 @@ export function createMockApi(): ElectronAPI {
       _syncDirectory: string
     ): Promise<RemarkableSyncMetadata | null> => null,
 
-    remarkableListCloudNotebooks: async (
-      _deviceToken: string
-    ): Promise<RemarkableCloudNotebook[]> => [],
+    remarkableListCloudNotebooks: async (): Promise<RemarkableCloudNotebook[]> => [],
 
     remarkableGetSyncState: async (
       _syncDirectory: string
@@ -431,7 +427,7 @@ export function createMockApi(): ElectronAPI {
 
     remarkableStoreApiKey: async (_apiKey: string): Promise<void> => {},
 
-    remarkableGetApiKey: async (): Promise<string | null> => null,
+    remarkableOcrKeyStatus: async (): Promise<boolean> => false,
 
     remarkableClearApiKey: async (): Promise<void> => {},
 
@@ -466,7 +462,6 @@ export function createMockApi(): ElectronAPI {
     ): Promise<boolean> => false,
 
     remarkableMoveNotebook: async (
-      _deviceToken: string,
       _notebookHash: string,
       _newParentId: string
     ): Promise<string> => '',
@@ -486,7 +481,8 @@ export function createMockApi(): ElectronAPI {
 
     emojiGenerate: async (
       _title: string,
-      _contentPreview?: string
+      _contentPreview: string | undefined,
+      _provider: string
     ): Promise<{ emoji: string | null; error?: string }> => ({
       emoji: null,
       error: 'Not available in web mode',
@@ -513,6 +509,10 @@ export function createMockApi(): ElectronAPI {
     readFileBase64: async (): Promise<string> => '',
     fetchModels: async (): Promise<{ models?: Array<{ id: string; name: string; description?: string }>; error?: string }> => ({ models: [] }),
     isSecureStorageAvailable: async (): Promise<boolean> => false,
+    // Web mode has no key storage: its AI goes through the gateway, not a key.
+    getLlmKeyStatus: async () => ({}),
+    setLlmKey: async () => ({ ok: false, error: 'Not available in web mode', status: {} }),
+    clearLlmKey: async () => ({}),
     onLLMStreamToolCallStart: () => () => {},
     onLLMStreamThinkingDelta: () => () => {},
     saveImage: async (): Promise<{ relativePath: string; localFileUrl: string }> => {
@@ -527,6 +527,7 @@ export function createMockApi(): ElectronAPI {
     exitFullScreen: async (): Promise<void> => {},
     refreshRecentMenu: async (): Promise<void> => {},
     setReopenClosedTabEnabled: async (): Promise<void> => {},
+    setCopyWithChangesAvailable: async (): Promise<void> => {},
     mcpGetStatus: async () => ({
       installed: false,
       version: null,

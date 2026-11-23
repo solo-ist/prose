@@ -11,7 +11,7 @@ import {
   type Actor,
 } from './actor'
 
-describe('actorOfComment: records from before 1.9.1 (design §4)', () => {
+describe('actorOfComment: records from before 1.10.0 (design §4)', () => {
   it("reads a 'user' row with no authorName as the writer", () => {
     expect(actorOfComment({ author: 'user' })).toEqual(SELF)
   })
@@ -36,7 +36,7 @@ describe('actorOfComment: records from before 1.9.1 (design §4)', () => {
   })
 })
 
-describe('actorOfProvenance: annotations and suggestions from before 1.9.1', () => {
+describe('actorOfProvenance: annotations and suggestions from before 1.10.0', () => {
   it('reads Claude (MCP) as the legacy MCP connection', () => {
     expect(actorOfProvenance('Claude (MCP)')).toEqual({ kind: 'mcp-agent', connectionId: 'legacy', connectionLabel: 'MCP client' })
   })
@@ -70,13 +70,23 @@ describe('actorLabel', () => {
   })
   it('names a Prose Agent by its model', () => {
     expect(actorLabel({ kind: 'prose-agent', provider: 'anthropic', model: 'claude-sonnet-5-5' })).toBe('Prose · Sonnet 5.5')
-    expect(actorLabel({ kind: 'prose-agent', provider: 'inference-coop', model: 'tinfoil/glm-5.3' })).toBe('Prose · tinfoil/glm-5.3')
+    expect(actorLabel({ kind: 'prose-agent', provider: 'openai', model: 'gpt-5-mini' })).toBe('Prose · GPT 5 Mini')
+    expect(actorLabel({ kind: 'prose-agent', provider: 'openai', model: 'gpt-6.1-terra' })).toBe('Prose · Terra 6.1')
+    expect(actorLabel({ kind: 'prose-agent', provider: 'inference-coop', model: 'tinfoil/glm-5.3' })).toBe('Prose · GLM 5.3')
+    // A record from before 1.10.0 holds the display name, not the id.
+    expect(actorLabel({ kind: 'prose-agent', provider: 'anthropic', model: 'Claude Sonnet 4.6' })).toBe('Prose · Sonnet 4.6')
     expect(actorLabel({ kind: 'prose-agent', provider: 'openai', model: '' })).toBe('Prose · OpenAI')
   })
   it('names an MCP agent by its connection, with the self-reported client beside it', () => {
     expect(actorLabel({ kind: 'mcp-agent', connectionId: 'c', connectionLabel: 'Codex laptop', client: 'Claude' })).toBe('Codex laptop · Claude')
     expect(actorLabel({ kind: 'mcp-agent', connectionId: 'c', connectionLabel: 'Codex laptop', client: 'Codex laptop' })).toBe('Codex laptop')
     expect(actorLabel({ kind: 'mcp-agent', connectionId: 'launch', connectionLabel: '' })).toBe('MCP client')
+    // A known client reads by the name a writer knows it by, once (#1298); records that hold the raw report too.
+    expect(actorLabel({ kind: 'mcp-agent', connectionId: 'launch', connectionLabel: 'local-agent-mode-Prose', client: 'local-agent-mode-Prose' })).toBe('Claude Desktop')
+    expect(actorLabel({ kind: 'mcp-agent', connectionId: 'launch', connectionLabel: 'Claude Desktop', client: 'claude-ai' })).toBe('Claude Desktop')
+    expect(actorLabel({ kind: 'mcp-agent', connectionId: 'c1', connectionLabel: 'Laptop', client: 'claude-code' })).toBe('Laptop · Claude Code')
+    // A named connection's label is the writer's own words, shown as written.
+    expect(actorLabel({ kind: 'mcp-agent', connectionId: 'c1', connectionLabel: 'claude-ai' })).toBe('claude-ai')
   })
   it('names unattributed text by its label', () => {
     expect(actorLabel({ kind: 'unattributed', label: 'Imported' })).toBe('Imported')
@@ -94,10 +104,15 @@ describe('helpers', () => {
     expect(cleanActorText('z'.repeat(150))).toHaveLength(100)
     expect(cleanActorText(undefined)).toBe('')
   })
-  it('shortModelName compacts Claude ids and leaves others as given', () => {
-    expect(shortModelName('claude-opus-5-5')).toBe('Opus 5.5')
-    expect(shortModelName('claude-haiku-4-5-20251001')).toBe('Haiku 4.5')
-    expect(shortModelName('gpt-5.1')).toBe('gpt-5.1')
+  it("shortModelName is the naming scheme's short name; an id no rule knows is left as given", () => {
+    expect(shortModelName('anthropic', 'claude-opus-5-5')).toBe('Opus 5.5')
+    expect(shortModelName('anthropic', 'claude-haiku-4-5-20251001')).toBe('Haiku 4.5')
+    expect(shortModelName('openai', 'gpt-5.1')).toBe('GPT 5.1')
+    expect(shortModelName('openai', 'gpt-5-mini-2025-08-07')).toBe('GPT 5 Mini')
+    expect(shortModelName('openai', 'gpt-4o-mini')).toBe('gpt-4o-mini')
+    expect(shortModelName('openai', 'o4-mini')).toBe('o4-mini')
+    expect(shortModelName('inference-coop', 'greenpt/deepseek-v4.1-flash')).toBe('DeepSeek 4.1')
+    expect(shortModelName('openai', '')).toBe('')
   })
   it('people are not agents; everything else is', () => {
     expect(isAgentActor(SELF)).toBe(false)

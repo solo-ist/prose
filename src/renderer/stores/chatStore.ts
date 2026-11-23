@@ -29,6 +29,7 @@ import {
 import type { ChatConversation } from '../lib/persistence'
 import type { ToolMode } from '../../shared/tools/types'
 import type { ToolBinding } from '../document/handle'
+import { notifyToolModeChange } from './toolModeBridge'
 
 export type { ToolMode }
 
@@ -606,6 +607,10 @@ useChatStore.subscribe(
     }, 1000)
   }
 )
+
+// Announce a mode change at once, so the settings store can put the mode's
+// default model in place before anything sends a message (#1322).
+useChatStore.subscribe((state) => state.toolMode, notifyToolModeChange)
 
 // Persist toolMode globally whenever it changes.
 // Uses a lazy dynamic import to avoid a static circular dependency between

@@ -76,7 +76,7 @@ describe('the MCP tool list', () => {
     expect(withTarget).toEqual([
       'add_comment', 'get_outline', 'get_review_status', 'list_comments', 'list_review_events', 'list_suggestions',
       'read_document', 'reopen_comment', 'reply_to_comment', 'reply_to_suggestion', 'resolve_comment', 'revise_suggestion',
-      'suggest_edit',
+      'suggest_delete', 'suggest_edit', 'suggest_insert',
     ])
   })
 

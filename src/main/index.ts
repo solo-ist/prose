@@ -3,7 +3,6 @@ import { join } from 'path'
 import { writeFileSync, unlinkSync, existsSync, readFileSync } from 'fs'
 import { readFile as readFileAsync } from 'fs/promises'
 import { randomBytes } from 'crypto'
-import { homedir } from 'os'
 
 // Load environment variables from .env file
 // Use explicit path since Electron's CWD may differ from project root
@@ -28,7 +27,7 @@ const IS_HEADLESS_TEST = process.env.PROSE_HEADLESS === '1'
 
 // Initialize Sentry early (before app.whenReady) if user has opted in
 import { initSentry, setSentryEnabled } from './sentry'
-import { getUserDataPath, LEGACY_SETTINGS_DIR, seedDevProfile, validatePathConsistency, resolveWithin, IMAGE_EXTENSIONS } from './paths'
+import { getUserDataPath, LEGACY_SETTINGS_DIR, seedDevProfile, validatePathConsistency, resolveWithin, IMAGE_EXTENSIONS, userHomeDir } from './paths'
 import { migrateFromLegacyDir, purgeGoogleCredentials } from './migrate'
 seedDevProfile()
 try {
@@ -61,13 +60,18 @@ if (process.env.PROSE_USER_DATA_DIR || is.dev) {
 }
 import { setupIpcHandlers } from './ipc'
 import { createMenu } from './menu'
-import { getMcpHttpServer, getMcpBridge, getMcpSocketServer, MCP_HTTP_PORT } from './mcp'
+import { getMcpHttpServer, getMcpBridge, getMcpSocketServer, mcpHttpPort, proseVersion, getMcpConnectionStore, flushMcpConnectionStore } from './mcp'
+import { setupMcpConnectionHandlers } from './mcp/connectionsIpc'
+import { relayMarkActive, setupRemoteAccessHandlers, startRelay, stopRelay } from './mcp/relayService'
+import { setupMcpExtensionHandlers } from './mcp/extensionIpc'
 import { initializeSpellcheck, setupContextMenu } from './spellcheck'
 import { initAutoUpdater } from './updater'
 import { IS_MAS_BUILD } from './env'
 import { SIGN_IN_SCHEME, handleAuthDeepLink, isAuthDeepLink } from './share/deepLink'
 import { isQuitting } from './quitState'
 import { setupFileWatcherHandlers, teardownFileWatcher } from './fileWatcher'
+import { setupAppStoreImportHandlers } from './appStoreImportIpc'
+import { appStoreSource, runPendingImport } from './appStoreImport'
 
 console.log('[Main] Environment loaded. OCR URL:', process.env.REMARKABLE_OCR_URL ? 'set' : 'not set')
 
@@ -128,6 +132,17 @@ if (!gotTheLock) {
   // The file path (if any) will be passed to the existing instance via second-instance event
   app.quit()
 } else {
+  // An import from the App Store edition the renderer asked for (#1243) runs
+  // here: after the lock, so a second instance can never touch the live
+  // profile, and before anything opens IndexedDB.
+  if (!IS_MAS_BUILD) {
+    try {
+      runPendingImport(app.getPath('userData'), appStoreSource())
+    } catch (err) {
+      console.error('[AppStoreImport] Pending import crashed:', err)
+    }
+  }
+
   // Handle second instance launch (another instance tried to start)
   app.on('second-instance', (event, commandLine, workingDirectory) => {
     const mainWindow = BrowserWindow.getAllWindows()[0]
@@ -465,10 +480,12 @@ app.whenReady().then(async () => {
     // Path source: B — every <img> src in document content (markdown images,
     // raw local-file: URLs, prose:// deep-link payloads) arrives here. Confine
     // to the home directory and image extensions on the REAL path: a symlink
-    // inside home must not reach a file outside it (#918, shared helper).
+    // inside home must not reach a file outside it (#918, shared helper). The
+    // user's real home on MAS, where `homedir()` is the sandbox container and
+    // would refuse every image outside it (#1223); the sandbox still applies.
     let normalized: string
     try {
-      normalized = await resolveWithin(homedir(), filePath, {
+      normalized = await resolveWithin(userHomeDir(), filePath, {
         extensions: IMAGE_EXTENSIONS,
         kind: 'image',
         label: 'the home directory'
@@ -546,16 +563,18 @@ app.whenReady().then(async () => {
     console.warn('[Main] Failed to write MCP auth token:', err)
   }
 
-  // Start HTTP/SSE server for MCP communication (Claude Desktop connects here)
+  // Start the Streamable HTTP MCP endpoint (clients that connect by URL;
+  // Claude Desktop's stdio bridge uses the socket below). The installed app
+  // and unpackaged runs default to different ports (mcpHttpPort).
   // MAS builds use sandbox, which prohibits network.server — skip HTTP server
   const isMAS = IS_MAS_BUILD
   const mcpServer = isMAS ? null : getMcpHttpServer()
-  const MCP_PORT = MCP_HTTP_PORT
+  const MCP_PORT = mcpHttpPort(app.isPackaged)
   let mcpStarted = false
   if (mcpServer) {
     mcpServer.setAuthToken(mcpAuthToken)
     try {
-      await mcpServer.start()
+      await mcpServer.start({ port: MCP_PORT, version: proseVersion() })
       mcpStarted = true
       console.log(`[Main] MCP HTTP server started on port ${MCP_PORT}`)
     } catch (err) {
@@ -583,7 +602,11 @@ app.whenReady().then(async () => {
 
   const mainWindow = createWindow()
   setupIpcHandlers()
+  setupMcpConnectionHandlers()
+  setupRemoteAccessHandlers()
+  setupMcpExtensionHandlers()
   setupFileWatcherHandlers()
+  setupAppStoreImportHandlers()
   createMenu(mainWindow)
   initAutoUpdater(mainWindow)
 
@@ -597,8 +620,9 @@ app.whenReady().then(async () => {
 
   // Connect HTTP MCP server to bridge for tool execution
   if (mcpServer) {
-    mcpServer.setToolInvokeHandler(async (name, args) => {
-      return bridge.executeTool(name, args)
+    mcpServer.setConnectionResolver((token) => getMcpConnectionStore().resolve(token))
+    mcpServer.setToolInvokeHandler(async (name, args, actor) => {
+      return bridge.executeTool(name, args, actor)
     })
   }
 
@@ -651,15 +675,27 @@ app.whenReady().then(async () => {
     pendingFileOpens.length = 0
 
     // Start MCP socket server now that renderer bridge is ready
-    // All MCP tools require renderer, so we can only start after this point
-    const socketServer = getMcpSocketServer()
-    socketServer.setAuthToken(mcpAuthToken)
-    socketServer.setToolInvokeHandler((name, args) => bridge.executeTool(name, args))
+    // All MCP tools require renderer, so we can only start after this point.
+    // Not on MAS: the stdio bridge is never installed there and `mcp:*` is
+    // blocked, so nothing could connect (#1223).
+    if (!IS_MAS_BUILD) {
+      const socketServer = getMcpSocketServer()
+      socketServer.setAuthToken(mcpAuthToken)
+      socketServer.setToolInvokeHandler((name, args, actor) => bridge.executeTool(name, args, actor))
+      try {
+        await socketServer.start()
+        console.log('[Main] MCP socket server started')
+      } catch (err) {
+        console.warn('[Main] MCP socket server failed to start:', err instanceof Error ? err.message : err)
+      }
+    }
+
+    // Remote access (#1239): answer relayed calls from ChatGPT and claude.ai,
+    // and dial out to the gateway if the writer turned it on. Never on MAS.
     try {
-      await socketServer.start()
-      console.log('[Main] MCP socket server started')
+      await startRelay({ window: mainWindow, invokeTool: (name, args, actor) => bridge.executeTool(name, args, actor), version: proseVersion() })
     } catch (err) {
-      console.warn('[Main] MCP socket server failed to start:', err instanceof Error ? err.message : err)
+      console.warn('[Main] MCP relay failed to start:', err instanceof Error ? err.message : err)
     }
 
     return { success: true }
@@ -679,6 +715,10 @@ app.whenReady().then(async () => {
     }
   })
 })
+
+// Remote access (#1239): the writer is here, so remote calls should come to
+// this desktop rather than another one signed in to the same account.
+app.on('browser-window-focus', () => relayMarkActive())
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -720,6 +760,10 @@ app.on('will-quit', async () => {
   await teardownFileWatcher()
   const socketServer = getMcpSocketServer()
   await socketServer.stop()
+  // Connections' last-use times held in memory (#1236).
+  flushMcpConnectionStore()
+  // Close the relay socket (#1239); Remote access stays as the writer left it.
+  await stopRelay()
 
   // Clean up MCP auth token file
   try {

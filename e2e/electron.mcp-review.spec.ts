@@ -139,6 +139,58 @@ test.describe('MCP review tools', () => {
     ]))
   })
 
+  /** The nodeId of the paragraph a suggestion's mark is in. */
+  const markHost = (id: string) =>
+    page.evaluate((id) => {
+      let host: string | null = null
+      ;(window as any).__prose_editor.state.doc.descendants((node: any, _pos: number, parent: any) => {
+        if (!host && node.marks.some((m: any) => m.type.name === 'aiSuggestion' && m.attrs.id === id)) host = parent?.attrs?.nodeId ?? null
+      })
+      return host
+    }, id)
+
+  test('the writer rejects; the agent revises the rejected one on the same paragraph, and the rejection stays (#1266)', async () => {
+    const bravo = await nodeIdOf('Bravo two.')
+    const first = (await ok('suggest_edit', { nodeId: bravo, content: 'Bravo, improved.' })).suggestionId as string
+    await writer('rejectAISuggestion', first)
+    expect((await ok('list_suggestions')).suggestions).toEqual([])
+
+    const revised = await ok('revise_suggestion', { id: first, content: 'Bravo two, improved.' })
+    expect(revised.revises).toBe(first)
+    const second = revised.suggestionId as string
+    expect(await markHost(second)).toBe(bravo)
+    expect((await ok('list_suggestions')).suggestions).toEqual([
+      expect.objectContaining({ id: second, status: 'pending', originalText: 'Bravo two.', suggestedText: 'Bravo two, improved.', revises: first, by: 'MCP client' }),
+    ])
+
+    const events = await ok('list_review_events', { since: 0 })
+    expect(events.events.map((e: any) => [e.kind, e.by])).toEqual([
+      ['suggestion:proposed', 'MCP client'],
+      ['suggestion:rejected', 'the writer'],
+      ['suggestion:revised', 'MCP client'],
+    ])
+    expect(events.events.at(-1)).toMatchObject({ suggestionId: second, previousId: first })
+
+    const all = await ok('list_suggestions', { include: 'all' })
+    expect(all.suggestions).toHaveLength(2)
+    expect(all.suggestions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: second, status: 'pending', revises: first }),
+      expect.objectContaining({ id: first, status: 'rejected', decidedBy: 'the writer', supersededBy: second }),
+    ]))
+    expect(await ok('get_review_status')).toMatchObject({ pending: [second], accepted: 0, rejected: 1, superseded: 0 })
+
+    // One revision per rejected suggestion: the next one revises the newer id.
+    expect(await mcp('revise_suggestion', { id: first, content: 'Bravo, again.' })).toMatchObject({ success: false, code: 'SUGGESTION_SUPERSEDED' })
+
+    // An accepted suggestion is final: its text is in the document now.
+    await writer('acceptAISuggestion', second)
+    await expect.poll(docText).toContain('Bravo two, improved.')
+    const refused = await mcp('revise_suggestion', { id: second, content: 'Bravo two, improved again.' })
+    expect(refused).toMatchObject({ success: false, code: 'SUGGESTION_ACCEPTED' })
+    expect(refused.error).toContain('suggest_edit')
+    expect((await ok('get_review_status')).pending).toEqual([])
+  })
+
   test('comments: the agent replies to and reopens a thread the writer resolved', async () => {
     const added = await ok('add_comment', { nodeId: await nodeIdOf('Charlie three.'), comment: 'Is "three" right?' })
     await writer('resolveThread', added.id)

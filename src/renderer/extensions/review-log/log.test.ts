@@ -12,7 +12,7 @@ import { BUILD_META, IDENTITY_META } from '../../document/identity'
 import { SELF, type Actor } from '../../../shared/review/actor'
 import { loadThreadsInto, mergeThreadsInto } from '../comments/transactions'
 import type { CommentData } from '../comments/types'
-import { reviewLogOf, loadReviewLogInto, reviewLogPluginState } from './transactions'
+import { reviewLogOf, loadReviewLogInto, reviewLogPluginState, reviseSuggestionIn } from './transactions'
 import { MAX_EVENTS, MAX_FEEDBACK, type StoredReviewLog } from './log'
 
 const DOC = '<p>Alpha sentence here.</p><p>Bravo sentence here.</p><p>Charlie sentence here.</p>'
@@ -101,6 +101,33 @@ describe('suggestions', () => {
     expect(row('s1b')?.status).toBe('accepted')
   })
 
+  it('records the node a suggestion is on (#1266)', () => {
+    editor = new Editor({ extensions: createEditorExtensions(), content: '<p data-node-id="pA">Alpha sentence here.</p><p data-node-id="pB">Bravo sentence here.</p>' })
+    suggest('Bravo sentence', 's2', 'Bravo line')
+    expect(row('s2')?.nodeId).toBe('pB')
+  })
+
+  it('revising a rejected suggestion links both ways and keeps the rejection (#1266)', () => {
+    suggest('Alpha sentence', 's1', 'Alpha line')
+    editor.commands.rejectAISuggestion('s1')
+    const rejected = row('s1')!
+    // What revise_suggestion's transaction does: name the rejected one, mark the node anew.
+    editor
+      .chain()
+      .command(({ tr }) => {
+        reviseSuggestionIn(tr, 's1', 's1b', MCP)
+        return true
+      })
+      .setTextSelection(rangeOf('Alpha sentence'))
+      .setAISuggestion({ id: 's1b', type: 'edit', originalText: 'Alpha sentence', suggestedText: 'Alpha, again', explanation: '', actor: MCP })
+      .run()
+    expect(row('s1')).toEqual({ ...rejected, supersededBy: 's1b' })
+    expect(row('s1')).toMatchObject({ status: 'rejected', decidedBy: SELF })
+    expect(row('s1b')).toMatchObject({ status: 'pending', supersedes: 's1', actor: MCP })
+    expect(log().events.at(-1)).toMatchObject({ kind: 'suggestion:revised', suggestionId: 's1b', previousId: 's1', actor: MCP })
+    expect(kinds()).toEqual(['suggestion:proposed', 'suggestion:rejected', 'suggestion:revised'])
+  })
+
   it('undoing an accept reopens the suggestion; the accept stays in the events', () => {
     suggest('Bravo sentence', 's2', 'Bravo line')
     editor.commands.acceptAISuggestion('s2')
@@ -144,7 +171,7 @@ describe('threads', () => {
 })
 
 describe('load', () => {
-  it('a seed loads the stored log, derives no events, and backfills marks from before 1.9.1', () => {
+  it('a seed loads the stored log, derives no events, and backfills marks from before 1.10.0', () => {
     suggest('Alpha sentence', 'old', 'Alpha line', null)
     const stored: StoredReviewLog = {
       suggestions: [{ id: 'gone', type: 'edit', originalText: 'x', suggestedText: 'y', explanation: '', actor: AGENT, createdAt: 1, status: 'accepted', feedback: [] }],
@@ -157,7 +184,7 @@ describe('load', () => {
     editor.view.dispatch(tr)
     expect(log().events).toEqual(stored.events)
     expect(log().nextSeq).toBe(8)
-    // The pre-1.9.1 mark had no row: backfilled as pending, its actor read from the model.
+    // The pre-1.10.0 mark had no row: backfilled as pending, its actor read from the model.
     expect(row('old')).toMatchObject({ status: 'pending', actor: { kind: 'prose-agent', model: 'claude-opus-5-5' } })
     editor.commands.rejectAISuggestion('old')
     expect(log().events.at(-1)).toMatchObject({ seq: 8, kind: 'suggestion:rejected' })

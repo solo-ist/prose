@@ -762,6 +762,11 @@ function replaceTable(
  * suggest_edit - Show an AI suggestion as a highlighted mark on text.
  * The user can click the highlighted text to see the suggestion and accept/reject it.
  * Falls back to content matching if the nodeId is stale.
+ *
+ * `opts.revises`: a pending suggestion on this node the new one must replace
+ * (`revise_suggestion` on a pending suggestion). `opts.follows`: a suggestion
+ * the writer rejected that the new one revises (#1266); it has no mark, so the
+ * log links the two and the rejection stands.
  */
 export function executeSuggestEdit(
   args: {
@@ -771,7 +776,7 @@ export function executeSuggestEdit(
     search?: string
   },
   ctx: ToolContext,
-  opts: { revises?: string } = {}
+  opts: { revises?: string; follows?: string } = {}
 ): ToolResult<{ suggested: boolean; suggestionId: string; revises?: string }> {
   const { handle, provenance } = ctx
 
@@ -1052,6 +1057,8 @@ export function executeSuggestEdit(
   chain = chain
     .command(({ tr }) => {
       for (const old of replaced) reviseSuggestionIn(tr, old, suggestionId, revisedBy)
+      // Last, so the new row names the rejected suggestion it was asked to revise.
+      if (opts.follows) reviseSuggestionIn(tr, opts.follows, suggestionId, revisedBy)
       return true
     })
     .setTextSelection({ from: contentStart, to: contentEnd })

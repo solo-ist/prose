@@ -7,7 +7,7 @@
 
 import { PluginKey, type EditorState, type Transaction } from '@tiptap/pm/state'
 import type { Actor } from '../../../shared/review/actor'
-import type { FeedbackEntry, ReviewIntent, StoredReviewLog, SuggestionMarkInfo } from './log'
+import type { FeedbackEntry, OrphanedChange, ReviewIntent, StoredReviewLog, SuggestionMarkInfo } from './log'
 import { EMPTY_STORED } from './log'
 
 export interface ReviewLogPluginState {
@@ -46,6 +46,12 @@ export function threadActorIn(tr: Transaction, by: Actor): Transaction {
   return withIntent(tr, (i) => ({ ...i, threadBy: by }))
 }
 
+/** Tracked changes a load could not put back (#891): superseded, with an event. */
+export function orphanTrackedIn(tr: Transaction, orphans: OrphanedChange[]): Transaction {
+  if (orphans.length === 0) return tr
+  return withIntent(tr, (i) => ({ ...i, orphaned: [...(i.orphaned ?? []), ...orphans] }))
+}
+
 /** Replace the log with stored rows (the seed, a dev remount). */
 export function loadReviewLogInto(tr: Transaction, stored: StoredReviewLog | null | undefined): Transaction {
   return withIntent(tr, (i) => ({ ...i, load: stored ?? EMPTY_STORED }))
@@ -58,4 +64,9 @@ export function reviewLogPluginState(state: EditorState): ReviewLogPluginState |
 /** The document's review log, as stored. */
 export function reviewLogOf(state: EditorState): StoredReviewLog {
   return reviewLogPluginState(state)?.log ?? EMPTY_STORED
+}
+
+/** For `useActiveSession`: the active document's log, reference-stable between changes; empty with no document. */
+export function selectReviewLog(state: EditorState | null): StoredReviewLog {
+  return state ? reviewLogOf(state) : EMPTY_STORED
 }

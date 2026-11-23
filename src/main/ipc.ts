@@ -5,20 +5,48 @@ import { join, dirname, isAbsolute, basename } from 'path'
 import { randomUUID, createHash } from 'crypto'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
-import { withRetry, getNetworkErrorMessage } from '../shared/utils/retry'
-import { getDefaultModel, getDefaultHaikuModel, supportsAdaptiveThinking, getThinkingOffMode } from '../shared/llm/models'
+import { withRetry } from '../shared/utils/retry'
+import { classifyLlmError, llmErrorMessage, type LlmErrorKind } from '../shared/llm/errors'
+import { droppedThinking, withThinkingBinding } from './thinkingBinding'
+import { getDefaultModel, getSmallModel, supportsAdaptiveThinking, getThinkingOffMode } from '../shared/llm/models'
+import { chatCompletionsTuning, getProvider, isProvider, type ProviderInfo } from '../shared/llm/providers'
+import { firstEmoji } from '../shared/llm/emoji'
+import { buildChatBody, listChatModels, probeChatQuota, streamChatCompletion } from './chatCompletions'
+import { probeResponsesQuota, streamResponse, type ResponsesRequest } from './responses'
 import { getSettingsDir, LEGACY_SETTINGS_DIR, normalizePath, resolveWithin, resolveToolPath, IMAGE_EXTENSIONS } from './paths'
 import type { FileAccessOptions } from '../shared/fileAccess'
 import { clearRecentFiles } from './recentFiles'
 import { dialogDefaultPath, rememberDialogDir } from './dialogDirs'
-import { refreshMenu, setReopenClosedTabEnabled } from './menu'
+import { refreshMenu, setReopenClosedTabEnabled, setCopyWithChangesAvailable } from './menu'
 import { credentialStore } from './credentialStore'
+import {
+  REMARKABLE_DEVICE_TOKEN,
+  clearDeviceToken,
+  clearOcrKey,
+  hasOcrKey,
+  remarkableForRenderer,
+  resolveDeviceToken,
+  resolveOcrKey,
+  seedDeviceTokenFromDisk,
+  setDeviceToken,
+  setOcrKey,
+  stripRemarkableSecretsForDisk,
+} from './remarkableCredentials'
+import {
+  resolveProviderKey,
+  setProviderKey,
+  clearProviderKey,
+  seedSessionKeyFromDisk,
+  keyStatusAll,
+  toRendererSettings,
+  stripLlmSecretsForDisk,
+} from './llmKeys'
 import { toFileOperationFailure, type ReadFileResult, type SaveFileResult } from '../shared/fileOperationResult'
 import { readReleaseNotes, type ReleaseNotes } from './releaseNotes'
+import { bundledMcpServerPath } from './mcp/bundledServer'
 
-// Credential store keys
-const LLM_API_KEY = 'llm-api-key'
-const REMARKABLE_DEVICE_TOKEN = 'remarkable-device-token'
+// Credential store keys: LLM keys live in ./llmKeys (#1240), the reMarkable
+// device token and OCR key in ./remarkableCredentials (#1275).
 
 // Tracks the in-flight reMarkable sync so remarkable:sync:abort can cancel it.
 // Only one sync runs at a time (the renderer hook has its own concurrent-call
@@ -55,7 +83,6 @@ interface LLMToolDefinition {
 interface LLMRequest {
   provider: string
   model: string
-  apiKey: string
   baseUrl?: string
   messages: LLMMessage[]
   system: string
@@ -71,6 +98,37 @@ interface LLMStreamRequest extends LLMRequest {
 
 // Track active streams for abort support
 const activeStreams = new Map<string, AbortController>()
+
+/**
+ * An LLM failure as the writer sees it: one classification (#1268), a plain
+ * message naming the provider, and the kind the renderer's hint keys on.
+ */
+function llmFailure(error: unknown, providerId: string): { error: string; kind: LlmErrorKind } {
+  const info = classifyLlmError(error)
+  return { error: llmErrorMessage(info, isProvider(providerId) ? errorProvider(getProvider(providerId)) : undefined), kind: info.kind }
+}
+
+/**
+ * The provider as error messages name it. The App Store build leaves out a
+ * billing page that is also where one joins or pays (#956).
+ */
+function errorProvider(provider: ProviderInfo): { label: string; billingHint?: string } {
+  return { label: provider.label, billingHint: IS_MAS_BUILD && provider.keysLinkDirectOnly ? undefined : provider.billingHint }
+}
+
+/** A chat request as the Responses adapter takes it, with the provider's first guesses about the model. */
+function responsesRequest(provider: ProviderInfo, request: LLMRequest & Partial<LLMStreamRequest>, thinking: boolean): ResponsesRequest {
+  return {
+    model: request.model,
+    system: request.system,
+    messages: request.messages,
+    tools: request.tools,
+    maxTokens: request.maxTokens,
+    thinking,
+    reasons: provider.responses?.reasons(request.model) ?? false,
+    offEffort: provider.responses?.offEffort(request.model) ?? 'none'
+  }
+}
 
 // Security-scoped bookmark stop function (MAS sandbox) — single bookmark for
 // the legacy `masDirectoryBookmark` / `defaultSaveDirectory` path.
@@ -104,22 +162,38 @@ function activateBookmark(bookmark: string | undefined, label: string): (() => v
 }
 
 /**
- * Return a copy of settings with secrets (LLM API key, reMarkable device token)
- * blanked, for safe persistence to plaintext settings.json. Secrets live in
- * credentialStore; any write-back from settings:load (stale-bookmark cleanup,
- * migrations) must strip them so they never land on disk. Mirrors settings:save.
+ * Return a copy of settings with secrets (any LLM API key, the reMarkable device
+ * token) removed, for safe persistence to plaintext settings.json. Secrets live
+ * in credentialStore; every write — settings:save and the write-backs in
+ * settings:load (stale-bookmark cleanup, migrations) — goes through this so
+ * they never land on disk.
  */
 function stripSecretsForDisk(settings: Settings): Settings {
+  const stripped = stripLlmSecretsForDisk(settings)
   return {
-    ...settings,
-    llm: { ...settings.llm, apiKey: '' },
-    ...(settings.remarkable ? { remarkable: { ...settings.remarkable, deviceToken: '' } } : {}),
+    ...stripped,
+    ...(settings.remarkable ? { remarkable: stripRemarkableSecretsForDisk(settings.remarkable) as Settings['remarkable'] } : {}),
+  }
+}
+
+/**
+ * The settings for the renderer (#1240, #1275): no LLM key, no reMarkable
+ * device token or OCR key; each one's status instead.
+ */
+async function settingsForRenderer(settings: Settings): Promise<Settings> {
+  const withKeys = toRendererSettings(settings, await keyStatusAll())
+  if (!withKeys.remarkable) return withKeys
+  return {
+    ...withKeys,
+    remarkable: remarkableForRenderer(withKeys.remarkable, {
+      connected: (await resolveDeviceToken()) !== null,
+      hasAnthropicKey: await hasOcrKey(ANTHROPIC_KEY_PATH),
+    }) as Settings['remarkable'],
   }
 }
 
 function getSettingsPath(): string { return join(getSettingsDir(), 'settings.json') }
 const ANTHROPIC_KEY_PATH = join(LEGACY_SETTINGS_DIR, '.remarkable-anthropic-key') // Legacy path for migration
-const REMARKABLE_CREDENTIAL_KEY = 'remarkable-anthropic-key'
 
 /**
  * Refuse a final path segment that is empty, `.` or `..`. Used on the C-class
@@ -146,12 +220,6 @@ function claudeDesktopConfigPath(): string {
   )
 }
 
-/** The mcp-stdio bundle this build would install. */
-function bundledMcpServerPath(): string {
-  return app.isPackaged
-    ? join(process.resourcesPath, 'mcp-stdio.cjs')
-    : join(__dirname, '../../out/mcp-stdio.cjs')
-}
 
 function sha256(content: string): string {
   return createHash('sha256').update(content).digest('hex')
@@ -210,7 +278,6 @@ const defaultSettings: Settings = {
   llm: {
     provider: 'anthropic',
     model: getDefaultModel('anthropic'),
-    apiKey: '',
     emojiIcons: false
   },
   editor: {
@@ -737,10 +804,11 @@ export function setupIpcHandlers(): void {
       const content = await readFile(getSettingsPath(), 'utf-8')
       const rawSettings = { ...defaultSettings, ...JSON.parse(content) }
 
-      // Migration: if plaintext API key exists in JSON, migrate to secure storage
+      // Migration: if plaintext API key exists in JSON, migrate to secure storage.
+      // The field predates multiple providers, so it is Anthropic's key.
       if (credentialStore.isAvailable() && rawSettings.llm?.apiKey) {
         try {
-          await credentialStore.set(LLM_API_KEY, rawSettings.llm.apiKey)
+          await credentialStore.set(getProvider('anthropic').credentialKey, rawSettings.llm.apiKey)
           rawSettings.llm = { ...rawSettings.llm, apiKey: '' }
           await writeFile(getSettingsPath(), JSON.stringify(stripSecretsForDisk(rawSettings), null, 2), 'utf-8')
           console.log('[settings:load] Migrated plaintext API key to secure storage')
@@ -779,17 +847,14 @@ export function setupIpcHandlers(): void {
         }
       }
 
-      // Inject secrets from secure storage
-      if (credentialStore.isAvailable()) {
-        const storedKey = await credentialStore.get(LLM_API_KEY)
-        if (storedKey) {
-          rawSettings.llm = { ...rawSettings.llm, apiKey: storedKey }
-        }
-        const storedToken = await credentialStore.get(REMARKABLE_DEVICE_TOKEN)
-        if (storedToken && rawSettings.remarkable) {
-          rawSettings.remarkable = { ...rawSettings.remarkable, deviceToken: storedToken }
-        }
-      }
+      // A plaintext key secure storage could not take (unavailable, or the
+      // migration above failed) stays usable for this session, in main's
+      // memory: the renderer never receives an LLM key (#1240).
+      await seedSessionKeyFromDisk(rawSettings)
+
+      // Likewise a plaintext reMarkable device token: main keeps it, and the
+      // renderer learns only that one is held (#1275).
+      await seedDeviceTokenFromDisk(rawSettings)
 
       // Restore security-scoped bookmark for MAS sandbox directory access
       if (IS_MAS_BUILD && rawSettings.masDirectoryBookmark) {
@@ -872,9 +937,9 @@ export function setupIpcHandlers(): void {
         } catch { /* best effort */ }
       }
 
-      return rawSettings
+      return settingsForRenderer(rawSettings)
     } catch {
-      return defaultSettings
+      return settingsForRenderer(defaultSettings)
     }
   })
 
@@ -902,38 +967,10 @@ export function setupIpcHandlers(): void {
         }
       }
 
-      if (credentialStore.isAvailable()) {
-        // Store API key securely; save settings without it
-        const { apiKey, ...llmWithoutKey } = settings.llm
-        if (apiKey) {
-          await credentialStore.set(LLM_API_KEY, apiKey)
-        }
-
-        // Store reMarkable device token securely
-        if (settings.remarkable?.deviceToken) {
-          await credentialStore.set(REMARKABLE_DEVICE_TOKEN, settings.remarkable.deviceToken)
-        }
-
-        // Don't delete stored key when apiKey is empty — preserves the
-        // credential if the field is momentarily cleared during editing
-        const settingsToSave = {
-          ...settings,
-          llm: { ...llmWithoutKey, apiKey: '' },
-          ...(settings.remarkable ? { remarkable: { ...settings.remarkable, deviceToken: '' } } : {})
-        }
-        await writeFile(getSettingsPath(), JSON.stringify(settingsToSave, null, 2), 'utf-8')
-      } else {
-        // Secure storage unavailable — save settings but strip secrets
-        // to avoid storing credentials in plaintext on disk
-        console.warn('[settings:save] Secure storage unavailable, secrets will not be persisted')
-        const { apiKey: _stripped, ...llmWithoutKey } = settings.llm
-        const settingsToSave = {
-          ...settings,
-          llm: { ...llmWithoutKey, apiKey: '' },
-          ...(settings.remarkable ? { remarkable: { ...settings.remarkable, deviceToken: '' } } : {})
-        }
-        await writeFile(getSettingsPath(), JSON.stringify(settingsToSave, null, 2), 'utf-8')
-      }
+      // Credentials never travel with settings: llm:setKey and
+      // remarkable:register / storeApiKey are their ways in (#1240, #1275).
+      // Anything credential-shaped that arrives here is dropped, not stored.
+      await writeFile(getSettingsPath(), JSON.stringify(stripSecretsForDisk(settings), null, 2), 'utf-8')
     } catch (error) {
       console.error('Failed to save settings:', error)
       throw error
@@ -944,74 +981,157 @@ export function setupIpcHandlers(): void {
     return credentialStore.isAvailable()
   })
 
+  // LLM keys (#1240): the renderer sets and clears a provider's key here and
+  // only ever reads back its status (last four characters, whether it
+  // persists) — never the key.
+  ipcMain.handle('llm:keyStatus', async () => keyStatusAll())
+
+  ipcMain.handle('llm:setKey', async (_event, request: { provider?: unknown; key?: unknown }) => {
+    let error: string | undefined
+    if (!isProvider(request?.provider)) error = 'Unknown provider'
+    else if (typeof request.key !== 'string') error = 'API key is empty'
+    else {
+      try {
+        await setProviderKey(request.provider, request.key)
+      } catch (err) {
+        error = err instanceof Error ? err.message : 'Could not save the key'
+      }
+    }
+    return { ok: error === undefined, ...(error ? { error } : {}), status: await keyStatusAll() }
+  })
+
+  ipcMain.handle('llm:clearKey', async (_event, provider: unknown) => {
+    if (!isProvider(provider)) return keyStatusAll()
+    try {
+      await clearProviderKey(provider)
+    } catch (err) {
+      console.error('[llm:clearKey] Could not clear the key:', err)
+    }
+    // A plaintext key still in settings.json (secure storage unavailable, no
+    // write since launch) would come back at the next load; drop it now. The
+    // plaintext `llm.apiKey` field only ever held the Anthropic key (the only
+    // provider before 1.10.0); no other provider's key is ever written there.
+    try {
+      const onDisk = JSON.parse(await readFile(getSettingsPath(), 'utf-8')) as Settings & { llm?: { apiKey?: string } }
+      if (provider === 'anthropic' && onDisk.llm?.apiKey) {
+        await writeFile(getSettingsPath(), JSON.stringify(stripSecretsForDisk(onDisk), null, 2), 'utf-8')
+      }
+    } catch { /* no settings file yet */ }
+    return keyStatusAll()
+  })
+
   // Settings: Test API key (validates by making a minimal request)
+  // A typed key (`apiKey`) is tested before it is saved; without one, the
+  // provider's saved key is tested.
   ipcMain.handle('settings:testApiKey', async (_event, request: {
     provider: string
-    apiKey: string
+    apiKey?: string
     baseUrl?: string
-  }): Promise<{ success: boolean; message: string }> => {
-    const { provider, apiKey, baseUrl } = request
+  }): Promise<{ success: boolean; message: string; warning?: boolean }> => {
+    const { provider } = request
+    if (!isProvider(provider)) {
+      return { success: false, message: `Unknown provider: ${provider}` }
+    }
+    const apiKey = request.apiKey?.trim() || await resolveProviderKey(provider)
+    if (!apiKey) {
+      return { success: false, message: 'No API key saved' }
+    }
+    // The key works but its account can't be used: it saves, with a warning (#1268).
+    const noCredits = () => {
+      const { label, billingHint } = errorProvider(getProvider(provider))
+      return {
+        success: true,
+        warning: true,
+        message: `Key is valid, but the ${label} account has no credits.${billingHint ? ` Add credits at ${billingHint}.` : ''}`
+      }
+    }
 
     try {
-      switch (provider) {
+      const transport = getProvider(provider).transport
+      switch (transport) {
         case 'anthropic': {
           const Anthropic = (await import('@anthropic-ai/sdk')).default
           const client = new Anthropic({ apiKey })
           // Make a minimal request to validate the key
           await client.messages.create({
-            model: getDefaultHaikuModel(),
+            model: getSmallModel(provider),
             max_tokens: 1,
             messages: [{ role: 'user', content: 'Hi' }]
           })
           return { success: true, message: 'API key is valid' }
         }
-        default:
-          return { success: false, message: `Unknown provider: ${provider}` }
+        case 'chat-completions': {
+          // Listing models validates the key; it works on an empty account,
+          // so the smallest completion checks for credits (#1268).
+          const target = { baseURL: getProvider(provider).baseURL, apiKey }
+          await listChatModels(target)
+          if (await probeChatQuota(target, getSmallModel(provider))) return noCredits()
+          return { success: true, message: 'API key is valid' }
+        }
+        case 'responses': {
+          // The same two steps, the credits check asked the Responses way (#1301).
+          const target = { baseURL: getProvider(provider).baseURL, apiKey }
+          await listChatModels(target)
+          if (await probeResponsesQuota(target, getSmallModel(provider))) return noCredits()
+          return { success: true, message: 'API key is valid' }
+        }
+        default: {
+          // A transport added to ProviderTransport without a case here fails to compile.
+          const unhandled: never = transport
+          return { success: false, message: `Unhandled transport: ${unhandled as string}` }
+        }
       }
     } catch (error) {
       console.error('[testApiKey] Error:', error)
 
-      // Parse error messages for better user feedback
+      // One classification (#1268): an empty account (OpenAI answers 429
+      // insufficient_quota, Anthropic a 400 about the credit balance) is not
+      // a rate limit, and the key itself is valid.
+      const info = classifyLlmError(error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-
-      if (errorMessage.includes('401') || errorMessage.includes('Unauthorized') || errorMessage.includes('invalid_api_key')) {
-        return { success: false, message: 'Invalid API key' }
+      switch (info.kind) {
+        case 'quota':
+          return noCredits()
+        case 'auth':
+          return info.status === 403
+            ? { success: false, message: 'API key does not have required permissions' }
+            : { success: false, message: 'Invalid API key' }
+        case 'rate_limit':
+          return { success: false, message: 'Rate limited - but API key is valid' }
+        case 'transient':
+          if (/ECONNREFUSED|fetch failed/i.test(errorMessage)) return { success: false, message: 'Could not connect to server' }
+          if (/ETIMEDOUT|timeout/i.test(errorMessage)) return { success: false, message: 'Connection timed out' }
+          return { success: false, message: llmErrorMessage(info, getProvider(provider)) }
+        case 'other':
+          return { success: false, message: info.providerMessage || errorMessage }
       }
-      if (errorMessage.includes('403') || errorMessage.includes('Forbidden')) {
-        return { success: false, message: 'API key does not have required permissions' }
-      }
-      if (errorMessage.includes('429') || errorMessage.includes('rate_limit')) {
-        return { success: false, message: 'Rate limited - but API key is valid' }
-      }
-      if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('fetch failed')) {
-        return { success: false, message: 'Could not connect to server' }
-      }
-      if (errorMessage.includes('ETIMEDOUT') || errorMessage.includes('timeout')) {
-        return { success: false, message: 'Connection timed out' }
-      }
-
-      return { success: false, message: errorMessage }
     }
   })
 
-  // LLM: Fetch live model list from provider (runs in main to avoid CORS)
+  // LLM: Fetch live model list from provider (runs in main to avoid CORS).
+  // Uses the provider's saved key, or a typed one not yet saved.
   ipcMain.handle('llm:fetchModels', async (_event, request: {
     provider: string
-    apiKey: string
+    apiKey?: string
   }): Promise<{
     models?: Array<{ id: string; name: string; description?: string }>
     error?: string
   }> => {
-    const { provider, apiKey } = request
+    const { provider } = request
+    if (!isProvider(provider)) {
+      return { error: `Unknown provider: ${provider}` }
+    }
+    const apiKey = request.apiKey?.trim() || await resolveProviderKey(provider)
 
     if (!apiKey) {
       return { error: 'API key required' }
     }
 
     try {
-      switch (provider) {
+      const transport = getProvider(provider).transport
+      switch (transport) {
         case 'anthropic': {
-          const res = await fetch('https://api.anthropic.com/v1/models', {
+          const res = await fetch(`${getProvider(provider).baseURL}/models`, {
             headers: {
               'x-api-key': apiKey,
               'anthropic-version': '2023-06-01'
@@ -1031,8 +1151,22 @@ export function setupIpcHandlers(): void {
             }))
           return { models }
         }
-        default:
-          return { error: `Unknown provider: ${provider}` }
+        case 'responses':
+        case 'chat-completions': {
+          // Live ids filtered to chat models; the seed's names where it knows them.
+          const info = getProvider(provider)
+          const ids = await listChatModels({ baseURL: info.baseURL, apiKey }, info.liveModels)
+          const models = ids.map((id) => {
+            const known = info.models.find((m) => m.id === id)
+            return known ? { id, name: known.name, description: known.description } : { id, name: id }
+          })
+          return { models }
+        }
+        default: {
+          // A transport added to ProviderTransport without a case here fails to compile.
+          const unhandled: never = transport
+          return { error: `Unhandled transport: ${unhandled as string}` }
+        }
       }
     } catch (error) {
       console.error('[fetchModels] Error:', error)
@@ -1041,13 +1175,58 @@ export function setupIpcHandlers(): void {
   })
 
   // LLM: Chat completion (runs in main process to avoid CORS)
-  ipcMain.handle('llm:chat', async (_event, request: LLMRequest) => {
+  // Also the path for tab emoji (#1324), so every transport answers them.
+  const completeChat = async (request: LLMRequest): Promise<{ content: string }> => {
+    if (!isProvider(request.provider)) throw new Error(`Unknown provider: ${request.provider}`)
+    const apiKey = await resolveProviderKey(request.provider)
+    if (!apiKey) throw new Error('No API key configured. Add one in Settings.')
+    const info = getProvider(request.provider)
+    const transport = info.transport
+    if (transport === 'responses') {
+      try {
+        // Internal calls (summaries) want an answer, not deliberation: thinking off.
+        const { content } = await withRetry(
+          () => streamResponse({ baseURL: info.baseURL, apiKey }, responsesRequest(info, request, false)),
+          { maxRetries: 2 }
+        )
+        return { content }
+      } catch (error) {
+        console.error('[LLM] Error:', error)
+        if (error instanceof Error) error.message = llmFailure(error, request.provider).error
+        throw error
+      }
+    }
+    if (transport === 'chat-completions') {
+      try {
+        const body = buildChatBody({
+          model: request.model,
+          system: request.system,
+          messages: request.messages,
+          ...chatCompletionsTuning(info, request.model)
+        })
+        const { content } = await withRetry(
+          () => streamChatCompletion({ baseURL: info.baseURL, apiKey }, body),
+          { maxRetries: 2 }
+        )
+        return { content }
+      } catch (error) {
+        console.error('[LLM] Error:', error)
+        if (error instanceof Error) error.message = llmFailure(error, request.provider).error
+        throw error
+      }
+    }
+    if (transport !== 'anthropic') {
+      // A transport added to ProviderTransport without a path here fails to compile.
+      const unhandled: never = transport
+      throw new Error(`Unhandled transport: ${unhandled as string}`)
+    }
+
     const { createAnthropic } = await import('@ai-sdk/anthropic')
     const { streamText } = await import('ai')
 
     const anthropic = createAnthropic({
-      apiKey: request.apiKey,
-      baseURL: 'https://api.anthropic.com/v1'
+      apiKey,
+      baseURL: getProvider(request.provider).baseURL
     })
     const model = anthropic(request.model)
 
@@ -1088,26 +1267,108 @@ export function setupIpcHandlers(): void {
       console.error('[LLM] Error:', error)
       // Enhance error message for user
       if (error instanceof Error) {
-        error.message = getNetworkErrorMessage(error)
+        error.message = llmFailure(error, request.provider).error
       }
       throw error
     }
-  })
+  }
+  ipcMain.handle('llm:chat', (_event, request: LLMRequest) => completeChat(request))
 
   // LLM: Streaming chat completion (with optional tool support)
   ipcMain.handle('llm:stream', async (event, request: LLMStreamRequest) => {
     console.log('[LLM:stream] ========== HANDLER CALLED ==========')
     const { streamId, tools: toolDefinitions } = request
     console.log('[LLM:stream] Starting stream:', streamId, 'tools:', toolDefinitions?.length || 0)
+    // The key is main's to read (#1240); the request names only the provider.
+    if (!isProvider(request.provider)) {
+      event.sender.send('llm:stream:error', { streamId, error: `Unknown provider: ${request.provider}` })
+      return { success: false }
+    }
+    const apiKey = await resolveProviderKey(request.provider)
+    if (!apiKey) {
+      event.sender.send('llm:stream:error', { streamId, error: 'No API key configured. Add one in Settings.' })
+      return { success: false }
+    }
+    const provider = getProvider(request.provider)
+    const transport = provider.transport
+
     const abortController = new AbortController()
     activeStreams.set(streamId, abortController)
 
+    // OpenAI's Responses API (#1301) and Chat Completions (OpenAI-compatible
+    // gateways, #1241): one adapter each for the tool and non-tool cases,
+    // sending the same events as the Anthropic path so the renderer's loop
+    // can't tell them apart.
+    if (transport === 'responses' || transport === 'chat-completions') {
+      try {
+        const target = { baseURL: provider.baseURL, apiKey }
+        const handlers = {
+          onText: (delta: string) => {
+            if (abortController.signal.aborted) return
+            event.sender.send('llm:stream:chunk', { streamId, delta })
+          },
+          onReasoning: (snapshot: string) => {
+            if (abortController.signal.aborted) return
+            event.sender.send('llm:stream:thinking:delta', { streamId, thinking: snapshot })
+          },
+          onToolCallStart: (toolCallId: string, toolName: string) => {
+            if (abortController.signal.aborted) return
+            event.sender.send('llm:stream:tool-call:start', { streamId, toolCallId, toolName })
+          }
+        }
+        const { content, toolCalls } = transport === 'responses'
+          // The thinking toggle is the writer's: on reasons and shows its summary,
+          // off asks for the least reasoning the model accepts.
+          ? await streamResponse(target, responsesRequest(provider, request, request.thinking !== false), handlers, abortController.signal)
+          : await streamChatCompletion(
+              target,
+              buildChatBody({
+                model: request.model,
+                system: request.system,
+                messages: request.messages,
+                tools: toolDefinitions,
+                // The provider's reasoning effort per model, room for it in the limit (#1271).
+                ...chatCompletionsTuning(provider, request.model, request.maxTokens)
+              }),
+              handlers,
+              abortController.signal
+            )
+        for (const toolCall of toolCalls) {
+          event.sender.send('llm:stream:tool-call', { streamId, toolCall })
+        }
+        event.sender.send('llm:stream:complete', {
+          streamId,
+          content,
+          toolCalls: toolCalls.length > 0 ? toolCalls : undefined
+        })
+        return { success: true }
+      } catch (error) {
+        if (abortController.signal.aborted) {
+          event.sender.send('llm:stream:complete', { streamId, content: '' })
+          return { success: true }
+        }
+        console.error(`[LLM:stream] ${transport} error:`, error)
+        event.sender.send('llm:stream:error', { streamId, ...llmFailure(error, request.provider) })
+        return { success: false }
+      } finally {
+        activeStreams.delete(streamId)
+      }
+    }
+    if (transport !== 'anthropic') {
+      // Both paths below speak Anthropic. A transport added to
+      // ProviderTransport without its own path here fails to compile.
+      const unhandled: never = transport
+      activeStreams.delete(streamId)
+      event.sender.send('llm:stream:error', { streamId, error: `Unhandled transport: ${unhandled as string}` })
+      return { success: false }
+    }
+
     // For Anthropic with tools, use the Anthropic SDK directly to avoid AI SDK tool format issues
-    if (request.provider === 'anthropic' && toolDefinitions && toolDefinitions.length > 0) {
+    if (toolDefinitions && toolDefinitions.length > 0) {
       console.log('[LLM:stream] Using direct Anthropic SDK for tool support')
       try {
         const Anthropic = (await import('@anthropic-ai/sdk')).default
-        const client = new Anthropic({ apiKey: request.apiKey })
+        const client = new Anthropic({ apiKey })
 
         // Convert tool definitions to Anthropic's native format
         const anthropicTools = toolDefinitions.map(toolDef => ({
@@ -1153,7 +1414,7 @@ export function setupIpcHandlers(): void {
         // (thinking is on by default there, so effort is the only lever), and
         // the 4.x generation still takes { type: 'disabled' }. Sending the
         // wrong one is a hard 400 at request time.
-        const modelSupportsThinking = supportsAdaptiveThinking(request.model)
+        const modelSupportsThinking = provider.thinking && supportsAdaptiveThinking(request.model)
         const thinkingEnabled = request.thinking !== false && modelSupportsThinking
         const thinkingOffParam = (() => {
           switch (getThinkingOffMode(request.model)) {
@@ -1177,17 +1438,21 @@ export function setupIpcHandlers(): void {
 
         const maxTokens = request.maxTokens || 16000
 
+        // Adaptive thinking also drops, rather than rejects, thinking blocks
+        // the rebuilt system prompt no longer matches (#1289).
+        const binding = withThinkingBinding(thinkingParam)
+
         const streamParams: Parameters<typeof client.messages.stream>[0] = {
           model: request.model,
           max_tokens: maxTokens,
           system: request.system,
           messages: anthropicMessages,
           tools: anthropicTools,
-          ...(thinkingParam ? { thinking: thinkingParam } : {}),
+          ...(binding.thinking ? { thinking: binding.thinking } : {}),
           ...(sendEffort ? { output_config: { effort: 'high' as const } } : {})
-        }
+        } as Parameters<typeof client.messages.stream>[0]
 
-        const stream = client.messages.stream(streamParams)
+        const stream = client.messages.stream(streamParams, binding.headers ? { headers: binding.headers } : undefined)
 
         let fullContent = ''
         const toolCalls: Array<{ id: string; name: string; args: unknown }> = []
@@ -1262,6 +1527,10 @@ export function setupIpcHandlers(): void {
         console.log('[LLM:stream] Waiting for finalMessage...')
         const finalMessage = await stream.finalMessage()
         console.log('[LLM:stream] Got finalMessage, stop_reason:', finalMessage.stop_reason)
+        const dropped = droppedThinking(finalMessage)
+        if (dropped.length > 0) {
+          console.warn('[LLM:stream] The API dropped thinking blocks it could not use:', dropped)
+        }
 
         // Extract tool calls and thinking blocks from the final message.
         // Thinking blocks are passed back so useChat can embed them verbatim
@@ -1299,7 +1568,7 @@ export function setupIpcHandlers(): void {
         console.error('[LLM:stream] Anthropic direct error:', error)
         event.sender.send('llm:stream:error', {
           streamId,
-          error: getNetworkErrorMessage(error)
+          ...llmFailure(error, request.provider)
         })
         return { success: false }
       } finally {
@@ -1312,8 +1581,8 @@ export function setupIpcHandlers(): void {
     const { streamText } = await import('ai')
 
     const anthropic = createAnthropic({
-      apiKey: request.apiKey,
-      baseURL: 'https://api.anthropic.com/v1'
+      apiKey,
+      baseURL: provider.baseURL
     })
     const model = anthropic(request.model)
 
@@ -1354,7 +1623,7 @@ export function setupIpcHandlers(): void {
       } else {
         event.sender.send('llm:stream:error', {
           streamId,
-          error: getNetworkErrorMessage(error)
+          ...llmFailure(error, request.provider)
         })
       }
       return { success: false }
@@ -1374,14 +1643,17 @@ export function setupIpcHandlers(): void {
   })
 
   // reMarkable: Register device with one-time code
+  // The token stays in main (#1275); the renderer learns only that it holds one.
   ipcMain.handle('remarkable:register', async (_event, code: string) => {
     const { registerDevice } = await import('./remarkable/client')
-    const deviceToken = await registerDevice(code)
-    return { deviceToken }
+    await setDeviceToken(await registerDevice(code))
+    return { connected: true }
   })
 
-  // reMarkable: Validate existing device token
-  ipcMain.handle('remarkable:validate', async (_event, deviceToken: string) => {
+  // reMarkable: Validate the device token main holds
+  ipcMain.handle('remarkable:validate', async () => {
+    const deviceToken = await resolveDeviceToken()
+    if (!deviceToken) return false
     const { validateToken } = await import('./remarkable/client')
     return await validateToken(deviceToken)
   })
@@ -1389,35 +1661,15 @@ export function setupIpcHandlers(): void {
   // reMarkable: Sync notebooks to local directory
   ipcMain.handle(
     'remarkable:sync',
-    async (event, deviceToken: string, syncDirectory: string) => {
+    async (event, syncDirectory: string) => {
       const safeDir = normalizePath(syncDirectory)
+      const deviceToken = await resolveDeviceToken()
+      if (!deviceToken) throw new Error('reMarkable is not connected. Connect it in Settings → Integrations.')
       const { syncAll } = await import('./remarkable/sync')
 
-      // Get Anthropic API key - first from credentialStore (LLM key if provider is Anthropic),
-      // then fall back to the reMarkable-specific secure storage
-      let anthropicApiKey: string | undefined
-      try {
-        const content = await readFile(getSettingsPath(), 'utf-8')
-        const settings = JSON.parse(content) as Settings
-        // API key is now in credentialStore after migration
-        if (credentialStore.isAvailable()) {
-          anthropicApiKey = (await credentialStore.get(LLM_API_KEY)) ?? undefined
-        } else if (settings.llm?.apiKey) {
-          // Fallback for non-MAS platforms without secure storage
-          anthropicApiKey = settings.llm.apiKey
-        }
-      } catch {
-        // Settings not found or invalid
-      }
-
-      // If no key from LLM settings, try reMarkable-specific credential store
-      if (!anthropicApiKey) {
-        const remarkableKey = await credentialStore.get(REMARKABLE_CREDENTIAL_KEY)
-          ?? await credentialStore.migrateFromLegacyFile(ANTHROPIC_KEY_PATH, REMARKABLE_CREDENTIAL_KEY)
-        if (remarkableKey) {
-          anthropicApiKey = remarkableKey
-        }
-      }
+      // OCR is Claude vision: the LLM settings' Anthropic key, else the
+      // reMarkable-specific one, both read in main (#1240, #1275).
+      const anthropicApiKey = await resolveOcrKey(ANTHROPIC_KEY_PATH)
 
       // Abort any previous sync (shouldn't happen — hook has its own lock —
       // but harmless defensive cleanup).
@@ -1466,12 +1718,11 @@ export function setupIpcHandlers(): void {
     }
 
     // Clear BOTH credentials: the device token (for the reMarkable cloud
-    // connection) and the separate Anthropic key used for OCR. settings:load
-    // injects the device token back into memory from safeStorage if present,
-    // so leaving it would resurrect the connection on the next settings
-    // reload or app restart.
-    await credentialStore.delete(REMARKABLE_DEVICE_TOKEN)
-    await credentialStore.delete(REMARKABLE_CREDENTIAL_KEY)
+    // connection) and the separate Anthropic key used for OCR, in secure
+    // storage and in this session's memory. Leaving the token would resurrect
+    // the connection on the next settings reload or app restart.
+    await clearDeviceToken()
+    await clearOcrKey()
     // Also clean up legacy file if it exists
     try { await unlink(ANTHROPIC_KEY_PATH) } catch { /* ignore */ }
   })
@@ -1484,7 +1735,9 @@ export function setupIpcHandlers(): void {
   })
 
   // reMarkable: List cloud notebooks (for selection UI)
-  ipcMain.handle('remarkable:listCloudNotebooks', async (_event, deviceToken: string) => {
+  ipcMain.handle('remarkable:listCloudNotebooks', async () => {
+    const deviceToken = await resolveDeviceToken()
+    if (!deviceToken) throw new Error('reMarkable is not connected')
     const { listCloudNotebooks } = await import('./remarkable/sync')
     return await listCloudNotebooks(deviceToken)
   })
@@ -1507,17 +1760,16 @@ export function setupIpcHandlers(): void {
   )
 
   // reMarkable: Store Anthropic API key securely via credentialStore
-  ipcMain.handle('remarkable:storeApiKey', async (_event, apiKey: string) => {
-    await credentialStore.set(REMARKABLE_CREDENTIAL_KEY, apiKey)
+  ipcMain.handle('remarkable:storeApiKey', async (_event, apiKey: unknown) => {
+    if (typeof apiKey !== 'string') throw new Error('API key is empty')
+    await setOcrKey(apiKey)
   })
 
-  ipcMain.handle('remarkable:getApiKey', async () => {
-    return await credentialStore.get(REMARKABLE_CREDENTIAL_KEY)
-      ?? await credentialStore.migrateFromLegacyFile(ANTHROPIC_KEY_PATH, REMARKABLE_CREDENTIAL_KEY)
-  })
+  // Whether an OCR key is saved; the key itself never leaves main (#1275).
+  ipcMain.handle('remarkable:ocrKeyStatus', async () => hasOcrKey(ANTHROPIC_KEY_PATH))
 
   ipcMain.handle('remarkable:clearApiKey', async () => {
-    await credentialStore.delete(REMARKABLE_CREDENTIAL_KEY)
+    await clearOcrKey()
     // Also clean up legacy file if it exists
     try { await unlink(ANTHROPIC_KEY_PATH) } catch { /* ignore */ }
   })
@@ -1591,7 +1843,7 @@ export function setupIpcHandlers(): void {
   // reMarkable: Move a notebook to a new parent folder on the cloud
   ipcMain.handle(
     'remarkable:moveNotebook',
-    async (_event, deviceToken: string, notebookHash: string, newParentId: string) => {
+    async (_event, notebookHash: string, newParentId: string) => {
       // Bound the renderer-supplied identifiers at the IPC boundary. These
       // hit the rmapi-js cloud API and never touch the local filesystem, so
       // the validation is about catching obviously-malformed values fast
@@ -1603,6 +1855,8 @@ export function setupIpcHandlers(): void {
       if (notebookHash.length > 128) throw new Error('notebookHash is too long')
       if (typeof newParentId !== 'string') throw new Error('newParentId must be a string')
       if (newParentId.length > 128) throw new Error('newParentId is too long')
+      const deviceToken = await resolveDeviceToken()
+      if (!deviceToken) throw new Error('reMarkable is not connected')
       const { connect } = await import('./remarkable/client')
       const client = await connect(deviceToken)
       // Surface the new hash assigned by the cloud so the caller can persist
@@ -1637,48 +1891,28 @@ export function setupIpcHandlers(): void {
     }
   )
 
-  // Emoji: Generate emoji for a tab title (runs in main process to avoid CORS)
-  ipcMain.handle('emoji:generate', async (_event, title: string, contentPreview?: string): Promise<{ emoji: string | null; error?: string }> => {
+  // Emoji: one emoji for a tab, on any provider (#1324). The renderer names
+  // the provider in use; main reads its key (#1240) and always asks that
+  // provider's small model, never the one chat uses: the task is trivial.
+  ipcMain.handle('emoji:generate', async (_event, title: string, contentPreview: string | undefined, provider: string): Promise<{ emoji: string | null; error?: string }> => {
     try {
-      // Read settings to check provider, then get API key from secure storage
-      let settings: Settings
-      try {
-        const content = await readFile(getSettingsPath(), 'utf-8')
-        settings = { ...defaultSettings, ...JSON.parse(content) }
-      } catch {
-        settings = defaultSettings
+      if (!isProvider(provider)) {
+        return { emoji: null, error: 'unknown-provider' }
       }
-
-      // Get API key from credentialStore (primary) or settings.json (fallback for non-MAS)
-      let apiKey = settings.llm.apiKey
-      if (!apiKey && credentialStore.isAvailable()) {
-        apiKey = (await credentialStore.get(LLM_API_KEY)) || ''
-      }
-
-      if (!apiKey) {
+      if (!(await resolveProviderKey(provider))) {
         return { emoji: null, error: 'no-api-key' }
       }
 
-      const Anthropic = (await import('@anthropic-ai/sdk')).default
-      const client = new Anthropic({ apiKey })
-
       // Build prompt with optional content preview for better context
-      let prompt = title
-      if (contentPreview) {
-        prompt = `Title: ${title}\nContent preview: ${contentPreview}`
-      }
-
-      const response = await client.messages.create({
-        model: getDefaultHaikuModel(),
-        max_tokens: 10,
+      const prompt = contentPreview ? `Title: ${title}\nContent preview: ${contentPreview}` : title
+      const { content } = await completeChat({
+        provider,
+        model: getProvider(provider).smallModel,
         system: 'Respond with exactly ONE emoji that represents the document. Nothing else — no text, no explanation, just the emoji.',
         messages: [{ role: 'user', content: prompt }]
       })
 
-      const text = response.content[0]?.type === 'text' ? response.content[0].text.trim() : ''
-      const emojiMatch = text.match(/\p{Emoji_Presentation}/u)
-
-      return { emoji: emojiMatch ? emojiMatch[0] : null }
+      return { emoji: firstEmoji(content) }
     } catch (err) {
       console.error('[emoji:generate] Error:', err)
       return { emoji: null, error: err instanceof Error ? err.message : 'Unknown error' }
@@ -1725,6 +1959,12 @@ export function setupIpcHandlers(): void {
   // closed-tab stack (enabled when non-empty). Rebuilds the menu only on change.
   ipcMain.handle('menu:setReopenClosedTabEnabled', async (_event, enabled: boolean) => {
     setReopenClosedTabEnabled(!!enabled)
+  })
+
+  // Menu: show "Copy with changes" (Edit menu, editor context menu) while the
+  // active tab has pending tracked changes (#891). A boolean; rebuilds on change.
+  ipcMain.handle('menu:setCopyWithChangesAvailable', async (_event, available: boolean) => {
+    setCopyWithChangesAvailable(!!available)
   })
 
   // Shell: Open a local file in its default app (for non-markdown "Open Externally")

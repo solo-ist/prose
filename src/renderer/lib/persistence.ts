@@ -47,6 +47,8 @@ export interface TabDraft {
   viewState?: { selection: { from: number; to: number }; scrollTop: number }
   /** The tab was in source mode (#1150). Additive; no DB_VERSION bump. */
   mode?: 'rich' | 'source'
+  /** Suggesting mode was on (#891). Additive. */
+  suggesting?: boolean
   activeChatId: string | null
 }
 
@@ -67,7 +69,7 @@ export interface EmojiCacheEntry {
 
 // Database constants
 const DB_NAME = 'prose-db'
-const DB_VERSION = 10
+const DB_VERSION = 11
 const STORES = {
   DRAFTS: 'drafts',
   CONVERSATIONS: 'conversations',
@@ -77,7 +79,8 @@ const STORES = {
   EMOJI_CACHE: 'emoji_cache',
   SUMMARIES: 'summaries',
   COMMENTS: 'comments',
-  REVIEW_LOG: 'review_log'
+  REVIEW_LOG: 'review_log',
+  TRACKED: 'tracked'
 } as const
 
 // Recovery types
@@ -113,6 +116,7 @@ export interface DatabaseBackup {
  *     the AI edit history now derives from the annotations store, so no separate
  *     store is created. Existing dev DBs may carry a harmless orphaned edit_history.
  * v10: Added review_log store (every suggestion's history and the review events, #1233)
+ * v11: Added tracked store (pending tracked changes, anchored in the original text, #891)
  *
  * When bumping version:
  * 1. Update DB_VERSION above
@@ -412,6 +416,9 @@ function getDB(): Promise<IDBDatabase> {
               if (!db.objectStoreNames.contains(STORES.REVIEW_LOG)) {
                 db.createObjectStore(STORES.REVIEW_LOG)
               }
+              if (!db.objectStoreNames.contains(STORES.TRACKED)) {
+                db.createObjectStore(STORES.TRACKED)
+              }
             }
           })
 
@@ -508,6 +515,9 @@ function getDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORES.REVIEW_LOG)) {
         db.createObjectStore(STORES.REVIEW_LOG)
+      }
+      if (!db.objectStoreNames.contains(STORES.TRACKED)) {
+        db.createObjectStore(STORES.TRACKED)
       }
     }
   })
@@ -1064,6 +1074,55 @@ export async function deleteReviewLog(documentId: string): Promise<void> {
     })
   }).catch((error) => {
     console.error('Failed to delete review log:', error)
+  })
+}
+
+// ============ Tracked Change Operations (#891) ============
+
+type TrackedRow = import('../extensions/tracked-changes/records').TrackedChangeRecord
+
+/** The document's pending tracked changes. Imported only by `document/session.ts`. */
+export async function saveTracked(documentId: string, records: TrackedRow[]): Promise<void> {
+  await withDb(async (db) => {
+    if (!db.objectStoreNames.contains(STORES.TRACKED)) {
+      console.warn('[persistence] tracked store missing - skipping save')
+      return
+    }
+    return new Promise<void>((resolve, reject) => {
+      const request = db.transaction(STORES.TRACKED, 'readwrite').objectStore(STORES.TRACKED).put(records, documentId)
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve()
+    })
+  }).catch((error) => {
+    console.error('Failed to save tracked changes:', error)
+  })
+}
+
+export async function loadTracked(documentId: string): Promise<TrackedRow[]> {
+  const loaded = await withDb(async (db) => {
+    if (!db.objectStoreNames.contains(STORES.TRACKED)) return []
+    return new Promise<TrackedRow[]>((resolve, reject) => {
+      const request = db.transaction(STORES.TRACKED, 'readonly').objectStore(STORES.TRACKED).get(documentId)
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve((request.result as TrackedRow[] | undefined) ?? [])
+    })
+  }).catch((error) => {
+    console.error('Failed to load tracked changes:', error)
+    return []
+  })
+  return loaded ?? []
+}
+
+export async function deleteTracked(documentId: string): Promise<void> {
+  await withDb(async (db) => {
+    if (!db.objectStoreNames.contains(STORES.TRACKED)) return
+    return new Promise<void>((resolve, reject) => {
+      const request = db.transaction(STORES.TRACKED, 'readwrite').objectStore(STORES.TRACKED).delete(documentId)
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => resolve()
+    })
+  }).catch((error) => {
+    console.error('Failed to delete tracked changes:', error)
   })
 }
 

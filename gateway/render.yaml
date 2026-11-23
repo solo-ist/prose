@@ -12,7 +12,10 @@ services:
     region: virginia
     plan: starter
     healthCheckPath: /health
-    autoDeploy: false
+    # Matches the live service, which is not Blueprint-synced: Render deploys
+    # every commit to main that touches gateway/ (rootDir). Check with
+    # `render services -o json`, not this file.
+    autoDeployTrigger: commit
     envVars:
       - key: NODE_ENV
         value: production

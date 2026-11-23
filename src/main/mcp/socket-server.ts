@@ -19,6 +19,9 @@ import * as crypto from 'crypto'
 import { app } from 'electron'
 import { getToolsForMCP } from '../../shared/tools/registry'
 import type { ToolResult } from '../../shared/tools/types'
+import { toCallToolResult } from '../../shared/mcp/server'
+import { launchActor, type McpClientInfo } from '../../shared/mcp/actor'
+import type { McpAgentActor } from '../../shared/review/actor'
 
 /** The socket's path under the profile in force when it is asked for. */
 function socketPath(): string {
@@ -33,7 +36,7 @@ const MAX_BUFFER_SIZE = 1024 * 1024
  */
 export class McpSocketServer {
   private server: net.Server | null = null
-  private onToolInvoke: ((name: string, args: unknown) => Promise<ToolResult>) | null = null
+  private onToolInvoke: ((name: string, args: unknown, actor: McpAgentActor) => Promise<ToolResult>) | null = null
   private authToken: string | null = null
   private authenticatedSockets = new WeakSet<net.Socket>()
 
@@ -56,7 +59,7 @@ export class McpSocketServer {
   /**
    * Set the tool invocation handler.
    */
-  setToolInvokeHandler(handler: (name: string, args: unknown) => Promise<ToolResult>): void {
+  setToolInvokeHandler(handler: (name: string, args: unknown, actor: McpAgentActor) => Promise<ToolResult>): void {
     this.onToolInvoke = handler
   }
 
@@ -220,45 +223,22 @@ export class McpSocketServer {
     try {
       if (method === 'tools/list') {
         // Return tool definitions
-        const tools = getToolsForMCP()
-        this.sendResult(socket, id, {
-          tools: tools.map((tool) => ({
-            name: tool.name,
-            description: tool.description,
-            inputSchema: tool.inputSchema
-          }))
-        })
+        this.sendResult(socket, id, { tools: getToolsForMCP() })
       } else if (method === 'tools/call') {
         // Execute tool
-        const { name, arguments: args } = params as { name: string; arguments?: unknown }
+        // `client` is the bridge's MCP client's self-reported clientInfo
+        // (#1236): it labels the call, cleaned, and is never trusted further.
+        const { name, arguments: args, client } = params as { name: string; arguments?: unknown; client?: McpClientInfo }
 
         if (!this.onToolInvoke) {
           this.sendError(socket, id, -32000, 'No tool handler registered')
           return
         }
 
-        const result = await this.onToolInvoke(name, args ?? {})
-
-        if (result.success) {
-          this.sendResult(socket, id, {
-            content: [
-              {
-                type: 'text',
-                text: typeof result.data === 'string' ? result.data : JSON.stringify(result.data, null, 2)
-              }
-            ]
-          })
-        } else {
-          this.sendResult(socket, id, {
-            content: [
-              {
-                type: 'text',
-                text: `Error: ${result.error}${result.code ? ` (${result.code})` : ''}`
-              }
-            ],
-            isError: true
-          })
-        }
+        // The MCP result shape (text + structuredContent): the stdio bridge
+        // passes it through unchanged, so older installed bridges keep working.
+        const result = await this.onToolInvoke(name, args ?? {}, launchActor('stdio', client))
+        this.sendResult(socket, id, toCallToolResult(result))
       } else {
         this.sendError(socket, id, -32601, `Method not found: ${method}`)
       }

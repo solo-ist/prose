@@ -27,6 +27,8 @@ export interface Tab {
   viewState?: EditorViewState
   /** Source mode is per tab (#1150); absent means rich. */
   mode?: TabMode
+  /** Suggesting mode is per tab (#891): the writer's edits become tracked changes. Absent means off. */
+  suggesting?: boolean
 }
 
 export type TabMode = 'rich' | 'source'
@@ -42,6 +44,7 @@ export interface ClosedTabSnapshot {
   cursorPosition?: { line: number; column: number }
   viewState?: EditorViewState
   mode?: TabMode
+  suggesting?: boolean
 }
 
 const CLOSED_TABS_MAX = 10
@@ -113,7 +116,8 @@ export const useTabStore = create<TabState>()(
         frontmatter: snapshot.frontmatter ?? {},
         cursorPosition: snapshot.cursorPosition,
         viewState: snapshot.viewState,
-        mode: snapshot.mode
+        mode: snapshot.mode,
+        suggesting: snapshot.suggesting
       }
 
       set((state) => ({
@@ -300,7 +304,8 @@ export function createTab(overrides: Partial<Tab> = {}): Omit<Tab, 'id'> {
     frontmatter: overrides.frontmatter,
     cursorPosition: overrides.cursorPosition,
     viewState: overrides.viewState,
-    mode: overrides.mode
+    mode: overrides.mode,
+    suggesting: overrides.suggesting
   }
 }
 
@@ -342,6 +347,7 @@ export async function persistSession(): Promise<void> {
     cursorPosition: tab.cursorPosition,
     viewState: tab.id === state.activeTabId ? liveView ?? tab.viewState : tab.viewState,
     mode: tab.mode,
+    suggesting: tab.suggesting,
     activeChatId: tab.documentId === chatState.currentDocumentId
       ? chatState.activeConversationId
       : null

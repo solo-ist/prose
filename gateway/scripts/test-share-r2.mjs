@@ -3,7 +3,7 @@
  *
  * Production stores artifacts in R2; test-share.mjs runs without it (the
  * Postgres fallback). This suite spawns a mock S3 server and a gateway on
- * :4040 pointed at it (R2_ENDPOINT, path-style), then checks what lands in
+ * :4050 pointed at it (R2_ENDPOINT, path-style), then checks what lands in
  * the bucket: publish → the object is sealed and opens with the link;
  * re-publish → a new sealed object replaces the old one; a pre-encryption
  * plaintext object → sealed on its first view, the plaintext deleted;
@@ -19,8 +19,10 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-const PORT = 4040
-const S3_PORT = 4041
+// 4040/4041 belong to test-relay.mjs; a gateway still shutting down on a
+// shared port answers the next suite's first requests and then resets.
+const PORT = 4050
+const S3_PORT = 4051
 const BUCKET = 'prose-test'
 const BASE = `http://localhost:${PORT}`
 const EMAIL = `share-r2-test-${Date.now()}@example.invalid`

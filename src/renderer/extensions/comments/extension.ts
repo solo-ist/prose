@@ -13,7 +13,7 @@ import { threadActorIn } from '../review-log/transactions'
 import { Mark, mergeAttributes } from '@tiptap/core'
 import type { Transaction } from '@tiptap/pm/state'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
-import type { MarkSerializerSpec } from 'prosemirror-markdown'
+import type { MarkdownSerializer } from 'prosemirror-markdown'
 import type { CommentOptions, CommentData, CommentReply } from './types'
 import { createCommentThreadsPlugin } from './plugin'
 import { addThreadsTo, removeThreadFrom, threadsOf, updateThreadIn } from './transactions'
@@ -24,7 +24,7 @@ export { AI_REPLACEMENT_META } from './plugin'
  * Markdown serializer for comment marks - outputs just the text content
  * so comments don't appear as HTML in markdown output
  */
-export const commentMarkdownSerializer: MarkSerializerSpec = {
+export const commentMarkdownSerializer: MarkdownSerializer['marks'][string] = {
   open: '',
   close: '',
   mixable: true,

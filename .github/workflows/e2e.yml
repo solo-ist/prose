@@ -109,14 +109,12 @@ jobs:
           npx prisma generate
           npx prisma migrate deploy
 
-      - name: Run unit tests
-        run: npm run test:unit
+      # Type check, unit tests, the Electron build the suite runs against, and the web build.
+      - name: Verify
+        run: npm run verify
 
       - name: Install Playwright system deps
         run: npx playwright install --with-deps
-
-      - name: Build Electron app
-        run: npm run build
 
       - name: Run E2E tests
         uses: coactions/setup-xvfb@v1

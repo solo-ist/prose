@@ -91,7 +91,7 @@ async function getFileListStore() {
 }
 
 export const useProjectsStore = create<ProjectsState>()(
-  subscribeWithSelector((set, get) => ({
+  subscribeWithSelector((set) => ({
     activeTab: 'projects',
     isAddingProject: false,
     isAddingFavorite: false,

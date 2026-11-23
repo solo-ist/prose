@@ -2,7 +2,6 @@ import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import { generateId, saveSession, loadSession, clearSession } from '../lib/persistence'
 import type { SessionState, TabDraft } from '../lib/persistence'
-import { useChatStore } from './chatStore'
 import { useEditorInstanceStore } from './editorInstanceStore'
 import { isRemarkableOcrPath } from '../lib/remarkablePath'
 import { captureEditorViewState, type EditorViewState } from '../lib/editorViewState'
@@ -78,9 +77,6 @@ interface TabState {
   closeOtherTabs: (tabId: string) => void
   closeAllTabs: () => void
 }
-
-// Counter for untitled documents
-let untitledCounter = 1
 
 export const useTabStore = create<TabState>()(
   subscribeWithSelector((set, get) => ({
@@ -330,7 +326,6 @@ export function useActiveTab<T>(select: (tab: Tab | null) => T): T {
  */
 export async function persistSession(): Promise<void> {
   const state = useTabStore.getState()
-  const chatState = useChatStore.getState()
   // The active tab's cached view is from the last time it was left; read the
   // live one so a relaunch lands where the editor was (#1103).
   const liveView = captureEditorViewState(useEditorInstanceStore.getState().editor)
@@ -348,9 +343,8 @@ export async function persistSession(): Promise<void> {
     viewState: tab.id === state.activeTabId ? liveView ?? tab.viewState : tab.viewState,
     mode: tab.mode,
     suggesting: tab.suggesting,
-    activeChatId: tab.documentId === chatState.currentDocumentId
-      ? chatState.activeConversationId
-      : null
+    // Always null: the chat store has no `currentDocumentId` to match on (#1162).
+    activeChatId: null
   }))
 
   const session: SessionState = {

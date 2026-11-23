@@ -613,7 +613,7 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
     set((state) => ({
       settings: {
         ...state.settings,
-        recovery: { ...state.settings.recovery, ...config }
+        recovery: { ...state.settings.recovery, ...config } as Settings['recovery']
       }
     })),
 
@@ -639,7 +639,7 @@ export const useSettingsStore = create<SettingsState>()(subscribeWithSelector((s
     set((state) => ({
       settings: {
         ...state.settings,
-        fileAssociation: { ...state.settings.fileAssociation, ...config }
+        fileAssociation: { ...state.settings.fileAssociation, ...config } as Settings['fileAssociation']
       }
     }))
     // Auto-save after updating file association

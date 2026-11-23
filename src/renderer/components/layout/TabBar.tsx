@@ -52,7 +52,7 @@ export function TabBar({ onTabClick, onTabClose, onTabCloseOthers, onTabCloseAll
   const tabs = useTabStore((state) => state.tabs)
   const activeTabId = useTabStore((state) => state.activeTabId)
   const setTabOrder = useTabStore((state) => state.setTabOrder)
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLUListElement>(null)
 
   // Editing state
   const [editingTabId, setEditingTabId] = useState<string | null>(null)

@@ -1,0 +1,630 @@
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"role":"assistant","content":""}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","created":1792389726,"model":"greenpt/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":"Write"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","created":1792389726,"model":"greenpt/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":" a ~"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","created":1792389726,"model":"greenpt/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":"500-word plain prose"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","created":1792389726,"model":"greenpt/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":" essay on lighth"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","created":1792389726,"model":"greenpt/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":"ouses."}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","created":1792389726,"model":"greenpt/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":" No headings, no"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","created":1792389726,"model":"greenpt/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":" lists. Just"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","created":1792389726,"model":"greenpt/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":" flowing paragraphs"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","created":1792389726,"model":"greenpt/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":". Aim"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","created":1792389726,"model":"greenpt/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":" close"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","created":1792389726,"model":"greenpt/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":" to 500 words"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","created":1792389726,"model":"greenpt/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":"."}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"For"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" thousands"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" of years, l"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"ighthouses have stood"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" at"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" the edge of the"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" sea"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":", marking"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" the places"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" where land"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" and"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" water meet in"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" their"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" most dangerous ways."}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" The ancient"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" Phar"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"os of Alexandria"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":", built in"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" the third century BC"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" on"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" an"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" island"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" in the"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" Egyptian harbor, was"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" one of the wonders"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" of the ancient"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" world, and its"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" fire burning"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" atop"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" a tower of"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" stone established"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" a"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" pattern that would"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" be"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" repeated across"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" coast"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"lines for millennia"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":". The idea behind"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" a"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" lighthouse is simple"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":":"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" a light"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" placed"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" high enough to be"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" seen from far away"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":", warning"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" sailors of"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" rocks,"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" shoals, and"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" coast"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"lines long"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" before their"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" ships reach"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" them. Yet"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" the execution"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" of that"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" idea,"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" especially"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" before"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" modern"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" engineering, was anything"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" but simple"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":".\n\nBuilding"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" a lighthouse meant"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" constructing"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" a"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" structure"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" that could withstand storms"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" of"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" extraordinary"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" violence."}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" Some"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" of the most"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" celebrated"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" lighthouses,"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" such as the E"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"ddystone Light"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" off the coast of"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" England"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":", were built on"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" wave-s"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"wept reefs"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" where"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" earlier"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" attempts had"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" been swept"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" away entirely. The"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" story"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" of l"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"ighthouse engineering is largely"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" a story of learning"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" to shape"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" towers"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" so that waves"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" would"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" break against them harm"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"lessly, cur"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"ving the bases"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" so that the sea"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"'s"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" force would slide past"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" rather than strike"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" head"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"-on. The men"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" and"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" women who kept"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" these lights"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" often"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" lived in isolation"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" that"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" is"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" difficult to imagine today"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":", t"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"ending the"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" flame through"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" storms"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":", winding"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" the clock"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"work mechanisms that"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" rotated the lenses"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":", and climbing"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" stair"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" after"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" stair to"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" keep the beacon"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" burning.\n\nThe light"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" itself underwent"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" its"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" own evolution. Fires"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" of"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" wood and coal"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" gave way to"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" oil lamps, then"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" to inc"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"andescent bulbs"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":","}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" while"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" the simple"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" lantern"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" gave"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" way to the Fres"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"nel lens, a"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" masterpiece"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" of nineteenth"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"-century optics"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":". By"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" arranging precisely"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" ground"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" rings of"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" glass into a be"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"ehive-shaped"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" lens"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":", August"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"in Fresnel made"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" it possible to concentrate"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" light into"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" a narrow"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":","}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" powerful beam that could"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" travel"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" more"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" than twenty miles across"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" open"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" water. Each"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" lighthouse also"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" developed its own character"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":", a"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" distinctive pattern"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" of flashes"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" and eclips"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"es,"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" so that a navigator"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" looking"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" at the"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" horizon could tell"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" not only that"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" land"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" was near"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" but exactly"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" which l"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"ighthouse he"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" was seeing and"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" therefore"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" precisely"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" where he was.\n\n"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"Beyond"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" their practical"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" function, lighth"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"ouses have gathered"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" a deep"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" symbolic weight. They"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" represent steadfast"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"ness,"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" the solitary"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" figure standing"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" firm"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" while"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" the storm r"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"ages. They"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" stand"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" for guidance"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" and"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" hope"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":", the"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" promise"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" of a safe"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" path"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" through darkness"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":". Writers"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" and painters have returned"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" to them again"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" and again, drawn"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" to the"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" image"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" of a single"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" light burning"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" against the vast"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" blackness of the"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" sea. There"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" is also"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" a"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" melanch"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"oly quality"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" to them, a"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" sense of vigil"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" and"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" sacrifice"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":", because the keeper"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"'s job"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" was to remain"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" awake and"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" watch"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"ful while others"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" slept safely"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" in their beds"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" or"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" sailed"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" trusting"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" through"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" the night"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":".\n\nToday,"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" the"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" era"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" of the"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" manned lighthouse is"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" nearly over. Automation"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" and"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" satellite"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" navigation have made"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" the old"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" keep"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"ers obsolete"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":", and many"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" lighthouses have"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" been decommissioned"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":", sold"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":", converted"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" into hotels"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" and"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" museums, or left"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" to slowly"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" crumble into"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" the sea. And"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" yet the"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" lights"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" that"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" remain still"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" burn, and mar"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":"iners still consult"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" them, because"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" a"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" beam"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" of light shining"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" from"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" a tower"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" remains"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" a trustworthy"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" thing"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" even"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" in"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" an"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" age of glowing"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" screens. A"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" lighthouse is"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" a promise"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" made"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" physical"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":": that"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" someone,"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" somewhere, is"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" keeping"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" watch, and"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" that the dangerous"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" edge"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" of the world will"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" be"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" marked for"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" those who approach"}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{"content":" it."}}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","object":"chat.completion.chunk","created":1792389726,"model":"greenpt/glm-5.3","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"4a47a32652fc45c6a663050d9f932eac","created":1792389726,"model":"greenpt/glm-5.3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{}}],"usage":{"completion_tokens":699,"prompt_tokens":32,"total_tokens":731,"completion_tokens_details":{"reasoning_tokens":31},"prompt_tokens_details":{"cached_tokens":0},"cost":0.0031108000000000004}}
+
+data: [DONE]
+

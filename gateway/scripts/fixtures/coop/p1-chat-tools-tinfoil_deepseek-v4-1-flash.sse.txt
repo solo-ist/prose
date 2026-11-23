@@ -1,0 +1,30 @@
+data: {"id":"chatcmpl-b0995693b5cb50bd","object":"chat.completion.chunk","created":1792389694,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{"role":"assistant","content":""}}]}
+
+data: {"id":"chatcmpl-b0995693b5cb50bd","created":1792389694,"model":"tinfoil/deepseek-v4-1-flash","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":"Fix","p":"abcdef"}}]}
+
+data: {"id":"chatcmpl-b0995693b5cb50bd","created":1792389694,"model":"tinfoil/deepseek-v4-1-flash","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":" \"Teh\" → \"The\".","p":"abcd"}}]}
+
+data: {"id":"chatcmpl-b0995693b5cb50bd","created":1792389694,"model":"tinfoil/deepseek-v4-1-flash","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"p":"abcdefghijklmnop","tool_calls":[{"id":"chatcmpl-tool-b08484c1f147f7a3","function":{"arguments":"","name":"suggest_edit"},"type":"function","index":0}]}}]}
+
+data: {"id":"chatcmpl-b0995693b5cb50bd","created":1792389694,"model":"tinfoil/deepseek-v4-1-flash","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"p":"abcdefghijklmnopqr","tool_calls":[{"function":{"arguments":"{\"nodeId\": \""},"type":"function","index":0}]}}]}
+
+data: {"id":"chatcmpl-b0995693b5cb50bd","created":1792389694,"model":"tinfoil/deepseek-v4-1-flash","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"p":"abcdefghijklmnop","tool_calls":[{"function":{"arguments":"n1"},"type":"function","index":0}]}}]}
+
+data: {"id":"chatcmpl-b0995693b5cb50bd","created":1792389694,"model":"tinfoil/deepseek-v4-1-flash","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"p":"abcdefghijklmnopqrst","tool_calls":[{"function":{"arguments":"\", \"content\": \""},"type":"function","index":0}]}}]}
+
+data: {"id":"chatcmpl-b0995693b5cb50bd","created":1792389694,"model":"tinfoil/deepseek-v4-1-flash","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"p":"abcdefghijklmnopqrstuvwxyz01","tool_calls":[{"function":{"arguments":"The quick brown fox jumps over the lazy dog."},"type":"function","index":0}]}}]}
+
+data: {"id":"chatcmpl-b0995693b5cb50bd","created":1792389694,"model":"tinfoil/deepseek-v4-1-flash","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"p":"abcdefgh","tool_calls":[{"function":{"arguments":"\", \"search\": \""},"type":"function","index":0}]}}]}
+
+data: {"id":"chatcmpl-b0995693b5cb50bd","created":1792389694,"model":"tinfoil/deepseek-v4-1-flash","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"p":"abcdefghijklmnopqrstuv","tool_calls":[{"function":{"arguments":"Teh quick brown fox jumps over the lazy dog."},"type":"function","index":0}]}}]}
+
+data: {"id":"chatcmpl-b0995693b5cb50bd","created":1792389694,"model":"tinfoil/deepseek-v4-1-flash","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"p":"abcdefghijklmnopq","tool_calls":[{"function":{"arguments":"\", \"comment\": \""},"type":"function","index":0}]}}]}
+
+data: {"id":"chatcmpl-b0995693b5cb50bd","created":1792389694,"model":"tinfoil/deepseek-v4-1-flash","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"p":"abcdefghijklmnopqrstu","tool_calls":[{"function":{"arguments":"Correct typo \\\"Teh\\\" to \\\"The\\\".\"}"},"type":"function","index":0}]}}]}
+
+data: {"id":"chatcmpl-b0995693b5cb50bd","object":"chat.completion.chunk","created":1792389694,"model":"tinfoil/deepseek-v4-1-flash","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: {"id":"chatcmpl-b0995693b5cb50bd","created":1792389694,"model":"tinfoil/deepseek-v4-1-flash","object":"chat.completion.chunk","system_fingerprint":"vllm-0.1.dev20904+g179dd0fa9-tp8-76e0d53d","choices":[{"index":0,"delta":{}}],"usage":{"completion_tokens":127,"prompt_tokens":480,"total_tokens":607,"completion_tokens_details":{"reasoning_tokens":9},"prompt_tokens_details":{"cached_tokens":0,"created_cache_tokens":0},"cost":0.00049615}}
+
+data: [DONE]
+

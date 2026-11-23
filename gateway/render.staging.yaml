@@ -1,0 +1,68 @@
+# Render Blueprint for the gateway's STAGING copy (#1349).
+#
+# A separate Blueprint with its own resource names, so syncing it can never
+# touch production (`prose-gateway`, `prose-gateway-db`, described in
+# render.yaml and created by hand). Set it up once in the Render dashboard:
+# New → Blueprint → this repo → Blueprint file path `gateway/render.staging.yaml`,
+# then move both resources into the "Prose" project's Staging environment.
+# Runbook: docs/web/staging.md.
+#
+# Deploys: every push to the `staging` branch. Promote a PR with
+#   git push origin <branch>:staging --force
+# `main` never deploys here, and nothing here deploys production.
+services:
+  - type: web
+    name: prose-gateway-staging
+    runtime: docker
+    dockerfilePath: ./gateway/Dockerfile
+    dockerContext: ./gateway
+    region: virginia
+    plan: starter
+    branch: staging
+    autoDeployTrigger: commit
+    healthCheckPath: /health
+    # Fixed hostnames (CNAMEs at Hover → this service's onrender.com target).
+    # Two, because config.ts refuses a share host equal to the API host (#902).
+    domains:
+      - api-staging.prose.solo.ist
+      - share-staging.prose.solo.ist
+    envVars:
+      # "production" on purpose: staging runs config.ts's strict checks, the
+      # same ones production boots with. Only the values differ.
+      - key: NODE_ENV
+        value: production
+      - key: BETTER_AUTH_URL
+        value: https://api-staging.prose.solo.ist
+      - key: SHARE_BASE_URL
+        value: https://share-staging.prose.solo.ist
+      # SHARE_SUBDOMAINS stays unset: per-share subdomains need a wildcard
+      # domain and certificate, which staging doesn't have.
+      - key: CORS_ORIGINS
+        value: https://prose.solo.ist
+      - key: DATABASE_URL
+        fromDatabase:
+          name: prose-gateway-staging-db
+          property: connectionString
+      # Set in the dashboard; never the production values (docs/web/staging.md).
+      - key: BETTER_AUTH_SECRET
+        sync: false # a new random secret, so a staging session is useless in production
+      - key: ANTHROPIC_API_KEY
+        sync: false # a key with a low spend limit
+      - key: RESEND_API_KEY
+        sync: false # a key of its own, so it can be revoked without touching production mail
+      - key: MAIL_FROM
+        sync: false # e.g. "Prose Staging <signin@prose.solo.ist>"
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false # a token scoped to the staging bucket only
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        sync: false # a bucket of its own, never production's
+
+databases:
+  - name: prose-gateway-staging-db
+    plan: basic-256mb
+    region: virginia # MUST match the web service region
+    postgresMajorVersion: "16"

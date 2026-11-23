@@ -87,6 +87,12 @@ command before the server serves.
 touches `gateway/`, live in about a minute; commits outside `gateway/` don't
 deploy. There is no manual step, so a gateway PR's merge is its release.
 
+**Staging (#1349).** `render.staging.yaml` defines a second, separate copy
+(`prose-gateway-staging`, its own database, secrets and hostnames) that deploys
+the `staging` branch. To try a change on Render before it merges:
+`git push origin <branch>:staging --force`. Setup and checks:
+[`docs/web/staging.md`](../docs/web/staging.md).
+
 ## Share service (#768)
 
 The embedded-artifact share layer (design: `docs/architecture/web-platform.md`

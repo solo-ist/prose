@@ -2492,7 +2492,9 @@ export function setupIpcHandlers(): void {
       console.warn(`[appearance:apply-dock-icon] icon image failed to load: ${iconPath}`)
       return
     }
-    app.dock?.setIcon(img)
+    // No dock off macOS.
+    if (!app.dock) return
+    app.dock.setIcon(img)
   })
 
   // The renderer owns the "has this version been seen" decision (it holds settings);

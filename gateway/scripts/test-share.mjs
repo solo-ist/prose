@@ -105,6 +105,13 @@ function grant(...args) {
   })
 }
 
+// Inspect or rewind a publication's stored artifact (scripts/artifact-row.ts).
+function artifactRow(...args) {
+  return execFileSync('npx', ['tsx', 'scripts/artifact-row.ts', ...args], {
+    cwd: ROOT, env: process.env, stdio: 'pipe', encoding: 'utf8',
+  })
+}
+
 async function main() {
   await waitFor(async () => {
     try {
@@ -634,6 +641,63 @@ async function main() {
     body: JSON.stringify({ commentText: 'late', markedText: 'v' }),
   })
   expect(aThreadGone.status === 409, 'author thread on a revoked share 409s', `status ${aThreadGone.status}`)
+
+  // --- At rest: the artifact is sealed to its link ---------------------------
+  // Postgres storage here (no R2 in this suite; test-share-r2.mjs covers R2).
+  const MARKER = `at-rest-marker-${Date.now()}`
+  const stored = (id) => JSON.parse(artifactRow('inspect', id, MARKER))
+  const serves = async (url, text) => (await (await fetch(url)).text()).includes(text)
+  const sealedRes = await fetch(`${BASE}/api/share/publish`, {
+    method: 'POST', headers: authed, body: JSON.stringify({ title: 'Sealed', html: artifact(MARKER) }),
+  })
+  const sealedPub = await sealedRes.json()
+  const fresh = stored(sealedPub.publicationId)
+  expect(
+    !!fresh.encPublicKey && fresh.hasWrappedKey && fresh.hasCipher && !fresh.hasHtml,
+    'publish stores a sealed artifact and its keys', JSON.stringify(fresh)
+  )
+  expect(!fresh.clearMarker, 'the stored bytes hold no plaintext')
+  expect(await serves(sealedPub.shareUrl, MARKER), 'the link opens the sealed artifact')
+
+  const sealedRepub = await fetch(`${BASE}/api/share/${sealedPub.publicationId}/publish`, {
+    method: 'PUT', headers: authed, body: JSON.stringify({ title: 'Sealed', html: artifact(`${MARKER}-v2`) }),
+  })
+  expect(sealedRepub.status === 200, 're-publish of a sealed artifact accepted', `status ${sealedRepub.status}`)
+  const resealed = stored(sealedPub.publicationId)
+  expect(
+    resealed.encPublicKey === fresh.encPublicKey && resealed.hasCipher && !resealed.hasHtml && !resealed.clearMarker,
+    're-publish seals to the same key without the token', JSON.stringify(resealed)
+  )
+  expect(await serves(sealedPub.shareUrl, `${MARKER}-v2`), 'the link opens the re-published revision')
+
+  // A row stored before encryption: plaintext until its first view seals it.
+  artifactRow('make-legacy', sealedPub.publicationId, 'db', Buffer.from(artifact(`${MARKER}-legacy`)).toString('base64'))
+  const legacy = stored(sealedPub.publicationId)
+  expect(!legacy.encPublicKey && legacy.hasHtml && legacy.clearMarker, 'row rewound to the pre-encryption shape')
+  const legacyRepub = await fetch(`${BASE}/api/share/${sealedPub.publicationId}/publish`, {
+    method: 'PUT', headers: authed, body: JSON.stringify({ title: 'Sealed', html: artifact(`${MARKER}-legacy2`) }),
+  })
+  expect(legacyRepub.status === 200, 're-publish of a pre-encryption row accepted', `status ${legacyRepub.status}`)
+  const legacyAfterRepub = stored(sealedPub.publicationId)
+  expect(
+    !legacyAfterRepub.encPublicKey && legacyAfterRepub.hasHtml,
+    're-publish before any view stays plaintext (no token to seal with)', JSON.stringify(legacyAfterRepub)
+  )
+  expect(await serves(sealedPub.shareUrl, `${MARKER}-legacy2`), 'a pre-encryption row serves')
+  const healed = stored(sealedPub.publicationId)
+  expect(
+    !!healed.encPublicKey && healed.hasCipher && !healed.hasHtml && !healed.clearMarker,
+    'the first view seals a pre-encryption row', JSON.stringify(healed)
+  )
+  expect(await serves(sealedPub.shareUrl, `${MARKER}-legacy2`), 'the sealed row still opens with its link')
+
+  const sealedRevoke = await fetch(`${BASE}/api/share/${sealedPub.publicationId}`, { method: 'DELETE', headers: authed })
+  expect(sealedRevoke.status === 204, 'revoke of a sealed share returns 204', `status ${sealedRevoke.status}`)
+  const shredded = stored(sealedPub.publicationId)
+  expect(
+    !shredded.encPublicKey && !shredded.hasWrappedKey && !shredded.hasCipher && !shredded.hasHtml,
+    'revoke shreds the keys and the ciphertext', JSON.stringify(shredded)
+  )
 
   // --- R2 unavailable → 503 not 404 (config-drift path) --------------------
   // Publish a fresh artifact (lands in Postgres since this test env has no R2

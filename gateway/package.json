@@ -24,6 +24,8 @@
     "test:mail": "node scripts/test-mail.mjs",
     "mail:preview": "tsx scripts/preview-mail.ts",
     "test:share:subdomains": "node scripts/test-share-subdomains.mjs",
+    "test:share:r2": "node scripts/test-share-r2.mjs",
+    "test:crypto": "tsx scripts/test-artifact-crypto.ts",
     "test:relay": "node scripts/test-relay.mjs && tsx scripts/test-relay-hub.ts"
   },
   "dependencies": {

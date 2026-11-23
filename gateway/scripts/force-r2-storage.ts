@@ -28,8 +28,9 @@ await prisma.publication.update({
   data: {
     storage: 'r2',
     r2Key: `shares/${pubId}/artifact.html`,
-    // Clear the DB copy — an r2 row normally has no HTML in the column.
+    // Clear the DB copy — an r2 row normally has no artifact in the columns.
     artifactHtml: null,
+    artifactCipher: null,
   },
 })
 

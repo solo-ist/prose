@@ -38,6 +38,20 @@ updates:
       # tiptap-markdown 0.9 peers on TipTap 3 (#866); semver reads 0.8 → 0.9 as minor.
       - dependency-name: tiptap-markdown
         versions: [">=0.9"]
+      # React 18 → 19 is one upgrade: react, react-dom and both type packages
+      # move together or `npm ci` can't resolve (PR #1044 bumped two of four).
+      - dependency-name: react
+        update-types: ["version-update:semver-major"]
+      - dependency-name: react-dom
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react-dom"
+        update-types: ["version-update:semver-major"]
+      # Types must not run ahead of the runtime: Electron 45 embeds Node 24 and
+      # CI builds on Node 22. Raise this when the Electron major moves its Node.
+      - dependency-name: "@types/node"
+        versions: [">=25"]
   - package-ecosystem: npm
     directory: /gateway
     schedule:

@@ -432,7 +432,17 @@ shareAuthorRoutes.delete('/:pubId', async (c) => {
     }),
   ])
   try {
-    await deleteArtifact(pub)
+    // Read the row again: a first view may have sealed a pre-encryption
+    // artifact between the read above and the tombstone, moving it to a new
+    // R2 object. Nothing can move it after the tombstone (sealLegacyArtifact
+    // requires revokedAt to be null), so this is the object to delete. With
+    // the stale row, the cleanup would clear r2Key and leave that object in
+    // the bucket with no pointer to it.
+    const current = await prisma.publication.findUnique({
+      where: { id: pub.id },
+      select: { id: true, storage: true, r2Key: true },
+    })
+    await deleteArtifact(current ?? pub)
   } catch (err) {
     console.error(`[share] revoke ${pub.id}: artifact cleanup failed after tombstone (bytes unreachable; r2Key retained)`, err)
   }

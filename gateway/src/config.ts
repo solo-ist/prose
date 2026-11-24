@@ -112,8 +112,8 @@ const EnvSchema = z.object({
   R2_SECRET_ACCESS_KEY: z.string().optional(),
   R2_BUCKET: z.string().optional(),
   // Test-only: point the R2 client at a local mock S3 server (path-style)
-  // instead of <account>.r2.cloudflarestorage.com. Never set this in
-  // production — it is documented only for the test suite.
+  // instead of <account>.r2.cloudflarestorage.com. Refused outside
+  // development (below), like RESEND_API_URL.
   R2_ENDPOINT: z.string().url().optional(),
 }).superRefine((env, ctx) => {
   // The .optional() markers above keep the dev bootstrap loose (mock upstream,
@@ -163,6 +163,16 @@ const EnvSchema = z.object({
     ctx.addIssue({
       code: 'custom',
       path: ['CIMD_TEST_ORIGIN'],
+      message: 'test-only override — unset it outside development',
+    })
+  }
+  // R2_ENDPOINT points the R2 client at a mock S3 server for the test suite.
+  // In production it would send every artifact, and the bucket credentials
+  // that sign the request, to whatever address it named.
+  if (env.R2_ENDPOINT) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['R2_ENDPOINT'],
       message: 'test-only override — unset it outside development',
     })
   }

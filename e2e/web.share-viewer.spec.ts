@@ -296,14 +296,17 @@ test.describe('artifact format', () => {
 
 // Focus is the panel's DEFAULT for fresh readers; most tests assert the list
 // surface, so they seed a remembered 'list' choice before first paint.
-const seedListMode = (page: import('@playwright/test').Page): Promise<void> =>
-  page.addInitScript(() => {
+// Awaited, not returned: addInitScript resolves to nothing in Playwright 1.58
+// and to a Disposable in 1.65, and callers only need it to have run.
+const seedListMode = async (page: import('@playwright/test').Page): Promise<void> => {
+  await page.addInitScript(() => {
     try {
       window.localStorage.setItem('prose-viewer-panel-mode', 'list')
     } catch {
       /* blocked storage */
     }
   })
+}
 
 test.describe('panel default mode', () => {
   test('a fresh reader lands in focus mode', async ({ page }) => {

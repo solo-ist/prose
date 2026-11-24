@@ -14,7 +14,7 @@ import type { ElectronApplication, Page } from '@playwright/test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { dismissOnboarding, dismissOverlay, launchApp, openChat, seedSettings, typeInEditor, waitForAppReady, waitForEditor } from './helpers'
+import { closeSelect, dismissOnboarding, dismissOverlay, launchApp, openChat, seedSettings, typeInEditor, waitForAppReady, waitForEditor } from './helpers'
 import { openAIRequests, rsAnswer, rsCall, rsCompleted, stubOpenAI } from './openai-stub'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -123,7 +123,7 @@ test('Settings: one model list across providers; a pick sets the provider; Clear
   await expect(page.getByTestId('model-add-key-anthropic')).toHaveText('Add an Anthropic key below to use its models.')
   await expect(page.getByTestId('model-add-key-openai')).toHaveText('Add an OpenAI key below to use its models.')
   await expect(page.getByRole('option')).toHaveCount(0)
-  await page.keyboard.press('Escape')
+  await closeSelect(page)
 
   // Anthropic is in use with no key, so its field is open; OpenAI waits behind "Add key".
   await expect(status('anthropic')).toHaveText('No key')

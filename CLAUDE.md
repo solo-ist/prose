@@ -17,8 +17,8 @@ This project uses an **agentic, multi-agent development workflow**:
 - **Multiple Claude Code agents** may run simultaneously on the same machine — across terminal sessions, git worktrees, different branches, or different repos. Never assume you're the only agent running.
 - **Prefer Agent Teams and git worktrees** for parallelizing independent work. Use `isolation: "worktree"` when spawning agents that need to make changes without conflicting with the main working tree. This avoids branch conflicts and lets multiple agents write code simultaneously. **Branch new worktrees off freshly-fetched `origin/main`** (`git fetch origin` first) — a worktree cut from a stale base shows outdated docs, including an old `roadmap.md`.
 - **Worktree git commands**: Always use `git -C <worktree-path> <subcommand>` instead of `cd <path> && git <subcommand>`. Single commands match the `Bash(git:*)` allowlist; compound `cd && git` chains get flagged for manual approval, which blocks unattended agents.
-- **Cloud agents** (via GitHub Actions) handle PR reviews, automated fixes, and pipeline triage. Local agents handle implementation, QA, and complex features.
-- **The CI pipeline is self-enhancing** — automated review (`claude.yml`), scoring (`pipeline-triage.yml`), and auto-fix (`ci-gate.yml`) run on every PR. Skills and workflows evolve alongside the codebase.
+- **The root checkout stays on `main`, clean.** The main clone is never where work happens: use a git worktree beside it. Automated goal runs cut their tree from the root checkout's **local** `main` and reuse its `node_modules` without installing, so whoever lands a PR on `main` fast-forwards the root checkout afterwards (`git -C <root> merge --ff-only origin/main`) and re-runs `npm ci` there if the PR changed `package-lock.json`. Don't assume someone else keeps it current.
+- **Automated review is moving off GitHub Actions** to the Solo Prime harness, an orchestration system outside this repo. The Actions review pipeline is retired (see "Review" below): nothing reviews a PR by itself until the harness is switched on for this repo, and until then the operator reviews by hand.
 - **Be mindful of concurrent sessions.** Other terminal sessions or worktree agents may be running builds, dev servers, or tests at the same time. Check for port conflicts before starting servers. Use PID files (not `pkill` patterns) for process management. Use `gh` CLI (not GitHub MCP) for all GitHub operations. Always `git fetch origin` before comparing branches — another session may have pushed.
 - **The project board** (GitHub Projects #5) tracks priority and in-progress work. Board #5 has no "In Progress" column — status columns are: **User Requested**, **Do First**, **Do Next**, **Later**, **Quick Wins**, **On Hold**. Never mutate board field definitions — only move items between existing columns. The overarching roadmap narrative (epics, waves, sequencing) lives in [`docs/roadmap.md`](docs/roadmap.md).
 
@@ -38,14 +38,14 @@ npm run build:linux  # Build Linux distributable
 
 **Note**: Always run these commands for the user rather than asking them to run manually. Start dev servers in the background so work can continue.
 
-**Testing**: Unit tests via vitest (`npm run test:unit`; `src/**/*.test.ts`, jsdom, a headless TipTap editor built from `createEditorExtensions()`; runs in CI before the Electron suite). E2E tests via Playwright (`e2e/`, `playwright.config.ts`). Manual QA via Circuit Electron (see below).
+**Testing**: Unit tests via vitest (`npm run test:unit`; `src/**/*.test.ts`, jsdom, a headless TipTap editor built from `createEditorExtensions()`; part of `npm run verify`, which CI runs before the Electron suite). E2E tests via Playwright (`e2e/`, `playwright.config.ts`). Manual QA via Circuit Electron (see below).
 
 ## Before Implementation
 
 Before writing any code, complete this checklist:
 
 1. **Roadmap**: Read [`docs/roadmap.md`](docs/roadmap.md) — confirm where the issue sits (wave / track) and how it sequences against other work. (Mandatory for any planning/sequencing/parallelization task.)
-2. **Branch**: Create or switch to issue branch: `git checkout -b issue-<number>-<description>`
+2. **Branch**: Create the issue branch in its own worktree, off freshly fetched `origin/main`: `git worktree add ../prose-<number> -b issue-<number>-<description> origin/main`
 3. **Docs**: For complex issues, create `docs/issues/<number>/plan.md`
 4. **Verify**: Run `git branch --show-current` to confirm you're not on `main`
 
@@ -154,40 +154,33 @@ dist/mac-arm64/prose.app
 - **Always output links**: After creating, closing, or commenting on issues or PRs, always output the full URL (e.g., `https://github.com/solo-ist/prose/pull/42`) so the user can Cmd+click from the terminal.
 - **Issue documentation**: For complex issues, create a folder in `docs/issues/<number>/`. See `docs/issues/README.md` for details.
 
-### Automated Review Analysis
+### Review
 
-Claude reviews a PR whenever E2E passes on it — on PR open and after every push — because `ci-gate.yml`'s `trigger-review` job auto-posts a `/review` on green CI (self-debounced ~10 min). `claude.yml` has **no** `pull_request` trigger: a `/review` comment is the only way in. A second workflow (`review-feedback.yml`) auto-analyzes that review:
+The GitHub Actions review pipeline is **retired** (#1344). Green CI no longer posts a `/review`, so `claude.yml`, `review-feedback.yml` and `pipeline-triage.yml` do not start by themselves; their files stay until the removal PR. Don't post `/review`, `/triage` or `/pipeline` to bring them back.
 
-1. **Detection**: Triggers on `issue_comment` from `claude[bot]` containing `## Code Review`
-2. **Analysis**: Calls Claude Sonnet API to categorize feedback (Blocking / Functional / Quality / Nitpicks / Questions)
-3. **Output**: Posts structured triage comment with severity, effort, and MERGE / FIX REQUIRED / NEEDS DISCUSSION recommendation
-4. **Loop prevention**: Analysis comments include a `<!-- review-feedback-analysis -->` sentinel excluded from detection
-
-**On-demand review**: Comment `/review` on a PR to trigger a fresh code review. **You rarely need to** — `ci-gate.yml` auto-posts `/review` whenever E2E passes (on PR open *and* after each push), so a green CI already triggers the review. A redundant manual `/review` double-runs the cloud reviewer *and* the `review-feedback` analysis — wasted cloud-agent runs.
-
-**When no auto-review appears on green CI**, it was almost certainly the **author-trust gate**: `trigger-review` skips the review unless the *PR author* has repo `write`/`admin` (checked via `getCollaboratorPermissionLevel` — **not** `author_association`, which misreports private org members as `CONTRIBUTOR`). The gate lives in `ci-gate.yml` rather than `claude.yml` because the `/review` is posted as the PROJECT_TOKEN owner, who is always trusted — so `claude.yml`'s commenter check structurally cannot catch a fork author, and an outside contributor could otherwise spend Anthropic credits on demand.
-
-So a fork PR from an outside contributor goes green with **no review**, logging `Notice — auto-review skipped (untrusted author)` in the CI Gate run. To review it, post `/review` yourself: `claude.yml` checks the *commenter's* permission, so a maintainer comment passes, and the review reads the diff via `gh pr diff`, which works across forks. Same remedy when E2E was skipped entirely.
-
-**Manual trigger**: Run `workflow_dispatch` on `review-feedback.yml` with a PR number to re-analyze any PR.
-
-**Local deep-dive**: For code-level validation of review concerns, use `/review-feedback <pr-number>` locally. The cloud version is a quick triage; the local skill reads actual source files.
+- **Who reviews now:** automated review is moving to the Solo Prime harness, which posts its findings as a comment on the PR. Until it is on for this repo, the operator reviews by hand. Either way the rule in "Workflow" holds: read the review comments before merging.
+- **The automation account is ignored by the old pipeline.** Every remaining trigger (`/review`, `/test`, `/triage`, `/pipeline`, `@claude`, the label-driven ones) skips comments, PRs and issues authored by `solo-prime`. An agent working as that account re-runs CI with `gh run rerun <run-id>` (or `gh pr checks <n>` to find the run), not with a `/test` comment.
+- **Before opening a PR:** `npm run verify` must pass. CI runs the same command ahead of the Electron suite.
+- **Local deep-dive:** `/review-feedback <pr-number>` reads the source behind each review comment and recommends fix, defer or dismiss.
 
 ### CI/CD Workflows
 
 All workflows in `.github/workflows/`:
-- `claude.yml` - Code review + `@claude` mention handler; entered via `/review` comment only (no `pull_request` trigger)
-- `review-feedback.yml` - Analyzes claude[bot] review comments, posts structured triage
-- `e2e.yml` - Electron Playwright tests on every PR (or `/test` comment); a Postgres service and `gateway/` installed for the relay spec's local gateway (#1239)
+- `e2e.yml` - `npm run verify`, then the Electron Playwright tests, on every PR (or a maintainer's `/test` comment); a Postgres service and `gateway/` installed for the relay spec's local gateway (#1239). The only required check
 - `web-e2e.yml` - Browser Playwright tests for `accelerated`-labeled or bot PRs
 - `gateway.yml` - Gateway integration suites (`npm run test:share`, `test:mail`, `test:share:subdomains`, and the MCP relay's `test:relay`, against a Postgres service) on PRs touching `gateway/**`
 - `share-viewer-e2e.yml` - Shared web viewer suite (`e2e/web.share-viewer.spec.ts`) on PRs touching the viewer, the artifact builder, or the spec
-- `ci-gate.yml` - On E2E `workflow_run` success, auto-posts `/review` (the green-CI review trigger), gated on the PR author having repo write access; on failure, routes to auto-fix
-- `pipeline-triage.yml` - Scores review findings, routes to auto-fix or human review
-- `pipeline-fix.yml` - Claude agent auto-fixes simple review findings
-- `dispatch.yml` - Routes `/triage`, `/fix`, `/pipeline` slash commands to downstream workflows
 - `feature-request-triage.yml` - Adds `feature-request`-labeled issues to project board
 - `release.yml` - Builds and publishes macOS distributable to GitHub Releases on version tag push (`v*`)
+
+The old review pipeline, kept until the removal PR. No review starts by itself any more, and every comment, label and author trigger ignores the `solo-prime` account:
+- `claude.yml` - Code review + `@claude` mention handler, entered via a `/review` comment
+- `review-feedback.yml` - Analyzes `claude[bot]` review comments, posts structured triage
+- `ci-gate.yml` - After an E2E run: the review trigger is switched off; a failure still posts an escalation comment and the `needs-review` label
+- `pipeline-triage.yml` - Scores review findings
+- `dispatch.yml` - Routes the `/triage` and `/pipeline` slash commands
+- `validate-pipeline.yml` - Still runs: checks the workflow files and scripts on PRs that touch `.github/` (the `validate` check)
+- `notify.yml` - Slack notice when `needs-review` or `complex` is applied to a PR
 
 ## Architecture
 

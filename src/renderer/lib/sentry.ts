@@ -4,6 +4,9 @@ type SentryModule = typeof import('@sentry/electron/renderer')
 
 let sentryModule: SentryModule | null = null
 let initialized = false
+// The SDK's `init` works once per window: a second call returns early and
+// makes no client. So the one client is kept, and switched off and on.
+let started = false
 // What the writer last asked for. The SDK loads asynchronously, so an opt-out
 // can arrive while `init` is still on its way.
 let wanted = false
@@ -32,6 +35,14 @@ export async function initRendererSentry(enabled: boolean): Promise<void> {
     const Sentry = await loadSentry()
     // Switched off, or started by another call, while the SDK loaded.
     if (!wanted || initialized) return
+    const client = started ? Sentry.getClient() : undefined
+    if (client) {
+      // Back on in the same session: the client reads `enabled` on every event.
+      client.getOptions().enabled = true
+      initialized = true
+      console.log('[Sentry] Renderer enabled')
+      return
+    }
     Sentry.init({
       dsn: SENTRY_DSN,
       sampleRate: 0.5,
@@ -54,6 +65,7 @@ export async function initRendererSentry(enabled: boolean): Promise<void> {
         return event
       }
     })
+    started = true
     initialized = true
     console.log('[Sentry] Renderer initialized')
   } catch (error) {
@@ -69,13 +81,15 @@ export async function setRendererSentryEnabled(enabled: boolean): Promise<void> 
   wanted = false
   if (initialized && sentryModule) {
     // Off at once (#1366): the SDK's global handlers stay installed, but they
-    // report through the client, and a closed client sends nothing. Turning
-    // reporting back on makes a new client with `init`.
+    // report through the client, and a client with `enabled: false` sends
+    // nothing, queued events included. The client is not closed, because the
+    // SDK cannot make another one in this window.
     initialized = false
     try {
-      await sentryModule.getClient()?.close()
+      const client = sentryModule.getClient()
+      if (client) client.getOptions().enabled = false
     } catch (error) {
-      console.warn('[Sentry] Failed to close renderer client:', error)
+      console.warn('[Sentry] Failed to disable renderer client:', error)
     }
     console.log('[Sentry] Renderer disabled')
   }

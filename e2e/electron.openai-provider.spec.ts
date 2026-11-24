@@ -12,7 +12,7 @@ import type { ElectronApplication, Page } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { dismissOnboarding, dismissOverlay, launchApp, openChat, seedSettings, typeInEditor, waitForAppReady, waitForEditor } from './helpers'
+import { closeSelect, dismissOnboarding, dismissOverlay, launchApp, openChat, seedSettings, typeInEditor, waitForAppReady, waitForEditor } from './helpers'
 import { openAIRequests, rsAnswer, rsCall, rsCallItem, rsCompleted, rsReasoning, rsReasoningItem, rsText, openAIEmojiRequests, stubOpenAI, type OpenAIStep } from './openai-stub'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -87,7 +87,7 @@ test('Settings: OpenAI is a provider; its key tests against /models, saves in ma
   await expect(options.filter({ hasText: 'whisper-1' })).toHaveCount(0)
   // Tab emoji use the provider in use (#1324): an OpenAI key alone enables the switch,
   // and the request goes to the small model, not the one chat uses.
-  await page.keyboard.press('Escape')
+  await closeSelect(page)
   await expect(dialog.locator('#emojiIcons')).toBeEnabled()
   const made = await page.evaluate(() => (window as any).api.emojiGenerate('Meeting notes', 'Agenda', 'openai'))
   expect(made).toEqual({ emoji: '📝' })

@@ -134,3 +134,19 @@ export async function launchApp(
 
   return { app, page }
 }
+
+/**
+ * Close an open Radix Select with Escape, leaving the dialog behind it open.
+ *
+ * Escape goes to the topmost dismissable layer. The Select only becomes that
+ * layer once its listbox holds focus, a moment after its options are in the
+ * DOM. An Escape pressed in that gap reaches the dialog underneath and closes
+ * it (seen with @radix-ui/react-select 2.4 and react-dialog 1.3; no person
+ * presses a key that fast). So: wait for focus to be in the listbox, press,
+ * then wait for the listbox to go.
+ */
+export async function closeSelect(page: Page): Promise<void> {
+  await page.waitForFunction(() => !!document.activeElement?.closest('[role="listbox"]'))
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => !document.querySelector('[role="listbox"]'))
+}

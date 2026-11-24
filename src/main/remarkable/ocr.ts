@@ -178,7 +178,7 @@ export async function extractTextFromPages(
       if (!response.ok) {
         let errorMessage = `OCR request failed: ${response.status} ${response.statusText}`
         try {
-          const errorBody = await response.json()
+          const errorBody = (await response.json()) as { error?: string }
           if (errorBody.error) {
             errorMessage = errorBody.error
           }

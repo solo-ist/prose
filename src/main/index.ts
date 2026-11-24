@@ -144,7 +144,7 @@ if (!gotTheLock) {
   }
 
   // Handle second instance launch (another instance tried to start)
-  app.on('second-instance', (event, commandLine, workingDirectory) => {
+  app.on('second-instance', (_event, commandLine) => {
     const mainWindow = BrowserWindow.getAllWindows()[0]
     if (mainWindow && !IS_HEADLESS_TEST) {
       if (mainWindow.isMinimized()) mainWindow.restore()

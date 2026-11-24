@@ -27,6 +27,7 @@ This project uses an **agentic, multi-agent development workflow**:
 ```bash
 npm run dev          # Start development (Electron + Vite HMR, debuggable on port 9222)
 npm run build        # Build for production (unpacked)
+npm run verify       # Type check + unit tests + both builds; run before opening a PR
 npm run build:mac    # Build macOS distributable (.app + .dmg)
 npm run build:mas    # Build Mac App Store package (MAS_BUILD=1)
 npm run build:win    # Build Windows distributable

@@ -562,7 +562,7 @@ export type McpConnectionResult<T> = { ok: true; value: T } | { ok: false; error
 export interface ElectronAPI {
   openFile: () => Promise<FileResult | null>
   saveFile: (path: string, content: string, opts?: FileAccessOptions) => Promise<void>
-  saveFileAs: (content: string) => Promise<string | null>
+  saveFileAs: (content: string, defaultFilename?: string) => Promise<string | null>
   exportTxt: (content: string, defaultFilename?: string) => Promise<string | null>
   exportHtml: (content: string, defaultFilename?: string) => Promise<string | null>
   readFile: (path: string, opts?: FileAccessOptions) => Promise<string>
@@ -583,7 +583,7 @@ export interface ElectronAPI {
   onMenuAction: (callback: (action: string) => void) => () => void
   onFileOpenExternal: (callback: (path: string) => void) => () => void
   llmChat: (request: LLMRequest) => Promise<LLMResponse>
-  platform: 'aix' | 'darwin' | 'freebsd' | 'linux' | 'openbsd' | 'sunos' | 'win32' | 'android' | 'cygwin' | 'netbsd' | null
+  platform: NodeJS.Platform | null
   // Renderer ready signal
   signalRendererReady: () => Promise<{ success: boolean }>
   // Streaming LLM
@@ -726,7 +726,7 @@ export interface ElectronAPI {
   isFullScreen: () => Promise<boolean>
   exitFullScreen: () => Promise<void>
   // Recent files
-  getRecentFiles: () => Promise<string[]>
+  getRecentFiles?: () => Promise<string[]>
   clearRecentFiles: () => Promise<void>
   refreshRecentMenu: () => Promise<void>
   // Native menu: enable/disable "Reopen Closed Tab" based on closed-tab stack

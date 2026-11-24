@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSettings } from '../../hooks/useSettings'
 import { useSettingsStore } from '../../stores/settingsStore'
 import {
@@ -34,14 +34,13 @@ import { isWebMode } from '../../lib/browserApi'
 import { cn } from '../../lib/utils'
 import { isMasBuild } from '../../lib/featureFlags'
 import { AppStoreImportSettingsRow } from '../appStoreImport/AppStoreImportDialogs'
-import type { Settings } from '../../types'
 import { AlertCircle } from 'lucide-react'
 import { getDefaultModel, type LLMProvider } from '../../../shared/llm/models'
 import { PROVIDERS, PROVIDER_IDS } from '../../../shared/llm/providers'
 import { ProviderKeys, draftFormatError, type KeyDrafts } from './ProviderKeys'
 import { ModelPreferences } from './ModelPreferences'
 import { useModelGroups } from '../../hooks/useModelGroups'
-import { addKeyLabel, availableModelsFor, hasProviderKey, validateUrl } from '../../lib/llm'
+import { addKeyLabel, availableModelsFor, hasProviderKey } from '../../lib/llm'
 
 /** Extract the primary font name from a CSS font-family stack */
 function extractPrimaryFont(fontFamily: string): string {
@@ -136,11 +135,6 @@ export function SettingsDialog() {
   const isCustomModel = !availableModelsFor(settings.llm.provider, liveModels).some((m) => m.id === settings.llm.model)
   // The select shows the model in use only once its provider has a key to list it.
   const modelListed = !!activeGroup?.hasKey && !isCustomModel
-
-  const baseUrlError = useMemo(
-    () => validateUrl(settings.llm.baseUrl || ''),
-    [settings.llm.baseUrl]
-  )
 
   // A draft never outlives the dialog.
   useEffect(() => {

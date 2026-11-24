@@ -215,7 +215,7 @@ export async function executeListFiles(args: {
 
     if (flat.length > maxFiles) {
       // Truncate to prevent token overflow
-      const { files: truncatedFiles, truncated } = truncateFiles(files, maxFiles)
+      const { files: truncatedFiles } = truncateFiles(files, maxFiles)
       return toolSuccess({
         files: truncatedFiles,
         truncated: true,

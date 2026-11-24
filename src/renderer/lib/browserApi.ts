@@ -16,8 +16,11 @@ import type {
   LLMStreamToolCallStart,
   LLMStreamComplete,
   LLMStreamError,
-  ElectronAPI
+  ElectronAPI,
+  SettingsOnDisk,
+  RemarkableSyncResult
 } from '../types'
+import type { ModelMessage } from 'ai'
 import { getDefaultModel } from '../../shared/llm/models'
 import type { LLMKeyStatusMap } from '../../shared/llm/providers'
 import type { FileAccessOptions } from '../../shared/fileAccess'
@@ -59,7 +62,8 @@ function withoutKeyFields(llm: Settings['llm']): Settings['llm'] {
   return rest
 }
 
-const defaultSettings: Settings = {
+// `theme` is the legacy field: loadSettings migrates it to `appearance`.
+const defaultSettings: SettingsOnDisk = {
   theme: 'dark',
   llm: {
     provider: 'anthropic',
@@ -75,7 +79,7 @@ const defaultSettings: Settings = {
 /**
  * Browser-based API implementation
  */
-export const browserApi: ElectronAPI = {
+const webApi = {
   // File operations using File System Access API (where available)
   openFile: async (): Promise<FileResult | null> => {
     if ('showOpenFilePicker' in window) {
@@ -182,7 +186,7 @@ export const browserApi: ElectronAPI = {
     }
     // Fallback: download
     const fallbackName = defaultFilename ?? 'document.md'
-    await browserApi.saveFile(fallbackName, content)
+    await webApi.saveFile(fallbackName, content)
     return fallbackName
   },
 
@@ -209,7 +213,7 @@ export const browserApi: ElectronAPI = {
     } catch (e) {
       console.error('Error loading settings from localStorage:', e)
     }
-    return { ...defaultSettings, llm: { ...defaultSettings.llm, keyStatus: keyStatus() } }
+    return { ...defaultSettings, llm: { ...defaultSettings.llm, keyStatus: keyStatus() } } as Settings
   },
 
   saveSettings: async (settings: Settings): Promise<void> => {
@@ -261,7 +265,7 @@ export const browserApi: ElectronAPI = {
       const result = streamText({
         model,
         system: request.system,
-        messages: request.messages
+        messages: request.messages as ModelMessage[]
       })
 
       let textContent = ''
@@ -305,7 +309,7 @@ export const browserApi: ElectronAPI = {
       const result = streamText({
         model,
         system: request.system,
-        messages: request.messages
+        messages: request.messages as ModelMessage[]
       })
 
       let fullContent = ''
@@ -372,7 +376,7 @@ export const browserApi: ElectronAPI = {
 
   saveToFolder: async (_folder: string, filename: string, content: string): Promise<string> => {
     // Fall back to download
-    await browserApi.saveFile(filename, content)
+    await webApi.saveFile(filename, content)
     return filename
   },
 
@@ -448,9 +452,7 @@ export const browserApi: ElectronAPI = {
     return []
   },
 
-  remarkableSync: async (
-    _request: import('../types').RemarkableSyncRequest
-  ): Promise<import('../types').RemarkableSyncResponse> => {
+  remarkableSync: async (_syncDirectory: string): Promise<RemarkableSyncResult> => {
     // Can't sync in browser mode - need Electron to write files
     throw new Error('reMarkable sync is not available in browser mode')
   },
@@ -581,7 +583,10 @@ export const browserApi: ElectronAPI = {
   updaterCheck: async () => ({ updateAvailable: false }),
   // Appearance: no-op in browser mode (dock swap is macOS Electron only)
   applyDockIcon: async () => {},
-}
+} satisfies Partial<ElectronAPI>
+
+// The web build leaves out members only Electron can serve (#1342).
+export const browserApi = webApi as Partial<ElectronAPI> as ElectronAPI
 
 /**
  * Returns the appropriate API based on environment

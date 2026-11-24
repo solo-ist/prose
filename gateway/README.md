@@ -87,6 +87,14 @@ command before the server serves.
 touches `gateway/`, live in about a minute; commits outside `gateway/` don't
 deploy. There is no manual step, so a gateway PR's merge is its release.
 
+**`render.yaml` is the Blueprint for production (#1349).** It was generated from
+the live service and database, and once the Blueprint is created in Render
+(name `prose-gateway`, branch `main`, path `gateway/render.yaml`) every change
+to it on `main` is applied to production automatically. Validate an edit with
+`render blueprints validate gateway/render.yaml`, and never drop a field to
+tidy the file: an omitted field falls back to Render's default, not the live
+value. Environment variable values stay in the dashboard (`sync: false`).
+
 ## Share service (#768)
 
 The embedded-artifact share layer (design: `docs/architecture/web-platform.md`

@@ -132,7 +132,7 @@ export function App() {
   useSharePullSync()
   // Content push engine: auto-mode background pushes + share-dirty tracking (#769)
   useShareContentSync()
-  const { openFile, openFileFromPath, saveFile, saveFileAs, newFile } = useEditor()
+  const { saveFile, saveFileAs } = useEditor()
   const { createNewTab, openFileInTab, reopenLastClosedTab } = useTabs()
   const { setDialogOpen, isShortcutsDialogOpen, setShortcutsDialogOpen, isAboutDialogOpen, setAboutDialogOpen, isModelPickerOpen, setModelPickerOpen, settings, effectiveTheme, effectiveColor, autosaveActive, isLoaded: settingsLoaded } = useSettings()
   const [recoveryDialogOpen, setRecoveryDialogOpen] = useState(false)
@@ -143,7 +143,6 @@ export function App() {
   const documentPath = useEditorStore((state) => state.document.path)
   const isDirty = useEditorStore((state) => state.document.isDirty)
   const editor = useEditorInstanceStore((state) => state.editor)
-  const tabs = useTabStore((state) => state.tabs)
   const initFileWatcher = useFileListStore((state) => state.initFileWatcher)
 
   // Initialize autosave functionality

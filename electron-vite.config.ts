@@ -1,13 +1,13 @@
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import { config } from 'dotenv'
-import type { Plugin } from 'vite'
+import type { PluginOption } from 'vite'
 
 // Load .env so SENTRY_AUTH_TOKEN is available at config evaluation time
 config()
 
 // Conditionally load Sentry Vite plugin for source map upload
-const getSentryPlugin = async (): Promise<Plugin | null> => {
+const getSentryPlugin = async (): Promise<PluginOption | null> => {
   if (!process.env.SENTRY_AUTH_TOKEN) return null
   try {
     const { sentryVitePlugin } = await import('@sentry/vite-plugin')

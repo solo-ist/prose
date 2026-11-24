@@ -160,11 +160,9 @@ export function useChat() {
     isPanelOpen,
     context,
     toolMode,
-    thinkingEnabled,
     activeConversationId,
     isStreaming,
     isInitializing,
-    currentStreamId,
     addConversation,
     addMessage,
     updateMessage,
@@ -176,7 +174,6 @@ export function useChat() {
     setToolMode,
     cycleToolMode,
     startStreaming,
-    appendStreamChunk,
     completeStreaming
   } = useChatStore()
 

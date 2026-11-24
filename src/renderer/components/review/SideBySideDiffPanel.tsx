@@ -7,7 +7,6 @@ import { reviewItems, type ReviewItem } from './reviewItems'
 import { reviewContextOf } from './reviewContext'
 import { ReviewText } from './ReviewText'
 import { reviewDiff, scrollSelectionIntoCenter } from '../../lib/diffUtils'
-import { cn } from '../../lib/utils'
 
 /**
  * Side-by-side diff panel showing all suggestions as diff hunks.

@@ -129,15 +129,15 @@ export const useEditorStore = create<EditorState>()(
 )
 
 // Debounce helper
-function debounce<T extends (...args: unknown[]) => void>(
-  fn: T,
+function debounce<A extends unknown[]>(
+  fn: (...args: A) => void,
   delay: number
-): T {
+): (...args: A) => void {
   let timeoutId: ReturnType<typeof setTimeout>
-  return ((...args: unknown[]) => {
+  return (...args: A) => {
     clearTimeout(timeoutId)
     timeoutId = setTimeout(() => fn(...args), delay)
-  }) as T
+  }
 }
 
 // Helper to get serializable file list state
@@ -174,7 +174,7 @@ useEditorStore.subscribe(
     cursorPosition: state.cursorPosition,
     activeChatId: state.activeChatId
   }),
-  (current) => {
+  () => {
     debouncedSaveDraft(useEditorStore.getState())
   }
 )

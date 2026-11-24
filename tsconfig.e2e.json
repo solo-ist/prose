@@ -3,7 +3,8 @@
   "compilerOptions": {
     "lib": ["ES2022", "DOM"],
     "moduleResolution": "node",
+    "esModuleInterop": true,
     "allowImportingTsExtensions": false
   },
-  "include": ["e2e/**/*"]
+  "include": ["e2e/**/*", "src/renderer/types/index.ts"]
 }

@@ -1,9 +1,19 @@
 import { InputRule } from '@tiptap/core'
 import Document from '@tiptap/extension-document'
 import markdownItFootnote from 'markdown-it-footnote'
+import type { Node as PMNode } from '@tiptap/pm/model'
 import { Footnote as BaseFootnote, FootnoteReference as BaseFootnoteReference, Footnotes as BaseFootnotes } from 'tiptap-footnotes'
 
 const FOOTNOTE_ID_PREFIX = 'footnote-'
+
+/** The slice of prosemirror-markdown's serializer state these serializers use. */
+interface SerializerState {
+  write(content?: string): void
+  ensureNewLine(): void
+  wrapBlock(delim: string, firstDelim: string | null, node: PMNode, f: () => void): void
+  renderContent(parent: PMNode): void
+  closeBlock(node: PMNode): void
+}
 
 function parseFootnoteNumber(raw: string | null | undefined, fallback: number): string {
   const match = raw?.match(/(\d+)/)
@@ -90,7 +100,7 @@ export const FootnoteReference = BaseFootnoteReference.extend({
     return {
       ...parentStorage,
       markdown: {
-        serialize(state, node) {
+        serialize(state: SerializerState, node: PMNode) {
           const number = parseFootnoteNumber(String(node.attrs.referenceNumber ?? ''), 1)
           state.write(`[^${number}]`)
         },
@@ -133,7 +143,7 @@ export const Footnotes = BaseFootnotes.extend({
     return {
       ...parentStorage,
       markdown: {
-        serialize(state, node) {
+        serialize(state: SerializerState, node: PMNode) {
           if (node.childCount === 0) return
 
           state.ensureNewLine()

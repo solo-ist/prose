@@ -5,7 +5,7 @@ import { mkdir, writeFile, readFile, readdir, access, rm, rename } from 'fs/prom
 import { join, dirname, resolve, sep } from 'path'
 import { homedir } from 'os'
 import { createHash } from 'crypto'
-import { connect, disconnect, type RemarkableNotebook } from './client'
+import { connect, type RemarkableNotebook } from './client'
 import { isOCRConfigured, extractTextBatched } from './ocr'
 import { parseRmPageForText, paragraphsToMarkdown } from './rm-scene-parser'
 import JSZip from 'jszip'
@@ -573,8 +573,6 @@ export async function syncAll(
   // Expand ~ to home directory - syncDirectory is where markdown files go
   const baseDir = expandPath(syncDirectory)
   const hiddenDir = join(baseDir, HIDDEN_DIR)
-  // Visible files go directly in the sync directory (preserving folder hierarchy)
-  const visibleDir = baseDir
   console.log('[reMarkable] baseDir:', baseDir)
   console.log('[reMarkable] hiddenDir:', hiddenDir)
 
@@ -793,7 +791,7 @@ export async function syncAll(
       }
 
       // Full download path — resume from zip if available, otherwise download
-      let zipData: Buffer
+      let zipData: Uint8Array
       if (zipExists && !localFilesExist) {
         console.log(`[reMarkable] Resuming from cached zip for ${doc.name}`)
         onProgress?.({ message: `Resuming: ${doc.name} (extracting cached download)`, notebookId: doc.id, notebookName: doc.name, phase: 'downloading' })

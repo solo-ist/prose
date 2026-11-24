@@ -98,7 +98,7 @@ export function CustomizableToolbar({ menuId, actions, defaultBarCount, maxBarCa
   const customizable = present.filter((a) => !a.pinnedBar && !a.pinned)
 
   const descriptors: MenuItemDescriptor[] = customizable.map((a) => ({ id: a.id, label: a.label }))
-  const { visibleIds, hiddenIds, orderedAllIds, toggleHidden, save, barCount } =
+  const { hiddenIds, orderedAllIds, toggleHidden, save, barCount } =
     useMenuCustomization(menuId, descriptors)
 
   const actionById = new Map(customizable.map((a) => [a.id, a]))

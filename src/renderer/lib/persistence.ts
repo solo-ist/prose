@@ -1,5 +1,6 @@
 import type { Document, ChatMessage } from '../types'
 import type { AIAnnotation } from '../types/annotations'
+import type { ViewMode } from '../stores/fileListStore'
 import type { AISuggestionData } from '../extensions/ai-suggestions/types'
 
 // Session ID for debugging multi-process scenarios
@@ -18,7 +19,7 @@ export interface ChatConversation {
 }
 
 export interface FileListState {
-  viewMode: 'recent' | 'folder' | 'notebooks'
+  viewMode: ViewMode
   rootPath: string | null
   expandedFolders: string[] // Serialized from Set<string>
   selectedPath: string | null

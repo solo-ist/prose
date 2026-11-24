@@ -7,7 +7,7 @@ on:
 jobs:
   notify:
     # Fire when pipeline labels are applied — regardless of which workflow applied them
-    if: contains(fromJSON('["needs-review","complex"]'), github.event.label.name)
+    if: github.event.sender.login != 'solo-prime' && contains(fromJSON('["needs-review","complex"]'), github.event.label.name)
     runs-on: ubuntu-latest
     permissions:
       pull-requests: read

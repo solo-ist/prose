@@ -16,9 +16,11 @@ jobs:
   # Automatic code review on PR open, or on-demand via /review comment
   auto-review:
     # /review always routes here, even if combined with @claude
+    # Events from the automation account (solo-prime) never start this job (#1344).
     if: |
       github.event_name == 'issue_comment' &&
       github.event.issue.pull_request &&
+      github.event.comment.user.login != 'solo-prime' &&
       contains(github.event.comment.body, '/review')
     runs-on: ubuntu-latest
     permissions:
@@ -113,7 +115,7 @@ jobs:
             - [ ] Dependencies checked for known CVEs (if new deps added)
             - [ ] Content Security Policy not weakened
 
-            If the PR touches privilege-boundary files (`src/main/**`, `src/preload/**`, `electron-builder.*`, `electron.vite.config.*`), prepend your review with the following hidden HTML comment **exactly** (do not paraphrase, translate, or alter — it is a machine-readable sentinel parsed by `pipeline-triage.yml`):
+            If the PR touches privilege-boundary files (`src/main/**`, `src/preload/**`, `electron-builder.*`, `electron-vite.config.*`), prepend your review with the following hidden HTML comment **exactly** (do not paraphrase, translate, or alter — it is a machine-readable sentinel parsed by `pipeline-triage.yml`):
 
             `<!-- security-gate: true -->`
 
@@ -168,11 +170,13 @@ jobs:
 
   # Manual invocation via @claude mentions
   claude:
+    # Events from the automation account (solo-prime) never start this job (#1344).
+    # For an issue that means its author and whoever opened or assigned it.
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && !contains(github.event.comment.body, '/review')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      (github.event_name == 'issue_comment' && github.event.comment.user.login != 'solo-prime' && contains(github.event.comment.body, '@claude') && !contains(github.event.comment.body, '/review')) ||
+      (github.event_name == 'pull_request_review_comment' && github.event.comment.user.login != 'solo-prime' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && github.event.review.user.login != 'solo-prime' && contains(github.event.review.body, '@claude')) ||
+      (github.event_name == 'issues' && github.event.issue.user.login != 'solo-prime' && github.event.sender.login != 'solo-prime' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
     runs-on: ubuntu-latest
     # Per-issue serialization: runs on the same issue/PR queue; runs on different
     # issues execute concurrently. Each cloud agent works on its own per-issue branch,

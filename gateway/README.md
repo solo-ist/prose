@@ -83,6 +83,18 @@ Secrets (`ANTHROPIC_API_KEY`, `BETTER_AUTH_SECRET`, `DATABASE_URL`) come from Re
 env vars, never the repo. Migrations run via `prisma migrate deploy` in the start
 command before the server serves.
 
+**Merging to `main` deploys.** Render auto-deploys every commit on `main` that
+touches `gateway/`, live in about a minute; commits outside `gateway/` don't
+deploy. There is no manual step, so a gateway PR's merge is its release.
+
+**`render.yaml` is the Blueprint for production (#1349).** It was generated from
+the live service and database, and once the Blueprint is created in Render
+(name `prose-gateway`, branch `main`, path `gateway/render.yaml`) every change
+to it on `main` is applied to production automatically. Validate an edit with
+`render blueprints validate gateway/render.yaml`, and never drop a field to
+tidy the file: an omitted field falls back to Render's default, not the live
+value. Environment variable values stay in the dashboard (`sync: false`).
+
 ## Share service (#768)
 
 The embedded-artifact share layer (design: `docs/architecture/web-platform.md`
@@ -96,8 +108,19 @@ serves the artifact (no-store, no-referrer, strict CSP), `POST
 /s/:token/comments` + `POST /s/:token/comments/:id/replies` take anonymous
 reviewer comments (~10 writes/min/IP). The raw capability token exists only in
 the share URL; rows store its SHA-256. Artifacts go to R2 when configured,
-else the `artifactHtml` column (`storage` records which — provisioning R2
+else the `artifactCipher` column (`storage` records which — provisioning R2
 later strands nothing).
+
+**Encrypted at rest, to the link** (`src/artifacts/crypto.ts`). Each
+publication has an X25519 key pair: the public key is stored as is, the
+private key sealed under a key derived from the share token. Every revision
+is sealed to the public key (AES-256-GCM), so re-publish needs no token, and
+only a request carrying the link can open it. R2, Postgres and backups hold
+ciphertext only; revoke deletes the keys, so no leftover copy can be read.
+Rows published before this stay plaintext (`artifactHtml`, or a `.html`
+object) until their first view seals them; the boot log counts any left.
+In transit, `/s/*` and `/api/*` are HTTPS-only (HSTS), and only sealed bytes
+travel from the gateway to R2 or Postgres.
 
 Integration test (self-contained — boots its own gateway on :4010, harvests
 the sign-in code from stdout): `npm run test:share` (needs `npm run dev:db`).

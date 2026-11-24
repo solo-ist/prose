@@ -1,6 +1,6 @@
 ---
 name: screenshots
-description: Generate the README hero + Mac App Store marketing screenshots (retina, Prose theme, light/dark) via Playwright.
+description: Generate the README hero + Mac App Store marketing screenshots (retina, Mono in light and Prose in dark) via Playwright.
 ---
 
 # Marketing Screenshot Generator
@@ -15,9 +15,15 @@ data, no live API calls. Built on the e2e Playwright harness.
 |---|---|---|
 | `01-hero-editor.png` (also the README hero) | Hero — post + **Projects** explorer | ☀️ Light |
 | `02-ai-chat.png` | AI Alongside You — chat + mode-switch card | 🌙 Dark |
-| `03-review-diffs.png` | Review Every Suggestion — Quick Review | ☀️ Light |
-| `04-edits-history.png` | Edits History — the **Activity** panel | 🌙 Dark |
-| `05-projects-favorites.png` | Projects & Favorites — Favorites view | ☀️ Light |
+| `03-any-model.png` | Any Model — the status bar's model menu, all three providers keyed | ☀️ Light |
+| `04-suggesting.png` | Suggesting Mode — the writer's tracked changes | 🌙 Dark |
+| `05-review-diffs.png` | Review Every Suggestion — Quick Review | ☀️ Light |
+| `06-who-did-what.png` | Who Did What — the **Activity** panel, authors from two providers | 🌙 Dark |
+| `07-projects-favorites.png` | Projects & Favorites — Favorites view | ☀️ Light |
+
+Scene 03 lifts the model menu's 300 px height cap for the shot, so all three
+providers are in frame: the same items as the app, drawn taller than it draws
+them.
 
 Light hero, then alternating dark/light. Scenes mirror the shot list in
 [`docs/app-store-copy.md`](../../../docs/app-store-copy.md). Keep that copy and
@@ -27,7 +33,7 @@ this generator in sync when the shot list changes.
 
 | File | Purpose |
 |---|---|
-| `e2e/electron.screenshots.spec.ts` | Scenes 1, 3, 4, 5 — isolated profile, seeded projects/favorites + the blog fixture |
+| `e2e/electron.screenshots.spec.ts` | Scenes 1 and 3 to 7 — isolated profile, seeded projects/favorites + the blog fixture, a demo key per provider |
 | `e2e/electron.screenshot-chat.spec.ts` | Scene 2 — the chat mode-switch, injected deterministically (no live AI) |
 | `e2e/fixtures/a-chorus-of-human-voices.md` | Demo document (a real blog post). Frontmatter is stripped at runtime so the title leads; a few obvious typos are injected below the fold for the review/activity demos |
 | `docs/app-store-screenshots/` | Destination for the App Store set |
@@ -53,7 +59,7 @@ SHOOT=1 npx playwright test electron.screenshots electron.screenshot-chat --work
 open /tmp/prose-shots/*.png
 
 # 5. Place into the repo.
-cp /tmp/prose-shots/0{1,2,3,4,5}-*.png docs/app-store-screenshots/
+cp /tmp/prose-shots/0{1,2,3,4,5,6,7}-*.png docs/app-store-screenshots/
 cp /tmp/prose-shots/01-hero-editor.png docs/images/prose-screenshot.png
 ```
 
@@ -63,14 +69,20 @@ with `... electron.screenshots -g "03 review" --workers=1`.
 ## How it works
 
 - **Isolated profile** — each spec seeds a throwaway `PROSE_USER_DATA_DIR` with
-  `settings.json` (Prose theme `color: 'prose'`, projects/favorites, a fake
+  `settings.json` (the fresh-install themes, projects/favorites, a fake
   `llm.apiKey` so the chat renders *configured*, `aiConsent`). No private data,
   reproducible.
-- **Retina** — the window is set to **1280×800** logical; on a retina Mac that
-  captures at **2560×1600** (DSF 2), the App Store spec. Verify with
+- **Retina** — the window is set to **1280×800** logical and both specs launch
+  with `--force-device-scale-factor=2`, so it captures at **2560×1600**, the
+  App Store spec, whatever display is attached. Verify with
   `sips -g pixelWidth -g pixelHeight`.
-- **Theme** — `color: 'prose'` (the gold theme; *not* the `mono` default).
-  Light/dark per scene via the `dark` class on `<html>`.
+- **Theme** — the fresh-install pairing: `lightColor: 'mono'` for light
+  scenes, `darkColor: 'prose'` (the gold theme) for dark ones. Never Prose in
+  light. Each scene sets the `dark` and `theme-prose` classes on `<html>`
+  together.
+- **Window buttons** — `page.screenshot` captures the web contents only, so
+  `drawWindowButtons` (`e2e/helpers.ts`) draws the three macOS buttons at the
+  app's `trafficLightPosition`. Without them the toolbar's inset reads as a gap.
 - **Seeded content via test seams** (always-on, see `src/renderer/main.tsx`):
   - `window.__prose_tools.executeTool(name, args, mode, provenance?)` — drive
     `open_file`, `suggest_edit` (pass `provenance.model` so the Activity panel

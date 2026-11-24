@@ -16,7 +16,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { prisma } from '../../db/index.js'
 import { config } from '../../config.js'
-import { getArtifact, R2UnavailableError } from '../../artifacts/index.js'
+import { getArtifact, isSealed, R2UnavailableError, sealLegacyArtifact } from '../../artifacts/index.js'
 import { ipRateLimit } from '../../middleware/ipRateLimit.js'
 import {
   MAX_COMMENT_CHARS,
@@ -181,7 +181,8 @@ function editTokenMatches(stored: string | null, presented: string): boolean {
 const commentWriteLimit = ipRateLimit(config.SHARE_PUBLIC_WRITE_MAX, 60)
 
 sharePublicRoutes.get('/:token', async (c) => {
-  const pub = await findPublicationByToken(c.req.param('token'))
+  const token = c.req.param('token')
+  const pub = await findPublicationByToken(token)
   if (!pub) return c.text('Not found', 404)
   if (pub.revokedAt) {
     return c.body(revokedPage(new URL(c.req.url).host), 410, ARTIFACT_HEADERS)
@@ -189,7 +190,7 @@ sharePublicRoutes.get('/:token', async (c) => {
 
   let html: string | null
   try {
-    html = await getArtifact(pub)
+    html = await getArtifact(pub, token)
   } catch (err) {
     if (err instanceof R2UnavailableError) {
       // The content exists in R2 but the R2 client is not configured on this
@@ -200,6 +201,16 @@ sharePublicRoutes.get('/:token', async (c) => {
     throw err
   }
   if (!html) return c.text('Not found', 404)
+
+  // A row published before encryption is sealed on its first view, the only
+  // moment the server holds its token. A failure only delays it to the next view.
+  if (!isSealed(pub)) {
+    try {
+      await sealLegacyArtifact(pub, token, html)
+    } catch (err) {
+      console.error(`[share] sealing pre-encryption artifact ${pub.id} failed (retried on next view)`, err)
+    }
+  }
 
   return c.body(html, 200, ARTIFACT_HEADERS)
 })

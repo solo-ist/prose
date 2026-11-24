@@ -6,7 +6,7 @@ on:
 
 jobs:
   add-to-project:
-    if: github.event.label.name == 'feature-request'
+    if: github.event.sender.login != 'solo-prime' && github.event.label.name == 'feature-request'
     runs-on: ubuntu-latest
     steps:
       - name: Add to project and set status

@@ -1,0 +1,18 @@
+data: {"id":"3fb911e0dd8a467fb7655c32fecfa395","object":"chat.completion.chunk","created":1792389698,"model":"greenpt/deepseek-v4.1-flash","choices":[{"index":0,"delta":{"role":"assistant","content":""}}]}
+
+data: {"id":"3fb911e0dd8a467fb7655c32fecfa395","created":1792389698,"model":"greenpt/deepseek-v4.1-flash","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":"The"}}]}
+
+data: {"id":"3fb911e0dd8a467fb7655c32fecfa395","created":1792389698,"model":"greenpt/deepseek-v4.1-flash","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":" typo is \"Te"}}]}
+
+data: {"id":"3fb911e0dd8a467fb7655c32fecfa395","created":1792389698,"model":"greenpt/deepseek-v4.1-flash","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":"h\" should be \"The"}}]}
+
+data: {"id":"3fb911e0dd8a467fb7655c32fecfa395","created":1792389698,"model":"greenpt/deepseek-v4.1-flash","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":"\"."}}]}
+
+data: {"id":"3fb911e0dd8a467fb7655c32fecfa395","created":1792389698,"model":"greenpt/deepseek-v4.1-flash","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"id":"call_8262b2d63df54dca9d6b7054","function":{"arguments":"{\"nodeId\": \"n1\", \"content\": \"The quick brown fox jumps over the lazy dog.\", \"comment\": \"Correct \\\"Teh\\\" to \\\"The\\\".\", \"search\": \"Teh quick brown fox jumps over the lazy dog.\"}","name":"suggest_edit"},"type":"function","index":0}]}}]}
+
+data: {"id":"3fb911e0dd8a467fb7655c32fecfa395","object":"chat.completion.chunk","created":1792389698,"model":"greenpt/deepseek-v4.1-flash","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: {"id":"3fb911e0dd8a467fb7655c32fecfa395","created":1792389698,"model":"greenpt/deepseek-v4.1-flash","object":"chat.completion.chunk","choices":[{"index":0,"delta":{}}],"usage":{"completion_tokens":129,"prompt_tokens":482,"total_tokens":611,"completion_tokens_details":{"reasoning_tokens":14},"prompt_tokens_details":{"cached_tokens":0},"cost":0.00024794}}
+
+data: [DONE]
+

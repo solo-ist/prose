@@ -1,10 +1,12 @@
 import { ipcMain, dialog, app, shell, BrowserWindow, clipboard, nativeImage } from 'electron'
 import { IS_MAS_BUILD } from './env'
 import { readFile, writeFile, mkdir, access, rename, unlink, readdir, stat, copyFile } from 'fs/promises'
-import { join, dirname, isAbsolute, basename } from 'path'
+import { join, dirname, basename } from 'path'
 import { randomUUID, createHash } from 'crypto'
 import { homedir } from 'os'
 import type { Settings } from '../renderer/types'
+import type AnthropicSDK from '@anthropic-ai/sdk'
+import type { ModelMessage } from 'ai'
 import { withRetry } from '../shared/utils/retry'
 import { classifyLlmError, llmErrorMessage, type LlmErrorKind } from '../shared/llm/errors'
 import { droppedThinking, withThinkingBinding } from './thinkingBinding'
@@ -457,7 +459,7 @@ export function setupIpcHandlers(): void {
     // revoked base-root access whenever a project/favorite folder was picked (#654).
     if (IS_MAS_BUILD && bookmark) {
       try {
-        pickerBookmarkStopFns.push(app.startAccessingSecurityScopedResource(bookmark))
+        pickerBookmarkStopFns.push(app.startAccessingSecurityScopedResource(bookmark) as () => void)
       } catch (err) {
         console.warn('[file:selectFolder] Could not activate bookmark:', err)
       }
@@ -865,7 +867,7 @@ export function setupIpcHandlers(): void {
         try {
           stopAccessingBookmark = app.startAccessingSecurityScopedResource(
             rawSettings.masDirectoryBookmark
-          )
+          ) as () => void
         } catch (err) {
           console.warn('[settings:load] Security-scoped bookmark invalid, clearing:', err)
           rawSettings.masDirectoryBookmark = undefined
@@ -1237,7 +1239,7 @@ export function setupIpcHandlers(): void {
           const result = streamText({
             model,
             system: request.system,
-            messages: request.messages
+            messages: request.messages as ModelMessage[]
           })
 
           // Collect the full response
@@ -1374,7 +1376,7 @@ export function setupIpcHandlers(): void {
         const anthropicTools = toolDefinitions.map(toolDef => ({
           name: toolDef.name,
           description: toolDef.description,
-          input_schema: toolDef.input_schema as Anthropic.Tool['input_schema']
+          input_schema: toolDef.input_schema as AnthropicSDK.Tool['input_schema']
         }))
 
         // Convert messages to Anthropic format
@@ -1591,7 +1593,7 @@ export function setupIpcHandlers(): void {
       const result = streamText({
         model,
         system: request.system,
-        messages: request.messages,
+        messages: request.messages as ModelMessage[],
         abortSignal: abortController.signal
       })
 
@@ -2490,6 +2492,8 @@ export function setupIpcHandlers(): void {
       console.warn(`[appearance:apply-dock-icon] icon image failed to load: ${iconPath}`)
       return
     }
+    // No dock off macOS.
+    if (!app.dock) return
     app.dock.setIcon(img)
   })
 

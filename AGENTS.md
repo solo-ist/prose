@@ -64,16 +64,17 @@ npm run build:web        # Web build
 npm run test:unit        # vitest unit tests (src/**/*.test.ts, jsdom)
 npm run test:e2e         # Build and run Electron Playwright tests
 npm run test:web         # Build and run web Playwright tests
-npm run typecheck:e2e    # Type-check E2E tests
+npm run typecheck        # Type-check main/preload, renderer and E2E (needs `npm run generate` in a fresh checkout)
+npm run verify           # generate + typecheck + test:unit + build + build:web — run before opening a PR
 ```
 
 Choose the smallest verification that covers the change:
 
 - Docs-only changes: no build required unless touching generated docs or examples that must compile.
-- Renderer/main/preload/shared TypeScript changes: run `npm run build`.
+- Renderer/main/preload/shared TypeScript changes: run `npm run verify`. The builds strip types without checking them; `typecheck` is the check.
 - Web-specific changes: run `npm run build:web` or `npm run test:web` when behavior changed.
 - Electron user flows: run `npm run test:e2e` when practical, otherwise build and document manual verification.
-- E2E test changes: run `npm run typecheck:e2e` and the relevant Playwright command.
+- E2E test changes: run `npm run typecheck` and the relevant Playwright command.
 
 **Cloud sandbox note:** If `npm run build` fails at the `build:skill` step (requires `zip`), fall back to
 `npx electron-vite build` — it validates renderer/main/preload TypeScript. Do **not** use

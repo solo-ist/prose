@@ -31,11 +31,9 @@ import { useActiveSession } from '../../document/useActiveSession'
 import { selectThreads, countOpenThreads } from '../../extensions/comments'
 import { MODE_SWITCH_RUN_EVENT } from './toolResultRenderers/RequestModeSwitchResult'
 import { cn } from '../../lib/utils'
-import { useSettingsStore } from '../../stores/settingsStore'
 
 export function ChatPanel() {
   const { messages, isLoading, isStreaming, sendMessage, stopGeneration, clearMessages, processComments, processSuggestionReplies, getSuggestionFeedbackCount } = useChat()
-  const { settings } = useSettingsStore()
   const scrollRef = useRef<HTMLDivElement>(null)
   const chatTabRef = useRef<HTMLButtonElement>(null)
   const activityTabRef = useRef<HTMLButtonElement>(null)

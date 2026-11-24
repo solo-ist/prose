@@ -1,12 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Settings, RemarkableSyncPhase } from '../renderer/types'
+import type { Settings, RemarkableSyncPhase, ElectronAPI } from '../renderer/types'
 import type { ToolResult } from '../shared/tools/types'
 import type { FileAccessOptions } from '../shared/fileAccess'
 import type { LlmErrorKind } from '../shared/llm/errors'
 import type { LLMKeyStatusMap } from '../shared/llm/providers'
 
-import type { AppStoreImportKeysResult, AppStoreImportStart, AppStoreImportStatus } from '../shared/appStoreImport'
-import type { RemoteAccessStatus, RemoteChange, RemoteConnection, RemoteForgetResult, RemoteResult } from '../shared/mcp/remoteAccess'
+import type { RemoteChange } from '../shared/mcp/remoteAccess'
 import {
   unwrapReadFileResult,
   unwrapSaveFileResult,
@@ -169,180 +168,6 @@ export interface McpEndpointInfo {
   url: string
 }
 
-export interface ElectronAPI {
-  openFile: () => Promise<FileResult | null>
-  saveFile: (path: string, content: string, opts?: FileAccessOptions) => Promise<void>
-  saveFileAs: (content: string, defaultFilename?: string) => Promise<string | null>
-  exportTxt: (content: string, defaultFilename?: string) => Promise<string | null>
-  exportHtml: (content: string, defaultFilename?: string) => Promise<string | null>
-  readFile: (path: string, opts?: FileAccessOptions) => Promise<string>
-  readFileBase64: (path: string, allowedRoot: string) => Promise<string>
-  loadSettings: () => Promise<Settings>
-  saveSettings: (settings: Settings) => Promise<void>
-  testApiKey: (request: TestApiKeyRequest) => Promise<TestApiKeyResult>
-  fetchModels: (request: { provider: string; apiKey?: string }) => Promise<{
-    models?: Array<{ id: string; name: string; description?: string }>
-    error?: string
-  }>
-  getLlmKeyStatus: () => Promise<LLMKeyStatusMap>
-  setLlmKey: (request: { provider: string; key: string }) => Promise<SetLlmKeyResult>
-  clearLlmKey: (provider: string) => Promise<LLMKeyStatusMap>
-  onMenuAction: (callback: (action: string) => void) => () => void
-  onFileOpenExternal: (callback: (path: string) => void) => () => void
-  llmChat: (request: LLMRequest) => Promise<LLMResponse>
-  platform: 'aix' | 'darwin' | 'freebsd' | 'linux' | 'openbsd' | 'sunos' | 'win32' | 'android' | 'cygwin' | 'netbsd'
-  // Renderer ready signal
-  signalRendererReady: () => Promise<{ success: boolean }>
-  // Streaming LLM
-  llmChatStream: (request: LLMStreamRequest) => Promise<{ success: boolean }>
-  llmAbortStream: (streamId: string) => Promise<{ success: boolean }>
-  onLLMStreamChunk: (callback: (chunk: LLMStreamChunk) => void) => () => void
-  onLLMStreamToolCall: (callback: (toolCall: LLMStreamToolCall) => void) => () => void
-  onLLMStreamToolCallStart: (callback: (start: LLMStreamToolCallStart) => void) => () => void
-  onLLMStreamComplete: (callback: (complete: LLMStreamComplete) => void) => () => void
-  onLLMStreamError: (callback: (error: LLMStreamError) => void) => () => void
-  onLLMStreamThinkingDelta: (callback: (delta: LLMStreamThinkingDelta) => void) => () => void
-  // Folder operations for quick save
-  selectFolder: (defaultPath?: string, message?: string) => Promise<{ path: string; bookmark: string | null } | null>
-  activateBookmark: (kind: 'project' | 'favorite', id: string, bookmark: string) => Promise<boolean>
-  saveToFolder: (folder: string, filename: string, content: string) => Promise<string>
-  getDocumentsPath: () => Promise<string>
-  fileExists: (path: string) => Promise<boolean>
-  fileStat: (path: string) => Promise<{ createdAt: string; modifiedAt: string; size: number }>
-  showInFolder: (path: string) => Promise<void>
-  renameFile: (oldPath: string, newPath: string) => Promise<void>
-  deleteFile: (path: string) => Promise<void>
-  trashFile: (path: string) => Promise<void>
-  duplicateFile: (path: string) => Promise<string>
-  createDirectory: (dirPath: string) => Promise<string>
-  // Window operations
-  closeWindow: () => Promise<void>
-  isFullScreen: () => Promise<boolean>
-  exitFullScreen: () => Promise<void>
-  listDirectory: (path: string, maxDepth?: number, showDotfiles?: boolean, opts?: FileAccessOptions) => Promise<FileItem[]>
-  remarkableRegister: (code: string) => Promise<RemarkableRegisterResponse>
-  /** Validate the device token main holds. */
-  remarkableValidate: () => Promise<boolean>
-  remarkableSync: (syncDirectory: string) => Promise<RemarkableSyncResult>
-  remarkableDisconnect: (syncDirectory?: string) => Promise<void>
-  remarkableGetMetadata: (syncDirectory: string) => Promise<RemarkableSyncMetadata | null>
-  remarkableListCloudNotebooks: () => Promise<RemarkableCloudNotebook[]>
-  remarkableGetSyncState: (syncDirectory: string) => Promise<RemarkableSyncState | null>
-  remarkableUpdateSyncSelection: (syncDirectory: string, selectedNotebooks: string[]) => Promise<void>
-  // Secure API key storage for reMarkable OCR
-  remarkableStoreApiKey: (apiKey: string) => Promise<void>
-  /** Whether a reMarkable OCR key is saved; the key never leaves main (#1275). */
-  remarkableOcrKeyStatus: () => Promise<boolean>
-  remarkableClearApiKey: () => Promise<void>
-  // reMarkable read-only/editable version paths
-  remarkableGetOCRPath: (notebookId: string, syncDirectory: string) => Promise<string | null>
-  remarkableGetEditablePath: (notebookId: string, syncDirectory: string) => Promise<string | null>
-  remarkableCreateEditableVersion: (notebookId: string, syncDirectory: string) => Promise<string | null>
-  remarkableFindNotebookByFilePath: (filePath: string, syncDirectory: string) => Promise<string | null>
-  remarkableClearNotebookMarkdownPath: (notebookId: string, syncDirectory: string) => Promise<boolean>
-  remarkableClearOcrSentinel: (notebookId: string, syncDirectory: string) => Promise<boolean>
-  remarkableMoveNotebook: (notebookHash: string, newParentId: string) => Promise<string>
-  remarkableUpdateNotebookParent: (notebookId: string, newParentId: string, syncDirectory: string, newHash?: string) => Promise<boolean>
-  remarkableCancelSync: () => Promise<void>
-  onRemarkableSyncProgress: (
-    callback: (progress: { message: string; notebookId?: string; notebookName?: string; current?: number; total?: number; phase: RemarkableSyncPhase }) => void
-  ) => () => void
-  // MCP tool execution (only used in MCP server mode)
-  onMcpToolInvoke: (
-    // `actor`: who the call is from, built by main (#1236); the renderer re-validates it.
-    callback: (requestId: string, toolName: string, args: unknown, actor: unknown) => void
-  ) => () => void
-  sendMcpToolResult: (requestId: string, result: ToolResult) => void
-  // MCP server status
-  onMcpStatus: (callback: (status: McpStatus) => void) => () => void
-  // File association (default markdown editor)
-  fileAssociationIsDefault: () => Promise<boolean | null>
-  // Share service (#768) — result shapes defined in renderer types (ShareOp/ShareEntry/SharePulledComment)
-  shareAuthStatus: () => Promise<unknown>
-  shareAccess: () => Promise<unknown>
-  shareRequestAccess: () => Promise<unknown>
-  shareRequestSignIn: (email: string) => Promise<unknown>
-  shareCompleteSignIn: (code: string) => Promise<unknown>
-  onShareAuthChanged: (callback: (result: unknown) => void) => () => void
-  shareSignOut: () => Promise<unknown>
-  sharePublish: (args: { title: string; html: string; localPath: string; documentId: string }) => Promise<unknown>
-  shareRepublish: (args: { publicationId: string; title: string; html: string }) => Promise<unknown>
-  shareRevoke: (publicationId: string) => Promise<unknown>
-  shareList: () => Promise<unknown>
-  shareListRemote: () => Promise<unknown>
-  shareGetForPath: (localPath: string) => Promise<unknown>
-  shareComments: (publicationId: string) => Promise<unknown>
-  sharePullComments: (publicationId: string) => Promise<unknown>
-  shareAckCursor: (publicationId: string, cursor: string, seenRowIds?: string[]) => Promise<unknown>
-  shareUpdateLocalPath: (oldPath: string, newPath: string, newDocumentId: string) => Promise<unknown>
-  shareSetSyncMode: (publicationId: string, mode: string) => Promise<unknown>
-  shareCreateComment: (publicationId: string, args: { markedText: string; occurrenceIndex: number; text: string; authorName?: string; fromAuthor?: boolean }) => Promise<unknown>
-  shareReplyToComment: (publicationId: string, commentId: string, text: string, authorName?: string, fromAuthor?: boolean) => Promise<unknown>
-  shareResolveComment: (publicationId: string, commentId: string, resolved: boolean) => Promise<unknown>
-  shareRemoveComment: (publicationId: string, commentId: string) => Promise<unknown>
-  // MCP Server integration
-  mcpGetStatus: () => Promise<McpServerStatus>
-  mcpInstall: () => Promise<McpInstallResult>
-  mcpUninstall: () => Promise<McpInstallResult>
-  // MCP connections (#1236)
-  mcpListConnections: () => Promise<McpConnectionResult<McpConnection[]>>
-  mcpCreateConnection: (label: string) => Promise<McpConnectionResult<{ connection: McpConnection; token: string }>>
-  mcpRenameConnection: (id: string, label: string) => Promise<McpConnectionResult<McpConnection>>
-  mcpRevokeConnection: (id: string) => Promise<McpConnectionResult<null>>
-  mcpEndpoint: () => Promise<McpEndpointInfo>
-  // Remote access (#1239): the relay to ChatGPT and claude.ai, and its remote connections
-  mcpRemoteStatus: () => Promise<RemoteAccessStatus>
-  mcpRemoteSetEnabled: (enabled: boolean) => Promise<RemoteResult<RemoteAccessStatus>>
-  mcpRemoteList: () => Promise<RemoteResult<RemoteConnection[]>>
-  mcpRemoteApprove: (clientId: string, scopes: string[], label?: string) => Promise<RemoteResult<RemoteConnection>>
-  mcpRemoteUpdate: (clientId: string, change: { scopes?: string[]; label?: string }) => Promise<RemoteResult<RemoteConnection>>
-  mcpRemoteDeny: (clientId: string) => Promise<RemoteResult<RemoteForgetResult>>
-  mcpRemoteRemove: (clientId: string) => Promise<RemoteResult<RemoteForgetResult>>
-  mcpRemoteAcknowledge: () => Promise<RemoteResult<null>>
-  onMcpRemoteChanged: (callback: (change: RemoteChange) => void) => () => void
-  // Claude Desktop extension (#1257): builds this profile's .mcpb and opens Claude Desktop's install dialog
-  mcpInstallExtension: () => Promise<{ success: boolean; path?: string; error?: string }>
-  // Release notes for the post-update modal (bundled per version)
-  getReleaseNotes: (version: string) => Promise<ReleaseNotes | null>
-  // Emoji generation (runs in main process to avoid CORS)
-  emojiGenerate: (title: string, contentPreview: string | undefined, provider: string) => Promise<{ emoji: string | null; error?: string }>
-  // Window fullscreen state
-  onFullscreenChange: (callback: (isFullscreen: boolean) => void) => () => void
-  // Recent files
-  refreshRecentMenu: () => Promise<void>
-  clearRecentFiles: () => Promise<void>
-  // Native menu: enable/disable "Reopen Closed Tab" based on closed-tab stack
-  setReopenClosedTabEnabled: (enabled: boolean) => Promise<void>
-  // Native menu: show "Copy with changes" while the active tab has pending tracked changes (#891)
-  setCopyWithChangesAvailable: (available: boolean) => Promise<void>
-  // Clipboard
-  copyToClipboard: (text: string) => Promise<void>
-  // Sentry error tracking
-  sentrySetEnabled: (enabled: boolean) => Promise<void>
-  // prose:// URL scheme — open content as a new document
-  onOpenFromUrl: (callback: (content: string) => void) => () => void
-  // Skill download (OSS builds only)
-  downloadSkill: () => Promise<{ success: boolean; error?: string }>
-  // Build info
-  isMasBuild: boolean
-  // Import from the App Store edition (#1243); direct builds only
-  appStoreImport: {
-    status: () => Promise<AppStoreImportStatus>
-    start: () => Promise<AppStoreImportStart>
-    decline: () => Promise<void>
-    acknowledge: () => Promise<void>
-    importKeys: () => Promise<AppStoreImportKeysResult>
-    discardKeys: () => Promise<void>
-  }
-  // File watcher — subscribe to filesystem events for the File Explorer
-  startWatchingDirectory: (dirPath: string) => Promise<void>
-  stopWatchingDirectory: () => Promise<void>
-  setWatchedExpandedFolders: (folderPaths: string[]) => Promise<void>
-  onFileWatchEvent: (callback: (event: { type: 'created' | 'deleted' | 'changed'; path: string }) => void) => () => void
-  // Appearance: live dock icon swap (macOS only; no-op on other platforms)
-  applyDockIcon: () => Promise<void>
-}
-
 export interface FileItem {
   name: string
   path: string
@@ -433,12 +258,12 @@ const api: ElectronAPI = {
       ipcRenderer.removeListener('file:openExternal', handler)
     }
   },
-  llmChat: (request: LLMRequest) => ipcRenderer.invoke('llm:chat', request),
+  llmChat: (request) => ipcRenderer.invoke('llm:chat', request),
   platform: process.platform,
   // Renderer ready signal
   signalRendererReady: () => ipcRenderer.invoke('renderer:ready'),
   // Streaming LLM
-  llmChatStream: (request: LLMStreamRequest) => ipcRenderer.invoke('llm:stream', request),
+  llmChatStream: (request) => ipcRenderer.invoke('llm:stream', request),
   llmAbortStream: (streamId: string) => ipcRenderer.invoke('llm:stream:abort', streamId),
   // Folder operations for quick save
   selectFolder: (defaultPath?: string, message?: string) => ipcRenderer.invoke('file:selectFolder', defaultPath, message),
@@ -597,8 +422,8 @@ const api: ElectronAPI = {
   shareRequestSignIn: (email: string) => ipcRenderer.invoke('share:requestSignIn', email),
   shareCompleteSignIn: (code: string) => ipcRenderer.invoke('share:completeSignIn', code),
   // Sign-in completed from the email's prose://auth link (#964).
-  onShareAuthChanged: (callback: (result: unknown) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, result: unknown): void => {
+  onShareAuthChanged: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, result: Parameters<typeof callback>[0]): void => {
       callback(result)
     }
     ipcRenderer.on('share:authChanged', handler)

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo, type KeyboardEvent } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { downloadSkillWithAlert } from '../../lib/skillDownload'
 import { requestBugReport } from '../EnableLoggingDialog'
 import { useEditor } from '../../hooks/useEditor'
@@ -10,7 +10,6 @@ import { useTabStore, useActiveTab } from '../../stores/tabStore'
 import { useActiveSession, useActiveSource } from '../../document/useActiveSession'
 import { landAllProjections, originalHTML, serializeFinal } from '../../document/session'
 import { selectSuggesting, selectTrackedCount } from '../../extensions/tracked-changes'
-import { useFileListStore } from '../../stores/fileListStore'
 import { useSettings } from '../../hooks/useSettings'
 import { usePanelLayoutContext } from '../../hooks/usePanelLayout'
 import { isMacOS, getApi } from '../../lib/browserApi'
@@ -23,7 +22,6 @@ import { MAS_SUPPORT_URL, useWebPlatformEnabled } from '../../lib/featureFlags'
 import { ShareDialog } from '../share/ShareDialog'
 import { useShareStore } from '../../stores/shareStore'
 import { Button } from '../ui/button'
-import { Input } from '../ui/input'
 import {
   Tooltip,
   TooltipContent,
@@ -86,7 +84,7 @@ function extractTitle(content: string, path?: string | null): string {
 }
 
 export function Toolbar() {
-  const { document, openFile, saveFile, saveFileAs, newFile, quickSaveWithTitle } = useEditor()
+  const { document, openFile, saveFile, saveFileAs, quickSaveWithTitle } = useEditor()
   const {
     tabs,
     activeTabId,
@@ -372,7 +370,8 @@ export function Toolbar() {
       label: autosaveActive ? 'Autosave on' : 'Autosave paused',
       icon: <Timer />,
       onSelect: toggleAutosaveActive,
-      available: !!settings.autosave?.enabled,
+      // The setting has `mode`, not `enabled`, so this toggle is never offered (#1342).
+      available: false,
       active: autosaveActive,
       renderBar: (key) => (
         <Tooltip key={key}>

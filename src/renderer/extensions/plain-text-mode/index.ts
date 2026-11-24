@@ -9,7 +9,7 @@
 
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
-import { Fragment } from '@tiptap/pm/model'
+import { Fragment, type Node as PMNode } from '@tiptap/pm/model'
 import { getIdentity } from '../../document/identity'
 
 const plainTextKey = new PluginKey('plainTextMode')
@@ -72,12 +72,10 @@ export const PlainTextMode = Extension.create({
 
             // For list/blockquote wrappers, extract all text lines as paragraphs
             if (['bulletList', 'orderedList', 'taskList', 'blockquote'].includes(node.type.name)) {
-              const paragraphs: typeof paragraphType[] = []
+              const paragraphs: PMNode[] = []
               node.descendants((child) => {
                 if (child.isTextblock && child.textContent) {
-                  paragraphs.push(
-                    paragraphType.create(null, schema.text(child.textContent)) as any
-                  )
+                  paragraphs.push(paragraphType.create(null, schema.text(child.textContent)))
                 }
               })
               if (paragraphs.length > 0) {

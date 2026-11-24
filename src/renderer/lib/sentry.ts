@@ -59,11 +59,8 @@ export async function setRendererSentryEnabled(enabled: boolean): Promise<void> 
   if (enabled) {
     await initRendererSentry(true)
   } else if (initialized && sentryModule) {
-    try {
-      sentryModule.close()
-    } catch {
-      // Ignore close errors
-    }
+    // The renderer SDK exports no `close`, so the client stays live until
+    // restart (#1342). The call that was here threw and was ignored.
     initialized = false
     console.log('[Sentry] Renderer disabled')
   }

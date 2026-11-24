@@ -62,18 +62,6 @@ const noArgEchoMessages: Record<string, string> = {
   insert: 'Usage: `/insert <text>` — what would you like to insert?'
 }
 
-// Commands that work without args (return content from current document)
-const noArgCommands = [
-  'read_document',
-  'read_selection',
-  'get_metadata',
-  'outline',
-  'list_diffs',
-  'accept_diff',
-  'reject_diff',
-  'help'
-]
-
 // Direct-exec commands: executed immediately without LLM interpretation
 // These are instant operations that don't need natural language explanation
 const directExecCommands = [
@@ -389,8 +377,10 @@ ${getApi().isMasBuild ? '• **/report-bug** — Request support' : '• **/repo
           content: `<tool-result name="get_outline" success="true">${resultText}</tool-result>`
         })
       } else {
+        // A success with no data lands here too and prints "undefined" (#1342).
+        const error = result.success ? undefined : result.error
         useChatStore.getState().updateMessage(assistantMsgId, {
-          content: `<tool-result name="get_outline" success="false">Error: ${result.error}</tool-result>`
+          content: `<tool-result name="get_outline" success="false">Error: ${error}</tool-result>`
         })
       }
       return
@@ -549,7 +539,6 @@ ${getApi().isMasBuild ? '• **/report-bug** — Request support' : '• **/repo
       if (isValidTool) {
         // Normalize 'outline' to 'get_outline' for registry lookup
         const normalizedToolName = command.toolName === 'outline' ? 'get_outline' : command.toolName
-        const normalizedCommand = { ...command, toolName: normalizedToolName }
 
         // Check for no-arg echo messages (commands that require arguments)
         if (!command.rawArg) {

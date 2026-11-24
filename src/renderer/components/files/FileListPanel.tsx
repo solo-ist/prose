@@ -23,7 +23,6 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuSeparator,
   ContextMenuShortcut,
   ContextMenuTrigger
 } from '../ui/context-menu'
@@ -37,7 +36,7 @@ import {
 } from '../ui/dialog'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
-import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, ChevronLeft, ChevronRight, ChevronDown, Folder, FolderOpen, FolderInput, FolderPlus, Download, Trash2, FilePlus, ClipboardPaste, ExternalLink, X, Globe, Edit3, RefreshCw, Loader2, AlertTriangle, Bug, Boxes, Star, Check, CircleDot } from 'lucide-react'
+import { History, Cloud, Plus, FileText, BookOpen, CloudOff, ChevronUp, ChevronLeft, ChevronRight, ChevronDown, Folder, FolderOpen, FolderInput, FolderPlus, Download, Trash2, FilePlus, ClipboardPaste, ExternalLink, X, RefreshCw, Loader2, AlertTriangle, Bug, Boxes, Star, CircleDot } from 'lucide-react'
 import { useSettings } from '../../hooks/useSettings'
 import { cn } from '../../lib/utils'
 import { getApi } from '../../lib/browserApi'
@@ -201,7 +200,6 @@ export function FileListPanel() {
   const selectedPaths = useFileListStore((s) => s.selectedPaths)
   const toggleSelectFile = useFileListStore((s) => s.toggleSelectFile)
   const rangeSelectTo = useFileListStore((s) => s.rangeSelectTo)
-  const clearMultiSelect = useFileListStore((s) => s.clearMultiSelect)
 
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -259,7 +257,7 @@ export function FileListPanel() {
   // New file dialog state (context-aware: stores target directory)
   const [newFileTargetDir, setNewFileTargetDir] = useState<string | null>(null)
   // Drop-over highlight for the ".." (root directory) drop target
-  const [rootDropOver, setRootDropOver] = useState(false)
+  const [, setRootDropOver] = useState(false)
   // The `..` row as a drop target (#1167): highlighted while a file is dragged over it.
   const [parentDropOver, setParentDropOver] = useState(false)
   // Whether the `..` row can take a drop. Under the App Store sandbox the parent of
@@ -315,7 +313,7 @@ export function FileListPanel() {
   }, [])
 
   // Explorer actions hook (keyboard shortcuts + operations)
-  const { moveFile, pasteFile, clipboardPath, clipboardOperation } = useExplorerActions({
+  const { pasteFile, clipboardPath, clipboardOperation } = useExplorerActions({
     containerRef,
     onNewFile: handleNewFileInDir,
     onNewFolder: handleNewFolderInDir,
@@ -448,7 +446,7 @@ export function FileListPanel() {
 
   // Open a non-markdown file in its default external app
   const handleOpenExternally = useCallback((path: string) => {
-    window.api?.openPath(path)
+    window.api?.openPath?.(path)
   }, [])
 
   // Add a path to the persisted pointer list (folders → projects/favorites,

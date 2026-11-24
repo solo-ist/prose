@@ -56,7 +56,7 @@ export async function initializeSpellcheck(): Promise<void> {
  * Set up context menu for spellcheck suggestions and standard edit operations
  */
 export function setupContextMenu(mainWindow: BrowserWindow): void {
-  mainWindow.webContents.on('context-menu', (event, params) => {
+  mainWindow.webContents.on('context-menu', (_event, params) => {
     const menu = new Menu()
 
     // If there's a misspelled word, show spelling suggestions

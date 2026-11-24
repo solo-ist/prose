@@ -43,9 +43,8 @@ export function jumpToPosition(editor: Editor, position: number): void {
  *
  * @param editor - The TipTap editor instance
  * @param lineNumber - Actually a document position from search_document
- * @param select - Unused, kept for API compatibility
  */
-export function jumpToLine(editor: Editor, lineNumber: number, select = false): void {
+export function jumpToLine(editor: Editor, lineNumber: number): void {
   // The "line number" from search_document is actually a document position
   jumpToPosition(editor, lineNumber)
 }

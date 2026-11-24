@@ -51,7 +51,7 @@ export const NodeIds = Extension.create({
     return [
       new Plugin({
         key: new PluginKey('nodeIds'),
-        appendTransaction: (transactions, oldState, newState) => {
+        appendTransaction: (transactions, _oldState, newState) => {
           // A document change fills every missing id. The initial content
           // gets its ids from the session's normalise step, a doc-changing
           // transaction on a scratch state (document/session.ts), so no

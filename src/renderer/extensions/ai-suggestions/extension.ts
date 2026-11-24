@@ -10,7 +10,7 @@ import type { Editor } from '@tiptap/core'
 import type { Schema, Node as PMNode } from '@tiptap/pm/model'
 import { DOMParser as ProseMirrorDOMParser, Slice } from '@tiptap/pm/model'
 import type { Transaction } from '@tiptap/pm/state'
-import type { MarkSerializerSpec } from 'prosemirror-markdown'
+import type { MarkdownSerializer } from 'prosemirror-markdown'
 import type { AISuggestionOptions, AISuggestionData, SuggestionType } from './types'
 import { SELF, type Actor } from '../../../shared/review/actor'
 import { decideSuggestionsIn, feedbackIn, reviseSuggestionIn } from '../review-log/transactions'
@@ -193,7 +193,7 @@ function applyBlockConversion(
 /**
  * Markdown serializer for AI suggestion marks - outputs just the text content
  */
-export const aiSuggestionMarkdownSerializer: MarkSerializerSpec = {
+export const aiSuggestionMarkdownSerializer: MarkdownSerializer['marks'][string] = {
   open: '',
   close: '',
   mixable: true,
@@ -486,7 +486,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
             markFrom,
             markTo,
             state.schema.marks.aiSuggestion.create({
-              ...existingAttrs,
+              ...(existingAttrs as Record<string, unknown>),
               userReply: reply
             })
           )
@@ -809,7 +809,7 @@ export const AISuggestion = Mark.create<AISuggestionOptions>({
 
           // First pass: collect all unique suggestion IDs and their ranges
           const seenIds = new Set<string>()
-          doc.descendants((node, pos) => {
+          doc.descendants((node) => {
             node.marks.forEach((mark) => {
               if (mark.type.name === this.name && mark.attrs.id && !seenIds.has(mark.attrs.id)) {
                 seenIds.add(mark.attrs.id)

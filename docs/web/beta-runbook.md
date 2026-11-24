@@ -25,10 +25,10 @@ All values below must be set in the Render dashboard under **prose-gateway → E
 
 | Env var | Purpose | Notes |
 |---|---|---|
-| `NODE_ENV` | Sets production-mode validation | `production` — already in `render.yaml` |
-| `GATEWAY_PORT` | Port the server binds to | `4000` — already in `render.yaml` |
-| `BETTER_AUTH_URL` | Canonical auth origin; sets the cookie `Secure` flag | `https://api.prose.solo.ist` — already in `render.yaml` |
-| `CORS_ORIGINS` | Origins allowed to call `/api/*` | `https://prose.solo.ist` — already in `render.yaml` |
+| `NODE_ENV` | Sets production-mode validation | `production` |
+| `GATEWAY_PORT` | Port the server binds to | Not set on Render: the service binds the `PORT` Render injects (10000) |
+| `BETTER_AUTH_URL` | Canonical auth origin; sets the cookie `Secure` flag | `https://api.prose.solo.ist` |
+| `CORS_ORIGINS` | Origins allowed to call `/api/*` | `https://prose.solo.ist` |
 | `DATABASE_URL` | Postgres connection string | Injected by Render from the managed Postgres service |
 | `BETTER_AUTH_SECRET` | Signs session tokens; must be 32+ random bytes | Generate: `openssl rand -base64 32` |
 | `ANTHROPIC_API_KEY` | The gateway's Anthropic key for the LLM proxy | Required even if the proxy is unused during the beta |

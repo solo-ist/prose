@@ -31,6 +31,7 @@ If instructions conflict, choose the higher-priority source and mention the conf
 - Do not revert user or other-agent changes unless explicitly asked.
 - Keep edits scoped to the task. Avoid opportunistic refactors.
 - Prefer separate branches or git worktrees for independent tasks.
+- The root checkout stays on `main`, clean: do the work in a worktree beside it. Automated goal runs cut their tree from the root checkout's local `main` and reuse its `node_modules` without installing, so whoever lands a PR on `main` fast-forwards the root checkout afterwards and re-runs `npm ci` there if `package-lock.json` changed.
 - Before comparing branches or opening PRs, run `git fetch origin` because another agent may have pushed recently.
 - Use `gh` CLI for GitHub operations. Avoid interactive commands; pass flags explicitly.
 - If you start a long-running process, make it clear how it is managed and do not leave required verification processes running unintentionally.
@@ -77,9 +78,8 @@ Choose the smallest verification that covers the change:
 - E2E test changes: run `npm run typecheck` and the relevant Playwright command.
 
 **Cloud sandbox note:** If `npm run build` fails at the `build:skill` step (requires `zip`), fall back to
-`npx electron-vite build` — it validates renderer/main/preload TypeScript. Do **not** use
-`npx tsc -p tsconfig.json --noEmit`; it produces spurious project-reference errors (`TS6305`/`TS6306`) that
-are not real type errors in this multi-tsconfig project.
+`npx electron-vite build` for the build and `npm run typecheck` for the types. The build strips types without
+checking them, so a green build alone says nothing about type errors.
 
 ## Dev Server Safety
 
@@ -119,4 +119,7 @@ Avoid broad process kills such as `pkill -f node` or `pkill -f Electron`; they c
 - Keep one logical task per PR.
 - Commit messages should reference the issue number when one exists.
 - Include concise PR bodies with verification performed.
+- `npm run verify` passes before a PR opens; CI runs it ahead of the Electron suite.
 - Before merging or declaring a PR ready, check unresolved review comments when applicable.
+- The GitHub Actions review pipeline is retired (#1344): nothing posts `/review` on green CI, and automated review is moving to the Solo Prime harness, which comments on the PR. Until it is on for this repo the operator reviews by hand. Do not post `/review`, `/triage` or `/pipeline`.
+- The old pipeline's triggers ignore the `solo-prime` automation account, `/test` included. Working as that account, re-run CI with `gh run rerun <run-id>`.

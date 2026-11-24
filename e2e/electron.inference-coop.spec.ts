@@ -12,7 +12,7 @@ import type { ElectronApplication, Page } from '@playwright/test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { dismissOnboarding, dismissOverlay, launchApp, openChat, seedSettings, typeInEditor, waitForAppReady, waitForEditor } from './helpers'
+import { closeSelect, dismissOnboarding, dismissOverlay, launchApp, openChat, seedSettings, typeInEditor, waitForAppReady, waitForEditor } from './helpers'
 import { sseChunk, type OpenAIStep } from './openai-stub'
 import { COOP_GATEWAY, coopEmojiRequests, coopRequests, stubCoop } from './coop-stub'
 
@@ -93,7 +93,7 @@ test('Settings: the co-op key tests against the gateway, saves in main, and the 
   await expect(options.filter({ hasText: 'Tinfoil GLM 5.3' })).toHaveCount(1)
   await expect(options.filter({ hasText: 'GreenPT DeepSeek 4.1' })).toHaveCount(1)
   await expect(options.filter({ hasText: 'GLM 5.3 Flash' })).toHaveCount(0)
-  await page.keyboard.press('Escape')
+  await closeSelect(page)
 
   // Settings lists every chat model, the flagships checked; checking another adds it to the picker.
   const shown = dialog.getByTestId('shown-models-inference-coop')
@@ -106,7 +106,7 @@ test('Settings: the co-op key tests against the gateway, saves in main, and the 
   await expect(shown).toContainText('4 of 4 shown')
   await dialog.locator('#model').click()
   await expect(options.filter({ hasText: 'GreenPT GLM 5.3 Flash' })).toHaveCount(1)
-  await page.keyboard.press('Escape')
+  await closeSelect(page)
 
   // Tab emoji come from the provider in use (#1324): the switch is on offer, and
   // the request goes to the gateway with the co-op key, to its small model, thinking off.

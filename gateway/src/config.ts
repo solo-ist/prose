@@ -8,7 +8,9 @@ const EnvSchema = z.object({
   // Render (and most PaaS) inject PORT; prefer it, else GATEWAY_PORT, else 4000.
   PORT: z.coerce.number().optional(),
   GATEWAY_PORT: z.coerce.number().default(4000),
-  NODE_ENV: z.string().default('development'),
+  // Unset means production: the strict checks below apply unless a caller
+  // opts out by name. `.env.example` and every test suite set development.
+  NODE_ENV: z.string().default('production'),
 
   // LLM proxy — the OPERATOR's Anthropic key (gateway-side). Optional locally
   // when UPSTREAM_URL points at the mock; required in prod.
@@ -115,8 +117,8 @@ const EnvSchema = z.object({
   R2_ENDPOINT: z.string().url().optional(),
 }).superRefine((env, ctx) => {
   // The .optional() markers above keep the dev bootstrap loose (mock upstream,
-  // no DB). Everything else (production, staging, previews) gets no such
-  // slack: fail the boot loudly rather than crash at first use (Prisma with
+  // no DB), and only for an explicit NODE_ENV=development. Everything else
+  // (production, staging, previews, an unset NODE_ENV) gets no such slack: fail the boot loudly rather than crash at first use (Prisma with
   // no URL) or run auth on a weak default.
   if (env.NODE_ENV === 'development') return
   const required = ['DATABASE_URL', 'BETTER_AUTH_SECRET', 'RESEND_API_KEY', 'MAIL_FROM'] as const

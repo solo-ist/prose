@@ -101,14 +101,14 @@ async function signIn(email) {
 // Run the grant CLI (#965). Returns stdout; throws on a non-zero exit.
 function grant(...args) {
   return execFileSync('npx', ['tsx', 'scripts/grant.ts', ...args], {
-    cwd: ROOT, env: process.env, stdio: 'pipe', encoding: 'utf8',
+    cwd: ROOT, env: { ...process.env, NODE_ENV: 'development' }, stdio: 'pipe', encoding: 'utf8',
   })
 }
 
 // Inspect or rewind a publication's stored artifact (scripts/artifact-row.ts).
 function artifactRow(...args) {
   return execFileSync('npx', ['tsx', 'scripts/artifact-row.ts', ...args], {
-    cwd: ROOT, env: process.env, stdio: 'pipe', encoding: 'utf8',
+    cwd: ROOT, env: { ...process.env, NODE_ENV: 'development' }, stdio: 'pipe', encoding: 'utf8',
   })
 }
 
@@ -712,7 +712,7 @@ async function main() {
   expect(r2TestPubRes.status === 201, 'r2 test artifact published', `status ${r2TestPubRes.status}`)
 
   execFileSync('npx', ['tsx', 'scripts/force-r2-storage.ts', r2TestPub.publicationId], {
-    cwd: ROOT, env: process.env, stdio: 'pipe',
+    cwd: ROOT, env: { ...process.env, NODE_ENV: 'development' }, stdio: 'pipe',
   })
   ok('r2 storage field forced via test helper')
 

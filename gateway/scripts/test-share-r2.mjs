@@ -148,7 +148,7 @@ async function signIn(email) {
   return { Cookie: cookie, 'Content-Type': 'application/json', Origin: BASE }
 }
 
-const tsx = (...args) => execFileSync('npx', ['tsx', ...args], { cwd: ROOT, env: process.env, stdio: 'pipe', encoding: 'utf8' })
+const tsx = (...args) => execFileSync('npx', ['tsx', ...args], { cwd: ROOT, env: { ...process.env, NODE_ENV: 'development' }, stdio: 'pipe', encoding: 'utf8' })
 const row = (id) => JSON.parse(tsx('scripts/artifact-row.ts', 'inspect', id, MARKER))
 const serves = async (url, text) => {
   const res = await fetch(url)

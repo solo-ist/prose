@@ -157,7 +157,7 @@ async function main() {
 
   // --- Seed entitlement ---
   execFileSync('npx', ['tsx', 'scripts/grant.ts', '--email', EMAIL, '--feature', 'share_publish', '--by', 'manual'], {
-    cwd: ROOT, env: process.env, stdio: 'pipe',
+    cwd: ROOT, env: { ...process.env, NODE_ENV: 'development' }, stdio: 'pipe',
   })
   ok('share_publish seeded')
 

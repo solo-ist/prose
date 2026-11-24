@@ -29,6 +29,12 @@ COPY scripts ./scripts
 # the server only need read access to /app plus a DB connection.
 USER node
 
+# The image is a production image wherever it runs. Without this, a deploy
+# that doesn't set NODE_ENV (a Render preview doesn't copy dashboard-only
+# variables) would boot with config.ts's development slack on a public
+# address. Local development never uses the image (`npm run dev`).
+ENV NODE_ENV=production
+
 EXPOSE 4000
 
 # Migrate-on-boot: `migrate deploy` runs before serving; a failure short-circuits

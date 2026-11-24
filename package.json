@@ -5,6 +5,9 @@
   "license": "MIT",
   "type": "module",
   "main": "./out/main/index.js",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "npm run build:env && npm run build:buildinfo && npm run build:skill && npm run build:mcp-stdio && npm run build:preload && electron-vite dev",
     "dev:kill": "kill $(cat .dev.pid 2>/dev/null) 2>/dev/null || true; lsof -ti:9222 | xargs kill -9 2>/dev/null || true; lsof -ti:5173 | xargs kill -9 2>/dev/null || true",

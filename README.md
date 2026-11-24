@@ -88,7 +88,7 @@ Both are free, from the same codebase. The only differences are sandbox-related;
 
 ### Build from source
 
-Requires Node.js 20+.
+Requires Node.js 22 or later. CI and day-to-day development use the version in `.nvmrc` (26).
 
 ```bash
 git clone https://github.com/solo-ist/prose

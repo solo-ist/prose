@@ -435,7 +435,7 @@ Opt-in crash reporting via `@sentry/electron`. Users enable it in Settings > Gen
 - **Main process**: `src/main/sentry.ts` — `initSentry()` called synchronously at startup by reading settings (checks new userData path first, falls back to legacy `~/.prose/`). `setSentryEnabled()` handles runtime toggle via `sentry:setEnabled` IPC.
 - **Renderer**: `src/renderer/lib/sentry.ts` — `initRendererSentry()` called from `settingsStore.loadSettings()`. Uses dynamic `import('@sentry/electron/renderer')` to keep the SDK off the critical render path (required for `sandbox: true` compatibility). `ErrorBoundary` wraps `<App />` in `main.tsx`.
 - **DSN**: Injected at build time via `SENTRY_DSN` env var. Falls back to the project DSN if unset. Renderer uses `__SENTRY_DSN__` (Vite `define`); main process uses `process.env.SENTRY_DSN`.
-- **Privacy**: Sentry never initializes unless `errorTracking.enabled === true` in settings. In dev mode, Sentry is initialized but disabled (`enabled: false`).
+- **Privacy**: Sentry never initializes unless `errorTracking.enabled === true` in settings. In dev mode, Sentry is initialized but disabled (`enabled: false`). Both `init` calls pass `SENTRY_DATA_COLLECTION` (`src/shared/sentryPrivacy.ts`): the SDK (8.x) collects the IP address, request bodies and AI / MCP inputs and outputs unless each category is switched off, and `sentryPrivacy.test.ts` fails when an upgrade adds one.
 - **Source maps**: Uploaded automatically when `SENTRY_AUTH_TOKEN` is set during build (via `@sentry/vite-plugin`).
 
 ## Common Patterns

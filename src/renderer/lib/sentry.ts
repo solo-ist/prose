@@ -1,4 +1,5 @@
 import React from 'react'
+import { SENTRY_DATA_COLLECTION } from '../../shared/sentryPrivacy'
 
 type SentryModule = typeof import('@sentry/electron/renderer')
 
@@ -47,6 +48,7 @@ export async function initRendererSentry(enabled: boolean): Promise<void> {
       dsn: SENTRY_DSN,
       sampleRate: 0.5,
       maxBreadcrumbs: 30,
+      dataCollection: SENTRY_DATA_COLLECTION,
       beforeSend(event) {
         if (event.exception?.values) {
           for (const ex of event.exception.values) {

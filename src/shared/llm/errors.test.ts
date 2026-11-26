@@ -38,7 +38,7 @@ const LITELLM_BUDGET = new ChatCompletionsError('HTTP 400: Budget has been excee
 
 // The Anthropic SDK's own error classes, from its own factory.
 const anthropicError = (status: number, type: string, message: string) =>
-  Anthropic.APIError.generate(status, { type: 'error', error: { type, message } }, undefined, {})
+  Anthropic.APIError.generate(status, { type: 'error', error: { type, message } }, undefined, new Headers())
 const ANTHROPIC_RATE = anthropicError(429, 'rate_limit_error', 'This request would exceed the rate limit for your organization of 50,000 input tokens per minute.')
 const ANTHROPIC_CREDIT = anthropicError(400, 'invalid_request_error', 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.')
 const ANTHROPIC_OVERLOADED = anthropicError(529, 'overloaded_error', 'Overloaded')

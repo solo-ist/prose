@@ -100,7 +100,7 @@
     "markdown-it-sup": "^2.0.0",
     "marked": "^17.0.1",
     "react-resizable-panels": "^2.1.7",
-    "rmapi-js": "^10.0.0",
+    "rmapi-js": "^14.4.2",
     "tailwind-merge": "^3.7.1",
     "tailwindcss-animate": "^1.0.7",
     "tiptap-footnotes": "^2.0.4",

@@ -1,7 +1,7 @@
 /**
  * reMarkable Cloud API client wrapper using rmapi-js
  */
-import { register as rmapiRegister, remarkable, type RemarkableApi, type Entry, type CollectionEntry, type DocumentType } from 'rmapi-js'
+import { register as rmapiRegister, remarkable, type RemarkableApi, type Entry, type CollectionEntry, type DocumentEntry } from 'rmapi-js'
 
 export interface RemarkableNotebook {
   id: string
@@ -18,7 +18,7 @@ export interface RemarkableNotebook {
 export interface RemarkableClient {
   listNotebooks(): Promise<RemarkableNotebook[]>
   downloadNotebook(id: string, hash: string): Promise<Uint8Array>
-  moveNotebook(hash: string, newParentId: string): Promise<string>
+  moveNotebook(id: string, hash: string, newParentId: string): Promise<string>
   disconnect(): void
 }
 
@@ -134,14 +134,14 @@ function createClient(api: RemarkableApi): RemarkableClient {
       const items = await api.listItems(true)
 
       return items
-        .filter((item: Entry): item is DocumentType | CollectionEntry => {
-          // Exclude TemplateType entries (new in v10) — we only care about
-          // user documents and folders
+        .filter((item: Entry): item is DocumentEntry | CollectionEntry => {
+          // Exclude TemplateType entries — we only care about user documents
+          // and folders
           return item.type === 'DocumentType' || item.type === 'CollectionType'
         })
         .map((item): RemarkableNotebook => {
           const isDocument = item.type === 'DocumentType'
-          const doc = item as DocumentType
+          const doc = item as DocumentEntry
 
           // v10: `parent` is optional (undefined means root, same as empty string in v9)
           const rawParent = item.parent
@@ -159,7 +159,7 @@ function createClient(api: RemarkableApi): RemarkableClient {
             parent,
             type: item.type === 'CollectionType' ? 'folder' : 'notebook',
             fileType: isDocument ? doc.fileType : undefined,
-            lastModified: item.lastModified,
+            lastModified: item.lastModified ?? '',
             lastOpened: isDocument ? doc.lastOpened : undefined,
             pinned: item.pinned
           }
@@ -168,17 +168,18 @@ function createClient(api: RemarkableApi): RemarkableClient {
     },
 
     async downloadNotebook(id: string, hash: string): Promise<Uint8Array> {
-      // v10: getDocument now requires both id and hash (was hash-only in v9)
-      return await api.getDocument(id, hash)
+      // v14: getDocumentArchive replaces getDocument; takes an ItemRef {id, hash}
+      return await api.getDocumentArchive({ id, hash })
     },
 
-    async moveNotebook(hash: string, newParentId: string): Promise<string> {
-      // api.move returns a HashEntry { hash } — the entry's NEW hash after
-      // the move (the cloud's content-addressed model assigns a fresh hash
-      // any time an entry's metadata changes). We surface this so callers
-      // can persist it and avoid a "not found in root hash" failure on the
-      // next operation that would still be using the pre-move hash.
-      const result = await api.move(hash, newParentId)
+    async moveNotebook(id: string, hash: string, newParentId: string): Promise<string> {
+      // api.move returns an ItemRef with the entry's NEW hash after the move
+      // (the cloud's content-addressed model assigns a fresh hash any time an
+      // entry's metadata changes). We surface this so callers can persist it
+      // and avoid a "not found in root hash" failure on the next operation
+      // that would still be using the pre-move hash.
+      // v14: move takes an ItemRef {id, hash} instead of a bare hash string.
+      const result = await api.move({ id, hash }, newParentId)
       return result.hash
     },
 

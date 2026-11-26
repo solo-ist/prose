@@ -4,6 +4,12 @@ type SentryModule = typeof import('@sentry/electron/renderer')
 
 let sentryModule: SentryModule | null = null
 let initialized = false
+// The SDK's `init` works once per window: a second call returns early and
+// makes no client. So the one client is kept, and switched off and on.
+let started = false
+// What the writer last asked for. The SDK loads asynchronously, so an opt-out
+// can arrive while `init` is still on its way.
+let wanted = false
 
 const SENTRY_DSN = 'https://fd14a3e064b942f9ec02734f7d26d541@o4511057861476352.ingest.us.sentry.io/4511057863311360'
 
@@ -22,10 +28,21 @@ async function loadSentry(): Promise<SentryModule> {
 }
 
 export async function initRendererSentry(enabled: boolean): Promise<void> {
+  wanted = enabled
   if (!enabled || initialized) return
 
   try {
     const Sentry = await loadSentry()
+    // Switched off, or started by another call, while the SDK loaded.
+    if (!wanted || initialized) return
+    const client = started ? Sentry.getClient() : undefined
+    if (client) {
+      // Back on in the same session: the client reads `enabled` on every event.
+      client.getOptions().enabled = true
+      initialized = true
+      console.log('[Sentry] Renderer enabled')
+      return
+    }
     Sentry.init({
       dsn: SENTRY_DSN,
       sampleRate: 0.5,
@@ -48,6 +65,7 @@ export async function initRendererSentry(enabled: boolean): Promise<void> {
         return event
       }
     })
+    started = true
     initialized = true
     console.log('[Sentry] Renderer initialized')
   } catch (error) {
@@ -58,10 +76,21 @@ export async function initRendererSentry(enabled: boolean): Promise<void> {
 export async function setRendererSentryEnabled(enabled: boolean): Promise<void> {
   if (enabled) {
     await initRendererSentry(true)
-  } else if (initialized && sentryModule) {
-    // The renderer SDK exports no `close`, so the client stays live until
-    // restart (#1342). The call that was here threw and was ignored.
+    return
+  }
+  wanted = false
+  if (initialized && sentryModule) {
+    // Off at once (#1366): the SDK's global handlers stay installed, but they
+    // report through the client, and a client with `enabled: false` sends
+    // nothing, queued events included. The client is not closed, because the
+    // SDK cannot make another one in this window.
     initialized = false
+    try {
+      const client = sentryModule.getClient()
+      if (client) client.getOptions().enabled = false
+    } catch (error) {
+      console.warn('[Sentry] Failed to disable renderer client:', error)
+    }
     console.log('[Sentry] Renderer disabled')
   }
 }

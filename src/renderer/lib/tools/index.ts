@@ -151,13 +151,14 @@ export async function executeTool(
   // Validate args against schema
   const parseResult = tool.schema.safeParse(args)
   if (!parseResult.success) {
-    const errorMessage = parseResult.error.errors
+    const errorMessage = parseResult.error.issues
       .map((e) => `${e.path.join('.')}: ${e.message}`)
       .join('; ')
     return toolError(`Invalid arguments: ${errorMessage}`, 'INVALID_ARGS')
   }
 
-  const validatedArgs = parseResult.data
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const validatedArgs = parseResult.data as any
 
   const resolved = await resolveHandleFor(toolName, binding)
   if (resolved.error) return resolved.error

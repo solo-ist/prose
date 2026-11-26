@@ -1,0 +1,935 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`schema snapshots > LLM tool definitions snapshot (getToolsForClaudeAPI) 1`] = `
+{
+  "accept_diff": {
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "description": "ID of the diff to accept. If omitted, accepts the first pending diff.",
+        "type": "string",
+      },
+    },
+    "type": "object",
+  },
+  "add_comment": {
+    "additionalProperties": false,
+    "properties": {
+      "comment": {
+        "description": "The comment text to attach to the selected content.",
+        "type": "string",
+      },
+      "from": {
+        "description": "Document position (from) for the comment range. Use when nodeId is unavailable.",
+        "type": "number",
+      },
+      "nodeId": {
+        "description": "ID of the node to attach the comment to. Get node IDs from read_document. Provide either nodeId or from/to, not both.",
+        "type": "string",
+      },
+      "to": {
+        "description": "Document position (to) for the comment range. Use when nodeId is unavailable.",
+        "type": "number",
+      },
+    },
+    "required": [
+      "comment",
+    ],
+    "type": "object",
+  },
+  "create_and_open_file": {
+    "additionalProperties": false,
+    "properties": {
+      "content": {
+        "default": "",
+        "description": "Initial content for the new document. Defaults to empty string.",
+        "type": "string",
+      },
+      "filename": {
+        "description": "Filename for the new document (e.g., "My Document.md"). If omitted, defaults to "Untitled.md" with auto-incrementing suffix if needed.",
+        "type": "string",
+      },
+    },
+    "type": "object",
+  },
+  "delete_node": {
+    "additionalProperties": false,
+    "properties": {
+      "nodeId": {
+        "description": "The ID of the node to delete. Get node IDs from read_document which lists all nodes with their IDs.",
+        "type": "string",
+      },
+      "search": {
+        "description": "Original text content of the node (from read_document). Used as fallback to locate the node if nodeId is stale.",
+        "type": "string",
+      },
+    },
+    "required": [
+      "nodeId",
+    ],
+    "type": "object",
+  },
+  "edit": {
+    "additionalProperties": false,
+    "properties": {
+      "comment": {
+        "description": "Brief rationale for the change, surfaced in the post-write annotation tooltip. Keep under 20 words.",
+        "type": "string",
+      },
+      "content": {
+        "description": "The new content for the node (replaces entire node content)",
+        "type": "string",
+      },
+      "nodeId": {
+        "description": "The ID of the node to edit. Get node IDs from read_document which lists all nodes with their IDs.",
+        "type": "string",
+      },
+      "search": {
+        "description": "Original text content of the node (from read_document). Used as fallback to locate the node if nodeId is stale.",
+        "type": "string",
+      },
+    },
+    "required": [
+      "nodeId",
+      "content",
+    ],
+    "type": "object",
+  },
+  "get_metadata": {
+    "additionalProperties": false,
+    "description": "No parameters required",
+    "properties": {},
+    "type": "object",
+  },
+  "get_outline": {
+    "additionalProperties": false,
+    "description": "No parameters required",
+    "properties": {},
+    "type": "object",
+  },
+  "get_review_status": {
+    "additionalProperties": false,
+    "properties": {},
+    "type": "object",
+  },
+  "insert": {
+    "additionalProperties": false,
+    "properties": {
+      "comment": {
+        "description": "Brief rationale for the change, surfaced in the post-write annotation tooltip. Keep under 20 words.",
+        "type": "string",
+      },
+      "nodeId": {
+        "description": "Required when position is after_node or before_node. Get from read_document. To append to a section, use the heading nodeId with position=after_node — the text lands as a new node immediately after the heading.",
+        "type": "string",
+      },
+      "position": {
+        "default": "cursor",
+        "description": "Where to insert. Use after_node or before_node (paired with nodeId from read_document) when adding to a specific section — e.g., after_node with a heading nodeId to append content under that heading. Use cursor when the user said "here", OR when the user has a non-empty selection and asks to replace it: position=cursor over a selection deletes the selected range and inserts the new text in its place. start/end target the document boundaries. A nodeId inside a table anchors on the whole table: after_node lands below it, before_node above it. To add rows to a table, use edit instead.",
+        "enum": [
+          "cursor",
+          "start",
+          "end",
+          "after_node",
+          "before_node",
+        ],
+        "type": "string",
+      },
+      "search": {
+        "description": "Original text content of the anchor node (from read_document). Used as fallback to locate the node if nodeId is stale.",
+        "type": "string",
+      },
+      "text": {
+        "description": "Text to insert at the specified position",
+        "type": "string",
+      },
+    },
+    "required": [
+      "text",
+    ],
+    "type": "object",
+  },
+  "list_comments": {
+    "additionalProperties": false,
+    "description": "No parameters required",
+    "properties": {},
+    "type": "object",
+  },
+  "list_files": {
+    "additionalProperties": false,
+    "properties": {
+      "maxDepth": {
+        "default": 1,
+        "description": "Maximum depth to recurse (1 = immediate children only, max 3)",
+        "type": "number",
+      },
+      "maxFiles": {
+        "default": 100,
+        "description": "Maximum number of files to return (default 100, max 500)",
+        "type": "number",
+      },
+      "path": {
+        "description": "Directory path to list. Use ~ for home directory (e.g., ~/Documents)",
+        "type": "string",
+      },
+    },
+    "required": [
+      "path",
+    ],
+    "type": "object",
+  },
+  "list_review_events": {
+    "additionalProperties": false,
+    "properties": {
+      "limit": {
+        "description": "At most this many events (default 100).",
+        "maximum": 500,
+        "minimum": 1,
+        "type": "integer",
+      },
+      "since": {
+        "description": "Return events after this sequence number (default 0: from the start).",
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer",
+      },
+    },
+    "type": "object",
+  },
+  "list_suggestions": {
+    "additionalProperties": false,
+    "properties": {
+      "include": {
+        "description": ""pending" (default): suggestions still waiting for the writer. "all": also accepted, rejected and superseded ones, from the review history.",
+        "enum": [
+          "pending",
+          "all",
+        ],
+        "type": "string",
+      },
+    },
+    "type": "object",
+  },
+  "list_tabs": {
+    "additionalProperties": false,
+    "description": "No parameters required",
+    "properties": {},
+    "type": "object",
+  },
+  "move_cursor": {
+    "additionalProperties": false,
+    "properties": {
+      "nodeId": {
+        "description": "The ID of the node to move the cursor to. Get node IDs from read_document.",
+        "type": "string",
+      },
+      "position": {
+        "default": "start",
+        "description": "Where in the node to place the cursor: at the start (default) or end of its content.",
+        "enum": [
+          "start",
+          "end",
+        ],
+        "type": "string",
+      },
+      "search": {
+        "description": "Original text content of the node (from read_document). Used as fallback to locate the node if nodeId is stale.",
+        "type": "string",
+      },
+    },
+    "required": [
+      "nodeId",
+    ],
+    "type": "object",
+  },
+  "new_file": {
+    "additionalProperties": false,
+    "properties": {
+      "content": {
+        "default": "",
+        "description": "Initial content for the new document",
+        "type": "string",
+      },
+    },
+    "type": "object",
+  },
+  "open_file": {
+    "additionalProperties": false,
+    "properties": {
+      "path": {
+        "description": "Path to the file to open. Use ~ for home directory (e.g., ~/Documents/file.md)",
+        "type": "string",
+      },
+    },
+    "required": [
+      "path",
+    ],
+    "type": "object",
+  },
+  "read_document": {
+    "additionalProperties": false,
+    "description": "No parameters required",
+    "properties": {},
+    "type": "object",
+  },
+  "read_file": {
+    "additionalProperties": false,
+    "properties": {
+      "path": {
+        "description": "Path to the file to read. Use ~ for home directory (e.g., ~/Documents/file.md)",
+        "type": "string",
+      },
+    },
+    "required": [
+      "path",
+    ],
+    "type": "object",
+  },
+  "read_selection": {
+    "additionalProperties": false,
+    "description": "No parameters required",
+    "properties": {},
+    "type": "object",
+  },
+  "reject_diff": {
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "description": "ID of the diff to reject. If omitted, rejects the first pending diff.",
+        "type": "string",
+      },
+    },
+    "type": "object",
+  },
+  "reopen_comment": {
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "description": "ID of a resolved comment thread, from list_comments.",
+        "type": "string",
+      },
+    },
+    "required": [
+      "id",
+    ],
+    "type": "object",
+  },
+  "reply_to_comment": {
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "description": "ID of the comment thread to reply to. Get IDs from list_comments.",
+        "type": "string",
+      },
+      "text": {
+        "description": "The reply text to add to the thread.",
+        "type": "string",
+      },
+    },
+    "required": [
+      "id",
+      "text",
+    ],
+    "type": "object",
+  },
+  "reply_to_suggestion": {
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "description": "ID of a pending suggestion, from list_suggestions or suggest_edit.",
+        "type": "string",
+      },
+      "text": {
+        "description": "The feedback: why the suggestion helps, a question, or what you would change.",
+        "maxLength": 5000,
+        "minLength": 1,
+        "type": "string",
+      },
+    },
+    "required": [
+      "id",
+      "text",
+    ],
+    "type": "object",
+  },
+  "request_mode_switch": {
+    "additionalProperties": false,
+    "properties": {
+      "prompt_to_retry": {
+        "description": "The exact prompt to run after the switch. The user can click "Switch & Run" to mode-switch + auto-send this, or "Just Switch" to mode-switch and re-ask manually. Phrase this as if the user wrote it.",
+        "type": "string",
+      },
+      "reason": {
+        "description": "One short sentence explaining what the new mode enables. Shown above the button in the chat. Keep under 20 words.",
+        "type": "string",
+      },
+      "target": {
+        "description": "The mode the user should switch to in order to do what they asked.",
+        "enum": [
+          "chat",
+          "editor",
+          "create",
+        ],
+        "type": "string",
+      },
+    },
+    "required": [
+      "target",
+      "reason",
+      "prompt_to_retry",
+    ],
+    "type": "object",
+  },
+  "resolve_comment": {
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "description": "ID of the comment to resolve. Get IDs from list_comments. Resolved threads persist as collapsed history rather than being deleted.",
+        "type": "string",
+      },
+    },
+    "required": [
+      "id",
+    ],
+    "type": "object",
+  },
+  "revise_suggestion": {
+    "additionalProperties": false,
+    "properties": {
+      "comment": {
+        "description": "Why it changed. Defaults to the original explanation.",
+        "type": "string",
+      },
+      "content": {
+        "description": "The new suggested content for the same node, in the form suggest_edit takes.",
+        "type": "string",
+      },
+      "id": {
+        "description": "ID of the suggestion to revise: a pending one, or one the writer rejected (from list_suggestions with include: "all").",
+        "type": "string",
+      },
+      "nodeId": {
+        "description": "For a rejected suggestion only: the node to put the revision on, from read_document. Needed only when the call fails because its text appears in several places (AMBIGUOUS_MATCH) or has changed (NODE_NOT_FOUND).",
+        "type": "string",
+      },
+    },
+    "required": [
+      "id",
+      "content",
+    ],
+    "type": "object",
+  },
+  "save_file": {
+    "additionalProperties": false,
+    "properties": {
+      "path": {
+        "description": "Path to save to. If omitted, saves to current path or prompts for new.",
+        "type": "string",
+      },
+    },
+    "type": "object",
+  },
+  "search_document": {
+    "additionalProperties": false,
+    "properties": {
+      "caseSensitive": {
+        "default": false,
+        "description": "Enable case-sensitive matching",
+        "type": "boolean",
+      },
+      "maxResults": {
+        "default": 50,
+        "description": "Maximum number of matches to return",
+        "type": "number",
+      },
+      "query": {
+        "description": "Text or regex pattern to search for",
+        "type": "string",
+      },
+      "regex": {
+        "default": false,
+        "description": "Treat query as a regular expression",
+        "type": "boolean",
+      },
+    },
+    "required": [
+      "query",
+    ],
+    "type": "object",
+  },
+  "select_tab": {
+    "additionalProperties": false,
+    "properties": {
+      "match": {
+        "description": "Case-insensitive substring to match against tab title and path basename. Use when you only have a partial name. If multiple tabs match, returns an error with candidates. If none match, returns "tab not found".",
+        "type": "string",
+      },
+      "tabId": {
+        "description": "The exact tab ID from list_tabs. Preferred over match — use this when you have the ID.",
+        "type": "string",
+      },
+    },
+    "type": "object",
+  },
+  "suggest_delete": {
+    "additionalProperties": false,
+    "properties": {
+      "nodeId": {
+        "description": "The paragraph or heading that holds the text, from read_document.",
+        "type": "string",
+      },
+      "search": {
+        "description": "The exact phrase to propose for deletion, as it appears once in the node’s current text.",
+        "maxLength": 5000,
+        "minLength": 1,
+        "type": "string",
+      },
+    },
+    "required": [
+      "nodeId",
+      "search",
+    ],
+    "type": "object",
+  },
+  "suggest_edit": {
+    "additionalProperties": false,
+    "properties": {
+      "comment": {
+        "description": "Brief rationale for the change, shown in the diff UI. Keep under 20 words.",
+        "type": "string",
+      },
+      "content": {
+        "description": "The suggested new content for the node",
+        "type": "string",
+      },
+      "nodeId": {
+        "description": "The ID of the node to suggest changes for. Get node IDs from read_document.",
+        "type": "string",
+      },
+      "search": {
+        "description": "Original text content of the node (from read_document). Used as fallback to locate the node if nodeId is stale.",
+        "type": "string",
+      },
+    },
+    "required": [
+      "nodeId",
+      "content",
+    ],
+    "type": "object",
+  },
+  "suggest_insert": {
+    "additionalProperties": false,
+    "properties": {
+      "nodeId": {
+        "description": "The paragraph or heading to insert into, from read_document. Give nodeId, search, or both.",
+        "type": "string",
+      },
+      "position": {
+        "description": "Where: before or after the search phrase (default after), or at the start or end of the node (default end when there is no search).",
+        "enum": [
+          "before",
+          "after",
+          "start",
+          "end",
+        ],
+        "type": "string",
+      },
+      "search": {
+        "description": "A phrase of the node’s current text to insert next to (with position before or after). Without nodeId, the one paragraph that contains it.",
+        "type": "string",
+      },
+      "text": {
+        "description": "The text to insert: plain text within the paragraph, no line breaks.",
+        "maxLength": 5000,
+        "minLength": 1,
+        "type": "string",
+      },
+    },
+    "required": [
+      "text",
+    ],
+    "type": "object",
+  },
+}
+`;
+
+exports[`schema snapshots > MCP tool input schemas snapshot 1`] = `
+{
+  "add_comment": {
+    "additionalProperties": false,
+    "properties": {
+      "comment": {
+        "description": "The comment text to attach to the selected content.",
+        "type": "string",
+      },
+      "document": {
+        "description": "Optional. The document to act on: its documentId or path, as list_tabs reports them. It must be open in Prose (open_file opens it). Omit it to act on the active tab. Targeting a document never switches the tab the writer sees.",
+        "maxLength": 4096,
+        "type": "string",
+      },
+      "from": {
+        "description": "Document position (from) for the comment range. Use when nodeId is unavailable.",
+        "type": "number",
+      },
+      "nodeId": {
+        "description": "ID of the node to attach the comment to. Get node IDs from read_document. Provide either nodeId or from/to, not both.",
+        "type": "string",
+      },
+      "to": {
+        "description": "Document position (to) for the comment range. Use when nodeId is unavailable.",
+        "type": "number",
+      },
+    },
+    "required": [
+      "comment",
+    ],
+    "type": "object",
+  },
+  "create_and_open_file": {
+    "additionalProperties": false,
+    "properties": {
+      "content": {
+        "default": "",
+        "description": "Initial content for the new document. Defaults to empty string.",
+        "type": "string",
+      },
+      "filename": {
+        "description": "Filename for the new document (e.g., "My Document.md"). If omitted, defaults to "Untitled.md" with auto-incrementing suffix if needed.",
+        "type": "string",
+      },
+    },
+    "type": "object",
+  },
+  "get_outline": {
+    "additionalProperties": false,
+    "description": "No parameters required",
+    "properties": {
+      "document": {
+        "description": "Optional. The document to act on: its documentId or path, as list_tabs reports them. It must be open in Prose (open_file opens it). Omit it to act on the active tab. Targeting a document never switches the tab the writer sees.",
+        "maxLength": 4096,
+        "type": "string",
+      },
+    },
+    "type": "object",
+  },
+  "get_review_status": {
+    "additionalProperties": false,
+    "properties": {
+      "document": {
+        "description": "Optional. The document to act on: its documentId or path, as list_tabs reports them. It must be open in Prose (open_file opens it). Omit it to act on the active tab. Targeting a document never switches the tab the writer sees.",
+        "maxLength": 4096,
+        "type": "string",
+      },
+    },
+    "type": "object",
+  },
+  "list_comments": {
+    "additionalProperties": false,
+    "description": "No parameters required",
+    "properties": {
+      "document": {
+        "description": "Optional. The document to act on: its documentId or path, as list_tabs reports them. It must be open in Prose (open_file opens it). Omit it to act on the active tab. Targeting a document never switches the tab the writer sees.",
+        "maxLength": 4096,
+        "type": "string",
+      },
+    },
+    "type": "object",
+  },
+  "list_review_events": {
+    "additionalProperties": false,
+    "properties": {
+      "document": {
+        "description": "Optional. The document to act on: its documentId or path, as list_tabs reports them. It must be open in Prose (open_file opens it). Omit it to act on the active tab. Targeting a document never switches the tab the writer sees.",
+        "maxLength": 4096,
+        "type": "string",
+      },
+      "limit": {
+        "description": "At most this many events (default 100).",
+        "maximum": 500,
+        "minimum": 1,
+        "type": "integer",
+      },
+      "since": {
+        "description": "Return events after this sequence number (default 0: from the start).",
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer",
+      },
+    },
+    "type": "object",
+  },
+  "list_suggestions": {
+    "additionalProperties": false,
+    "properties": {
+      "document": {
+        "description": "Optional. The document to act on: its documentId or path, as list_tabs reports them. It must be open in Prose (open_file opens it). Omit it to act on the active tab. Targeting a document never switches the tab the writer sees.",
+        "maxLength": 4096,
+        "type": "string",
+      },
+      "include": {
+        "description": ""pending" (default): suggestions still waiting for the writer. "all": also accepted, rejected and superseded ones, from the review history.",
+        "enum": [
+          "pending",
+          "all",
+        ],
+        "type": "string",
+      },
+    },
+    "type": "object",
+  },
+  "list_tabs": {
+    "additionalProperties": false,
+    "description": "No parameters required",
+    "properties": {},
+    "type": "object",
+  },
+  "open_file": {
+    "additionalProperties": false,
+    "properties": {
+      "path": {
+        "description": "Path to the file to open. Use ~ for home directory (e.g., ~/Documents/file.md)",
+        "type": "string",
+      },
+    },
+    "required": [
+      "path",
+    ],
+    "type": "object",
+  },
+  "read_document": {
+    "additionalProperties": false,
+    "description": "No parameters required",
+    "properties": {
+      "document": {
+        "description": "Optional. The document to act on: its documentId or path, as list_tabs reports them. It must be open in Prose (open_file opens it). Omit it to act on the active tab. Targeting a document never switches the tab the writer sees.",
+        "maxLength": 4096,
+        "type": "string",
+      },
+    },
+    "type": "object",
+  },
+  "reopen_comment": {
+    "additionalProperties": false,
+    "properties": {
+      "document": {
+        "description": "Optional. The document to act on: its documentId or path, as list_tabs reports them. It must be open in Prose (open_file opens it). Omit it to act on the active tab. Targeting a document never switches the tab the writer sees.",
+        "maxLength": 4096,
+        "type": "string",
+      },
+      "id": {
+        "description": "ID of a resolved comment thread, from list_comments.",
+        "type": "string",
+      },
+    },
+    "required": [
+      "id",
+    ],
+    "type": "object",
+  },
+  "reply_to_comment": {
+    "additionalProperties": false,
+    "properties": {
+      "document": {
+        "description": "Optional. The document to act on: its documentId or path, as list_tabs reports them. It must be open in Prose (open_file opens it). Omit it to act on the active tab. Targeting a document never switches the tab the writer sees.",
+        "maxLength": 4096,
+        "type": "string",
+      },
+      "id": {
+        "description": "ID of the comment thread to reply to. Get IDs from list_comments.",
+        "type": "string",
+      },
+      "text": {
+        "description": "The reply text to add to the thread.",
+        "type": "string",
+      },
+    },
+    "required": [
+      "id",
+      "text",
+    ],
+    "type": "object",
+  },
+  "reply_to_suggestion": {
+    "additionalProperties": false,
+    "properties": {
+      "document": {
+        "description": "Optional. The document to act on: its documentId or path, as list_tabs reports them. It must be open in Prose (open_file opens it). Omit it to act on the active tab. Targeting a document never switches the tab the writer sees.",
+        "maxLength": 4096,
+        "type": "string",
+      },
+      "id": {
+        "description": "ID of a pending suggestion, from list_suggestions or suggest_edit.",
+        "type": "string",
+      },
+      "text": {
+        "description": "The feedback: why the suggestion helps, a question, or what you would change.",
+        "maxLength": 5000,
+        "minLength": 1,
+        "type": "string",
+      },
+    },
+    "required": [
+      "id",
+      "text",
+    ],
+    "type": "object",
+  },
+  "resolve_comment": {
+    "additionalProperties": false,
+    "properties": {
+      "document": {
+        "description": "Optional. The document to act on: its documentId or path, as list_tabs reports them. It must be open in Prose (open_file opens it). Omit it to act on the active tab. Targeting a document never switches the tab the writer sees.",
+        "maxLength": 4096,
+        "type": "string",
+      },
+      "id": {
+        "description": "ID of the comment to resolve. Get IDs from list_comments. Resolved threads persist as collapsed history rather than being deleted.",
+        "type": "string",
+      },
+    },
+    "required": [
+      "id",
+    ],
+    "type": "object",
+  },
+  "revise_suggestion": {
+    "additionalProperties": false,
+    "properties": {
+      "comment": {
+        "description": "Why it changed. Defaults to the original explanation.",
+        "type": "string",
+      },
+      "content": {
+        "description": "The new suggested content for the same node, in the form suggest_edit takes.",
+        "type": "string",
+      },
+      "document": {
+        "description": "Optional. The document to act on: its documentId or path, as list_tabs reports them. It must be open in Prose (open_file opens it). Omit it to act on the active tab. Targeting a document never switches the tab the writer sees.",
+        "maxLength": 4096,
+        "type": "string",
+      },
+      "id": {
+        "description": "ID of the suggestion to revise: a pending one, or one the writer rejected (from list_suggestions with include: "all").",
+        "type": "string",
+      },
+      "nodeId": {
+        "description": "For a rejected suggestion only: the node to put the revision on, from read_document. Needed only when the call fails because its text appears in several places (AMBIGUOUS_MATCH) or has changed (NODE_NOT_FOUND).",
+        "type": "string",
+      },
+    },
+    "required": [
+      "id",
+      "content",
+    ],
+    "type": "object",
+  },
+  "select_tab": {
+    "additionalProperties": false,
+    "properties": {
+      "match": {
+        "description": "Case-insensitive substring to match against tab title and path basename. Use when you only have a partial name. If multiple tabs match, returns an error with candidates. If none match, returns "tab not found".",
+        "type": "string",
+      },
+      "tabId": {
+        "description": "The exact tab ID from list_tabs. Preferred over match — use this when you have the ID.",
+        "type": "string",
+      },
+    },
+    "type": "object",
+  },
+  "suggest_delete": {
+    "additionalProperties": false,
+    "properties": {
+      "document": {
+        "description": "Optional. The document to act on: its documentId or path, as list_tabs reports them. It must be open in Prose (open_file opens it). Omit it to act on the active tab. Targeting a document never switches the tab the writer sees.",
+        "maxLength": 4096,
+        "type": "string",
+      },
+      "nodeId": {
+        "description": "The paragraph or heading that holds the text, from read_document.",
+        "type": "string",
+      },
+      "search": {
+        "description": "The exact phrase to propose for deletion, as it appears once in the node’s current text.",
+        "maxLength": 5000,
+        "minLength": 1,
+        "type": "string",
+      },
+    },
+    "required": [
+      "nodeId",
+      "search",
+    ],
+    "type": "object",
+  },
+  "suggest_edit": {
+    "additionalProperties": false,
+    "properties": {
+      "comment": {
+        "description": "Brief rationale for the change, shown in the diff UI. Keep under 20 words.",
+        "type": "string",
+      },
+      "content": {
+        "description": "The suggested new content for the node",
+        "type": "string",
+      },
+      "document": {
+        "description": "Optional. The document to act on: its documentId or path, as list_tabs reports them. It must be open in Prose (open_file opens it). Omit it to act on the active tab. Targeting a document never switches the tab the writer sees.",
+        "maxLength": 4096,
+        "type": "string",
+      },
+      "nodeId": {
+        "description": "The ID of the node to suggest changes for. Get node IDs from read_document.",
+        "type": "string",
+      },
+      "search": {
+        "description": "Original text content of the node (from read_document). Used as fallback to locate the node if nodeId is stale.",
+        "type": "string",
+      },
+    },
+    "required": [
+      "nodeId",
+      "content",
+    ],
+    "type": "object",
+  },
+  "suggest_insert": {
+    "additionalProperties": false,
+    "properties": {
+      "document": {
+        "description": "Optional. The document to act on: its documentId or path, as list_tabs reports them. It must be open in Prose (open_file opens it). Omit it to act on the active tab. Targeting a document never switches the tab the writer sees.",
+        "maxLength": 4096,
+        "type": "string",
+      },
+      "nodeId": {
+        "description": "The paragraph or heading to insert into, from read_document. Give nodeId, search, or both.",
+        "type": "string",
+      },
+      "position": {
+        "description": "Where: before or after the search phrase (default after), or at the start or end of the node (default end when there is no search).",
+        "enum": [
+          "before",
+          "after",
+          "start",
+          "end",
+        ],
+        "type": "string",
+      },
+      "search": {
+        "description": "A phrase of the node’s current text to insert next to (with position before or after). Without nodeId, the one paragraph that contains it.",
+        "type": "string",
+      },
+      "text": {
+        "description": "The text to insert: plain text within the paragraph, no line breaks.",
+        "maxLength": 5000,
+        "minLength": 1,
+        "type": "string",
+      },
+    },
+    "required": [
+      "text",
+    ],
+    "type": "object",
+  },
+}
+`;

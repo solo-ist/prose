@@ -63,7 +63,7 @@
     "@radix-ui/react-switch": "^1.4.1",
     "@radix-ui/react-tabs": "^1.2.1",
     "@radix-ui/react-tooltip": "^1.4.1",
-    "@sentry/electron": "^7.20.1",
+    "@sentry/electron": "^8.4.0",
     "@sentry/vite-plugin": "^5.1.1",
     "@tiptap/extension-code-block-lowlight": "^2.27.3",
     "@tiptap/extension-image": "^2.27.3",

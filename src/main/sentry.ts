@@ -2,6 +2,7 @@ import * as Sentry from '@sentry/electron/main'
 import { IPCMode } from '@sentry/electron/main'
 import { app } from 'electron'
 import { is } from '@electron-toolkit/utils'
+import { SENTRY_DATA_COLLECTION } from '../shared/sentryPrivacy'
 
 let initialized = false
 
@@ -59,6 +60,7 @@ export function initSentry(enabled: boolean): void {
     sampleRate: 0.5,
     maxBreadcrumbs: 30,
     ipcMode,
+    dataCollection: SENTRY_DATA_COLLECTION,
     beforeSend
   })
   initialized = true

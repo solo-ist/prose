@@ -83,7 +83,7 @@
     "@tiptap/react": "^2.27.3",
     "@tiptap/starter-kit": "^2.27.3",
     "@types/js-yaml": "^4.0.9",
-    "ai": "^6.0.277",
+    "ai": "^7.0.183",
     "chokidar": "^5.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

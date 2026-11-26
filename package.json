@@ -43,7 +43,7 @@
     "clean:hard": "npm run clean && rm -rf node_modules && rm -rf \"$HOME/Library/Application Support/prose\" \"$HOME/.prose\""
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.116",
+    "@ai-sdk/anthropic": "^4.0.107",
     "@anthropic-ai/sdk": "^0.39.0",
     "@codemirror/lang-markdown": "^6.5.2",
     "@codemirror/language-data": "^6.5.2",

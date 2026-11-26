@@ -917,6 +917,7 @@ export function FileListPanel() {
       // a follow-up move for the same notebook doesn't pass the now-stale
       // pre-move hash and fail with "not found in root hash".
       const newHash = await window.api.remarkableMoveNotebook(
+        moveTarget.notebookId,
         moveTarget.notebookHash,
         selectedTargetParentId
       )

@@ -1845,12 +1845,16 @@ export function setupIpcHandlers(): void {
   // reMarkable: Move a notebook to a new parent folder on the cloud
   ipcMain.handle(
     'remarkable:moveNotebook',
-    async (_event, notebookHash: string, newParentId: string) => {
+    async (_event, notebookId: string, notebookHash: string, newParentId: string) => {
       // Bound the renderer-supplied identifiers at the IPC boundary. These
       // hit the rmapi-js cloud API and never touch the local filesystem, so
       // the validation is about catching obviously-malformed values fast
       // (with a clear error) rather than path-traversal protection.
       // newParentId may be empty (root). Cap at 128 chars — UUIDs are 36.
+      if (typeof notebookId !== 'string' || !notebookId) {
+        throw new Error('notebookId is required')
+      }
+      if (notebookId.length > 128) throw new Error('notebookId is too long')
       if (typeof notebookHash !== 'string' || !notebookHash) {
         throw new Error('notebookHash is required')
       }
@@ -1864,7 +1868,7 @@ export function setupIpcHandlers(): void {
       // Surface the new hash assigned by the cloud so the caller can persist
       // it via remarkable:updateNotebookParent — without it, a follow-up
       // move would still pass the pre-move hash and fail.
-      return await client.moveNotebook(notebookHash, newParentId)
+      return await client.moveNotebook(notebookId, notebookHash, newParentId)
     }
   )
 

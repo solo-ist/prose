@@ -317,8 +317,8 @@ const api: ElectronAPI = {
     ipcRenderer.invoke('remarkable:clearNotebookMarkdownPath', notebookId, syncDirectory),
   remarkableClearOcrSentinel: (notebookId: string, syncDirectory: string) =>
     ipcRenderer.invoke('remarkable:clearOcrSentinel', notebookId, syncDirectory),
-  remarkableMoveNotebook: (notebookHash: string, newParentId: string) =>
-    ipcRenderer.invoke('remarkable:moveNotebook', notebookHash, newParentId),
+  remarkableMoveNotebook: (notebookId: string, notebookHash: string, newParentId: string) =>
+    ipcRenderer.invoke('remarkable:moveNotebook', notebookId, notebookHash, newParentId),
   remarkableUpdateNotebookParent: (notebookId: string, newParentId: string, syncDirectory: string, newHash?: string) =>
     ipcRenderer.invoke('remarkable:updateNotebookParent', notebookId, newParentId, syncDirectory, newHash),
   remarkableCancelSync: () => ipcRenderer.invoke('remarkable:sync:abort'),

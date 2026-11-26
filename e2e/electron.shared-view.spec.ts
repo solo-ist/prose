@@ -50,8 +50,12 @@ async function dismissMenu(): Promise<void> {
   // A click outside, on the status bar's empty middle: it is always rendered,
   // where the editor element is not while a blank launch tab shows the home
   // screen (#1188), and unlike Escape it has no other effect on the window.
-  await page.locator('[data-testid="status-bar"]').click({ position: { x: 400, y: 10 }, force: true })
-  await expect(page.getByRole('menu')).toHaveCount(0)
+  // Clicked again until the menu is gone: the menu starts listening for outside
+  // presses a tick after it opens, and a click that lands before that is lost.
+  await expect(async () => {
+    await page.locator('[data-testid="status-bar"]').click({ position: { x: 400, y: 10 }, force: true })
+    await expect(page.getByRole('menu')).toHaveCount(0, { timeout: 500 })
+  }).toPass({ timeout: 10_000 })
 }
 
 test.describe.configure({ mode: 'serial' })

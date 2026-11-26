@@ -136,17 +136,33 @@ export async function launchApp(
 }
 
 /**
- * Close an open Radix Select with Escape, leaving the dialog behind it open.
+ * Close an open Radix Select without changing its value, leaving the dialog
+ * behind it open: a pointer press on the dialog, outside the list.
  *
- * Escape goes to the topmost dismissable layer. The Select only becomes that
- * layer once its listbox holds focus, a moment after its options are in the
- * DOM. An Escape pressed in that gap reaches the dialog underneath and closes
- * it (seen with @radix-ui/react-select 2.4 and react-dialog 1.3; no person
- * presses a key that fast). So: wait for focus to be in the listbox, press,
- * then wait for the listbox to go.
+ * Not Escape. The Select and the dialog each listen for Escape on the
+ * document, and only the topmost layer may answer. When the Select answers
+ * first and closes, the dialog can find itself topmost before the same key
+ * press reaches its own listener, and closes too (seen in CI with
+ * @radix-ui/react-select 2.4 and react-dialog 1.3, even after waiting for
+ * focus to reach the listbox). A press inside the dialog is outside the
+ * Select and inside the dialog whichever listener runs first.
+ *
+ * The press is dispatched, not clicked: while a Select is open Radix turns
+ * pointer events off for everything beneath it, so a real click would land on
+ * the page behind and count as outside the dialog as well.
  */
 export async function closeSelect(page: Page): Promise<void> {
-  await page.waitForFunction(() => !!document.activeElement?.closest('[role="listbox"]'))
-  await page.keyboard.press('Escape')
-  await page.waitForFunction(() => !document.querySelector('[role="listbox"]'))
+  await page.locator('[role="listbox"]').waitFor()
+  // Pressed again until the list is gone: the Select starts listening for
+  // outside presses a tick after it opens, and a press before that is lost.
+  await page.waitForFunction(
+    () => {
+      if (!document.querySelector('[role="listbox"]')) return true
+      const beneath = document.querySelector('[role="dialog"]') ?? document.body
+      beneath.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerType: 'mouse' }))
+      return false
+    },
+    undefined,
+    { polling: 100 },
+  )
 }
